@@ -24,7 +24,7 @@ import UIWindowPhoneVerificationRequired from './UIWindowPhoneVerificationRequir
 import UIWindowCardVerificationRequired from './UIWindowCardVerificationRequired.js';
 import UIWindowLogin from './UIWindowLogin.js';
 
-function UIWindowSignup (options) {
+function UIWindowSignup(options) {
     options = options ?? {};
     options.reload_on_success = options.reload_on_success ?? true;
     options.has_head = options.has_head ?? true;
@@ -34,15 +34,16 @@ function UIWindowSignup (options) {
     return new Promise(async (resolve) => {
         const internal_id = window.uuidv4();
 
-        const logo_clickable = !!options.window_options?.cover_page && !window.embedded_in_popup;
+        const logo_clickable =
+            !!options.window_options?.cover_page && !window.embedded_in_popup;
 
         let h = '';
-        h += '<div style="margin: 0 auto; max-width: 500px; min-width: 400px;">';
+        h +=
+            '<div style="margin: 0 auto; max-width: 500px; min-width: 400px;">';
         // logo
         h += `<img src="${window.icons['logo-white.svg']}" class="auth-logo" style="width: 40px; height: 40px; margin: 0 auto; display: block; padding: 10px; background-color: blue; border-radius: 5px;${logo_clickable ? ' cursor: pointer;' : ''}">`;
         // close button
-        if ( !options.has_head && options.show_close_button !== false )
-        {
+        if (!options.has_head && options.show_close_button !== false) {
             h += '<div class="generic-close-window-button"> &times; </div>';
         }
 
@@ -66,7 +67,8 @@ function UIWindowSignup (options) {
         h += `<input id="email-${internal_id}" value="${html_encode(options.email ?? '')}" class="email" type="email" autocomplete="email" spellcheck="false" autocorrect="off" autocapitalize="off" data-gramm_editor="false"/>`;
         h += '</div>';
         // password
-        h += '<div style="overflow: hidden; margin-top: 10px; position: relative;">';
+        h +=
+            '<div style="overflow: hidden; margin-top: 10px; position: relative;">';
         h += `<label for="password-${internal_id}">${i18n('password')}</label>`;
         h += `<input id="password-${internal_id}" class="password" type="${options.show_password ? 'text' : 'password'}" name="password" autocomplete="new-password" />`;
         // show/hide icon
@@ -75,7 +77,8 @@ function UIWindowSignup (options) {
                               </span>`;
         h += '</div>';
         // confirm password
-        h += '<div style="overflow: hidden; margin-top: 10px; margin-bottom: 10px; position: relative">';
+        h +=
+            '<div style="overflow: hidden; margin-top: 10px; margin-bottom: 10px; position: relative">';
         h += `<label for="confirm-password-${internal_id}">${i18n('signup_confirm_password')}</label>`;
         h += `<input id="confirm-password-${internal_id}" class="confirm-password" type="${options.show_password ? 'text' : 'password'}" name="confirm-password" autocomplete="new-password" />`;
         // show/hide icon
@@ -84,11 +87,13 @@ function UIWindowSignup (options) {
                               </span>`;
         h += '</div>';
         // bot trap - if this value is submitted server will ignore the request
-        h += '<input type="text" name="p102xyzname" class="p102xyzname" value="">';
+        h +=
+            '<input type="text" name="p102xyzname" class="p102xyzname" value="">';
 
         // Turnstile widget (only when enabled)
-        if ( window.gui_params?.turnstileSiteKey ) {
-            h += '<div style="min-height: 20px; display: flex; justify-content: center;">';
+        if (window.gui_params?.turnstileSiteKey) {
+            h +=
+                '<div style="min-height: 20px; display: flex; justify-content: center;">';
             // appearance: always/execute/interaction-only
             // docs: https://developers.cloudflare.com/turnstile/get-started/client-side-rendering/widget-configurations/?utm_source=chatgpt.com#appearance-modes
             h += `<div class="cf-turnstile" data-sitekey="${window.gui_params.turnstileSiteKey}" data-appearance="interaction-only"></div>`;
@@ -98,7 +103,8 @@ function UIWindowSignup (options) {
         // Create Account
         h += `<button class="signup-btn button button-primary button-block button-normal">${i18n('create_free_account')}</button>`;
         h += '</form>';
-        h += '<div class="oidc-providers-wrapper" style="display:none; padding: 10px 0;">';
+        h +=
+            '<div class="oidc-providers-wrapper" style="display:none; padding: 10px 0;">';
         h += `<button type="button" class="oidc-google-btn button button-block button-normal" style="display:none; align-items:center; justify-content:center; gap:8px;"><img style="width: 20px; height: 20px;" src="data:image/webp;base64,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" />${i18n('sign_up_with_google')}</button>`;
         h += `<button type="button" class="oidc-microsoft-btn button button-block button-normal" style="display:none; align-items:center; justify-content:center; gap:8px; margin-top:8px;"><svg style="width:20px; height:20px;" viewBox="0 0 23 23" fill="none"><rect x="1" y="1" width="10" height="10" fill="#f25022"/><rect x="12" y="1" width="10" height="10" fill="#7fba00"/><rect x="1" y="12" width="10" height="10" fill="#00a4ef"/><rect x="12" y="12" width="10" height="10" fill="#ffb900"/></svg>${i18n('sign_up_with_microsoft')}</button>`;
         h += `<button type="button" class="oidc-apple-btn button button-block button-normal" style="display:none; align-items:center; justify-content:center; gap:8px; margin-top:8px;"><svg style="width:20px; height:20px;" viewBox="0 0 384 512" fill="currentColor"><path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z"/></svg>${i18n('sign_up_with_apple')}</button>`;
@@ -139,38 +145,63 @@ function UIWindowSignup (options) {
             dominant: true,
             center: true,
             onAppend: function (el_window) {
-                if ( options.authError ) {
-                    $(el_window).find('.signup-error-msg').html(html_encode(options.authError)).fadeIn();
+                if (options.authError) {
+                    $(el_window)
+                        .find('.signup-error-msg')
+                        .html(html_encode(options.authError))
+                        .fadeIn();
                 }
-                if ( ! window.disable_signup_autofocus )
-                {
-                    $(el_window).find('.username').get(0).focus({ preventScroll: true });
+                if (!window.disable_signup_autofocus) {
+                    $(el_window)
+                        .find('.username')
+                        .get(0)
+                        .focus({ preventScroll: true });
                 }
-                if ( logo_clickable ) {
-                    $(el_window).find('.auth-logo').on('click', function () {
-                        // keep desktop users on the desktop; everyone else goes to the root dashboard
-                        window.location.href = window.location.pathname === '/desktop' ? '/desktop' : '/';
-                    });
+                if (logo_clickable) {
+                    $(el_window)
+                        .find('.auth-logo')
+                        .on('click', function () {
+                            // keep desktop users on the desktop; everyone else goes to the root dashboard
+                            window.location.href =
+                                window.location.pathname === '/desktop'
+                                    ? '/desktop'
+                                    : '/';
+                        });
                 }
 
                 // Initialize Turnstile widget with callback to capture token
                 const initTurnstile = () => {
-                    if ( window.turnstile && window.gui_params?.turnstileSiteKey ) {
+                    if (
+                        window.turnstile &&
+                        window.gui_params?.turnstileSiteKey
+                    ) {
                         window.turnstile.render('.cf-turnstile', {
                             sitekey: window.gui_params.turnstileSiteKey,
                             callback: function (token) {
                                 // Store the token for the signup request
-                                $(el_window).find('.cf-turnstile').attr('data-token', token);
+                                $(el_window)
+                                    .find('.cf-turnstile')
+                                    .attr('data-token', token);
                                 // Enable the signup button once CAPTCHA is completed
-                                $(el_window).find('.signup-btn').prop('disabled', false);
+                                $(el_window)
+                                    .find('.signup-btn')
+                                    .prop('disabled', false);
                                 // Add visual feedback
-                                $(el_window).find('.cf-turnstile').addClass('captcha-completed');
+                                $(el_window)
+                                    .find('.cf-turnstile')
+                                    .addClass('captcha-completed');
                             },
                             'expired-callback': function () {
                                 // Reset when token expires
-                                $(el_window).find('.cf-turnstile').removeAttr('data-token');
-                                $(el_window).find('.cf-turnstile').removeClass('captcha-completed');
-                                $(el_window).find('.signup-btn').prop('disabled', true);
+                                $(el_window)
+                                    .find('.cf-turnstile')
+                                    .removeAttr('data-token');
+                                $(el_window)
+                                    .find('.cf-turnstile')
+                                    .removeClass('captcha-completed');
+                                $(el_window)
+                                    .find('.signup-btn')
+                                    .prop('disabled', true);
                             },
                         });
                     } else {
@@ -183,53 +214,83 @@ function UIWindowSignup (options) {
 
                 (async () => {
                     try {
-                        const res = await fetch(`${window.api_origin}/auth/oidc/providers`);
-                        if ( ! res.ok ) return;
+                        const res = await fetch(
+                            `${window.api_origin}/auth/oidc/providers`,
+                        );
+                        if (!res.ok) return;
                         const data = await res.json();
-                        if ( ! data.providers ) return;
+                        if (!data.providers) return;
 
                         const wireOidcBtn = (provider, btnClass) => {
                             $(el_window).find(btnClass).css('display', 'flex');
-                            $(el_window).find(btnClass).on('click', function () {
-                                let url = `${window.gui_origin}/auth/oidc/${provider}/start?flow=signup`;
-                                // return to the interface the signup started from (backend whitelists the path)
-                                const return_to = window.location.pathname;
-                                if ( return_to === '/desktop' || return_to === '/dashboard' ) {
-                                    url += `&return_to=${encodeURIComponent(return_to)}`;
-                                }
-                                const referrer = options.referrer ?? window.referrerStr;
-                                if ( referrer ) {
-                                    url += `&referrer=${encodeURIComponent(referrer)}`;
-                                }
-                                if ( window.embedded_in_popup && window.url_query_params?.get('msg_id') ) {
-                                    url += `&embedded_in_popup=true&msg_id=${encodeURIComponent(window.url_query_params.get('msg_id'))}`;
-                                    if ( window.openerOrigin ) {
-                                        url += `&opener_origin=${encodeURIComponent(window.openerOrigin)}`;
+                            $(el_window)
+                                .find(btnClass)
+                                .on('click', function () {
+                                    let url = `${window.gui_origin}/auth/oidc/${provider}/start?flow=signup`;
+                                    // return to the interface the signup started from (backend whitelists the path)
+                                    const return_to = window.location.pathname;
+                                    if (
+                                        return_to === '/desktop' ||
+                                        return_to === '/dashboard'
+                                    ) {
+                                        url += `&return_to=${encodeURIComponent(return_to)}`;
                                     }
-                                }
-                                window.location.href = url;
-                            });
+                                    const referrer =
+                                        options.referrer ?? window.referrerStr;
+                                    if (referrer) {
+                                        url += `&referrer=${encodeURIComponent(referrer)}`;
+                                    }
+                                    if (
+                                        window.embedded_in_popup &&
+                                        window.url_query_params?.get('msg_id')
+                                    ) {
+                                        url += `&embedded_in_popup=true&msg_id=${encodeURIComponent(window.url_query_params.get('msg_id'))}`;
+                                        if (window.openerOrigin) {
+                                            url += `&opener_origin=${encodeURIComponent(window.openerOrigin)}`;
+                                        }
+                                    }
+                                    window.location.href = url;
+                                });
                         };
 
                         let hasProvider = false;
-                        if ( data.providers.includes('google') ) { hasProvider = true; wireOidcBtn('google', '.oidc-google-btn'); }
-                        if ( data.providers.includes('apple') ) { hasProvider = true; wireOidcBtn('apple', '.oidc-apple-btn'); }
-                        if ( data.providers.includes('microsoft') ) { hasProvider = true; wireOidcBtn('microsoft', '.oidc-microsoft-btn'); }
-                        if ( hasProvider ) {
+                        if (data.providers.includes('google')) {
+                            hasProvider = true;
+                            wireOidcBtn('google', '.oidc-google-btn');
+                        }
+                        if (data.providers.includes('apple')) {
+                            hasProvider = true;
+                            wireOidcBtn('apple', '.oidc-apple-btn');
+                        }
+                        if (data.providers.includes('microsoft')) {
+                            hasProvider = true;
+                            wireOidcBtn('microsoft', '.oidc-microsoft-btn');
+                        }
+                        if (hasProvider) {
                             $(el_window).find('.oidc-providers-wrapper').show();
                             // Hide the signup form and show the "Sign up with email" button
                             $(el_window).find('.signup-form').hide();
                             $(el_window).find('.signup-form-title').hide();
-                            $(el_window).find('.signup-with-email-wrapper').show();
-                            $(el_window).find('.signup-with-email-btn').on('click', function () {
-                                $(el_window).find('.signup-form').show();
-                                $(el_window).find('.signup-form-title').show();
-                                $(el_window).find('.signup-with-email-wrapper').hide();
-                                $(el_window).find('.username').get(0)?.focus({ preventScroll: true });
-                            });
+                            $(el_window)
+                                .find('.signup-with-email-wrapper')
+                                .show();
+                            $(el_window)
+                                .find('.signup-with-email-btn')
+                                .on('click', function () {
+                                    $(el_window).find('.signup-form').show();
+                                    $(el_window)
+                                        .find('.signup-form-title')
+                                        .show();
+                                    $(el_window)
+                                        .find('.signup-with-email-wrapper')
+                                        .hide();
+                                    $(el_window)
+                                        .find('.username')
+                                        .get(0)
+                                        ?.focus({ preventScroll: true });
+                                });
                         }
-                    } catch (_) {
-                    }
+                    } catch (_) {}
                 })();
             },
             window_class: 'window-signup',
@@ -240,7 +301,7 @@ function UIWindowSignup (options) {
                 width: 'initial',
                 'background-color': 'white',
                 'backdrop-filter': 'blur(3px)',
-                'display': 'flex',
+                display: 'flex',
                 'flex-direction': 'column',
                 'justify-content': 'center',
                 'align-items': 'center',
@@ -260,278 +321,342 @@ function UIWindowSignup (options) {
             `,
         });
 
-        $(el_window).find('.login-c2a-clickable').on('click', async function (e) {
-            $('.login-c2a-clickable').parents('.window').close();
-            const login = await UIWindowLogin({
-                referrer: options.referrer,
-                reload_on_success: options.reload_on_success,
-                redirect_url: options.redirect_url,
-                window_options: options.window_options,
-                show_close_button: options.show_close_button,
-                send_confirmation_code: options.send_confirmation_code,
-                show_password: false,
+        $(el_window)
+            .find('.login-c2a-clickable')
+            .on('click', async function (e) {
+                $('.login-c2a-clickable').parents('.window').close();
+                const login = await UIWindowLogin({
+                    referrer: options.referrer,
+                    reload_on_success: options.reload_on_success,
+                    redirect_url: options.redirect_url,
+                    window_options: options.window_options,
+                    show_close_button: options.show_close_button,
+                    send_confirmation_code: options.send_confirmation_code,
+                    show_password: false,
+                });
+                if (login) {
+                    resolve(true);
+                }
             });
-            if ( login )
-            {
-                resolve(true);
-            }
-        });
 
-        $(el_window).find('.signup-btn').on('click', async function (e) {
-            // Clear previous error states
-            $(el_window).find('.signup-error-msg').hide();
+        $(el_window)
+            .find('.signup-btn')
+            .on('click', async function (e) {
+                // Clear previous error states
+                $(el_window).find('.signup-error-msg').hide();
 
-            //Username
-            let username = $(el_window).find('.username').val();
+                //Username
+                let username = $(el_window).find('.username').val();
 
-            if ( ! username ) {
-                $(el_window).find('.signup-error-msg').html(i18n('username_required'));
-                $(el_window).find('.signup-error-msg').fadeIn();
-                return;
-            }
-
-            //Email
-            let email = $(el_window).find('.email').val();
-
-            // must have an email
-            if ( ! email ) {
-                $(el_window).find('.signup-error-msg').html(i18n('email_required'));
-                $(el_window).find('.signup-error-msg').fadeIn();
-                return;
-            }
-            // must be a valid email
-            else if ( ! window.is_email(email) ) {
-                $(el_window).find('.signup-error-msg').html(i18n('email_invalid'));
-                $(el_window).find('.signup-error-msg').fadeIn();
-                return;
-            }
-
-            //Password
-            let password = $(el_window).find('.password').val();
-
-            // must have a password
-            if ( ! password ) {
-                $(el_window).find('.signup-error-msg').html(i18n('password_required'));
-                $(el_window).find('.signup-error-msg').fadeIn();
-                return;
-            }
-            // check password strength
-            const pass_strength = check_password_strength(password);
-            if ( ! pass_strength.overallPass ) {
-                $(el_window).find('.signup-error-msg').html(i18n('password_strength_error'));
-                $(el_window).find('.signup-error-msg').fadeIn();
-                return;
-            }
-            // get confirm password value
-            const confirmPassword = $(el_window).find('.confirm-password').val();
-            if ( ! confirmPassword ) {
-                $(el_window).find('.signup-error-msg').html(i18n('confirm_password_required'));
-                $(el_window).find('.signup-error-msg').fadeIn();
-                return;
-            }
-            // check if passwords match
-            if ( password !== confirmPassword ) {
-                $(el_window).find('.signup-error-msg').html(i18n('passwords_do_not_match'));
-                $(el_window).find('.signup-error-msg').fadeIn();
-                return;
-            }
-
-            // Check if Cloudflare Turnstile CAPTCHA was completed
-            let turnstileToken = null;
-            if ( window.turnstile && window.gui_params?.turnstileSiteKey ) {
-                turnstileToken = $(el_window).find('.cf-turnstile').attr('data-token');
-                if ( ! turnstileToken ) {
-                    $(el_window).find('.signup-error-msg').html(i18n('captcha_required') || 'Please complete the CAPTCHA verification');
+                if (!username) {
+                    $(el_window)
+                        .find('.signup-error-msg')
+                        .html(i18n('username_required'));
                     $(el_window).find('.signup-error-msg').fadeIn();
                     return;
                 }
-            }
 
-            //xyzname
-            let p102xyzname = $(el_window).find('.p102xyzname').val();
+                //Email
+                let email = $(el_window).find('.email').val();
 
-            // disable 'Create Account' button
-            $(el_window).find('.signup-btn').prop('disabled', true);
+                // must have an email
+                if (!email) {
+                    $(el_window)
+                        .find('.signup-error-msg')
+                        .html(i18n('email_required'));
+                    $(el_window).find('.signup-error-msg').fadeIn();
+                    return;
+                }
+                // must be a valid email
+                else if (!window.is_email(email)) {
+                    $(el_window)
+                        .find('.signup-error-msg')
+                        .html(i18n('email_invalid'));
+                    $(el_window).find('.signup-error-msg').fadeIn();
+                    return;
+                }
 
-            let headers = {};
-            if ( window.custom_headers )
-            {
-                headers = window.custom_headers;
-            }
+                //Password
+                let password = $(el_window).find('.password').val();
 
-            // Device signal for abuse prevention; omitted when unavailable
-            let fingerprint = null;
-            try {
-                fingerprint = await window.getDeviceFingerprint?.();
-            } catch (_) {
-                // signup must never block or fail because of device signals
-            }
+                // must have a password
+                if (!password) {
+                    $(el_window)
+                        .find('.signup-error-msg')
+                        .html(i18n('password_required'));
+                    $(el_window).find('.signup-error-msg').fadeIn();
+                    return;
+                }
+                // check password strength
+                const pass_strength = check_password_strength(password);
+                if (!pass_strength.overallPass) {
+                    $(el_window)
+                        .find('.signup-error-msg')
+                        .html(i18n('password_strength_error'));
+                    $(el_window).find('.signup-error-msg').fadeIn();
+                    return;
+                }
+                // get confirm password value
+                const confirmPassword = $(el_window)
+                    .find('.confirm-password')
+                    .val();
+                if (!confirmPassword) {
+                    $(el_window)
+                        .find('.signup-error-msg')
+                        .html(i18n('confirm_password_required'));
+                    $(el_window).find('.signup-error-msg').fadeIn();
+                    return;
+                }
+                // check if passwords match
+                if (password !== confirmPassword) {
+                    $(el_window)
+                        .find('.signup-error-msg')
+                        .html(i18n('passwords_do_not_match'));
+                    $(el_window).find('.signup-error-msg').fadeIn();
+                    return;
+                }
 
-            // Include captcha in request only if required
-            const requestData = {
-                username: username,
-                email: email,
-                password: password,
-                referrer: options.referrer ?? window.referrerStr,
-                send_confirmation_code: options.send_confirmation_code,
-                p102xyzname: p102xyzname,
-                'cf-turnstile-response': turnstileToken,
-            };
-            if ( fingerprint ) {
-                requestData.fingerprint = fingerprint;
-            }
+                // Check if Cloudflare Turnstile CAPTCHA was completed
+                let turnstileToken = null;
+                if (window.turnstile && window.gui_params?.turnstileSiteKey) {
+                    turnstileToken = $(el_window)
+                        .find('.cf-turnstile')
+                        .attr('data-token');
+                    if (!turnstileToken) {
+                        $(el_window)
+                            .find('.signup-error-msg')
+                            .html(
+                                i18n('captcha_required') ||
+                                    'Please complete the CAPTCHA verification',
+                            );
+                        $(el_window).find('.signup-error-msg').fadeIn();
+                        return;
+                    }
+                }
 
-            $.ajax({
-                url: `${window.gui_origin }/signup`,
-                type: 'POST',
-                async: true,
-                headers: headers,
-                contentType: 'application/json',
-                data: JSON.stringify(requestData),
-                success: async function (data) {
-                    await window.update_auth_data(data.token, data.user);
+                //xyzname
+                let p102xyzname = $(el_window).find('.p102xyzname').val();
 
-                    // The phone (SMS) and card gates run before any reload:
-                    // reloading first would tear down the signup flow mid-way
-                    // and leave the dialogs to the boot-time whoami check,
-                    // which not every entry point reliably reaches. The email
-                    // dialog is closable (no retry loop), so in reload flows
-                    // it keeps its old post-reload timing — the boot check
-                    // shows the uncloseable variant — rather than risk a
-                    // dismissed dialog stranding the page before the reload.
-                    let email_verified = true;
-                    const show_email_dialog = !options.reload_on_success &&
-                        (options.send_confirmation_code || data.user?.requires_email_confirmation);
-                    if ( data.user?.requires_phone_verification || data.user?.requires_card_verification || show_email_dialog ) {
-                        $(el_window).close();
-                        // Low-reputation signups must clear every flagged gate.
-                        // Phone (SMS) and email come first; the card gate only
-                        // shows once those are cleared.
-                        if ( data.user?.requires_phone_verification ) {
-                            let phone_ok = false;
-                            do {
-                                phone_ok = await UIWindowPhoneVerificationRequired({
-                                    show_close_button: false,
-                                    stay_on_top: true,
-                                    has_head: true,
-                                    window_options: options.window_options ?? {},
-                                });
+                // disable 'Create Account' button
+                $(el_window).find('.signup-btn').prop('disabled', true);
+
+                let headers = {};
+                if (window.custom_headers) {
+                    headers = window.custom_headers;
+                }
+
+                // Device signal for abuse prevention; omitted when unavailable
+                let fingerprint = null;
+                try {
+                    fingerprint = await window.getDeviceFingerprint?.();
+                } catch (_) {
+                    // signup must never block or fail because of device signals
+                }
+
+                // Include captcha in request only if required
+                const requestData = {
+                    username: username,
+                    email: email,
+                    password: password,
+                    referrer: options.referrer ?? window.referrerStr,
+                    send_confirmation_code: options.send_confirmation_code,
+                    p102xyzname: p102xyzname,
+                    'cf-turnstile-response': turnstileToken,
+                };
+                if (fingerprint) {
+                    requestData.fingerprint = fingerprint;
+                }
+
+                $.ajax({
+                    url: `${window.gui_origin}/signup`,
+                    type: 'POST',
+                    async: true,
+                    headers: headers,
+                    contentType: 'application/json',
+                    data: JSON.stringify(requestData),
+                    success: async function (data) {
+                        await window.update_auth_data(data.token, data.user);
+
+                        let email_verified = true;
+                        const show_email_dialog =
+                            !options.reload_on_success &&
+                            (options.send_confirmation_code ||
+                                data.user?.requires_email_confirmation);
+                        if (
+                            data.user?.requires_phone_verification ||
+                            data.user?.requires_card_verification ||
+                            show_email_dialog
+                        ) {
+                            $(el_window).close();
+                            if (data.user?.requires_phone_verification) {
+                                let phone_ok = false;
+                                do {
+                                    phone_ok =
+                                        await UIWindowPhoneVerificationRequired(
+                                            {
+                                                show_close_button: false,
+                                                stay_on_top: true,
+                                                has_head: true,
+                                                window_options:
+                                                    options.window_options ??
+                                                    {},
+                                            },
+                                        );
+                                } while (!phone_ok);
                             }
-                            while ( !phone_ok );
-                        }
-                        if ( show_email_dialog ) {
-                            email_verified = await UIWindowEmailConfirmationRequired({
-                                stay_on_top: true,
-                                has_head: true,
-                                reload_on_success: options.reload_on_success,
-                                window_options: options.window_options ?? {},
-                            });
-                        }
-                        // Card verification is the last gate.
-                        if ( data.user?.requires_card_verification ) {
-                            let card_ok = false;
-                            do {
-                                card_ok = await UIWindowCardVerificationRequired({
-                                    show_close_button: false,
-                                    stay_on_top: true,
-                                    has_head: true,
-                                    window_options: options.window_options ?? {},
-                                });
+                            if (show_email_dialog) {
+                                email_verified =
+                                    await UIWindowEmailConfirmationRequired({
+                                        stay_on_top: true,
+                                        has_head: true,
+                                        reload_on_success:
+                                            options.reload_on_success,
+                                        window_options:
+                                            options.window_options ?? {},
+                                    });
                             }
-                            while ( !card_ok );
+                            // Card verification is the last gate.
+                            if (data.user?.requires_card_verification) {
+                                let card_ok = false;
+                                do {
+                                    card_ok =
+                                        await UIWindowCardVerificationRequired({
+                                            show_close_button: false,
+                                            stay_on_top: true,
+                                            has_head: true,
+                                            window_options:
+                                                options.window_options ?? {},
+                                        });
+                                } while (!card_ok);
+                            }
                         }
-                    }
 
-                    if ( options.reload_on_success ) {
-                        window.onbeforeunload = null;
-                        // either options.redirect_url or the current page
-                        const redirectUrl = options.redirect_url || '/';
-                        window.location.replace(redirectUrl);
-                    } else {
-                        resolve(email_verified);
-                    }
-                },
-                error: function (err) {
-                    // re-enable 'Create Account' button so user can try again
-                    $(el_window).find('.signup-btn').prop('disabled', false);
-
-                    // Reset Turnstile widget for retry
-                    try {
-                        if ( window.turnstile ) {
-                            window.turnstile?.reset('.cf-turnstile');
-                            $(el_window).find('.cf-turnstile').removeAttr('data-token');
-                            $(el_window).find('.cf-turnstile').removeClass('captcha-completed');
+                        if (options.reload_on_success) {
+                            window.onbeforeunload = null;
+                            // either options.redirect_url or the current page
+                            const redirectUrl = options.redirect_url || '/';
+                            window.location.replace(redirectUrl);
+                        } else {
+                            resolve(email_verified);
                         }
-                    } catch (e) {
-                        console.log(e);
-                    }
+                    },
+                    error: function (err) {
+                        // re-enable 'Create Account' button so user can try again
+                        $(el_window)
+                            .find('.signup-btn')
+                            .prop('disabled', false);
 
-                    // Process error response
-                    const errorText = err.responseText || '';
+                        // Reset Turnstile widget for retry
+                        try {
+                            if (window.turnstile) {
+                                window.turnstile?.reset('.cf-turnstile');
+                                $(el_window)
+                                    .find('.cf-turnstile')
+                                    .removeAttr('data-token');
+                                $(el_window)
+                                    .find('.cf-turnstile')
+                                    .removeClass('captcha-completed');
+                            }
+                        } catch (e) {
+                            console.log(e);
+                        }
 
-                    // Handle JSON error response
-                    try {
-                        // Try to parse error as JSON
-                        const errorJson = JSON.parse(errorText);
+                        // Process error response
+                        const errorText = err.responseText || '';
 
-                        // Handle signup blocked with full-screen overlay
-                        if ( errorJson?.code === 'signup_blocked' ) {
-                            const overlay = document.createElement('div');
-                            overlay.classList.add('signup-blocked-overlay');
-                            const blockedMsg = errorJson.message || 'Signup Not Allowed';
-                            overlay.innerHTML = `
+                        // Handle JSON error response
+                        try {
+                            // Try to parse error as JSON
+                            const errorJson = JSON.parse(errorText);
+
+                            // Handle signup blocked with full-screen overlay
+                            if (errorJson?.code === 'signup_blocked') {
+                                const overlay = document.createElement('div');
+                                overlay.classList.add('signup-blocked-overlay');
+                                const blockedMsg =
+                                    errorJson.message || 'Signup Not Allowed';
+                                overlay.innerHTML = `
                                 <div class="signup-blocked-content">
                                     <img src="${window.icons['logo.svg'] || window.icons['logo-white.svg'] || ''}" style="width:64px;margin-bottom:24px;" />
                                     <p>${html_encode(blockedMsg)}</p>
                                     <p>If you already have an account, try <a href="/action/login">logging in</a>. Otherwise, contact <a href="mailto:support@puter.com">support@puter.com</a> for assistance.</p>
                                 </div>
                             `;
-                            document.body.appendChild(overlay);
-                            return;
+                                document.body.appendChild(overlay);
+                                return;
+                            }
+
+                            // Handle timeout specifically
+                            if (
+                                errorJson?.code === 'response_timeout' ||
+                                errorText.includes('timeout')
+                            ) {
+                                $(el_window)
+                                    .find('.signup-error-msg')
+                                    .html(
+                                        i18n('server_timeout') ||
+                                            'The server took too long to respond. Please try again.',
+                                    );
+                                $(el_window).find('.signup-error-msg').fadeIn();
+                                return;
+                            }
+
+                            // If it's a message in the JSON, use that
+                            if (errorJson.message) {
+                                $(el_window)
+                                    .find('.signup-error-msg')
+                                    .html(errorJson.message);
+                                $(el_window).find('.signup-error-msg').fadeIn();
+                                return;
+                            }
+                        } catch (e) {
+                            console.log(e);
+                            // Not JSON, continue with text analysis
                         }
 
-                        // Handle timeout specifically
-                        if ( errorJson?.code === 'response_timeout' || errorText.includes('timeout') ) {
-                            $(el_window).find('.signup-error-msg').html(i18n('server_timeout') || 'The server took too long to respond. Please try again.');
-                            $(el_window).find('.signup-error-msg').fadeIn();
-                            return;
-                        }
-
-                        // If it's a message in the JSON, use that
-                        if ( errorJson.message ) {
-                            $(el_window).find('.signup-error-msg').html(errorJson.message);
-                            $(el_window).find('.signup-error-msg').fadeIn();
-                            return;
-                        }
-                    } catch (e) {
-                        console.log(e);
-                        // Not JSON, continue with text analysis
-                    }
-
-                    // Default general error handling
-                    $(el_window).find('.signup-error-msg').html(errorText || i18n('signup_error') || 'An error occurred during signup. Please try again.');
-                    $(el_window).find('.signup-error-msg').fadeIn();
-                },
-                timeout: 30000, // Add a reasonable timeout
+                        // Default general error handling
+                        $(el_window)
+                            .find('.signup-error-msg')
+                            .html(
+                                errorText ||
+                                    i18n('signup_error') ||
+                                    'An error occurred during signup. Please try again.',
+                            );
+                        $(el_window).find('.signup-error-msg').fadeIn();
+                    },
+                    timeout: 30000, // Add a reasonable timeout
+                });
             });
-        });
 
-        $(el_window).find('.signup-form').on('submit', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            return false;
-        });
+        $(el_window)
+            .find('.signup-form')
+            .on('submit', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            });
 
-        $(el_window).find(`#toggle-show-password-${internal_id}, #toggle-show-password-${internal_id}-confirm`).on('click', function (e) {
-            // hide/show password/confirm password and update icon
-            let inputField = $(this).siblings('input');
-            let isPasswordVisible = inputField.attr('type') === 'text';
-            inputField.attr('type', isPasswordVisible ? 'password' : 'text');
-            $(this).find('.toggle-show-password-icon').attr(
-                'src',
-                isPasswordVisible ? window.icons['eye-open.svg'] : window.icons['eye-closed.svg'],
-            );
-        });
+        $(el_window)
+            .find(
+                `#toggle-show-password-${internal_id}, #toggle-show-password-${internal_id}-confirm`,
+            )
+            .on('click', function (e) {
+                // hide/show password/confirm password and update icon
+                let inputField = $(this).siblings('input');
+                let isPasswordVisible = inputField.attr('type') === 'text';
+                inputField.attr(
+                    'type',
+                    isPasswordVisible ? 'password' : 'text',
+                );
+                $(this)
+                    .find('.toggle-show-password-icon')
+                    .attr(
+                        'src',
+                        isPasswordVisible
+                            ? window.icons['eye-open.svg']
+                            : window.icons['eye-closed.svg'],
+                    );
+            });
 
         //remove login window
         $('.signup-c2a-clickable').parents('.window').close();
