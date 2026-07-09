@@ -873,6 +873,58 @@ window.initgui = async function (options) {
     });
 
     // -------------------------------------------------------------------------------------
+    // Safety net for pending-verification 403s. The backend rejects every
+    // authenticated call while a signup-time verification (SMS phone, email,
+    // card) is pending, but the dialogs are normally only opened at boot or
+    // right after signup. Any session that misses them — temp-user creation,
+    // save-account, a flag set after this page loaded — lands here, so the
+    // user gets the right dialog instead of a desktop where every request
+    // silently fails.
+    // -------------------------------------------------------------------------------------
+    const verification_gate_windows = {
+        phone_verification_required: UIWindowPhoneVerificationRequired,
+        email_confirmation_required: UIWindowEmailConfirmationRequired,
+        card_verification_required: UIWindowCardVerificationRequired,
+    };
+    let verification_gate_open = false;
+    $(document).ajaxError(async function (event, jqxhr) {
+        if ( jqxhr?.status !== 403 || verification_gate_open ) {
+            return;
+        }
+        let body = jqxhr.responseJSON;
+        if ( ! body && jqxhr.responseText ) {
+            try { body = JSON.parse(jqxhr.responseText); } catch (e) { body = null; }
+        }
+        const UIWindowVerificationGate = verification_gate_windows[body?.code];
+        if ( ! UIWindowVerificationGate ) {
+            return;
+        }
+        verification_gate_open = true;
+        try {
+            // Shown once, not in a retry loop: if the gate is somehow
+            // dismissed while still pending, the next rejected call lands
+            // here again and re-opens it. Looping here could stack a second
+            // dialog on top of the boot-time or signup-flow gate.
+            const is_verified = await UIWindowVerificationGate({
+                show_close_button: false,
+                stay_on_top: true,
+                has_head: false,
+                logout_in_footer: true,
+                window_options: {
+                    is_draggable: false,
+                },
+            });
+            if ( is_verified ) {
+                await window.refresh_user_data(window.auth_token);
+            }
+        } catch (e) {
+            console.error('verification gate dialog failed:', e);
+        } finally {
+            verification_gate_open = false;
+        }
+    });
+
+    // -------------------------------------------------------------------------------------
     // Authed
     // -------------------------------------------------------------------------------------
     if ( window.is_auth() ) {
