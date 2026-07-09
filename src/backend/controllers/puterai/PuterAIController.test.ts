@@ -44,7 +44,9 @@ import {
 } from 'vitest';
 
 import type { Actor } from '../../core/actor.js';
+import type { RouteOptions } from '../../core/http/index.js';
 import type { ChatCompletionDriver } from '../../drivers/ai-chat/ChatCompletionDriver.js';
+import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../drivers/util/aiLimits.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { PuterAIController } from './PuterAIController.js';
@@ -192,7 +194,10 @@ describe('PuterAIController.registerRoutes', () => {
         // call puter-chat-completion directly), but admit the user's own
         // full-access personal access token: `requireUserActor` keeps apps out
         // and `allowFullAccessToken` opens the gate to a full-access PAT. Each
-        // proxy route carries both flags.
+        // proxy route carries both flags, plus the shared per-tier AI
+        // rate-limit / concurrency policy — these routes bypass the
+        // `/drivers/call` dispatch (where the driver-declared limits are
+        // enforced), so without the route gates they'd be unthrottled.
         const userOnlyPaths = [
             '/puterai/openai/v1/chat/completions',
             '/puterai/openai/v1/completions',
@@ -205,6 +210,16 @@ describe('PuterAIController.registerRoutes', () => {
                 subdomain: 'api',
                 requireUserActor: true,
                 allowFullAccessToken: true,
+                rateLimit: {
+                    ...AI_RATE_LIMIT.default,
+                    scope: 'driver:puter-chat-completion:complete',
+                    key: expect.any(Function),
+                },
+                concurrent: {
+                    ...AI_CONCURRENT.default,
+                    scope: 'driver:puter-chat-completion:complete',
+                    key: expect.any(Function),
+                },
             });
         }
         const modelsRoute = calls.find(
@@ -214,6 +229,46 @@ describe('PuterAIController.registerRoutes', () => {
             subdomain: 'api',
             requireAuth: false,
         });
+    });
+
+    it('keys the proxy-route AI limits by user uuid so they share the /drivers/call buckets', () => {
+        const calls: Array<{ path: string; opts: RouteOptions }> = [];
+        const router = {
+            post: vi.fn((path: string, opts: RouteOptions) => {
+                calls.push({ path, opts });
+                return router;
+            }),
+            get: vi.fn(() => router),
+        };
+
+        controller.registerRoutes(router as never);
+
+        const route = calls.find(
+            (c) => c.path === '/puterai/openai/v1/chat/completions',
+        );
+        const rateLimit = route?.opts.rateLimit as {
+            key: (req: Request) => string;
+            scope: string;
+        };
+        const concurrent = route?.opts.concurrent as {
+            key: (req: Request) => string;
+            scope: string;
+        };
+
+        // The dispatch buckets requests as `driver:<iface>:<method>:<uid>`
+        // where uid is the actor's user uuid; scope + key must compose to the
+        // identical string or wire traffic mints a second per-user budget.
+        const req = makeReq({ actor: makeUserActor() });
+        expect(rateLimit.key(req)).toBe('u-7');
+        expect(concurrent.key(req)).toBe('u-7');
+        expect(rateLimit.scope).toBe('driver:puter-chat-completion:complete');
+        expect(concurrent.scope).toBe('driver:puter-chat-completion:complete');
+
+        // No-actor fallback still yields a usable (fingerprint) key rather
+        // than throwing or bucketing everyone together under undefined.
+        const anonKey = rateLimit.key(makeReq({}));
+        expect(typeof anonKey).toBe('string');
+        expect(anonKey.length).toBeGreaterThan(0);
     });
 });
 

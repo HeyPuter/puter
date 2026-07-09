@@ -22,6 +22,7 @@ import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
 import { HttpError } from '../../core/http/HttpError.js';
 import { RouteOptions } from '../../core/http/index.js';
+import { computeNetworkFingerprint } from '../../core/http/middleware/rateLimit.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { ChatCompletionDriver } from '../../drivers/ai-chat/ChatCompletionDriver.js';
 import type {
@@ -29,6 +30,7 @@ import type {
     ICompleteArguments,
 } from '../../drivers/ai-chat/types.js';
 import { isDriverStreamResult } from '../../drivers/meta.js';
+import { AI_CONCURRENT, AI_RATE_LIMIT } from '../../drivers/util/aiLimits.js';
 import { PuterController } from '../types.js';
 
 const GEMINI_DOWNLOAD_BASE =
@@ -49,6 +51,18 @@ const GEMINI_DOWNLOAD_BASE =
  */
 export class PuterAIController extends PuterController {
     registerRoutes(router: PuterRouter): void {
+        /**
+         * The wire routes call the chat driver directly instead of going
+         * through the `/drivers/call` dispatch, so the shared per-tier AI
+         * rate-limit / concurrency policy must be declared as route gates
+         * here. `scope` + `key` reproduce the dispatch's bucket key
+         * (`driver:<iface>:<method>:<uid>`) exactly, so wire traffic and
+         * `/drivers/call` traffic draw from one per-user budget rather than
+         * each surface minting its own.
+         */
+        const aiPolicyScope = 'driver:puter-chat-completion:complete';
+        const aiPolicyKey = (req: Request): string =>
+            req.actor?.user?.uuid || computeNetworkFingerprint(req);
         const apiAuthOpts = {
             subdomain: 'api',
             requireUserActor: true,
@@ -58,6 +72,16 @@ export class PuterAIController extends PuterController {
             // personal access tokens (CLI/MCP/scripts). Apps and scoped tokens
             // stay blocked.
             allowFullAccessToken: true,
+            rateLimit: {
+                ...AI_RATE_LIMIT.default!,
+                scope: aiPolicyScope,
+                key: aiPolicyKey,
+            },
+            concurrent: {
+                ...AI_CONCURRENT.default!,
+                scope: aiPolicyScope,
+                key: aiPolicyKey,
+            },
         } as RouteOptions;
         const publicOpts = { subdomain: 'api', requireAuth: false } as const;
 
