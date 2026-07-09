@@ -1017,7 +1017,7 @@ async function UIWindow (options) {
 
                 // build item for context menu
                 items.push({
-                    html: `<span>${history_item === window.home_path ? i18n('home') : path.basename(history_item)}</span>`,
+                    html: `<span>${history_item === window.home_path ? i18n('home') : html_encode(path.basename(history_item))}</span>`,
                     val: index,
                     onClick: async function (e) {
                         let history_index = e.value;
@@ -1090,7 +1090,7 @@ async function UIWindow (options) {
 
                 // build item for context menu
                 items.push({
-                    html: `<span>${history_item === window.home_path ? 'Home' : path.basename(history_item)}</span>`,
+                    html: `<span>${history_item === window.home_path ? 'Home' : html_encode(path.basename(history_item))}</span>`,
                     val: index,
                     onClick: async function (e) {
                         let history_index = e.value;

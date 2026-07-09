@@ -1212,7 +1212,7 @@ window.available_templates = () => {
 
                 const itemStructure = {
                     path: _path,
-                    html: `${extension.toUpperCase()} ${name}`,
+                    html: `${extension.toUpperCase()} ${html_encode(name)}`,
                     extension: extension,
                     name: element.name,
                 };

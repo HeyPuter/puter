@@ -1190,7 +1190,7 @@ async function UIItem (options) {
                             continue;
                         }
                         items.push({
-                            html: suggested_app.title,
+                            html: html_encode(suggested_app.title),
                             icon: `<img src="${html_encode(suggested_app.icon ?? window.icons['app.svg'])}" style="width:16px; height: 16px; margin-bottom: -4px;">`,
                             onClick: async function () {
                                 var extension = path.extname($(el_item).attr('data-path')).toLowerCase();
