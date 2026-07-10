@@ -18,9 +18,10 @@
  */
 
 import type { Request, RequestHandler, Response } from 'express';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
+import { kv } from '../../util/kvSingleton.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -247,24 +248,23 @@ describe('SystemController GET /healthcheck', () => {
 
 // ── ServerHealthService.getStatus ignore / degrade filtering ────────
 //
-// Exercises the real service against the live (mock) redis client by
-// seeding the status cache the service reads from, so the actual
-// per-request classification runs — not a stubbed getStatus.
+// Exercises the real service by seeding the in-process status cache
+// (the kv.js singleton) it reads from, so the actual per-request
+// classification runs — not a stubbed getStatus.
 
 describe('ServerHealthService.getStatus ignore/degrade filtering', () => {
     const STATUS_CACHE_KEY = 'server-health:status';
 
-    const seedStatus = async (status: unknown) => {
-        await server.clients.redis.set(
-            STATUS_CACHE_KEY,
-            JSON.stringify(status),
-            'EX',
-            5,
-        );
+    const seedStatus = (status: unknown) => {
+        kv.set(STATUS_CACHE_KEY, status, { EX: 5 });
     };
 
+    afterEach(() => {
+        kv.del(STATUS_CACHE_KEY);
+    });
+
     it('collapses to ok:true when every failure is ignored', async () => {
-        await seedStatus({ ok: false, failed: ['database-liveness', 'thumbnailer'] });
+        seedStatus({ ok: false, failed: ['database-liveness', 'thumbnailer'] });
         const status = await server.services.health.getStatus({
             ignore: ['database-liveness', 'thumbnailer'],
         });
@@ -272,7 +272,7 @@ describe('ServerHealthService.getStatus ignore/degrade filtering', () => {
     });
 
     it('keeps the non-ignored failures', async () => {
-        await seedStatus({ ok: false, failed: ['database-liveness', 'thumbnailer'] });
+        seedStatus({ ok: false, failed: ['database-liveness', 'thumbnailer'] });
         const status = await server.services.health.getStatus({
             ignore: ['database-liveness'],
         });
@@ -280,7 +280,7 @@ describe('ServerHealthService.getStatus ignore/degrade filtering', () => {
     });
 
     it('is a no-op for a healthy status', async () => {
-        await seedStatus({ ok: true });
+        seedStatus({ ok: true });
         const status = await server.services.health.getStatus({
             ignore: ['database-liveness'],
         });
@@ -288,7 +288,7 @@ describe('ServerHealthService.getStatus ignore/degrade filtering', () => {
     });
 
     it('ignores unknown names without affecting real failures', async () => {
-        await seedStatus({ ok: false, failed: ['database-liveness'] });
+        seedStatus({ ok: false, failed: ['database-liveness'] });
         const status = await server.services.health.getStatus({
             ignore: ['not-a-check'],
         });
@@ -296,7 +296,7 @@ describe('ServerHealthService.getStatus ignore/degrade filtering', () => {
     });
 
     it('demotes marked failures to degraded and stays ok:true', async () => {
-        await seedStatus({ ok: false, failed: ['database-liveness'] });
+        seedStatus({ ok: false, failed: ['database-liveness'] });
         const status = await server.services.health.getStatus({
             degrade: ['database-liveness'],
         });
@@ -304,7 +304,7 @@ describe('ServerHealthService.getStatus ignore/degrade filtering', () => {
     });
 
     it('reports degraded alongside remaining hard failures (ok:false)', async () => {
-        await seedStatus({
+        seedStatus({
             ok: false,
             failed: ['database-liveness', 'socket-initialized'],
         });
@@ -319,7 +319,7 @@ describe('ServerHealthService.getStatus ignore/degrade filtering', () => {
     });
 
     it('lets ignore take precedence over degrade for the same name', async () => {
-        await seedStatus({ ok: false, failed: ['database-liveness'] });
+        seedStatus({ ok: false, failed: ['database-liveness'] });
         const status = await server.services.health.getStatus({
             ignore: ['database-liveness'],
             degrade: ['database-liveness'],
