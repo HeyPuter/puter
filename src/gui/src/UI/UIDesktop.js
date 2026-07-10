@@ -1309,7 +1309,7 @@ async function UIDesktop (options) {
     // /settings redirects to /dashboard
     //--------------------------------------------------------------------------------------
     else if ( window.url_paths[0]?.toLocaleLowerCase() === 'settings' ) {
-        window.open('/dashboard', '_blank');
+        window.open('/dashboard/#home', '_blank');
     }
     // ---------------------------------------------
     // Run apps from insta-login URL
@@ -2169,7 +2169,7 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
                 html: i18n('settings'),
                 id: 'settings',
                 onClick: async function () {
-                    window.open('/dashboard', '_blank');
+                    window.open('/dashboard/#home', '_blank');
                 },
             },
             //--------------------------------------------------
@@ -2256,7 +2256,7 @@ $(document).on('click', '.search-btn', function () {
 });
 
 $(document).on('click', '.toolbar-puter-logo', function () {
-    window.open('/dashboard', '_blank');
+    window.open('/dashboard/#home', '_blank');
 });
 
 $(document).on('click', '.user-options-create-account-btn', async function (e) {

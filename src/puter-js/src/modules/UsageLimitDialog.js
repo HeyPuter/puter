@@ -220,7 +220,7 @@ class UsageLimitDialog extends (globalThis.HTMLElement || Object) {
         });
 
         this.shadowRoot.querySelector('#upgrade-btn').addEventListener('click', () => {
-            window.open('https://puter.com/dashboard', '_blank');
+            window.open('https://puter.com/dashboard/#home', '_blank');
             this.close();
         });
 
