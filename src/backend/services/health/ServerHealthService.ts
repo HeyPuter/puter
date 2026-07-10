@@ -69,6 +69,17 @@ interface HealthStats {
 export interface HealthStatus {
     ok: boolean;
     failed?: string[];
+    degraded?: string[];
+}
+
+export interface GetStatusOptions {
+    /** Failing check names to drop entirely (healthy if all failures ignored). */
+    ignore?: string[];
+    /**
+     * Failing check names to demote to non-fatal `degraded`. They don't make
+     * `ok` false, but their presence signals partial health to the caller.
+     */
+    degrade?: string[];
 }
 
 export class ServerHealthService extends PuterService {
@@ -130,10 +141,25 @@ export class ServerHealthService extends PuterService {
     /**
      * Current health status. Results are cached in Redis for 5 seconds
      * so a busy /healthcheck endpoint doesn't hammer the DB on every hit.
+     *
+     * `ignore` names failing states to disregard for this request only,
+     * letting an orchestrator poll `/healthcheck` while tolerating specific
+     * known-failing checks; when the remaining failures are all ignored the
+     * status collapses back to `{ ok: true }`. `degrade` instead demotes
+     * named failures to a non-fatal `degraded` list — `ok` stays true but
+     * the caller can see the partial state. Any failure name may be filtered
+     * this way, including the `draining` lifecycle state. The cached status
+     * is always the full, unfiltered set — filtering is applied per-request
+     * after the cache read so it never leaks across callers.
      */
-    async getStatus(): Promise<HealthStatus> {
-        if (this.#draining) return { ok: false, failed: ['draining'] };
+    async getStatus(opts: GetStatusOptions = {}): Promise<HealthStatus> {
+        const base = this.#draining
+            ? { ok: false, failed: ['draining'] }
+            : await this.#getCachedStatus();
+        return this.#applyFilters(base, opts.ignore ?? [], opts.degrade ?? []);
+    }
 
+    async #getCachedStatus(): Promise<HealthStatus> {
         try {
             const cached = await this.clients.redis.get(STATUS_CACHE_KEY);
             if (cached) {
@@ -171,6 +197,32 @@ export class ServerHealthService extends PuterService {
         }
 
         return status;
+    }
+
+    /**
+     * Reclassify a status against the per-request `ignore`/`degrade` sets.
+     * `ignore`d failures are dropped; `degrade`d failures move to a
+     * non-fatal `degraded` list; anything left stays a hard failure. `ok`
+     * is false only while hard failures remain. A healthy status is
+     * returned as-is.
+     */
+    #applyFilters(
+        status: HealthStatus,
+        ignore: string[],
+        degrade: string[],
+    ): HealthStatus {
+        if (status.ok || !status.failed) return status;
+
+        const remaining = status.failed.filter(
+            (name) => !ignore.includes(name),
+        );
+        const degraded = remaining.filter((name) => degrade.includes(name));
+        const failed = remaining.filter((name) => !degrade.includes(name));
+
+        const result: HealthStatus = { ok: failed.length === 0 };
+        if (failed.length > 0) result.failed = failed;
+        if (degraded.length > 0) result.degraded = degraded;
+        return result;
     }
 
     #registerDefaultChecks(): void {

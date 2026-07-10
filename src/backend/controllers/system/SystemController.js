@@ -37,17 +37,33 @@ export class SystemController extends PuterController {
     ) {
         // -- Healthcheck ---------------------------------------------
         // Delegates to ServerHealthService for the real check-based
-        // status. Returns `{ ok: true }` when all registered checks pass,
-        // or `{ ok: false, failed: [...] }` + 503 when any fail or the
+        // status. Returns `{ ok: true }` + 200 when all registered checks
+        // pass, or `{ ok: false, failed: [...] }` + 503 when any fail or the
         // server is draining.
-        router.get('/healthcheck', { subdomain: '*' }, async (_req, res) => {
+        //
+        // `?ignore=a,b` disregards the named checks for this request only.
+        // `?marked-degraded=a,b` demotes the named checks to a non-fatal
+        // `degraded` list: `ok` stays true but the response is 207 so the
+        // caller can tell the node is running in a degraded state.
+        const parseNames = (value) =>
+            typeof value === 'string'
+                ? value
+                      .split(',')
+                      .map((name) => name.trim())
+                      .filter(Boolean)
+                : [];
+        router.get('/healthcheck', { subdomain: '*' }, async (req, res) => {
             const health = this.services.health;
             if (!health || typeof health.getStatus !== 'function') {
                 // Fallback for boot ordering / missing service.
                 return res.send('ok');
             }
-            const status = await health.getStatus();
+            const status = await health.getStatus({
+                ignore: parseNames(req.query.ignore),
+                degrade: parseNames(req.query['marked-degraded']),
+            });
             if (!status.ok) return res.status(503).json(status);
+            if (status.degraded?.length) return res.status(207).json(status);
             return res.json(status);
         });
 
