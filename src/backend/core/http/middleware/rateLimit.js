@@ -351,9 +351,10 @@ function resolveBackend(name) {
  * Build a rate-limit key from the request.
  *
  * Strategies:
- *   'fingerprint' — IP + User-Agent hash (default). Good for
- *                    unauthenticated endpoints where the same IP may
- *                    serve many users (offices, VPNs).
+ *   'fingerprint' — network hash (IP + headers), refined by the client's
+ *                    device fingerprint when one was supplied (default).
+ *                    Good for unauthenticated endpoints where the same
+ *                    IP may serve many users (offices, VPNs).
  *   'ip'          — bare IP. Simpler but coarser.
  *   'user'        — actor UUID. Use for authenticated endpoints where
  *                    you want per-account limits regardless of IP.
@@ -395,7 +396,7 @@ function ip(req) {
 /**
  * A coarse network fingerprint for a request: a short hash of the (proxy-aware)
  * IP plus the headers a client can't trivially vary per-request without also
- * changing how the request looks. Used as the default rate-limit key here, and
+ * changing how the request looks. Anchors the default rate-limit key here, and
  * exported so the global fingerprint middleware can stamp the identical value
  * on `req.networkFingerprint` (one key space shared by both).
  */
@@ -413,8 +414,19 @@ export function computeNetworkFingerprint(req) {
         .slice(0, 16);
 }
 
+/**
+ * The device fingerprint (validated and stamped by the fingerprint middleware)
+ * refines the bucket so devices behind one NAT don't crowd each other's limit.
+ * It stays anchored to the network hash because the value is client-supplied:
+ * alone it could be spoofed to drain another device's bucket, and rotating it
+ * to mint fresh buckets is caught by the same stacked 'ip' backstop that
+ * catches User-Agent rotation.
+ */
 function fingerprint(req) {
-    return computeNetworkFingerprint(req);
+    const network = req.networkFingerprint ?? computeNetworkFingerprint(req);
+    return req.deviceFingerprint
+        ? `${network}:${req.deviceFingerprint}`
+        : network;
 }
 
 // -- Route middleware ------------------------------------------------

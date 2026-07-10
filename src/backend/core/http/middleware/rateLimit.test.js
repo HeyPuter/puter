@@ -67,6 +67,7 @@ describe('rateLimitGate — memory backend (default)', () => {
         actor: init.actor,
         route: init.route,
         socket: init.socket ?? { remoteAddress: '1.2.3.4' },
+        deviceFingerprint: init.deviceFingerprint,
     });
 
     it('admits up to `limit` hits and rejects the next one with 429', async () => {
@@ -138,6 +139,62 @@ describe('rateLimitGate — memory backend (default)', () => {
             makeReq({ ip, headers: { 'user-agent': 'browser-A' } }),
         );
         expect(isHttpError(re)).toBe(true);
+    });
+
+    it("'fingerprint' (default) gives each device behind one network its own bucket", async () => {
+        // Same IP and identical headers (a NAT'd office of look-alike
+        // machines) but distinct device fingerprints (stamped by the
+        // fingerprint middleware) → independent buckets, so one device
+        // hitting its limit doesn't block the whole network.
+        const opts = { limit: 1, window: 60_000, scope: 'mem-fp-device' };
+        const shared = {
+            ip: '5.6.7.8',
+            headers: { 'user-agent': 'shared-browser' },
+        };
+        expect(
+            await runGate(
+                opts,
+                makeReq({ ...shared, deviceFingerprint: 'device-alice-01' }),
+            ),
+        ).toBeUndefined();
+        expect(
+            await runGate(
+                opts,
+                makeReq({ ...shared, deviceFingerprint: 'device-bob-02' }),
+            ),
+        ).toBeUndefined();
+        // Same device again → its own bucket is full.
+        const re = await runGate(
+            opts,
+            makeReq({ ...shared, deviceFingerprint: 'device-alice-01' }),
+        );
+        expect(isHttpError(re)).toBe(true);
+    });
+
+    it('device fingerprint stays anchored to the network — spoofing a value from another IP cannot drain its bucket', async () => {
+        const opts = { limit: 1, window: 60_000, scope: 'mem-fp-anchor' };
+        const fp = 'device-victim-01';
+        // Victim exhausts their bucket from their own network.
+        expect(
+            await runGate(
+                opts,
+                makeReq({ ip: '10.0.0.1', deviceFingerprint: fp }),
+            ),
+        ).toBeUndefined();
+        const re = await runGate(
+            opts,
+            makeReq({ ip: '10.0.0.1', deviceFingerprint: fp }),
+        );
+        expect(isHttpError(re)).toBe(true);
+        // Attacker replays the same device fingerprint from elsewhere:
+        // different network hash → different bucket, and the victim's
+        // bucket is untouched.
+        expect(
+            await runGate(
+                opts,
+                makeReq({ ip: '99.99.99.99', deviceFingerprint: fp }),
+            ),
+        ).toBeUndefined();
     });
 
     // Stacked gates, mirroring the materializer's handling of a

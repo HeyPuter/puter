@@ -210,8 +210,10 @@ export interface RouteOptions {
      * request identity.
      *
      * `key` controls how requests are bucketed:
-     *   - `'fingerprint'` (default) — IP + User-Agent hash. Safe for
-     *     shared IPs (offices, VPNs).
+     *   - `'fingerprint'` (default) — network hash (IP + headers),
+     *     refined by the client's device fingerprint when one was
+     *     supplied. Safe for shared IPs (offices, VPNs): each device
+     *     gets its own bucket instead of the whole network sharing one.
      *   - `'ip'` — bare IP address.
      *   - `'user'` — actor's user ID. Use for authenticated routes
      *     where you want per-account limits.
