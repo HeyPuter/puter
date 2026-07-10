@@ -130,10 +130,28 @@ export class ServerHealthService extends PuterService {
     /**
      * Current health status. Results are cached in Redis for 5 seconds
      * so a busy /healthcheck endpoint doesn't hammer the DB on every hit.
+     *
+     * `ignore` names a set of failing states to disregard for this request
+     * only, letting an orchestrator poll `/healthcheck` while tolerating
+     * specific known-failing checks. Any failure name may be ignored,
+     * including the `draining` lifecycle state. When the remaining failures
+     * are all ignored the status collapses back to `{ ok: true }`. The
+     * cached status is always the full, unfiltered set — filtering is
+     * applied per-request after the cache read so it never leaks across
+     * callers.
      */
-    async getStatus(): Promise<HealthStatus> {
-        if (this.#draining) return { ok: false, failed: ['draining'] };
+    async getStatus(ignore: string[] = []): Promise<HealthStatus> {
+        if (this.#draining) {
+            return this.#applyIgnore(
+                { ok: false, failed: ['draining'] },
+                ignore,
+            );
+        }
+        const status = await this.#getCachedStatus();
+        return this.#applyIgnore(status, ignore);
+    }
 
+    async #getCachedStatus(): Promise<HealthStatus> {
         try {
             const cached = await this.clients.redis.get(STATUS_CACHE_KEY);
             if (cached) {
@@ -171,6 +189,21 @@ export class ServerHealthService extends PuterService {
         }
 
         return status;
+    }
+
+    /**
+     * Drop `ignore`d check names from a status. If every failure is
+     * ignored the status becomes healthy again; otherwise the remaining
+     * failures are reported as usual. A healthy status is returned as-is.
+     */
+    #applyIgnore(status: HealthStatus, ignore: string[]): HealthStatus {
+        if (status.ok || ignore.length === 0 || !status.failed) return status;
+        const remaining = status.failed.filter(
+            (name) => !ignore.includes(name),
+        );
+        return remaining.length === 0
+            ? { ok: true }
+            : { ok: false, failed: remaining };
     }
 
     #registerDefaultChecks(): void {

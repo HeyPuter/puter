@@ -40,13 +40,20 @@ export class SystemController extends PuterController {
         // status. Returns `{ ok: true }` when all registered checks pass,
         // or `{ ok: false, failed: [...] }` + 503 when any fail or the
         // server is draining.
-        router.get('/healthcheck', { subdomain: '*' }, async (_req, res) => {
+        router.get('/healthcheck', { subdomain: '*' }, async (req, res) => {
             const health = this.services.health;
             if (!health || typeof health.getStatus !== 'function') {
                 // Fallback for boot ordering / missing service.
                 return res.send('ok');
             }
-            const status = await health.getStatus();
+            const ignore =
+                typeof req.query.ignore === 'string'
+                    ? req.query.ignore
+                          .split(',')
+                          .map((name) => name.trim())
+                          .filter(Boolean)
+                    : [];
+            const status = await health.getStatus(ignore);
             if (!status.ok) return res.status(503).json(status);
             return res.json(status);
         });
