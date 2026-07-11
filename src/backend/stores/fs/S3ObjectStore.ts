@@ -44,6 +44,7 @@ import type {
     SignedUploadPart,
     SignedUploadResult,
 } from './s3Types.js';
+import { Span } from '../../util/span.js';
 import { PuterStore } from '../types.js';
 
 /**
@@ -108,6 +109,11 @@ export class S3ObjectStore extends PuterStore {
         return result;
     }
 
+    // Presigning is local crypto — no network call, so no aws-sdk auto
+    // span. These s3.* spans are the only visibility into it.
+    @Span('s3.batchCreateSignedUploadUrls', (files: unknown[]) => ({
+        'db.batch_size': files.length,
+    }))
     async batchCreateSignedUploadUrls(
         filesMetadata: SignedUploadInput[],
         region: string,
@@ -251,6 +257,7 @@ export class S3ObjectStore extends PuterStore {
         });
     }
 
+    @Span('s3.createSignedMultipartPartUrls')
     async createSignedMultipartPartUrls(
         input: SignedMultipartPartUrlsInput,
         region: string,
@@ -280,6 +287,7 @@ export class S3ObjectStore extends PuterStore {
         );
     }
 
+    @Span('s3.completeMultipartUpload')
     async completeMultipartUpload(
         input: MultipartCompleteInput,
         region: string,
@@ -305,6 +313,7 @@ export class S3ObjectStore extends PuterStore {
         );
     }
 
+    @Span('s3.abortMutipartUpload')
     async abortMutipartUpload(
         uploadId: string,
         region: string,
@@ -321,6 +330,7 @@ export class S3ObjectStore extends PuterStore {
         );
     }
 
+    @Span('s3.uploadFromServer')
     async uploadFromServer(
         input: ServerUploadInput,
         region: string,
@@ -369,6 +379,7 @@ export class S3ObjectStore extends PuterStore {
      * authoritative size of a direct-to-S3 (signed-URL) upload against the
      * client-declared size, which is otherwise untrusted.
      */
+    @Span('s3.headObjectSize')
     async headObjectSize(
         bucket: string,
         objectKey: string,
@@ -386,6 +397,7 @@ export class S3ObjectStore extends PuterStore {
             : null;
     }
 
+    @Span('s3.deleteObject')
     async deleteObject(
         bucket: string,
         objectKey: string,
@@ -401,6 +413,7 @@ export class S3ObjectStore extends PuterStore {
     }
 
     // Batch delete up to 1000 objects per S3 API limit; callers chunk if needed.
+    @Span('s3.deleteObjects')
     async deleteObjects(
         input: DeleteObjectsInput,
         region: string,
@@ -427,6 +440,7 @@ export class S3ObjectStore extends PuterStore {
     }
 
     // Server-side copy. Avoids downloading/re-uploading bytes.
+    @Span('s3.copyObject')
     async copyObject(input: CopyObjectInput, region: string): Promise<void> {
         const client = this.#getClientForRegion(region);
         await client.send(
@@ -444,6 +458,7 @@ export class S3ObjectStore extends PuterStore {
         );
     }
 
+    @Span('s3.getObjectStream')
     async getObjectStream(
         input: GetObjectInput,
         region: string,

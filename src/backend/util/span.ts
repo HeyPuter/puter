@@ -34,6 +34,9 @@ export function withSpan<T>(
 ): T {
     return tracer.startActiveSpan(name, (span) => {
         try {
+            // Mirror the name into an attribute: X-Ray can only filter by
+            // annotations, and annotations come from attributes.
+            span.setAttribute('span_name', name);
             const a = typeof attrs === 'function' ? attrs() : attrs;
             if (a) span.setAttributes(a);
             const result = fn();
@@ -77,9 +80,15 @@ function recordError(span: ReturnType<typeof tracer.startSpan>, err: unknown) {
  *
  *         @Span('custom.name')   // span name = "custom.name"
  *         async baz() { ... }
+ *
+ *         @Span('db.read', (query: string) => ({ 'db.statement': query }))
+ *         async read(query: string) { ... }  // attrs built from call args
  *     }
  */
-export function Span(name?: string) {
+export function Span(
+    name?: string,
+    attrs?: Attributes | ((...args: never[]) => Attributes),
+) {
     return function <This, Args extends unknown[], Return>(
         target: (this: This, ...args: Args) => Return,
         ctx: ClassMethodDecoratorContext<
@@ -91,7 +100,13 @@ export function Span(name?: string) {
             const spanName =
                 name ??
                 `${(this as { constructor?: { name?: string } })?.constructor?.name ?? 'fn'}.${String(ctx.name)}`;
-            return withSpan(spanName, {}, () => target.apply(this, args));
+            const spanAttrs: AttrsOrFactory =
+                typeof attrs === 'function'
+                    ? () => attrs(...(args as unknown as never[]))
+                    : (attrs ?? {});
+            return withSpan(spanName, spanAttrs, () =>
+                target.apply(this, args),
+            );
         };
     };
 }

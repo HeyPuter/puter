@@ -37,6 +37,7 @@ import {
 import type { PermissionService } from '../../services/permission/PermissionService.js';
 import { PermissionUtil } from '../../services/permission/permissionUtil.js';
 import type { WithLifecycle } from '../../types';
+import { withSpan } from '../../util/span.js';
 import { PuterController } from '../types.js';
 
 type DriverInstance = WithLifecycle & Record<string, unknown>;
@@ -382,11 +383,22 @@ export class DriverController extends PuterController {
         }
 
         // Drivers read actor/context via the Context API — no drilled args.
+        // The span ends when the method returns; for streamed results that
+        // is stream start, not stream drain (same window the lifecycle
+        // events below report as durationMs).
         const startedAt = Date.now();
         let result;
         try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            result = await (fn as (...x: unknown[]) => any).call(driver, args);
+            result = await withSpan(
+                `driver.${ifaceName}.${method}`,
+                {
+                    driver: ifaceName,
+                    'driver.method': method,
+                    'driver.name': resolved,
+                },
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                () => (fn as (...x: unknown[]) => any).call(driver, args),
+            );
         } catch (e) {
             this.clients.event?.emit(
                 `driver.${ifaceName}.${method}.error`,

@@ -19,6 +19,12 @@
 
 import { Readable } from 'node:stream';
 import type { Request, RequestHandler, Response } from 'express';
+import { trace } from '@opentelemetry/api';
+import {
+    BasicTracerProvider,
+    InMemorySpanExporter,
+    SimpleSpanProcessor,
+} from '@opentelemetry/sdk-trace-base';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { actorUid, type Actor } from '../../core/actor.js';
@@ -612,6 +618,67 @@ describe('DriverController.registerRoutes', () => {
         const routes = captureRoutes(controller);
         expect(routes['POST /call']).toBeInstanceOf(Function);
         expect(routes['GET /list-interfaces']).toBeInstanceOf(Function);
+    });
+});
+
+describe('DriverController.#handleCall tracing', () => {
+    let routes: Captured;
+    const exporter = new InMemorySpanExporter();
+    const provider = new BasicTracerProvider({
+        spanProcessors: [new SimpleSpanProcessor(exporter)],
+    });
+
+    beforeAll(() => {
+        routes = captureRoutes(controller);
+        trace.setGlobalTracerProvider(provider);
+    });
+
+    afterAll(async () => {
+        await provider.shutdown();
+        trace.disable();
+    });
+
+    it('emits driver + downstream spans around a successful call', async () => {
+        const actor = await makeUserActor();
+        await server.stores.permission.setFlatUserPerm(
+            actor.user!.id!,
+            'service:puter-kvstore:ii:puter-kvstore',
+            {
+                permission: 'service:puter-kvstore:ii:puter-kvstore',
+                deleted: false,
+                issuer_user_id: actor.user!.id!,
+            } as never,
+        );
+        exporter.reset();
+
+        const res = makeRes();
+        const req = makeReq(
+            {
+                interface: 'puter-kvstore',
+                method: 'set',
+                args: { key: `k-${uuidv4()}`, value: 'v' },
+            },
+            actor,
+        );
+        await runWithContext({ actor }, () =>
+            routes['POST /call'](req, res as unknown as Response, () => {}),
+        );
+        expect((res.body as { success: boolean }).success).toBe(true);
+
+        const names = exporter.getFinishedSpans().map((s) => s.name);
+        const driverSpan = exporter
+            .getFinishedSpans()
+            .find((s) => s.name === 'driver.puter-kvstore.set');
+        expect(driverSpan).toBeDefined();
+        expect(driverSpan!.attributes).toMatchObject({
+            'driver.interface': 'puter-kvstore',
+            'driver.method': 'set',
+            'driver.name': 'puter-kvstore',
+        });
+        // The call path exercises the permission gate and the KV store's
+        // dynamo writes — both should have produced spans of their own.
+        expect(names).toContain('permission.scan');
+        expect(names.some((n) => n.startsWith('ddb.'))).toBe(true);
     });
 });
 

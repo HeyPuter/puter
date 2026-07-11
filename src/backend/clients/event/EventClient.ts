@@ -18,6 +18,7 @@
  */
 
 import { extensionStore } from '../../extensions';
+import { withSpan } from '../../util/span.js';
 import { PuterClient } from '../types';
 import {
     EventListener,
@@ -99,26 +100,34 @@ export class EventClient extends PuterClient {
         data: EventMap[T],
         meta: EventMetadata,
     ) {
-        const parts = key.split('.');
-        for (let i = 0; i < parts.length; i++) {
-            const matchKey = (
-                i === parts.length - 1
-                    ? key
-                    : `${parts.slice(0, i + 1).join('.')}.*`
-            ) as ListenKey;
-            const extensionListeners = extensionStore.events[matchKey];
-            const listeners = (this.#eventListeners[matchKey] || []).concat(
-                extensionListeners || [],
-            );
-            if (!listeners) continue;
-            for (const listener of listeners) {
-                try {
-                    await listener(key, data, meta);
-                } catch (e) {
-                    console.error('Error in event listener for event', key, e);
+        // Spanned because callers block on listeners — this is where time
+        // spent in extension hooks (e.g. `ip.validate`) gets attributed.
+        return withSpan('event.emitAndWait', { 'event.key': key }, async () => {
+            const parts = key.split('.');
+            for (let i = 0; i < parts.length; i++) {
+                const matchKey = (
+                    i === parts.length - 1
+                        ? key
+                        : `${parts.slice(0, i + 1).join('.')}.*`
+                ) as ListenKey;
+                const extensionListeners = extensionStore.events[matchKey];
+                const listeners = (this.#eventListeners[matchKey] || []).concat(
+                    extensionListeners || [],
+                );
+                if (!listeners) continue;
+                for (const listener of listeners) {
+                    try {
+                        await listener(key, data, meta);
+                    } catch (e) {
+                        console.error(
+                            'Error in event listener for event',
+                            key,
+                            e,
+                        );
+                    }
                 }
             }
-        }
+        });
     }
 
     /**

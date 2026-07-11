@@ -21,6 +21,7 @@ import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { basename, dirname, extname, join, resolve } from 'path';
 import { createContext, runInContext } from 'vm';
 import type { IConfig } from '../../types';
+import { Span } from '../../util/span.js';
 import { AbstractDatabaseClient, type WriteResult } from './DatabaseClient';
 
 const MIGRATIONS_DIR = resolve(__dirname, './migrations/sqlite');
@@ -136,6 +137,7 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
     // Query interface
     // ------------------------------------------------------------------
 
+    @Span('db.read', (query: string) => ({ 'db.statement': query }))
     override async read(
         query: string,
         params: unknown[] = [],
@@ -156,6 +158,7 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
         return this.read(query, params);
     }
 
+    @Span('db.write', (query: string) => ({ 'db.statement': query }))
     override async write(
         query: string,
         params: unknown[] = [],
@@ -172,6 +175,9 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
         };
     }
 
+    @Span('db.batchWrite', (entries: unknown[]) => ({
+        'db.batch_size': entries.length,
+    }))
     override async batchWrite(
         entries: { statement: string; values: unknown[] }[],
     ): Promise<void> {

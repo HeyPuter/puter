@@ -28,6 +28,7 @@ import {
 import type { UserRow } from '../../stores/user/UserStore';
 import type { LayerInstances } from '../../types';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
+import { Span } from '../../util/span.js';
 import type { puterServices } from '../index';
 import { PuterService } from '../types';
 import { FULL_API_ACCESS } from '../permission/consts';
@@ -143,6 +144,7 @@ export class AuthService extends PuterService {
         return { authId: decoded.auth_id };
     }
 
+    @Span('auth.authenticate')
     async authenticate(
         token: string,
         ctx: { ip?: string; userAgent?: string } = {},
