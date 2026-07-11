@@ -521,6 +521,11 @@ const en = {
         'too_many_attempts': 'Too many attempts. Please try again later.',
         'server_timeout': 'The server took too long to respond. Please try again.',
         'signup_error': 'An error occurred during signup. Please try again.',
+        'auth_error_generic': 'Authentication failed. Please try again.',
+        'account_suspended_message': 'This account is suspended.',
+        'signup_blocked_message': 'Your account could not be created.',
+        'contact_support': 'Please contact support@puter.com.',
+        'contact_support_with_code': 'Please contact support@puter.com and include this code: {{id}}.',
 
         // Welcome Window
         'welcome': 'Welcome',

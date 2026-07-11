@@ -251,6 +251,7 @@ export type EventMap = {
         fingerprint: string | null;
         funding: string | null;
         country: string | null;
+        customer_id: string | null;
         [key: string]: unknown;
     };
     'user.card-verified': {
@@ -259,6 +260,7 @@ export type EventMap = {
         fingerprint: string | null;
         funding: string | null;
         country: string | null;
+        customer_id: string | null;
     };
     'user.username-changed': {
         user_id: number;

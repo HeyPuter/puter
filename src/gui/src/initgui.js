@@ -206,6 +206,28 @@ function parseDashboardRoute() {
 window.parseDashboardRoute = parseDashboardRoute;
 
 /**
+ * Display text for an auth error redirect (`?auth_error=1&message=<code>`).
+ * The backend sends a fixed set of codes — never free text — plus, for a
+ * blocked signup, a `request_code` the user can quote to support. Codes map
+ * to translated messages here; anything unrecognized (including text crafted
+ * directly into the URL) gets the generic message rather than being shown.
+ */
+function authErrorDisplayMessage() {
+    const code = window.url_query_params.get('message');
+    const requestCode = window.url_query_params.get('request_code');
+    if (code === 'signup_blocked') {
+        const contact = requestCode
+            ? i18n('contact_support_with_code', { id: requestCode }, false)
+            : i18n('contact_support', [], false);
+        return `${i18n('signup_blocked_message', [], false)} ${contact}`;
+    }
+    if (code === 'account_suspended') {
+        return i18n('account_suspended_message', [], false);
+    }
+    return i18n('auth_error_generic', [], false);
+}
+
+/**
  * Shows a Turnstile challenge modal for first-time temp user creation
  * @param {Object} options - Configuration options
  * @param {Function} options.onSuccess - Callback when challenge is completed successfully
@@ -698,9 +720,8 @@ window.initgui = async function (options) {
     // Action: Login
     //--------------------------------------------------------------------------------------
     else if (action === 'login') {
-        const authError = window.url_query_params.get('message') || null;
         const opts = window.url_query_params.has('auth_error')
-            ? { authError }
+            ? { authError: authErrorDisplayMessage() }
             : {};
         if (!window.is_auth()) {
             opts.window_options = { cover_page: true, has_head: false };
@@ -722,9 +743,8 @@ window.initgui = async function (options) {
     // Action: Signup
     //--------------------------------------------------------------------------------------
     else if (action === 'signup') {
-        const authError = window.url_query_params.get('message') || null;
         const opts = window.url_query_params.has('auth_error')
-            ? { authError }
+            ? { authError: authErrorDisplayMessage() }
             : {};
         if (!window.is_auth()) {
             opts.window_options = { cover_page: true, has_head: false };
