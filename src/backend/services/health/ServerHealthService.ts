@@ -19,6 +19,7 @@
 
 import { PuterService } from '../types';
 import type { SocketService } from '../socket/SocketService';
+import { kv } from '../../util/kvSingleton';
 
 /**
  * Periodic liveness monitor for the backend. Other services register
@@ -139,8 +140,11 @@ export class ServerHealthService extends PuterService {
     }
 
     /**
-     * Current health status. Results are cached in Redis for 5 seconds
-     * so a busy /healthcheck endpoint doesn't hammer the DB on every hit.
+     * Current health status of this node. Results are cached in-process
+     * (kv.js) for 5 seconds so a busy /healthcheck endpoint stays cheap.
+     * The cache is deliberately per-node — a load balancer polling
+     * /healthcheck must see the health of the exact node it hit, never
+     * a status shared with other nodes.
      *
      * `ignore` names failing states to disregard for this request only,
      * letting an orchestrator poll `/healthcheck` while tolerating specific
@@ -155,26 +159,13 @@ export class ServerHealthService extends PuterService {
     async getStatus(opts: GetStatusOptions = {}): Promise<HealthStatus> {
         const base = this.#draining
             ? { ok: false, failed: ['draining'] }
-            : await this.#getCachedStatus();
+            : this.#getCachedStatus();
         return this.#applyFilters(base, opts.ignore ?? [], opts.degrade ?? []);
     }
 
-    async #getCachedStatus(): Promise<HealthStatus> {
-        try {
-            const cached = await this.clients.redis.get(STATUS_CACHE_KEY);
-            if (cached) {
-                try {
-                    return JSON.parse(cached) as HealthStatus;
-                } catch {
-                    // Cache in invalid state — fall through and overwrite.
-                }
-            }
-        } catch (e) {
-            console.warn(
-                '[server-health] status cache read failed:',
-                (e as Error).message,
-            );
-        }
+    #getCachedStatus(): HealthStatus {
+        const cached = kv.get(STATUS_CACHE_KEY) as HealthStatus | undefined;
+        if (cached) return cached;
 
         const failures = this.#collectFailures();
         const status: HealthStatus =
@@ -182,20 +173,7 @@ export class ServerHealthService extends PuterService {
                 ? { ok: true }
                 : { ok: false, failed: failures };
 
-        try {
-            await this.clients.redis.set(
-                STATUS_CACHE_KEY,
-                JSON.stringify(status),
-                'EX',
-                STATUS_CACHE_TTL_SECONDS,
-            );
-        } catch (e) {
-            console.warn(
-                '[server-health] status cache write failed:',
-                (e as Error).message,
-            );
-        }
-
+        kv.set(STATUS_CACHE_KEY, status, { EX: STATUS_CACHE_TTL_SECONDS });
         return status;
     }
 
