@@ -747,31 +747,6 @@ input.myapps-search::-webkit-search-decoration {
     margin: 0;
 }
 
-.myapps-loading {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.myapps-spinner {
-    width: 28px;
-    height: 28px;
-    border: 3px solid var(--dashboard-border);
-    border-top-color: var(--dashboard-text-tertiary);
-    border-radius: 50%;
-    animation: myapps-spin 0.8s linear infinite, myapps-spinner-fade-in 0.3s ease-out;
-}
-
-@keyframes myapps-spin {
-    to { transform: rotate(360deg); }
-}
-
-@keyframes myapps-spinner-fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
-
 /* iOS-style pager: pages snap horizontally, dots below, hover arrows */
 
 .myapps-pager {
