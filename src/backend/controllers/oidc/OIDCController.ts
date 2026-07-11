@@ -38,40 +38,52 @@ const OIDC_ERROR_REDIRECT_MAP: Record<string, Record<string, string>> = {
     signup: { account_already_exists: 'login', other: 'signup' },
 };
 
-const ALLOWED_ERRORS = ['account_suspended', 'unauthorized'] as const;
+// The `message` query param is clamped to these codes — the GUI maps them to
+// display text. Free-text errors (which may describe internals or, for vetoed
+// signups, the block reason) never reach the redirect URL.
+const ALLOWED_ERRORS = [
+    'account_suspended',
+    'unauthorized',
+    'signup_blocked',
+] as const;
 
 function buildErrorRedirectUrl(
     origin: string,
     sourceFlow: string,
     errorCondition: string,
-    message: (typeof ALLOWED_ERRORS)[number],
+    message: string,
     stateDecoded?: Record<string, unknown>,
+    requestCode?: string,
 ): string {
     const targetFlow =
         OIDC_ERROR_REDIRECT_MAP[sourceFlow]?.[errorCondition] ?? sourceFlow;
     const base = origin.replace(/\/$/, '') || '/';
+    const clamped = (ALLOWED_ERRORS as readonly string[]).includes(message)
+        ? message
+        : 'unauthorized';
 
+    let params: URLSearchParams;
     if (stateDecoded?.embedded_in_popup && stateDecoded?.msg_id != null) {
-        const params = new URLSearchParams({
+        params = new URLSearchParams({
             embedded_in_popup: 'true',
             msg_id: String(stateDecoded.msg_id),
             auth_error: '1',
-            message: ALLOWED_ERRORS.includes(message)
-                ? message
-                : 'unauthorized',
+            message: clamped,
             action: targetFlow,
         });
         if (stateDecoded?.opener_origin) {
             params.set('opener_origin', String(stateDecoded.opener_origin));
         }
-        return `${base}/?${params.toString()}`;
+    } else {
+        params = new URLSearchParams({
+            action: targetFlow,
+            auth_error: '1',
+            message: clamped,
+        });
     }
-
-    const params = new URLSearchParams({
-        action: targetFlow,
-        auth_error: '1',
-        message: ALLOWED_ERRORS.includes(message) ? message : 'unauthorized',
-    });
+    if (requestCode) {
+        params.set('request_code', requestCode);
+    }
     return `${base}/?${params.toString()}`;
 }
 
@@ -303,8 +315,9 @@ export class OIDCController extends PuterController {
                         origin,
                         'login',
                         'other',
-                        resolved.error,
+                        resolved.code ?? 'unauthorized',
                         stateDecoded,
+                        resolved.requestCode,
                     ),
                 );
             }
@@ -320,7 +333,7 @@ export class OIDCController extends PuterController {
                         origin,
                         'login',
                         'other',
-                        'This account is suspended.',
+                        'account_suspended',
                         stateDecoded,
                     ),
                 );
@@ -356,14 +369,18 @@ export class OIDCController extends PuterController {
                 (stateDecoded.referrer as string) ?? null,
             );
             if ('error' in resolved) {
+                console.warn(
+                    `OIDC signup user resolution error: ${resolved.error}`,
+                );
                 return res.redirect(
                     302,
                     buildErrorRedirectUrl(
                         origin,
                         'signup',
                         'other',
-                        'unauthorized',
+                        resolved.code ?? 'unauthorized',
                         stateDecoded,
+                        resolved.requestCode,
                     ),
                 );
             }
@@ -499,7 +516,7 @@ if (window.opener) {
         userinfo: { sub: string; email?: unknown; [k: string]: unknown },
         referrer?: string | null,
     ): Promise<
-        | { error: string }
+        | { error: string; code?: string; requestCode?: string }
         | {
               user: import('../../stores/user/UserStore.js').UserRow;
               origin: 'linked-sub' | 'linked-email' | 'created';
@@ -545,7 +562,11 @@ if (window.opener) {
             referrer,
         );
         if (!outcome.success || !outcome.user) {
-            return { error: outcome.error ?? 'Account creation failed.' };
+            return {
+                error: outcome.error ?? 'Account creation failed.',
+                code: outcome.code,
+                requestCode: outcome.requestCode,
+            };
         }
         return { user: outcome.user, origin: 'created' };
     }

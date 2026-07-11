@@ -424,7 +424,17 @@ export class OIDCService extends PuterService {
         providerId: string,
         claims: OIDCUserInfo,
         referrer?: string | null,
-    ): Promise<{ success: boolean; user?: UserRow; error?: string }> {
+    ): Promise<{
+        success: boolean;
+        user?: UserRow;
+        error?: string;
+        code?: string;
+        /**
+         * Support-correlation id for a vetoed signup (the abuse trail id).
+         * Safe to show the user; the veto reason in `error` is not.
+         */
+        requestCode?: string;
+    }> {
         if (claims.email_verified === false) {
             return {
                 success: false,
@@ -494,6 +504,10 @@ export class OIDCService extends PuterService {
             reputation: null as number | null,
             message: null as string | null,
             code: null as string | null,
+            // Stamped by the abuse harness for flagged signups — the id keying
+            // the persisted decision trail, surfaced to a blocked user as the
+            // Request Code so support can look the decision up.
+            trail_id: undefined as string | undefined,
         };
         try {
             await this.clients.event?.emitAndWait(
@@ -508,7 +522,8 @@ export class OIDCService extends PuterService {
             return {
                 success: false,
                 error: validateEvent.message ?? 'Signup blocked',
-                ...(validateEvent.code ? { code: validateEvent.code } : {}),
+                code: validateEvent.code ?? 'signup_blocked',
+                requestCode: validateEvent.trail_id,
             };
         }
 
