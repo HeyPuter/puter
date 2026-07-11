@@ -21,6 +21,7 @@ import type { Actor } from '../../core/actor';
 import { actorUid, isSystemActor, userRelatedActor } from '../../core/actor';
 import { Context } from '../../core/context';
 import { HttpError } from '../../core/http/HttpError.js';
+import { Span } from '../../util/span.js';
 import { PuterService } from '../types';
 import {
     FLAT_PERM_WARM_TTL_SECONDS,
@@ -197,6 +198,9 @@ export class PermissionService extends PuterService {
      * some scanners are allowed to stop once one option is proven. Misses use
      * the single-permission `check()` path to preserve exact semantics.
      */
+    @Span('permission.checkMany', (_actor: unknown, permissions: string[]) => ({
+        'permission.count': permissions?.length ?? 0,
+    }))
     async checkMany(
         actor: Actor,
         permissions: string[],
@@ -281,6 +285,16 @@ export class PermissionService extends PuterService {
      * options. Returns a tree-shaped "reading". Use
      * `PermissionUtil.readingToOptions()` to flatten to a yes/no answer.
      */
+    // `check()` is a thin wrapper over scan(), so the span lives here —
+    // one span per evaluation regardless of which entry point was used.
+    @Span(
+        'permission.scan',
+        (_actor: unknown, permissionOptions: string | string[]) => ({
+            'permission.options': Array.isArray(permissionOptions)
+                ? permissionOptions.join(',')
+                : permissionOptions,
+        }),
+    )
     async scan(
         actor: Actor,
         permissionOptions: string | string[],

@@ -43,6 +43,7 @@ import { once } from 'node:events';
 import { Agent as httpsAgent } from 'node:https';
 import { HttpError } from '../../core/http';
 import type { IConfig, IDynamoConfig } from '../../types';
+import { Span } from '../../util/span.js';
 import { PuterClient } from '../types';
 
 const LOCAL_DYNAMO_MEMORY_PREFIX = ':memory:';
@@ -151,6 +152,7 @@ export class DDBClient extends PuterClient {
         await this.#localInitPromise;
     }
 
+    @Span('ddb.get', (table: string) => ({ 'db.table': table }))
     async get<T extends Record<string, unknown>>(
         table: string,
         key: T,
@@ -167,6 +169,7 @@ export class DDBClient extends PuterClient {
         return client.send(command);
     }
 
+    @Span('ddb.put', (table: string) => ({ 'db.table': table }))
     async put<T extends Record<string, unknown>>(table: string, item: T) {
         const command = new PutCommand({
             TableName: table,
@@ -178,6 +181,9 @@ export class DDBClient extends PuterClient {
         return client.send(command);
     }
 
+    @Span('ddb.batchGet', (params: unknown[]) => ({
+        'db.batch_size': params.length,
+    }))
     async batchGet(
         params: { table: string; items: Record<string, unknown> }[],
         consistentRead = false,
@@ -212,6 +218,9 @@ export class DDBClient extends PuterClient {
         return client.send(command);
     }
 
+    @Span('ddb.batchPut', (params: unknown[]) => ({
+        'db.batch_size': params.length,
+    }))
     async batchPut(params: { table: string; item: Record<string, unknown> }[]) {
         const consumedCapacityByTable = new Map<string, number>();
         if (params.length === 0) {
@@ -318,6 +327,7 @@ export class DDBClient extends PuterClient {
         };
     }
 
+    @Span('ddb.del', (table: string) => ({ 'db.table': table }))
     async del<T extends Record<string, unknown>>(table: string, key: T) {
         const command = new DeleteCommand({
             TableName: table,
@@ -329,6 +339,7 @@ export class DDBClient extends PuterClient {
         return client.send(command);
     }
 
+    @Span('ddb.query', (table: string) => ({ 'db.table': table }))
     async query<T extends Record<string, unknown>>(
         table: string,
         keys: T,
@@ -383,6 +394,7 @@ export class DDBClient extends PuterClient {
         return client.send(command);
     }
 
+    @Span('ddb.update', (table: string) => ({ 'db.table': table }))
     async update<T extends Record<string, unknown>>(
         table: string,
         key: T,

@@ -20,6 +20,7 @@
 import { readdirSync, readFileSync } from 'fs';
 import { isAbsolute, resolve as resolvePath } from 'path';
 import { Pool, type PoolConfig, type QueryResult } from 'pg';
+import { Span } from '../../util/span.js';
 import {
     AbstractDatabaseClient,
     type BatchEntry,
@@ -214,6 +215,7 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
         return value;
     }
 
+    @Span('db.read', (query: string) => ({ 'db.statement': query }))
     override async read(
         query: string,
         params: unknown[] = [],
@@ -222,6 +224,7 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
         return normalizePostgresRows(result);
     }
 
+    @Span('db.pread', (query: string) => ({ 'db.statement': query }))
     override async pread(
         query: string,
         params: unknown[] = [],
@@ -230,6 +233,7 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
         return normalizePostgresRows(result);
     }
 
+    @Span('db.write', (query: string) => ({ 'db.statement': query }))
     override async write(
         query: string,
         params: unknown[] = [],
@@ -238,6 +242,9 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
         return mapPostgresWriteResult(result);
     }
 
+    @Span('db.batchWrite', (entries: unknown[]) => ({
+        'db.batch_size': entries.length,
+    }))
     override async batchWrite(entries: BatchEntry[]): Promise<void> {
         if (entries.length === 0) return;
 
@@ -258,6 +265,7 @@ export class PostgresDatabaseClient extends AbstractDatabaseClient {
         }
     }
 
+    @Span('db.tryHardRead', (query: string) => ({ 'db.statement': query }))
     override async tryHardRead(
         query: string,
         params: unknown[] = [],

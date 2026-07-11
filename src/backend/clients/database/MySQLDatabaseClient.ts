@@ -20,6 +20,7 @@
 import { readdirSync, readFileSync } from 'fs';
 import { isAbsolute, resolve as resolvePath } from 'path';
 import { createPool, type Pool } from 'mysql2';
+import { Span } from '../../util/span.js';
 import { AbstractDatabaseClient, type WriteResult } from './DatabaseClient';
 import { SQLBatcher } from './SQLBatcher.js';
 import { splitMysqlStatements } from './splitMysqlStatements.js';
@@ -135,6 +136,10 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
     // Query interface
     // ------------------------------------------------------------------
 
+    // The db.* spans measure the logical query, including time queued in
+    // the SQLBatcher — the mysql2 auto-instrumentation only sees the
+    // coalesced multi-statement flush, so per-query latency lives here.
+    @Span('db.read', (query: string) => ({ 'db.statement': query }))
     override async read(
         query: string,
         params: unknown[] = [],
@@ -144,6 +149,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         return (result[0] as Record<string, unknown>[]) ?? [];
     }
 
+    @Span('db.pread', (query: string) => ({ 'db.statement': query }))
     override async pread(
         query: string,
         params: unknown[] = [],
@@ -153,6 +159,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         return (result[0] as Record<string, unknown>[]) ?? [];
     }
 
+    @Span('db.write', (query: string) => ({ 'db.statement': query }))
     override async write(
         query: string,
         params: unknown[] = [],
@@ -170,6 +177,9 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         };
     }
 
+    @Span('db.batchWrite', (entries: unknown[]) => ({
+        'db.batch_size': entries.length,
+    }))
     override async batchWrite(
         entries: { statement: string; values: unknown[] }[],
     ): Promise<void> {
@@ -195,6 +205,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         }
     }
 
+    @Span('db.tryHardRead', (query: string) => ({ 'db.statement': query }))
     override async tryHardRead(
         query: string,
         params: unknown[] = [],

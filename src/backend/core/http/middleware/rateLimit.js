@@ -18,6 +18,7 @@
  */
 
 import crypto from 'node:crypto';
+import { withSpan } from '../../../util/span.js';
 import { HttpError } from '../HttpError.js';
 
 /**
@@ -256,8 +257,32 @@ async function acquireKvConcurrent(kv, key, limit) {
 // limiting — so route / driver code never has to reason about which
 // backend is wired for which mode.
 
+/**
+ * Wrap a backend pair so every rate / acquire call runs inside a span
+ * tagged with the backend name. Applied at registration, so all gates
+ * (route middleware, driver helpers, imperative checks) are covered.
+ */
+function instrumentBackendPair(name, pair) {
+    const attrs = { 'rate_limit.backend': name };
+    return {
+        rate: (key, limit, windowMs) =>
+            withSpan('rate_limit.check', attrs, () =>
+                pair.rate(key, limit, windowMs),
+            ),
+        acquire: (key, limit) =>
+            withSpan('rate_limit.acquire', attrs, () =>
+                pair.acquire(key, limit),
+            ),
+    };
+}
+
+const memoryBackendPair = instrumentBackendPair('memory', {
+    rate: checkMemory,
+    acquire: acquireMemoryConcurrent,
+});
+
 const backends = {
-    memory: { rate: checkMemory, acquire: acquireMemoryConcurrent },
+    memory: memoryBackendPair,
 };
 let defaultBackendName = 'memory';
 
@@ -295,19 +320,19 @@ export function configureRateLimit({
 } = {}) {
     // Reset (test reconfigure clears stale wiring).
     for (const name of Object.keys(backends)) delete backends[name];
-    backends.memory = { rate: checkMemory, acquire: acquireMemoryConcurrent };
+    backends.memory = memoryBackendPair;
     if (redis) {
-        backends.redis = {
+        backends.redis = instrumentBackendPair('redis', {
             rate: (key, limit, windowMs) =>
                 checkRedis(redis, key, limit, windowMs),
             acquire: (key, limit) => acquireRedisConcurrent(redis, key, limit),
-        };
+        });
     }
     if (kv) {
-        backends.kv = {
+        backends.kv = instrumentBackendPair('kv', {
             rate: (key, limit, windowMs) => checkKv(kv, key, limit, windowMs),
             acquire: (key, limit) => acquireKvConcurrent(kv, key, limit),
-        };
+        });
     }
 
     meteringService = metering ?? null;
