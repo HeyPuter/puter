@@ -491,6 +491,32 @@ const TabApps = {
     async loadApps ($el_window) {
         const $container = $el_window.find('.myapps-container');
 
+        // Subtle centered spinner, but only if the fetch is slow (>1.5s) so
+        // fast loads never flash it; once visible it stays for at least 1.5s
+        // so it doesn't blink out. Skipped on background refreshes — the
+        // current apps stay on screen while new data loads.
+        const SPINNER_DELAY = 1500;
+        const SPINNER_MIN_VISIBLE = 1500;
+        let spinnerShownAt = null;
+        const spinnerTimer = setTimeout(() => {
+            // Only cover an empty container; if tiles (or any state) are
+            // already on screen this is a background refresh — keep them.
+            if ( $container.children().length > 0 ) return;
+            spinnerShownAt = Date.now();
+            $container.html('<div class="myapps-loading"><div class="myapps-spinner"></div></div>');
+        }, SPINNER_DELAY);
+
+        const finish = async (render) => {
+            clearTimeout(spinnerTimer);
+            if ( spinnerShownAt !== null ) {
+                const remaining = SPINNER_MIN_VISIBLE - (Date.now() - spinnerShownAt);
+                if ( remaining > 0 ) {
+                    await new Promise(resolve => setTimeout(resolve, remaining));
+                }
+            }
+            render();
+        };
+
         try {
             // Fetch both APIs in parallel
             const [installedRes, launchRes] = await Promise.all([
@@ -544,10 +570,12 @@ const TabApps = {
             }
 
             this._apps = merged;
-            this.renderApps($el_window);
+            await finish(() => this.renderApps($el_window));
         } catch (e) {
             console.error('Failed to load installed apps:', e);
-            $container.html('<div class="myapps-empty"><p>Failed to load apps</p></div>');
+            await finish(() => {
+                $container.html('<div class="myapps-empty"><p>Failed to load apps</p></div>');
+            });
         }
     },
 
