@@ -1750,6 +1750,7 @@ export class AuthController extends PuterController {
             fingerprint: null as string | null,
             funding: null as string | null,
             country: null as string | null,
+            customer_id: null as string | null,
         };
         try {
             await this.clients.event?.emitAndWait(
@@ -1806,6 +1807,7 @@ export class AuthController extends PuterController {
                     fingerprint: confirmEvent.fingerprint,
                     funding: confirmEvent.funding,
                     country: confirmEvent.country,
+                    customer_id: confirmEvent.customer_id,
                 } as never,
                 {},
             );

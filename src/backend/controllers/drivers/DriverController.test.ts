@@ -671,7 +671,7 @@ describe('DriverController.#handleCall tracing', () => {
             .find((s) => s.name === 'driver.puter-kvstore.set');
         expect(driverSpan).toBeDefined();
         expect(driverSpan!.attributes).toMatchObject({
-            'driver.interface': 'puter-kvstore',
+            driver: 'puter-kvstore',
             'driver.method': 'set',
             'driver.name': 'puter-kvstore',
         });
