@@ -32,6 +32,7 @@ const RECOMMENDED_APP_NAMES = [
     'app-center',
     'dev-center',
     'butler',
+    'calculator',
     'code',
     'music-player',
     'contacts',
