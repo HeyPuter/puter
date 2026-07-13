@@ -155,6 +155,19 @@ export class EventClient extends PuterClient {
             this.#eventListeners[key] ?? (this.#eventListeners[key] = []);
         listeners.push(callback as EventListener);
     }
+    off<P extends ListenKey>(
+        key: P,
+        callback: (
+            key: MatchingEvents<P>,
+            data: EventMap[MatchingEvents<P>],
+            meta: EventMetadata,
+        ) => Promise<void> | void,
+    ) {
+        const listeners = this.#eventListeners[key];
+        if (!listeners) return;
+        const idx = listeners.indexOf(callback as EventListener);
+        if (idx !== -1) listeners.splice(idx, 1);
+    }
     async #emitEvent<T extends keyof EventMap>(
         listener: EventListener,
         key: T,

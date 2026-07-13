@@ -55,6 +55,347 @@ import { ProcessService } from './services/ProcessService.js';
 import { ThemeService } from './services/ThemeService.js';
 import { privacy_aware_path } from './util/desktop.js';
 
+const postAuthActions = async (action) => {
+    // -------------------------------------------------------------------------------------
+    // Action: AuthMe — redirect to a third-party URL with the user's auth token
+    // -------------------------------------------------------------------------------------
+    if ( action === 'authme' ) {
+        const redirectURL = window.url_query_params.get('redirectURL');
+        if ( redirectURL ) {
+            const approved = await UIWindowAuthMe({
+                redirect_url: redirectURL,
+            });
+            if ( approved ) {
+                // Hand the app a named, revocable full-API-access
+                // token instead of the raw GUI/session token: it can
+                // use the whole API but can't manage the account.
+                let host = '';
+                try { host = new URL(redirectURL).host; } catch ( e ) { /* ignore */ }
+                let token;
+                try {
+                    token = await create_access_token({
+                        label: host
+                            ? `${i18n('token_label_external_app')} (${host})`
+                            : i18n('token_label_external_app'),
+                    });
+                } catch ( e ) {
+                    await UIAlert({ message: e?.message ?? String(e) });
+                    return;
+                }
+                const url = new URL(redirectURL);
+                url.searchParams.set('token', token);
+                window.location.href = url.href;
+                return;
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------------------
+    // Action: CopyAuth — show dialog to copy auth token
+    // -------------------------------------------------------------------------------------
+    if ( action === 'copyauth' ) {
+        await UIWindowCopyToken({ show_header: true });
+    }
+
+    // -------------------------------------------------------------------------------------
+    // Load desktop, only if we're not embedded in a popup and not on the dashboard page
+    // -------------------------------------------------------------------------------------
+    if ( !window.embedded_in_popup && !window.is_dashboard_mode ) {
+        if ( window.is_fullpage_mode ) {
+            // In fullpage mode, skip loading desktop items and background
+            UIDesktop({});
+        } else {
+            await window.get_auto_arrange_data();
+            puter.fs.stat({ path: window.desktop_path, consistency: 'eventual' }).then(desktop_fsentry => {
+                UIDesktop({ desktop_fsentry: desktop_fsentry });
+            });
+        }
+    }
+    // -------------------------------------------------------------------------------------
+    // Dashboard mode
+    // -------------------------------------------------------------------------------------
+    else if ( window.is_dashboard_mode ) {
+        UIDashboard();
+    }
+    // -------------------------------------------------------------------------------------
+    // If embedded in a popup, send the token to the opener and close the popup
+    // -------------------------------------------------------------------------------------
+    else {
+        let msg_id = window.url_query_params.get('msg_id');
+        let isolated = window.url_query_params.get("cross_origin_isolated") === 'true';
+        let session = window.url_query_params.get('signin_session');
+        if (isolated) {
+            try {
+                const data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
+                const resp = await fetch(`${window.api_origin}/login/set`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        auth_token: data.token,
+                        session: session,
+                    }),
+                });
+                if (!resp.ok) {
+                    throw new Error(`/login/set failed: ${resp.status} ${resp.statusText}`);
+                }
+                window.close();
+                window.open('', '_self').close();
+            } catch (err) {
+                console.error(err);
+                await UIAlert({
+                    message: "Couldn't sign you in. Please try again.",
+                });
+            }
+            return;
+        } else {
+            try {
+                let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
+                // This is an implicit app and the app_uid is sent back from the server
+                // we cache it here so that we can use it later
+                window.host_app_uid = data.app_uid;
+                // send token to parent
+                window.opener.postMessage({
+                    msg: 'puter.token',
+                    success: true,
+                    token: data.token,
+                    app_uid: data.app_uid,
+                    username: window.user.username,
+                    msg_id: msg_id,
+                }, window.openerOrigin);
+                // close popup
+                if ( !action || action === 'sign-in' ) {
+                    window.close();
+                    window.open('', '_self').close();
+                }
+            } catch ( err ) {
+                // send error to parent
+                window.opener.postMessage({
+                    msg: 'puter.token',
+                    success: false,
+                    token: null,
+                    msg_id: msg_id,
+                }, window.openerOrigin);
+                // close popup
+                window.close();
+                window.open('', '_self').close();
+            }
+        }
+
+        let app_uid;
+
+        if ( window.openerOrigin ) {
+            app_uid = await window.getAppUIDFromOrigin(window.openerOrigin);
+            window.host_app_uid = app_uid;
+        }
+
+        if ( action === 'show-open-file-picker' ) {
+            let options = window.url_query_params.get('options');
+            options = JSON.parse(options ?? '{}');
+
+            // Open dialog
+            UIWindow({
+                allowed_file_types: options?.accept,
+                selectable_body: options?.multiple,
+                path: `/${ window.user.username }/Desktop`,
+                // this is the uuid of the window to which this dialog will return
+                return_to_parent_window: true,
+                show_maximize_button: false,
+                show_minimize_button: false,
+                title: 'Open',
+                is_dir: true,
+                is_openFileDialog: true,
+                is_resizable: false,
+                has_head: false,
+                cover_page: true,
+                // selectable_body: is_selectable_body,
+                iframe_msg_uid: msg_id,
+                center: true,
+                initiating_app_uuid: app_uid,
+                on_close: function () {
+                    window.opener.postMessage({
+                        msg: 'fileOpenCanceled',
+                        original_msg_id: msg_id,
+                    }, '*');
+                },
+            });
+        }
+        //--------------------------------------------------------------------------------------
+        // Action: Show Directory Picker
+        //--------------------------------------------------------------------------------------
+        else if ( action === 'show-directory-picker' ) {
+            // open directory picker dialog
+            UIWindow({
+                path: `/${ window.user.username }/Desktop`,
+                // this is the uuid of the window to which this dialog will return
+                // parent_uuid: event.data.appInstanceID,
+                return_to_parent_window: true,
+                show_maximize_button: false,
+                show_minimize_button: false,
+                title: 'Open',
+                is_dir: true,
+                is_directoryPicker: true,
+                is_resizable: false,
+                has_head: false,
+                cover_page: true,
+                // selectable_body: is_selectable_body,
+                iframe_msg_uid: msg_id,
+                center: true,
+                initiating_app_uuid: app_uid,
+                on_close: function () {
+                    window.opener.postMessage({
+                        msg: 'directoryOpenCanceled',
+                        original_msg_id: msg_id,
+                    }, '*');
+                },
+            });
+        }
+        //--------------------------------------------------------------------------------------
+        // Action: Show Save File Dialog
+        //--------------------------------------------------------------------------------------
+        else if ( action === 'show-save-file-picker' ) {
+            let allowed_file_types = window.url_query_params.get('allowed_file_types');
+
+            // send 'sendMeFileData' event to parent
+            window.opener.postMessage({
+                msg: 'sendMeFileData',
+            }, '*');
+
+            // listen for 'showSaveFilePickerPopup' event from parent
+            window.addEventListener('message', async (event) => {
+                if ( event.data.msg !== 'showSaveFilePickerPopup' )
+                {
+                    return;
+                }
+
+                // Open dialog
+                UIWindow({
+                    allowed_file_types: allowed_file_types,
+                    path: `/${ window.user.username }/Desktop`,
+                    // this is the uuid of the window to which this dialog will return
+                    return_to_parent_window: true,
+                    show_maximize_button: false,
+                    show_minimize_button: false,
+                    title: 'Save',
+                    is_dir: true,
+                    is_saveFileDialog: true,
+                    is_resizable: false,
+                    has_head: false,
+                    cover_page: true,
+                    // selectable_body: is_selectable_body,
+                    iframe_msg_uid: msg_id,
+                    center: true,
+                    initiating_app_uuid: app_uid,
+                    on_close: function () {
+                        window.opener.postMessage({
+                            msg: 'fileSaveCanceled',
+                            original_msg_id: msg_id,
+                        }, '*');
+                    },
+                    onSaveFileDialogSave: async function (target_path, el_filedialog_window) {
+                        $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').show();
+                        let busy_init_ts = Date.now();
+
+                        let overwrite = false;
+                        let file_to_upload = new File([event.data.content], path.basename(target_path));
+                        let item_with_same_name_already_exists = true;
+                        while ( item_with_same_name_already_exists ) {
+                            // overwrite?
+                            if ( overwrite )
+                            {
+                                item_with_same_name_already_exists = false;
+                            }
+                            // upload
+                            try {
+                                const res = await puter.fs.write(
+                                    target_path,
+                                    file_to_upload,
+                                    {
+                                        dedupeName: false,
+                                        overwrite: overwrite,
+                                    },
+                                );
+
+                                let file_signature = await puter.fs.sign(app_uid, { uid: res.uid, action: 'write' });
+                                file_signature = file_signature.items;
+
+                                item_with_same_name_already_exists = false;
+                                window.opener.postMessage({
+                                    msg: 'fileSaved',
+                                    original_msg_id: msg_id,
+                                    filename: res.name,
+                                    saved_file: {
+                                        name: file_signature.fsentry_name,
+                                        readURL: file_signature.read_url,
+                                        writeURL: file_signature.write_url,
+                                        metadataURL: file_signature.metadata_url,
+                                        type: file_signature.type,
+                                        uid: file_signature.uid,
+                                        path: privacy_aware_path(res.path),
+                                    },
+                                }, '*');
+
+                                window.close();
+                                window.open('', '_self').close();
+                            }
+                            catch ( err ) {
+                                // item with same name exists
+                                if ( err.code === 'item_with_same_name_exists' ) {
+                                    const alert_resp = await UIAlert({
+                                        message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
+                                        buttons: [
+                                            {
+                                                label: i18n('replace'),
+                                                value: 'replace',
+                                                type: 'primary',
+                                            },
+                                            {
+                                                label: i18n('cancel'),
+                                                value: 'cancel',
+                                            },
+                                        ],
+                                        parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
+                                    });
+                                    if ( alert_resp === 'replace' ) {
+                                        overwrite = true;
+                                    } else if ( alert_resp === 'cancel' ) {
+                                        // enable parent window
+                                        $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
+                                        return;
+                                    }
+                                }
+                                else {
+                                    console.log(err);
+                                    // show error
+                                    await UIAlert({
+                                        message: err.message ?? 'Upload failed.',
+                                        parent_uuid: $(el_filedialog_window).attr('data-element_uuid'),
+                                    });
+                                    // enable parent window
+                                    $(el_filedialog_window).find('.window-disable-mask, .busy-indicator').hide();
+                                    return;
+                                }
+                            }
+                        }
+
+                        // done
+                        let busy_duration = (Date.now() - busy_init_ts);
+                        if ( busy_duration >= window.busy_indicator_hide_delay ) {
+                            $(el_filedialog_window).close();
+                        } else {
+                            setTimeout(() => {
+                                // close this dialog
+                                $(el_filedialog_window).close();
+                            }, Math.abs(window.busy_indicator_hide_delay - busy_duration));
+                        }
+                    },
+                });
+            });
+        }
+    }
+};
+
 const launch_services = async function (options) {
     // === Services Data Structures ===
     const services_l_ = [];
@@ -257,16 +598,16 @@ window.showTurnstileChallenge = function (options) {
                         <img src="${window.icons['logo-white.svg']}" class="captcha-logo">
                         <h2 class="captcha-title">Welcome to Puter!</h2>
                     </div>
-                    
+
                     <div class="captcha-container">
                         <div id="captcha-widget-${modalId}" data-sitekey="${siteKey}"></div>
                     </div>
-                    
+
                     <div class="loading-state">
                         <div class="loading-state-icon"></div>
                         ${message}
                     </div>
-                    
+
                     <div class="error-message"></div>
                 </div>
             </div>
@@ -1107,396 +1448,7 @@ window.initgui = async function (options) {
                 whoami,
             );
 
-            // -------------------------------------------------------------------------------------
-            // Action: AuthMe — redirect to a third-party URL with the user's auth token
-            // -------------------------------------------------------------------------------------
-            if (action === 'authme') {
-                const redirectURL = window.url_query_params.get('redirectURL');
-                if (redirectURL) {
-                    const approved = await UIWindowAuthMe({
-                        redirect_url: redirectURL,
-                    });
-                    if (approved) {
-                        // Hand the app a named, revocable full-API-access
-                        // token instead of the raw GUI/session token: it can
-                        // use the whole API but can't manage the account.
-                        let host = '';
-                        try {
-                            host = new URL(redirectURL).host;
-                        } catch (e) {
-                            /* ignore */
-                        }
-                        let token;
-                        try {
-                            token = await create_access_token({
-                                label: host
-                                    ? `${i18n('token_label_external_app')} (${host})`
-                                    : i18n('token_label_external_app'),
-                            });
-                        } catch (e) {
-                            await UIAlert({ message: e?.message ?? String(e) });
-                            return;
-                        }
-                        const url = new URL(redirectURL);
-                        url.searchParams.set('token', token);
-                        window.location.href = url.href;
-                        return;
-                    }
-                }
-            }
-
-            // -------------------------------------------------------------------------------------
-            // Action: CopyAuth — show dialog to copy auth token
-            // -------------------------------------------------------------------------------------
-            if (action === 'copyauth') {
-                await UIWindowCopyToken({ show_header: true });
-            }
-
-            // -------------------------------------------------------------------------------------
-            // Load desktop, only if we're not embedded in a popup and not on the dashboard page
-            // -------------------------------------------------------------------------------------
-            if (!window.embedded_in_popup && !window.is_dashboard_mode) {
-                if (window.is_fullpage_mode) {
-                    // In fullpage mode, skip loading desktop items and background
-                    UIDesktop({});
-                } else {
-                    await window.get_auto_arrange_data();
-                    puter.fs
-                        .stat({
-                            path: window.desktop_path,
-                            consistency: 'eventual',
-                        })
-                        .then((desktop_fsentry) => {
-                            UIDesktop({ desktop_fsentry: desktop_fsentry });
-                        });
-                }
-            }
-            // -------------------------------------------------------------------------------------
-            // Dashboard mode
-            // -------------------------------------------------------------------------------------
-            else if (window.is_dashboard_mode) {
-                UIDashboard();
-            }
-            // -------------------------------------------------------------------------------------
-            // If embedded in a popup, send the token to the opener and close the popup
-            // -------------------------------------------------------------------------------------
-            else {
-                let msg_id = window.url_query_params.get('msg_id');
-                try {
-                    let data = await window.getUserAppToken(
-                        new URL(window.openerOrigin).origin,
-                    );
-                    // This is an implicit app and the app_uid is sent back from the server
-                    // we cache it here so that we can use it later
-                    window.host_app_uid = data.app_uid;
-                    // send token to parent
-                    window.opener.postMessage(
-                        {
-                            msg: 'puter.token',
-                            success: true,
-                            token: data.token,
-                            app_uid: data.app_uid,
-                            username: window.user.username,
-                            msg_id: msg_id,
-                        },
-                        window.openerOrigin,
-                    );
-                    // close popup
-                    if (!action || action === 'sign-in') {
-                        window.close();
-                        window.open('', '_self').close();
-                    }
-                } catch (err) {
-                    // send error to parent
-                    window.opener.postMessage(
-                        {
-                            msg: 'puter.token',
-                            success: false,
-                            token: null,
-                            msg_id: msg_id,
-                        },
-                        window.openerOrigin,
-                    );
-                    // close popup
-                    window.close();
-                    window.open('', '_self').close();
-                }
-
-                let app_uid;
-
-                if (window.openerOrigin) {
-                    app_uid = await window.getAppUIDFromOrigin(
-                        window.openerOrigin,
-                    );
-                    window.host_app_uid = app_uid;
-                }
-
-                if (action === 'show-open-file-picker') {
-                    let options = window.url_query_params.get('options');
-                    options = JSON.parse(options ?? '{}');
-
-                    // Open dialog
-                    UIWindow({
-                        allowed_file_types: options?.accept,
-                        selectable_body: options?.multiple,
-                        path: `/${window.user.username}/Desktop`,
-                        // this is the uuid of the window to which this dialog will return
-                        return_to_parent_window: true,
-                        show_maximize_button: false,
-                        show_minimize_button: false,
-                        title: 'Open',
-                        is_dir: true,
-                        is_openFileDialog: true,
-                        is_resizable: false,
-                        has_head: false,
-                        cover_page: true,
-                        // selectable_body: is_selectable_body,
-                        iframe_msg_uid: msg_id,
-                        center: true,
-                        initiating_app_uuid: app_uid,
-                        on_close: function () {
-                            window.opener.postMessage(
-                                {
-                                    msg: 'fileOpenCanceled',
-                                    original_msg_id: msg_id,
-                                },
-                                '*',
-                            );
-                        },
-                    });
-                }
-                //--------------------------------------------------------------------------------------
-                // Action: Show Directory Picker
-                //--------------------------------------------------------------------------------------
-                else if (action === 'show-directory-picker') {
-                    // open directory picker dialog
-                    UIWindow({
-                        path: `/${window.user.username}/Desktop`,
-                        // this is the uuid of the window to which this dialog will return
-                        // parent_uuid: event.data.appInstanceID,
-                        return_to_parent_window: true,
-                        show_maximize_button: false,
-                        show_minimize_button: false,
-                        title: 'Open',
-                        is_dir: true,
-                        is_directoryPicker: true,
-                        is_resizable: false,
-                        has_head: false,
-                        cover_page: true,
-                        // selectable_body: is_selectable_body,
-                        iframe_msg_uid: msg_id,
-                        center: true,
-                        initiating_app_uuid: app_uid,
-                        on_close: function () {
-                            window.opener.postMessage(
-                                {
-                                    msg: 'directoryOpenCanceled',
-                                    original_msg_id: msg_id,
-                                },
-                                '*',
-                            );
-                        },
-                    });
-                }
-                //--------------------------------------------------------------------------------------
-                // Action: Show Save File Dialog
-                //--------------------------------------------------------------------------------------
-                else if (action === 'show-save-file-picker') {
-                    let allowed_file_types =
-                        window.url_query_params.get('allowed_file_types');
-
-                    // send 'sendMeFileData' event to parent
-                    window.opener.postMessage(
-                        {
-                            msg: 'sendMeFileData',
-                        },
-                        '*',
-                    );
-
-                    // listen for 'showSaveFilePickerPopup' event from parent
-                    window.addEventListener('message', async (event) => {
-                        if (event.data.msg !== 'showSaveFilePickerPopup') {
-                            return;
-                        }
-
-                        // Open dialog
-                        UIWindow({
-                            allowed_file_types: allowed_file_types,
-                            path: `/${window.user.username}/Desktop`,
-                            // this is the uuid of the window to which this dialog will return
-                            return_to_parent_window: true,
-                            show_maximize_button: false,
-                            show_minimize_button: false,
-                            title: 'Save',
-                            is_dir: true,
-                            is_saveFileDialog: true,
-                            is_resizable: false,
-                            has_head: false,
-                            cover_page: true,
-                            // selectable_body: is_selectable_body,
-                            iframe_msg_uid: msg_id,
-                            center: true,
-                            initiating_app_uuid: app_uid,
-                            on_close: function () {
-                                window.opener.postMessage(
-                                    {
-                                        msg: 'fileSaveCanceled',
-                                        original_msg_id: msg_id,
-                                    },
-                                    '*',
-                                );
-                            },
-                            onSaveFileDialogSave: async function (
-                                target_path,
-                                el_filedialog_window,
-                            ) {
-                                $(el_filedialog_window)
-                                    .find(
-                                        '.window-disable-mask, .busy-indicator',
-                                    )
-                                    .show();
-                                let busy_init_ts = Date.now();
-
-                                let overwrite = false;
-                                let file_to_upload = new File(
-                                    [event.data.content],
-                                    path.basename(target_path),
-                                );
-                                let item_with_same_name_already_exists = true;
-                                while (item_with_same_name_already_exists) {
-                                    // overwrite?
-                                    if (overwrite) {
-                                        item_with_same_name_already_exists = false;
-                                    }
-                                    // upload
-                                    try {
-                                        const res = await puter.fs.write(
-                                            target_path,
-                                            file_to_upload,
-                                            {
-                                                dedupeName: false,
-                                                overwrite: overwrite,
-                                            },
-                                        );
-
-                                        let file_signature =
-                                            await puter.fs.sign(app_uid, {
-                                                uid: res.uid,
-                                                action: 'write',
-                                            });
-                                        file_signature = file_signature.items;
-
-                                        item_with_same_name_already_exists = false;
-                                        window.opener.postMessage(
-                                            {
-                                                msg: 'fileSaved',
-                                                original_msg_id: msg_id,
-                                                filename: res.name,
-                                                saved_file: {
-                                                    name: file_signature.fsentry_name,
-                                                    readURL:
-                                                        file_signature.read_url,
-                                                    writeURL:
-                                                        file_signature.write_url,
-                                                    metadataURL:
-                                                        file_signature.metadata_url,
-                                                    type: file_signature.type,
-                                                    uid: file_signature.uid,
-                                                    path: privacy_aware_path(
-                                                        res.path,
-                                                    ),
-                                                },
-                                            },
-                                            '*',
-                                        );
-
-                                        window.close();
-                                        window.open('', '_self').close();
-                                    } catch (err) {
-                                        // item with same name exists
-                                        if (
-                                            err.code ===
-                                            'item_with_same_name_exists'
-                                        ) {
-                                            const alert_resp = await UIAlert({
-                                                message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
-                                                buttons: [
-                                                    {
-                                                        label: i18n('replace'),
-                                                        value: 'replace',
-                                                        type: 'primary',
-                                                    },
-                                                    {
-                                                        label: i18n('cancel'),
-                                                        value: 'cancel',
-                                                    },
-                                                ],
-                                                parent_uuid:
-                                                    $(
-                                                        el_filedialog_window,
-                                                    ).attr('data-element_uuid'),
-                                            });
-                                            if (alert_resp === 'replace') {
-                                                overwrite = true;
-                                            } else if (
-                                                alert_resp === 'cancel'
-                                            ) {
-                                                // enable parent window
-                                                $(el_filedialog_window)
-                                                    .find(
-                                                        '.window-disable-mask, .busy-indicator',
-                                                    )
-                                                    .hide();
-                                                return;
-                                            }
-                                        } else {
-                                            console.log(err);
-                                            // show error
-                                            await UIAlert({
-                                                message:
-                                                    err.message ??
-                                                    'Upload failed.',
-                                                parent_uuid:
-                                                    $(
-                                                        el_filedialog_window,
-                                                    ).attr('data-element_uuid'),
-                                            });
-                                            // enable parent window
-                                            $(el_filedialog_window)
-                                                .find(
-                                                    '.window-disable-mask, .busy-indicator',
-                                                )
-                                                .hide();
-                                            return;
-                                        }
-                                    }
-                                }
-
-                                // done
-                                let busy_duration = Date.now() - busy_init_ts;
-                                if (
-                                    busy_duration >=
-                                    window.busy_indicator_hide_delay
-                                ) {
-                                    $(el_filedialog_window).close();
-                                } else {
-                                    setTimeout(
-                                        () => {
-                                            // close this dialog
-                                            $(el_filedialog_window).close();
-                                        },
-                                        Math.abs(
-                                            window.busy_indicator_hide_delay -
-                                                busy_duration,
-                                        ),
-                                    );
-                                }
-                            },
-                        });
-                    });
-                }
-            }
-
+            await postAuthActions(action);
             // ----------------------------------------------------------
             // Get user's sites
             // ----------------------------------------------------------
@@ -1793,51 +1745,6 @@ window.initgui = async function (options) {
         $('.window').close();
 
         // -------------------------------------------------------------------------------------
-        // Action: AuthMe — redirect to a third-party URL with the user's auth token
-        // -------------------------------------------------------------------------------------
-        if (action === 'authme') {
-            const redirectURL = window.url_query_params.get('redirectURL');
-            if (redirectURL) {
-                const approved = await UIWindowAuthMe({
-                    redirect_url: redirectURL,
-                });
-                if (approved) {
-                    // Hand the app a named, revocable full-API-access token
-                    // instead of the raw GUI/session token: it can use the
-                    // whole API but can't manage the account.
-                    let host = '';
-                    try {
-                        host = new URL(redirectURL).host;
-                    } catch (e) {
-                        /* ignore */
-                    }
-                    let token;
-                    try {
-                        token = await create_access_token({
-                            label: host
-                                ? `${i18n('token_label_external_app')} (${host})`
-                                : i18n('token_label_external_app'),
-                        });
-                    } catch (e) {
-                        await UIAlert({ message: e?.message ?? String(e) });
-                        return;
-                    }
-                    const url = new URL(redirectURL);
-                    url.searchParams.set('token', token);
-                    window.location.href = url.href;
-                    return;
-                }
-            }
-        }
-
-        // -------------------------------------------------------------------------------------
-        // Action: CopyAuth — show dialog to copy auth token
-        // -------------------------------------------------------------------------------------
-        if (action === 'copyauth') {
-            await UIWindowCopyToken({ show_header: true });
-        }
-
-        // -------------------------------------------------------------------------------------
         // Early check for fullpage mode from app metadata (after login)
         // -------------------------------------------------------------------------------------
         if (
@@ -1859,345 +1766,7 @@ window.initgui = async function (options) {
             }
         }
 
-        // -------------------------------------------------------------------------------------
-        // Load desktop, if not embedded in a popup and not on the dashboard page
-        // -------------------------------------------------------------------------------------
-        if (!window.embedded_in_popup && !window.is_dashboard_mode) {
-            if (window.is_fullpage_mode) {
-                // In fullpage mode, skip loading desktop items and background
-                UIDesktop({});
-            } else {
-                await window.get_auto_arrange_data();
-                puter.fs
-                    .stat({
-                        path: window.desktop_path,
-                        consistency: 'eventual',
-                    })
-                    .then((desktop_fsentry) => {
-                        UIDesktop({ desktop_fsentry: desktop_fsentry });
-                    });
-            }
-        }
-        // -------------------------------------------------------------------------------------
-        // Dashboard mode: open explorer pointing to home directory
-        // -------------------------------------------------------------------------------------
-        else if (window.is_dashboard_mode) {
-            UIDashboard();
-        }
-        // -------------------------------------------------------------------------------------
-        // If embedded in a popup, send the 'ready' event to referrer and close the popup
-        // -------------------------------------------------------------------------------------
-        else {
-            let msg_id = window.url_query_params.get('msg_id');
-            try {
-                let data = await window.getUserAppToken(
-                    new URL(window.openerOrigin).origin,
-                );
-                // This is an implicit app and the app_uid is sent back from the server
-                // we cache it here so that we can use it later
-                window.host_app_uid = data.app_uid;
-                // send token to parent
-                window.opener.postMessage(
-                    {
-                        msg: 'puter.token',
-                        success: true,
-                        msg_id: msg_id,
-                        token: data.token,
-                        username: window.user.username,
-                        app_uid: data.app_uid,
-                    },
-                    window.openerOrigin,
-                );
-                // close popup
-                if (!action || action === 'sign-in') {
-                    window.close();
-                    window.open('', '_self').close();
-                }
-            } catch (err) {
-                // send error to parent
-                window.opener.postMessage(
-                    {
-                        msg: 'puter.token',
-                        msg_id: msg_id,
-                        success: false,
-                        token: null,
-                    },
-                    window.openerOrigin,
-                );
-                // close popup
-                window.close();
-                window.open('', '_self').close();
-            }
-
-            let app_uid;
-
-            if (window.openerOrigin) {
-                app_uid = await window.getAppUIDFromOrigin(window.openerOrigin);
-                window.host_app_uid = app_uid;
-            }
-
-            //--------------------------------------------------------------------------------------
-            // Action: Show Open File Picker
-            //--------------------------------------------------------------------------------------
-            if (action === 'show-open-file-picker') {
-                let options = window.url_query_params.get('options');
-                options = JSON.parse(options ?? '{}');
-
-                // Open dialog
-                UIWindow({
-                    allowed_file_types: options?.accept,
-                    selectable_body: options?.multiple,
-                    path: `/${window.user.username}/Desktop`,
-                    return_to_parent_window: true,
-                    show_maximize_button: false,
-                    show_minimize_button: false,
-                    title: 'Open',
-                    is_dir: true,
-                    is_openFileDialog: true,
-                    is_resizable: false,
-                    has_head: false,
-                    cover_page: true,
-                    iframe_msg_uid: msg_id,
-                    center: true,
-                    initiating_app_uuid: app_uid,
-                    on_close: function () {
-                        window.opener.postMessage(
-                            {
-                                msg: 'fileOpenCanceled',
-                                original_msg_id: msg_id,
-                            },
-                            '*',
-                        );
-                    },
-                });
-            }
-            //--------------------------------------------------------------------------------------
-            // Action: Show Directory Picker
-            //--------------------------------------------------------------------------------------
-            else if (action === 'show-directory-picker') {
-                // open directory picker dialog
-                UIWindow({
-                    path: `/${window.user.username}/Desktop`,
-                    // this is the uuid of the window to which this dialog will return
-                    // parent_uuid: event.data.appInstanceID,
-                    return_to_parent_window: true,
-                    show_maximize_button: false,
-                    show_minimize_button: false,
-                    title: 'Open',
-                    is_dir: true,
-                    is_directoryPicker: true,
-                    is_resizable: false,
-                    has_head: false,
-                    cover_page: true,
-                    // selectable_body: is_selectable_body,
-                    iframe_msg_uid: msg_id,
-                    center: true,
-                    initiating_app_uuid: app_uid,
-                    on_close: function () {
-                        window.opener.postMessage(
-                            {
-                                msg: 'directoryOpenCanceled',
-                                original_msg_id: msg_id,
-                            },
-                            '*',
-                        );
-                    },
-                });
-            }
-
-            //--------------------------------------------------------------------------------------
-            // Action: Show Save File Dialog
-            //--------------------------------------------------------------------------------------
-            else if (action === 'show-save-file-picker') {
-                let allowed_file_types =
-                    window.url_query_params.get('allowed_file_types');
-
-                // send 'sendMeFileData' event to parent
-                window.opener.postMessage(
-                    {
-                        msg: 'sendMeFileData',
-                    },
-                    '*',
-                );
-
-                // listen for 'showSaveFilePickerPopup' event from parent
-                window.addEventListener('message', async (event) => {
-                    if (event.data.msg !== 'showSaveFilePickerPopup') {
-                        return;
-                    }
-
-                    // Open dialog
-                    UIWindow({
-                        allowed_file_types: allowed_file_types,
-                        path: `/${window.user.username}/Desktop`,
-                        // this is the uuid of the window to which this dialog will return
-                        return_to_parent_window: true,
-                        show_maximize_button: false,
-                        show_minimize_button: false,
-                        title: 'Save',
-                        is_dir: true,
-                        is_saveFileDialog: true,
-                        is_resizable: false,
-                        has_head: false,
-                        cover_page: true,
-                        // selectable_body: is_selectable_body,
-                        iframe_msg_uid: msg_id,
-                        center: true,
-                        initiating_app_uuid: app_uid,
-                        on_close: function () {
-                            window.opener.postMessage(
-                                {
-                                    msg: 'fileSaveCanceled',
-                                    original_msg_id: msg_id,
-                                },
-                                '*',
-                            );
-                        },
-                        onSaveFileDialogSave: async function (
-                            target_path,
-                            el_filedialog_window,
-                        ) {
-                            $(el_filedialog_window)
-                                .find('.window-disable-mask, .busy-indicator')
-                                .show();
-                            let busy_init_ts = Date.now();
-
-                            let overwrite = false;
-                            let file_to_upload = new File(
-                                [event.data.content],
-                                path.basename(target_path),
-                            );
-                            let item_with_same_name_already_exists = true;
-                            while (item_with_same_name_already_exists) {
-                                // overwrite?
-                                if (overwrite) {
-                                    item_with_same_name_already_exists = false;
-                                }
-                                // upload
-                                try {
-                                    const res = await puter.fs.write(
-                                        target_path,
-                                        file_to_upload,
-                                        {
-                                            dedupeName: false,
-                                            overwrite: overwrite,
-                                        },
-                                    );
-
-                                    let file_signature = await puter.fs.sign(
-                                        app_uid,
-                                        { uid: res.uid, action: 'write' },
-                                    );
-                                    file_signature = file_signature.items;
-
-                                    item_with_same_name_already_exists = false;
-                                    window.opener.postMessage(
-                                        {
-                                            msg: 'fileSaved',
-                                            original_msg_id: msg_id,
-                                            filename: res.name,
-                                            saved_file: {
-                                                name: file_signature.fsentry_name,
-                                                readURL:
-                                                    file_signature.read_url,
-                                                writeURL:
-                                                    file_signature.write_url,
-                                                metadataURL:
-                                                    file_signature.metadata_url,
-                                                type: file_signature.type,
-                                                uid: file_signature.uid,
-                                                path: privacy_aware_path(
-                                                    res.path,
-                                                ),
-                                            },
-                                        },
-                                        '*',
-                                    );
-
-                                    window.close();
-                                    window.open('', '_self').close();
-                                    // show_save_account_notice_if_needed();
-                                } catch (err) {
-                                    // item with same name exists
-                                    if (
-                                        err.code ===
-                                        'item_with_same_name_exists'
-                                    ) {
-                                        const alert_resp = await UIAlert({
-                                            message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
-                                            buttons: [
-                                                {
-                                                    label: i18n('replace'),
-                                                    value: 'replace',
-                                                    type: 'primary',
-                                                },
-                                                {
-                                                    label: i18n('cancel'),
-                                                    value: 'cancel',
-                                                },
-                                            ],
-                                            parent_uuid:
-                                                $(el_filedialog_window).attr(
-                                                    'data-element_uuid',
-                                                ),
-                                        });
-                                        if (alert_resp === 'replace') {
-                                            overwrite = true;
-                                        } else if (alert_resp === 'cancel') {
-                                            // enable parent window
-                                            $(el_filedialog_window)
-                                                .find(
-                                                    '.window-disable-mask, .busy-indicator',
-                                                )
-                                                .hide();
-                                            return;
-                                        }
-                                    } else {
-                                        console.log(err);
-                                        // show error
-                                        await UIAlert({
-                                            message:
-                                                err.message ?? 'Upload failed.',
-                                            parent_uuid:
-                                                $(el_filedialog_window).attr(
-                                                    'data-element_uuid',
-                                                ),
-                                        });
-                                        // enable parent window
-                                        $(el_filedialog_window)
-                                            .find(
-                                                '.window-disable-mask, .busy-indicator',
-                                            )
-                                            .hide();
-                                        return;
-                                    }
-                                }
-                            }
-
-                            // done
-                            let busy_duration = Date.now() - busy_init_ts;
-                            if (
-                                busy_duration >=
-                                window.busy_indicator_hide_delay
-                            ) {
-                                $(el_filedialog_window).close();
-                            } else {
-                                setTimeout(
-                                    () => {
-                                        // close this dialog
-                                        $(el_filedialog_window).close();
-                                    },
-                                    Math.abs(
-                                        window.busy_indicator_hide_delay -
-                                            busy_duration,
-                                    ),
-                                );
-                            }
-                        },
-                    });
-                });
-            }
-        }
+        await postAuthActions(action);
     });
 
     if (window.__login_completed) {
