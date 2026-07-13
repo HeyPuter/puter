@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { isSpanContextValid, trace } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
@@ -32,59 +31,6 @@ import {
     ATTR_SERVICE_NAME,
     ATTR_SERVICE_VERSION,
 } from '@opentelemetry/semantic-conventions';
-
-import { existsSync, readFileSync } from 'node:fs';
-import path from 'node:path';
-import { installJsonConsole } from './util/jsonConsole.js';
-
-/**
- * Resolve `log_format` with the SAME precedence as the server's `loadConfig`
- * (index.ts): defaults from `config.default.json`, overlaid by a single
- * override file — `PUTER_CONFIG_PATH` if it exists, else `<pkg>/config.json`.
- * This preload runs before the backend loads config, so it must stay in lockstep
- * with that resolution or it'd act on a value the server never sees.
- */
-const configLogFormat = (): unknown => {
-    const pkgRoot = path.resolve(__dirname, '../../..');
-    const readJson = (file: string): Record<string, unknown> => {
-        try {
-            return JSON.parse(readFileSync(file, 'utf8'));
-        } catch {
-            // A missing/invalid file is treated as no override; the server's
-            // loadConfig surfaces a real parse error moments later.
-            return {};
-        }
-    };
-
-    const defaultPath = path.join(pkgRoot, 'config.default.json');
-    const runtimePath = path.join(pkgRoot, 'config.json');
-    const envPath = process.env.PUTER_CONFIG_PATH;
-
-    const defaults = existsSync(defaultPath) ? readJson(defaultPath) : {};
-    const overridePath =
-        envPath && existsSync(envPath)
-            ? envPath
-            : existsSync(runtimePath)
-              ? runtimePath
-              : null;
-    const override = overridePath ? readJson(overridePath) : {};
-
-    // deepMerge over a scalar key == override wins when it sets the key.
-    return 'log_format' in override ? override.log_format : defaults.log_format;
-};
-
-// When config sets `log_format: "json"`, replace the global console so every
-// call emits one JSON line tagged with the active trace — one event per call,
-// filterable by level. Any other value (the default) leaves console untouched.
-if (configLogFormat() === 'json') {
-    installJsonConsole({
-        getTraceContext: () => {
-            const ctx = trace.getActiveSpan()?.spanContext();
-            if (!ctx || !isSpanContextValid(ctx)) return undefined;
-            return { traceId: ctx.traceId, spanId: ctx.spanId };
-        },
-    });
-}
 
 const endpoint =
     process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? 'http://localhost:4317';
