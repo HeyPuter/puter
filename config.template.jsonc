@@ -16,6 +16,12 @@
     // `dev` opens a browser on boot, skips blocked-email checks, and runs the
     // dev-time webpack watcher; `prod` serves pre-built bundles.
     "env": "dev",
+    // Console output format. `json` replaces the global console so every call
+    // emits one structured JSON line (level, timestamp, msg, and the active
+    // request's trace id) — one event per call, so a line-oriented log
+    // collector can't split stack traces across events and level filtering
+    // works. Unset (the default) leaves console output human-readable.
+    "log_format": "text",
     "version": "0.0.0",
     // Stable identity for this server node — used by pager alerts and
     // graceful-shutdown coordination.
