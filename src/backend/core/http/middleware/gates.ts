@@ -93,12 +93,10 @@ export const requireAuthGate = (): RequestHandler => {
             next(rejectAuth(req));
             return;
         }
-        if (req.actor.user.suspended) {
-            next(
-                new HttpError(403, 'Account suspended', {
-                    legacyCode: 'forbidden',
-                }),
-            );
+        try {
+            assertNotSuspended(req.actor.user);
+        } catch (err) {
+            next(err);
             return;
         }
         next();
@@ -308,6 +306,16 @@ export const assertVerifiedAccount = (
     if (user?.requires_card_verification) {
         throw new HttpError(403, 'Please verify your card to continue', {
             legacyCode: 'card_verification_required' as never,
+        });
+    }
+};
+
+export const assertNotSuspended = (
+    user: { suspended?: unknown } | undefined,
+): void => {
+    if (user?.suspended) {
+        throw new HttpError(403, 'Account suspended', {
+            legacyCode: 'forbidden',
         });
     }
 };
