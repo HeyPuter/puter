@@ -19,6 +19,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { isSpanContextValid, trace } from '@opentelemetry/api';
 import { puterClients } from './clients';
 import { puterControllers } from './controllers';
 import { puterDrivers } from './drivers';
@@ -26,6 +27,7 @@ import { PuterServer } from './server';
 import { puterServices } from './services';
 import { puterStores } from './stores';
 import type { IConfig } from './types';
+import { installJsonConsole } from './util/jsonConsole.js';
 
 // Config resolution order:
 //   1. `process.env.PUTER_CONFIG_PATH` — absolute path to a config file. Used
@@ -167,6 +169,23 @@ const loadConfig = (): IConfig => {
 // if called directly, start the server
 if (require.main === module) {
     const config = loadConfig();
+
+    // Structured logging: when `log_format: "json"`, replace the global console
+    // so each call emits one JSON line (level, timestamp, msg, and the active
+    // trace id) — one event per call, so a line-oriented log collector can't
+    // split stack traces across events. Installed here rather than in the OTel
+    // preload so it applies even when telemetry is disabled; the trace id is
+    // simply absent when no span is active.
+    if (config.log_format === 'json') {
+        installJsonConsole({
+            getTraceContext: () => {
+                const ctx = trace.getActiveSpan()?.spanContext();
+                if (!ctx || !isSpanContextValid(ctx)) return undefined;
+                return { traceId: ctx.traceId, spanId: ctx.spanId };
+            },
+        });
+    }
+
     const server = new PuterServer(
         config,
         puterClients,

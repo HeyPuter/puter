@@ -452,6 +452,14 @@ interface IConfigOptional {
     env: 'dev' | 'prod';
     /** Free-form name of the config profile (e.g. `oss-default`). Surfaced in logs. */
     config_name: string;
+    /**
+     * Console output format. `json` replaces the global console so every call
+     * emits one structured JSON line (`level`, `timestamp`, `msg`, and the
+     * active `traceId`) — one event per call, so a line-oriented log collector
+     * can't split stack traces across events, and level filtering works. `text`
+     * (the default) leaves console output human-readable for local/dev.
+     */
+    log_format: 'json' | 'text';
     /** Server version. Falls back to `npm_package_version`. */
     version: string;
     /** Stable identity for this server node. Enables pager alerts + graceful shutdown delay. */
