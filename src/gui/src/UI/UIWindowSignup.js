@@ -511,6 +511,20 @@ function UIWindowSignup(options) {
                             show_email_dialog
                         ) {
                             $(el_window).close();
+                            // Verification gates run in order: email →
+                            // phone (SMS) → card, matching the server-side
+                            // order in assertVerifiedAccount.
+                            if (show_email_dialog) {
+                                email_verified =
+                                    await UIWindowEmailConfirmationRequired({
+                                        stay_on_top: true,
+                                        has_head: true,
+                                        reload_on_success:
+                                            options.reload_on_success,
+                                        window_options:
+                                            options.window_options ?? {},
+                                    });
+                            }
                             if (data.user?.requires_phone_verification) {
                                 let phone_ok = false;
                                 do {
@@ -526,17 +540,6 @@ function UIWindowSignup(options) {
                                             },
                                         );
                                 } while (!phone_ok);
-                            }
-                            if (show_email_dialog) {
-                                email_verified =
-                                    await UIWindowEmailConfirmationRequired({
-                                        stay_on_top: true,
-                                        has_head: true,
-                                        reload_on_success:
-                                            options.reload_on_success,
-                                        window_options:
-                                            options.window_options ?? {},
-                                    });
                             }
                             // Card verification is the last gate.
                             if (data.user?.requires_card_verification) {
