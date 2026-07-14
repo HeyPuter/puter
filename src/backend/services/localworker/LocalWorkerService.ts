@@ -1,12 +1,19 @@
-import { Miniflare, RequestInit } from 'miniflare';
+import { Miniflare, RequestInit as MiniflareRequestInit } from 'miniflare';
 import { puterServices } from '..';
 import { Actor } from '../../core';
 import { loadFileInput } from '../../drivers/util/fileInput';
+import { getWorkerPreamble } from '../../drivers/workers/WorkerDriver';
 import { puterStores } from '../../stores';
 import { LayerInstances } from '../../types';
 import { PuterService } from '../types';
 
 const MAX_SOURCE_SIZE = 10 * 1024 * 1024; // 10 MB
+
+// Each Miniflare instance holds a dedicated loopback port, so we can't keep
+// every deployed worker resident indefinitely. Dispose a worker after this
+// much inactivity; the next request lazily re-deploys it via cfCallLocal.
+const WORKER_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+const IDLE_SWEEP_INTERVAL_MS = 60 * 1000; // sweep cadence
 
 interface SubdomainRow {
     id: number;
@@ -23,6 +30,9 @@ interface SubdomainRow {
 }
 
 const activeWorkers = new Map<string, Miniflare>();
+// workerName -> last dispatch/deploy time (ms). Drives the idle sweep.
+const lastAccess = new Map<string, number>();
+let idleSweepTimer: ReturnType<typeof setInterval> | null = null;
 
 export class LocalWorkerService extends PuterService {
     declare protected stores: LayerInstances<typeof puterStores>;
@@ -32,18 +42,23 @@ export class LocalWorkerService extends PuterService {
         authorization: string,
         code: string,
     ) {
-        const mf = new Miniflare({
-            modules: false,
-            name: workerName,
-            bindings: {
-                puter_auth: authorization,
-
-                //todo: maybe dont hardcode this
-                puter_endpoint: 'http://api.puter.localhost:4100/',
-            }, // Binds variable/secret to environment
-            script: code,
-        } as WorkerOptions);
-        activeWorkers.set(workerName, mf);
+        await this.#disposeWorker(workerName);
+        try {
+            const mf = new Miniflare({
+                modules: false,
+                name: workerName,
+                bindings: {
+                    puter_auth: authorization,
+                    puter_endpoint: this.config.api_base_url,
+                }, // Binds variable/secret to environment
+                script: code,
+            } as WorkerOptions);
+            activeWorkers.set(workerName, mf);
+            this.#touch(workerName);
+            return { success: true, errors: [], url: null };
+        } catch (_e) {
+            return { success: false, errors: [], url: null };
+        }
     }
     async cfCallLocal(workerName: string, request: Request) {
         let mf = activeWorkers.get(workerName);
@@ -64,15 +79,72 @@ export class LocalWorkerService extends PuterService {
             await this.cfDeployLocal(workerName, authorization, code);
             mf = activeWorkers.get(workerName)!;
         }
-        return mf.dispatchFetch(request.url, request as unknown as RequestInit);
+        // Mark activity so the idle sweep keeps this worker resident.
+        this.#touch(workerName);
+        // `request` is a WHATWG Request built by the local-worker proxy
+        // middleware. Miniflare's `dispatchFetch(input, init)` needs us to coerce this
+        const hasBody = request.body != null;
+        return mf.dispatchFetch(request.url, {
+            method: request.method,
+            headers: [...request.headers] as [string, string][],
+            body: hasBody ? (request.body as unknown as BodyInit) : undefined,
+            // `duplex: 'half'` is required by undici when body is a stream.
+            ...(hasBody ? { duplex: 'half' } : {}),
+        } as unknown as MiniflareRequestInit);
     }
     async cfDeleteLocal(workerName: string) {
+        await this.#disposeWorker(workerName);
+        return {};
+    }
+
+    // -- Idle lifecycle stuff
+
+    #touch(workerName: string): void {
+        lastAccess.set(workerName, Date.now());
+        this.#ensureIdleSweep();
+    }
+
+    async #disposeWorker(workerName: string): Promise<void> {
         const mf = activeWorkers.get(workerName);
+        activeWorkers.delete(workerName);
+        lastAccess.delete(workerName);
         if (mf) {
-            mf.dispose();
-            activeWorkers.delete(workerName);
+            try {
+                await mf.dispose(); // releases the instance's port
+            } catch {
+                /* best-effort teardown */
+            }
         }
-        return true;
+    }
+
+    // Lazily started on first deploy; disposes workers idle past the timeout
+    // and stops itself once nothing is resident.
+    #ensureIdleSweep(): void {
+        if (idleSweepTimer) return;
+        idleSweepTimer = setInterval(() => {
+            const now = Date.now();
+            for (const [name, ts] of [...lastAccess]) {
+                if (now - ts > WORKER_IDLE_TIMEOUT_MS) {
+                    void this.#disposeWorker(name);
+                }
+            }
+            if (activeWorkers.size === 0 && idleSweepTimer) {
+                clearInterval(idleSweepTimer);
+                idleSweepTimer = null;
+            }
+        }, IDLE_SWEEP_INTERVAL_MS);
+        // Don't keep the process (or test runner) alive just for the sweep.
+        idleSweepTimer.unref?.();
+    }
+
+    override onServerShutdown(): void {
+        if (idleSweepTimer) {
+            clearInterval(idleSweepTimer);
+            idleSweepTimer = null;
+        }
+        for (const name of [...activeWorkers.keys()]) {
+            void this.#disposeWorker(name);
+        }
     }
     async reconstructDeployArgs(workerName: string, row: SubdomainRow) {
         const appOwnerId = row.app_owner as number | null;
@@ -101,6 +173,20 @@ export class LocalWorkerService extends PuterService {
             authorization = session.token;
         }
 
+        if (row.root_dir_id == null) {
+            throw new Error(
+                `Local: worker ${workerName} has no root_dir_id (source file)`,
+            );
+        }
+        const sourceEntry = await this.stores.fsEntry.getEntryById(
+            row.root_dir_id,
+        );
+        if (!sourceEntry) {
+            throw new Error(
+                `Local: worker ${workerName} source file not found (id=${row.root_dir_id})`,
+            );
+        }
+
         const loaded = await loadFileInput(
             {
                 fsEntry: this.stores.fsEntry,
@@ -108,10 +194,12 @@ export class LocalWorkerService extends PuterService {
             },
             this.services.fs,
             ownerActor,
-            row.root_dir_id,
+            sourceEntry.path ?? sourceEntry.uuid,
             { maxBytes: MAX_SOURCE_SIZE },
         );
-        const code = loaded.buffer.toString('utf-8');
+        const sourceCode = loaded.buffer.toString('utf-8');
+
+        const code = getWorkerPreamble() + sourceCode;
 
         return [workerName, authorization, code];
     }

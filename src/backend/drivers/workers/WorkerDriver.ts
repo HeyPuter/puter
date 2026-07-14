@@ -33,6 +33,7 @@ const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
 const MAX_WORKERS_PER_USER = 100;
 const MAX_SOURCE_SIZE = 10 * 1024 * 1024; // 10 MB
 const WORKER_SUBDOMAIN_PREFIX = 'workers.puter.';
+let USE_LOCAL_WORKERD = false;
 
 // -- Preamble --------------------------------------------------------
 //
@@ -64,6 +65,16 @@ try {
         '[workers] preamble not built — workers will not have puter.js injected.',
     );
     preambleError = true;
+}
+
+/**
+ * The puter.js/router preamble prepended to every worker's source before
+ * deploy. Exposed so the local-workerd path (`LocalWorkerService`) can build
+ * the same `preamble + sourceCode` script when it lazily re-deploys a worker
+ * into Miniflare after a server restart.
+ */
+export function getWorkerPreamble(): string {
+    return preamble;
 }
 
 /**
@@ -101,7 +112,7 @@ export class WorkerDriver extends PuterDriver {
                 );
             }
         } else if (cfg.localServer) {
-            //
+            USE_LOCAL_WORKERD = true;
         }
         this.#subscribeHotReload();
     }
@@ -367,6 +378,13 @@ export class WorkerDriver extends PuterDriver {
         authorization: string,
         code: string,
     ): Promise<Record<string, unknown>> {
+        if (USE_LOCAL_WORKERD) {
+            return this.services.localworkerservice.cfDeployLocal(
+                workerName,
+                authorization,
+                code,
+            );
+        }
         const cfg = this.#workerConfig();
         const metadata = JSON.stringify({
             body_part: 'swCode',
@@ -432,6 +450,9 @@ export class WorkerDriver extends PuterDriver {
     }
 
     async #cfDelete(workerName: string): Promise<Record<string, unknown>> {
+        if (USE_LOCAL_WORKERD) {
+            return this.services.localworkerservice.cfDeleteLocal(workerName);
+        }
         const cfg = this.#workerConfig();
         const res = await fetch(`${this.#cfBaseUrl}/scripts/${workerName}/`, {
             method: 'DELETE',
@@ -457,7 +478,7 @@ export class WorkerDriver extends PuterDriver {
 
     #requireCfConfig(): void {
         const cfg = this.#workerConfig();
-        if (!cfg.XAUTHKEY || !cfg.ACCOUNTID) {
+        if ((!cfg.XAUTHKEY || !cfg.ACCOUNTID) && !cfg.localServer) {
             throw new HttpError(503, 'Cloudflare Workers not configured', {
                 legacyCode: 'response_timeout',
             });
@@ -529,7 +550,7 @@ export class WorkerDriver extends PuterDriver {
     // while worker subdomains are keyed to the numeric fsentries.id.
 
     #subscribeHotReload(): void {
-        if (!this.#cfBaseUrl) return; // CF not configured — skip
+        if (!this.#cfBaseUrl && !USE_LOCAL_WORKERD) return;
 
         this.clients.event.on(
             'fs.write.file',

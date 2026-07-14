@@ -62,6 +62,7 @@ import {
     createUserSubdomainRedirect,
     createNativeAppStatic,
 } from './core/http/middleware/hostRedirects';
+import { createLocalWorkerProxyMiddleware } from './core/http/middleware/localWorkerProxy';
 import { createPuterSiteMiddleware } from './core/http/middleware/puterSite';
 import { PuterRouter } from './core/http/PuterRouter';
 import { createRouteLifecycleMiddleware } from './core/http/routeLifecycle';
@@ -453,6 +454,18 @@ export class PuterServer {
         this.#app.options('/*splat', (_req, res) => {
             res.sendStatus(200);
         });
+
+        // -- Local Worker proxy (*.workers.puter.localhost) ----------
+        // Dev-only Miniflare dispatch, gated on `config.workers.localServer`.
+        // Mounted BEFORE body parsing so the Worker receives the raw request
+        // stream; no-op in production (real Cloudflare via WorkerDriver).
+        this.#app.use(
+            createLocalWorkerProxyMiddleware(this.#config, {
+                clients: this.clients,
+                stores: this.stores,
+                services: this.services,
+            }),
+        );
 
         // -- Body parsing (JSON + text-as-json shim) -----------------
         const captureRawBody: NonNullable<

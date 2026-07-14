@@ -17,23 +17,24 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { ACLService } from './acl/ACLService';
 import { AppOriginBlocklistService } from './abuse/AppOriginBlocklistService';
+import { ACLService } from './acl/ACLService';
+import { AppIconService } from './appIcon/AppIconService';
 import { AppPermissionService } from './apps/AppPermissionService';
 import { RecommendedAppsService } from './apps/RecommendedAppsService';
 import { SuggestedAppsService } from './apps/SuggestedAppsService';
 import { AuthService } from './auth/AuthService';
-import { BroadcastService } from './broadcast/BroadcastService';
-import { NotificationService } from './notification/NotificationService';
-import { AppIconService } from './appIcon/AppIconService';
-import { DefaultUserService } from './selfhosted/DefaultUserService';
-import { PuterHomepageService } from './homepage/PuterHomepageService';
 import { OIDCService } from './auth/OIDCService';
 import { TokenService } from './auth/TokenService';
+import { BroadcastService } from './broadcast/BroadcastService';
 import { FSService } from './fs/FSService';
-import { MeteringService } from './metering/MeteringService';
-import { PermissionService } from './permission/PermissionService';
 import { ServerHealthService } from './health/ServerHealthService';
+import { PuterHomepageService } from './homepage/PuterHomepageService';
+import { LocalWorkerService } from './localworker/LocalWorkerService';
+import { MeteringService } from './metering/MeteringService';
+import { NotificationService } from './notification/NotificationService';
+import { PermissionService } from './permission/PermissionService';
+import { DefaultUserService } from './selfhosted/DefaultUserService';
 import { SocketService } from './socket/SocketService';
 import { SubdomainPermissionService } from './subdomain/SubdomainPermissionService';
 import type { IPuterServiceRegistry } from './types';
@@ -106,4 +107,5 @@ export const puterServices = {
     // Health comes after socket so its default `socket-initialized`
     // check can reference the peer.
     health: ServerHealthService,
+    localworkerservice: LocalWorkerService,
 } satisfies IPuterServiceRegistry;
