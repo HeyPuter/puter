@@ -100,6 +100,8 @@ export class WorkerDriver extends PuterDriver {
                     '[workers] preamble not build but workers configured to be enabled. Halting start',
                 );
             }
+        } else if (cfg.localServer) {
+            //
         }
         this.#subscribeHotReload();
     }

@@ -78,6 +78,7 @@
     "dedent": "^1.5.3",
     "javascript-time-ago": "^2.5.11",
     "libphonenumber-js": "1.13.6",
+    "miniflare": "^4.20260617.1",
     "open": "^10.1.0"
   },
   "engines": {
