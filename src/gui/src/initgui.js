@@ -1143,11 +1143,12 @@ window.initgui = async function (options) {
         }
 
         if (whoami) {
-            // is phone verification required? (hard gate for low-rep signups)
-            if (whoami.requires_phone_verification) {
+            // Verification gates run in order: email → phone (SMS) → card,
+            // matching the server-side order in assertVerifiedAccount.
+            if (whoami.requires_email_confirmation) {
                 let is_verified;
                 do {
-                    is_verified = await UIWindowPhoneVerificationRequired({
+                    is_verified = await UIWindowEmailConfirmationRequired({
                         show_close_button: false,
                         stay_on_top: true,
                         has_head: false,
@@ -1157,10 +1158,11 @@ window.initgui = async function (options) {
                     });
                 } while (!is_verified);
             }
-            if (whoami.requires_email_confirmation) {
+            // is phone verification required? (hard gate for low-rep signups)
+            if (whoami.requires_phone_verification) {
                 let is_verified;
                 do {
-                    is_verified = await UIWindowEmailConfirmationRequired({
+                    is_verified = await UIWindowPhoneVerificationRequired({
                         show_close_button: false,
                         stay_on_top: true,
                         has_head: false,
@@ -1394,11 +1396,12 @@ window.initgui = async function (options) {
         }
         // update local user data
         if (whoami) {
-            // is phone verification required? (hard gate for low-rep signups)
-            if (whoami.requires_phone_verification) {
+            // Verification gates run in order: email → phone (SMS) → card,
+            // matching the server-side order in assertVerifiedAccount.
+            if (whoami.requires_email_confirmation) {
                 let is_verified;
                 do {
-                    is_verified = await UIWindowPhoneVerificationRequired({
+                    is_verified = await UIWindowEmailConfirmationRequired({
                         show_close_button: false,
                         stay_on_top: true,
                         has_head: false,
@@ -1410,11 +1413,11 @@ window.initgui = async function (options) {
                     });
                 } while (!is_verified);
             }
-            // is email confirmation required?
-            if (whoami.requires_email_confirmation) {
+            // is phone verification required? (hard gate for low-rep signups)
+            if (whoami.requires_phone_verification) {
                 let is_verified;
                 do {
-                    is_verified = await UIWindowEmailConfirmationRequired({
+                    is_verified = await UIWindowPhoneVerificationRequired({
                         show_close_button: false,
                         stay_on_top: true,
                         has_head: false,
