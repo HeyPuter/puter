@@ -6,6 +6,13 @@ export interface AppUser {
     username: string;
     /** The user's unique identifier. */
     user_uuid: string;
+    /**
+     * The user's email address. Only present when the user granted this app
+     * the `user:<uuid>:email:read` permission (e.g. via
+     * `puter.perms.requestEmail()`); omitted otherwise. May be `null` if the
+     * user granted access but has no email on file.
+     */
+    user_email?: string | null;
 }
 
 /** Pagination options for `App.getUsers()`. */
