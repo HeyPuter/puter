@@ -18,6 +18,7 @@
  */
 
 import type { Request, RequestHandler } from 'express';
+import { effectiveActorApp } from '../../actor';
 import { HttpError } from '../HttpError';
 import { assertVerifiedEmail } from '../verifiedEmail';
 
@@ -182,13 +183,24 @@ export const DEFAULT_ADMIN_USERNAMES = ['admin', 'system'] as const;
  * the supplied extras. Extras are *additional* allowed users on top of the
  * built-in pair, not a replacement for it.
  *
- * Implies `requireAuth`. Does *not* imply `requireUserActor` — admin
- * endpoints are callable via an admin's access token or app-under-user
- * actor; combine with `requireUserActor` explicitly if a route must be
- * restricted to browser sessions.
+ * Also requires a *root token* — an actor with no app anywhere in its token
+ * chain (see `effectiveActorApp`) — so a third-party app an admin has
+ * authorized can't reach admin endpoints on the admin's behalf. The one
+ * exception is `appGated`: on a route that is also appId-gated
+ * (`allowedAppIds`), a direct app-under-user actor is deferred to
+ * `allowedAppIdsGate`, so the net effect there is "a root token OR a token
+ * scoped to an allowed app". Access tokens issued through an app are
+ * rejected even then — `allowedAppIdsGate` only sees top-level `actor.app`
+ * and would otherwise wave them through.
+ *
+ * Implies `requireAuth`. Does *not* imply `requireUserActor` — a root token
+ * still includes an admin's full-access personal access token, not only
+ * browser sessions; combine with `requireUserActor` explicitly if a route
+ * must be restricted to browser sessions.
  */
 export const adminOnlyGate = (
     extras: readonly string[] = [],
+    opts: { appGated?: boolean } = {},
 ): RequestHandler => {
     // Match the case-insensitivity guarantee of the username column
     // (MySQL: ascii_general_ci; SQLite: idx_user_username_nocase). Comparing
@@ -200,6 +212,20 @@ export const adminOnlyGate = (
     return (req, _res, next) => {
         const username = req.actor?.user.username;
         if (!username || !allowList.has(username.toLowerCase())) {
+            next(
+                new HttpError(403, 'Only admins may request this resource', {
+                    legacyCode: 'forbidden',
+                }),
+            );
+            return;
+        }
+        // Root-token requirement: reject actors carrying an app anywhere in
+        // their token chain — app-under-user, or an access token issued
+        // through an app. A direct app-under-user actor is deferred to
+        // `allowedAppIdsGate` when the route is appId-gated; chain-only apps
+        // are rejected even then, since that gate can't see them.
+        const chainApp = req.actor ? effectiveActorApp(req.actor) : null;
+        if (chainApp && !(opts.appGated && req.actor?.app?.uid)) {
             next(
                 new HttpError(403, 'Only admins may request this resource', {
                     legacyCode: 'forbidden',
