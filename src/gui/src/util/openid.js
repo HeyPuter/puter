@@ -29,6 +29,21 @@ import TeePromise from './TeePromise.js';
 
 const POPUP_FEATURES = 'width=500,height=600';
 
+// Provider ids the GUI renders with dedicated branded buttons. Any other id
+// returned by `/auth/oidc/providers` (i.e. a self-hosted admin's custom OIDC
+// provider) gets a generic button built from these helpers instead.
+export const KNOWN_OIDC_PROVIDERS = ['google', 'apple', 'microsoft'];
+
+// Generic key icon for OIDC providers without dedicated branding.
+export const OIDC_GENERIC_PROVIDER_ICON = '<svg style="width:20px;height:20px;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="15" r="4"/><path d="M10.5 12.5 19 4"/><path d="M16 7l3 3"/><path d="M13 10l3 3"/></svg>';
+
+// Turns a config provider id ("custom-oidc", "acme_sso") into a display
+// label ("Custom Oidc", "Acme Sso") for the generic button.
+export const humanizeOidcProviderId = (id) => String(id)
+    .replace(/[-_]+/g, ' ')
+    .trim()
+    .replace(/\w\S*/g, word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase());
+
 export const openRevalidatePopup = async (revalidateUrl) => {
     const donePromise = new TeePromise();
 
