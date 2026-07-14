@@ -865,10 +865,12 @@ export class PuterServer {
         // carry, so it works for either actor shape.
         //
         // `adminOnly` also does NOT imply `requireUserActor`: admin endpoints
-        // should be callable from scripts/automation using an admin's access
-        // token, not only from browser sessions. `adminOnlyGate` gates on
-        // `actor.user.username`, which is populated for access-token and
-        // app-under-user actors alike.
+        // stay callable from scripts/automation using an admin's full-access
+        // token, not only from browser sessions — both are root tokens.
+        // Beyond the username check, `adminOnlyGate` requires a root token
+        // (rejecting an admin acting through a third-party app) unless the
+        // route is also appId-gated, in which case `allowedAppIdsGate` governs
+        // which apps may pass.
         if (opts.requireUserActor) {
             mwChain.push(
                 requireUserActorGate({
@@ -879,7 +881,11 @@ export class PuterServer {
 
         if (opts.adminOnly) {
             const extras = Array.isArray(opts.adminOnly) ? opts.adminOnly : [];
-            mwChain.push(adminOnlyGate(extras));
+            mwChain.push(
+                adminOnlyGate(extras, {
+                    appGated: Boolean(opts.allowedAppIds),
+                }),
+            );
         }
 
         if (opts.allowedAppIds) {

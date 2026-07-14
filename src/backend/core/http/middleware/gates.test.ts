@@ -407,6 +407,113 @@ describe('adminOnlyGate', () => {
             }),
         ).toBeUndefined();
     });
+
+    // -- Root-token requirement --
+    //
+    // Admin endpoints require a root token (an actor with no app anywhere
+    // in its token chain), so a third-party app an admin authorized can't
+    // reach them on the admin's behalf.
+
+    it('admits an admin acting via a session (root token)', () => {
+        const got = runGate(adminOnlyGate(), {
+            actor: { user: { uuid: 'u-1', username: 'admin' } },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it("admits an admin's full-access PAT (still a root token — no app)", () => {
+        const got = runGate(adminOnlyGate(), {
+            actor: {
+                user: { uuid: 'u-1', username: 'admin' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: { user: { uuid: 'u-1', username: 'admin' } },
+                    fullAccess: true,
+                },
+            },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('rejects an admin acting through an app with 403 (not a root token)', () => {
+        const got = runGate(adminOnlyGate(), {
+            actor: {
+                user: { uuid: 'u-1', username: 'admin' },
+                app: { uid: 'app-1' },
+            },
+        });
+        expectHttpError(got, 403, 'forbidden');
+    });
+
+    it('rejects an admin access token issued through an app (app in the token chain)', () => {
+        // Access-token actors carry their app on `accessToken.issuer.app`,
+        // not top-level `actor.app` — the root-token check must walk the
+        // chain, not just the top level.
+        const got = runGate(adminOnlyGate(), {
+            actor: {
+                user: { uuid: 'u-1', username: 'admin' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: {
+                        user: { uuid: 'u-1', username: 'admin' },
+                        app: { uid: 'app-1' },
+                    },
+                },
+            },
+        });
+        expectHttpError(got, 403, 'forbidden');
+    });
+
+    it('rejects an app-issued access token even when appGated', () => {
+        // The appGated deferral only applies to direct app-under-user
+        // actors: `allowedAppIdsGate` reads top-level `actor.app` and would
+        // pass a chain-only app straight through, so it must not be
+        // deferred to.
+        const got = runGate(adminOnlyGate([], { appGated: true }), {
+            actor: {
+                user: { uuid: 'u-1', username: 'admin' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: {
+                        user: { uuid: 'u-1', username: 'admin' },
+                        app: { uid: 'app-1' },
+                    },
+                },
+            },
+        });
+        expectHttpError(got, 403, 'forbidden');
+    });
+
+    it('admits an admin acting through an app when appGated (allowedAppIdsGate then decides)', () => {
+        // On an appId-gated route the root-token check is deferred to
+        // `allowedAppIdsGate`; this gate must let the app actor through.
+        const got = runGate(adminOnlyGate([], { appGated: true }), {
+            actor: {
+                user: { uuid: 'u-1', username: 'admin' },
+                app: { uid: 'app-1' },
+            },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('still admits a root token when appGated', () => {
+        const got = runGate(adminOnlyGate([], { appGated: true }), {
+            actor: { user: { uuid: 'u-1', username: 'admin' } },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('applies the username check before the root-token check', () => {
+        // A non-admin acting through an app is rejected for being non-admin,
+        // regardless of the app scope.
+        const got = runGate(adminOnlyGate(), {
+            actor: {
+                user: { uuid: 'u-1', username: 'random-user' },
+                app: { uid: 'app-1' },
+            },
+        });
+        expectHttpError(got, 403, 'forbidden');
+    });
 });
 
 // ── requireVerifiedGate ─────────────────────────────────────────────
