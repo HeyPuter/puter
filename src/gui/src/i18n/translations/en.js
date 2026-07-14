@@ -558,6 +558,8 @@ const en = {
         sign_up_with_apple: 'Sign up with Apple',
         sign_in_with_microsoft: 'Sign in with Microsoft',
         sign_up_with_microsoft: 'Sign up with Microsoft',
+        sign_in_with_provider: 'Sign in with %%',
+        sign_up_with_provider: 'Sign up with %%',
         sign_up_with_email: 'Sign up using email',
         oidc_switched_to_login_message: 'You have been logged in to an existing account.',
 
