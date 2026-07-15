@@ -25,6 +25,7 @@ import { Context } from '../../core/context.js';
 import { HttpError, type LegacyErrorCodes } from '../../core/http/HttpError.js';
 import { assertVerifiedEmail } from '../../core/http/verifiedEmail.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
+import type { SubdomainRow } from '../../stores/subdomain/SubdomainStore.js';
 import { PuterDriver } from '../types.js';
 import { loadFileInput } from '../util/fileInput.js';
 
@@ -313,7 +314,7 @@ export class WorkerDriver extends PuterDriver {
         const actor = this.#requireActor();
         const workerName = args.workerName as string | undefined;
 
-        let rows: Array<Record<string, unknown>>;
+        let rows: SubdomainRow[];
         if (typeof workerName === 'string' && workerName.length > 0) {
             const sub = await this.stores.subdomain.getBySubdomain(
                 `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
@@ -495,7 +496,7 @@ export class WorkerDriver extends PuterDriver {
     }
 
     #checkWorkerWriteAccess(
-        row: Record<string, unknown>,
+        row: SubdomainRow,
         actor: Actor & { user: { id: number } },
         errorStatus: number,
         errorMessage: string,
@@ -738,14 +739,12 @@ export class WorkerDriver extends PuterDriver {
         );
     }
 
-    async #listWorkerRowsForEntry(
-        entry: FSEntry,
-    ): Promise<Array<Record<string, unknown>>> {
+    async #listWorkerRowsForEntry(entry: FSEntry): Promise<SubdomainRow[]> {
         const workerSubs = await this.stores.subdomain.listByUserIdAndPrefix(
             entry.userId,
             WORKER_SUBDOMAIN_PREFIX,
         );
-        return workerSubs.filter((r: Record<string, unknown>) => {
+        return workerSubs.filter((r) => {
             return (
                 String(r.root_dir_id) === String(entry.id) ||
                 String(r.root_dir_id) === String(entry.uuid) ||
@@ -757,17 +756,17 @@ export class WorkerDriver extends PuterDriver {
     async #listWorkerRowsUnderPath(
         userId: number,
         parentPath: string,
-    ): Promise<Array<Record<string, unknown>>> {
+    ): Promise<SubdomainRow[]> {
         const workerSubs = await this.stores.subdomain.listByUserIdAndPrefix(
             userId,
             WORKER_SUBDOMAIN_PREFIX,
         );
         const rootDirIds = workerSubs
-            .map((r: Record<string, unknown>) => r.root_dir_id)
+            .map((r) => r.root_dir_id)
             .filter((id): id is number => typeof id === 'number');
         const entriesById =
             await this.stores.fsEntry.getEntriesByIds(rootDirIds);
-        return workerSubs.filter((row: Record<string, unknown>) => {
+        return workerSubs.filter((row) => {
             const rootDirId = row.root_dir_id;
             if (typeof rootDirId !== 'number') return false;
             const entry = entriesById.get(rootDirId);
@@ -784,7 +783,7 @@ export class WorkerDriver extends PuterDriver {
     }
 
     async #deleteWorkerForSourceRow(
-        row: Record<string, unknown>,
+        row: SubdomainRow,
         userId: number,
     ): Promise<void> {
         const workerFullName = String(row.subdomain ?? '');

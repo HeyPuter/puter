@@ -20,6 +20,29 @@
 import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
 
+/**
+ * A row from the `subdomains` table (the shape `getBySubdomain` / `getByUuid`
+ * resolve to). Kept alongside the store so callers share one definition instead
+ * of redeclaring it locally.
+ */
+export interface SubdomainRow {
+    id: number;
+    uuid: string;
+    ts: number | string; // system timestamp
+    subdomain: string; // immutable name
+    user_id: number; // owner
+    app_owner: number | null; // owning app, if any
+    protected: 0 | 1; // access gate
+    database_id: string | null; // Cloudflare D1 binding
+    root_dir_id: number | null; // editable
+    associated_app_id: string | null; // editable
+    domain: string | null; // custom domain, editable
+    // `SELECT *` may surface columns not modelled above (and callers still
+    // treat rows as `Record<string, unknown>` in places). The index signature
+    // keeps the named fields strongly typed while staying Record-compatible.
+    [key: string]: unknown;
+}
+
 // Columns that may not be set through an `update` patch map. Defence-in-depth
 // against future callers (admin routes, extensions, new REST handlers) that
 // might forward `req.body` straight into the store: the driver's update
@@ -71,7 +94,7 @@ export class SubdomainStore extends PuterStore {
             userId?: number | undefined;
             primary?: boolean;
         } = {},
-    ) {
+    ): Promise<SubdomainRow | null> {
         const where =
             userId !== undefined
                 ? 'WHERE `uuid` = ? AND `user_id` = ?'
@@ -81,10 +104,10 @@ export class SubdomainStore extends PuterStore {
         const rows = primary
             ? await this.clients.db.pread(sql, params)
             : await this.clients.db.read(sql, params);
-        return rows[0] ?? null;
+        return (rows[0] as unknown as SubdomainRow) ?? null;
     }
 
-    async getBySubdomain(subdomain: string) {
+    async getBySubdomain(subdomain: string): Promise<SubdomainRow | null> {
         if (!subdomain) return null;
 
         const cacheKey = this.#cacheKey(subdomain);
@@ -92,7 +115,7 @@ export class SubdomainStore extends PuterStore {
             const raw = await this.clients.redis.get(cacheKey);
             if (raw === NEGATIVE_CACHE_MARKER) return null;
             if (raw) {
-                const parsed = JSON.parse(raw);
+                const parsed = JSON.parse(raw) as SubdomainRow | null;
                 if (parsed) return parsed;
             }
         } catch {
@@ -103,7 +126,7 @@ export class SubdomainStore extends PuterStore {
             'SELECT * FROM `subdomains` WHERE `subdomain` = ? LIMIT 1',
             [subdomain],
         );
-        const row = rows[0] ?? null;
+        const row = (rows[0] as unknown as SubdomainRow | undefined) ?? null;
 
         if (row) {
             this.clients.redis
@@ -173,7 +196,7 @@ export class SubdomainStore extends PuterStore {
         userId: number,
         prefix: string,
         extra: { appId?: number } = {},
-    ) {
+    ): Promise<SubdomainRow[]> {
         if (!userId || prefix == null) return [];
 
         const like = `${prefix}%`;
@@ -190,7 +213,7 @@ export class SubdomainStore extends PuterStore {
             );
         }
 
-        return rows;
+        return rows as unknown as SubdomainRow[];
     }
 
     // -- Writes -------------------------------------------------------
@@ -248,14 +271,14 @@ export class SubdomainStore extends PuterStore {
 
     async update(
         uuid: string,
-        patch: unknown,
+        patch: Record<string, unknown>,
         {
             userId,
         }: {
             userId?: number | undefined;
         } = {},
     ) {
-        const allowed: unknown = {};
+        const allowed: Record<string, unknown> = {};
         for (const [k, v] of Object.entries(patch)) {
             if (READ_ONLY_COLUMNS.has(k)) continue;
             allowed[k] = v;

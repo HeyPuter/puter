@@ -4,6 +4,7 @@ import { Actor } from '../../core';
 import { loadFileInput } from '../../drivers/util/fileInput';
 import { getWorkerPreamble } from '../../drivers/workers/WorkerDriver';
 import { puterStores } from '../../stores';
+import type { SubdomainRow } from '../../stores/subdomain/SubdomainStore';
 import { LayerInstances } from '../../types';
 import { PuterService } from '../types';
 
@@ -14,20 +15,6 @@ const MAX_SOURCE_SIZE = 10 * 1024 * 1024; // 10 MB
 // much inactivity; the next request lazily re-deploys it via cfCallLocal.
 const WORKER_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const IDLE_SWEEP_INTERVAL_MS = 60 * 1000; // sweep cadence
-
-interface SubdomainRow {
-    id: number;
-    uuid: string;
-    ts: number | string; // system timestamp
-    subdomain: string; // immutable name
-    user_id: number; // owner
-    app_owner: number | null; // owning app, if any
-    protected: 0 | 1; // access gate
-    database_id: string | null; // Cloudflare D1 binding
-    root_dir_id: number | null; // editable
-    associated_app_id: string | null; // editable
-    domain: string | null; // custom domain, editable
-}
 
 const activeWorkers = new Map<string, Miniflare>();
 // workerName -> last dispatch/deploy time (ms). Drives the idle sweep.
