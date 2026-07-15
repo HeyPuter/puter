@@ -1117,7 +1117,15 @@ export class AppDriver extends PuterDriver {
         const subdomain = this.#extractPuterHostedSubdomain(indexUrl);
         if (!subdomain) return;
 
-        const row = await this.stores.subdomain.getBySubdomain(subdomain);
+        let row = await this.stores.subdomain.getBySubdomain(subdomain);
+        if (!row) {
+            // Deploys create the subdomain and immediately point the app
+            // at it, so a replica or peer-cache miss here would wrongly
+            // refuse the owner. Confirm against the primary before failing.
+            row = await this.stores.subdomain.getBySubdomain(subdomain, {
+                primary: true,
+            });
+        }
         if (!row || row.user_id !== user.id) {
             throw new HttpError(400, 'Subdomain not owned by user', {
                 legacyCode: 'subdomain_not_owned',

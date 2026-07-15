@@ -1081,3 +1081,98 @@ describe('AppDriver alias-group index_url merge', () => {
         expect(first.uid).not.toBe(second.uid);
     });
 });
+
+// ── hosted-subdomain ownership check ────────────────────────────────
+//
+// `#ensurePuterSiteSubdomainIsOwned` gates puter-hosted index_urls on a
+// subdomain row the caller owns. Deploy flows create that row and point
+// the app at it in back-to-back requests, so the check must tolerate a
+// replica/cache miss by confirming against the primary before refusing.
+
+describe('AppDriver hosted-subdomain ownership check', () => {
+    const hostedUrl = (sub: string) => `https://${sub}.site.puter.localhost/`;
+
+    it('accepts a hosted index_url when the subdomain row has not reached the replica yet', async () => {
+        const { actor, userId } = await makeUser();
+        const sub = uniqueName('deploy');
+        await server.stores.subdomain.create({ userId, subdomain: sub });
+
+        // Simulate a peer node with a lagging replica: no cache entry for
+        // the row, and replica reads (`read`) that don't see it yet while
+        // primary reads (`pread`) do. Sqlite's `pread` delegates to
+        // `this.read`, so pin it to the original before stubbing `read`.
+        await server.clients.redis.del(`subdomains:name:${sub}`);
+        const db = server.clients.db as unknown as {
+            read: (q: string, p?: unknown[]) => Promise<unknown[]>;
+            pread: (q: string, p?: unknown[]) => Promise<unknown[]>;
+        };
+        const originalRead = db.read.bind(server.clients.db);
+        const hadOwnPread = Object.prototype.hasOwnProperty.call(db, 'pread');
+        db.pread = async (query: string, params?: unknown[]) =>
+            originalRead(query, params);
+        db.read = async (query: string, params?: unknown[]) =>
+            query.includes('FROM `subdomains`') && (params ?? []).includes(sub)
+                ? []
+                : originalRead(query, params);
+
+        try {
+            const result = await withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('app'),
+                        title: 'Deployed App',
+                        index_url: hostedUrl(sub),
+                    },
+                }),
+            );
+            expect(result.uid).toEqual(expect.any(String));
+
+            // The primary hit must also heal the stale cache: a normal
+            // lookup now resolves from cache even though the replica
+            // still misses.
+            const healed =
+                await server.stores.subdomain.getBySubdomain(sub);
+            expect(healed?.subdomain).toBe(sub);
+        } finally {
+            delete (db as { read?: unknown }).read;
+            if (!hadOwnPread) delete (db as { pread?: unknown }).pread;
+        }
+    });
+
+    it('rejects a hosted index_url whose subdomain does not exist anywhere', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('app'),
+                        title: 'x',
+                        index_url: hostedUrl(uniqueName('ghost')),
+                    },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it("rejects a hosted index_url pointing at another user's subdomain", async () => {
+        const owner = await makeUser();
+        const intruder = await makeUser();
+        const sub = uniqueName('theirs');
+        await server.stores.subdomain.create({
+            userId: owner.userId,
+            subdomain: sub,
+        });
+
+        await expect(
+            withActor(intruder.actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('app'),
+                        title: 'x',
+                        index_url: hostedUrl(sub),
+                    },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+});
