@@ -25,6 +25,7 @@ import { Context } from '../../core/context.js';
 import { HttpError, type LegacyErrorCodes } from '../../core/http/HttpError.js';
 import { assertVerifiedEmail } from '../../core/http/verifiedEmail.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
+import type { SubdomainRow } from '../../stores/subdomain/SubdomainStore.js';
 import { PuterDriver } from '../types.js';
 import { loadFileInput } from '../util/fileInput.js';
 
@@ -33,6 +34,7 @@ const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
 const MAX_WORKERS_PER_USER = 100;
 const MAX_SOURCE_SIZE = 10 * 1024 * 1024; // 10 MB
 const WORKER_SUBDOMAIN_PREFIX = 'workers.puter.';
+let USE_LOCAL_WORKERD = false;
 
 // -- Preamble --------------------------------------------------------
 //
@@ -64,6 +66,16 @@ try {
         '[workers] preamble not built — workers will not have puter.js injected.',
     );
     preambleError = true;
+}
+
+/**
+ * The puter.js/router preamble prepended to every worker's source before
+ * deploy. Exposed so the local-workerd path (`LocalWorkerService`) can build
+ * the same `preamble + sourceCode` script when it lazily re-deploys a worker
+ * into Miniflare after a server restart.
+ */
+export function getWorkerPreamble(): string {
+    return preamble;
 }
 
 /**
@@ -100,6 +112,8 @@ export class WorkerDriver extends PuterDriver {
                     '[workers] preamble not build but workers configured to be enabled. Halting start',
                 );
             }
+        } else if (cfg.localServer) {
+            USE_LOCAL_WORKERD = true;
         }
         this.#subscribeHotReload();
     }
@@ -300,7 +314,7 @@ export class WorkerDriver extends PuterDriver {
         const actor = this.#requireActor();
         const workerName = args.workerName as string | undefined;
 
-        let rows: Array<Record<string, unknown>>;
+        let rows: SubdomainRow[];
         if (typeof workerName === 'string' && workerName.length > 0) {
             const sub = await this.stores.subdomain.getBySubdomain(
                 `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
@@ -365,6 +379,13 @@ export class WorkerDriver extends PuterDriver {
         authorization: string,
         code: string,
     ): Promise<Record<string, unknown>> {
+        if (USE_LOCAL_WORKERD) {
+            return this.services.localworkerservice.cfDeployLocal(
+                workerName,
+                authorization,
+                code,
+            );
+        }
         const cfg = this.#workerConfig();
         const metadata = JSON.stringify({
             body_part: 'swCode',
@@ -430,6 +451,9 @@ export class WorkerDriver extends PuterDriver {
     }
 
     async #cfDelete(workerName: string): Promise<Record<string, unknown>> {
+        if (USE_LOCAL_WORKERD) {
+            return this.services.localworkerservice.cfDeleteLocal(workerName);
+        }
         const cfg = this.#workerConfig();
         const res = await fetch(`${this.#cfBaseUrl}/scripts/${workerName}/`, {
             method: 'DELETE',
@@ -455,7 +479,7 @@ export class WorkerDriver extends PuterDriver {
 
     #requireCfConfig(): void {
         const cfg = this.#workerConfig();
-        if (!cfg.XAUTHKEY || !cfg.ACCOUNTID) {
+        if ((!cfg.XAUTHKEY || !cfg.ACCOUNTID) && !cfg.localServer) {
             throw new HttpError(503, 'Cloudflare Workers not configured', {
                 legacyCode: 'response_timeout',
             });
@@ -472,7 +496,7 @@ export class WorkerDriver extends PuterDriver {
     }
 
     #checkWorkerWriteAccess(
-        row: Record<string, unknown>,
+        row: SubdomainRow,
         actor: Actor & { user: { id: number } },
         errorStatus: number,
         errorMessage: string,
@@ -527,7 +551,7 @@ export class WorkerDriver extends PuterDriver {
     // while worker subdomains are keyed to the numeric fsentries.id.
 
     #subscribeHotReload(): void {
-        if (!this.#cfBaseUrl) return; // CF not configured — skip
+        if (!this.#cfBaseUrl && !USE_LOCAL_WORKERD) return;
 
         this.clients.event.on(
             'fs.write.file',
@@ -715,14 +739,12 @@ export class WorkerDriver extends PuterDriver {
         );
     }
 
-    async #listWorkerRowsForEntry(
-        entry: FSEntry,
-    ): Promise<Array<Record<string, unknown>>> {
+    async #listWorkerRowsForEntry(entry: FSEntry): Promise<SubdomainRow[]> {
         const workerSubs = await this.stores.subdomain.listByUserIdAndPrefix(
             entry.userId,
             WORKER_SUBDOMAIN_PREFIX,
         );
-        return workerSubs.filter((r: Record<string, unknown>) => {
+        return workerSubs.filter((r) => {
             return (
                 String(r.root_dir_id) === String(entry.id) ||
                 String(r.root_dir_id) === String(entry.uuid) ||
@@ -734,17 +756,17 @@ export class WorkerDriver extends PuterDriver {
     async #listWorkerRowsUnderPath(
         userId: number,
         parentPath: string,
-    ): Promise<Array<Record<string, unknown>>> {
+    ): Promise<SubdomainRow[]> {
         const workerSubs = await this.stores.subdomain.listByUserIdAndPrefix(
             userId,
             WORKER_SUBDOMAIN_PREFIX,
         );
         const rootDirIds = workerSubs
-            .map((r: Record<string, unknown>) => r.root_dir_id)
+            .map((r) => r.root_dir_id)
             .filter((id): id is number => typeof id === 'number');
         const entriesById =
             await this.stores.fsEntry.getEntriesByIds(rootDirIds);
-        return workerSubs.filter((row: Record<string, unknown>) => {
+        return workerSubs.filter((row) => {
             const rootDirId = row.root_dir_id;
             if (typeof rootDirId !== 'number') return false;
             const entry = entriesById.get(rootDirId);
@@ -761,7 +783,7 @@ export class WorkerDriver extends PuterDriver {
     }
 
     async #deleteWorkerForSourceRow(
-        row: Record<string, unknown>,
+        row: SubdomainRow,
         userId: number,
     ): Promise<void> {
         const workerFullName = String(row.subdomain ?? '');

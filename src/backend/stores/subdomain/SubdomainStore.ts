@@ -20,6 +20,29 @@
 import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
 
+/**
+ * A row from the `subdomains` table (the shape `getBySubdomain` / `getByUuid`
+ * resolve to). Kept alongside the store so callers share one definition instead
+ * of redeclaring it locally.
+ */
+export interface SubdomainRow {
+    id: number;
+    uuid: string;
+    ts: number | string; // system timestamp
+    subdomain: string; // immutable name
+    user_id: number; // owner
+    app_owner: number | null; // owning app, if any
+    protected: 0 | 1; // access gate
+    database_id: string | null; // Cloudflare D1 binding
+    root_dir_id: number | null; // editable
+    associated_app_id: string | null; // editable
+    domain: string | null; // custom domain, editable
+    // `SELECT *` may surface columns not modelled above (and callers still
+    // treat rows as `Record<string, unknown>` in places). The index signature
+    // keeps the named fields strongly typed while staying Record-compatible.
+    [key: string]: unknown;
+}
+
 // Columns that may not be set through an `update` patch map. Defence-in-depth
 // against future callers (admin routes, extensions, new REST handlers) that
 // might forward `req.body` straight into the store: the driver's update
@@ -62,7 +85,16 @@ const NEGATIVE_CACHE_TTL_SECONDS = 10;
 export class SubdomainStore extends PuterStore {
     // -- Reads --------------------------------------------------------
 
-    async getByUuid(uuid, { userId, primary = false } = {}) {
+    async getByUuid(
+        uuid: string,
+        {
+            userId,
+            primary = false,
+        }: {
+            userId?: number | undefined;
+            primary?: boolean;
+        } = {},
+    ): Promise<SubdomainRow | null> {
         const where =
             userId !== undefined
                 ? 'WHERE `uuid` = ? AND `user_id` = ?'
@@ -72,10 +104,10 @@ export class SubdomainStore extends PuterStore {
         const rows = primary
             ? await this.clients.db.pread(sql, params)
             : await this.clients.db.read(sql, params);
-        return rows[0] ?? null;
+        return (rows[0] as unknown as SubdomainRow) ?? null;
     }
 
-    async getBySubdomain(subdomain) {
+    async getBySubdomain(subdomain: string): Promise<SubdomainRow | null> {
         if (!subdomain) return null;
 
         const cacheKey = this.#cacheKey(subdomain);
@@ -83,7 +115,7 @@ export class SubdomainStore extends PuterStore {
             const raw = await this.clients.redis.get(cacheKey);
             if (raw === NEGATIVE_CACHE_MARKER) return null;
             if (raw) {
-                const parsed = JSON.parse(raw);
+                const parsed = JSON.parse(raw) as SubdomainRow | null;
                 if (parsed) return parsed;
             }
         } catch {
@@ -94,7 +126,7 @@ export class SubdomainStore extends PuterStore {
             'SELECT * FROM `subdomains` WHERE `subdomain` = ? LIMIT 1',
             [subdomain],
         );
-        const row = rows[0] ?? null;
+        const row = (rows[0] as unknown as SubdomainRow | undefined) ?? null;
 
         if (row) {
             this.clients.redis
@@ -113,7 +145,7 @@ export class SubdomainStore extends PuterStore {
         return row;
     }
 
-    async listByUserId(userId, { limit = 500 } = {}) {
+    async listByUserId(userId: number, { limit = 500 } = {}) {
         const rows = await this.clients.db.read(
             `SELECT * FROM \`subdomains\` WHERE \`user_id\` = ? LIMIT ?`,
             [userId, limit],
@@ -129,7 +161,7 @@ export class SubdomainStore extends PuterStore {
         return rows;
     }
 
-    async existsBySubdomain(subdomain) {
+    async existsBySubdomain(subdomain: string) {
         // Reuse the positive/negative cache populated by getBySubdomain —
         // creation uniqueness checks and the Workers quota path would
         // otherwise punch through to the DB on every call.
@@ -137,7 +169,7 @@ export class SubdomainStore extends PuterStore {
         return row != null;
     }
 
-    async countByUserId(userId) {
+    async countByUserId(userId: number) {
         const rows = await this.clients.db.read(
             'SELECT COUNT(*) AS n FROM `subdomains` WHERE `user_id` = ?',
             [userId],
@@ -145,7 +177,7 @@ export class SubdomainStore extends PuterStore {
         return rows[0]?.n ?? 0;
     }
 
-    async getByDomain(domain) {
+    async getByDomain(domain: string) {
         const rows = await this.clients.db.read(
             'SELECT * FROM `subdomains` WHERE `domain` = ? LIMIT 1',
             [domain],
@@ -153,14 +185,18 @@ export class SubdomainStore extends PuterStore {
         return rows[0] ?? null;
     }
 
-    async listByDomain(domain) {
+    async listByDomain(domain: string) {
         return this.clients.db.read(
             'SELECT * FROM `subdomains` WHERE `domain` = ?',
             [domain],
         );
     }
 
-    async listByUserIdAndPrefix(userId, prefix, extra = {}) {
+    async listByUserIdAndPrefix(
+        userId: number,
+        prefix: string,
+        extra: { appId?: number } = {},
+    ): Promise<SubdomainRow[]> {
         if (!userId || prefix == null) return [];
 
         const like = `${prefix}%`;
@@ -177,7 +213,7 @@ export class SubdomainStore extends PuterStore {
             );
         }
 
-        return rows;
+        return rows as unknown as SubdomainRow[];
     }
 
     // -- Writes -------------------------------------------------------
@@ -190,6 +226,13 @@ export class SubdomainStore extends PuterStore {
         associatedAppId = null,
         appOwner = null,
         preambleVersion = null,
+    }: {
+        userId: number;
+        subdomain: string;
+        rootDirId?: number | null;
+        associatedAppId?: number | null;
+        appOwner?: number | null;
+        preambleVersion?: string | null;
     }) {
         if (!userId || !subdomain) {
             throw new Error('create: userId and subdomain are required');
@@ -226,8 +269,16 @@ export class SubdomainStore extends PuterStore {
         return row;
     }
 
-    async update(uuid, patch, { userId } = {}) {
-        const allowed = {};
+    async update(
+        uuid: string,
+        patch: Record<string, unknown>,
+        {
+            userId,
+        }: {
+            userId?: number | undefined;
+        } = {},
+    ) {
+        const allowed: Record<string, unknown> = {};
         for (const [k, v] of Object.entries(patch)) {
             if (READ_ONLY_COLUMNS.has(k)) continue;
             allowed[k] = v;
@@ -284,7 +335,14 @@ export class SubdomainStore extends PuterStore {
         return after;
     }
 
-    async deleteByUuid(uuid, { userId } = {}) {
+    async deleteByUuid(
+        uuid: string,
+        {
+            userId,
+        }: {
+            userId?: number | undefined;
+        } = {},
+    ) {
         const row = await this.getByUuid(uuid, { userId });
 
         const where =
@@ -313,15 +371,15 @@ export class SubdomainStore extends PuterStore {
 
     // -- Internals ----------------------------------------------------
 
-    #cacheKey(subdomain) {
+    #cacheKey(subdomain: string) {
         return `${CACHE_KEY_PREFIX}:name:${subdomain}`;
     }
 
-    #prefixListTrackerKey(userId) {
+    #prefixListTrackerKey(userId: number) {
         return `${CACHE_KEY_PREFIX}:listByUserPrefixKeys:${userId}`;
     }
 
-    async #refreshCache(row) {
+    async #refreshCache(row: { subdomain?: string }) {
         if (!row?.subdomain) return;
         await this.publishCacheKeys({
             keys: [this.#cacheKey(row.subdomain)],
@@ -336,7 +394,7 @@ export class SubdomainStore extends PuterStore {
     // renamed subdomain keeps showing up under its old folder in the GUI
     // (website badge, "associated websites" popover) until the entry's
     // independent TTL expires.
-    async #invalidateRootDirEntry(rootDirId) {
+    async #invalidateRootDirEntry(rootDirId: number | null | undefined) {
         if (rootDirId == null) return;
         const id =
             typeof rootDirId === 'number' ? rootDirId : Number(rootDirId);
@@ -350,7 +408,7 @@ export class SubdomainStore extends PuterStore {
         }
     }
 
-    async #invalidatePrefixListsForUser(userId) {
+    async #invalidatePrefixListsForUser(userId: number) {
         if (userId == null) return;
         const trackerKey = this.#prefixListTrackerKey(userId);
         let cacheKeys = [];

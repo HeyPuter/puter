@@ -244,9 +244,11 @@ export class SubdomainDriver extends PuterDriver {
         if (object.domain !== undefined)
             patch.domain = object.domain != null ? String(object.domain) : null;
 
-        const updated = await this.stores.subdomain.update(row.uuid, patch, {
-            userId: row.user_id,
-        });
+        const updated = await this.stores.subdomain.update(
+            String(row.uuid),
+            patch,
+            { userId: row.user_id as number },
+        );
         const [shaped] = await this.#hydrateRows(
             updated ? [updated as Record<string, unknown>] : [],
         );
@@ -351,8 +353,8 @@ export class SubdomainDriver extends PuterDriver {
         }
 
         await this.#checkWriteAccess(row, actor);
-        await this.stores.subdomain.deleteByUuid(row.uuid, {
-            userId: row.user_id,
+        await this.stores.subdomain.deleteByUuid(String(row.uuid), {
+            userId: row.user_id as number,
         });
 
         try {
