@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { EventMetadata } from '../../clients/event/types.js';
 import type { Actor } from '../../core/actor.js';
@@ -47,10 +47,17 @@ let preambleError = false;
 let preambleLineCount = 0;
 let preambleVersion: string | null = null;
 try {
-    const preamblePath = path.join(
-        __dirname,
-        '../../../../../src/worker/dist/workerPreamble.js',
-    );
+    // Five levels up from `dist/src/backend/drivers/workers` (compiled
+    // runtime); four when running from `src/backend/drivers/workers`
+    // directly (vitest transforms the TS sources in place).
+    const preamblePath = [
+        path.join(
+            __dirname,
+            '../../../../../src/worker/dist/workerPreamble.js',
+        ),
+        path.join(__dirname, '../../../../src/worker/dist/workerPreamble.js'),
+    ].find((candidate) => existsSync(candidate));
+    if (!preamblePath) throw new Error('workerPreamble.js not found');
     console.log('reading: ' + preamblePath);
     preamble = readFileSync(preamblePath, 'utf-8');
     preambleLineCount = preamble.split('\n').length - 1;

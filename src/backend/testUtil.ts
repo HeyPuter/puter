@@ -1,3 +1,8 @@
+import bcrypt from 'bcrypt';
+import { createServer } from 'node:net';
+import type { AddressInfo } from 'node:net';
+import { fileURLToPath } from 'node:url';
+import { v4 as uuidv4 } from 'uuid';
 import { deepMerge } from '../../tools/lib/configMigration.mjs';
 import { PuterServer } from './server';
 import { IConfig } from './types';
@@ -7,6 +12,8 @@ import {
     type PostgresPool,
 } from './clients/database/PostgresDatabaseClient';
 import type { PoolConfig } from 'pg';
+import { ADMIN_GROUP_UID } from './services/selfhosted/DefaultUserService';
+import { generateDefaultFsentries } from './util/userProvisioning';
 
 export const POSTGRES_TEST_MIGRATIONS_PATH =
     'src/backend/clients/database/migrations/postgres';
@@ -88,15 +95,50 @@ const testDatabaseDefault = (): IConfig['database'] => {
     return { engine: 'sqlite', inMemory: true };
 };
 
+export type SetupTestServerOptions = {
+    /**
+     * Listen on a real HTTP port so external clients (puter.js runners,
+     * workerd, browsers) can connect. Default: in-process only, no listener.
+     */
+    listen?: boolean;
+};
+
+/**
+ * Grab a free port by binding to 0 and releasing it. Done up-front (rather
+ * than letting the server listen on 0) so the port is known while building
+ * config — `origin` / `api_base_url` consumers like LocalWorkerService read
+ * it at construction time.
+ */
+export const allocateEphemeralPort = (): Promise<number> =>
+    new Promise((resolve, reject) => {
+        const probe = createServer();
+        probe.unref();
+        probe.on('error', reject);
+        probe.listen(0, '127.0.0.1', () => {
+            const { port } = probe.address() as AddressInfo;
+            probe.close(() => resolve(port));
+        });
+    });
+
+// The JSON module's payload lives on `.default` — merging the namespace
+// itself would bury every value under a stray `default` key.
+const loadDefaultConfig = async (): Promise<IConfig> => {
+    const { default: defaultConfig } = await import(
+        '../../config.default.json',
+        {
+            with: {
+                type: 'json',
+            },
+        }
+    );
+    return defaultConfig as unknown as IConfig;
+};
+
 export const setupTestServer = async (
     configOverrides?: IConfig,
+    options?: SetupTestServerOptions,
 ): Promise<PuterServer> => {
-    // read default config json
-    const defaultConfig = await import('../../config.default.json', {
-        with: {
-            type: 'json',
-        },
-    });
+    const defaultConfig = await loadDefaultConfig();
     // merge default config with overrides and test defaults
     const config = deepMerge(
         deepMerge(defaultConfig, {
@@ -108,9 +150,22 @@ export const setupTestServer = async (
             s3: { localConfig: { inMemory: true } },
             no_default_user: true,
             no_devwatch: true,
+            no_browser_launch: true,
+            import_ts_extensions: true,
         }),
         configOverrides ?? {},
     ) as IConfig;
+
+    if (options?.listen) {
+        if (!config.port) config.port = await allocateEphemeralPort();
+        // Derive from `domain` so the advertised origins match the host
+        // the subdomain gates expect (`api.<domain>` for API routes).
+        const host = config.domain ?? '127.0.0.1';
+        config.origin ??= `http://${host}:${config.port}`;
+        config.api_base_url ??= config.domain
+            ? `http://api.${config.domain}:${config.port}`
+            : config.origin;
+    }
 
     let pgMockClient: PgMockPostgresHarness | undefined;
     if (usesPgMockPostgres(config)) {
@@ -141,10 +196,147 @@ export const setupTestServer = async (
     }
 
     try {
-        await server.start(true);
+        await server.start(!options?.listen);
     } catch (e) {
         pgMockClient?.destroy();
         throw e;
     }
     return server;
+};
+
+export type TestUserCredentials = {
+    username: string;
+    password: string;
+    token: string;
+};
+
+/**
+ * Seed a user with a known password directly through the stores (same steps
+ * as DefaultUserService's admin bootstrap: bcrypt-hashed password, home
+ * directory tree, optional admin-group membership) and mint a session token
+ * the same way `POST /login` does.
+ */
+export const createTestUser = async (
+    server: PuterServer,
+    opts: { username: string; password: string; admin?: boolean },
+): Promise<TestUserCredentials> => {
+    const passwordHash = await bcrypt.hash(opts.password, 8);
+    const created = await server.stores.user.create({
+        username: opts.username,
+        uuid: uuidv4(),
+        password: passwordHash,
+        email: null,
+        requires_email_confirmation: false,
+    });
+
+    // Base driver permissions (kv, notifications, …) are system grants on
+    // the default user group — membership is what a verified signup gets.
+    const { default_user_group } = await loadDefaultConfig();
+    if (default_user_group) {
+        await server.stores.group.addUsers(default_user_group, [opts.username]);
+    }
+    if (opts.admin) {
+        await server.stores.group.addUsers(ADMIN_GROUP_UID, [opts.username]);
+    }
+
+    await generateDefaultFsentries(
+        server.clients.db,
+        server.stores.user,
+        created,
+    );
+    const user = (await server.stores.user.getById(created.id)) ?? created;
+
+    const { token } = await server.services.auth.createSessionToken(user, {
+        user_agent: 'puter-test-env',
+    });
+
+    return { username: opts.username, password: opts.password, token };
+};
+
+export type PuterTestEnv = {
+    /**
+     * Root origin (`http://puter.localhost:<port>`) — GUI and root-only
+     * routes like `POST /login` live here.
+     */
+    origin: string;
+    /**
+     * API origin (`http://api.puter.localhost:<port>`) — what puter.js
+     * clients use as their APIOrigin. Routes gated on the `api` subdomain
+     * (e.g. `/whoami`) only match this host.
+     */
+    apiOrigin: string;
+    /** Seeded accounts: an admin and a regular (non-privileged) user. */
+    users: {
+        admin: TestUserCredentials;
+        user: TestUserCredentials;
+    };
+    server: PuterServer;
+    shutdown: () => Promise<void>;
+};
+
+export const TEST_ADMIN_CREDENTIALS = {
+    username: 'admin',
+    password: 'puter-test-admin-password',
+};
+export const TEST_USER_CREDENTIALS = {
+    username: 'testuser',
+    password: 'puter-test-user-password',
+};
+
+/**
+ * Boot an in-memory Puter server on a real ephemeral port with deterministic
+ * credentials, for client test runners (puter.js on node, browsers, workerd).
+ * Clients can authenticate with the pre-minted tokens or via a real
+ * `POST /login` using the fixed passwords — no stdout scraping.
+ */
+export const setupPuterTestEnv = async (
+    configOverrides?: IConfig,
+): Promise<PuterTestEnv> => {
+    const port = await allocateEphemeralPort();
+    // Real hostnames rather than 127.0.0.1: API routes are gated on the
+    // `api` subdomain, and `*.localhost` resolves to loopback on modern
+    // platforms (and in browsers).
+    const domain = 'puter.localhost';
+    const origin = `http://${domain}:${port}`;
+    const apiOrigin = `http://api.${domain}:${port}`;
+
+    // Unlike unit-test servers (extensions: []), the client env loads the
+    // real extensions — clients depend on endpoints that live there
+    // (e.g. /whoami). Resolved from this module so cwd doesn't matter.
+    const extensionsDir = fileURLToPath(
+        new URL('../../extensions', import.meta.url),
+    );
+
+    const server = await setupTestServer(
+        deepMerge(
+            {
+                port,
+                domain,
+                origin,
+                api_base_url: apiOrigin,
+                extensions: [extensionsDir],
+            },
+            configOverrides ?? {},
+        ) as IConfig,
+        { listen: true },
+    );
+
+    try {
+        const admin = await createTestUser(server, {
+            ...TEST_ADMIN_CREDENTIALS,
+            admin: true,
+        });
+        const user = await createTestUser(server, TEST_USER_CREDENTIALS);
+
+        return {
+            origin,
+            apiOrigin,
+            users: { admin, user },
+            server,
+            shutdown: () => server.shutdown(),
+        };
+    } catch (e) {
+        await server.shutdown().catch(() => {});
+        throw e;
+    }
 };

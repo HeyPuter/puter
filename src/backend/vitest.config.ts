@@ -42,7 +42,9 @@ const pgmockTimeoutMs = 600_000;
 // crash with "SyntaxError: Invalid or unexpected token". Pre-transform
 // `.ts`/`.mts` source through esbuild — which DOES lower stage-3
 // decorators — locked to `es2024` to match `tsconfig.json`'s target.
-const lowerDecoratorsPlugin = {
+// Exported for other vitest configs that boot backend code (e.g. the
+// puter.js API test runners).
+export const lowerDecoratorsPlugin = {
     name: 'puter:lower-decorators',
     enforce: 'pre' as const,
     async transform(code: string, id: string) {

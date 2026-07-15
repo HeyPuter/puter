@@ -1,0 +1,53 @@
+name: Puter.js API Tests
+
+# Runs on puter.js SDK changes — the suites live in src/puter-js/tests,
+# so test changes are covered by the same glob — plus the pieces the
+# runners depend on: the worker preamble, the in-memory test env in
+# testUtil, and the backend vitest config the API-tests config extends.
+# Backend and extension changes run backend-tests.yaml instead.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'src/puter-js/**'
+      - 'src/worker/**'
+      - 'src/backend/testUtil.ts'
+      - 'src/backend/vitest.config.ts'
+      - 'tools/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/puterjs-tests.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The runners exercise the built artifacts: the SDK bundle
+      # (src/puter-js/dist) for node + browser, and the worker preamble
+      # (src/worker/dist) for workerd.
+      - name: Build puter.js SDK and worker preamble
+        run: npm run build:workerLib
+
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run puter.js API tests (node, browser, workerd)
+        run: npm run test:puterjs
+        env:
+          CI: 'true'

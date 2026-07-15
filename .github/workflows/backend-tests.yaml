@@ -1,10 +1,19 @@
 name: Backend Tests
 
+# Runs on backend and extension changes. Tests are co-located with the
+# code (src/backend/**/*.test.ts, extensions/**/*.test.ts), so test-only
+# changes match the same globs. puter.js SDK changes are covered by
+# puterjs-tests.yaml instead.
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-    paths-ignore:
-      - 'src/docs/**'
+    paths:
+      - 'src/backend/**'
+      - 'extensions/**'
+      - 'tools/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/backend-tests.yaml'
 
 permissions:
   contents: read

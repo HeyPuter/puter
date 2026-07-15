@@ -532,6 +532,12 @@ interface IConfigOptional {
      * banner that DefaultUserService prints. Intended for tests.
      */
     no_default_user: boolean;
+    /**
+     * Import `.ts` extension sources instead of built `.js`. Only for
+     * transform-capable runtimes (the test harness sets this); plain node
+     * cannot execute the TypeScript sources.
+     */
+    import_ts_extensions?: boolean;
     /** Optional dev-time frontend watcher overrides. */
     devwatch: IDevWatcherConfig;
 
