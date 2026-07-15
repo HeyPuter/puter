@@ -41,7 +41,8 @@ const ADMIN_STORAGE_BYTES = 10 * 1024 * 1024 * 1024;
  *
  * Each boot where the current password hash still matches the stashed
  * plaintext, the credentials are re-printed to stdout (CI scrapes this
- * line to extract the default password).
+ * line to extract the default password). Once rotation is detected the
+ * stash is deleted so the plaintext isn't retained longer than needed.
  */
 export class DefaultUserService extends PuterService {
     override async onServerStart(): Promise<void> {
@@ -88,7 +89,13 @@ export class DefaultUserService extends PuterService {
             tmpPassword,
             String(user.password),
         );
-        if (!isDefault) return;
+        if (!isDefault) {
+            // Password was rotated — stop retaining the plaintext stash.
+            await this.stores.user.updateMetadata(user.id, {
+                tmp_password: null,
+            });
+            return;
+        }
 
         this.#printCredentials(tmpPassword);
     }

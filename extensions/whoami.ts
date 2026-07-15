@@ -65,6 +65,9 @@ export const handleWhoami = async (
         }
     }
 
+    const metadata = user.metadata ? { ...user.metadata } : user.metadata;
+    if (metadata) delete metadata.tmp_password;
+
     const details: Record<string, unknown> = {
         username: user.username,
         uuid: user.uuid,
@@ -98,7 +101,7 @@ export const handleWhoami = async (
         human_readable_age: user.timestamp
             ? timeago.format(new Date(user.timestamp as string))
             : null,
-        metadata: user.metadata,
+        metadata,
         hasDevAccountAccess: !!user.metadata?.hasDevAccountAccess,
     };
 
@@ -162,6 +165,7 @@ export const handleWhoami = async (
         delete details.desktop_bg_fit;
         delete details.human_readable_age;
         delete details.is_user_token;
+        delete details.metadata;
     }
 
     if (actor.app) {
