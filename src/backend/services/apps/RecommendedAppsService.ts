@@ -33,6 +33,7 @@ const RECOMMENDED_APP_NAMES = [
     'dev-center',
     'butler',
     'calculator',
+    'calendar',
     'code',
     'music-player',
     'contacts',
