@@ -794,6 +794,51 @@ export class AppDriver extends PuterDriver {
         }
     }
 
+    /**
+     * Launch-safety check for puter-hosted `index_url`s.
+     *
+     * A hosted subdomain (`*.<hosting-domain>`) can be deleted by its owner
+     * and then re-registered by anyone else, but the app row keeps the stale
+     * URL — nothing rewrites it on subdomain deletion. Without this check the
+     * desktop would build the app iframe on a now-reclaimable origin and
+     * append the launch token to it (the GUI launcher appends
+     * `puter.auth.token` to the index_url), handing a valid token to whoever
+     * controls that subdomain today.
+     *
+     * Returns true when the app's hosted subdomain is missing, or is
+     * currently owned by a different user than the app's owner. Non-hosted
+     * index_urls (a developer's own external domain, builtins) return false:
+     * we don't manage their DNS and can't reason about their ownership.
+     */
+    async #hostedIndexUrlBackingIsUnavailable(app) {
+        const subdomain = this.#extractPuterHostedSubdomain(app.index_url);
+        if (!subdomain) return false;
+
+        let row = await this.stores.subdomain.getBySubdomain(subdomain);
+        if (!row) {
+            // A freshly-created subdomain may not have reached a replica or
+            // the local cache yet; confirm against the primary before
+            // treating the backing as gone (mirrors the create/update
+            // ownership check in `#ensurePuterSiteSubdomainIsOwned`).
+            row = await this.stores.subdomain.getBySubdomain(subdomain, {
+                primary: true,
+            });
+        }
+        if (!row) return true; // subdomain no longer exists → dangling
+
+        const appOwnerId = Number(app.owner_user_id);
+        const subdomainOwnerId = Number(row.user_id);
+        if (
+            !Number.isInteger(appOwnerId) ||
+            !Number.isInteger(subdomainOwnerId)
+        ) {
+            return true;
+        }
+        // Subdomain exists but belongs to someone other than the app owner —
+        // it was reclaimed; launching would leak the token to the new owner.
+        return subdomainOwnerId !== appOwnerId;
+    }
+
     async #toClient(app, actor, params = {}) {
         if (!app) return null;
 
@@ -801,12 +846,14 @@ export class AppDriver extends PuterDriver {
         // batched query and threads them through `params.filetypes` to
         // avoid the N+1 in this hot loop. Single-app callers (`read`,
         // `create`, `update`) fall back to the per-app query.
-        const [filetypes, canonicalForIndexUrl] = await Promise.all([
-            params.filetypes !== undefined
-                ? Promise.resolve(params.filetypes)
-                : this.appStore.getFiletypeAssociations(app.id),
-            this.#resolveCanonicalForIndexUrl(app),
-        ]);
+        const [filetypes, canonicalForIndexUrl, hostedBackingUnavailable] =
+            await Promise.all([
+                params.filetypes !== undefined
+                    ? Promise.resolve(params.filetypes)
+                    : this.appStore.getFiletypeAssociations(app.id),
+                this.#resolveCanonicalForIndexUrl(app),
+                this.#hostedIndexUrlBackingIsUnavailable(app),
+            ]);
 
         const createdFromOrigin =
             canonicalForIndexUrl && canonicalForIndexUrl.expectedUid === app.uid
@@ -901,6 +948,26 @@ export class AppDriver extends PuterDriver {
             if (!privateAccess.hasAccess) {
                 delete result.index_url;
             }
+        }
+
+        // Hosted-subdomain launch guard (independent of the private-app
+        // gate): deny launch when the app's puter-hosted backing is gone or
+        // has been reclaimed by another user, so the GUI never appends the
+        // launch token to an origin the app owner no longer controls. Empty
+        // `fallbackAppName` keeps the launcher from redirecting to
+        // app-center — this isn't an entitlement problem, the backing is
+        // simply unavailable. Only set when not already denied so a private
+        // app's existing decision is preserved.
+        if (
+            hostedBackingUnavailable &&
+            result.privateAccess?.hasAccess !== false
+        ) {
+            result.privateAccess = {
+                hasAccess: false,
+                fallbackAppName: '',
+                reason: 'hosted_backing_unavailable',
+                checkedBy: 'core/hosted-subdomain-guard',
+            };
         }
 
         return result;
