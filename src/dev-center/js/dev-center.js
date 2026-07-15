@@ -45,9 +45,11 @@ if ( window.url_params.has('puter.domain') ) {
 
 // static hosting domain
 window.static_hosting_domain = 'puter.site';
-if ( window.domain === 'puter.localhost' ) {
-    window.static_hosting_domain = 'site.puter.localhost';
-}
+   if ( window.domain === 'puter.localhost' ) {
+       window.static_hosting_domain = 'site.puter.localhost';
+   } else if ( window.domain && window.domain !== 'puter.com' ) {
+       window.static_hosting_domain = `site.${window.domain}`;
+   }
 
 // add port to static_hosting_domain if provided
 if ( window.url_params.has('puter.port') && window.url_params.get('puter.port') ) {
