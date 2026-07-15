@@ -24,12 +24,20 @@ import type { IConfig } from '../../types';
 import { PuterClient } from '../types';
 import { EMAIL_TEMPLATES, type EmailTemplateName } from './templates';
 
-// -- Types ------------------------------------------------------------
+/** Attachment shape passed through to the underlying transport. */
+export interface EmailAttachment {
+    filename: string;
+    content: Buffer | string;
+    contentType?: string;
+    encoding?: string;
+}
 
-// nodemailer doesn't ship TS types, so declare the subset we use.
-interface NodemailerTransport {
-    sendMail: (options: SendMailOptions) => Promise<unknown>;
-    close?: () => void;
+/** Subset of the transport's send result callers may care about. */
+export interface SentMessageInfo {
+    messageId?: string;
+    accepted?: string[];
+    rejected?: string[];
+    [key: string]: unknown;
 }
 
 export interface SendMailOptions {
@@ -41,6 +49,7 @@ export interface SendMailOptions {
     html?: string;
     text?: string;
     replyTo?: string;
+    attachments?: EmailAttachment[];
 }
 
 export type EmailValidator = (email: string) => Promise<boolean> | boolean;
@@ -100,7 +109,8 @@ const DOMAIN_ALIASES: Record<string, string> = {
  *   - Policy + extensible validation (via `validate`)
  */
 export class EmailClient extends PuterClient {
-    private transport: NodemailerTransport | null = null;
+    private transport: ReturnType<typeof nodemailer.createTransport> | null =
+        null;
     private compiledTemplates: Partial<
         Record<EmailTemplateName, CompiledTemplate>
     > = {};
@@ -123,8 +133,7 @@ export class EmailClient extends PuterClient {
             return;
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        this.transport = nodemailer.createTransport(emailConf as any);
+        this.transport = nodemailer.createTransport(emailConf);
         console.log('[email] transport configured');
     }
 
@@ -159,19 +168,28 @@ export class EmailClient extends PuterClient {
     /**
      * Raw send — bypasses the template system. Useful for one-off
      * admin emails that don't warrant a named template.
+     *
+     * Returns the transport's send result, or `null` when no transport
+     * is configured (the send is a no-op in that case — callers that
+     * must not silently drop mail should check `isConfigured` first).
      */
-    async sendRaw(options: SendMailOptions): Promise<void> {
+    async sendRaw(options: SendMailOptions) {
         if (!this.transport) {
             console.warn(
                 '[email] attempted to send email without transport. If you need to send email, configure an SMTP transport in your config file (see docs for details). Email content:',
                 options,
             );
-            return;
+            return null;
         }
-        await this.transport.sendMail({
-            from: options.from ?? this.defaultFrom(),
+        return await this.transport.sendMail({
             ...options,
+            from: options.from ?? this.defaultFrom(),
         });
+    }
+
+    /** Whether an SMTP transport is configured (sends are no-ops otherwise). */
+    get isConfigured(): boolean {
+        return this.transport !== null;
     }
 
     // -- Public API: clean / validate ---------------------------------

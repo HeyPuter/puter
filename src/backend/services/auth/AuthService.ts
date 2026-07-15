@@ -1967,7 +1967,9 @@ export class AuthService extends PuterService {
     #buildUserActor(user: UserRow, session: SessionRow | null): Actor {
         return {
             user: this.#actorUserFromRow(user),
-            session: session ? { uid: session.uuid } : null,
+            session: session
+                ? { uid: session.uuid, kind: session.kind ?? null }
+                : null,
         };
     }
 
@@ -1982,7 +1984,9 @@ export class AuthService extends PuterService {
                 uid: app.uid,
                 id: app.id,
             },
-            session: session ? { uid: session.uuid } : null,
+            session: session
+                ? { uid: session.uuid, kind: session.kind ?? null }
+                : null,
         };
     }
 }

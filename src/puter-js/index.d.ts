@@ -4,6 +4,7 @@ import type { Apps, AppListOptions, AppRecord, CreateAppOptions, UpdateAppAttrib
 import type { Auth, APIUsage, AllowanceInfo, AppUsage, AuthUser, DetailedAppUsage, MonthlyUsage } from './types/modules/auth.d.ts';
 import type { Debug } from './types/modules/debug.d.ts';
 import type { Driver, DriverDescriptor, Drivers } from './types/modules/drivers.d.ts';
+import type { Email, EmailAttachment, EmailSendOptions, EmailSendResult } from './types/modules/email.d.ts';
 import type { FS, CopyOptions, DeleteOptions, MkdirOptions, MoveOptions, ReadOptions, ReaddirOptions, SignResult, SpaceInfo, UploadOptions, WriteOptions } from './types/modules/filesystem.d.ts';
 import type { FSItem, FileSignatureInfo, InternalFSProperties } from './types/modules/fs-item.d.ts';
 import type { Hosting, Subdomain } from './types/modules/hosting.d.ts';
@@ -59,6 +60,10 @@ export type {
     Driver,
     DriverDescriptor,
     Drivers,
+    Email,
+    EmailAttachment,
+    EmailSendOptions,
+    EmailSendResult,
     FSItem,
     FilePickerOptions,
     FileSignatureInfo,
