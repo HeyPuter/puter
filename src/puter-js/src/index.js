@@ -10,6 +10,7 @@ import Apps from './modules/Apps.js';
 import Auth from './modules/Auth.js';
 import { Debug } from './modules/Debug.js';
 import Drivers from './modules/Drivers.js';
+import Email from './modules/Email.js';
 import { PuterJSFileSystemModule } from './modules/FileSystem/index.js';
 import FSItem from './modules/FSItem.js';
 import Hosting from './modules/Hosting.js';
@@ -202,6 +203,7 @@ const puterInit = function () {
             this.registerModule('apps', Apps);
             this.registerModule('ai', AI);
             this.registerModule('kv', KV);
+            this.registerModule('email', Email);
             this.registerModule('perms', Perms);
             this.registerModule('drivers', Drivers);
             this.registerModule('debug', Debug);

@@ -54,9 +54,11 @@ export interface Actor {
      * Session reference when authenticated via a session token (user actors)
      * or an app-under-user token that carries a session. Absent for system,
      * raw-app, and pure access-token actors. Used for session introspection
-     * and targeted logout.
+     * and targeted logout. `kind` mirrors the session row's kind (e.g.
+     * 'web', 'app', 'worker') so callers can gate on how the credential
+     * was minted without an extra session lookup.
      */
-    session?: { uid: string } | null;
+    session?: { uid: string; kind?: string | null } | null;
 }
 
 /** UUID of the baked-in system user (see 0025 seed migration). */

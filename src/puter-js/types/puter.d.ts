@@ -3,6 +3,7 @@ import type { Apps } from './modules/apps.d.ts';
 import type { Auth } from './modules/auth.d.ts';
 import type { Debug } from './modules/debug.d.ts';
 import type { Drivers } from './modules/drivers.d.ts';
+import type { Email } from './modules/email.d.ts';
 import type { FS } from './modules/filesystem.d.ts';
 import type { FSItem } from './modules/fs-item.d.ts';
 import type { Hosting } from './modules/hosting.d.ts';
@@ -53,6 +54,7 @@ export class Puter {
     ui: UI;
     hosting: Hosting;
     kv: KV;
+    email: Email;
     perms: Perms;
     drivers: Drivers;
     debug: Debug;
