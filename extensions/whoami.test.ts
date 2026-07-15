@@ -158,6 +158,49 @@ describe('whoami extension — handleWhoami', () => {
         expect(body.directories).toBeUndefined();
     });
 
+    it('redacts tmp_password from metadata for user actors', async () => {
+        const user = await seedUser();
+        await server.stores.user.updateMetadata(user.id as number, {
+            tmp_password: 'bootstrap-secret',
+            hasDevAccountAccess: true,
+        });
+
+        const { res, captured } = makeRes();
+        await runWithContext(
+            { actor: { user: { uuid: user.uuid, id: user.id as number } } },
+            () => handleWhoami(makeReq(), res),
+        );
+
+        const body = captured.body as Record<string, unknown>;
+        const metadata = body.metadata as Record<string, unknown>;
+        expect(metadata.tmp_password).toBeUndefined();
+        // Other metadata keys still reach the user's own client.
+        expect(metadata.hasDevAccountAccess).toBe(true);
+        expect(body.hasDevAccountAccess).toBe(true);
+    });
+
+    it('never sends user metadata to app actors', async () => {
+        const user = await seedUser();
+        await server.stores.user.updateMetadata(user.id as number, {
+            tmp_password: 'bootstrap-secret',
+        });
+
+        const { res, captured } = makeRes();
+        await runWithContext(
+            {
+                actor: {
+                    user: { uuid: user.uuid, id: user.id as number },
+                    app: { uid: 'app-test-actor' },
+                },
+            },
+            () => handleWhoami(makeReq(), res),
+        );
+
+        const body = captured.body as Record<string, unknown>;
+        expect(body.metadata).toBeUndefined();
+        expect(JSON.stringify(body)).not.toContain('bootstrap-secret');
+    });
+
     it('marks the user as oidc_only when password is null', async () => {
         const slug = Math.random().toString(36).slice(2, 8);
         const oidcUser = await server.stores.user.create({

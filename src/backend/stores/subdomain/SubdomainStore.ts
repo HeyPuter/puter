@@ -107,25 +107,37 @@ export class SubdomainStore extends PuterStore {
         return (rows[0] as unknown as SubdomainRow) ?? null;
     }
 
-    async getBySubdomain(subdomain: string): Promise<SubdomainRow | null> {
+    /**
+     * Pass `primary: true` for read-after-write lookups (e.g. checking a
+     * subdomain that may have been created moments ago): it skips the
+     * cache — which may hold a stale negative marker — and reads the
+     * primary instead of a possibly-lagging replica. The result still
+     * refreshes the cache, healing any stale marker.
+     */
+    async getBySubdomain(
+        subdomain: string,
+        { primary = false }: { primary?: boolean } = {},
+    ): Promise<SubdomainRow | null> {
         if (!subdomain) return null;
 
         const cacheKey = this.#cacheKey(subdomain);
-        try {
-            const raw = await this.clients.redis.get(cacheKey);
-            if (raw === NEGATIVE_CACHE_MARKER) return null;
-            if (raw) {
-                const parsed = JSON.parse(raw) as SubdomainRow | null;
-                if (parsed) return parsed;
+        if (!primary) {
+            try {
+                const raw = await this.clients.redis.get(cacheKey);
+                if (raw === NEGATIVE_CACHE_MARKER) return null;
+                if (raw) {
+                    const parsed = JSON.parse(raw) as SubdomainRow | null;
+                    if (parsed) return parsed;
+                }
+            } catch {
+                /* fall through */
             }
-        } catch {
-            /* fall through */
         }
 
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `subdomains` WHERE `subdomain` = ? LIMIT 1',
-            [subdomain],
-        );
+        const sql = 'SELECT * FROM `subdomains` WHERE `subdomain` = ? LIMIT 1';
+        const rows = primary
+            ? await this.clients.db.pread(sql, [subdomain])
+            : await this.clients.db.read(sql, [subdomain]);
         const row = (rows[0] as unknown as SubdomainRow | undefined) ?? null;
 
         if (row) {
