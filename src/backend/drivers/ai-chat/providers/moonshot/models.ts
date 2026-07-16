@@ -22,6 +22,27 @@ import type { IChatModel } from '../../types.js';
 export const MOONSHOT_MODELS: IChatModel[] = [
     // -- Flagship ----------------------------------------------------
     {
+        puterId: 'moonshotai:moonshotai/kimi-k3',
+        id: 'kimi-k3',
+        name: 'Kimi K3',
+        aliases: ['moonshotai/kimi-k3', 'moonshot/kimi-k3'],
+        modalities: { input: ['text', 'image', 'video'], output: ['text'] },
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 300, // $3.00 per 1M
+            completion_tokens: 1500, // $15.00 per 1M
+            cached_tokens: 30, // $0.30 per 1M
+        },
+        context: 1_048_576,
+        max_tokens: 1_048_576,
+        tool_call: true,
+    },
+
+    // -- Kimi K2.6 --------------------------------------------------
+    {
         puterId: 'moonshotai:moonshotai/kimi-k2.6',
         id: 'kimi-k2.6',
         name: 'Kimi K2.6',
