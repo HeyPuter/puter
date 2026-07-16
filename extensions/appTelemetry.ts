@@ -70,7 +70,9 @@ export class AppTelemetryDriver extends PuterDriver {
         app_uuid?: string;
         limit?: unknown;
         offset?: unknown;
-    } = {}): Promise<Array<{ user: string; user_uuid: string }>> {
+    } = {}): Promise<
+        Array<{ user: string; user_uuid: string; user_email?: string | null }>
+    > {
         if (!app_uuid) throw new HttpError(400, 'Missing `app_uuid`');
 
         const safeLimit = parseIntParam(limit, {
@@ -105,16 +107,45 @@ export class AppTelemetryDriver extends PuterDriver {
             .catch(() => false);
         if (!ownsApp) throw new HttpError(403, 'Permission denied');
 
+        const appId = (app as { id: number }).id;
+
         const users = (await this.clients.db.read(
-            `SELECT u.username, u.uuid FROM user_to_app_permissions p
+            `SELECT u.id, u.username, u.uuid, u.email FROM user_to_app_permissions p
              INNER JOIN ${this.clients.db.quoteIdentifier('user')} u ON p.user_id = u.id
              WHERE p.permission = 'flag:app-is-authenticated' AND p.app_id = ?
              ORDER BY (p.dt IS NOT NULL), p.dt, p.user_id
              LIMIT ? OFFSET ?`,
-            [(app as { id: number }).id, safeLimit, safeOffset],
-        )) as Array<{ username: string; uuid: string }>;
+            [appId, safeLimit, safeOffset],
+        )) as Array<{
+            id: number;
+            username: string;
+            uuid: string;
+            email: string | null;
+        }>;
 
-        return users.map((e) => ({ user: e.username, user_uuid: e.uuid }));
+        // Only surface a user's email if *that user* granted this app the
+        // `user:<their-uuid>:email:read` permission — the same grant
+        // `puter.perms.requestEmail()` obtains and `whoami` honours. This is a
+        // per-user check keyed on the app (not the calling owner-actor): a
+        // user may have authenticated into the app without sharing their
+        // email. Resolve the whole page in one query.
+        const emailPermitted = new Set<number>();
+        if (users.length > 0) {
+            const permStrings = users.map((u) => `user:${u.uuid}:email:read`);
+            const placeholders = permStrings.map(() => '?').join(', ');
+            const grants = (await this.clients.db.read(
+                `SELECT user_id FROM user_to_app_permissions
+                 WHERE app_id = ? AND permission IN (${placeholders})`,
+                [appId, ...permStrings],
+            )) as Array<{ user_id: number }>;
+            for (const g of grants) emailPermitted.add(g.user_id);
+        }
+
+        return users.map((e) =>
+            emailPermitted.has(e.id)
+                ? { user: e.username, user_uuid: e.uuid, user_email: e.email }
+                : { user: e.username, user_uuid: e.uuid },
+        );
     }
 
     /** Count of users who have authenticated into the given app. */

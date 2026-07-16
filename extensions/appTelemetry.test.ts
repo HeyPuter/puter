@@ -50,6 +50,32 @@ const seedOwnedApp = async (prefix: string) => {
     return { owner, app: app! };
 };
 
+const seedUser = async (prefix: string, email: string | null = null) =>
+    server.stores.user.create({
+        username: `${prefix}_${Math.random().toString(36).slice(2, 8)}`,
+        uuid: uuidv4(),
+        password: 'x',
+        email,
+    });
+
+const grantAuthenticated = async (appId: number, userId: number) => {
+    await server.clients.db.write(
+        `INSERT INTO user_to_app_permissions (user_id, app_id, permission, extra) VALUES (?, ?, ?, ?)`,
+        [userId, appId, 'flag:app-is-authenticated', null],
+    );
+};
+
+const grantEmailRead = async (
+    appId: number,
+    userId: number,
+    userUuid: string,
+) => {
+    await server.clients.db.write(
+        `INSERT INTO user_to_app_permissions (user_id, app_id, permission, extra) VALUES (?, ?, ?, ?)`,
+        [userId, appId, `user:${userUuid}:email:read`, null],
+    );
+};
+
 describe('appTelemetry driver — get_users', () => {
     it('throws HttpError(400) when app_uuid is missing', async () => {
         await expect(driver.get_users({})).rejects.toMatchObject({
@@ -116,6 +142,66 @@ describe('appTelemetry driver — get_users', () => {
         );
 
         expect(result).toEqual([]);
+    });
+
+    it('omits user_email for a user who did not grant email:read', async () => {
+        const { owner, app } = await seedOwnedApp('noemail');
+        const member = await seedUser('member', 'secret@example.com');
+        await grantAuthenticated(app.id as number, member.id as number);
+
+        const [row] = (await callWithActor(
+            { user: { uuid: owner.uuid, id: owner.id as number } },
+            () => driver.get_users({ app_uuid: app.uid }),
+        )) as Array<Record<string, unknown>>;
+
+        expect(row.user).toBe(member.username);
+        expect(row.user_uuid).toBe(member.uuid);
+        // No grant → the field must be absent (not just null), so the email
+        // never leaks to the app owner.
+        expect(Object.prototype.hasOwnProperty.call(row, 'user_email')).toBe(
+            false,
+        );
+    });
+
+    it('returns user_email when the user granted email:read to the app', async () => {
+        const { owner, app } = await seedOwnedApp('withemail');
+        const member = await seedUser('member', 'shared@example.com');
+        await grantAuthenticated(app.id as number, member.id as number);
+        await grantEmailRead(
+            app.id as number,
+            member.id as number,
+            member.uuid,
+        );
+
+        const [row] = (await callWithActor(
+            { user: { uuid: owner.uuid, id: owner.id as number } },
+            () => driver.get_users({ app_uuid: app.uid }),
+        )) as Array<Record<string, unknown>>;
+
+        expect(row.user_uuid).toBe(member.uuid);
+        expect(row.user_email).toBe('shared@example.com');
+    });
+
+    it('does not leak email granted to a *different* app', async () => {
+        const { owner, app } = await seedOwnedApp('appA');
+        const { app: otherApp } = await seedOwnedApp('appB');
+        const member = await seedUser('member', 'crossapp@example.com');
+        await grantAuthenticated(app.id as number, member.id as number);
+        // Grant email:read against the OTHER app only.
+        await grantEmailRead(
+            otherApp.id as number,
+            member.id as number,
+            member.uuid,
+        );
+
+        const [row] = (await callWithActor(
+            { user: { uuid: owner.uuid, id: owner.id as number } },
+            () => driver.get_users({ app_uuid: app.uid }),
+        )) as Array<Record<string, unknown>>;
+
+        expect(Object.prototype.hasOwnProperty.call(row, 'user_email')).toBe(
+            false,
+        );
     });
 });
 
