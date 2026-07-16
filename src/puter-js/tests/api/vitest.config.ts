@@ -1,0 +1,40 @@
+import path from 'node:path';
+import { defineConfig } from 'vitest/config';
+import { lowerDecoratorsPlugin } from '../../../backend/vitest.config.ts';
+
+// Config for the client-agnostic puter.js API suites (tests/api). The
+// runners boot the in-memory backend in-process, so this mirrors the
+// backend vitest setup: same decorator lowering, same path aliases, and
+// repo root as vitest root so backend + extensions sources get transformed.
+const apiTestsDir = __dirname;
+const repoRoot = path.resolve(apiTestsDir, '../../../..');
+const backendDir = path.join(repoRoot, 'src/backend');
+
+export default defineConfig({
+    plugins: [lowerDecoratorsPlugin],
+    resolve: {
+        alias: [
+            {
+                find: /^@heyputer\/backend\/src\/(.*)$/,
+                replacement: path.join(backendDir, '$1'),
+            },
+            {
+                find: /^@heyputer\/backend\/(.*)$/,
+                replacement: path.join(backendDir, '$1'),
+            },
+            {
+                find: /^@heyputer\/backend$/,
+                replacement: path.join(backendDir, 'exports.ts'),
+            },
+        ],
+    },
+    test: {
+        globals: true,
+        include: ['src/puter-js/tests/api/runners/*.test.{js,ts}'],
+        // Server boot + SDK/worker bundling happen in hooks; browser and
+        // workerd runners are slower than unit tests.
+        testTimeout: 60_000,
+        hookTimeout: 120_000,
+        root: repoRoot,
+    },
+});

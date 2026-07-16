@@ -28,7 +28,7 @@ import { LOCAL_UNLIMITED_USER } from '../../data/subPolicies/localUnlimitedUserP
 import { UNLIMITED_SUBSCRIPTION } from '../metering/consts.js';
 
 const USERNAME = 'admin';
-const ADMIN_GROUP_UID = 'ca342a5e-b13d-4dee-9048-58b11a57cc55';
+export const ADMIN_GROUP_UID = 'ca342a5e-b13d-4dee-9048-58b11a57cc55';
 const ADMIN_STORAGE_BYTES = 10 * 1024 * 1024 * 1024;
 
 /**

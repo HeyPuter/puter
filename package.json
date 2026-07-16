@@ -46,6 +46,10 @@
   "scripts": {
     "test:backend": "npm run setupExtensions && vitest run --config src/backend/vitest.config.ts ",
     "test:backend:postgres": "npm run setupExtensions && PUTER_TEST_DB_ENGINE=postgres vitest run --config src/backend/vitest.config.ts ",
+    "test:puterjs": "npm run setupExtensions && vitest run --config src/puter-js/tests/api/vitest.config.ts",
+    "test:puterjs:node": "npm run test:puterjs -- src/puter-js/tests/api/runners/node.test.ts",
+    "test:puterjs:browser": "npm run test:puterjs -- src/puter-js/tests/api/runners/browser.test.ts",
+    "test:puterjs:workerd": "npm run test:puterjs -- src/puter-js/tests/api/runners/workerd.test.ts",
     "start:gui": "nodemon --exec \"node dev-server.js\" ",
     "start": "node --enable-source-maps -r ./dist/src/backend/telemetry.js ./dist/src/backend/index.js",
     "prestart": "npm run setupExtensions && npm run build:ts",
