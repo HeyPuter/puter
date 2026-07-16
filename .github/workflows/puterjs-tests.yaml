@@ -86,7 +86,10 @@ jobs:
       - name: Install Playwright chromium
         run: npx playwright install --with-deps chromium
 
+      # The base leg is best-effort — it only enriches the PR comment with
+      # a comparison, and the base ref may predate the coverage script.
       - name: Run puter.js API tests with coverage
+        continue-on-error: ${{ matrix.artifact == 'base' }}
         run: npm run test:puterjs:coverage
         env:
           CI: 'true'
@@ -98,6 +101,7 @@ jobs:
           name: puterjs-coverage-${{ matrix.artifact }}
           path: src/puter-js/coverage/coverage-*.json
           retention-days: 14
+          if-no-files-found: ignore
 
   report-coverage:
     needs: coverage
@@ -113,16 +117,29 @@ jobs:
           name: puterjs-coverage-pr
           path: src/puter-js/coverage
 
+      # May not exist (base ref without the coverage script, or a failed
+      # base run) — then report without the comparison column.
       - name: Download base coverage
+        id: base-coverage
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: puterjs-coverage-base
           path: coverage-base
 
       - name: Report coverage on PR
+        if: steps.base-coverage.outcome == 'success'
         uses: davelosert/vitest-coverage-report-action@v2
         with:
           name: puter.js SDK
           json-summary-path: src/puter-js/coverage/coverage-summary.json
           json-final-path: src/puter-js/coverage/coverage-final.json
           json-summary-compare-path: coverage-base/coverage-summary.json
+
+      - name: Report coverage on PR (no base comparison)
+        if: steps.base-coverage.outcome != 'success'
+        uses: davelosert/vitest-coverage-report-action@v2
+        with:
+          name: puter.js SDK
+          json-summary-path: src/puter-js/coverage/coverage-summary.json
+          json-final-path: src/puter-js/coverage/coverage-final.json
