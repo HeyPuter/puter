@@ -6,8 +6,41 @@ export default suite('auth', {
         t.assert.equal(user.username, t.env.users.user.username);
     },
 
+    'whoami matches getUser': async (t) => {
+        const whoami = await t.puter.auth.whoami();
+        const user = await t.puter.auth.getUser();
+        t.assert.equal(whoami.username, user.username);
+        t.assert.equal(whoami.uuid, user.uuid);
+    },
+
     'isSignedIn reports true with a valid token': async (t) => {
         t.assert.equal(t.puter.auth.isSignedIn(), true);
+    },
+
+    'signOut clears the session client-side': {
+        // The SDK refuses signOut inside (service) workers.
+        platforms: ['node', 'browser'],
+        fn: async (t) => {
+            // The browser platform shares one SDK instance across tests, so
+            // always restore the token before finishing.
+            try {
+                t.puter.auth.signOut();
+                t.assert.equal(t.puter.auth.isSignedIn(), false);
+            } finally {
+                t.puter.setAuthToken(t.env.users.user.token);
+            }
+            t.assert.equal(t.puter.auth.isSignedIn(), true);
+        },
+    },
+
+    'a bogus token is rejected by the API': async (t) => {
+        const res = await fetch(`${t.env.apiOrigin}/whoami`, {
+            headers: {
+                Authorization: 'Bearer not-a-real-token',
+                Origin: t.env.apiOrigin,
+            },
+        });
+        t.assert.equal(res.status, 401);
     },
 
     'password login issues a working token': async (t) => {
@@ -25,6 +58,29 @@ export default suite('auth', {
         t.assert.equal(res.status, 200);
         const body = (await res.json()) as { proceed: boolean; token?: string };
         t.assert.ok(body.token, 'login response should include a token');
+    },
+
+    'login with a wrong password fails': async (t) => {
+        const res = await fetch(`${t.env.origin}/login`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Origin: t.env.origin,
+            },
+            body: JSON.stringify({
+                username: t.env.users.user.username,
+                password: 'definitely-not-the-password',
+            }),
+        });
+        t.assert.ok(res.status !== 200, 'wrong password should not yield 200');
+    },
+
+    'getMonthlyUsage returns a usage report': async (t) => {
+        const usage = await t.puter.auth.getMonthlyUsage();
+        t.assert.ok(
+            usage && typeof usage === 'object',
+            'usage report should be an object',
+        );
     },
 
     'regular user is rejected by admin-gated endpoints': async (t) => {

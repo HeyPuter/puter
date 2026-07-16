@@ -42,10 +42,24 @@ export class LocalWorkerService extends PuterService {
             } as WorkerOptions);
             activeWorkers.set(workerName, mf);
             this.#touch(workerName);
-            return { success: true, errors: [], url: null };
+            return {
+                success: true,
+                errors: [],
+                url: this.#localWorkerUrl(workerName),
+            };
         } catch (_e) {
             return { success: false, errors: [], url: null };
         }
+    }
+
+    /**
+     * Local analogue of the production worker URL, matching the host the
+     * local worker proxy dispatches on (`<name>.workers.puter.localhost`).
+     * Clients rely on `create` returning a usable `url`.
+     */
+    #localWorkerUrl(workerName: string): string {
+        const port = this.config.port ? `:${this.config.port}` : '';
+        return `http://${workerName}.workers.puter.localhost${port}`;
     }
     async cfCallLocal(workerName: string, request: Request) {
         let mf = activeWorkers.get(workerName);
@@ -81,7 +95,14 @@ export class LocalWorkerService extends PuterService {
     }
     async cfDeleteLocal(workerName: string) {
         await this.#disposeWorker(workerName);
-        return {};
+        // Mirror the Cloudflare delete response shape — puter.js checks
+        // `result` to decide whether the delete succeeded.
+        return {
+            success: true,
+            errors: [],
+            messages: [],
+            result: { id: workerName },
+        };
     }
 
     // -- Idle lifecycle stuff

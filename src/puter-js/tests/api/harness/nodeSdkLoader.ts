@@ -1,20 +1,25 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import vm from 'node:vm';
+import { coverageEnabled, type IstanbulCoverage } from './coverage.ts';
 import type { EnvManifest, PuterSDK } from './types.ts';
 
 // Prefer the npm-published name, fall back to webpack's raw output so a
 // plain `npm run build` (no prepublish rename) is enough for local runs.
 // PUTER_SDK_BUNDLE=dev forces the unminified sourcemapped bundle for
-// readable stack traces when debugging suite failures.
+// readable stack traces when debugging suite failures. In coverage mode
+// only `puter.js` is valid — that's the file the instrumented build
+// writes (and the one inlined into the worker preamble).
 const BUNDLE_CANDIDATES = ['../../../dist/puter.cjs', '../../../dist/puter.js'];
 const DEV_BUNDLE = '../../../dist/puter.dev.js';
+const COVERAGE_BUNDLE = '../../../dist/puter.js';
 
 const resolveBundle = (): string => {
-    const candidates =
-        process.env.PUTER_SDK_BUNDLE === 'dev'
-            ? [DEV_BUNDLE]
-            : BUNDLE_CANDIDATES;
+    const candidates = coverageEnabled()
+        ? [COVERAGE_BUNDLE]
+        : process.env.PUTER_SDK_BUNDLE === 'dev'
+          ? [DEV_BUNDLE]
+          : BUNDLE_CANDIDATES;
     for (const candidate of candidates) {
         const abs = fileURLToPath(new URL(candidate, import.meta.url));
         if (existsSync(abs)) return abs;
@@ -23,6 +28,16 @@ const resolveBundle = (): string => {
         'puter.js bundle not found — run `npm run build` in src/puter-js first',
     );
 };
+
+// In coverage mode every vm context is retained so its `__coverage__`
+// counters can be merged after the run (each test loads a fresh SDK).
+const coverageContexts: Array<Record<string, unknown>> = [];
+
+/** Coverage counters from every SDK context created so far. */
+export const collectNodeCoverage = (): Array<IstanbulCoverage | undefined> =>
+    coverageContexts.map(
+        (context) => context.__coverage__ as IstanbulCoverage | undefined,
+    );
 
 // Compile the ~MB bundle once; isolation comes from a fresh context per
 // call, not a fresh parse. The filename ties stack traces and V8 coverage
@@ -63,6 +78,7 @@ export const loadNodePuter = (env: EnvManifest, token: string): PuterSDK => {
     delete context.localStorage;
 
     sdkScript().runInContext(vm.createContext(context));
+    if (coverageEnabled()) coverageContexts.push(context);
 
     const puter = context.puter as PuterSDK;
     puter.setAuthToken(token);

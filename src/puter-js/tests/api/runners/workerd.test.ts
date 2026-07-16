@@ -3,12 +3,25 @@ import {
     setupPuterTestEnv,
     type PuterTestEnv,
 } from '@heyputer/backend/testUtil.ts';
+import type { IConfig } from '@heyputer/backend/types.ts';
 import { bundleHarnessEntry } from '../harness/bundleHarnessEntry.ts';
-import { listTests, type RunTestArgs } from '../harness/executor.ts';
+import { loadPuterJsTestOptions } from '../harness/capabilities.ts';
+import {
+    coverageEnabled,
+    writeCoverageShard,
+    type IstanbulCoverage,
+} from '../harness/coverage.ts';
+import { listTests, skipReason, type RunTestArgs } from '../harness/executor.ts';
 import { loadNodePuter } from '../harness/nodeSdkLoader.ts';
 import type { EnvManifest, RunTestResult } from '../harness/types.ts';
 
 const WORKER_NAME = 'puterjs-suites';
+
+const options = loadPuterJsTestOptions();
+
+// Counters ride along on every /run response (the workerd isolate can
+// recycle mid-run); merged into one shard after the run.
+const workerdCoverage: IstanbulCoverage[] = [];
 
 // The shared puter.js suites running inside local workerd. The suite
 // bundle is deployed through the real workers pipeline (SDK
@@ -21,15 +34,14 @@ describe('puter.js API suites (workerd)', () => {
     let workerUrl: string;
 
     beforeAll(async () => {
-        env = await setupPuterTestEnv({
-            // Anything truthy (without ACCOUNTID) routes worker deploys to
-            // the local workerd instead of the remote workers backend.
-            workers: { localServer: 'true' },
-        } as never);
+        // `loadPuterJsTestOptions` routes worker deploys to the local
+        // workerd (anything truthy without ACCOUNTID does).
+        env = await setupPuterTestEnv(options.configOverrides as IConfig);
         manifest = {
             origin: env.origin,
             apiOrigin: env.apiOrigin,
             users: env.users,
+            capabilities: options.capabilities,
         };
 
         const bundle = await bundleHarnessEntry(
@@ -48,14 +60,18 @@ describe('puter.js API suites (workerd)', () => {
     }, 120_000);
 
     afterAll(async () => {
+        if (coverageEnabled()) {
+            await writeCoverageShard('workerd', workerdCoverage);
+        }
         await env?.shutdown();
     });
 
-    for (const { suiteName, testName } of listTests()) {
-        it(`${suiteName} > ${testName}`, async () => {
+    for (const test of listTests()) {
+        const skip = skipReason(test, 'workerd', options.capabilities);
+        it.skipIf(skip)(`${test.suiteName} > ${test.testName}`, async () => {
             const args: RunTestArgs = {
-                suiteName,
-                testName,
+                suiteName: test.suiteName,
+                testName: test.testName,
                 env: manifest,
                 platform: 'workerd',
             };
@@ -72,6 +88,9 @@ describe('puter.js API suites (workerd)', () => {
                 throw new Error(`worker returned ${res.status}: ${text}`);
             }
             const result = JSON.parse(text) as RunTestResult;
+            if (result.coverage) {
+                workerdCoverage.push(result.coverage);
+            }
             expect(result.error ?? '').toBe('');
             expect(result.ok).toBe(true);
         });

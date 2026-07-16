@@ -265,10 +265,15 @@ export type PuterTestEnv = {
      * (e.g. `/whoami`) only match this host.
      */
     apiOrigin: string;
-    /** Seeded accounts: an admin and a regular (non-privileged) user. */
+    /**
+     * Seeded accounts: an admin and two regular (non-privileged) users.
+     * `other` exists so suites can exercise cross-user flows (permission
+     * grants, access denials) without creating users on the fly.
+     */
     users: {
         admin: TestUserCredentials;
         user: TestUserCredentials;
+        other: TestUserCredentials;
     };
     server: PuterServer;
     shutdown: () => Promise<void>;
@@ -281,6 +286,10 @@ export const TEST_ADMIN_CREDENTIALS = {
 export const TEST_USER_CREDENTIALS = {
     username: 'testuser',
     password: 'puter-test-user-password',
+};
+export const TEST_OTHER_USER_CREDENTIALS = {
+    username: 'otheruser',
+    password: 'puter-test-other-password',
 };
 
 /**
@@ -327,11 +336,12 @@ export const setupPuterTestEnv = async (
             admin: true,
         });
         const user = await createTestUser(server, TEST_USER_CREDENTIALS);
+        const other = await createTestUser(server, TEST_OTHER_USER_CREDENTIALS);
 
         return {
             origin,
             apiOrigin,
-            users: { admin, user },
+            users: { admin, user, other },
             server,
             shutdown: () => server.shutdown(),
         };

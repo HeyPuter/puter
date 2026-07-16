@@ -38,6 +38,7 @@
         "test:e2e:report": "playwright show-report",
         "playwright:install": "playwright install chromium",
         "build": "webpack && { echo \"// Copyright 2024-present Puter Technologies Inc. All rights reserved.\"; echo \"// Generated on $(date '+%Y-%m-%d %H:%M')\n\"; cat ./dist/puter.js; } > temp && mv temp ./dist/puter.js",
+        "build:coverage": "webpack --env coverage",
         "prepublishOnly": "npm run build && mv dist/puter.js dist/puter.cjs && npm version patch"
     },
     "author": "Puter Technologies Inc.",

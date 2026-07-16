@@ -157,28 +157,27 @@ export class SystemController extends PuterController {
             });
         });
 
-        // -- GET /lsmod ----------------------------------------------
-        // Enumerates driver interfaces and their implementors.
+        // -- GET|POST /lsmod -----------------------------------------
+        // Enumerates driver interfaces and their implementors. POST is
+        // also routed because puter.js `drivers.list()` sends POST.
 
-        router.get(
-            '/lsmod',
-            { subdomain: 'api', requireAuth: true },
-            (_req, res) => {
-                const interfaces = {};
-                for (const [key, driver] of Object.entries(this.drivers)) {
-                    const ifaceName = driver?.driverInterface;
-                    if (!ifaceName) continue;
-                    const driverName = driver.driverName ?? key;
-                    if (!interfaces[ifaceName]) {
-                        interfaces[ifaceName] = { implementors: {} };
-                    }
-                    interfaces[ifaceName].implementors[driverName] = {
-                        isDefault: Boolean(driver.isDefault),
-                    };
+        const lsmod = (_req, res) => {
+            const interfaces = {};
+            for (const [key, driver] of Object.entries(this.drivers)) {
+                const ifaceName = driver?.driverInterface;
+                if (!ifaceName) continue;
+                const driverName = driver.driverName ?? key;
+                if (!interfaces[ifaceName]) {
+                    interfaces[ifaceName] = { implementors: {} };
                 }
-                res.json({ interfaces });
-            },
-        );
+                interfaces[ifaceName].implementors[driverName] = {
+                    isDefault: Boolean(driver.isDefault),
+                };
+            }
+            res.json({ interfaces });
+        };
+        router.get('/lsmod', { subdomain: 'api', requireAuth: true }, lsmod);
+        router.post('/lsmod', { subdomain: 'api', requireAuth: true }, lsmod);
     }
 
     onServerStart() {}
