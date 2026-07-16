@@ -160,7 +160,10 @@ describe('createStepUpGate', () => {
         expect(next.mock.calls[0][0].fields.factor).toBe('password');
     });
 
-    it('exempts full-access personal access tokens', () => {
+    // A stolen session can mint a full-access token via
+    // /auth/create-access-token without re-proving identity, so exempting one
+    // here would be a way around the gate rather than an exception to it.
+    it('does NOT exempt full-access personal access tokens', () => {
         const ts = tokenService();
         const gate = createStepUpGate({ tokenService: ts });
         const next = vi.fn();
@@ -171,6 +174,36 @@ describe('createStepUpGate', () => {
             },
         } as never);
         gate(req, {} as Response, next);
+        expect(next.mock.calls[0][0]?.statusCode).toBe(403);
+    });
+
+    it('accepts the elevation via the x-puter-elevation header (API clients)', () => {
+        const ts = tokenService();
+        const gate = createStepUpGate({ tokenService: ts });
+        const token = signStepUpToken(ts, { uuid: USER_UUID });
+        const next = vi.fn();
+        const req = {
+            cookies: {},
+            headers: { 'x-puter-elevation': token },
+            actor: { user: { uuid: USER_UUID } },
+        } as never;
+        gate(req, {} as Response, next);
         expect(next).toHaveBeenCalledWith();
+    });
+
+    it('rejects a header elevation bound to a different user', () => {
+        const ts = tokenService();
+        const gate = createStepUpGate({ tokenService: ts });
+        const token = signStepUpToken(ts, {
+            uuid: 'b2222222-2222-2222-2222-222222222222',
+        });
+        const next = vi.fn();
+        const req = {
+            cookies: {},
+            headers: { 'x-puter-elevation': token },
+            actor: { user: { uuid: USER_UUID } },
+        } as never;
+        gate(req, {} as Response, next);
+        expect(next.mock.calls[0][0]?.statusCode).toBe(403);
     });
 });

@@ -38,9 +38,17 @@ import '../expressAugmentation';
  * `POST /auth/elevate`, which mints the cookie below.
  *
  * Both halves are required and neither is sufficient: gates demand a live
- * session actor AND this cookie, and the cookie is bound to that actor's
+ * session actor AND this proof, and the proof is bound to that actor's
  * `user_uuid`. So a stolen session can't elevate itself, and a stolen elevation
- * cookie is inert without the session.
+ * proof is inert without the session.
+ *
+ * The proof travels as an httpOnly cookie for browsers, or as the
+ * `x-puter-elevation` header for API clients (which have no cookie jar). The
+ * two are equivalent — both are the same signed token, and obtaining either
+ * requires the password/TOTP. Nothing is exempt from the requirement: there is
+ * deliberately no carve-out for any credential kind, because any credential a
+ * stolen session can obtain *without* re-proving identity would be a way around
+ * this control rather than an exception to it.
  *
  * The token has its own scope and `purpose` claim and carries no auth `type`
  * claim, so `AuthService.authenticate` rejects it — it can never be spent as a
@@ -48,6 +56,7 @@ import '../expressAugmentation';
  */
 
 export const STEP_UP_COOKIE_NAME = 'puter_elevated';
+export const STEP_UP_HEADER_NAME = 'x-puter-elevation';
 export const STEP_UP_SCOPE = 'step-up';
 export const STEP_UP_PURPOSE = 'elevation';
 export const STEP_UP_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -91,21 +100,25 @@ export function stepUpCookieOptions(config: IConfig): {
 }
 
 /**
- * True iff a valid elevation cookie is present AND bound to the acting user.
- * Never throws — a missing/expired/mismatched cookie returns false so callers
- * can prompt for the second factor instead of erroring.
+ * True iff a valid elevation proof (cookie or `x-puter-elevation` header) is
+ * present AND bound to the acting user. Never throws — a missing/expired/
+ * mismatched proof returns false so callers can prompt for the second factor
+ * instead of erroring.
  */
 export function verifyStepUpSession(
     req: Request,
     deps: { tokenService: TokenService },
 ): boolean {
-    const cookie = req.cookies?.[STEP_UP_COOKIE_NAME];
+    const header = req.headers?.[STEP_UP_HEADER_NAME];
+    const token =
+        req.cookies?.[STEP_UP_COOKIE_NAME] ??
+        (typeof header === 'string' ? header : undefined);
     const actorUuid = req.actor?.user?.uuid;
-    if (!cookie || !actorUuid) return false;
+    if (!token || !actorUuid) return false;
     try {
         const payload = deps.tokenService.verify<StepUpPayload>(
             STEP_UP_SCOPE,
-            cookie,
+            token,
         );
         return (
             payload?.purpose === STEP_UP_PURPOSE &&
@@ -120,26 +133,27 @@ export function verifyStepUpSession(
  * Require an elevated session. Runs after the privilege gate it supplements
  * (`adminOnlyGate`), so it only adds the re-authentication requirement.
  *
- * Deliberately not environment-conditional: the gate behaves identically in dev
- * and prod, so the flow exercised locally is the one that ships.
+ * Deliberately unconditional — no exemptions, no environment check:
  *
- * The one exemption is a full-access personal access token. The risk being
- * closed is a leaked *ambient session cookie*; a full-access token is a
- * deliberately minted credential carried in the Authorization header, so it
- * can't be forged cross-origin, and demanding a browser cookie for it would
- * break non-interactive callers.
+ *   - Not env-conditional, so the flow exercised locally is the one that ships.
+ *   - No carve-out for full-access tokens. That looks safe (a deliberately
+ *     minted, header-borne credential) but isn't: `/auth/create-access-token`
+ *     needs only a session, so a stolen session can mint a full-access token
+ *     without ever re-proving identity and walk straight around this gate.
+ *   - No carve-out based on how the credential arrived (cookie vs bearer). The
+ *     holder of a token chooses which header to put it in, so that distinction
+ *     is attacker-controlled and worthless as a gate.
  *
- * Otherwise a session without a valid elevation cookie is rejected with
+ * The invariant: reaching a privileged endpoint requires proving the password
+ * or a TOTP code within the elevation's lifetime. Nothing else substitutes.
+ *
+ * A caller without a valid elevation proof is rejected with
  * `elevation_required`; `factor` tells the client which credential to collect.
  */
 export function createStepUpGate(deps: {
     tokenService: TokenService;
 }): RequestHandler {
     return (req, _res, next) => {
-        if (req.actor?.accessToken?.fullAccess) {
-            next();
-            return;
-        }
         if (verifyStepUpSession(req, deps)) {
             next();
             return;

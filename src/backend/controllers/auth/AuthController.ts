@@ -34,7 +34,6 @@ import {
     stepUpCookieOptions,
 } from '../../core/http/middleware/stepUpSession.js';
 import {
-    createSessionCookieGate,
     createUserProtectedGate,
     createWebSessionActorGate,
 } from '../../core/http/middleware/userProtected.js';
@@ -3692,12 +3691,24 @@ export class AuthController extends PuterController {
             );
         }
 
+        const token = signStepUpToken(this.services.token, user as never);
         res.cookie(
             STEP_UP_COOKIE_NAME,
-            signStepUpToken(this.services.token, user as never),
+            token,
             stepUpCookieOptions(this.config),
         );
-        res.json({ elevated: true });
+
+        // A browser reads its elevation back from the httpOnly cookie and never
+        // needs the raw value; handing it to page JS would put the second factor
+        // within reach of an XSS. API clients have no cookie jar, so they get the
+        // token to send back as `x-puter-elevation`. Both paths proved the same
+        // password/TOTP — this only avoids needless exposure, it isn't a gate.
+        const cookieName = this.config.cookie_name ?? 'puter_token';
+        const usedSessionCookie =
+            !!req.token && req.token === req.cookies?.[cookieName];
+        res.json(
+            usedSessionCookie ? { elevated: true } : { elevated: true, token },
+        );
     }
 
     // -- Delete own account (user-protected, wired below) ------------
@@ -3861,12 +3872,17 @@ export class AuthController extends PuterController {
             (req, res) => this.handleDeleteOwnUser(req, res),
         );
 
-        // Step-up. Root origin only (no subdomain): the session cookie is sent
-        // same-origin, so `createSessionCookieGate` can confirm a real browser
-        // session (not a stolen bearer/access token) is minting the elevation.
+        // Step-up. Served on the root origin (browser form posts same-origin)
+        // and on `api` (SDK/script clients, which have no cookie jar and send a
+        // bearer). Deliberately NOT cookie-gated: the password/TOTP in the body
+        // is the control — a stolen token alone can't satisfy it, and it's also
+        // what makes CSRF a non-issue. `requireUserActor` still keeps app and
+        // access-token actors out, so an access token can never mint an
+        // elevation for its issuer.
         router.post(
             '/auth/elevate',
             {
+                subdomain: ['api', ''],
                 requireUserActor: true,
                 allowUnconfirmed: true,
                 rateLimit: [
@@ -3883,7 +3899,6 @@ export class AuthController extends PuterController {
                         key: 'ip',
                     },
                 ],
-                middleware: [createSessionCookieGate(this.config)],
             },
             (req, res) => this.handleElevate(req, res),
         );

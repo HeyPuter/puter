@@ -1164,7 +1164,7 @@ describe('AuthController.handleElevate', () => {
             makeReq({ password: 'correct-horse-battery' }, { actor }),
             res,
         );
-        expect(res.body).toEqual({ elevated: true });
+        expect(res.body).toMatchObject({ elevated: true });
         expect(res.cookies.puter_elevated).toBeDefined();
         expect(res.cookies.puter_elevated.opts).toMatchObject({ httpOnly: true });
 
@@ -1224,7 +1224,7 @@ describe('AuthController.handleElevate', () => {
             makeReq({ code: totp.generate() }, { actor: otpActor }),
             res,
         );
-        expect(res.body).toEqual({ elevated: true });
+        expect(res.body).toMatchObject({ elevated: true });
         expect(res.cookies.puter_elevated).toBeDefined();
 
         await expect(
@@ -1247,6 +1247,31 @@ describe('AuthController.handleElevate', () => {
             statusCode: 403,
             legacyCode: 'elevation_unavailable',
         });
+    });
+
+    it('API clients (no cookie) get the token back to send as a header', async () => {
+        const { actor } = await makeUserAndActor();
+        const res = makeRes();
+        await controller.handleElevate(
+            makeReq({ password: 'correct-horse-battery' }, { actor }),
+            res,
+        );
+        expect(typeof (res.body as { token?: string }).token).toBe('string');
+    });
+
+    it('browser sessions (cookie-authed) do NOT get the raw token in the body', async () => {
+        const { actor } = await makeUserAndActor();
+        const res = makeRes();
+        // Mimic the browser: the resolved token IS the session cookie value.
+        // Cookie name must match `config.cookie_name` (puter_auth_token).
+        const req = {
+            ...makeReq({ password: 'correct-horse-battery' }, { actor }),
+            token: 'session-cookie-value',
+            cookies: { puter_auth_token: 'session-cookie-value' },
+        };
+        await controller.handleElevate(req, res);
+        expect(res.body).toEqual({ elevated: true });
+        expect(res.cookies.puter_elevated).toBeDefined();
     });
 
     it('the elevation token is never honored as a main auth token', async () => {
