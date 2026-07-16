@@ -30,5 +30,13 @@ router.custom('POST', '/run', async (event: RouterEvent): Promise<RunTestResult>
             error: 'no per-request puter — was the puter-auth header sent?',
         };
     }
-    return await runTest(args, puter);
+    const result = await runTest(args, puter);
+    // Present only when the instrumented SDK preamble is deployed. The
+    // isolate may recycle between requests, so counters ride along on
+    // every response and the runner merges them.
+    const coverage = (globalThis as Record<string, unknown>).__coverage__;
+    if (coverage) {
+        result.coverage = coverage as Record<string, unknown>;
+    }
+    return result;
 });

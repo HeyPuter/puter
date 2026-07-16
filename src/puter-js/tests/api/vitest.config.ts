@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { loadEnv } from 'vite';
 import { defineConfig } from 'vitest/config';
 import { lowerDecoratorsPlugin } from '../../../backend/vitest.config.ts';
 
@@ -10,7 +11,7 @@ const apiTestsDir = __dirname;
 const repoRoot = path.resolve(apiTestsDir, '../../../..');
 const backendDir = path.join(repoRoot, 'src/backend');
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
     plugins: [lowerDecoratorsPlugin],
     resolve: {
         alias: [
@@ -30,6 +31,10 @@ export default defineConfig({
     },
     test: {
         globals: true,
+        // Same PUTER_ env passthrough as the backend config, so
+        // PUTER_TEST_* capability vars (harness/capabilities.ts) work
+        // from `.env` files too.
+        env: loadEnv(mode, '', 'PUTER_'),
         include: ['src/puter-js/tests/api/runners/*.test.{js,ts}'],
         // Server boot + SDK/worker bundling happen in hooks; browser and
         // workerd runners are slower than unit tests.
@@ -37,4 +42,4 @@ export default defineConfig({
         hookTimeout: 120_000,
         root: repoRoot,
     },
-});
+}));

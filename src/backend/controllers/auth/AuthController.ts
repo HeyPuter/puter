@@ -3556,13 +3556,9 @@ export class AuthController extends PuterController {
     @Get('/group/list', { subdomain: 'api', requireUserActor: true })
     async handleGroupList(req: Request, res: Response): Promise<void> {
         const userId = req.actor!.user.id!;
-        const groupStore = this.stores.group as unknown as {
-            listByOwner: (id: number) => Promise<unknown[]>;
-            listByMember: (id: number) => Promise<unknown[]>;
-        };
         const [owned, member] = await Promise.all([
-            groupStore.listByOwner(userId),
-            groupStore.listByMember(userId),
+            this.stores.group.listGroupsWithOwner(userId),
+            this.stores.group.listGroupsWithMember(userId),
         ]);
         res.json({
             owned_groups: owned,

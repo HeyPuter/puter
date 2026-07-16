@@ -23,7 +23,11 @@ export type EnvManifest = {
     users: {
         admin: TestUserCredentials;
         user: TestUserCredentials;
+        /** Second regular user, for cross-user permission tests. */
+        other: TestUserCredentials;
     };
+    /** Capability tags present in this env (see harness/capabilities.ts). */
+    capabilities: string[];
 };
 
 export type Platform = 'node' | 'browser' | 'workerd';
@@ -42,18 +46,38 @@ export type TestContext = {
 
 export type SuiteTest = (t: TestContext) => void | Promise<void>;
 
+/**
+ * A suite entry is either a bare test function or a spec object that
+ * constrains where it runs. Tests whose constraints aren't met are
+ * reported as skipped by the runners, never silently dropped.
+ */
+export type SuiteTestSpec =
+    | SuiteTest
+    | {
+          /** Capability tags that must all be present (see capabilities.ts). */
+          requires?: string[];
+          /** Platforms this test can run on. Default: all. */
+          platforms?: Platform[];
+          fn: SuiteTest;
+      };
+
 /** Outcome of a single test run, serializable across runtime boundaries. */
 export type RunTestResult = {
     ok: boolean;
     error?: string;
+    /**
+     * Istanbul counters from the executing runtime, present only when the
+     * instrumented SDK bundle is in play (see harness/coverage.ts).
+     */
+    coverage?: Record<string, unknown>;
 };
 
 export type Suite = {
     name: string;
-    tests: Record<string, SuiteTest>;
+    tests: Record<string, SuiteTestSpec>;
 };
 
 export const suite = (
     name: string,
-    tests: Record<string, SuiteTest>,
+    tests: Record<string, SuiteTestSpec>,
 ): Suite => ({ name, tests });

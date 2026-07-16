@@ -20,6 +20,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   test:
@@ -51,3 +52,94 @@ jobs:
         run: npm run test:puterjs
         env:
           CI: 'true'
+
+  # SDK coverage on both refs, reported as a PR comment — same shape as
+  # backend-tests.yaml. This run uses the istanbul-instrumented bundle
+  # (the `test` job above keeps exercising the production build).
+  coverage:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - ref: ${{ github.base_ref }}
+            artifact: base
+          - ref: ${{ github.head_ref }}
+            artifact: pr
+
+    steps:
+      - name: Checkout ${{ matrix.ref }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+
+      # The base leg is best-effort — it only enriches the PR comment with
+      # a comparison, and the base ref may predate the coverage script.
+      - name: Run puter.js API tests with coverage
+        continue-on-error: ${{ matrix.artifact == 'base' }}
+        run: npm run test:puterjs:coverage
+        env:
+          CI: 'true'
+
+      - name: Upload coverage artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: puterjs-coverage-${{ matrix.artifact }}
+          path: src/puter-js/coverage/coverage-*.json
+          retention-days: 14
+          if-no-files-found: ignore
+
+  report-coverage:
+    needs: coverage
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download PR coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: puterjs-coverage-pr
+          path: src/puter-js/coverage
+
+      # May not exist (base ref without the coverage script, or a failed
+      # base run) — then report without the comparison column.
+      - name: Download base coverage
+        id: base-coverage
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: puterjs-coverage-base
+          path: coverage-base
+
+      - name: Report coverage on PR
+        if: steps.base-coverage.outcome == 'success'
+        uses: davelosert/vitest-coverage-report-action@v2
+        with:
+          name: puter.js SDK
+          json-summary-path: src/puter-js/coverage/coverage-summary.json
+          json-final-path: src/puter-js/coverage/coverage-final.json
+          json-summary-compare-path: coverage-base/coverage-summary.json
+
+      - name: Report coverage on PR (no base comparison)
+        if: steps.base-coverage.outcome != 'success'
+        uses: davelosert/vitest-coverage-report-action@v2
+        with:
+          name: puter.js SDK
+          json-summary-path: src/puter-js/coverage/coverage-summary.json
+          json-final-path: src/puter-js/coverage/coverage-final.json
