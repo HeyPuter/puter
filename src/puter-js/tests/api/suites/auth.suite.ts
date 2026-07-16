@@ -37,10 +37,40 @@ export default suite('auth', {
         t.assert.equal(asUser.status, 403);
     },
 
-    'admin user passes admin-gated endpoints': async (t) => {
+    // Admin-gated endpoints need a step-up on top of the session: the admin
+    // re-proves identity, then replays the elevation as `x-puter-elevation`.
+    // Without it a plain admin session is refused, so a leaked session alone
+    // can't reach them.
+    'admin session alone is refused by admin-gated endpoints': async (t) => {
+        const noElevation = await fetch(`${t.env.apiOrigin}/serverInfo`, {
+            headers: {
+                Authorization: `Bearer ${t.env.users.admin.token}`,
+                Origin: t.env.apiOrigin,
+            },
+        });
+        t.assert.equal(noElevation.status, 403);
+    },
+
+    'admin user passes admin-gated endpoints after elevating': async (t) => {
+        const elevate = await fetch(`${t.env.apiOrigin}/auth/elevate`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${t.env.users.admin.token}`,
+                Origin: t.env.apiOrigin,
+            },
+            body: JSON.stringify({ password: t.env.users.admin.password }),
+        });
+        t.assert.equal(elevate.status, 200);
+        const { token: elevation } = (await elevate.json()) as {
+            token?: string;
+        };
+        t.assert.ok(elevation, 'elevate response should include a token');
+
         const asAdmin = await fetch(`${t.env.apiOrigin}/serverInfo`, {
             headers: {
                 Authorization: `Bearer ${t.env.users.admin.token}`,
+                'x-puter-elevation': elevation!,
                 Origin: t.env.apiOrigin,
             },
         });

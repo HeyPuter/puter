@@ -46,6 +46,7 @@ import {
     requireVerifiedGate,
     subdomainGate,
 } from './core/http/middleware/gates';
+import { createStepUpGate } from './core/http/middleware/stepUpSession';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
 import {
     requireAntiCsrf,
@@ -898,6 +899,12 @@ export class PuterServer {
                 adminOnlyGate(extras, {
                     appGated: Boolean(opts.allowedAppIds),
                 }),
+            );
+            // An admin username on a leaked session isn't enough — also require
+            // a recent re-authentication (full-access tokens are exempt; see
+            // createStepUpGate).
+            mwChain.push(
+                createStepUpGate({ tokenService: this.services.token }),
             );
         }
 
