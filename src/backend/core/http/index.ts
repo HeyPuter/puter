@@ -46,6 +46,16 @@ export {
     subdomainGate,
 } from './middleware/gates';
 export { createNotFoundHandler } from './middleware/notFoundHandler';
+export {
+    createStepUpGate,
+    signStepUpToken,
+    STEP_UP_COOKIE_NAME,
+    STEP_UP_PURPOSE,
+    STEP_UP_SCOPE,
+    STEP_UP_TTL_SECONDS,
+    stepUpCookieOptions,
+    verifyStepUpSession,
+} from './middleware/stepUpSession';
 export { PuterRouter } from './PuterRouter';
 export {
     PREFIX_METADATA_KEY,

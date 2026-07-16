@@ -29,6 +29,12 @@ import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
+    signStepUpToken,
+    STEP_UP_COOKIE_NAME,
+    stepUpCookieOptions,
+} from '../../core/http/middleware/stepUpSession.js';
+import {
+    createSessionCookieGate,
     createUserProtectedGate,
     createWebSessionActorGate,
 } from '../../core/http/middleware/userProtected.js';
@@ -964,6 +970,11 @@ export class AuthController extends PuterController {
         // a stale value would re-authenticate the next request.
         res.clearCookie(this.config.cookie_name ?? 'puter_token');
         res.clearCookie('puter_token_v2');
+        // Drop any step-up elevation too, so it can't reactivate on a shared
+        // machine.
+        res.clearCookie(STEP_UP_COOKIE_NAME, {
+            ...(this.config.domain ? { domain: this.config.domain } : {}),
+        });
 
         // Remove the session (fire-and-forget)
         if (req.token) {
@@ -3616,6 +3627,79 @@ export class AuthController extends PuterController {
         res.status(204).end();
     }
 
+    // -- Step-up ("elevation"), wired below --------------------------
+    //
+    // Mints the second-factor cookie for a session that re-proves identity: a
+    // fresh TOTP code when 2FA is enabled, otherwise the account password.
+    // Privileged endpoints require it on top of the session, so a leaked session
+    // alone can't exercise them. Accounts with neither credential (no password
+    // and 2FA disabled) can't elevate.
+
+    async handleElevate(req: Request, res: Response): Promise<void> {
+        const user = await this.stores.user.getById(req.actor!.user.id!, {
+            force: true,
+        });
+        if (!user)
+            throw new HttpError(404, 'User not found.', {
+                legacyCode: 'not_found',
+            });
+        if (user.suspended)
+            throw new HttpError(403, 'Account suspended.', {
+                legacyCode: 'account_suspended',
+            });
+
+        if (user.otp_enabled) {
+            const code = req.body?.code;
+            if (!code)
+                throw new HttpError(400, 'code is required.', {
+                    legacyCode: 'bad_request',
+                    fields: { factor: 'otp' },
+                });
+            if (
+                !verifyOtp(
+                    user.username,
+                    user.otp_secret as string,
+                    String(code),
+                )
+            )
+                throw new HttpError(401, 'Incorrect code.', {
+                    legacyCode: 'code_mismatch' as never,
+                    fields: { factor: 'otp' },
+                });
+        } else if (user.password) {
+            const password = req.body?.password;
+            if (!password || typeof password !== 'string')
+                throw new HttpError(400, 'Password is required.', {
+                    legacyCode: 'password_required',
+                    fields: { factor: 'password' },
+                });
+            const match = await bcrypt.compare(
+                password,
+                user.password as string,
+            );
+            if (!match)
+                throw new HttpError(401, 'Incorrect password.', {
+                    legacyCode: 'password_mismatch',
+                    fields: { factor: 'password' },
+                });
+        } else {
+            // Neither credential on file (e.g. an account that only ever
+            // authenticated through an external identity provider).
+            throw new HttpError(
+                403,
+                'This account has no credential to re-authenticate with. Set a password or enable two-factor authentication first.',
+                { legacyCode: 'elevation_unavailable' as never },
+            );
+        }
+
+        res.cookie(
+            STEP_UP_COOKIE_NAME,
+            signStepUpToken(this.services.token, user as never),
+            stepUpCookieOptions(this.config),
+        );
+        res.json({ elevated: true });
+    }
+
     // -- Delete own account (user-protected, wired below) ------------
     //
     // Purge S3 objects + fsentries first, then the user row. FK
@@ -3628,6 +3712,9 @@ export class AuthController extends PuterController {
         res.clearCookie(this.config.cookie_name ?? 'puter_token');
         res.clearCookie('puter_token_v2');
         res.clearCookie('puter_revalidation');
+        res.clearCookie(STEP_UP_COOKIE_NAME, {
+            ...(this.config.domain ? { domain: this.config.domain } : {}),
+        });
         await this.#cascadeDeleteUser(userId);
         res.json({ success: true });
     }
@@ -3772,6 +3859,33 @@ export class AuthController extends PuterController {
                 ],
             },
             (req, res) => this.handleDeleteOwnUser(req, res),
+        );
+
+        // Step-up. Root origin only (no subdomain): the session cookie is sent
+        // same-origin, so `createSessionCookieGate` can confirm a real browser
+        // session (not a stolen bearer/access token) is minting the elevation.
+        router.post(
+            '/auth/elevate',
+            {
+                requireUserActor: true,
+                allowUnconfirmed: true,
+                rateLimit: [
+                    {
+                        scope: 'elevate',
+                        limit: 10,
+                        window: 15 * 60_000,
+                        key: 'user',
+                    },
+                    {
+                        scope: 'elevate-ip',
+                        limit: 40,
+                        window: 15 * 60_000,
+                        key: 'ip',
+                    },
+                ],
+                middleware: [createSessionCookieGate(this.config)],
+            },
+            (req, res) => this.handleElevate(req, res),
         );
 
         const webSessionGate = createWebSessionActorGate();

@@ -1154,6 +1154,114 @@ describe('AuthController.handleLoginOtp + handleLoginRecoveryCode', () => {
     });
 });
 
+// ── Step-up (elevation) ─────────────────────────────────────────────
+
+describe('AuthController.handleElevate', () => {
+    it('password account: correct password mints the elevation cookie', async () => {
+        const { actor } = await makeUserAndActor();
+        const res = makeRes();
+        await controller.handleElevate(
+            makeReq({ password: 'correct-horse-battery' }, { actor }),
+            res,
+        );
+        expect(res.body).toEqual({ elevated: true });
+        expect(res.cookies.puter_elevated).toBeDefined();
+        expect(res.cookies.puter_elevated.opts).toMatchObject({ httpOnly: true });
+
+        // The minted cookie satisfies verifyStepUpSession for this same user.
+        const { verifyStepUpSession } = await import(
+            '../../core/http/middleware/stepUpSession.js'
+        );
+        const ok = verifyStepUpSession(
+            {
+                cookies: { puter_elevated: res.cookies.puter_elevated.value },
+                actor: { user: { uuid: actor.user.uuid } },
+            } as never,
+            { tokenService: server.services.token },
+        );
+        expect(ok).toBe(true);
+    });
+
+    it('password account: wrong password → 401 password_mismatch', async () => {
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleElevate(
+                makeReq({ password: 'nope' }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 401,
+            legacyCode: 'password_mismatch',
+        });
+    });
+
+    it('2FA account: a live TOTP code elevates; a wrong code is rejected', async () => {
+        const { TOTP } = await import('otpauth');
+        const { createSecret } = await import(
+            '../../services/auth/OTPUtil.js'
+        );
+        const { user, actor } = await makeUserAndActor();
+        const { secret } = createSecret(user.username);
+        await server.stores.user.update(user.id, {
+            otp_enabled: 1,
+            otp_secret: secret,
+        });
+        // Reflect the enabled state on the actor the way the auth probe would.
+        const otpActor = {
+            user: { ...actor.user, otp_enabled: true },
+        } as never;
+
+        const totp = new TOTP({
+            issuer: 'puter.com',
+            label: user.username,
+            algorithm: 'SHA1',
+            digits: 6,
+            secret,
+        });
+
+        const res = makeRes();
+        await controller.handleElevate(
+            makeReq({ code: totp.generate() }, { actor: otpActor }),
+            res,
+        );
+        expect(res.body).toEqual({ elevated: true });
+        expect(res.cookies.puter_elevated).toBeDefined();
+
+        await expect(
+            controller.handleElevate(
+                makeReq({ code: '000000' }, { actor: otpActor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 401 });
+    });
+
+    it('account with no password and 2FA off cannot elevate → 403', async () => {
+        const { user, actor } = await makeUserAndActor();
+        await server.stores.user.update(user.id, { password: null });
+        await expect(
+            controller.handleElevate(
+                makeReq({ password: 'anything' }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 403,
+            legacyCode: 'elevation_unavailable',
+        });
+    });
+
+    it('the elevation token is never honored as a main auth token', async () => {
+        const { user } = await makeUserAndActor();
+        const { signStepUpToken } = await import(
+            '../../core/http/middleware/stepUpSession.js'
+        );
+        const token = signStepUpToken(server.services.token, {
+            uuid: user.uuid,
+        });
+        const result = await server.services.auth.authenticate(token);
+        expect(result.actor).toBeUndefined();
+    });
+});
+
 // ── Logout ──────────────────────────────────────────────────────────
 
 describe('AuthController.handleLogout', () => {
