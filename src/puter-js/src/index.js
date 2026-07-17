@@ -701,7 +701,9 @@ const puterInit = function () {
         async request_rao_() {
             await this.p_can_request_rao_;
 
-            if (this.env === 'gui') {
+            // Don't record an app open when running inside the Puter GUI, or
+            // when running as a Puter app (i.e. within an iframe in the GUI).
+            if (this.env === 'gui' || this.env === 'app') {
                 return;
             }
 
