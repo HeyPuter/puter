@@ -170,7 +170,13 @@ const TabFiles = {
             // If item already exists in view, update in-place.
             const $existingRow = $(`.files-tab .files .item[data-uid='${file.uid}']`);
             if ( $existingRow.length > 0 ) {
-                const displayName = file.name || '';
+                // Match renderItem's display name: trashed items show
+                // metadata.original_name, not the UID that is their raw name.
+                let displayName = file.name || '';
+                try {
+                    const meta = file.metadata ? JSON.parse(file.metadata) : null;
+                    if ( meta && meta.original_name ) displayName = meta.original_name;
+                } catch { /* keep raw name */ }
                 $existingRow.attr('data-name', displayName);
                 $existingRow.attr('data-path', file.path || '');
                 $existingRow.attr('data-size', file.size || 0);
