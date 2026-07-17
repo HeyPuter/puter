@@ -214,6 +214,7 @@ const TabApps = {
     _hasCustomOrder: false,
     _drag: null,
     _justDragged: false,
+    _reduceMotionMQL: undefined,
 
     html () {
         let h = '<div class="dashboard-tab-content myapps-tab">';
@@ -308,6 +309,12 @@ const TabApps = {
 
             if ( items.length === 0 ) return;
 
+            // A touch long-press arms a drag pickup (see _onTilePointerDown). If
+            // the user held rather than dragged, they want this menu — cancel the
+            // pending pickup so the long-press → Uninstall path keeps working on
+            // touch. An already-started drag was handled by the guard above.
+            if ( self._drag ) self._endDrag(false);
+
             e.preventDefault();
             e.stopPropagation();
 
@@ -374,8 +381,13 @@ const TabApps = {
             clearTimeout(self._resizeTimer);
             self._resizeTimer = setTimeout(() => {
                 if ( ! self._apps ) return;
-                // Don't rebuild the DOM out from under an in-progress drag.
-                if ( self._drag && self._drag.started ) return;
+                if ( self._drag ) {
+                    // Don't rebuild the DOM out from under an in-progress drag.
+                    if ( self._drag.started ) return;
+                    // A press is pending but hasn't become a drag; cancel it so a
+                    // rebuild can't detach the tile the pickup is waiting on.
+                    self._endDrag(false);
+                }
                 const layout = self.computeLayout($el_window.find('.myapps-container'));
                 if ( ! layout ) return;
                 if ( self._layout && layout.cols === self._layout.cols && layout.rows === self._layout.rows ) {
@@ -526,7 +538,14 @@ const TabApps = {
     },
 
     _reduceMotion () {
-        return !! window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        // Cache the live MediaQueryList — this is read on every pointermove
+        // during a drag, and matchMedia() is comparatively expensive.
+        if ( this._reduceMotionMQL === undefined ) {
+            this._reduceMotionMQL = window.matchMedia
+                ? window.matchMedia('(prefers-reduced-motion: reduce)')
+                : null;
+        }
+        return !! (this._reduceMotionMQL && this._reduceMotionMQL.matches);
     },
 
     // -- Drag-to-reorder --
@@ -555,6 +574,7 @@ const TabApps = {
             offsetX: 0,
             offsetY: 0,
             started: false,
+            readyToDrag: pointerType !== 'touch', // touch must long-press first
             ghost: null,
             edgeTimer: null,
             edgeDir: 0,
@@ -578,11 +598,18 @@ const TabApps = {
         document.addEventListener('keydown', d.onKey);
         window.addEventListener('blur', d.onBlur);
 
-        // Touch: hold still to enter reorder mode; a moving finger is a page
-        // swipe and cancels the intent (see _onDragPointerMove).
+        // Touch: a long-press *arms* reordering (it doesn't grab the tile yet).
+        // Moving after that begins the drag; holding still instead lets the
+        // native long-press context menu (Uninstall) fire. A finger that moves
+        // before the long-press is a page swipe and cancels the intent (see
+        // _onDragPointerMove).
         if ( pointerType === 'touch' ) {
             d.longPressTimer = setTimeout(() => {
-                if ( this._drag === d && ! d.started ) this._beginDrag();
+                if ( this._drag !== d || d.started ) return;
+                d.readyToDrag = true;
+                if ( navigator.vibrate ) {
+                    try { navigator.vibrate(8); } catch ( _e ) { /* not supported */ }
+                }
             }, DRAG_TOUCH_LONGPRESS_MS);
         }
     },
@@ -593,14 +620,18 @@ const TabApps = {
 
         if ( ! d.started ) {
             const dist = Math.hypot(e.clientX - d.startX, e.clientY - d.startY);
-            if ( d.pointerType === 'touch' ) {
-                if ( dist > DRAG_TOUCH_CANCEL_DISTANCE ) this._abortDragIntent();
+            if ( ! d.readyToDrag ) {
+                // Touch, pre-long-press: a moving finger is a page swipe.
+                if ( dist > DRAG_TOUCH_CANCEL_DISTANCE ) this._endDrag(false);
                 return;
             }
             if ( dist <= DRAG_START_DISTANCE ) return;
             d.lastClientX = e.clientX;
             d.lastClientY = e.clientY;
             this._beginDrag();
+            // _beginDrag bails (without starting) if the tile was detached by a
+            // re-render during the pre-start window; don't touch a dead drag.
+            if ( ! d.started ) return;
             // Fall through so this same event also places the tile — a coarse
             // (few-event) drag still reorders instead of just lifting.
         }
@@ -619,6 +650,9 @@ const TabApps = {
     _beginDrag () {
         const d = this._drag;
         if ( ! d || d.started ) return;
+        // A re-render during the pre-start window can detach the pressed tile;
+        // starting a drag on a stale node would corrupt the persisted order.
+        if ( ! d.tileEl.isConnected ) { this._endDrag(false); return; }
         d.started = true;
         clearTimeout(d.longPressTimer);
         d.longPressTimer = null;
@@ -640,10 +674,6 @@ const TabApps = {
 
         d.tileEl.classList.add('myapps-tile-dragging');
         document.body.classList.add('myapps-reordering');
-
-        if ( d.pointerType === 'touch' && navigator.vibrate ) {
-            try { navigator.vibrate(8); } catch ( _e ) { /* not supported */ }
-        }
     },
 
     _positionGhost (x, y) {
@@ -752,13 +782,6 @@ const TabApps = {
         }
     },
 
-    _abortDragIntent () {
-        const d = this._drag;
-        if ( ! d ) return;
-        this._drag = null;
-        this._teardownDragListeners(d);
-    },
-
     _teardownDragListeners (d) {
         document.removeEventListener('pointermove', d.onMove, { passive: false });
         document.removeEventListener('pointerup', d.onUp);
@@ -782,25 +805,30 @@ const TabApps = {
             return;
         }
 
-        // Swallow the click the browser synthesizes after this pointerup.
-        this._justDragged = true;
-        clearTimeout(this._justDraggedTimer);
-        this._justDraggedTimer = setTimeout(() => { this._justDragged = false; }, 350);
-
         d.tileEl.classList.remove('myapps-tile-dragging');
 
+        let changed = false;
         if ( commit ) {
             const names = d.$el_window.find('.myapps-page .myapps-tile').toArray()
                 .map(t => t.getAttribute('data-app-name'));
             const current = this._apps.map(a => a.name);
             // Only persist when the order actually changed, so an accidental
             // long-press or drop-in-place doesn't freeze the default ordering.
-            const changed = names.length !== current.length
+            changed = names.length !== current.length
                 || names.some((name, i) => name !== current[i]);
             if ( changed ) {
-                this._apps = this._reorderAppsByNames(names);
+                this._apps = reconcileAppOrder(this._apps, names);
                 this.saveOrder();
             }
+        }
+
+        // Swallow the click synthesized after this pointerup only when the drag
+        // actually reordered something — a drift/no-op press should still open
+        // the app, matching a plain click.
+        if ( changed ) {
+            this._justDragged = true;
+            clearTimeout(this._justDraggedTimer);
+            this._justDraggedTimer = setTimeout(() => { this._justDragged = false; }, 350);
         }
 
         const ghost = d.ghost;
@@ -811,21 +839,6 @@ const TabApps = {
 
         // Rebuild so pages rebalance to exactly perPage; skip the load fade.
         this.renderApps(d.$el_window, { preservePage: true, instant: true });
-    },
-
-    _reorderAppsByNames (names) {
-        const byName = new Map();
-        for ( const app of this._apps ) byName.set(app.name, app);
-        const out = [];
-        for ( const name of names ) {
-            if ( byName.has(name) ) {
-                out.push(byName.get(name));
-                byName.delete(name);
-            }
-        }
-        // Anything not represented in the DOM (shouldn't happen) is kept.
-        for ( const app of byName.values() ) out.push(app);
-        return out;
     },
 
     saveOrder () {
@@ -842,14 +855,18 @@ const TabApps = {
     },
 
     async loadApps ($el_window) {
-        // Don't fetch/re-render on top of a live drag.
-        if ( this._drag && this._drag.started ) return;
+        if ( this._drag ) {
+            // Don't fetch/re-render on top of a live drag; cancel a pending
+            // (not-yet-started) pickup so a rebuild can't strand it.
+            if ( this._drag.started ) return;
+            this._endDrag(false);
+        }
 
         const $container = $el_window.find('.myapps-container');
 
         try {
-            // Fetch both APIs in parallel
-            const [installedRes, launchRes] = await Promise.all([
+            // Fetch the two app lists and the saved order together.
+            const [installedRes, launchRes, savedOrderRaw] = await Promise.all([
                 fetch(
                     `${window.api_origin}/installedApps?orderBy=name&limit=100`,
                     {
@@ -864,6 +881,7 @@ const TabApps = {
                         method: 'GET',
                     },
                 ),
+                puter.kv.get(APPS_ORDER_KV_KEY).catch(() => null),
             ]);
 
             const installedApps = await installedRes.json();
@@ -903,8 +921,11 @@ const TabApps = {
             // in their default order; stale names are ignored.
             let orderedNames = null;
             try {
-                const raw = await puter.kv.get(APPS_ORDER_KV_KEY);
-                if ( raw ) orderedNames = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                if ( savedOrderRaw ) {
+                    orderedNames = typeof savedOrderRaw === 'string'
+                        ? JSON.parse(savedOrderRaw)
+                        : savedOrderRaw;
+                }
             } catch ( _e ) {
                 orderedNames = null;
             }
