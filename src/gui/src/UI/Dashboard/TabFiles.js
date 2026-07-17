@@ -1291,7 +1291,7 @@ const TabFiles = {
         // Download button
         $actions.find('.download-btn').on('click', function () {
             const selectedRows = document.querySelectorAll('.files-tab .row.selected');
-            if ( selectedRows.length >= 2 ) {
+            if ( selectedRows.length > 0 ) {
                 window.zipItems(Array.from(selectedRows), _this.currentPath, true);
             }
         });
