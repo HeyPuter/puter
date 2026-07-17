@@ -391,6 +391,8 @@ const en = {
         ui_search: 'Search sessions…',
         ui_session_app: 'App',
         ui_session_client: 'Client',
+        ui_session_count_one: '1 active session',
+        ui_session_count_other: '%% active sessions',
         ui_session_created: 'Created',
         ui_session_current: 'Current',
         ui_session_expires: 'Expires',
