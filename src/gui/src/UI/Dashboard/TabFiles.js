@@ -291,10 +291,10 @@ const TabFiles = {
 
                     ui.helper.data('dropped', true);
 
-                    // Get target folder path
-                    const folderName = folderElement.getAttribute('data-folder');
-                    const directories = Object.keys(window.user.directories);
-                    const targetPath = directories.find(f => f.endsWith(folderName));
+                    // Get target folder path from the element itself. Using the
+                    // element's own data-path covers folders (Public, Home) that
+                    // aren't keyed in window.user.directories.
+                    const targetPath = folderElement.getAttribute('data-path');
 
                     if ( ! targetPath ) return;
 
@@ -303,7 +303,7 @@ const TabFiles = {
 
                     // Add other selected items
                     $('.item-selected-clone').each(function () {
-                        const sourceId = $(this).attr('data-id');
+                        const sourceId = $(this).find('.row').attr('data-id');
                         const sourceItem = document.querySelector(`.row[data-id="${sourceId}"]`);
                         if ( sourceItem ) itemsToMove.push(sourceItem);
                     });
@@ -384,11 +384,9 @@ const TabFiles = {
                         $(folderElement).removeClass('dwell-opening');
 
                         // Only remove active if it's not the currently selected folder
-                        const folderName = folderElement.getAttribute('data-folder');
-                        const directories = Object.keys(window.user.directories);
-                        const folderUid = window.user.directories[directories.find(f => f.endsWith(folderName))];
+                        const folderPath = folderElement.getAttribute('data-path');
 
-                        if ( folderUid !== _this.currentPath ) {
+                        if ( folderPath !== _this.currentPath ) {
                             $(folderElement).removeClass('active');
                         }
                     }
@@ -672,11 +670,11 @@ const TabFiles = {
                         const alert_resp = await UIAlert({
                             message: i18n('confirm_delete_multiple_items'),
                             buttons: [
-                                { label: i18n('delete'), type: 'primary' },
-                                { label: i18n('cancel') },
+                                { label: i18n('delete'), value: 'delete', type: 'primary' },
+                                { label: i18n('cancel'), value: 'cancel' },
                             ],
                         });
-                        if ( alert_resp === 'Delete' ) {
+                        if ( alert_resp === 'delete' ) {
                             for ( const row of trashedItems.toArray() ) {
                                 await window.delete_item(row);
                             }
@@ -1328,11 +1326,11 @@ const TabFiles = {
                 const confirmed = await UIAlert({
                     message: i18n('confirm_delete_multiple_items'),
                     buttons: [
-                        { label: i18n('delete'), type: 'primary' },
-                        { label: i18n('cancel') },
+                        { label: i18n('delete'), value: 'delete', type: 'primary' },
+                        { label: i18n('cancel'), value: 'cancel' },
                     ],
                 });
-                if ( confirmed === 'Delete' ) {
+                if ( confirmed === 'delete' ) {
                     for ( const row of selectedRows ) {
                         await window.delete_item(row);
                     }
@@ -1900,7 +1898,7 @@ const TabFiles = {
                     // Collect all items to move (primary + any selected clones)
                     const itemsToMove = [ui.draggable[0]];
                     $('.item-selected-clone').each(function () {
-                        const sourceId = $(this).attr('data-id');
+                        const sourceId = $(this).find('.row').attr('data-id');
                         const sourceItem = document.querySelector(`.row[data-id="${sourceId}"]`);
                         if ( sourceItem ) itemsToMove.push(sourceItem);
                     });
@@ -1999,8 +1997,8 @@ const TabFiles = {
         row.setAttribute("data-is_shortcut", file.is_shortcut);
         row.setAttribute("data-shortcut_to", html_encode(file.shortcut_to));
         row.setAttribute("data-shortcut_to_path", html_encode(file.shortcut_to_path));
-        row.setAttribute("data-is_worker", is_worker !== undefined ? "1" : "0");
-        row.setAttribute("data-worker_url", is_worker !== undefined ? worker_url : "0");
+        row.setAttribute("data-is_worker", is_worker ? "1" : "0");
+        row.setAttribute("data-worker_url", is_worker ? worker_url : "0");
         row.setAttribute("data-sortable", file.sortable ?? 'true');
         row.setAttribute("data-metadata", JSON.stringify(metadata));
         row.setAttribute("data-sort_by", html_encode(file.sort_by) ?? 'name');
@@ -2038,8 +2036,8 @@ const TabFiles = {
                 >
             </div>
             <div class="item-name-wrapper">
-                <pre class="item-name">${displayName}</pre>
-                <textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${displayName}</textarea>
+                <pre class="item-name">${html_encode(displayName)}</pre>
+                <textarea class="item-name-editor hide-scrollbar" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="off" data-gramm_editor="false">${html_encode(displayName)}</textarea>
             </div>
             <div class="col-spacer"></div>
             <div class="item-metadata">
@@ -2583,7 +2581,7 @@ const TabFiles = {
                     const itemsToMove = [ui.draggable[0]];
 
                     $('.item-selected-clone').each(function () {
-                        const sourceId = $(this).attr('data-id');
+                        const sourceId = $(this).find('.row').attr('data-id');
                         const sourceItem = document.querySelector(`.row[data-id="${sourceId}"]`);
                         if ( sourceItem ) itemsToMove.push(sourceItem);
                     });
@@ -3199,11 +3197,11 @@ const TabFiles = {
                     const confirmed = await UIAlert({
                         message: i18n('confirm_delete_multiple_items'),
                         buttons: [
-                            { label: i18n('delete'), type: 'primary' },
-                            { label: i18n('cancel') },
+                            { label: i18n('delete'), value: 'delete', type: 'primary' },
+                            { label: i18n('cancel'), value: 'cancel' },
                         ],
                     });
-                    if ( confirmed === 'Delete' ) {
+                    if ( confirmed === 'delete' ) {
                         for ( const row of selectedRows ) {
                             await window.delete_item(row);
                         }
@@ -3354,6 +3352,9 @@ const TabFiles = {
                         window.copy_clipboard_items(targetPath, null);
                     } else if ( window.clipboard_op === 'move' ) {
                         await _this.moveClipboardItems(targetPath);
+                        // Refresh so moved-away source rows disappear and any
+                        // items pasted into the current folder show up.
+                        _this.renderDirectory(_this.currentPath);
                     }
                 },
             });

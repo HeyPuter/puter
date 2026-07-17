@@ -309,6 +309,8 @@ async function UIDashboard (options) {
     });
 
     window.socket.on('item.updated', async (item) => {
+        if ( item.original_client_socket_id === window.socket.id ) return;
+
         const $el = $(`.item[data-uid='${item.uid}']`);
         if ( $el.length === 0 ) return;
 
