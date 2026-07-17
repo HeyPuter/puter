@@ -18,12 +18,14 @@
  */
 
 import type { Request, Response } from 'express';
+import { Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { signFile } from '../../util/fileSigning.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { LegacyFSController } from './LegacyFSController.js';
 
@@ -720,13 +722,9 @@ describe('LegacyFSController.copy', () => {
             copied: { path: string; name: string };
         }>;
         expect(body).toHaveLength(1);
-        expect(body[0].copied.path).toBe(
-            `/${username}/Pictures/src-folder`,
-        );
+        expect(body[0].copied.path).toBe(`/${username}/Pictures/src-folder`);
         // The original still exists; the copy lives under Pictures.
-        expect(
-            await server.stores.fsEntry.getEntryByPath(src),
-        ).not.toBeNull();
+        expect(await server.stores.fsEntry.getEntryByPath(src)).not.toBeNull();
         expect(
             await server.stores.fsEntry.getEntryByPath(
                 `/${username}/Pictures/src-folder`,
@@ -761,9 +759,7 @@ describe('LegacyFSController.copy', () => {
         );
 
         const body = captured.body as Array<{ copied: { path: string } }>;
-        expect(body[0].copied.path).toBe(
-            `/${username}/Pictures/renamed-copy`,
-        );
+        expect(body[0].copied.path).toBe(`/${username}/Pictures/renamed-copy`);
     });
 
     it('copies an empty file (no backing S3 object) without erroring', async () => {
@@ -876,9 +872,7 @@ describe('LegacyFSController.copy', () => {
         expect(Buffer.concat(chunks).byteLength).toBe(0);
         expect(download.contentLength).toBe(0);
         // The entry must still exist — the ghost handler must NOT have run.
-        expect(
-            await server.stores.fsEntry.getEntryByPath(src),
-        ).not.toBeNull();
+        expect(await server.stores.fsEntry.getEntryByPath(src)).not.toBeNull();
     });
 });
 
@@ -991,10 +985,7 @@ describe('LegacyFSController.search', () => {
 
         const { res, captured } = makeRes();
         await withActor(actor, () =>
-            controller.search(
-                makeReq({ body: { query: needle }, actor }),
-                res,
-            ),
+            controller.search(makeReq({ body: { query: needle }, actor }), res),
         );
         const results = captured.body as Array<{ name: string }>;
         expect(Array.isArray(results)).toBe(true);
@@ -1046,9 +1037,7 @@ describe('LegacyFSController.search', () => {
             ).toBe(true);
         }
         expect(
-            results.some(
-                (r) => r.path === `/${username}/Documents/${needle}`,
-            ),
+            results.some((r) => r.path === `/${username}/Documents/${needle}`),
         ).toBe(false);
     });
 });
@@ -1128,10 +1117,7 @@ describe('LegacyFSController.sign', () => {
         const { res } = makeRes();
         await expect(
             withActor(actor, () =>
-                controller.sign(
-                    makeReq({ body: { items: [] }, actor }),
-                    res,
-                ),
+                controller.sign(makeReq({ body: { items: [] }, actor }), res),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
@@ -1286,6 +1272,113 @@ describe('LegacyFSController.writeFile', () => {
     });
 });
 
+// ── writeFile (write IDOR: authorized subject must equal write target) ─
+//
+// Holding a write signature + write ACL on a single file must not let the
+// caller redirect the upload to an attacker-named sibling via the `name`
+// field. The write has to land on the signed file itself.
+
+describe('LegacyFSController.writeFile (write IDOR)', () => {
+    const signingCfgOf = () => {
+        const cfg = (
+            controller as unknown as {
+                config: {
+                    api_base_url?: string;
+                    url_signature_secret?: string;
+                };
+            }
+        ).config;
+        cfg.api_base_url = cfg.api_base_url ?? 'http://api.test.local';
+        cfg.url_signature_secret =
+            cfg.url_signature_secret ?? 'test-signing-secret';
+        return {
+            secret: cfg.url_signature_secret,
+            apiBaseUrl: cfg.api_base_url,
+        };
+    };
+
+    const multipartWriteReq = (opts: {
+        actor: Actor;
+        uid: string;
+        expires: string;
+        signature: string;
+        name?: string;
+        content: string;
+    }): Request => {
+        const boundary = '----lfsWriteIdorBoundary';
+        const payload =
+            `--${boundary}\r\n` +
+            'Content-Disposition: form-data; name="file"; ' +
+            'filename="upload.bin"\r\n' +
+            'Content-Type: application/octet-stream\r\n\r\n' +
+            `${opts.content}\r\n` +
+            `--${boundary}--\r\n`;
+        const req = Readable.from([Buffer.from(payload)]) as unknown as Request;
+        Object.assign(req, {
+            headers: {
+                'content-type': `multipart/form-data; boundary=${boundary}`,
+            },
+            query: {
+                uid: opts.uid,
+                expires: opts.expires,
+                signature: opts.signature,
+                operation: 'write',
+            },
+            body: opts.name !== undefined ? { name: opts.name } : {},
+            actor: opts.actor,
+        });
+        return req;
+    };
+
+    it('writes to the signed file, not an attacker-named sibling', async () => {
+        const victim = await makeUser();
+        const attacker = await makeUser();
+        const dir = `/${victim.actor.user!.username}/Documents`;
+        const target = `${dir}/secret.txt`;
+        const sibling = `${dir}/passwords.txt`;
+
+        // Victim owns a single file; attacker gets write on just that file.
+        await withActor(victim.actor, () =>
+            controller.touch(
+                makeReq({ body: { path: target }, actor: victim.actor }),
+                makeRes().res,
+            ),
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(target);
+        expect(entry).toBeTruthy();
+        await server.services.permission.grantUserUserPermission(
+            victim.actor,
+            attacker.actor.user!.username!,
+            `fs:${entry!.uuid}:write`,
+            {},
+        );
+
+        const writeUrl = new URL(signFile(entry!, signingCfgOf()).write_url!);
+
+        const { res, captured } = makeRes();
+        await withActor(attacker.actor, () =>
+            controller.writeFile(
+                multipartWriteReq({
+                    actor: attacker.actor,
+                    uid: writeUrl.searchParams.get('uid')!,
+                    expires: writeUrl.searchParams.get('expires')!,
+                    signature: writeUrl.searchParams.get('signature')!,
+                    name: 'passwords.txt',
+                    content: 'attacker-bytes',
+                }),
+                res,
+            ),
+        );
+
+        // The write landed on the signed file …
+        expect((captured.body as { path?: string }).path).toBe(target);
+        // … and never created the attacker-named sibling.
+        const siblingEntry =
+            await server.stores.fsEntry.getEntryByPath(sibling);
+        expect(siblingEntry).toBeFalsy();
+    });
+});
+
 // ── file (validation paths) ─────────────────────────────────────────
 
 describe('LegacyFSController.file', () => {
@@ -1433,10 +1526,7 @@ describe('LegacyFSController.requestAppRootDir', () => {
         const { res } = makeRes();
         await expect(
             withActor(actor, () =>
-                controller.requestAppRootDir(
-                    makeReq({ body: {}, actor }),
-                    res,
-                ),
+                controller.requestAppRootDir(makeReq({ body: {}, actor }), res),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
@@ -1612,10 +1702,7 @@ describe('LegacyFSController.down', () => {
         const { res } = makeRes();
         await expect(
             withActor(actor, () =>
-                controller.down(
-                    makeReq({ query: { path: '/' }, actor }),
-                    res,
-                ),
+                controller.down(makeReq({ query: { path: '/' }, actor }), res),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
@@ -1672,9 +1759,9 @@ describe('LegacyFSController.mkdir additional branches', () => {
             }),
             actor: undefined,
         } as unknown as Request;
-        await expect(
-            controller.mkdir(req, res),
-        ).rejects.toMatchObject({ statusCode: 401 });
+        await expect(controller.mkdir(req, res)).rejects.toMatchObject({
+            statusCode: 401,
+        });
     });
 });
 
@@ -1694,17 +1781,12 @@ describe('LegacyFSController.delete additional branches', () => {
 
         const { res, captured } = makeRes();
         await withActor(actor, () =>
-            controller.delete(
-                makeReq({ body: { path: target }, actor }),
-                res,
-            ),
+            controller.delete(makeReq({ body: { path: target }, actor }), res),
         );
         const body = captured.body as { ok: boolean; uid: string };
         expect(body.ok).toBe(true);
         expect(typeof body.uid).toBe('string');
-        expect(
-            await server.stores.fsEntry.getEntryByPath(target),
-        ).toBeNull();
+        expect(await server.stores.fsEntry.getEntryByPath(target)).toBeNull();
     });
 
     it('forwards descendants_only into fs.remove', async () => {
@@ -1835,9 +1917,9 @@ describe('LegacyFSController.df actor gate', () => {
             ...makeReq({ body: {}, actor }),
             actor: undefined,
         } as unknown as Request;
-        await expect(
-            controller.df(req, makeRes().res),
-        ).rejects.toMatchObject({ statusCode: 401 });
+        await expect(controller.df(req, makeRes().res)).rejects.toMatchObject({
+            statusCode: 401,
+        });
     });
 });
 
@@ -1854,7 +1936,8 @@ describe('LegacyFSController.down file streaming', () => {
             ended: false,
         };
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { Writable } = require('node:stream') as typeof import('node:stream');
+        const { Writable } =
+            require('node:stream') as typeof import('node:stream');
         const writable = new Writable({
             write(chunk: Buffer, _enc, cb) {
                 captured.bodyChunks.push(chunk);
@@ -1900,18 +1983,19 @@ describe('LegacyFSController.down file streaming', () => {
 
         const { res, captured } = makeStreamingRes();
         await withActor(actor, () =>
-            controller.down(
-                makeReq({ query: { path: target }, actor }),
-                res,
-            ),
+            controller.down(makeReq({ query: { path: target }, actor }), res),
         );
         await new Promise<void>((resolve) => setImmediate(resolve));
 
         expect(captured.statusCode).toBe(200);
         // /down forces octet-stream regardless of the entry's true type.
-        expect(captured.headers['Content-Type']).toBe('application/octet-stream');
+        expect(captured.headers['Content-Type']).toBe(
+            'application/octet-stream',
+        );
         expect(captured.headers['Content-Disposition']).toMatch(/^attachment;/);
-        expect(captured.headers['Content-Length']).toBe(String(body.byteLength));
+        expect(captured.headers['Content-Length']).toBe(
+            String(body.byteLength),
+        );
         // The piped bytes match the file contents.
         await new Promise<void>((resolve) => setImmediate(resolve));
         if (captured.bodyChunks.length > 0) {
@@ -1958,7 +2042,8 @@ describe('LegacyFSController.read file streaming', () => {
             bodyChunks: [] as Buffer[],
         };
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const { Writable } = require('node:stream') as typeof import('node:stream');
+        const { Writable } =
+            require('node:stream') as typeof import('node:stream');
         const writable = new Writable({
             write(chunk: Buffer, _enc, cb) {
                 captured.bodyChunks.push(chunk);
@@ -2001,18 +2086,19 @@ describe('LegacyFSController.read file streaming', () => {
 
         const { res, captured } = makeStreamingRes();
         await withActor(actor, () =>
-            controller.read(
-                makeReq({ query: { file: target }, actor }),
-                res,
-            ),
+            controller.read(makeReq({ query: { file: target }, actor }), res),
         );
         await new Promise<void>((resolve) => setImmediate(resolve));
 
         expect(captured.statusCode).toBe(200);
         // The v1 contract is octet-stream regardless of real mime; /fs/read
         // (v2) is the type-aware variant. This is documented in the controller.
-        expect(captured.headers['Content-Type']).toBe('application/octet-stream');
-        expect(captured.headers['Content-Length']).toBe(String(body.byteLength));
+        expect(captured.headers['Content-Type']).toBe(
+            'application/octet-stream',
+        );
+        expect(captured.headers['Content-Length']).toBe(
+            String(body.byteLength),
+        );
     });
 
     it('honors options.realMime by forwarding the real content-type from mime-types', async () => {
@@ -2036,7 +2122,10 @@ describe('LegacyFSController.read file streaming', () => {
             controller.read(
                 makeReq({ query: { file: target }, actor }),
                 res,
-                { realMime: true } as never,
+                undefined,
+                {
+                    realMime: true,
+                },
             ),
         );
         expect(captured.headers['Content-Type']).toMatch(/text\/html/);
@@ -2142,10 +2231,7 @@ describe('LegacyFSController.search fallback fields', () => {
         );
         const { res, captured } = makeRes();
         await withActor(actor, () =>
-            controller.search(
-                makeReq({ body: { text: needle }, actor }),
-                res,
-            ),
+            controller.search(makeReq({ body: { text: needle }, actor }), res),
         );
         const results = captured.body as Array<{ name: string }>;
         expect(results.some((r) => r.name === needle)).toBe(true);
@@ -2260,7 +2346,9 @@ describe('LegacyFSController.batch additional operations', () => {
             ),
         );
         expect(captured.statusCode).toBe(200);
-        const body = captured.body as { results: Array<Record<string, unknown>> };
+        const body = captured.body as {
+            results: Array<Record<string, unknown>>;
+        };
         expect(body.results).toHaveLength(1);
     });
 
@@ -2288,12 +2376,10 @@ describe('LegacyFSController.batch additional operations', () => {
             ),
         );
         expect(captured.statusCode).toBe(200);
-        expect(
-            await server.stores.fsEntry.getEntryByPath(target),
-        ).toBeNull();
+        expect(await server.stores.fsEntry.getEntryByPath(target)).toBeNull();
     });
 
-    it("runs a `shortcut` op pointing at an existing target uid", async () => {
+    it('runs a `shortcut` op pointing at an existing target uid', async () => {
         const { actor } = await makeUser();
         const username = actor.user!.username!;
         const target = `/${username}/Documents/batch-sc-target`;
@@ -2441,10 +2527,7 @@ describe('LegacyFSController.suggestApps', () => {
             ),
         );
 
-        const spy = vi.spyOn(
-            server.services.suggestedApps,
-            'getSuggestedApps',
-        );
+        const spy = vi.spyOn(server.services.suggestedApps, 'getSuggestedApps');
         try {
             const { res } = makeRes();
             await withActor(appActor, () =>
@@ -2476,10 +2559,7 @@ describe('LegacyFSController.suggestApps', () => {
             ),
         );
 
-        const spy = vi.spyOn(
-            server.services.suggestedApps,
-            'getSuggestedApps',
-        );
+        const spy = vi.spyOn(server.services.suggestedApps, 'getSuggestedApps');
         try {
             const { res } = makeRes();
             await withActor(actor, () =>
@@ -2532,10 +2612,7 @@ describe('LegacyFSController.readdirSubdomains', () => {
 
         const { res, captured } = makeRes();
         await withActor(actor, () =>
-            controller.readdirSubdomains(
-                makeReq({ body: {}, actor }),
-                res,
-            ),
+            controller.readdirSubdomains(makeReq({ body: {}, actor }), res),
         );
         const rows = captured.body as Array<{ subdomain: string }>;
         expect(rows.some((r) => r.subdomain === sd)).toBe(true);

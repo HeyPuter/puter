@@ -273,6 +273,8 @@ export interface RouteOptions {
     // Reserved — wire as the corresponding features/services land:
     // bodyFiles?: string[];      // multer-style multipart fields
     // responseTimeout?: number;
+
+    realMime?: boolean; // for legacy FS controller, see `LegacyFSController#serveFile`
 }
 
 /**
