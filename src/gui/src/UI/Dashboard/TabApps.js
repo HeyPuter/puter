@@ -129,17 +129,17 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
 
     $el_window.append($overlay);
 
-    const close = () => $overlay.remove();
+    const close = () => {
+        $overlay.remove();
+        $(document).off('keydown.uninstall-modal');
+    };
 
     $overlay.on('click', '.myapps-modal-cancel', close);
     $overlay.on('click', function (e) {
         if ( e.target === $overlay[0] ) close();
     });
     $(document).on('keydown.uninstall-modal', function (e) {
-        if ( e.key === 'Escape' ) {
-            close();
-            $(document).off('keydown.uninstall-modal');
-        }
+        if ( e.key === 'Escape' ) close();
     });
 
     $overlay.on('click', '.myapps-modal-confirm', async function () {
@@ -154,7 +154,6 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
             console.error('Failed to uninstall app:', err);
         }
         close();
-        $(document).off('keydown.uninstall-modal');
     });
 }
 
