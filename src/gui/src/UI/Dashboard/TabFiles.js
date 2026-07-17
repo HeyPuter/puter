@@ -974,9 +974,10 @@ const TabFiles = {
         this.previewOpen = true;
         this.previewCurrentUid = uid;
 
-        // Close on click outside the popover
+        // Close on click outside the popover. Remove any prior handler first so
+        // repeated calls (image arrow-navigation) don't stack duplicate handlers.
         const _this = this;
-        $(document).on('click.imagepreview', (e) => {
+        $(document).off('click.imagepreview').on('click.imagepreview', (e) => {
             if ( ! $(e.target).closest('.image-preview-popover').length ) {
                 _this.closeImagePreview();
             }
