@@ -16,10 +16,9 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { Service } from '../definitions.js';
 import i18n from '../i18n/i18n.js';
 
-export class LocaleService extends Service {
+class LocaleService {
     format_duration (seconds) {
         const hours = Math.floor(seconds / 3600);
         const minutes = Math.floor((seconds % 3600) / 60);
@@ -41,3 +40,5 @@ export class LocaleService extends Service {
         return `${paddedHours}:${paddedMinutes}:${paddedSeconds}`;
     }
 }
+
+export const locale_service = new LocaleService();

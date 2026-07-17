@@ -16,35 +16,37 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import { InitProcess, Service } from '../definitions.js';
+import { InitProcess } from '../definitions.js';
+import { exec_service } from './exec.js';
 
 // The NULL UUID is also the UUID for the init process.
 const NULL_UUID = '00000000-0000-0000-0000-000000000000';
 
-export class ProcessService extends Service {
+class ProcessService {
     static INITRC = [
         // 'puter-linux'
     ];
 
-    async _init () {
+    constructor () {
         this.processes = [];
         this.processes_map = new Map();
         this.uuid_to_treelist = new Map();
+    }
 
+    init () {
         const root = new InitProcess({
             uuid: NULL_UUID,
         });
         this.register_(root);
     }
 
-    ['__on_gui:ready'] () {
-        const svc_exec = this.services.get('exec');
+    on_gui_ready () {
         for ( let spec of ProcessService.INITRC ) {
             if ( typeof spec === 'string' ) {
                 spec = { name: spec };
             }
 
-            svc_exec.launchApp({
+            exec_service.launchApp({
                 app_name: spec.name,
             });
         }
@@ -120,3 +122,5 @@ export class ProcessService extends Service {
         }
     }
 }
+
+export const process_service = new ProcessService();

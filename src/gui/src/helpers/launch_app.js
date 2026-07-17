@@ -19,6 +19,8 @@
 
 import path from '../lib/path.js';
 import { PROCESS_IPC_ATTACHED, PROCESS_RUNNING, PortalProcess, PseudoProcess } from '../definitions.js';
+import { process_service } from '../modules/process.js';
+import { broadcast_service } from '../modules/broadcast.js';
 import UIWindow from '../UI/UIWindow.js';
 
 const normalizePrivateAccessDecision = (privateAccess) => {
@@ -295,7 +297,7 @@ const launch_app = async (options) => {
                 app_info: app_info,
             },
         });
-        const svc_process = globalThis.services.get('process');
+        const svc_process = process_service;
         svc_process.register(process);
         if ( options.path === window.home_path ) {
             title = i18n('home');
@@ -367,7 +369,7 @@ const launch_app = async (options) => {
                 app_info: app_info,
             },
         });
-        const svc_process = globalThis.services.get('process');
+        const svc_process = process_service;
         svc_process.register(process);
 
         //-----------------------------------
@@ -691,7 +693,7 @@ const launch_app = async (options) => {
             $(process.references.iframe).attr('data-appUsesSDK', 'true');
 
             // Send any saved broadcasts to the new app
-            globalThis.services.get('broadcast').sendSavedBroadcastsTo(uuid);
+            broadcast_service.sendSavedBroadcastsTo(uuid);
 
             // If `window-active` is set (meaning the window is focused), focus the window one more time
             // this is to ensure that the iframe is `definitely` focused and can receive keyboard events (e.g. keydown)
@@ -704,7 +706,7 @@ const launch_app = async (options) => {
     process.chstatus(PROCESS_RUNNING);
 
     $(el).on('remove', () => {
-        const svc_process = globalThis.services.get('process');
+        const svc_process = process_service;
         svc_process.unregister(process.uuid);
     });
 

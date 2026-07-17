@@ -17,15 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Service } from '../definitions.js';
-
-export class BroadcastService extends Service {
+class BroadcastService {
     // After a new app is launched, it will receive these broadcasts
     #broadcastsToSendToNewAppInstances = new Map(); // name -> data
-
-    async _init () {
-        // Nothing
-    }
 
     // Send a 'broadcast' message to all open apps, with the given name and data.
     // If sendToNewAppInstances is true, the message will be saved, and sent to any apps that are launched later.
@@ -60,3 +54,5 @@ export class BroadcastService extends Service {
         }
     }
 }
+
+export const broadcast_service = new BroadcastService();

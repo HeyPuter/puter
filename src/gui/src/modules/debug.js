@@ -17,16 +17,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Service } from '../definitions.js';
+import { exec_service } from './exec.js';
 
-export class DebugService extends Service {
-    async _init () {
+class DebugService {
+    constructor () {
         // Track enabled log categories
         this.enabled_logs = [];
+    }
 
+    init () {
         // Provide enabled logs as a query param
-        const svc_exec = this.services.get('exec');
-        svc_exec.register_param_provider(() => {
+        exec_service.register_param_provider(() => {
             return {
                 ...(this.enabled_logs.length > 0
                     ? { enabled_logs: this.enabled_logs.join(';') }
@@ -48,3 +49,5 @@ export class DebugService extends Service {
         });
     }
 }
+
+export const debug_service = new DebugService();

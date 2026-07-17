@@ -68,8 +68,6 @@ interface PuterGuiAddonsEvent {
  * Serves the root HTML shell that bootstraps the Puter GUI.
  *
  * Extensions contribute by:
- *   - `registerScript(url)` — adds a `<script type="module" src=...>` tag
- *     after the GUI init script.
  *   - `setGuiParam(key, value)` — injects a value into the client-side
  *     `gui()` call.
  *   - Listening for `puter.gui.addons` — mutate the event object's
@@ -78,7 +76,6 @@ interface PuterGuiAddonsEvent {
  */
 export class PuterHomepageService extends PuterService {
     #manifest: Manifest | null = null;
-    #serviceScripts: string[] = [];
     #guiParams: Record<string, unknown> = {};
 
     override async onServerStart(): Promise<void> {
@@ -100,10 +97,6 @@ export class PuterHomepageService extends PuterService {
         } catch (e) {
             console.warn('[homepage] failed to load puter-gui.json:', e);
         }
-    }
-
-    registerScript(url: string): void {
-        this.#serviceScripts.push(url);
     }
 
     setGuiParam(key: string, val: unknown): void {
@@ -253,10 +246,6 @@ export class PuterHomepageService extends PuterService {
                       .join('\n')
                 : '';
 
-        const serviceScriptTags = this.#serviceScripts
-            .map((url) => `<script type="module" src="${url}"></script>`)
-            .join('\n');
-
         const guiParamsJson = JSON.stringify(guiParams).replace(
             /</g,
             '\\u003c',
@@ -310,22 +299,6 @@ export class PuterHomepageService extends PuterService {
 
     <link rel="preload" as="image" href="https://puter-assets.b-cdn.net/wallpaper.webp">
 
-    <script>
-        if ( ! window.service_script ) {
-            window.service_script_api_promise = (() => {
-                let resolve, reject;
-                const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
-                promise.resolve = resolve;
-                promise.reject = reject;
-                return promise;
-            })();
-            window.service_script = async fn => {
-                try { await fn(await window.service_script_api_promise); }
-                catch (e) { console.error('service_script(ERROR)', e); }
-            };
-        }
-    </script>
-
     ${manifestCss}
 
     ${event.headContent}
@@ -341,7 +314,6 @@ export class PuterHomepageService extends PuterService {
         gui(${guiParamsJson});
     });
     </script>
-    ${serviceScriptTags}
     <div id="templates" style="display: none;"></div>
 
     ${event.bodyContent}

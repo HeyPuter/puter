@@ -25,6 +25,7 @@ import update_title_based_on_uploads from './helpers/update_title_based_on_uploa
 import update_username_in_gui from './helpers/update_username_in_gui.js';
 import mime from './lib/mime.js';
 import path from './lib/path.js';
+import { broadcast_service } from './modules/broadcast.js';
 import UIAlert from './UI/UIAlert.js';
 import UIItem from './UI/UIItem.js';
 import UIWindowLogin from './UI/UIWindowLogin.js';
@@ -719,8 +720,7 @@ window.update_user_preferences = function (user_preferences) {
     window.locale = language;
 
     // Broadcast locale change to apps
-    const broadcastService = globalThis.services.get('broadcast');
-    broadcastService.sendBroadcast('localeChanged', {
+    broadcast_service.sendBroadcast('localeChanged', {
         language: language,
     }, { sendToNewAppInstances: true });
 };
@@ -3271,7 +3271,7 @@ window.iframe_for_app_instance = (instance_id) => {
 };
 
 // Run any callbacks to say that the app has closed
-// ref(./services/ExecService.js): this is called from ExecService.js on
+// ref(./modules/exec.js): this is called from the exec module on
 //   close if the app does not use puter.js
 window.report_app_closed = (instance_id, status_code) => {
     const el_window = window.window_for_app_instance(instance_id);

@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { anti_csrf_service } from '../modules/anti-csrf.js';
+
 // Renders the Session Manager as a self-contained, responsive modal (a plain
 // DOM overlay) rather than a draggable UIWindow. Confirmations are shown as
 // in-modal sheets instead of UIAlert windows, so nothing here depends on the
@@ -93,8 +95,6 @@ const kindBadgeLabel = (kind) => {
 
 const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     options = options ?? {};
-
-    const services = globalThis.services;
 
     // =====================================================================
     // Responsive modal shell
@@ -450,7 +450,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                 session.label = next || null;
                 el_title.textContent = sessionTitle(session);
                 try {
-                    const anti_csrf = await services.get('anti-csrf').token();
+                    const anti_csrf = await anti_csrf_service.token();
                     const resp = await fetch(
                         `${window.api_origin}/auth/sessions/${encodeURIComponent(session.uuid)}/label`,
                         {
@@ -558,7 +558,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                     });
                     if ( ! ok ) return;
 
-                    const anti_csrf = await services.get('anti-csrf').token();
+                    const anti_csrf = await anti_csrf_service.token();
 
                     // Route access-token rows to the dedicated endpoint
                     // so `access_token_permissions` is cleared in addition
@@ -732,7 +732,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
             });
             if ( ! ok ) return;
 
-            const anti_csrf = await services.get('anti-csrf').token();
+            const anti_csrf = await anti_csrf_service.token();
             const resp = await fetch(
                 `${window.api_origin}/auth/revoke-all-sessions`,
                 {

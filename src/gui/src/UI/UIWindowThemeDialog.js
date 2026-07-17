@@ -18,11 +18,11 @@
  */
 import { UIColorPickerWidget, hslaToHex8 } from './UIColorPickerWidget.js';
 import UIWindow from './UIWindow.js';
+import { theme_service } from '../modules/theme.js';
 
 const UIWindowThemeDialog = async function UIWindowThemeDialog (options) {
     options = options ?? {};
-    const services = globalThis.services;
-    const svc_theme = services.get('theme');
+    const svc_theme = theme_service;
 
     // Get current theme values and convert to hex8 for the color picker
     const currentHue = svc_theme.get('hue');
