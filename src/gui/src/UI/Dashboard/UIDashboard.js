@@ -396,6 +396,14 @@ async function UIDashboard (options) {
             document.querySelector('.dashboard-content').classList.add(tab);
         }
 
+        // Refresh the tab we just switched to, mirroring the sidebar-click
+        // handler — otherwise reaching a tab via browser back/forward leaves it
+        // showing stale data because its onActivate never runs.
+        const activeTab = tabs.find(t => t !== '-' && t.id === tab);
+        if ( activeTab?.onActivate ) {
+            activeTab.onActivate($el_window);
+        }
+
         // Scroll content area to top
         $el_window.find('.dashboard-content').scrollTop(0);
 
