@@ -2012,6 +2012,11 @@ const TabFiles = {
         }
         const displayName = metadata.original_name || file.name;
         let website_url = window.determine_website_url(file.path);
+        // Normalize is_shortcut to 0/1. Directory listings return it as a number,
+        // but the puter.fs.upload() result used to render newly-created items omits
+        // it, and an undefined value trips the `!== 0` badge check below (showing a
+        // phantom shortcut badge on every new file). Coerce to a plain 0/1 here.
+        const is_shortcut = file.is_shortcut ? 1 : 0;
         const is_worker = file.workers?.length > 0;
         const worker_url = is_worker ? file.workers[0]?.address : '';
         const iconResult = await item_icon(file);
@@ -2026,7 +2031,7 @@ const TabFiles = {
         row.setAttribute("data-has_website", file.has_website ? "1" : "0");
         row.setAttribute("data-website_url", website_url ? html_encode(website_url) : '');
         row.setAttribute("data-immutable", file.immutable ? "1" : "0");
-        row.setAttribute("data-is_shortcut", file.is_shortcut);
+        row.setAttribute("data-is_shortcut", is_shortcut);
         row.setAttribute("data-shortcut_to", html_encode(file.shortcut_to));
         row.setAttribute("data-shortcut_to_path", html_encode(file.shortcut_to_path));
         row.setAttribute("data-is_worker", is_worker ? "1" : "0");
@@ -2055,8 +2060,8 @@ const TabFiles = {
                     src="${html_encode(window.icons['link.svg'])}" 
                     data-item-id="${item_id}"
                 >
-                <img class="item-badge item-shortcut" 
-                    style="background-color: #ffffff; padding: 2px; ${file.is_shortcut !== 0 ? 'display:block;' : ''}" 
+                <img class="item-badge item-shortcut"
+                    style="background-color: #ffffff; padding: 2px; ${is_shortcut !== 0 ? 'display:block;' : ''}"
                     src="${html_encode(window.icons['shortcut.svg'])}" 
                     data-item-id="${item_id}"
                     title="Shortcut"
