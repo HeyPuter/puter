@@ -306,20 +306,21 @@ const TabHome = {
     },
 
     async loadRecentApps($el_window) {
-        if (!window.launch_apps?.recent?.length) {
-            try {
-                window.launch_apps = await $.ajax({
-                    url: `${window.api_origin}/get-launch-apps?icon_size=64`,
-                    type: 'GET',
-                    async: true,
-                    contentType: 'application/json',
-                    headers: {
-                        Authorization: `Bearer ${window.auth_token}`,
-                    },
-                });
-            } catch (e) {
-                console.error('Failed to load launch apps:', e);
-            }
+        // Always refetch: gating on an empty list froze "Recently used" for the
+        // whole session (apps launched after load never appeared). loadUsageData
+        // refreshes on the same activate/focus triggers, so this stays in step.
+        try {
+            window.launch_apps = await $.ajax({
+                url: `${window.api_origin}/get-launch-apps?icon_size=64`,
+                type: 'GET',
+                async: true,
+                contentType: 'application/json',
+                headers: {
+                    Authorization: `Bearer ${window.auth_token}`,
+                },
+            });
+        } catch (e) {
+            console.error('Failed to load launch apps:', e);
         }
         $el_window
             .find('.bento-recent-apps-container')
