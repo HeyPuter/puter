@@ -776,7 +776,12 @@ input.myapps-search::-webkit-search-decoration {
     padding-top: 8px;
     scroll-snap-type: x mandatory;
     overscroll-behavior-x: contain;
-    touch-action: pan-x;
+    /* Deliberately not pan-x: an explicit pan value makes horizontal touchmove
+       non-cancelable on iOS/WebKit, so the pager pans out from under a
+       long-press drag and cancels it. With the default (auto) the non-passive
+       touchmove listener installed during a reorder can preventDefault the
+       native pan; a quick pre-long-press swipe still flips pages natively. */
+    touch-action: auto;
     scrollbar-width: none;
 }
 
