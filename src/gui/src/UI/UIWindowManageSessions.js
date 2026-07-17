@@ -16,8 +16,11 @@
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-import UIAlert from './UIAlert.js';
-import UIWindow from './UIWindow.js';
+
+// Renders the Session Manager as a self-contained, responsive modal (a plain
+// DOM overlay) rather than a draggable UIWindow. Confirmations are shown as
+// in-modal sheets instead of UIAlert windows, so nothing here depends on the
+// window system and there is no cross-window z-index juggling.
 
 // Hand-rolled UA → {browser, os} extractor. Covers Chrome/Edge/Firefox/
 // Safari/Opera + Windows/macOS/iOS/Android/Linux. The backend already
@@ -64,6 +67,7 @@ const ICONS = {
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>',
     chevron: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>',
     search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+    close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
 };
 
 // Pick a device/kind glyph for a session's icon tile.
@@ -92,22 +96,173 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
 
     const services = globalThis.services;
 
-    const w = await UIWindow({
-        title: i18n('ui_manage_sessions'),
-        icon: null,
-        uid: null,
-        is_dir: false,
-        message: 'message',
-        is_droppable: false,
-        has_head: true,
-        selectable_body: false,
-        draggable_body: true,
-        allow_context_menu: false,
-        window_class: 'window-session-manager',
-        dominant: true,
-        body_content: '',
-        ...options.window_options,
+    // =====================================================================
+    // Responsive modal shell
+    // =====================================================================
+    const backdrop = document.createElement('div');
+    backdrop.className = 'sessions-modal-backdrop';
+
+    const modal = document.createElement('div');
+    modal.className = 'sessions-modal';
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', i18n('ui_manage_sessions'));
+    backdrop.appendChild(modal);
+
+    const el_head = document.createElement('div');
+    el_head.className = 'sessions-modal-head';
+    const el_title_head = document.createElement('h2');
+    el_title_head.className = 'sessions-modal-title';
+    el_title_head.textContent = i18n('ui_manage_sessions');
+    el_head.appendChild(el_title_head);
+    const el_close = document.createElement('button');
+    el_close.type = 'button';
+    el_close.className = 'sessions-modal-close';
+    el_close.setAttribute('aria-label', i18n('close'));
+    el_close.innerHTML = ICONS.close;
+    el_head.appendChild(el_close);
+    modal.appendChild(el_head);
+
+    // Content container (plays the role the window-body used to).
+    const w_body = document.createElement('div');
+    w_body.className = 'session-manager-list';
+    modal.appendChild(w_body);
+
+    document.body.appendChild(backdrop);
+    // Next frame so the open transition runs.
+    requestAnimationFrame(() => backdrop.classList.add('open'));
+
+    // Refresh handles — assigned once the list wiring below is in place,
+    // referenced by close(). Declared here so close() can see them.
+    let interval = null;
+    let onFocus = null;
+    let closed = false;
+
+    const close = () => {
+        if ( closed ) return;
+        closed = true;
+        if ( interval ) clearInterval(interval);
+        if ( onFocus ) window.removeEventListener('focus', onFocus);
+        document.removeEventListener('keydown', onKeydown);
+        backdrop.classList.remove('open');
+        // Remove after the fade-out; guard against a missing transitionend.
+        setTimeout(() => backdrop.remove(), 200);
+    };
+
+    // Escape: cancel an open confirm sheet if there is one, otherwise close
+    // the whole modal.
+    const onKeydown = (e) => {
+        if ( e.key !== 'Escape' ) return;
+        const sheet = modal.querySelector('.sessions-modal-sheet');
+        if ( sheet && typeof sheet._cancel === 'function' ) {
+            sheet._cancel();
+            return;
+        }
+        close();
+    };
+    document.addEventListener('keydown', onKeydown);
+
+    el_close.addEventListener('click', close);
+    backdrop.addEventListener('mousedown', (e) => {
+        if ( e.target !== backdrop ) return;
+        // Don't close underneath an open confirm sheet.
+        if ( modal.querySelector('.sessions-modal-sheet') ) return;
+        close();
     });
+
+    // =====================================================================
+    // In-modal confirm / alert sheets (replace UIAlert)
+    // =====================================================================
+    const confirmDialog = ({ message, confirmLabel, danger = false }) => {
+        return new Promise((resolve) => {
+            const sheet = document.createElement('div');
+            sheet.className = 'sessions-modal-sheet';
+
+            const card = document.createElement('div');
+            card.className = 'sessions-modal-sheet-card';
+
+            const msg = document.createElement('p');
+            msg.className = 'sessions-modal-sheet-msg';
+            msg.textContent = message;
+            card.appendChild(msg);
+
+            const btns = document.createElement('div');
+            btns.className = 'sessions-modal-sheet-btns';
+
+            const cancelBtn = document.createElement('button');
+            cancelBtn.type = 'button';
+            cancelBtn.className = 'sessions-modal-sheet-btn';
+            cancelBtn.textContent = i18n('cancel');
+
+            const confirmBtn = document.createElement('button');
+            confirmBtn.type = 'button';
+            confirmBtn.className =
+                `sessions-modal-sheet-btn ${danger ? 'sessions-modal-sheet-btn-danger' : 'sessions-modal-sheet-btn-primary'}`;
+            confirmBtn.textContent = confirmLabel;
+
+            btns.appendChild(cancelBtn);
+            btns.appendChild(confirmBtn);
+            card.appendChild(btns);
+            sheet.appendChild(card);
+
+            const done = (val) => {
+                sheet.remove();
+                resolve(val);
+            };
+            // onKeydown (Escape) reaches for this to cancel the sheet.
+            sheet._cancel = () => done(false);
+
+            cancelBtn.addEventListener('click', () => done(false));
+            confirmBtn.addEventListener('click', () => done(true));
+            sheet.addEventListener('mousedown', (e) => {
+                if ( e.target === sheet ) done(false);
+            });
+
+            modal.appendChild(sheet);
+            requestAnimationFrame(() => sheet.classList.add('open'));
+            confirmBtn.focus();
+        });
+    };
+
+    const alertDialog = ({ message }) => {
+        return new Promise((resolve) => {
+            const sheet = document.createElement('div');
+            sheet.className = 'sessions-modal-sheet';
+
+            const card = document.createElement('div');
+            card.className = 'sessions-modal-sheet-card';
+
+            const msg = document.createElement('p');
+            msg.className = 'sessions-modal-sheet-msg';
+            msg.textContent = message;
+            card.appendChild(msg);
+
+            const btns = document.createElement('div');
+            btns.className = 'sessions-modal-sheet-btns';
+
+            const okBtn = document.createElement('button');
+            okBtn.type = 'button';
+            okBtn.className = 'sessions-modal-sheet-btn sessions-modal-sheet-btn-primary';
+            okBtn.textContent = i18n('ok');
+            btns.appendChild(okBtn);
+            card.appendChild(btns);
+            sheet.appendChild(card);
+
+            const done = () => {
+                sheet.remove();
+                resolve();
+            };
+            sheet._cancel = done;
+            okBtn.addEventListener('click', done);
+            sheet.addEventListener('mousedown', (e) => {
+                if ( e.target === sheet ) done();
+            });
+
+            modal.appendChild(sheet);
+            requestAnimationFrame(() => sheet.classList.add('open'));
+            okBtn.focus();
+        });
+    };
 
     // Backend BIGINT columns store epoch seconds (SessionStore writes
     // `nowSeconds()`). timeago / Date both take ms — multiply on read.
@@ -315,11 +470,7 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                     // Roll back optimistic update
                     session.label = original || null;
                     el_title.textContent = sessionTitle(session);
-                    UIAlert({
-                        parent_uuid: $(w).attr('data-element_uuid'),
-                        stay_on_top: true,
-                        message: e?.toString?.() ?? String(e),
-                    });
+                    alertDialog({ message: e?.toString?.() ?? String(e) });
                 }
             };
 
@@ -400,21 +551,12 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
             el_btn_revoke.title = i18n('ui_revoke');
             el_btn_revoke.addEventListener('click', async () => {
                 try {
-                    const parent_uuid = $(w).attr('data-element_uuid');
-                    const alert_resp = await UIAlert({
-                        parent_uuid,
-                        stay_on_top: true,
+                    const ok = await confirmDialog({
                         message: i18n('confirm_session_revoke'),
-                        buttons: [
-                            {
-                                label: i18n('yes'),
-                                value: 'yes',
-                                type: 'primary',
-                            },
-                            { label: i18n('cancel') },
-                        ],
+                        confirmLabel: i18n('ui_revoke'),
+                        danger: true,
                     });
-                    if ( alert_resp !== 'yes' ) return;
+                    if ( ! ok ) return;
 
                     const anti_csrf = await services.get('anti-csrf').token();
 
@@ -445,13 +587,9 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                         reload_sessions();
                         return;
                     }
-                    UIAlert({ parent_uuid, stay_on_top: true, message: await resp.text() });
+                    alertDialog({ message: await resp.text() });
                 } catch ( e ) {
-                    UIAlert({
-                        parent_uuid: $(w).attr('data-element_uuid'),
-                        stay_on_top: true,
-                        message: e.toString(),
-                    });
+                    alertDialog({ message: e.toString() });
                 }
             });
             el_actions.appendChild(el_btn_revoke);
@@ -553,9 +691,6 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
         render();
     };
 
-    const w_body = w.querySelector('.window-body');
-    w_body.classList.add('session-manager-list');
-
     // Toolbar: search input + a de-emphasised "Revoke all other sessions"
     // ghost button (destructive, so it stays red, but no longer a giant
     // filled block competing with the search field).
@@ -589,24 +724,13 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     el_btn_revoke_all.innerHTML =
         `${ICONS.trash}<span>${i18n('ui_revoke_all_other_sessions') || 'Revoke all others'}</span>`;
     el_btn_revoke_all.addEventListener('click', async () => {
-        const parent_uuid = $(w).attr('data-element_uuid');
         try {
-            const alert_resp = await UIAlert({
-                parent_uuid,
-                stay_on_top: true,
-                message:
-                    i18n('confirm_revoke_all_other_sessions') ||
-                    'Revoke all other sessions? You will stay signed in here.',
-                buttons: [
-                    {
-                        label: i18n('yes'),
-                        value: 'yes',
-                        type: 'primary',
-                    },
-                    { label: i18n('cancel') },
-                ],
+            const ok = await confirmDialog({
+                message: i18n('confirm_revoke_all_other_sessions'),
+                confirmLabel: i18n('ui_revoke'),
+                danger: true,
             });
-            if ( alert_resp !== 'yes' ) return;
+            if ( ! ok ) return;
 
             const anti_csrf = await services.get('anti-csrf').token();
             const resp = await fetch(
@@ -628,13 +752,9 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
                 reload_sessions();
                 return;
             }
-            UIAlert({ parent_uuid, stay_on_top: true, message: await resp.text() });
+            alertDialog({ message: await resp.text() });
         } catch ( e ) {
-            UIAlert({
-                parent_uuid,
-                stay_on_top: true,
-                message: e.toString(),
-            });
+            alertDialog({ message: e.toString() });
         }
     });
     el_toolbar.appendChild(el_btn_revoke_all);
@@ -655,18 +775,11 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
     // Two-tier refresh:
     //   - focus → re-fetch immediately (cheapest signal that something
     //     in the user's other tabs might have changed sessions).
-    //   - 60s fallback interval so a long-lived but unfocused window
+    //   - 60s fallback interval so a long-lived but unfocused modal
     //     still eventually sees revocations propagate.
-    // Older code polled every 8s flat — that burned CPU + network
-    // continuously even when the window wasn't visible.
-    const onFocus = () => reload_sessions();
+    onFocus = () => reload_sessions();
     window.addEventListener('focus', onFocus);
-    const interval = setInterval(reload_sessions, 60_000);
-
-    w.on_close = () => {
-        clearInterval(interval);
-        window.removeEventListener('focus', onFocus);
-    };
+    interval = setInterval(reload_sessions, 60_000);
 };
 
 export default UIWindowManageSessions;
