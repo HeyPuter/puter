@@ -1890,6 +1890,10 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     suggested_apps: fsentry.suggested_apps,
                 };
                 UIItem(options);
+                // In dashboard mode, also create item via dashboard's renderer
+                if ( window.is_dashboard_mode && window.UIDashboardFileItem ) {
+                    window.UIDashboardFileItem(fsentry);
+                }
                 moved_items.push({ 'options': options, 'original_path': $(el_item).attr('data-path') });
 
                 // this operation may have created some missing directories,
@@ -1914,6 +1918,10 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                             has_website: false,
                             suggested_apps: dir.suggested_apps,
                         });
+                    }
+                    // In dashboard mode, also create parent dirs via dashboard's renderer
+                    if ( window.is_dashboard_mode && window.UIDashboardFileItem ) {
+                        window.UIDashboardFileItem(dir);
                     }
                     window.sort_items(item_container);
                 });
