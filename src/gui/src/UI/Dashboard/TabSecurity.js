@@ -155,6 +155,11 @@ const TabSecurity = {
                 return;
             }
 
+            // Keep the in-memory flag in sync so a later re-render reflects the
+            // real 2FA state. The disable dialog already clears window.user.otp;
+            // the enable path never set it, so the two directions disagreed.
+            if ( window.user ) window.user.otp = enabling;
+
             const $card = $el_window.find('.dashboard-section-security .dashboard-settings-card-2fa');
             if ( enabling ) {
                 $el_window.find('.dashboard-section-security .user-otp-state').text(i18n('two_factor_enabled'));
