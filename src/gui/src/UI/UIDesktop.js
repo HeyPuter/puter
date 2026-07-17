@@ -764,8 +764,12 @@ async function UIDesktop (options) {
 
     // ---------------------------------------------------------------
     // Taskbar
+    // In fullpage mode the desktop only hosts a single app, so there's
+    // nothing for the taskbar to do; skip building it entirely.
     // ---------------------------------------------------------------
-    UITaskbar();
+    if ( !window.is_fullpage_mode ) {
+        UITaskbar();
+    }
 
     // Update desktop dimensions after taskbar is initialized with position
     window.update_desktop_dimensions_for_taskbar();
@@ -2455,8 +2459,13 @@ window.enter_fullpage_mode = (el_window) => {
 window.exit_fullpage_mode = (el_window) => {
     $('body').removeClass('fullpage-mode');
     window.taskbar_height = window.default_taskbar_height;
-    $('.taskbar').css('height', window.taskbar_height);
-    $('.taskbar').show();
+    // In fullpage mode the taskbar is never built, so create it on exit; otherwise just restore it.
+    if ( $('.taskbar').length === 0 ) {
+        UITaskbar();
+    } else {
+        $('.taskbar').css('height', window.taskbar_height);
+        $('.taskbar').show();
+    }
     refresh_item_container($('.desktop.item-container'), { fadeInItems: true });
     $(el_window).removeAttr('data-is_fullpage');
     if ( el_window ) {
