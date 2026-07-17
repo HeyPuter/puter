@@ -5057,112 +5057,600 @@ html.dark-mode .usage-table-show-less:hover {
     margin-bottom: 20px;
 }
 
+/* ==========================================================================
+   Session manager — responsive modal (not a UIWindow)
+   ========================================================================== */
+
+.sessions-modal-backdrop,
+.sessions-modal-backdrop * {
+    box-sizing: border-box;
+}
+
+.sessions-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 2000000000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(15, 23, 42, 0.55);
+    opacity: 0;
+    transition: opacity 0.18s ease;
+}
+
+.sessions-modal-backdrop.open {
+    opacity: 1;
+}
+
+.sessions-modal {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: min(680px, 100%);
+    max-height: min(720px, 90vh);
+    background: var(--dashboard-background, #fff);
+    border: 1px solid var(--dashboard-border, #e0e0e0);
+    border-radius: 14px;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35), 0 2px 8px rgba(0, 0, 0, 0.18);
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.sessions-modal-backdrop.open .sessions-modal {
+    opacity: 1;
+    transform: none;
+}
+
+.sessions-modal-head {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--dashboard-border, #e0e0e0);
+}
+
+.sessions-modal-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 650;
+    color: var(--dashboard-text-heading, #333);
+}
+
+.sessions-modal-close {
+    flex: 0 0 auto;
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-text-secondary, #64748b);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+}
+
+.sessions-modal-close svg {
+    width: 18px;
+    height: 18px;
+}
+
+.sessions-modal-close:hover {
+    background: var(--dashboard-hover, #e8e8e8);
+    color: var(--dashboard-text-primary, #1e293b);
+}
+
+/* In-modal confirm / alert sheet (replaces UIAlert) */
+.sessions-modal-sheet {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(15, 23, 42, 0.28);
+    opacity: 0;
+    transition: opacity 0.12s ease;
+}
+
+.sessions-modal-sheet.open {
+    opacity: 1;
+}
+
+.sessions-modal-sheet-card {
+    width: min(380px, 100%);
+    background: var(--dashboard-card-background, #fff);
+    border: 1px solid var(--dashboard-border, #e0e0e0);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22);
+}
+
+.sessions-modal-sheet-msg {
+    margin: 0 0 16px;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--dashboard-text-primary, #1e293b);
+}
+
+.sessions-modal-sheet-btns {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.sessions-modal-sheet-btn {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--dashboard-border, #e0e0e0);
+    background: var(--dashboard-card-background, #fff);
+    color: var(--dashboard-text-primary, #1e293b);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+}
+
+.sessions-modal-sheet-btn:hover {
+    background: var(--dashboard-hover, #e8e8e8);
+}
+
+.sessions-modal-sheet-btn-primary {
+    background: var(--dashboard-text-primary, #1e293b);
+    border-color: var(--dashboard-text-primary, #1e293b);
+    color: #fff;
+}
+
+.sessions-modal-sheet-btn-primary:hover {
+    opacity: 0.9;
+    background: var(--dashboard-text-primary, #1e293b);
+}
+
+.sessions-modal-sheet-btn-danger {
+    background: var(--dashboard-danger-text, #dc2626);
+    border-color: var(--dashboard-danger-text, #dc2626);
+    color: #fff;
+}
+
+.sessions-modal-sheet-btn-danger:hover {
+    opacity: 0.9;
+    background: var(--dashboard-danger-text, #dc2626);
+}
+
+.session-manager-list,
+.session-manager-list * {
+    box-sizing: border-box;
+}
+
 .session-manager-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 10px;
-    box-sizing: border-box;
-    height: 100% !important;
+    gap: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    padding: 16px;
+    background: var(--dashboard-background, #fff);
 }
 
-.session-widget {
-    display: flex;
-    flex-direction: column;
-    padding: 10px;
-    border: 1px solid var(--dashboard-border);
-    border-radius: 4px;
-    gap: 4px;
-}
-
-.current-session.session-widget {
-    background-color: #f0f0f0;
-}
-
-.session-widget-uuid {
-    font-size: 12px;
-    font-weight: 600;
-    color: #9c185b;
-}
-
-.session-widget-meta {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-}
-
-.session-widget-header {
+/* -- Toolbar: search + de-emphasised revoke-all -- */
+.session-manager-toolbar {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 4px;
+    flex-wrap: wrap;
+    gap: 10px;
 }
 
-.session-widget-app-icon {
-    width: 24px;
-    height: 24px;
-    border-radius: 4px;
-    flex-shrink: 0;
+.session-manager-search-wrap {
+    position: relative;
+    flex: 1 1 220px;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.session-manager-search-icon {
+    position: absolute;
+    left: 12px;
+    display: flex;
+    color: var(--dashboard-text-muted, #94a3b8);
+    pointer-events: none;
+}
+
+.session-manager-search-icon svg {
+    width: 16px;
+    height: 16px;
+}
+
+.session-manager-search {
+    width: 100%;
+    height: 38px;
+    padding: 0 12px 0 36px;
+    border: 1px solid var(--dashboard-border, #e0e0e0);
+    border-radius: 9px;
+    background: var(--dashboard-input-background, #f5f7f9);
+    font-size: 14px;
+    color: var(--dashboard-text-primary, #1e293b);
+    outline: none;
+}
+
+.session-manager-search::placeholder {
+    color: var(--dashboard-text-muted, #94a3b8);
+}
+
+.session-manager-search:focus {
+    border-color: var(--select-color, #4a90d9);
+    background: var(--dashboard-background, #fff);
+    box-shadow: 0 0 0 3px hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.16);
+}
+
+.session-manager-revoke-all {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 38px;
+    padding: 0 14px;
+    border: 1px solid var(--dashboard-danger-border, #fecaca);
+    border-radius: 9px;
+    background: transparent;
+    color: var(--dashboard-danger-text, #dc2626);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.12s, border-color 0.12s;
+}
+
+.session-manager-revoke-all svg {
+    width: 15px;
+    height: 15px;
+}
+
+.session-manager-revoke-all:hover {
+    background: var(--dashboard-danger-background, #fef2f2);
+    border-color: var(--dashboard-danger-text, #dc2626);
+}
+
+.session-manager-count {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--dashboard-text-muted, #94a3b8);
+    padding: 12px 2px 10px;
+}
+
+/* -- Scrollable list body -- */
+.session-manager-list-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding-bottom: 8px;
+}
+
+/* -- Session row (card) -- */
+.session-widget {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--dashboard-border, #e0e0e0);
+    border-radius: 12px;
+    background: var(--dashboard-card-background, #fff);
+    transition: border-color 0.12s, box-shadow 0.12s;
+}
+
+.session-widget:hover {
+    border-color: #cfd6dd;
+    box-shadow: 0 1px 5px rgba(15, 23, 42, 0.07);
+}
+
+.current-session.session-widget {
+    border-color: var(--dashboard-success-border, #08bf4e);
+    background: var(--dashboard-success-background, #e6ffed);
+}
+
+.session-widget-row {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+}
+
+.session-widget-caret {
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    margin-top: 8px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--dashboard-text-muted, #94a3b8);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.session-widget-caret svg {
+    width: 16px;
+    height: 16px;
+    transition: transform 0.15s;
+}
+
+.session-widget-caret.collapsed svg {
+    transform: rotate(-90deg);
+}
+
+/* Icon tile */
+.session-widget-icon {
+    flex: 0 0 auto;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: var(--dashboard-sidebar-background, #f1f5f9);
+    color: var(--dashboard-text-secondary, #64748b);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.session-widget-icon svg {
+    width: 20px;
+    height: 20px;
+}
+
+.session-widget-icon-img {
+    background: #fff;
+    border: 1px solid var(--dashboard-border, #e0e0e0);
+}
+
+.session-widget-icon-img img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.current-session .session-widget-icon {
+    background: #d3f5df;
+    color: var(--dashboard-success-text, #03933a);
+}
+
+/* Main column */
+.session-widget-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.session-widget-titleline {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+}
+
+.session-widget-title-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .session-widget-title {
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
-    color: #222;
-    flex-grow: 1;
+    color: var(--dashboard-text-card-title, #1a1a1a);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
+.session-widget-rename {
+    flex: 0 0 auto;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--dashboard-text-muted, #94a3b8);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.12s, background 0.12s, color 0.12s;
+}
+
+.session-widget-rename svg {
+    width: 14px;
+    height: 14px;
+}
+
+.session-widget:hover .session-widget-rename {
+    opacity: 1;
+}
+
+.session-widget-rename:hover {
+    background: var(--dashboard-hover, #e8e8e8);
+    color: var(--dashboard-text-primary, #1e293b);
+}
+
+.session-widget-rename-input {
+    font-size: 14px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border: 1px solid var(--select-color, #4a90d9);
+    border-radius: 6px;
+    outline: none;
+    min-width: 140px;
+    max-width: 100%;
+    color: var(--dashboard-text-primary, #1e293b);
+}
+
+/* Badges */
 .session-widget-badges {
     display: flex;
     flex-direction: row;
-    gap: 4px;
+    gap: 6px;
     flex-shrink: 0;
 }
 
 .session-widget-badge {
     font-size: 10px;
-    font-weight: 600;
+    font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-    padding: 2px 6px;
-    border-radius: 10px;
-    background-color: #e0e0e0;
-    color: #555;
+    padding: 2px 8px;
+    border-radius: 20px;
+    background: var(--dashboard-hover, #eef1f4);
+    color: var(--dashboard-text-secondary, #64748b);
+    white-space: nowrap;
 }
 
 .session-widget-badge-current {
-    background-color: #1f7a3a;
+    background: var(--dashboard-success-border, #08bf4e);
     color: #fff;
 }
 
-.session-widget-meta-entry {
+.session-widget-badge-worker {
+    background: #fff3d6;
+    color: #a16207;
+}
+
+.session-widget-badge-access_token {
+    background: #e0e7ff;
+    color: #4338ca;
+}
+
+.session-widget-badge-app {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+/* Meta lines */
+.session-widget-meta {
     display: flex;
     flex-direction: row;
+    flex-wrap: wrap;
     align-items: center;
+    font-size: 12.5px;
+    color: var(--dashboard-text-secondary, #64748b);
+    line-height: 1.5;
 }
 
-.session-widget-meta-key {
+.session-widget-meta-secondary {
     font-size: 12px;
-    color: #666;
-    flex-basis: 40%;
-    flex-shrink: 0;
+    color: var(--dashboard-text-muted, #94a3b8);
 }
 
-.session-widget-meta-value {
-    font-size: 12px;
-    color: #666;
-    flex-grow: 1;
+.session-widget-meta-item {
+    white-space: nowrap;
 }
 
+.session-widget-meta-item:not(:first-child)::before {
+    content: "·";
+    margin: 0 7px;
+    opacity: 0.55;
+}
+
+/* Revoke: subtle, hover-revealed danger action */
 .session-widget-actions {
+    flex: 0 0 auto;
     display: flex;
-    flex-direction: row;
-    gap: 10px;
-    justify-content: flex-end;
+    align-items: center;
+    margin-top: 2px;
+}
+
+.session-widget-revoke {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 30px;
+    padding: 0 11px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-danger-text, #dc2626);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.12s, background 0.12s, border-color 0.12s;
+}
+
+.session-widget-revoke svg {
+    width: 14px;
+    height: 14px;
+}
+
+.session-widget:hover .session-widget-revoke {
+    opacity: 1;
+}
+
+.session-widget-revoke:hover {
+    background: var(--dashboard-danger-background, #fef2f2);
+    border-color: var(--dashboard-danger-border, #fecaca);
+}
+
+/* Nested (child) sessions — tree line + lighter surface */
+.session-widget-children {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0 14px 12px 30px;
+    padding-left: 12px;
+    border-left: 2px solid var(--dashboard-border, #e0e0e0);
+}
+
+.session-widget-child {
+    background: var(--dashboard-content-background, #fcfcfd);
+}
+
+/* Touch devices have no hover — keep the row actions visible */
+@media (hover: none), (pointer: coarse) {
+    .session-widget-rename,
+    .session-widget-revoke {
+        opacity: 1;
+    }
+}
+
+/* Phone: the modal becomes a full-screen sheet */
+@media (max-width: 640px) {
+    .sessions-modal-backdrop {
+        padding: 0;
+    }
+    .sessions-modal {
+        width: 100%;
+        max-width: 100%;
+        height: 100%;
+        max-height: 100%;
+        border: none;
+        border-radius: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .sessions-modal-backdrop,
+    .sessions-modal,
+    .sessions-modal-sheet {
+        transition: none;
+    }
 }
 
 /* Extra small devices (phones, less than 576px) */
