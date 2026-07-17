@@ -792,8 +792,15 @@ const TabApps = {
         if ( commit ) {
             const names = d.$el_window.find('.myapps-page .myapps-tile').toArray()
                 .map(t => t.getAttribute('data-app-name'));
-            this._apps = this._reorderAppsByNames(names);
-            this.saveOrder();
+            const current = this._apps.map(a => a.name);
+            // Only persist when the order actually changed, so an accidental
+            // long-press or drop-in-place doesn't freeze the default ordering.
+            const changed = names.length !== current.length
+                || names.some((name, i) => name !== current[i]);
+            if ( changed ) {
+                this._apps = this._reorderAppsByNames(names);
+                this.saveOrder();
+            }
         }
 
         const ghost = d.ghost;
