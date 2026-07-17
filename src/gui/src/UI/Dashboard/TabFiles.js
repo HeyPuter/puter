@@ -1698,7 +1698,11 @@ const TabFiles = {
         if ( $existingRows.length === 0 ) return;
 
         const newIsDir = !!file.is_dir;
-        const newName = (file.name || '').toLowerCase();
+        // Compare on the display name (data-name = metadata.original_name || name),
+        // matching sortFiles and the existing rows below. Using raw file.name here
+        // mis-sorts trashed items, whose name is the UID and whose real name lives
+        // in metadata.original_name.
+        const newName = ($newRow.attr('data-name') || file.name || '').toLowerCase();
         const newSize = file.size || 0;
         const newModified = file.modified || 0;
         const sortColumn = this.sortColumn;
