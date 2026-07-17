@@ -603,18 +603,6 @@ const TabApps = {
         document.addEventListener('keydown', d.onKey);
         window.addEventListener('blur', d.onBlur);
 
-        // iOS/WebKit latches touch-action at gesture start and treats an
-        // in-progress pan as non-cancelable, so preventing pointermove can't
-        // stop the pager from scrolling out from under a drag (it just fires
-        // pointercancel and kills the reorder). A non-passive touchmove that
-        // preventDefaults *once reordering is armed* is what actually holds the
-        // scroller still. Before arming (readyToDrag false) it's a no-op, so a
-        // quick pre-long-press swipe still flips pages natively.
-        if ( pointerType === 'touch' ) {
-            d.onTouchMove = ev => { if ( d.readyToDrag ) ev.preventDefault(); };
-            document.addEventListener('touchmove', d.onTouchMove, { passive: false });
-        }
-
         // Touch: a long-press *arms* reordering (it doesn't grab the tile yet).
         // Moving after that begins the drag; holding still instead lets the
         // native long-press context menu (Uninstall) fire. A finger that moves
@@ -843,7 +831,6 @@ const TabApps = {
         document.removeEventListener('pointercancel', d.onCancel);
         document.removeEventListener('keydown', d.onKey);
         window.removeEventListener('blur', d.onBlur);
-        if ( d.onTouchMove ) document.removeEventListener('touchmove', d.onTouchMove, { passive: false });
         clearTimeout(d.longPressTimer);
         clearTimeout(d.edgeTimer);
         clearTimeout(d.flipClearTimer);
