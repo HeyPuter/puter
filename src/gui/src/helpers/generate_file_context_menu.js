@@ -134,6 +134,7 @@ const sendSelectionToAIApp = async ($elements) => {
  * @param {Array} options.suggested_apps - Optional pre-loaded suggested apps
  * @param {string} options.associated_app_name - Optional associated app
  * @param {Function} options.onOpen - Optional custom open handler (used by Dashboard)
+ * @param {Function} options.onShowProperties - Optional custom properties handler (used by Dashboard); receives {name, path, uid, element}
  * @returns {Promise<Array>} Array of context menu items
  */
 const generate_file_context_menu = async function (options) {
@@ -605,6 +606,18 @@ const generate_file_context_menu = async function (options) {
     menu_items.push({
         html: i18n('properties'),
         onClick: function () {
+            // The Dashboard swaps in its own responsive modal via this hook;
+            // everywhere else falls back to the desktop properties window.
+            if ( options.onShowProperties ) {
+                options.onShowProperties({
+                    name: $(el_item).attr('data-name'),
+                    path: $(el_item).attr('data-path'),
+                    uid: $(el_item).attr('data-uid'),
+                    element: el_item,
+                });
+                return;
+            }
+
             let window_height = 500;
             let window_width = 450;
 

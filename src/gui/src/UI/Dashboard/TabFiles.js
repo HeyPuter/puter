@@ -30,6 +30,7 @@ import update_title_based_on_uploads from '../../helpers/update_title_based_on_u
 import item_icon from '../../helpers/item_icon.js';
 import new_context_menu_item from '../../helpers/new_context_menu_item.js';
 import ContextMenuModal from './ContextMenu/ContextMenu.js';
+import UIItemPropertiesModal from './UIItemPropertiesModal.js';
 
 const icons = {
     document: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`,
@@ -3146,6 +3147,15 @@ const TabFiles = {
                 } else {
                     open_item({ item: el });
                 }
+            },
+            onShowProperties: ({ name, path: item_path, uid }) => {
+                // Dashboard uses a responsive modal instead of the desktop UIWindow.
+                UIItemPropertiesModal({
+                    name,
+                    path: item_path,
+                    uid,
+                    $container: _this.$el_window,
+                });
             },
         });
 

@@ -1023,6 +1023,259 @@ input.myapps-search::-webkit-search-decoration {
     cursor: default;
 }
 
+/* -- Item properties modal --
+   Responsive, from-scratch replacement for UIWindowItemProperties in the
+   Dashboard: a centered card on desktop, a bottom sheet on mobile. */
+.item-props-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    box-sizing: border-box;
+    background: var(--dashboard-shadow-overlay, rgba(0, 0, 0, 0.5));
+    opacity: 0;
+    transition: opacity 200ms ease;
+    z-index: 1000;
+}
+.item-props-overlay.item-props-show {
+    opacity: 1;
+}
+
+.item-props-modal {
+    display: flex;
+    flex-direction: column;
+    width: min(460px, 100%);
+    max-height: min(600px, 85vh);
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px var(--dashboard-shadow-medium);
+    overflow: hidden;
+    transform: scale(0.96);
+    opacity: 0;
+    transition: transform 200ms ease, opacity 200ms ease;
+}
+.item-props-overlay.item-props-show .item-props-modal {
+    transform: scale(1);
+    opacity: 1;
+}
+
+/* Header */
+.item-props-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--dashboard-border);
+    flex-shrink: 0;
+}
+.item-props-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+.item-props-title-icon {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.item-props-title-icon img {
+    width: 34px;
+    height: 34px;
+    object-fit: contain;
+}
+.item-props-title-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.item-props-title-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.item-props-title-sub {
+    font-size: 12px;
+    color: var(--dashboard-text-muted);
+}
+.item-props-close {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+@media (hover: hover) {
+    .item-props-close:hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
+}
+
+/* Tabs */
+.item-props-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--dashboard-border);
+    flex-shrink: 0;
+}
+.item-props-tab {
+    padding: 11px 12px;
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--dashboard-text-secondary);
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+@media (hover: hover) {
+    .item-props-tab:hover {
+        color: var(--dashboard-text-primary);
+    }
+}
+.item-props-tab.item-props-tab-active {
+    color: var(--dashboard-text-primary);
+    font-weight: 600;
+    border-bottom-color: var(--dashboard-link);
+}
+
+/* Body */
+.item-props-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 8px 18px 16px;
+}
+.item-props-panel {
+    display: none;
+}
+.item-props-panel.item-props-panel-active {
+    display: block;
+}
+
+.item-props-list {
+    margin: 0;
+}
+.item-props-row {
+    display: flex;
+    gap: 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--dashboard-border);
+}
+.item-props-row:last-child {
+    border-bottom: none;
+}
+.item-props-label {
+    flex: 0 0 128px;
+    font-size: 13px;
+    color: var(--dashboard-text-secondary);
+    margin: 0;
+}
+.item-props-value {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--dashboard-text-primary);
+    margin: 0;
+    word-break: break-word;
+}
+.item-props-value a {
+    color: var(--dashboard-link);
+    text-decoration: none;
+}
+.item-props-value a:hover {
+    text-decoration: underline;
+}
+.item-props-website-entry {
+    margin: 0 0 6px;
+}
+.item-props-website-entry:last-child {
+    margin-bottom: 0;
+}
+.item-props-disassociate {
+    margin-left: 8px;
+    font-size: 12px;
+    color: var(--dashboard-danger-text);
+    cursor: pointer;
+}
+.item-props-disassociate:hover {
+    text-decoration: underline;
+}
+
+/* Versions */
+.item-props-version-entry {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--dashboard-border);
+}
+.item-props-version-entry:last-child {
+    border-bottom: none;
+}
+.item-props-version-meta {
+    font-size: 13px;
+    color: var(--dashboard-text-primary);
+}
+.item-props-version-id {
+    font-size: 11px;
+    font-family: monospace;
+    color: var(--dashboard-text-muted);
+    word-break: break-all;
+}
+.item-props-empty {
+    padding: 10px 0;
+    font-size: 13px;
+    color: var(--dashboard-text-muted);
+}
+
+/* Mobile: dock to the bottom as a slide-up sheet */
+@media (max-width: 600px) {
+    .item-props-overlay {
+        align-items: flex-end;
+        padding: 0;
+    }
+    .item-props-modal {
+        width: 100%;
+        max-width: none;
+        max-height: 88vh;
+        border-radius: 16px 16px 0 0;
+        border-bottom: none;
+        transform: translateY(24px);
+    }
+    .item-props-overlay.item-props-show .item-props-modal {
+        transform: translateY(0);
+    }
+    .item-props-row {
+        flex-direction: column;
+        gap: 3px;
+    }
+    .item-props-label {
+        flex-basis: auto;
+    }
+}
+
 /* -- Drag-to-reorder -- */
 
 /* The tile being dragged is kept in the grid as an invisible placeholder so
