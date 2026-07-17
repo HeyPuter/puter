@@ -1817,8 +1817,12 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 // update all shortcut_to_path
                 $(`.item[data-shortcut_to_path="${html_encode($(el_item).attr('data-path'))}" i]`).attr('data-shortcut_to_path', fsentry.path);
 
-                // Remove all items with matching uids
-                $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).fadeOut(150, function () {
+                // Remove all items with matching uids from their OLD location(s).
+                // Exclude any row already at the item's new path: a concurrent
+                // item.moved socket handler may have just created a row at the
+                // destination (e.g. the dashboard file view showing the target
+                // directory), and removing by uid alone would delete it too.
+                $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).not(`[data-path="${html_encode(fsentry.path)}" i]`).fadeOut(150, function () {
                     // find all parent windows that contain this item
                     let parent_windows = $(`.item[data-uid='${$(el_item).attr('data-uid')}']`).closest('.window');
                     // remove this item

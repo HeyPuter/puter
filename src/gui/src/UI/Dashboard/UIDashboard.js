@@ -266,10 +266,17 @@ async function UIDashboard (options) {
     window.socket.on('item.moved', async (resp) => {
         if ( resp.original_client_socket_id === window.socket.id ) return;
 
-        // Fade out old item from view
-        $(`.item[data-uid='${resp.uid}']`).fadeOut(150, function () {
-            $(this).remove();
-        });
+        // Fade out the stale row at the item's OLD location only. A moved item
+        // keeps its uid, so removing by uid would also match the row at the new
+        // location — and when the destination is the directory currently in
+        // view (e.g. after spring-loading a folder open mid-drag), that deletes
+        // the freshly-added row instead of the stale one.
+        const old_path = resp.old_path ?? resp.from_path;
+        if ( old_path ) {
+            $(`.item[data-path='${html_encode(old_path)}']`).fadeOut(150, function () {
+                $(this).remove();
+            });
+        }
 
         // Create new item at destination if user is viewing that directory
         if ( window.UIDashboardFileItem ) {
