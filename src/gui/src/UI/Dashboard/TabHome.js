@@ -433,12 +433,14 @@ const TabHome = {
         try {
             const res = await puter.auth.getMonthlyUsage();
             let monthlyAllowance = res.allowanceInfo?.monthUsageAllowance;
-            let remaining = res.allowanceInfo?.remaining;
-            let totalUsage = monthlyAllowance - remaining;
-            let totalUsagePercentage = (
-                (totalUsage / monthlyAllowance) *
-                100
-            ).toFixed(0);
+            // Actual month-to-date spend. `allowanceInfo.remaining` folds
+            // purchased credits into the remaining pool, so `allowance -
+            // remaining` turns negative once a user has credits. Use the
+            // reported usage total instead.
+            let totalUsage = res.usage?.total ?? 0;
+            let totalUsagePercentage = monthlyAllowance
+                ? Math.min(100, (totalUsage / monthlyAllowance) * 100).toFixed(0)
+                : '0';
 
             $el_window
                 .find('.bento-resources-used')

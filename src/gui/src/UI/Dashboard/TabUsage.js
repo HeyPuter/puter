@@ -231,9 +231,11 @@ async function update_usage_details ($el_window) {
 
     const monthlyUsagePromise = puter.auth.getMonthlyUsage().then(res => {
         let monthlyAllowance = res.allowanceInfo?.monthUsageAllowance;
-        let remaining = res.allowanceInfo?.remaining;
-        let totalUsage = monthlyAllowance - remaining;
-        let totalUsagePercentage = (totalUsage / monthlyAllowance * 100).toFixed(0);
+        // Actual month-to-date spend. `allowanceInfo.remaining` folds purchased
+        // credits into the remaining pool, so `allowance - remaining` turns
+        // negative as soon as a user has credits. Use the reported usage total.
+        let totalUsage = res.usage?.total ?? 0;
+        let totalUsagePercentage = monthlyAllowance ? Math.min(100, totalUsage / monthlyAllowance * 100).toFixed(0) : '0';
 
         $('#total-usage').html(window.number_format(totalUsage / 100_000_000, { decimals: 2, prefix: '$' }));
         $('#total-capacity').html(window.number_format(monthlyAllowance / 100_000_000, { decimals: 2, prefix: '$' }));
