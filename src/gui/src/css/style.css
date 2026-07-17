@@ -1719,7 +1719,8 @@ span.header-sort-icon img {
     display: none;
 }
 
-.context-menu-item .contextmenu-label {
+.context-menu-item .contextmenu-label,
+.context-menu-item .contextmenu-label-active {
     height: 12px;
 }
 
