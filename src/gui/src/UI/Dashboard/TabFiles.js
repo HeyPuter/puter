@@ -1811,7 +1811,18 @@ const TabFiles = {
         const readdirArg = isPath
             ? { path: target, consistency: options.consistency || 'eventual' }
             : { uid: target, consistency: options.consistency || 'eventual' };
-        let directoryContents = await window.puter.fs.readdir(readdirArg);
+        let directoryContents;
+        try {
+            directoryContents = await window.puter.fs.readdir(readdirArg);
+        } catch ( err ) {
+            // readdir rejects on any backend error (permission, deleted dir,
+            // network). Without this, renderingDirectory would stay true and
+            // the guard above would block all further navigation.
+            console.error('Failed to read directory:', err);
+            this.hideSpinner();
+            this.renderingDirectory = false;
+            return;
+        }
         if ( ! directoryContents ) {
             this.hideSpinner();
             this.renderingDirectory = false;
