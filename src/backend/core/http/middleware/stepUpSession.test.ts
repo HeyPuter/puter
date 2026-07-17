@@ -177,6 +177,60 @@ describe('createStepUpGate', () => {
         expect(next.mock.calls[0][0]?.statusCode).toBe(403);
     });
 
+    // App-gated routes (adminOnly + allowedAppIds): an admin acting through an
+    // allowlisted app can't elevate — apps have no password/TOTP and are blocked
+    // from /auth/elevate. The exemption keys off the token carrying an allowed
+    // app id, not the route flag.
+    it('exempts a token that carries an allowlisted app id', () => {
+        const ts = tokenService();
+        const gate = createStepUpGate({
+            tokenService: ts,
+            allowedAppUids: ['app-xyz'],
+        });
+        const next = vi.fn();
+        const req = reqWith(undefined, USER_UUID, {
+            actor: { user: { uuid: USER_UUID }, app: { uid: 'app-xyz' } },
+        } as never);
+        gate(req, {} as Response, next);
+        expect(next).toHaveBeenCalledWith();
+    });
+
+    it('still requires step-up for an app id NOT in the allowlist', () => {
+        const ts = tokenService();
+        const gate = createStepUpGate({
+            tokenService: ts,
+            allowedAppUids: ['other-app'],
+        });
+        const next = vi.fn();
+        const req = reqWith(undefined, USER_UUID, {
+            actor: { user: { uuid: USER_UUID }, app: { uid: 'app-xyz' } },
+        } as never);
+        gate(req, {} as Response, next);
+        expect(next.mock.calls[0][0]?.statusCode).toBe(403);
+    });
+
+    it('still requires step-up when the route has no allowedAppIds', () => {
+        const ts = tokenService();
+        const gate = createStepUpGate({ tokenService: ts });
+        const next = vi.fn();
+        const req = reqWith(undefined, USER_UUID, {
+            actor: { user: { uuid: USER_UUID }, app: { uid: 'app-xyz' } },
+        } as never);
+        gate(req, {} as Response, next);
+        expect(next.mock.calls[0][0]?.statusCode).toBe(403);
+    });
+
+    it('still requires step-up on the human/root-token path (no app id in token)', () => {
+        const ts = tokenService();
+        const gate = createStepUpGate({
+            tokenService: ts,
+            allowedAppUids: ['app-xyz'],
+        });
+        const next = vi.fn();
+        gate(reqWith(undefined, USER_UUID), {} as Response, next);
+        expect(next.mock.calls[0][0]?.statusCode).toBe(403);
+    });
+
     it('accepts the elevation via the x-puter-elevation header (API clients)', () => {
         const ts = tokenService();
         const gate = createStepUpGate({ tokenService: ts });
