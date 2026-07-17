@@ -133,7 +133,7 @@ export function verifyStepUpSession(
  * Require an elevated session. Runs after the privilege gate it supplements
  * (`adminOnlyGate`), so it only adds the re-authentication requirement.
  *
- * Deliberately unconditional — no exemptions, no environment check:
+ * Narrow by design — the only exemption is the app-gated path:
  *
  *   - Not env-conditional, so the flow exercised locally is the one that ships.
  *   - No carve-out for full-access tokens. That looks safe (a deliberately
@@ -143,17 +143,37 @@ export function verifyStepUpSession(
  *   - No carve-out based on how the credential arrived (cookie vs bearer). The
  *     holder of a token chooses which header to put it in, so that distinction
  *     is attacker-controlled and worthless as a gate.
+ *   - `allowedAppUids`: the exemption is keyed off the *token*, not the route.
+ *     An actor whose token carries one of these allowlisted app ids (an admin
+ *     acting through an allowlisted app) is exempt — that actor can't elevate at
+ *     all (apps have no password/TOTP and are blocked from `/auth/elevate`), so
+ *     step-up is unsatisfiable for it. A token WITHOUT an allowlisted app id — a
+ *     root/human session — still requires step-up, exactly as it would on a
+ *     route with no `allowedAppIds`. So this is not a session or token-kind
+ *     carve-out: reaching the exempt path needs an admin's OAuth grant to a
+ *     specific allowlisted app.
  *
- * The invariant: reaching a privileged endpoint requires proving the password
- * or a TOTP code within the elevation's lifetime. Nothing else substitutes.
+ * The invariant for the human path: reaching a privileged endpoint requires
+ * proving the password or a TOTP code within the elevation's lifetime.
  *
  * A caller without a valid elevation proof is rejected with
  * `elevation_required`; `factor` tells the client which credential to collect.
  */
 export function createStepUpGate(deps: {
     tokenService: TokenService;
+    allowedAppUids?: readonly string[];
 }): RequestHandler {
     return (req, _res, next) => {
+        // Exempt only an actor whose token carries one of the route's
+        // allowlisted app ids: an admin acting through an allowlisted app can't
+        // elevate, so step-up is unsatisfiable for it. Any other actor — most
+        // importantly a root/human session with no app id in its token — falls
+        // through and must present the elevation proof.
+        const appUid = req.actor?.app?.uid;
+        if (appUid && deps.allowedAppUids?.includes(appUid)) {
+            next();
+            return;
+        }
         if (verifyStepUpSession(req, deps)) {
             next();
             return;

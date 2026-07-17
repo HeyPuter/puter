@@ -901,10 +901,17 @@ export class PuterServer {
                 }),
             );
             // An admin username on a leaked session isn't enough — also require
-            // a recent re-authentication (full-access tokens are exempt; see
-            // createStepUpGate).
+            // a recent re-authentication. Exempt only a token that carries one
+            // of the route's allowlisted app ids: an admin acting through an
+            // allowlisted app can't elevate (apps have no password/TOTP; see
+            // createStepUpGate). A root/human session — no app id in the token —
+            // still requires step-up, and `allowedAppIdsGate` still enforces the
+            // allowlist for the app path.
             mwChain.push(
-                createStepUpGate({ tokenService: this.services.token }),
+                createStepUpGate({
+                    tokenService: this.services.token,
+                    allowedAppUids: opts.allowedAppIds,
+                }),
             );
         }
 
