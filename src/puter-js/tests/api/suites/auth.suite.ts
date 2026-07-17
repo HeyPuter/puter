@@ -83,6 +83,30 @@ export default suite('auth', {
         );
     },
 
+    'getDetailedAppUsage without an appId rejects': async (t) => {
+        await t.assert.rejects(
+            () =>
+                (
+                    t.puter.auth.getDetailedAppUsage as (
+                        appId?: unknown,
+                    ) => Promise<unknown>
+                )(),
+            'getDetailedAppUsage should require an appId',
+        );
+    },
+
+    'getDetailedAppUsage returns a report for an app': async (t) => {
+        const app = await t.puter.apps.create(
+            t.puter.randName(),
+            'https://example.com/',
+        );
+        const usage = await t.puter.auth.getDetailedAppUsage(app.uid);
+        t.assert.ok(
+            usage && typeof usage === 'object',
+            'detailed usage should be an object',
+        );
+    },
+
     'regular user is rejected by admin-gated endpoints': async (t) => {
         const asUser = await fetch(`${t.env.apiOrigin}/serverInfo`, {
             headers: {

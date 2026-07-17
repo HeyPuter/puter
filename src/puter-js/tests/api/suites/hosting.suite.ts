@@ -98,6 +98,26 @@ export default suite('hosting', {
         );
     },
 
+    'get of an unknown subdomain rejects': async (t) => {
+        await t.assert.rejects(
+            () => t.puter.hosting.get('hosting-suite-never-created'),
+            'get of an unknown subdomain should reject',
+        );
+    },
+
+    'update to a missing directory rejects': async (t) => {
+        const dir = await makeSiteDir(t, 'update-missing');
+        await t.puter.hosting.create('hosting-suite-update-missing', dir);
+        await t.assert.rejects(
+            () =>
+                t.puter.hosting.update(
+                    'hosting-suite-update-missing',
+                    `${home(t)}/hosting-suite-not-a-dir`,
+                ),
+            'update pointing at a missing directory should reject',
+        );
+    },
+
     'delete removes the subdomain': async (t) => {
         const dir = await makeSiteDir(t, 'delete');
         await t.puter.hosting.create('hosting-suite-delete', dir);

@@ -20,6 +20,7 @@ export default suite('system', {
             'puter-kvstore',
             'puter-apps',
             'puter-subdomains',
+            'puter-chat-completion',
         ]) {
             t.assert.ok(
                 Object.prototype.hasOwnProperty.call(interfaces, expected),

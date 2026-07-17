@@ -123,6 +123,24 @@ export default suite('perms', {
         t.assert.equal(await res.text(), 'group content');
     },
 
+    'grantGroup then revokeGroup both succeed': async (t) => {
+        const path = `${home(t)}/perms-suite-group-revoke.txt`;
+        await t.puter.fs.write(path, 'group revoke content');
+        const permission = `fs:${path}:read`;
+
+        const created = await t.puter.perms.createGroup({
+            title: 'perms-suite-revoke-readers',
+        });
+        await t.puter.perms.addUsersToGroup(created.uid, [
+            t.env.users.other.username,
+        ]);
+        const granted = await t.puter.perms.grantGroup(created.uid, permission);
+        t.assert.ok(!granted.error, `grant failed: ${JSON.stringify(granted)}`);
+
+        const revoked = await t.puter.perms.revokeGroup(created.uid, permission);
+        t.assert.ok(!revoked.error, `revoke failed: ${JSON.stringify(revoked)}`);
+    },
+
     'grantApp records an app permission': async (t) => {
         const app = await t.puter.apps.create(
             'perms-suite-app',
