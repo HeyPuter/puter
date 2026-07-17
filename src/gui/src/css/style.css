@@ -1919,6 +1919,19 @@ span.header-sort-icon img {
     border: none;
 }
 
+/* TabFiles rubber band selection area */
+.tabfiles-selection-area {
+    background-color: rgba(59, 130, 246, 0.15);
+    border: 1px solid var(--select-color);
+    position: absolute;
+    pointer-events: none;
+    z-index: 1000;
+}
+
+.dashboard-section-files .files {
+    position: relative;
+}
+
 .container {
     user-select: none;
 }

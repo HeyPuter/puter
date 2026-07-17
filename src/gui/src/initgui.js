@@ -532,15 +532,21 @@ if (jQuery) {
 /**
  * Parses the dashboard URL hash into a route object.
  * Apps is the default tab (root URL / no hash); Home is reached via #home.
- * Hash format: #home or #usage or #account etc.
- * @returns {{ tab: string }} Route object with tab name
+ * Hash format: #files/username/Documents or #home or #usage or #account etc.
+ * @returns {{ tab: string, path: string|null }} Route object with tab name and optional file path
  */
 function parseDashboardRoute() {
-    const hash = decodeURIComponent(window.location.hash.slice(1));
-    if (!hash) return { tab: 'apps' };
+    const hash = decodeURIComponent(window.location.hash.slice(1)); // Remove '#' and decode URL encoding
+    if (!hash) return { tab: 'apps', path: null };
 
-    const tab = hash.split('/').filter(Boolean)[0];
-    return { tab: tab || 'apps' };
+    const parts = hash.split('/').filter(Boolean); // ['files', 'username', 'Documents']
+    const tab = parts[0]; // 'files', 'usage', 'account', 'security'
+
+    if (tab === 'files' && parts.length > 1) {
+        const filePath = `/${parts.slice(1).join('/')}`; // /username/Documents
+        return { tab: 'files', path: filePath };
+    }
+    return { tab: tab || 'apps', path: null };
 }
 
 // Make parseDashboardRoute available globally for hashchange handler
