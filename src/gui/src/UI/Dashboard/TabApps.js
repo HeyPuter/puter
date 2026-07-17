@@ -39,8 +39,13 @@ const DRAG_TOUCH_CANCEL_DISTANCE = 10; // px of finger travel that reclassifies 
 const DRAG_TOUCH_LONGPRESS_MS = 450; // hold time before a touch begins reordering
 const DRAG_EDGE_ZONE = 60;          // px from a scroller edge that arms a page flip
 const DRAG_EDGE_DWELL_MS = 480;     // hold time at an edge before the page flips
-const DRAG_FLIP_SETTLE_MS = 420;    // time to let a page flip's smooth-scroll settle
-const DRAG_FLIP_ANIM_MS = 180;      // reflow (FLIP) animation duration
+const DRAG_FLIP_SETTLE_MS = 440;    // time to let a page flip's smooth-scroll settle
+const DRAG_FLIP_ANIM_MS = 320;      // reflow animation duration (iOS-like, unhurried)
+const DRAG_FLIP_EASING = 'cubic-bezier(0.34, 1.08, 0.64, 1)'; // gentle spring settle
+// A tile only becomes the drop target once the dragged icon's centre is well
+// inside it (this fraction is trimmed off every edge). The resulting deadzone
+// around each tile is what stops items flickering back and forth at a boundary.
+const DRAG_HIT_INSET = 0.28;
 
 // External apps (not owned by a Puter user) can report an opaque app-… id
 // as their title (uid === name === title); in that case show the hostname
@@ -660,6 +665,8 @@ const TabApps = {
         const rect = d.tileEl.getBoundingClientRect();
         d.offsetX = d.startX - rect.left;
         d.offsetY = d.startY - rect.top;
+        d.tileW = rect.width;
+        d.tileH = rect.height;
 
         const ghost = d.tileEl.cloneNode(true);
         ghost.classList.add('myapps-drag-ghost');
@@ -721,38 +728,53 @@ const TabApps = {
         }, DRAG_EDGE_DWELL_MS);
     },
 
-    // Move the (invisible) placeholder tile to the grid slot nearest the
-    // pointer on the current page, animating the displaced tiles with FLIP.
-    // The placeholder may hop in from another page (cross-page reorder).
+    // Slot the (invisible) placeholder into the tile the dragged icon is
+    // hovering over, animating the displaced tiles with FLIP. The placeholder
+    // may hop in from another page (cross-page reorder).
+    //
+    // Two things keep this from jittering:
+    //   1. Hit-testing uses each tile's *resting* rect (its final layout box),
+    //      not getBoundingClientRect — mid-FLIP a tile is visually somewhere
+    //      between slots, and testing its live box would swap it straight back.
+    //   2. A tile only counts as the target when the dragged icon's centre is
+    //      well inside it (DRAG_HIT_INSET), so hovering a boundary does nothing.
     _updatePlaceholder (px, py) {
         const d = this._drag;
         if ( ! d ) return;
         const pageEl = d.$el_window.find('.myapps-page').toArray()[this._page];
         if ( ! pageEl ) return;
 
+        // Probe with the dragged icon's centre rather than the fingertip, so the
+        // drop follows where the tile visually is.
+        const probeX = px - d.offsetX + d.tileW / 2;
+        const probeY = py - d.offsetY + d.tileH / 2;
+
         const tiles = Array.from(pageEl.querySelectorAll('.myapps-tile'));
-        let best = null;
-        let bestDist = Infinity;
-        let before = true;
-        for ( const t of tiles ) {
+        const phIndex = tiles.indexOf(d.tileEl);
+
+        let overIndex = -1;
+        for ( let i = 0; i < tiles.length; i++ ) {
+            const t = tiles[i];
             if ( t === d.tileEl ) continue;
-            const r = t.getBoundingClientRect();
-            const cx = r.left + r.width / 2;
-            const cy = r.top + r.height / 2;
-            const dist = Math.hypot(px - cx, py - cy);
-            if ( dist < bestDist ) {
-                bestDist = dist;
-                best = t;
-                before = px < cx;
+            const r = t.__myappsRestRect || t.getBoundingClientRect();
+            const insetX = r.width * DRAG_HIT_INSET;
+            const insetY = r.height * DRAG_HIT_INSET;
+            if ( probeX >= r.left + insetX && probeX <= r.right - insetX &&
+                 probeY >= r.top + insetY && probeY <= r.bottom - insetY ) {
+                overIndex = i;
+                break;
             }
         }
 
-        const refNode = best ? (before ? best : best.nextElementSibling) : null;
+        // In a gap / over the placeholder itself: leave the arrangement alone.
+        if ( overIndex === -1 ) return;
 
-        // Skip no-op moves so we don't churn the FLIP animation.
-        if ( d.tileEl.parentNode === pageEl ) {
-            if ( refNode === d.tileEl || refNode === d.tileEl.nextElementSibling ) return;
-        }
+        // Move the placeholder to that tile's slot; everything between cascades.
+        // After the move the probe sits over the vacated gap, so it won't bounce.
+        const overTile = tiles[overIndex];
+        const refNode = (phIndex === -1 || overIndex < phIndex)
+            ? overTile
+            : overTile.nextElementSibling;
 
         this._flipMove(tiles.filter(t => t !== d.tileEl), () => {
             if ( refNode ) pageEl.insertBefore(d.tileEl, refNode);
@@ -760,24 +782,45 @@ const TabApps = {
         });
     },
 
-    // First-Last-Invert-Play: measure, mutate, then animate each moved tile
-    // from its old box to its new one.
+    // First-Last-Invert-Play, interruption-safe. Records each tile's true
+    // resting rect (transforms cleared first) so an interrupting reorder
+    // continues smoothly and hit-testing always reads a stable position.
     _flipMove (tiles, mutate) {
-        if ( this._reduceMotion() ) { mutate(); return; }
-
+        // FIRST: current visual boxes (may be mid-animation).
         const first = new Map();
         for ( const t of tiles ) first.set(t, t.getBoundingClientRect());
+
         mutate();
+
+        // LAST: clear any in-flight transform, then measure the true resting box.
+        for ( const t of tiles ) {
+            t.style.transition = 'none';
+            t.style.transform = '';
+        }
+        const rest = new Map();
+        for ( const t of tiles ) {
+            const b = t.getBoundingClientRect();
+            rest.set(t, b);
+            t.__myappsRestRect = b;
+        }
+        if ( this._reduceMotion() ) return;
+
+        // INVERT: offset each tile from its resting box back to where it was.
+        const moved = [];
         for ( const t of tiles ) {
             const a = first.get(t);
-            const b = t.getBoundingClientRect();
+            const b = rest.get(t);
             const dx = a.left - b.left;
             const dy = a.top - b.top;
             if ( dx === 0 && dy === 0 ) continue;
-            t.style.transition = 'none';
             t.style.transform = `translate(${dx}px, ${dy}px)`;
-            void t.offsetWidth; // commit the inverted position before playing
-            t.style.transition = `transform ${DRAG_FLIP_ANIM_MS}ms cubic-bezier(0.2, 0.8, 0.3, 1)`;
+            moved.push(t);
+        }
+        if ( moved.length === 0 ) return;
+        void moved[0].offsetWidth; // one reflow commits every inverted offset
+        // PLAY: release to the resting box.
+        for ( const t of moved ) {
+            t.style.transition = `transform ${DRAG_FLIP_ANIM_MS}ms ${DRAG_FLIP_EASING}`;
             t.style.transform = '';
         }
     },
