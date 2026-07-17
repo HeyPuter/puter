@@ -194,6 +194,11 @@ const TabFiles = {
                 return;
             }
 
+            // If the directory was empty, drop the "No files in this directory."
+            // placeholder before inserting the first real row — otherwise it
+            // stays and overlaps the new item.
+            _this.$el_window.find('.files-tab .files > div:not(.item)').remove();
+
             await _this.renderItem(file);
 
             // Get the newly appended row (it's always last after renderItem)
