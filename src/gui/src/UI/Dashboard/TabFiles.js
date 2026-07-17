@@ -194,6 +194,11 @@ const TabFiles = {
                 return;
             }
 
+            // If the directory was empty, drop the "No files in this directory."
+            // placeholder before inserting the first real row — otherwise it
+            // stays and overlaps the new item.
+            _this.$el_window.find('.files-tab .files > div:not(.item)').remove();
+
             await _this.renderItem(file);
 
             // Get the newly appended row (it's always last after renderItem)
@@ -1291,7 +1296,7 @@ const TabFiles = {
         // Download button
         $actions.find('.download-btn').on('click', function () {
             const selectedRows = document.querySelectorAll('.files-tab .row.selected');
-            if ( selectedRows.length >= 2 ) {
+            if ( selectedRows.length > 0 ) {
                 window.zipItems(Array.from(selectedRows), _this.currentPath, true);
             }
         });
@@ -1456,7 +1461,7 @@ const TabFiles = {
                     const fullName = $(this).attr('data-name');
                     if ( fullName ) {
                         const textWidth = measureTextWidth(fullName) + padding;
-                        maxWidth = Math.max(maxWidth + 10, textWidth);
+                        maxWidth = Math.max(maxWidth, textWidth);
                     }
                 });
             } else if ( column === 'size' ) {
@@ -1464,7 +1469,7 @@ const TabFiles = {
                     const text = $(this).text();
                     if ( text ) {
                         const textWidth = measureTextWidth(text) + padding;
-                        maxWidth = Math.max(maxWidth + 10, textWidth);
+                        maxWidth = Math.max(maxWidth, textWidth);
                     }
                 });
             } else if ( column === 'modified' ) {
@@ -1472,7 +1477,7 @@ const TabFiles = {
                     const text = $(this).text();
                     if ( text ) {
                         const textWidth = measureTextWidth(text) + padding;
-                        maxWidth = Math.max(maxWidth + 10, textWidth);
+                        maxWidth = Math.max(maxWidth, textWidth);
                     }
                 });
             }
@@ -2050,9 +2055,9 @@ const TabFiles = {
                 ${icon}
             </div>
             <div class="item-badges">
-                <img class="item-badge item-has-website-badge long-hover" 
-                    style="${file.has_website && file.workers.length === 0 ? 'display:block;' : ''}" 
-                    src="${html_encode(window.icons['world.svg'])}" 
+                <img class="item-badge item-has-website-badge long-hover"
+                    style="${file.has_website && !is_worker ? 'display:block;' : ''}"
+                    src="${html_encode(window.icons['world.svg'])}"
                     data-item-id="${item_id}"
                 />
                 <img class="item-badge item-has-website-url-badge" 

@@ -751,7 +751,13 @@ const UIWindow2FASetup = async function UIWindow2FASetup () {
         is_draggable: false,
         backdrop: true,
         on_before_exit: async () => {
-            if ( ! setup_succeeded ) resolve_promise(false);
+            // Settle the promise on every close path. Clicking "Enable" sets
+            // setup_succeeded but does not resolve (only the Done button does),
+            // so closing the success screen via backdrop/Escape must resolve
+            // here too — otherwise the caller (Dashboard 2FA toggle) awaits a
+            // promise that never settles and leaves its control stuck disabled.
+            // resolve_promise is idempotent, so a prior Done-resolve is a no-op.
+            resolve_promise(setup_succeeded);
             return true;
         },
         window_class: 'window-tfa-setup',

@@ -306,20 +306,21 @@ const TabHome = {
     },
 
     async loadRecentApps($el_window) {
-        if (!window.launch_apps?.recent?.length) {
-            try {
-                window.launch_apps = await $.ajax({
-                    url: `${window.api_origin}/get-launch-apps?icon_size=64`,
-                    type: 'GET',
-                    async: true,
-                    contentType: 'application/json',
-                    headers: {
-                        Authorization: `Bearer ${window.auth_token}`,
-                    },
-                });
-            } catch (e) {
-                console.error('Failed to load launch apps:', e);
-            }
+        // Always refetch: gating on an empty list froze "Recently used" for the
+        // whole session (apps launched after load never appeared). loadUsageData
+        // refreshes on the same activate/focus triggers, so this stays in step.
+        try {
+            window.launch_apps = await $.ajax({
+                url: `${window.api_origin}/get-launch-apps?icon_size=64`,
+                type: 'GET',
+                async: true,
+                contentType: 'application/json',
+                headers: {
+                    Authorization: `Bearer ${window.auth_token}`,
+                },
+            });
+        } catch (e) {
+            console.error('Failed to load launch apps:', e);
         }
         $el_window
             .find('.bento-recent-apps-container')
@@ -433,12 +434,14 @@ const TabHome = {
         try {
             const res = await puter.auth.getMonthlyUsage();
             let monthlyAllowance = res.allowanceInfo?.monthUsageAllowance;
-            let remaining = res.allowanceInfo?.remaining;
-            let totalUsage = monthlyAllowance - remaining;
-            let totalUsagePercentage = (
-                (totalUsage / monthlyAllowance) *
-                100
-            ).toFixed(0);
+            // Actual month-to-date spend. `allowanceInfo.remaining` folds
+            // purchased credits into the remaining pool, so `allowance -
+            // remaining` turns negative once a user has credits. Use the
+            // reported usage total instead.
+            let totalUsage = res.usage?.total ?? 0;
+            let totalUsagePercentage = monthlyAllowance
+                ? Math.min(100, (totalUsage / monthlyAllowance) * 100).toFixed(0)
+                : '0';
 
             $el_window
                 .find('.bento-resources-used')
