@@ -1,5 +1,6 @@
 import UIContextMenu from '../UIContextMenu.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
+import { reconcileAppOrder, serializeAppOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 
 /** Lowercase app names that must not offer Uninstall in the My Apps tile context menu. */
 const APP_NAMES_NO_UNINSTALL = new Set([
@@ -13,7 +14,7 @@ const APP_NAMES_NO_UNINSTALL = new Set([
     'ai',
 ]);
 
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -31,6 +32,20 @@ const APP_NAMES_NO_UNINSTALL = new Set([
  * You should have received a copy of the GNU Affero General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
+
+// -- Drag-to-reorder tuning --
+const DRAG_START_DISTANCE = 5;      // px a mouse/pen must travel before a drag begins
+const DRAG_TOUCH_CANCEL_DISTANCE = 10; // px of finger travel that reclassifies a press as a scroll
+const DRAG_TOUCH_LONGPRESS_MS = 450; // hold time before a touch begins reordering
+const DRAG_EDGE_ZONE = 60;          // px from a scroller edge that arms a page flip
+const DRAG_EDGE_DWELL_MS = 480;     // hold time at an edge before the page flips
+const DRAG_FLIP_SETTLE_MS = 440;    // time to let a page flip's smooth-scroll settle
+const DRAG_FLIP_ANIM_MS = 320;      // reflow animation duration (iOS-like, unhurried)
+const DRAG_FLIP_EASING = 'cubic-bezier(0.34, 1.08, 0.64, 1)'; // gentle spring settle
+// A tile only becomes the drop target once the dragged icon's centre is well
+// inside it (this fraction is trimmed off every edge). The resulting deadzone
+// around each tile is what stops items flickering back and forth at a boundary.
+const DRAG_HIT_INSET = 0.28;
 
 // External apps (not owned by a Puter user) can report an opaque app-… id
 // as their title (uid === name === title); in that case show the hostname
@@ -80,10 +95,10 @@ function buildNoAppsHtml () {
 
 // iOS-home-screen-style pager: fixed cols × rows pages in a horizontal
 // scroll-snap scroller, with page dots below and hover arrows for mouse users.
-function buildPagerHtml (apps, layout) {
+function buildPagerHtml (apps, layout, instant) {
     const pageCount = Math.ceil(apps.length / layout.perPage);
 
-    let h = `<div class="myapps-pager myapps-pager-loading" style="--myapps-cols: ${layout.cols}">`;
+    let h = `<div class="myapps-pager${instant ? '' : ' myapps-pager-loading'}" style="--myapps-cols: ${layout.cols}">`;
 
     h += '<div class="myapps-pager-scroller">';
     for ( let p = 0; p < pageCount; p++ ) {
@@ -149,6 +164,9 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
         try {
             await puter.perms.revokeApp(appUid, '*');
             self._apps = self._apps.filter(a => a.name !== appName);
+            // Keep the persisted order free of the now-uninstalled app, but
+            // only if the user already has a custom order (don't create one).
+            if ( self._hasCustomOrder ) self.saveOrder();
             self.renderApps($el_window, { preservePage: true });
         } catch ( err ) {
             console.error('Failed to uninstall app:', err);
@@ -198,6 +216,10 @@ const TabApps = {
     _layout: null,
     _page: 0,
     _pageCount: 0,
+    _hasCustomOrder: false,
+    _drag: null,
+    _justDragged: false,
+    _reduceMotionMQL: undefined,
 
     html () {
         let h = '<div class="dashboard-tab-content myapps-tab">';
@@ -239,6 +261,11 @@ const TabApps = {
         $el_window.on('click', '.myapps-tile', function (e) {
             e.preventDefault();
             e.stopPropagation();
+            // A click synthesized at the end of a drag must not open the app.
+            if ( self._justDragged ) {
+                self._justDragged = false;
+                return;
+            }
             const appName = $(this).attr('data-app-name');
             const targetLink = $(this).attr('data-target-link');
             if ( targetLink && targetLink !== '' ) {
@@ -248,8 +275,20 @@ const TabApps = {
             }
         });
 
+        // Start a drag-to-reorder gesture. Kept separate from click so a plain
+        // click still opens the app (see _onTilePointerDown for the threshold /
+        // long-press logic that distinguishes the two).
+        $el_window.on('pointerdown', '.myapps-tile', function (e) {
+            self._onTilePointerDown($el_window, e, this);
+        });
+
         // Context menu on right-click
         $el_window.on('contextmenu', '.myapps-tile', function (e) {
+            // Suppress the menu (and any touch long-press callout) mid-drag.
+            if ( self._drag && self._drag.started ) {
+                e.preventDefault();
+                return;
+            }
             const appName = $(this).attr('data-app-name');
             const appTitle = $(this).attr('data-app-title');
             const appUid = $(this).attr('data-app-uid');
@@ -274,6 +313,12 @@ const TabApps = {
                 ];
 
             if ( items.length === 0 ) return;
+
+            // A touch long-press arms a drag pickup (see _onTilePointerDown). If
+            // the user held rather than dragged, they want this menu — cancel the
+            // pending pickup so the long-press → Uninstall path keeps working on
+            // touch. An already-started drag was handled by the guard above.
+            if ( self._drag ) self._endDrag(false);
 
             e.preventDefault();
             e.stopPropagation();
@@ -341,6 +386,13 @@ const TabApps = {
             clearTimeout(self._resizeTimer);
             self._resizeTimer = setTimeout(() => {
                 if ( ! self._apps ) return;
+                if ( self._drag ) {
+                    // Don't rebuild the DOM out from under an in-progress drag.
+                    if ( self._drag.started ) return;
+                    // A press is pending but hasn't become a drag; cancel it so a
+                    // rebuild can't detach the tile the pickup is waiting on.
+                    self._endDrag(false);
+                }
                 const layout = self.computeLayout($el_window.find('.myapps-container'));
                 if ( ! layout ) return;
                 if ( self._layout && layout.cols === self._layout.cols && layout.rows === self._layout.rows ) {
@@ -384,8 +436,8 @@ const TabApps = {
 
     // Central renderer: applies the current search query to _apps and rebuilds
     // the pager (or an empty state). Everything that changes what's shown —
-    // load, search, uninstall, re-layout — funnels through here.
-    renderApps ($el_window, { preservePage = false } = {}) {
+    // load, search, uninstall, re-layout, reorder — funnels through here.
+    renderApps ($el_window, { preservePage = false, instant = false } = {}) {
         if ( ! this._apps ) return;
 
         const $container = $el_window.find('.myapps-container');
@@ -431,7 +483,7 @@ const TabApps = {
         this._pageCount = Math.ceil(list.length / layout.perPage);
         this._page = Math.min(Math.floor(anchorIndex / layout.perPage), this._pageCount - 1);
 
-        $container.html(buildPagerHtml(list, layout));
+        $container.html(buildPagerHtml(list, layout, instant));
         revealWhenLoaded($container);
 
         const scroller = $container.find('.myapps-pager-scroller')[0];
@@ -480,19 +532,384 @@ const TabApps = {
         const scroller = $el_window.find('.myapps-pager-scroller')[0];
         if ( ! scroller || this._pageCount === 0 ) return;
         const page = Math.max(0, Math.min(this._pageCount - 1, index));
-        const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
         scroller.scrollTo({
             left: page * scroller.clientWidth,
-            behavior: (smooth && !reduceMotion) ? 'smooth' : 'auto',
+            behavior: (smooth && !this._reduceMotion()) ? 'smooth' : 'auto',
+        });
+        // Programmatic scrolls don't reliably emit 'scroll' events (so the
+        // scroll-driven sync above can miss them); track the page eagerly.
+        this._page = page;
+        this.updatePagerUI($el_window);
+    },
+
+    _reduceMotion () {
+        // Cache the live MediaQueryList — this is read on every pointermove
+        // during a drag, and matchMedia() is comparatively expensive.
+        if ( this._reduceMotionMQL === undefined ) {
+            this._reduceMotionMQL = window.matchMedia
+                ? window.matchMedia('(prefers-reduced-motion: reduce)')
+                : null;
+        }
+        return !! (this._reduceMotionMQL && this._reduceMotionMQL.matches);
+    },
+
+    // -- Drag-to-reorder --
+
+    _onTilePointerDown ($el_window, e, tileEl) {
+        const oe = e.originalEvent || e;
+        // Primary button / touch / pen only; right-click falls through to the
+        // context menu.
+        if ( oe.button !== undefined && oe.button !== 0 ) return;
+        if ( this._drag ) return;
+        if ( ! this._apps || this._apps.length < 2 ) return;
+        // Reordering a filtered subset is ambiguous — only reorder the full list.
+        const query = String($el_window.find('.myapps-search').val() || '').trim();
+        if ( query ) return;
+
+        const pointerType = oe.pointerType || 'mouse';
+        const d = this._drag = {
+            $el_window,
+            tileEl,
+            pointerType,
+            pointerId: oe.pointerId,
+            startX: oe.clientX,
+            startY: oe.clientY,
+            lastClientX: oe.clientX,
+            lastClientY: oe.clientY,
+            offsetX: 0,
+            offsetY: 0,
+            started: false,
+            readyToDrag: pointerType !== 'touch', // touch must long-press first
+            ghost: null,
+            edgeTimer: null,
+            edgeDir: 0,
+            flipping: false,
+            flipClearTimer: null,
+            longPressTimer: null,
+        };
+
+        // Ignore events from a second pointer (e.g. a stray finger) so it can't
+        // hijack or prematurely end an in-progress drag.
+        const isDragPointer = ev => ev.pointerId === undefined || ev.pointerId === d.pointerId;
+        d.onMove = ev => { if ( isDragPointer(ev) ) this._onDragPointerMove(ev); };
+        d.onUp = ev => { if ( isDragPointer(ev) ) this._endDrag(true); };
+        d.onCancel = ev => { if ( isDragPointer(ev) ) this._endDrag(false); };
+        d.onKey = ev => { if ( ev.key === 'Escape' ) this._endDrag(false); };
+        d.onBlur = () => this._endDrag(false);
+
+        document.addEventListener('pointermove', d.onMove, { passive: false });
+        document.addEventListener('pointerup', d.onUp);
+        document.addEventListener('pointercancel', d.onCancel);
+        document.addEventListener('keydown', d.onKey);
+        window.addEventListener('blur', d.onBlur);
+
+        // Touch: a long-press *arms* reordering (it doesn't grab the tile yet).
+        // Moving after that begins the drag; holding still instead lets the
+        // native long-press context menu (Uninstall) fire. A finger that moves
+        // before the long-press is a page swipe and cancels the intent (see
+        // _onDragPointerMove).
+        if ( pointerType === 'touch' ) {
+            d.longPressTimer = setTimeout(() => {
+                if ( this._drag !== d || d.started ) return;
+                d.readyToDrag = true;
+                if ( navigator.vibrate ) {
+                    try { navigator.vibrate(8); } catch ( _e ) { /* not supported */ }
+                }
+            }, DRAG_TOUCH_LONGPRESS_MS);
+        }
+    },
+
+    _onDragPointerMove (e) {
+        const d = this._drag;
+        if ( ! d ) return;
+
+        if ( ! d.started ) {
+            const dist = Math.hypot(e.clientX - d.startX, e.clientY - d.startY);
+            if ( ! d.readyToDrag ) {
+                // Touch, pre-long-press: a moving finger is a page swipe.
+                if ( dist > DRAG_TOUCH_CANCEL_DISTANCE ) this._endDrag(false);
+                return;
+            }
+            if ( dist <= DRAG_START_DISTANCE ) return;
+            d.lastClientX = e.clientX;
+            d.lastClientY = e.clientY;
+            this._beginDrag();
+            // _beginDrag bails (without starting) if the tile was detached by a
+            // re-render during the pre-start window; don't touch a dead drag.
+            if ( ! d.started ) return;
+            // Fall through so this same event also places the tile — a coarse
+            // (few-event) drag still reorders instead of just lifting.
+        }
+
+        // Now committed to a drag — stop native scrolling/selection.
+        e.preventDefault();
+        d.lastClientX = e.clientX;
+        d.lastClientY = e.clientY;
+        this._positionGhost(e.clientX, e.clientY);
+        if ( d.flipping ) return;
+        this._maybeEdgeFlip(e.clientX);
+        if ( d.flipping ) return;
+        this._updatePlaceholder(e.clientX, e.clientY);
+    },
+
+    _beginDrag () {
+        const d = this._drag;
+        if ( ! d || d.started ) return;
+        // A re-render during the pre-start window can detach the pressed tile;
+        // starting a drag on a stale node would corrupt the persisted order.
+        if ( ! d.tileEl.isConnected ) { this._endDrag(false); return; }
+        d.started = true;
+        clearTimeout(d.longPressTimer);
+        d.longPressTimer = null;
+
+        const rect = d.tileEl.getBoundingClientRect();
+        d.offsetX = d.startX - rect.left;
+        d.offsetY = d.startY - rect.top;
+        d.tileW = rect.width;
+        d.tileH = rect.height;
+
+        const ghost = d.tileEl.cloneNode(true);
+        ghost.classList.add('myapps-drag-ghost');
+        ghost.classList.remove('has-open-contextmenu');
+        ghost.removeAttribute('title');
+        ghost.style.width = rect.width + 'px';
+        ghost.style.height = rect.height + 'px';
+        ghost.style.transformOrigin = `${d.offsetX}px ${d.offsetY}px`;
+        document.body.appendChild(ghost);
+        d.ghost = ghost;
+        this._positionGhost(d.lastClientX, d.lastClientY);
+
+        d.tileEl.classList.add('myapps-tile-dragging');
+        document.body.classList.add('myapps-reordering');
+    },
+
+    _positionGhost (x, y) {
+        const d = this._drag;
+        if ( ! d || ! d.ghost ) return;
+        const scale = this._reduceMotion() ? 1 : 1.06;
+        d.ghost.style.transform =
+            `translate(${x - d.offsetX}px, ${y - d.offsetY}px) scale(${scale})`;
+    },
+
+    _maybeEdgeFlip (px) {
+        const d = this._drag;
+        const scroller = d.$el_window.find('.myapps-pager-scroller')[0];
+        if ( ! scroller || this._pageCount < 2 ) return;
+
+        const r = scroller.getBoundingClientRect();
+        let dir = 0;
+        if ( px >= r.right - DRAG_EDGE_ZONE ) dir = 1;
+        else if ( px <= r.left + DRAG_EDGE_ZONE ) dir = -1;
+
+        const atEnd = (dir === 1 && this._page >= this._pageCount - 1);
+        const atStart = (dir === -1 && this._page <= 0);
+        if ( dir === 0 || atEnd || atStart ) {
+            clearTimeout(d.edgeTimer);
+            d.edgeTimer = null;
+            d.edgeDir = 0;
+            return;
+        }
+
+        if ( d.edgeTimer && d.edgeDir === dir ) return; // already dwelling this way
+        clearTimeout(d.edgeTimer);
+        d.edgeDir = dir;
+        d.edgeTimer = setTimeout(() => {
+            d.edgeTimer = null;
+            d.edgeDir = 0;
+            if ( this._drag !== d ) return;
+            d.flipping = true;
+            this.goToPage(d.$el_window, this._page + dir, true);
+            clearTimeout(d.flipClearTimer);
+            d.flipClearTimer = setTimeout(() => {
+                if ( this._drag !== d ) return;
+                d.flipping = false;
+                this._updatePlaceholder(d.lastClientX, d.lastClientY);
+            }, this._reduceMotion() ? 60 : DRAG_FLIP_SETTLE_MS);
+        }, DRAG_EDGE_DWELL_MS);
+    },
+
+    // Slot the (invisible) placeholder into the tile the dragged icon is
+    // hovering over, animating the displaced tiles with FLIP. The placeholder
+    // may hop in from another page (cross-page reorder).
+    //
+    // Two things keep this from jittering:
+    //   1. Hit-testing uses each tile's *resting* rect (its final layout box),
+    //      not getBoundingClientRect — mid-FLIP a tile is visually somewhere
+    //      between slots, and testing its live box would swap it straight back.
+    //   2. A tile only counts as the target when the dragged icon's centre is
+    //      well inside it (DRAG_HIT_INSET), so hovering a boundary does nothing.
+    _updatePlaceholder (px, py) {
+        const d = this._drag;
+        if ( ! d ) return;
+        const pageEl = d.$el_window.find('.myapps-page').toArray()[this._page];
+        if ( ! pageEl ) return;
+
+        // Probe with the dragged icon's centre rather than the fingertip, so the
+        // drop follows where the tile visually is.
+        const probeX = px - d.offsetX + d.tileW / 2;
+        const probeY = py - d.offsetY + d.tileH / 2;
+
+        const tiles = Array.from(pageEl.querySelectorAll('.myapps-tile'));
+        const phIndex = tiles.indexOf(d.tileEl);
+
+        let overIndex = -1;
+        for ( let i = 0; i < tiles.length; i++ ) {
+            const t = tiles[i];
+            if ( t === d.tileEl ) continue;
+            const r = t.__myappsRestRect || t.getBoundingClientRect();
+            const insetX = r.width * DRAG_HIT_INSET;
+            const insetY = r.height * DRAG_HIT_INSET;
+            if ( probeX >= r.left + insetX && probeX <= r.right - insetX &&
+                 probeY >= r.top + insetY && probeY <= r.bottom - insetY ) {
+                overIndex = i;
+                break;
+            }
+        }
+
+        // In a gap / over the placeholder itself: leave the arrangement alone.
+        if ( overIndex === -1 ) return;
+
+        // Move the placeholder to that tile's slot; everything between cascades.
+        // After the move the probe sits over the vacated gap, so it won't bounce.
+        const overTile = tiles[overIndex];
+        const refNode = (phIndex === -1 || overIndex < phIndex)
+            ? overTile
+            : overTile.nextElementSibling;
+
+        this._flipMove(tiles.filter(t => t !== d.tileEl), () => {
+            if ( refNode ) pageEl.insertBefore(d.tileEl, refNode);
+            else pageEl.appendChild(d.tileEl);
         });
     },
 
+    // First-Last-Invert-Play, interruption-safe. Records each tile's true
+    // resting rect (transforms cleared first) so an interrupting reorder
+    // continues smoothly and hit-testing always reads a stable position.
+    _flipMove (tiles, mutate) {
+        // FIRST: current visual boxes (may be mid-animation).
+        const first = new Map();
+        for ( const t of tiles ) first.set(t, t.getBoundingClientRect());
+
+        mutate();
+
+        // LAST: clear any in-flight transform, then measure the true resting box.
+        for ( const t of tiles ) {
+            t.style.transition = 'none';
+            t.style.transform = '';
+        }
+        const rest = new Map();
+        for ( const t of tiles ) {
+            const b = t.getBoundingClientRect();
+            rest.set(t, b);
+            t.__myappsRestRect = b;
+        }
+        if ( this._reduceMotion() ) return;
+
+        // INVERT: offset each tile from its resting box back to where it was.
+        const moved = [];
+        for ( const t of tiles ) {
+            const a = first.get(t);
+            const b = rest.get(t);
+            const dx = a.left - b.left;
+            const dy = a.top - b.top;
+            if ( dx === 0 && dy === 0 ) continue;
+            t.style.transform = `translate(${dx}px, ${dy}px)`;
+            moved.push(t);
+        }
+        if ( moved.length === 0 ) return;
+        void moved[0].offsetWidth; // one reflow commits every inverted offset
+        // PLAY: release to the resting box.
+        for ( const t of moved ) {
+            t.style.transition = `transform ${DRAG_FLIP_ANIM_MS}ms ${DRAG_FLIP_EASING}`;
+            t.style.transform = '';
+        }
+    },
+
+    _teardownDragListeners (d) {
+        document.removeEventListener('pointermove', d.onMove, { passive: false });
+        document.removeEventListener('pointerup', d.onUp);
+        document.removeEventListener('pointercancel', d.onCancel);
+        document.removeEventListener('keydown', d.onKey);
+        window.removeEventListener('blur', d.onBlur);
+        clearTimeout(d.longPressTimer);
+        clearTimeout(d.edgeTimer);
+        clearTimeout(d.flipClearTimer);
+    },
+
+    _endDrag (commit) {
+        const d = this._drag;
+        if ( ! d ) return;
+        this._drag = null;
+        this._teardownDragListeners(d);
+        document.body.classList.remove('myapps-reordering');
+
+        if ( ! d.started ) {
+            // Never became a drag — leave the click to open the app.
+            return;
+        }
+
+        d.tileEl.classList.remove('myapps-tile-dragging');
+
+        let changed = false;
+        if ( commit ) {
+            const names = d.$el_window.find('.myapps-page .myapps-tile').toArray()
+                .map(t => t.getAttribute('data-app-name'));
+            const current = this._apps.map(a => a.name);
+            // Only persist when the order actually changed, so an accidental
+            // long-press or drop-in-place doesn't freeze the default ordering.
+            changed = names.length !== current.length
+                || names.some((name, i) => name !== current[i]);
+            if ( changed ) {
+                this._apps = reconcileAppOrder(this._apps, names);
+                this.saveOrder();
+            }
+        }
+
+        // Swallow the click synthesized after this pointerup only when the drag
+        // actually reordered something — a drift/no-op press should still open
+        // the app, matching a plain click.
+        if ( changed ) {
+            this._justDragged = true;
+            clearTimeout(this._justDraggedTimer);
+            this._justDraggedTimer = setTimeout(() => { this._justDragged = false; }, 350);
+        }
+
+        const ghost = d.ghost;
+        if ( ghost ) {
+            ghost.classList.add('myapps-drag-ghost-drop');
+            setTimeout(() => ghost.remove(), this._reduceMotion() ? 0 : 160);
+        }
+
+        // Rebuild so pages rebalance to exactly perPage; skip the load fade.
+        this.renderApps(d.$el_window, { preservePage: true, instant: true });
+    },
+
+    saveOrder () {
+        this._hasCustomOrder = true;
+        const names = serializeAppOrder(this._apps);
+        try {
+            const p = puter.kv.set(APPS_ORDER_KV_KEY, JSON.stringify(names));
+            if ( p && typeof p.catch === 'function' ) {
+                p.catch(err => console.error('Failed to save app order:', err));
+            }
+        } catch ( err ) {
+            console.error('Failed to save app order:', err);
+        }
+    },
+
     async loadApps ($el_window) {
+        if ( this._drag ) {
+            // Don't fetch/re-render on top of a live drag; cancel a pending
+            // (not-yet-started) pickup so a rebuild can't strand it.
+            if ( this._drag.started ) return;
+            this._endDrag(false);
+        }
+
         const $container = $el_window.find('.myapps-container');
 
         try {
-            // Fetch both APIs in parallel
-            const [installedRes, launchRes] = await Promise.all([
+            // Fetch the two app lists and the saved order together.
+            const [installedRes, launchRes, savedOrderRaw] = await Promise.all([
                 fetch(
                     `${window.api_origin}/installedApps?orderBy=name&limit=100`,
                     {
@@ -507,6 +924,7 @@ const TabApps = {
                         method: 'GET',
                     },
                 ),
+                puter.kv.get(APPS_ORDER_KV_KEY).catch(() => null),
             ]);
 
             const installedApps = await installedRes.json();
@@ -542,7 +960,21 @@ const TabApps = {
                 merged.push(app);
             }
 
-            this._apps = merged;
+            // Overlay the user's saved ordering (if any). New apps are appended
+            // in their default order; stale names are ignored.
+            let orderedNames = null;
+            try {
+                if ( savedOrderRaw ) {
+                    orderedNames = typeof savedOrderRaw === 'string'
+                        ? JSON.parse(savedOrderRaw)
+                        : savedOrderRaw;
+                }
+            } catch ( _e ) {
+                orderedNames = null;
+            }
+            this._hasCustomOrder = Array.isArray(orderedNames) && orderedNames.length > 0;
+
+            this._apps = reconcileAppOrder(merged, orderedNames);
             this.renderApps($el_window);
         } catch (e) {
             console.error('Failed to load installed apps:', e);
