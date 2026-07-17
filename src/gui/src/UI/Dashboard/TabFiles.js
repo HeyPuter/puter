@@ -1967,7 +1967,9 @@ const TabFiles = {
         }
 
         const sortedContents = this.sortFiles(directoryContents);
-        await Promise.all(sortedContents.map(file => this.renderItem(file)));
+        // allSettled so one item that fails to render can't reject the batch,
+        // which would skip cleanup and leave the tab stuck (renderingDirectory).
+        await Promise.allSettled(sortedContents.map(file => this.renderItem(file)));
 
         this.applyColumnWidths();
         this.updateFooterStats();
@@ -1988,7 +1990,15 @@ const TabFiles = {
     async renderItem (file) {
         // For trashed items, use original_name from metadata if available
         const item_id = window.global_element_id++;
-        const metadata = JSON.parse(file.metadata) || {};
+        // metadata is a client-writable, untrusted string stored verbatim, so
+        // it may be '', undefined, or malformed. Guard the parse (as item_icon.js
+        // does) — an unguarded throw here aborts the whole directory render.
+        let metadata = {};
+        try {
+            if ( file.metadata ) metadata = JSON.parse(file.metadata) || {};
+        } catch {
+            metadata = {};
+        }
         const displayName = metadata.original_name || file.name;
         let website_url = window.determine_website_url(file.path);
         const is_worker = file.workers?.length > 0;
