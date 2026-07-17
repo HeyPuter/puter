@@ -2050,9 +2050,9 @@ const TabFiles = {
                 ${icon}
             </div>
             <div class="item-badges">
-                <img class="item-badge item-has-website-badge long-hover" 
-                    style="${file.has_website && file.workers.length === 0 ? 'display:block;' : ''}" 
-                    src="${html_encode(window.icons['world.svg'])}" 
+                <img class="item-badge item-has-website-badge long-hover"
+                    style="${file.has_website && !is_worker ? 'display:block;' : ''}"
+                    src="${html_encode(window.icons['world.svg'])}"
                     data-item-id="${item_id}"
                 />
                 <img class="item-badge item-has-website-url-badge" 
