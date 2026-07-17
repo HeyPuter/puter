@@ -137,8 +137,16 @@ async function UIWindowProgress ({
             el_window.querySelector('.progress-msg').innerHTML = text;
         },
         set_progress: (percent) => {
-            el_window.querySelector('.progress-bar').style.width = `${percent}%`;
-            el_window.querySelector('.progress-percent').innerText = `${percent}%`;
+            // Normalize to a clamped integer percentage. Callers pass a mix of
+            // numbers and strings, some produced by Number.toPrecision() which
+            // renders values >= 100 in scientific notation (e.g.
+            // (100).toPrecision(2) === "1.0e+2"). Coercing here keeps the label
+            // readable and the CSS width valid for every caller.
+            let pct = Math.round(Number(percent));
+            if ( ! Number.isFinite(pct) ) pct = 0;
+            pct = Math.min(100, Math.max(0, pct));
+            el_window.querySelector('.progress-bar').style.width = `${pct}%`;
+            el_window.querySelector('.progress-percent').innerText = `${pct}%`;
         },
         close: () => {
             $(el_window).close();
