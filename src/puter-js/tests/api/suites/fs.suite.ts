@@ -327,6 +327,35 @@ export default suite('fs', {
         t.assert.equal(await blob.text(), 'upload two');
     },
 
+    'read of a directory rejects': async (t) => {
+        const dir = `${home(t)}/fs-suite-read-dir`;
+        await t.puter.fs.mkdir(dir);
+        await t.assert.rejects(
+            () => t.puter.fs.read(dir),
+            'reading a directory as a file should reject',
+        );
+    },
+
+    'stat reports uid, path and size for a file': async (t) => {
+        const path = `${home(t)}/fs-suite-stat-fields.txt`;
+        await t.puter.fs.write(path, 'twelve bytes');
+        const info = await t.puter.fs.stat(path);
+        t.assert.ok(info.uid, 'stat should return a uid');
+        t.assert.equal(Boolean(info.is_dir), false);
+        t.assert.equal(info.name, 'fs-suite-stat-fields.txt');
+        t.assert.ok(info.path.endsWith('fs-suite-stat-fields.txt'));
+        t.assert.equal(Number(info.size), 'twelve bytes'.length);
+    },
+
+    'copy into a missing destination directory rejects': async (t) => {
+        const src = `${home(t)}/fs-suite-copy-src.txt`;
+        await t.puter.fs.write(src, 'copy me');
+        await t.assert.rejects(
+            () => t.puter.fs.copy(src, `${home(t)}/fs-suite-copy-nope`),
+            'copy into a nonexistent directory should reject',
+        );
+    },
+
     'users cannot read files outside their home': async (t) => {
         await t.assert.rejects(
             () => t.puter.fs.readdir(`/${t.env.users.admin.username}`),

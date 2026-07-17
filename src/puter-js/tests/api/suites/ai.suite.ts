@@ -119,4 +119,26 @@ export default suite('ai', {
             'the internal fake-chat provider should stay hidden',
         );
     },
+
+    'every model reported by the driver carries an id': async (t) => {
+        // The public listModels endpoint is empty without provider keys, so
+        // assert the shape against the driver-level list (always populated
+        // with the fake models).
+        const resp = await t.puter.drivers.call(
+            'puter-chat-completion',
+            'ai-chat',
+            'models',
+            {},
+        );
+        const models = (resp.result ?? resp) as Array<{ id?: string }>;
+        t.assert.ok(Array.isArray(models), 'driver models should be an array');
+        t.assert.ok(models.length > 0, 'driver should report models');
+        for (const model of models) {
+            t.assert.equal(
+                typeof model.id,
+                'string',
+                `every model entry should expose an id, got ${JSON.stringify(model)}`,
+            );
+        }
+    },
 });

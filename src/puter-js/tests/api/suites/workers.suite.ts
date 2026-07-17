@@ -12,6 +12,17 @@ const home = (t: TestContext) => `/${t.env.users.user.username}`;
  */
 const WORKER_SOURCE = `
 router.custom('GET', '/ping', async () => ({ pong: true }));
+router.post('/echo', async ({ request }) => {
+    const body = await request.json();
+    return { echoed: body };
+});
+router.get('/posts/:category/:id', async ({ params }) => params);
+router.get('/teapot', async () => new Response('no coffee', { status: 418 }));
+router.get('/whoami', async ({ user }) => {
+    if (!user || !user.puter) return { authed: false };
+    const me = await user.puter.getUser();
+    return { authed: true, username: me.username };
+});
 `;
 
 const deployWorker = async (t: TestContext, name: string) => {
@@ -33,6 +44,38 @@ export default suite('workers', {
         t.assert.equal(res.status, 200);
         const body = await res.json();
         t.assert.deepEqual(body, { pong: true });
+    },
+
+    'exec POSTs a body and reads the JSON response': async (t) => {
+        const created = await deployWorker(t, 'workers-suite-echo');
+        const res = await t.puter.workers.exec(`${created.url}/echo`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hello: 'worker' }),
+        });
+        t.assert.equal(res.status, 200);
+        t.assert.deepEqual(await res.json(), { echoed: { hello: 'worker' } });
+    },
+
+    'a worker resolves route parameters': async (t) => {
+        const created = await deployWorker(t, 'workers-suite-params');
+        const res = await t.puter.workers.exec(`${created.url}/posts/tech/42`);
+        t.assert.deepEqual(await res.json(), { category: 'tech', id: '42' });
+    },
+
+    'a worker can return a custom status code': async (t) => {
+        const created = await deployWorker(t, 'workers-suite-status');
+        const res = await t.puter.workers.exec(`${created.url}/teapot`);
+        t.assert.equal(res.status, 418);
+        t.assert.equal(await res.text(), 'no coffee');
+    },
+
+    'exec runs the worker in the calling user context': async (t) => {
+        const created = await deployWorker(t, 'workers-suite-userctx');
+        const res = await t.puter.workers.exec(`${created.url}/whoami`);
+        const body = await res.json();
+        t.assert.equal(body.authed, true, 'user.puter should be populated');
+        t.assert.equal(body.username, t.env.users.user.username);
     },
 
     'get returns the deployed worker': async (t) => {

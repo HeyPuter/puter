@@ -132,4 +132,94 @@ export default suite('kv', {
             'an undefined key should be rejected',
         );
     },
+
+    'MAX_KEY_SIZE and MAX_VALUE_SIZE expose the documented limits': async (
+        t,
+    ) => {
+        t.assert.equal(t.puter.kv.MAX_KEY_SIZE, 1024);
+        t.assert.equal(t.puter.kv.MAX_VALUE_SIZE, 399 * 1024);
+    },
+
+    'incr on a fresh key starts from zero': async (t) => {
+        t.assert.equal(await t.puter.kv.incr('kv-suite-incr-fresh', 3), 3);
+    },
+
+    'decr can drive a value negative': async (t) => {
+        t.assert.equal(await t.puter.kv.decr('kv-suite-decr-neg', 5), -5);
+    },
+
+    'add appends values into an array at a path': async (t) => {
+        await t.puter.kv.set('kv-suite-add', { tags: ['alpha'] });
+        const updated = await t.puter.kv.add('kv-suite-add', {
+            tags: ['beta', 'gamma'],
+        });
+        t.assert.deepEqual(updated.tags, ['alpha', 'beta', 'gamma']);
+    },
+
+    'update with a ttl keeps the value readable before it expires': async (
+        t,
+    ) => {
+        await t.puter.kv.set('kv-suite-update-ttl', { n: 1 });
+        await t.puter.kv.update('kv-suite-update-ttl', { n: 2 }, 3600);
+        const value = await t.puter.kv.get('kv-suite-update-ttl');
+        t.assert.equal(value.n, 2);
+    },
+
+    'list without a pattern returns every key for the app': async (t) => {
+        await t.puter.kv.set('kv-suite-all-1', 1);
+        await t.puter.kv.set('kv-suite-all-2', 2);
+        const keys = (await t.puter.kv.list()) as string[];
+        t.assert.ok(keys.includes('kv-suite-all-1'));
+        t.assert.ok(keys.includes('kv-suite-all-2'));
+    },
+
+    'list returns keys in lexicographic order': async (t) => {
+        await t.puter.kv.set('kv-suite-sorted-c', 1);
+        await t.puter.kv.set('kv-suite-sorted-a', 1);
+        await t.puter.kv.set('kv-suite-sorted-b', 1);
+        const keys = (await t.puter.kv.list('kv-suite-sorted-*')) as string[];
+        t.assert.deepEqual(keys, [
+            'kv-suite-sorted-a',
+            'kv-suite-sorted-b',
+            'kv-suite-sorted-c',
+        ]);
+    },
+
+    'list with a limit and cursor paginates through matches': async (t) => {
+        for (let i = 1; i <= 3; i++) {
+            await t.puter.kv.set(`kv-suite-page-${i}`, `v${i}`);
+        }
+        const seen: string[] = [];
+        let cursor: string | undefined;
+        let guard = 0;
+        do {
+            const page = (await t.puter.kv.list({
+                pattern: 'kv-suite-page-*',
+                returnValues: true,
+                limit: 2,
+                cursor,
+            })) as { items: Array<{ key: string }>; cursor?: string };
+            for (const item of page.items) seen.push(item.key);
+            cursor = page.cursor;
+        } while (cursor && ++guard < 10);
+        t.assert.deepEqual(seen.sort(), [
+            'kv-suite-page-1',
+            'kv-suite-page-2',
+            'kv-suite-page-3',
+        ]);
+    },
+
+    'flush removes every key for the app': async (t) => {
+        await t.puter.kv.set('kv-suite-flush-a', 1);
+        await t.puter.kv.set('kv-suite-flush-b', 2);
+        await t.puter.kv.flush();
+        t.assert.equal(await t.puter.kv.get('kv-suite-flush-a'), null);
+        t.assert.equal(await t.puter.kv.get('kv-suite-flush-b'), null);
+        const keys = (await t.puter.kv.list()) as string[];
+        t.assert.equal(
+            keys.some((k) => k.startsWith('kv-suite-')),
+            false,
+            'flush should clear every key the suite created',
+        );
+    },
 });
