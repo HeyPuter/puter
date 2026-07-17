@@ -1349,6 +1349,11 @@ const ipc_listener = async (event, handled) => {
         // set options
         event.data.options = event.data.options ?? {};
 
+        // Map defaultValue to default for compatibility
+        if (event.data.options.defaultValue && !event.data.options.default) {
+            event.data.options.default = event.data.options.defaultValue;
+        }
+
         // clear window_options for security reasons
         event.data.options.window_options = {};
 
@@ -1381,6 +1386,11 @@ const ipc_listener = async (event, handled) => {
             event.data.options = { defaultColor: event.data.options };
         }
         event.data.options = event.data.options ?? {};
+
+        // Map defaultValue to default for compatibility
+        if (event.data.options.defaultValue && !event.data.options.default) {
+            event.data.options.default = event.data.options.defaultValue;
+        }
 
         // Clear window_options for security reasons
         event.data.options.window_options = {};

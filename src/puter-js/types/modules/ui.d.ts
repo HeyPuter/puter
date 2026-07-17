@@ -172,6 +172,9 @@ export interface ColorPickerOptions {
 export interface FontPickerOptions {
     /** The font initially selected when the picker opens. */
     defaultFont?: string;
+
+    /** The font initially selected when the picker opens (alias for defaultFont). */
+    defaultValue?: string;
 }
 
 /** Options that configure `showDirectoryPicker()`. */
