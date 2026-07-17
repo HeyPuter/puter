@@ -18,13 +18,14 @@
  */
 
 import Busboy from 'busboy';
-import type { Request, RequestHandler, Response } from 'express';
+import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
 import type { Actor } from '../../core/actor.js';
 import { effectiveActorApp, isAccessTokenActor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { RouteOptions } from '../../core/http/index.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { ACLService } from '../../services/acl/ACLService.js';
 import type { SignedFile } from '../../util/fileSigning.js';
@@ -44,7 +45,6 @@ import {
     signingConfigFromAppConfig,
     toLegacyEntry,
 } from './legacyFsHelpers.js';
-import { RouteOptions } from '../../core/http/index.js';
 
 type RouterCache = Map<string, RequestHandler | null>;
 
@@ -158,7 +158,8 @@ export class LegacyFSController extends PuterController {
 
         router.get('/get-launch-apps', apiOptions, async (req, res) => {
             const recommendedSvc = this.services.recommendedApps as unknown as
-                { getRecommendedApps?: () => Promise<unknown[]> } | undefined;
+                | { getRecommendedApps?: () => Promise<unknown[]> }
+                | undefined;
             const recommended = recommendedSvc?.getRecommendedApps
                 ? await recommendedSvc.getRecommendedApps()
                 : [];
@@ -559,7 +560,9 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                Record<string, unknown> | null | undefined,
+                | Record<string, unknown>
+                | null
+                | undefined,
         });
         const oldPath = source.path;
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
@@ -826,7 +829,12 @@ export class LegacyFSController extends PuterController {
         res.json(shaped);
     };
 
-    read = async (req: Request, res: Response, options = {}): Promise<void> => {
+    read = async (
+        req: Request,
+        res: Response,
+        _next?: NextFunction,
+        options: { realMime?: boolean } = {},
+    ) => {
         const actor = this.#requireActor(req);
         const query = asRecord(req.query);
 
@@ -867,7 +875,10 @@ export class LegacyFSController extends PuterController {
         // GUI) expect the raw-Blob shape. Use `/fs/read` for type-aware
         // streaming.
         if (options.realMime) {
-            res.setHeader('Content-Type', contentTypeFromMime(entry.name));
+            res.setHeader(
+                'Content-Type',
+                contentTypeFromMime(entry.name) as string,
+            );
         } else {
             res.setHeader('Content-Type', 'application/octet-stream');
         }
@@ -934,11 +945,11 @@ export class LegacyFSController extends PuterController {
             });
         }
 
-        req.actor = actor;
+        req.actor = actor!;
         Context.set('actor', actor);
 
         // Forward back to regular read after setting actor
-        return this.read(req, res, { realMime: true });
+        return this.read(req, res, undefined, { realMime: true });
     };
 
     // -- Signed-URL + meta routes ----------------------------------------
@@ -975,7 +986,8 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            (SignedFile & { path?: string }) | Record<string, never>;
+            | (SignedFile & { path?: string })
+            | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1126,35 +1138,35 @@ export class LegacyFSController extends PuterController {
             );
         }
 
-        // ACL re-check: require an authenticated actor with write
-        // permission. A valid write signature alone is not sufficient —
-        // the caller must also pass ACL, preventing exploitation of
-        // leaked write URLs by read-only share recipients.
         const callerActor = this.#requireActor(req);
         if (operation === 'write') {
-            await assertAccess(
-                this.services.acl,
-                this.services.fs,
-                callerActor,
-                targetEntry.path,
-                'write',
-            );
-        }
-        if (operation === 'write') {
             const body = asRecord(req.body);
-            const parentEntry = targetEntry.isDir
-                ? targetEntry
-                : await this.#resolveParentOfEntry(targetEntry);
-            const name =
-                typeof body.name === 'string'
-                    ? body.name
-                    : targetEntry.isDir
-                      ? `upload-${Date.now()}`
-                      : targetEntry.name;
-            const targetPath =
-                parentEntry.path === '/'
-                    ? `/${name}`
-                    : `${parentEntry.path}/${name}`;
+            let targetPath: string;
+            if (targetEntry.isDir) {
+                const name =
+                    typeof body.name === 'string'
+                        ? body.name
+                        : `upload-${Date.now()}`;
+                targetPath =
+                    targetEntry.path === '/'
+                        ? `/${name}`
+                        : `${targetEntry.path}/${name}`;
+                await assertCanCreate(
+                    this.services.acl,
+                    this.services.fs,
+                    callerActor,
+                    targetPath,
+                );
+            } else {
+                targetPath = targetEntry.path;
+                await assertAccess(
+                    this.services.acl,
+                    this.services.fs,
+                    callerActor,
+                    targetPath,
+                    'write',
+                );
+            }
 
             // Parse multipart and pipe the first `file` part into fsService.write.
             const uploadResult = await this.#multipartWrite(
@@ -1516,7 +1528,10 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            'see' | 'list' | 'read' | 'write';
+            | 'see'
+            | 'list'
+            | 'read'
+            | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',
@@ -1652,14 +1667,6 @@ export class LegacyFSController extends PuterController {
         } catch {
             // Non-critical — GUI event failure must never break the HTTP response.
         }
-    }
-
-    async #resolveParentOfEntry(entry: { path: string; userId: number }) {
-        const parentPath = pathPosix.dirname(entry.path);
-        const parent = await resolveV1Selector(this.stores.fsEntry, {
-            path: parentPath,
-        });
-        return parent;
     }
 
     async #multipartWrite(
