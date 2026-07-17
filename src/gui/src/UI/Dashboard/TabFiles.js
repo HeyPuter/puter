@@ -1456,7 +1456,7 @@ const TabFiles = {
                     const fullName = $(this).attr('data-name');
                     if ( fullName ) {
                         const textWidth = measureTextWidth(fullName) + padding;
-                        maxWidth = Math.max(maxWidth + 10, textWidth);
+                        maxWidth = Math.max(maxWidth, textWidth);
                     }
                 });
             } else if ( column === 'size' ) {
@@ -1464,7 +1464,7 @@ const TabFiles = {
                     const text = $(this).text();
                     if ( text ) {
                         const textWidth = measureTextWidth(text) + padding;
-                        maxWidth = Math.max(maxWidth + 10, textWidth);
+                        maxWidth = Math.max(maxWidth, textWidth);
                     }
                 });
             } else if ( column === 'modified' ) {
@@ -1472,7 +1472,7 @@ const TabFiles = {
                     const text = $(this).text();
                     if ( text ) {
                         const textWidth = measureTextWidth(text) + padding;
-                        maxWidth = Math.max(maxWidth + 10, textWidth);
+                        maxWidth = Math.max(maxWidth, textWidth);
                     }
                 });
             }
