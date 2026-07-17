@@ -448,7 +448,7 @@ const TabFiles = {
                 _this.rubberBandSelectionJustEnded = false;
                 return;
             }
-            if ( e.target === this || e.target.classList.contains('files') ) {
+            if ( e.target === e.currentTarget || e.target.classList.contains('files') ) {
                 document.querySelectorAll('.files-tab .row.selected').forEach(r => {
                     r.classList.remove('selected');
                 });
