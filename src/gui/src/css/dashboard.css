@@ -1023,28 +1023,60 @@ input.myapps-search::-webkit-search-decoration {
     cursor: default;
 }
 
-/* Custom sort drag-and-drop */
-.myapps-grid-custom .myapps-tile {
-    cursor: grab;
+/* -- Drag-to-reorder -- */
+
+/* The tile being dragged is kept in the grid as an invisible placeholder so
+   the surrounding tiles reflow into the gap; the visible piece is the ghost. */
+.myapps-tile-dragging {
+    visibility: hidden;
 }
 
-.myapps-grid-custom .myapps-tile:active {
-    cursor: grabbing;
+/* Floating clone that tracks the pointer. Lives on <body> so the scroller's
+   overflow can't clip it; positioned entirely via an inline transform. */
+.myapps-drag-ghost {
+    position: fixed;
+    top: 0;
+    left: 0;
+    margin: 0;
+    z-index: 100000;
+    pointer-events: none;
+    opacity: 0.95;
+    filter: drop-shadow(0 10px 20px var(--dashboard-shadow-medium));
+    transition: opacity 0.16s ease;
+    will-change: transform;
 }
 
-.myapps-tile-placeholder {
-    width: 80px;
-    border: 2px dashed var(--dashboard-border);
-    border-radius: 12px;
-    background: var(--dashboard-hover);
-    opacity: 0.5;
+.myapps-drag-ghost .myapps-tile-icon {
+    transform: none;
 }
 
-.ui-sortable-helper.myapps-tile {
-    transform: scale(1.05);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-    z-index: 1000;
-    opacity: 0.9;
+.myapps-drag-ghost-drop {
+    opacity: 0;
+}
+
+/* While reordering: no text selection, and a grabbing cursor everywhere. */
+body.myapps-reordering,
+body.myapps-reordering * {
+    cursor: grabbing !important;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* Suppress the icon hover/active scaling on the dragged page so it doesn't
+   fight the FLIP transforms mid-drag. */
+body.myapps-reordering .myapps-tile:hover .myapps-tile-icon,
+body.myapps-reordering .myapps-tile:active .myapps-tile-icon {
+    transform: none;
+}
+
+body.myapps-reordering .myapps-tile {
+    touch-action: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .myapps-drag-ghost {
+        transition: none;
+    }
 }
 
 /* Dashboard files */
