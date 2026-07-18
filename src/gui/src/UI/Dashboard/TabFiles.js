@@ -1855,6 +1855,21 @@ const TabFiles = {
             // network). Without this, renderingDirectory would stay true and
             // the guard above would block all further navigation.
             console.error('Failed to read directory:', err);
+            // The container was already emptied above; show a message instead of
+            // leaving a blank pane with no explanation.
+            this.$el_window.find('.files-tab .files').html(`<div style="
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                pointer-events: none;
+                text-align: center;
+                padding: 0 16px;
+            ">This folder couldn't be opened.</div>`);
             this.hideSpinner();
             this.renderingDirectory = false;
             return;
