@@ -2238,13 +2238,11 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
-/* Hide .item-more on desktop (non-touch devices) - use right-click context menu instead */
-.dashboard-section-files .files-tab:not(.touch-device) .files.files-list-view .row .item-more,
-.dashboard-section-files .files-tab:not(.touch-device) .files.files-grid-view .row .item-more,
-.dashboard-section-files .files-tab:not(.touch-device) .files.files-grid-view .row:hover .item-more,
-.dashboard-section-files .files-tab:not(.touch-device) .header .columns .item-more {
-    display: none !important;
-}
+/* NOTE: a rule hiding .item-more on desktop (non-touch) used to sit here, but
+   it was malformed (selector list running into an @media block) and therefore
+   never in effect — desktop users have always had the visible '⋯' button, and
+   they use it, so repairing the rule into effect would remove a working
+   affordance. Intentionally removed instead. */
 
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-name-editor {
     text-align: center;
@@ -4014,10 +4012,12 @@ body.myapps-reordering .myapps-tile {
     font-size: 1rem;
 }
 
-/* Desktop - transparent backdrop. Use 769px so it doesn't overlap the mobile
-   rules (all keyed to max-width: 768px) at exactly 768px, where a touch tablet
-   would otherwise get a fully transparent, non-dimming modal backdrop. */
-@media (min-width: 769px) {
+/* Desktop - transparent backdrop. Written as the exact complement of the
+   mobile rules (all keyed to max-width: 768px) so that no viewport width —
+   not even a fractional one from browser zoom / DPR scaling — gets desktop
+   styling with the mobile dimming, or vice versa. (min-width: 769px would
+   leave widths strictly between 768px and 769px uncovered.) */
+@media not all and (max-width: 768px) {
     .context-menu-modal-backdrop {
         background-color: transparent;
     }
