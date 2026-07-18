@@ -905,6 +905,15 @@ const TabApps = {
             this._endDrag(false);
         }
 
+        // Give each load a monotonically increasing id. Concurrent loads are
+        // routine (init + initial-route onActivate both fire on open); an
+        // older/slower response must not clobber a newer one that already
+        // applied — or a reorder the user saved while a stale fetch was in
+        // flight. We gate on "already applied", not "latest started", so the
+        // first load to resolve still populates _apps (the pager's
+        // ResizeObserver needs _apps set as soon as any load resolves).
+        const loadSeq = (this._loadSeq = (this._loadSeq || 0) + 1);
+
         const $container = $el_window.find('.myapps-container');
 
         try {
@@ -988,13 +997,24 @@ const TabApps = {
             } catch ( _e ) {
                 orderedNames = null;
             }
+            // Skip only if a strictly newer load already applied its result, or
+            // a drag began while we were awaiting (rendering would yank the grid
+            // out from under it).
+            if ( loadSeq < (this._appliedSeq || 0) ) return;
+            if ( this._drag?.started ) return;
+            this._appliedSeq = loadSeq;
+
             this._hasCustomOrder = Array.isArray(orderedNames) && orderedNames.length > 0;
 
             this._apps = reconcileAppOrder(merged, orderedNames);
             this.renderApps($el_window);
         } catch (e) {
             console.error('Failed to load installed apps:', e);
-            $container.html('<div class="myapps-empty"><p>Failed to load apps</p></div>');
+            // Only show the failure placeholder when nothing has loaded yet; a
+            // transient re-fetch error must not wipe a grid already on screen.
+            if ( ! this._apps ) {
+                $container.html('<div class="myapps-empty"><p>Failed to load apps</p></div>');
+            }
         }
     },
 
