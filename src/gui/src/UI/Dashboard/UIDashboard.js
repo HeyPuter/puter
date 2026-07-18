@@ -71,12 +71,17 @@ async function UIDashboard (options) {
     // Dispatch 'dashboard-will-open' event to allow extensions to add tabs
     window.dispatchEvent(new CustomEvent('dashboard-will-open', { detail: { tabs } }));
 
+    // True if the untrusted route tab id (from the URL hash) names a real tab.
+    // The routing paths below ignore unknown ids outright — this also keeps a
+    // crafted hash (e.g. one containing a quote) from being interpolated into
+    // a jQuery selector, which throws and would otherwise leave the
+    // dashboard's event handlers unbound.
+    const isKnownTabId = tab => tabs.some(t => t !== '-' && t.id === tab);
+
     // Tab to render active on open. Apps is the default (root URL / no hash);
     // Home is reached via #home. Fall back to Apps for an unknown/absent route.
     const routeTab = window.dashboard_initial_route?.tab;
-    const initialTabId = tabs.some(t => t !== '-' && t.id === routeTab)
-        ? routeTab
-        : 'apps';
+    const initialTabId = isKnownTabId(routeTab) ? routeTab : 'apps';
 
     let h = '';
 
@@ -323,34 +328,11 @@ async function UIDashboard (options) {
         const $el = $(`.item[data-uid='${item.uid}']`);
         if ( $el.length === 0 ) return;
 
-        // Update data attributes (raw values — .attr() stores literally)
-        $el.attr('data-name', item.name);
-        $el.attr('data-path', item.path);
-        $el.attr('data-size', item.size);
-        $el.attr('data-modified', item.modified);
-        $el.attr('data-type', item.type ?? '');
-
-        // Update displayed name
-        $el.find('.item-name').text(item.name);
-        $el.find('.item-name-editor').val(item.name);
-
-        // Refresh the visible Size/Modified cells, not just the data attributes,
-        // so a remote overwrite doesn't leave a stale size on screen.
-        const dashboard = window.dashboard_object;
-        if ( dashboard && $el.attr('data-is_dir') !== '1' && typeof item.size !== 'undefined' ) {
-            $el.find('.item-size').text(dashboard.formatFileSize(item.size));
-        }
-        if ( item.modified ) {
-            $el.find('.item-modified').text(window.timeago.format(item.modified * 1000));
-        }
-
-        if (
-            dashboard?.currentView === 'grid'
-            && typeof item.thumbnail === 'string'
-            && item.thumbnail.length > 0
-        ) {
-            $el.find('.item-icon img').attr('src', item.thumbnail);
-        }
+        // Delegate to the shared row updater (defined in TabFiles.init) so
+        // this handler can't drift from renderItem's conventions — an inline
+        // copy here once showed trashed items' raw UID instead of their
+        // original name.
+        window.UIDashboardFileItemUpdate?.($el, item);
     });
 
     window.socket.on('item.added', async (item) => {
@@ -362,19 +344,14 @@ async function UIDashboard (options) {
         }
     });
 
-    // Resolve an untrusted route tab id (from the URL hash) to a known tab id,
-    // falling back to Apps. This keeps a crafted hash (e.g. one containing a
-    // quote) from being interpolated into a jQuery selector, which throws and
-    // would otherwise leave the dashboard's event handlers unbound.
-    const knownTabId = tab => (tabs.some(t => t !== '-' && t.id === tab) ? tab : 'apps');
-
     // Apply initial route from URL - activate the correct tab
     if ( window.dashboard_initial_route ) {
         const route = window.dashboard_initial_route;
 
-        // Activate the correct tab if not home
-        if ( route.tab && route.tab !== 'home' ) {
-            const tabId = knownTabId(route.tab);
+        // Activate the correct tab if not home. An unknown tab id stays on
+        // the Apps default rendered above rather than being redirected.
+        if ( route.tab && route.tab !== 'home' && isKnownTabId(route.tab) ) {
+            const tabId = route.tab;
             const $targetTab = $el_window.find(`.dashboard-sidebar-item[data-section="${tabId}"]`);
 
             // Only switch if the tab exists
@@ -405,7 +382,12 @@ async function UIDashboard (options) {
         if ( window.location.href === lastHandledHref ) return;
         lastHandledHref = window.location.href;
         const route = window.parseDashboardRoute();
-        const tab = knownTabId(route.tab);
+        // Ignore unknown tab ids entirely (a stale bookmark hash, an in-page
+        // anchor): switching the user to another tab out from under them was
+        // never the behavior, and the early return also keeps untrusted
+        // hashes out of the selectors below.
+        if ( ! isKnownTabId(route.tab) ) return;
+        const tab = route.tab;
         const filePath = route.path;
 
         // Switch to correct tab

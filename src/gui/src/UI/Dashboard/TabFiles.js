@@ -157,6 +157,40 @@ const TabFiles = {
         const _this = this;
         window.dashboard_object = _this;
 
+        // Refresh an existing row in place from an fs entry. Shared with
+        // UIDashboard's item.updated socket handler so the two paths can't
+        // drift — e.g. trashed items must show metadata.original_name, not
+        // the UID that is their raw name (matching renderItem).
+        window.UIDashboardFileItemUpdate = function ($row, file) {
+            let displayName = file.name || '';
+            try {
+                const meta = file.metadata ? JSON.parse(file.metadata) : null;
+                if ( meta && meta.original_name ) displayName = meta.original_name;
+            } catch { /* keep raw name */ }
+            $row.attr('data-name', displayName);
+            $row.attr('data-path', file.path || '');
+            $row.attr('data-size', file.size || 0);
+            $row.attr('data-modified', file.modified || 0);
+            $row.attr('data-type', file.type || '');
+            $row.find('.item-name').text(displayName);
+            $row.find('.item-name-editor').val(displayName);
+            // Refresh the visible Size/Modified cells too, not just the
+            // hidden data attributes, so a remote overwrite is reflected.
+            if ( $row.attr('data-is_dir') !== '1' ) {
+                $row.find('.item-size').text(_this.formatFileSize(file.size));
+            }
+            if ( file.modified ) {
+                $row.find('.item-modified').text(window.timeago.format(file.modified * 1000));
+            }
+            if (
+                _this.currentView === 'grid' &&
+                typeof file.thumbnail === 'string' &&
+                file.thumbnail.length > 0
+            ) {
+                $row.find('.item-icon img').attr('src', file.thumbnail);
+            }
+        };
+
         // Dashboard-compatible item creator for use by helpers.js and socket handlers.
         // Wraps renderItem() with a directory check so items are only added
         // when the user is viewing the relevant directory.
@@ -171,35 +205,7 @@ const TabFiles = {
             // If item already exists in view, update in-place.
             const $existingRow = $(`.files-tab .files .item[data-uid='${file.uid}']`);
             if ( $existingRow.length > 0 ) {
-                // Match renderItem's display name: trashed items show
-                // metadata.original_name, not the UID that is their raw name.
-                let displayName = file.name || '';
-                try {
-                    const meta = file.metadata ? JSON.parse(file.metadata) : null;
-                    if ( meta && meta.original_name ) displayName = meta.original_name;
-                } catch { /* keep raw name */ }
-                $existingRow.attr('data-name', displayName);
-                $existingRow.attr('data-path', file.path || '');
-                $existingRow.attr('data-size', file.size || 0);
-                $existingRow.attr('data-modified', file.modified || 0);
-                $existingRow.attr('data-type', file.type || '');
-                $existingRow.find('.item-name').text(displayName);
-                $existingRow.find('.item-name-editor').val(displayName);
-                // Refresh the visible Size/Modified cells too, not just the
-                // hidden data attributes, so a remote overwrite is reflected.
-                if ( $existingRow.attr('data-is_dir') !== '1' ) {
-                    $existingRow.find('.item-size').text(_this.formatFileSize(file.size));
-                }
-                if ( file.modified ) {
-                    $existingRow.find('.item-modified').text(window.timeago.format(file.modified * 1000));
-                }
-                if (
-                    _this.currentView === 'grid' &&
-                    typeof file.thumbnail === 'string' &&
-                    file.thumbnail.length > 0
-                ) {
-                    $existingRow.find('.item-icon img').attr('src', file.thumbnail);
-                }
+                window.UIDashboardFileItemUpdate($existingRow, file);
                 return;
             }
 
@@ -2182,8 +2188,9 @@ const TabFiles = {
             // would otherwise set shift_clicked and then select nothing,
             // leaving the click a no-op.
             const allShiftRows = $(el_item).parent().find('.row').toArray();
-            if ( e.shiftKey && window.latest_selected_item && window.latest_selected_item !== el_item
-                && allShiftRows.indexOf(window.latest_selected_item) !== -1 ) {
+            const hasShiftAnchor = window.latest_selected_item
+                && allShiftRows.indexOf(window.latest_selected_item) !== -1;
+            if ( e.shiftKey && hasShiftAnchor && window.latest_selected_item !== el_item ) {
                 e.preventDefault();
                 shift_clicked = true;
 
@@ -2214,16 +2221,22 @@ const TabFiles = {
                     _this.updateFooterStats();
                     return;
                 }
-            } else if ( e.shiftKey && e.pointerType !== 'touch' ) {
+            } else if ( e.shiftKey && ! hasShiftAnchor ) {
                 // Shift-click with no valid anchor (e.g. the first click after
                 // navigating to a new directory): select just this item and make
                 // it the anchor. onclick skips selection while Shift is held, so
-                // without this the click would select nothing.
+                // without this the click would select nothing. Shift-clicking
+                // the current anchor itself is NOT this case — that must fall
+                // through as a no-op so it can't collapse an existing
+                // multi-selection to one item.
                 e.preventDefault();
                 shift_clicked = true;
-                el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
-                    r.classList.remove('selected');
-                });
+                // Ctrl/Cmd+Shift extends: keep whatever is already selected.
+                if ( !e.ctrlKey && !e.metaKey ) {
+                    el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
+                        r.classList.remove('selected');
+                    });
+                }
                 el_item.classList.add('selected');
                 window.latest_selected_item = el_item;
                 window.active_element = el_item;
