@@ -273,7 +273,11 @@ async function UIDashboard (options) {
         // the freshly-added row instead of the stale one.
         const old_path = resp.old_path ?? resp.from_path;
         if ( old_path ) {
-            $(`.item[data-path='${html_encode(old_path)}']`).fadeOut(150, function () {
+            // data-path holds the raw path; match by comparison rather than a
+            // selector so quotes/special characters in names can't break it.
+            $('.item').filter(function () {
+                return $(this).attr('data-path') === old_path;
+            }).fadeOut(150, function () {
                 $(this).remove();
             });
         }
@@ -288,7 +292,9 @@ async function UIDashboard (options) {
         if ( item.original_client_socket_id === window.socket.id ) return;
         if ( item.descendants_only ) return;
 
-        $(`.item[data-path='${html_encode(item.path)}']`).fadeOut(150, function () {
+        $('.item').filter(function () {
+            return $(this).attr('data-path') === item.path;
+        }).fadeOut(150, function () {
             $(this).remove();
         });
     });
@@ -299,9 +305,9 @@ async function UIDashboard (options) {
         const $el = $(`.item[data-uid='${item.uid}']`);
         if ( $el.length === 0 ) return;
 
-        // Update data attributes
-        $el.attr('data-name', html_encode(item.name));
-        $el.attr('data-path', html_encode(item.path));
+        // Update data attributes (raw values — .attr() stores literally)
+        $el.attr('data-name', item.name);
+        $el.attr('data-path', item.path);
 
         // Update displayed name
         $el.find('.item-name').text(item.name);
@@ -314,12 +320,12 @@ async function UIDashboard (options) {
         const $el = $(`.item[data-uid='${item.uid}']`);
         if ( $el.length === 0 ) return;
 
-        // Update data attributes
-        $el.attr('data-name', html_encode(item.name));
-        $el.attr('data-path', html_encode(item.path));
+        // Update data attributes (raw values — .attr() stores literally)
+        $el.attr('data-name', item.name);
+        $el.attr('data-path', item.path);
         $el.attr('data-size', item.size);
         $el.attr('data-modified', item.modified);
-        $el.attr('data-type', html_encode(item.type));
+        $el.attr('data-type', item.type ?? '');
 
         // Update displayed name
         $el.find('.item-name').text(item.name);

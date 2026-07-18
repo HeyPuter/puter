@@ -2035,21 +2035,24 @@ const TabFiles = {
         row.setAttribute("data-is_dir", file.is_dir ? "1" : "0");
         row.setAttribute("data-is_trash", file.is_trash ? "1" : "0");
         row.setAttribute("data-has_website", file.has_website ? "1" : "0");
-        row.setAttribute("data-website_url", website_url ? html_encode(website_url) : '');
+        // setAttribute stores values literally (no HTML parsing), so values must
+        // stay raw — encoding here would leave e.g. `&amp;` inside data-path and
+        // break every fs operation that reads the attribute back.
+        row.setAttribute("data-website_url", website_url || '');
         row.setAttribute("data-immutable", file.immutable ? "1" : "0");
         row.setAttribute("data-is_shortcut", is_shortcut);
-        row.setAttribute("data-shortcut_to", html_encode(file.shortcut_to));
-        row.setAttribute("data-shortcut_to_path", html_encode(file.shortcut_to_path));
+        row.setAttribute("data-shortcut_to", file.shortcut_to ?? '');
+        row.setAttribute("data-shortcut_to_path", file.shortcut_to_path ?? '');
         row.setAttribute("data-is_worker", is_worker ? "1" : "0");
         row.setAttribute("data-worker_url", is_worker ? worker_url : "0");
         row.setAttribute("data-sortable", file.sortable ?? 'true');
         row.setAttribute("data-metadata", JSON.stringify(metadata));
-        row.setAttribute("data-sort_by", html_encode(file.sort_by) ?? 'name');
+        row.setAttribute("data-sort_by", file.sort_by ?? 'name');
         row.setAttribute("data-size", file.size);
-        row.setAttribute("data-type", html_encode(file.type) ?? '');
+        row.setAttribute("data-type", file.type ?? '');
         row.setAttribute("data-modified", file.modified);
-        row.setAttribute("data-associated_app_name", html_encode(file.associated_app?.name) ?? '');
-        row.setAttribute("data-path", html_encode(file.path));
+        row.setAttribute("data-associated_app_name", file.associated_app?.name ?? '');
+        row.setAttribute("data-path", file.path);
         row.innerHTML = `
             <div class="item-checkbox"><span class="checkbox-icon"></span></div>
             <div class="item-icon">
