@@ -73,7 +73,7 @@ function buildUsageHTML() {
     // Your Plan section
     h +=
         '<div class="bento-usage-section bento-usage-card bento-plan-section">';
-    h += '<a href="#" class="bento-usage-card-header bento-plan-header">';
+    h += '<a href="#" class="bento-usage-card-header bento-plan-header" data-target-tab="usage">';
     h += `<h3>${i18n('your_plan')}</h3>`;
     h += '<span class="bento-usage-card-arrow">›</span>';
     h += '</a>';
@@ -235,7 +235,9 @@ const TabHome = {
         //      bypass our dispatch, so we re-pull state + broadcast.
         const refresh = () => this.loadUsageData($el_window);
         const refreshAndBroadcast = async () => {
-            refresh();
+            // Pull fresh whoami, then broadcast. The dispatched event is handled
+            // by the `refresh` listener below, so we don't call refresh() here —
+            // doing both is what caused every focus to fire duplicate reloads.
             try {
                 await window.refresh_user_data?.(puter.authToken);
             } catch {}
@@ -246,11 +248,22 @@ const TabHome = {
             } catch {}
         };
         window.addEventListener('puter:subscription:changed', refresh);
+        // A single return-to-tab fires both `focus` and `visibilitychange`;
+        // coalesce them so we don't run the refresh (and refresh_user_data)
+        // twice in a row.
+        let refreshCoalesceTimer = null;
+        const scheduleRefreshAndBroadcast = () => {
+            if (refreshCoalesceTimer) return;
+            refreshCoalesceTimer = setTimeout(() => {
+                refreshCoalesceTimer = null;
+            }, 500);
+            refreshAndBroadcast();
+        };
         const onVisibility = () => {
-            if (document.visibilityState === 'visible') refreshAndBroadcast();
+            if (document.visibilityState === 'visible') scheduleRefreshAndBroadcast();
         };
         document.addEventListener('visibilitychange', onVisibility);
-        window.addEventListener('focus', refreshAndBroadcast);
+        window.addEventListener('focus', scheduleRefreshAndBroadcast);
 
         // Handle app clicks
         $el_window.on('click', '.bento-recent-app', function (e) {
@@ -259,9 +272,9 @@ const TabHome = {
             const appName = $(this).attr('data-app-name');
             const targetLink = $(this).attr('data-target-link');
             if (targetLink && targetLink !== '') {
-                window.open(targetLink, '_blank');
+                window.open(targetLink, '_blank', 'noopener,noreferrer');
             } else if (appName) {
-                window.open(`/app/${appName}`, '_blank');
+                window.open(`/app/${appName}`, '_blank', 'noopener,noreferrer');
             }
         });
 
@@ -386,7 +399,9 @@ const TabHome = {
                 $el_window.find('.bento-plan-upgrade').text('Manage →').show();
             } else {
                 $badge.text('Upgrade for more features').addClass('free');
-                $el_window.find('.bento-plan-upgrade').show();
+                // Reset the label too — otherwise it keeps saying "Manage →"
+                // after a subscription lapses/cancels.
+                $el_window.find('.bento-plan-upgrade').text('Upgrade →').show();
             }
 
             $el_window
@@ -405,7 +420,8 @@ const TabHome = {
         // Load storage data
         try {
             const res = await puter.fs.space();
-            let usage_percentage = ((res.used / res.capacity) * 100).toFixed(0);
+            // Guard capacity 0 — 0/0 would render literally as "NaN%".
+            let usage_percentage = res.capacity ? ((res.used / res.capacity) * 100).toFixed(0) : '0';
             usage_percentage = usage_percentage > 100 ? 100 : usage_percentage;
 
             let general_used = res.used;

@@ -269,9 +269,9 @@ const TabApps = {
             const appName = $(this).attr('data-app-name');
             const targetLink = $(this).attr('data-target-link');
             if ( targetLink && targetLink !== '' ) {
-                window.open(targetLink, '_blank');
+                window.open(targetLink, '_blank', 'noopener,noreferrer');
             } else if ( appName ) {
-                window.open(`/app/${appName}`, '_blank');
+                window.open(`/app/${appName}`, '_blank', 'noopener,noreferrer');
             }
         });
 

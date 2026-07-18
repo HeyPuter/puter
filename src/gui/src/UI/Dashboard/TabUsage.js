@@ -76,23 +76,17 @@ const TabUsage = {
             </div>`;
     },
     init: ($el_window) => {
-        // Upgrade / Manage Plan button (same logic as billing tab)
-        const $planBtn = $($el_window).find('.usage-plan-btn');
-        const hasSubscription = window.user?.subscription?.active;
-        if ( hasSubscription ) {
-            $planBtn.text('Manage Plan').addClass('manage').show();
-        } else {
-            $planBtn.text('Upgrade').addClass('upgrade').show();
-        }
-        $planBtn.on('click', (e) => {
+        setupPlanButton($el_window);
+        // Guard the click: UIUpgradeAccount only exists on hosted puter.com, and
+        // without the guard clicking would throw a TypeError.
+        $($el_window).find('.usage-plan-btn').on('click', (e) => {
             e.preventDefault();
-            (new window.UIUpgradeAccount()).open_as_window();
+            if ( typeof window.UIUpgradeAccount === 'function' ) {
+                (new window.UIUpgradeAccount()).open_as_window();
+            }
         });
 
         update_usage_details($el_window);
-        $($el_window).find('.update-usage-details').on('click', function () {
-            update_usage_details($el_window);
-        });
 
         // Click handler for sortable table headers
         $($el_window).on('click', '.driver-usage-details-content-table th[data-sort]', function () {
@@ -121,7 +115,31 @@ const TabUsage = {
             renderUsageTable();
         });
     },
+    // Refresh whenever the tab is (re)activated — otherwise the usage numbers
+    // stay frozen at page-load time for the whole session (there is no other
+    // refresh path), diverging from the Home cards which do refresh.
+    onActivate: ($el_window) => {
+        setupPlanButton($el_window);
+        update_usage_details($el_window);
+    },
 };
+
+function setupPlanButton ($el_window) {
+    const $planBtn = $($el_window).find('.usage-plan-btn');
+    // UIUpgradeAccount is only present on hosted puter.com; on a self-hosted
+    // install the button has no working target, so hide it entirely rather
+    // than showing a dead control.
+    if ( typeof window.UIUpgradeAccount !== 'function' ) {
+        $planBtn.hide();
+        return;
+    }
+    const hasSubscription = window.user?.subscription?.active;
+    $planBtn
+        .text(hasSubscription ? 'Manage Plan' : 'Upgrade')
+        .toggleClass('manage', !!hasSubscription)
+        .toggleClass('upgrade', !hasSubscription)
+        .show();
+}
 
 function getSortIcon (column) {
     const isActive = usageTableSortState.column === column;
@@ -197,7 +215,7 @@ function renderUsageTable () {
     for ( const row of rowsToShow ) {
         h += `
         <tr>
-            <td>${row.resource}</td>
+            <td>${window.html_encode(row.resource.replaceAll('_dot_', '.'))}</td>
             <td>${row.formattedUnits}</td>
             <td>${row.formattedCost}</td>
         </tr>`;
@@ -274,10 +292,17 @@ async function update_usage_details ($el_window) {
         }
 
         renderUsageTable();
+    }).catch(err => {
+        console.error('Failed to load monthly usage:', err);
+        usageTableData = [];
+        $('.driver-usage-details-content').html(
+            '<p style="opacity:0.7; font-size:13px;">Usage details are unavailable right now.</p>',
+        );
     });
 
     const spacePromise = puter.fs.space().then(res => {
-        let usage_percentage = (res.used / res.capacity * 100).toFixed(0);
+        // Guard capacity 0 — otherwise 0/0 renders literally as "NaN%".
+        let usage_percentage = res.capacity ? (res.used / res.capacity * 100).toFixed(0) : '0';
         usage_percentage = usage_percentage > 100 ? 100 : usage_percentage;
 
         let general_used = res.used;
@@ -308,6 +333,8 @@ async function update_usage_details ($el_window) {
             width: `${host_usage_percentage }%`,
             'background-color': storageColor,
         });
+    }).catch(err => {
+        console.error('Failed to load storage usage:', err);
     });
 
     // Wait for both promises to complete
