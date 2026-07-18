@@ -86,7 +86,7 @@ const TabUsage = {
             }
         });
 
-        update_usage_details($el_window);
+        refreshUsageDetails($el_window);
 
         // Click handler for sortable table headers
         $($el_window).on('click', '.driver-usage-details-content-table th[data-sort]', function () {
@@ -120,17 +120,39 @@ const TabUsage = {
     // refresh path), diverging from the Home cards which do refresh.
     onActivate: ($el_window) => {
         setupPlanButton($el_window);
-        update_usage_details($el_window);
+        refreshUsageDetails($el_window);
     },
 };
 
-function setupPlanButton ($el_window) {
+// init and the initial-route onActivate both fire when the dashboard opens
+// directly on this tab; share the in-flight refresh instead of issuing
+// duplicate request pairs.
+let usageRefreshPromise = null;
+function refreshUsageDetails ($el_window) {
+    if ( ! usageRefreshPromise ) {
+        usageRefreshPromise = update_usage_details($el_window).finally(() => {
+            usageRefreshPromise = null;
+        });
+    }
+    return usageRefreshPromise;
+}
+
+let planBtnRetryTimer = null;
+
+function setupPlanButton ($el_window, attempts = 40) {
     const $planBtn = $($el_window).find('.usage-plan-btn');
+    clearTimeout(planBtnRetryTimer);
     // UIUpgradeAccount is only present on hosted puter.com; on a self-hosted
     // install the button has no working target, so hide it entirely rather
-    // than showing a dead control.
+    // than showing a dead control. Hosted deployments can attach it *after*
+    // the dashboard initializes, though — keep re-checking for a while so a
+    // load-order race can't leave a subscriber without the button for the
+    // whole session.
     if ( typeof window.UIUpgradeAccount !== 'function' ) {
         $planBtn.hide();
+        if ( attempts > 0 ) {
+            planBtnRetryTimer = setTimeout(() => setupPlanButton($el_window, attempts - 1), 250);
+        }
         return;
     }
     const hasSubscription = window.user?.subscription?.active;
