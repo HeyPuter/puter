@@ -127,13 +127,20 @@ function buildPagerHtml (apps, layout, instant) {
     return h;
 }
 
-function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
+function showUninstallModal ({ appName, appTitle, appUid, removesTile, self, $el_window }) {
     const displayName = (appTitle || appName || '').trim();
+    // A recommended/recent app's tile reappears on the next load even after a
+    // successful revoke; say so up front so the uninstall doesn't look like it
+    // silently failed.
+    const note = removesTile
+        ? ''
+        : '<p>This app is provided by Puter, so its icon will stay in Apps.</p>';
     const $overlay = $(`
         <div class="myapps-modal-overlay">
             <div class="myapps-modal">
                 <h3>Uninstall ${html_encode(displayName)}?</h3>
                 <p>This will revoke all permissions for this app.</p>
+                ${note}
                 <div class="myapps-modal-buttons">
                     <button class="myapps-modal-btn myapps-modal-cancel">Cancel</button>
                     <button class="myapps-modal-btn myapps-modal-confirm">Uninstall</button>
@@ -163,11 +170,16 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
 
         try {
             await puter.perms.revokeApp(appUid, '*');
-            self._apps = self._apps.filter(a => a.name !== appName);
-            // Keep the persisted order free of the now-uninstalled app, but
-            // only if the user already has a custom order (don't create one).
-            if ( self._hasCustomOrder ) self.saveOrder();
-            self.renderApps($el_window, { preservePage: true });
+            // Only drop the tile when the uninstall sticks — a recommended/
+            // recent app comes back on the next get-launch-apps load, so
+            // removing it here would just look like a broken flicker.
+            if ( removesTile ) {
+                self._apps = self._apps.filter(a => a.name !== appName);
+                // Keep the persisted order free of the now-uninstalled app, but
+                // only if the user already has a custom order (don't create one).
+                if ( self._hasCustomOrder ) self.saveOrder();
+                self.renderApps($el_window, { preservePage: true });
+            }
         } catch ( err ) {
             console.error('Failed to uninstall app:', err);
         }
@@ -220,6 +232,8 @@ const TabApps = {
     _drag: null,
     _justDragged: false,
     _reduceMotionMQL: undefined,
+    _loadPromise: null,
+    _pendingLoad: null,
 
     html () {
         let h = '<div class="dashboard-tab-content myapps-tab">';
@@ -292,10 +306,15 @@ const TabApps = {
             const appName = $(this).attr('data-app-name');
             const appTitle = $(this).attr('data-app-title');
             const appUid = $(this).attr('data-app-uid');
-            // Only offer Uninstall when it will actually stick (see loadApps).
-            const canUninstall = $(this).attr('data-app-uninstallable') === '1';
+            // Whether the tile disappears for good on uninstall (see
+            // _fetchAndRenderApps). Uninstall is still offered when it won't —
+            // it is the only UI path that revokes an app's permissions, and
+            // recommended/recent apps need that path too; the modal just sets
+            // the expectation that their tile stays.
+            const removesTile = $(this).attr('data-app-uninstallable') === '1';
+            const noUninstall = APP_NAMES_NO_UNINSTALL.has((appName || '').toLowerCase());
 
-            const items = ! canUninstall
+            const items = noUninstall
                 ? []
                 : [
                     {
@@ -305,6 +324,7 @@ const TabApps = {
                                 appName,
                                 appTitle,
                                 appUid,
+                                removesTile,
                                 self,
                                 $el_window,
                             });
@@ -882,6 +902,27 @@ const TabApps = {
 
         // Rebuild so pages rebalance to exactly perPage; skip the load fade.
         this.renderApps(d.$el_window, { preservePage: true, instant: true });
+
+        this._applyPendingLoad();
+    },
+
+    // A load that resolved mid-drag was stashed rather than rendered (see
+    // _fetchAndRenderApps). Apply it now, reconciled against the on-screen
+    // order the drag just produced — re-fetching or replaying the fetched kv
+    // order here could undo a reorder whose save is still in flight.
+    _applyPendingLoad () {
+        const pending = this._pendingLoad;
+        if ( ! pending ) return;
+        this._pendingLoad = null;
+        if ( pending.loadSeq < (this._appliedSeq || 0) ) return;
+        this._appliedSeq = pending.loadSeq;
+
+        const orderedNames = this._hasCustomOrder && Array.isArray(this._apps)
+            ? serializeAppOrder(this._apps)
+            : pending.orderedNames;
+        this._hasCustomOrder = Array.isArray(orderedNames) && orderedNames.length > 0;
+        this._apps = reconcileAppOrder(pending.merged, orderedNames);
+        this.renderApps(pending.$el_window, { preservePage: true, instant: true });
     },
 
     saveOrder () {
@@ -897,21 +938,30 @@ const TabApps = {
         }
     },
 
-    async loadApps ($el_window) {
+    loadApps ($el_window) {
         if ( this._drag ) {
             // Don't fetch/re-render on top of a live drag; cancel a pending
             // (not-yet-started) pickup so a rebuild can't strand it.
             if ( this._drag.started ) return;
             this._endDrag(false);
         }
+        // init and the initial-route onActivate both fire on open; join the
+        // in-flight load instead of issuing a duplicate request trio.
+        if ( this._loadPromise ) return this._loadPromise;
+        const p = this._fetchAndRenderApps($el_window).finally(() => {
+            if ( this._loadPromise === p ) this._loadPromise = null;
+        });
+        this._loadPromise = p;
+        return p;
+    },
 
-        // Give each load a monotonically increasing id. Concurrent loads are
-        // routine (init + initial-route onActivate both fire on open); an
-        // older/slower response must not clobber a newer one that already
-        // applied — or a reorder the user saved while a stale fetch was in
-        // flight. We gate on "already applied", not "latest started", so the
-        // first load to resolve still populates _apps (the pager's
-        // ResizeObserver needs _apps set as soon as any load resolves).
+    async _fetchAndRenderApps ($el_window) {
+        // Give each load a monotonically increasing id. An older/slower
+        // response must not clobber a newer one that already applied — or a
+        // reorder the user saved while a stale fetch was in flight. We gate on
+        // "already applied", not "latest started", so the first load to
+        // resolve still populates _apps (the pager's ResizeObserver needs
+        // _apps set as soon as any load resolves).
         const loadSeq = (this._loadSeq = (this._loadSeq || 0) + 1);
 
         const $container = $el_window.find('.myapps-container');
@@ -935,7 +985,13 @@ const TabApps = {
                         },
                     );
                     const batch = await res.json();
-                    if ( ! Array.isArray(batch) || batch.length === 0 ) break;
+                    // An error payload (e.g. `{"error": ...}` on a 401/500) must
+                    // fail the whole load — reading it as end-of-pagination would
+                    // silently render the grid without any installed apps.
+                    if ( ! Array.isArray(batch) ) {
+                        throw new Error(`installedApps returned a non-array response (status ${res.status})`);
+                    }
+                    if ( batch.length === 0 ) break;
                     all.push(...batch);
                     if ( batch.length < PAGE_SIZE ) break;
                 }
@@ -969,11 +1025,12 @@ const TabApps = {
                 iconUrl: app.iconUrl || app.icon || null,
             }));
 
-            // Uninstall only sticks for apps the user actually installed that
-            // are NOT in the hardcoded recommended list — revokeApp on a
-            // recommended app does nothing lasting because get-launch-apps
-            // re-adds it on the next load, so the tile "comes back" and the
-            // uninstall looks broken. Compute installability against both lists.
+            // Whether an uninstall makes the tile disappear for good: apps the
+            // user actually installed that are NOT in the hardcoded recommended
+            // list. revokeApp on a recommended app still revokes permissions,
+            // but get-launch-apps re-adds the tile on the next load — the
+            // context menu uses this flag to set expectations in the modal
+            // (see showUninstallModal), not to withhold the action.
             const recommendedNames = new Set(
                 (launchData.recommended || []).map(a => a.name),
             );
@@ -1014,11 +1071,18 @@ const TabApps = {
             } catch ( _e ) {
                 orderedNames = null;
             }
-            // Skip only if a strictly newer load already applied its result, or
-            // a drag began while we were awaiting (rendering would yank the grid
-            // out from under it).
+            // Skip only if a strictly newer load already applied its result.
             if ( loadSeq < (this._appliedSeq || 0) ) return;
-            if ( this._drag?.started ) return;
+            // A drag began while we were awaiting: rendering now would yank
+            // the grid out from under it, but the data must not be thrown
+            // away either — stash it for _endDrag to apply.
+            if ( this._drag?.started ) {
+                if ( ! this._pendingLoad || loadSeq > this._pendingLoad.loadSeq ) {
+                    this._pendingLoad = { $el_window, merged, orderedNames, loadSeq };
+                }
+                return;
+            }
+            this._pendingLoad = null;
             this._appliedSeq = loadSeq;
 
             this._hasCustomOrder = Array.isArray(orderedNames) && orderedNames.length > 0;
