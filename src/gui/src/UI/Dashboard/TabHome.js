@@ -238,8 +238,14 @@ const TabHome = {
             // Pull fresh whoami, then broadcast. The dispatched event is handled
             // by the `refresh` listener below, so we don't call refresh() here —
             // doing both is what caused every focus to fire duplicate reloads.
+            // The broadcast is the only thing that triggers the refresh, so cap
+            // the wait: a whoami that never settles (hung connection) must not
+            // leave the cards stale for the rest of the session.
             try {
-                await window.refresh_user_data?.(puter.authToken);
+                await Promise.race([
+                    window.refresh_user_data?.(puter.authToken),
+                    new Promise(resolve => setTimeout(resolve, 8000)),
+                ]);
             } catch {}
             try {
                 window.dispatchEvent(

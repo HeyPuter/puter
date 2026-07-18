@@ -169,17 +169,21 @@ const TabFiles = {
             } catch { /* keep raw name */ }
             $row.attr('data-name', displayName);
             $row.attr('data-path', file.path || '');
-            $row.attr('data-size', file.size || 0);
-            $row.attr('data-modified', file.modified || 0);
             $row.attr('data-type', file.type || '');
             $row.find('.item-name').text(displayName);
             $row.find('.item-name-editor').val(displayName);
             // Refresh the visible Size/Modified cells too, not just the
             // hidden data attributes, so a remote overwrite is reflected.
-            if ( $row.attr('data-is_dir') !== '1' ) {
-                $row.find('.item-size').text(_this.formatFileSize(file.size));
+            // Only when the payload actually carries the field — a minimal
+            // update event must not zero out a correct value on screen.
+            if ( typeof file.size !== 'undefined' ) {
+                $row.attr('data-size', file.size || 0);
+                if ( $row.attr('data-is_dir') !== '1' ) {
+                    $row.find('.item-size').text(_this.formatFileSize(file.size));
+                }
             }
             if ( file.modified ) {
+                $row.attr('data-modified', file.modified);
                 $row.find('.item-modified').text(window.timeago.format(file.modified * 1000));
             }
             if (
@@ -189,6 +193,9 @@ const TabFiles = {
             ) {
                 $row.find('.item-icon img').attr('src', file.thumbnail);
             }
+            // The footer's item-count/total-size line is computed from the
+            // rows' data-size attributes — keep it in step with the cell.
+            _this.updateFooterStats();
         };
 
         // Dashboard-compatible item creator for use by helpers.js and socket handlers.
@@ -1876,6 +1883,9 @@ const TabFiles = {
                 text-align: center;
                 padding: 0 16px;
             ">This folder couldn't be opened.</div>`);
+            // The list was emptied above; without this the footer keeps the
+            // previous directory's item count over a pane with zero rows.
+            this.updateFooterStats();
             this.hideSpinner();
             this.renderingDirectory = false;
             return;
