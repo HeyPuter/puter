@@ -185,6 +185,14 @@ const TabFiles = {
                 $existingRow.attr('data-type', file.type || '');
                 $existingRow.find('.item-name').text(displayName);
                 $existingRow.find('.item-name-editor').val(displayName);
+                // Refresh the visible Size/Modified cells too, not just the
+                // hidden data attributes, so a remote overwrite is reflected.
+                if ( $existingRow.attr('data-is_dir') !== '1' ) {
+                    $existingRow.find('.item-size').text(_this.formatFileSize(file.size));
+                }
+                if ( file.modified ) {
+                    $existingRow.find('.item-modified').text(window.timeago.format(file.modified * 1000));
+                }
                 if (
                     _this.currentView === 'grid' &&
                     typeof file.thumbnail === 'string' &&
@@ -214,6 +222,9 @@ const TabFiles = {
 
             // Highlight animation to indicate newly added item
             $newRow.addClass('item-newly-added');
+
+            // Reflect the new item in the footer item count / total size.
+            _this.updateFooterStats();
         };
 
         this.renderingDirectory = false;

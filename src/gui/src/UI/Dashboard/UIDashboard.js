@@ -279,6 +279,7 @@ async function UIDashboard (options) {
                 return $(this).attr('data-path') === old_path;
             }).fadeOut(150, function () {
                 $(this).remove();
+                window.dashboard_object?.updateFooterStats?.();
             });
         }
 
@@ -296,6 +297,8 @@ async function UIDashboard (options) {
             return $(this).attr('data-path') === item.path;
         }).fadeOut(150, function () {
             $(this).remove();
+            // Keep the footer item count / total size in sync with the removal.
+            window.dashboard_object?.updateFooterStats?.();
         });
     });
 
@@ -331,8 +334,18 @@ async function UIDashboard (options) {
         $el.find('.item-name').text(item.name);
         $el.find('.item-name-editor').val(item.name);
 
+        // Refresh the visible Size/Modified cells, not just the data attributes,
+        // so a remote overwrite doesn't leave a stale size on screen.
+        const dashboard = window.dashboard_object;
+        if ( dashboard && $el.attr('data-is_dir') !== '1' && typeof item.size !== 'undefined' ) {
+            $el.find('.item-size').text(dashboard.formatFileSize(item.size));
+        }
+        if ( item.modified ) {
+            $el.find('.item-modified').text(window.timeago.format(item.modified * 1000));
+        }
+
         if (
-            window.dashboard_object?.currentView === 'grid'
+            dashboard?.currentView === 'grid'
             && typeof item.thumbnail === 'string'
             && item.thumbnail.length > 0
         ) {
