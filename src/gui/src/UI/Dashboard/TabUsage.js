@@ -139,20 +139,21 @@ function refreshUsageDetails ($el_window) {
 
 let planBtnRetryTimer = null;
 
-function setupPlanButton ($el_window, attempts = 40) {
+function setupPlanButton ($el_window, retryDelay = 250) {
     const $planBtn = $($el_window).find('.usage-plan-btn');
     clearTimeout(planBtnRetryTimer);
     // UIUpgradeAccount is only present on hosted puter.com; on a self-hosted
     // install the button has no working target, so hide it entirely rather
     // than showing a dead control. Hosted deployments can attach it *after*
-    // the dashboard initializes, though — keep re-checking for a while so a
-    // load-order race can't leave a subscriber without the button for the
-    // whole session.
+    // the dashboard initializes, though — keep re-checking (backing off to a
+    // slow poll) so a load-order race can't leave a subscriber without the
+    // button for the whole session, no matter how late the script lands.
     if ( typeof window.UIUpgradeAccount !== 'function' ) {
         $planBtn.hide();
-        if ( attempts > 0 ) {
-            planBtnRetryTimer = setTimeout(() => setupPlanButton($el_window, attempts - 1), 250);
-        }
+        planBtnRetryTimer = setTimeout(
+            () => setupPlanButton($el_window, Math.min(retryDelay * 1.5, 2000)),
+            retryDelay,
+        );
         return;
     }
     const hasSubscription = window.user?.subscription?.active;
@@ -316,10 +317,14 @@ async function update_usage_details ($el_window) {
         renderUsageTable();
     }).catch(err => {
         console.error('Failed to load monthly usage:', err);
-        usageTableData = [];
-        $('.driver-usage-details-content').html(
-            '<p style="opacity:0.7; font-size:13px;">Usage details are unavailable right now.</p>',
-        );
+        // Only show the failure note when nothing has rendered yet — a
+        // transient refresh error must not wipe a table the user is already
+        // looking at (mirrors the Apps grid's error handling).
+        if ( usageTableData.length === 0 ) {
+            $('.driver-usage-details-content').html(
+                '<p style="opacity:0.7; font-size:13px;">Usage details are unavailable right now.</p>',
+            );
+        }
     });
 
     const spacePromise = puter.fs.space().then(res => {
