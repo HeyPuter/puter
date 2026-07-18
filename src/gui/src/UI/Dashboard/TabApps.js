@@ -917,15 +917,33 @@ const TabApps = {
         const $container = $el_window.find('.myapps-container');
 
         try {
-            // Fetch the two app lists and the saved order together.
-            const [installedRes, launchRes, savedOrderRaw] = await Promise.all([
-                fetch(
-                    `${window.api_origin}/installedApps?orderBy=name&limit=100`,
-                    {
-                        headers: { 'Authorization': `Bearer ${puter.authToken}` },
-                        method: 'GET',
-                    },
-                ),
+            // Fetch the two app lists and the saved order together. The
+            // installedApps endpoint caps `limit` at 100 and paginates, so page
+            // through it — otherwise a user with >100 apps silently loses the
+            // rest from the grid and from search. Common case is a single page
+            // (a short page ends the loop before a second request).
+            const fetchAllInstalledApps = async () => {
+                const PAGE_SIZE = 100;
+                const MAX_PAGES = 50; // 5000 apps — a runaway backstop
+                const all = [];
+                for ( let page = 1; page <= MAX_PAGES; page++ ) {
+                    const res = await fetch(
+                        `${window.api_origin}/installedApps?orderBy=name&limit=${PAGE_SIZE}&page=${page}`,
+                        {
+                            headers: { 'Authorization': `Bearer ${puter.authToken}` },
+                            method: 'GET',
+                        },
+                    );
+                    const batch = await res.json();
+                    if ( ! Array.isArray(batch) || batch.length === 0 ) break;
+                    all.push(...batch);
+                    if ( batch.length < PAGE_SIZE ) break;
+                }
+                return all;
+            };
+
+            const [installedApps, launchRes, savedOrderRaw] = await Promise.all([
+                fetchAllInstalledApps(),
                 fetch(
                     `${window.api_origin}/get-launch-apps?icon_size=128`,
                     {
@@ -936,7 +954,6 @@ const TabApps = {
                 puter.kv.get(APPS_ORDER_KV_KEY).catch(() => null),
             ]);
 
-            const installedApps = await installedRes.json();
             const launchData = await launchRes.json();
 
             // Normalize launch apps (recommended + recent) to same shape
