@@ -373,7 +373,12 @@ async function UIDashboard (options) {
 
     // Handle browser back/forward navigation
     // This handler is called for both hashchange (manual hash changes) and popstate (back/forward)
+    // A single back/forward fires BOTH popstate and hashchange; track the last
+    // handled URL so the second event doesn't run onActivate (and its fetches) again.
+    let lastHandledHref = window.location.href;
     const handleRouteChange = () => {
+        if ( window.location.href === lastHandledHref ) return;
+        lastHandledHref = window.location.href;
         const route = window.parseDashboardRoute();
         const tab = route.tab;
         const filePath = route.path;
@@ -447,6 +452,7 @@ async function UIDashboard (options) {
         // Reflect the current tab in the hash. Root (no hash) defaults to Apps,
         // but selecting any tab — including Apps — shows its #tab.
         history.pushState(null, '', `#${section}`);
+        lastHandledHref = window.location.href;
 
         // Scroll content area to top
         $el_window.find('.dashboard-content').scrollTop(0);
