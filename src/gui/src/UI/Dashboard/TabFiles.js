@@ -1046,7 +1046,7 @@ const TabFiles = {
                 const history_item = window.dashboard_nav_history[index];
 
                 items.push({
-                    html: `<span>${history_item === window.home_path ? i18n('home') : path.basename(history_item)}</span>`,
+                    html: `<span>${history_item === window.home_path ? i18n('home') : html_encode(path.basename(history_item))}</span>`,
                     val: index,
                     onClick: function (e) {
                         window.dashboard_nav_history_current_position = e.value;
@@ -1087,7 +1087,7 @@ const TabFiles = {
                 const history_item = window.dashboard_nav_history[index];
 
                 items.push({
-                    html: `<span>${history_item === window.home_path ? i18n('home') : path.basename(history_item)}</span>`,
+                    html: `<span>${history_item === window.home_path ? i18n('home') : html_encode(path.basename(history_item))}</span>`,
                     val: index,
                     onClick: function (e) {
                         window.dashboard_nav_history_current_position = e.value;
