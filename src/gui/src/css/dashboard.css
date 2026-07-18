@@ -3999,6 +3999,21 @@ body.myapps-reordering .myapps-tile {
     opacity: 0.8;
 }
 
+/* Disabled item - inert and dimmed (mirrors the desktop context menu) */
+.context-menu-modal-dialog .context-menu-item--disabled {
+    opacity: 0.4;
+    cursor: default;
+    pointer-events: none;
+}
+
+/* Submenu chevron, pushed to the trailing edge */
+.context-menu-modal-dialog .context-menu-item-chevron {
+    margin-left: auto;
+    padding-left: 0.5rem;
+    color: var(--dashboard-text-muted, #94a3b8);
+    font-size: 1rem;
+}
+
 /* Desktop - transparent backdrop. Use 769px so it doesn't overlap the mobile
    rules (all keyed to max-width: 768px) at exactly 768px, where a touch tablet
    would otherwise get a fully transparent, non-dimming modal backdrop. */
