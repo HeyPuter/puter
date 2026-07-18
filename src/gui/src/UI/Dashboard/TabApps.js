@@ -131,10 +131,11 @@ function showUninstallModal ({ appName, appTitle, appUid, removesTile, self, $el
     const displayName = (appTitle || appName || '').trim();
     // A recommended/recent app's tile reappears on the next load even after a
     // successful revoke; say so up front so the uninstall doesn't look like it
-    // silently failed.
+    // silently failed. (Recommended apps stay indefinitely; recent ones until
+    // they age out of the open history — don't claim more than that.)
     const note = removesTile
         ? ''
-        : '<p>This app is provided by Puter, so its icon will stay in Apps.</p>';
+        : '<p>Its icon will stay in Apps for now, because this app is in your recommended or recently used list.</p>';
     const $overlay = $(`
         <div class="myapps-modal-overlay">
             <div class="myapps-modal">
@@ -178,6 +179,13 @@ function showUninstallModal ({ appName, appTitle, appUid, removesTile, self, $el
                 // Keep the persisted order free of the now-uninstalled app, but
                 // only if the user already has a custom order (don't create one).
                 if ( self._hasCustomOrder ) self.saveOrder();
+                // Mark any in-flight load stale: it fetched before the revoke,
+                // and applying it would pop the just-removed tile back in.
+                // Also stop sharing its promise, so the next activation
+                // fetches fresh instead of joining the doomed load.
+                self._loadSeq = (self._loadSeq || 0) + 1;
+                self._appliedSeq = self._loadSeq;
+                self._loadPromise = null;
                 self.renderApps($el_window, { preservePage: true });
             }
         } catch ( err ) {
@@ -977,23 +985,33 @@ const TabApps = {
                 const MAX_PAGES = 50; // 5000 apps — a runaway backstop
                 const all = [];
                 for ( let page = 1; page <= MAX_PAGES; page++ ) {
-                    const res = await fetch(
-                        `${window.api_origin}/installedApps?orderBy=name&limit=${PAGE_SIZE}&page=${page}`,
-                        {
-                            headers: { 'Authorization': `Bearer ${puter.authToken}` },
-                            method: 'GET',
-                        },
-                    );
-                    const batch = await res.json();
-                    // An error payload (e.g. `{"error": ...}` on a 401/500) must
-                    // fail the whole load — reading it as end-of-pagination would
-                    // silently render the grid without any installed apps.
-                    if ( ! Array.isArray(batch) ) {
-                        throw new Error(`installedApps returned a non-array response (status ${res.status})`);
+                    try {
+                        const res = await fetch(
+                            `${window.api_origin}/installedApps?orderBy=name&limit=${PAGE_SIZE}&page=${page}`,
+                            {
+                                headers: { 'Authorization': `Bearer ${puter.authToken}` },
+                                method: 'GET',
+                            },
+                        );
+                        const batch = await res.json();
+                        // An error payload (e.g. `{"error": ...}` on a 401/500)
+                        // must fail the page — reading it as end-of-pagination
+                        // would silently drop every installed app.
+                        if ( ! Array.isArray(batch) ) {
+                            throw new Error(`installedApps returned a non-array response (status ${res.status})`);
+                        }
+                        if ( batch.length === 0 ) break;
+                        all.push(...batch);
+                        if ( batch.length < PAGE_SIZE ) break;
+                    } catch ( err ) {
+                        // A first-page failure is a failed load. A later page
+                        // failing must not discard the pages already fetched —
+                        // that would turn one flaky request among N into an
+                        // empty grid (the single-request load never had that).
+                        if ( page === 1 ) throw err;
+                        console.error(`Failed to fetch installedApps page ${page}; showing the ${all.length} apps fetched so far:`, err);
+                        break;
                     }
-                    if ( batch.length === 0 ) break;
-                    all.push(...batch);
-                    if ( batch.length < PAGE_SIZE ) break;
                 }
                 return all;
             };
@@ -1026,13 +1044,18 @@ const TabApps = {
             }));
 
             // Whether an uninstall makes the tile disappear for good: apps the
-            // user actually installed that are NOT in the hardcoded recommended
-            // list. revokeApp on a recommended app still revokes permissions,
-            // but get-launch-apps re-adds the tile on the next load — the
-            // context menu uses this flag to set expectations in the modal
-            // (see showUninstallModal), not to withhold the action.
+            // user actually installed that are in NEITHER launch list.
+            // revokeApp still revokes permissions for the others, but
+            // get-launch-apps re-adds their tiles on the next load — the
+            // recommended list is hardcoded and the recent list is built from
+            // app-open history, which a revoke doesn't touch. The context menu
+            // uses this flag to set expectations in the modal (see
+            // showUninstallModal), not to withhold the action.
             const recommendedNames = new Set(
                 (launchData.recommended || []).map(a => a.name),
+            );
+            const recentNames = new Set(
+                (launchData.recent || []).map(a => a.name),
             );
             const installedNames = new Set(
                 (Array.isArray(installedApps) ? installedApps : []).map(a => a.name),
@@ -1040,6 +1063,7 @@ const TabApps = {
             const isUninstallable = name =>
                 installedNames.has(name)
                 && ! recommendedNames.has(name)
+                && ! recentNames.has(name)
                 && ! APP_NAMES_NO_UNINSTALL.has((name || '').toLowerCase());
 
             // Build seen set from launch apps
