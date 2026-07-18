@@ -2123,6 +2123,12 @@ label {
     text-decoration: underline;
 }
 
+.oidc-btn {
+    font-size: 14px;
+    color: #393939;
+    background-color: transparent;
+}
+
 .error {
     display: none;
     color: red;
