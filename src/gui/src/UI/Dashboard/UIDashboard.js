@@ -349,13 +349,19 @@ async function UIDashboard (options) {
         }
     });
 
+    // Resolve an untrusted route tab id (from the URL hash) to a known tab id,
+    // falling back to Apps. This keeps a crafted hash (e.g. one containing a
+    // quote) from being interpolated into a jQuery selector, which throws and
+    // would otherwise leave the dashboard's event handlers unbound.
+    const knownTabId = tab => (tabs.some(t => t !== '-' && t.id === tab) ? tab : 'apps');
+
     // Apply initial route from URL - activate the correct tab
     if ( window.dashboard_initial_route ) {
         const route = window.dashboard_initial_route;
 
         // Activate the correct tab if not home
         if ( route.tab && route.tab !== 'home' ) {
-            const tabId = route.tab;
+            const tabId = knownTabId(route.tab);
             const $targetTab = $el_window.find(`.dashboard-sidebar-item[data-section="${tabId}"]`);
 
             // Only switch if the tab exists
@@ -386,7 +392,7 @@ async function UIDashboard (options) {
         if ( window.location.href === lastHandledHref ) return;
         lastHandledHref = window.location.href;
         const route = window.parseDashboardRoute();
-        const tab = route.tab;
+        const tab = knownTabId(route.tab);
         const filePath = route.path;
 
         // Switch to correct tab
@@ -456,9 +462,13 @@ async function UIDashboard (options) {
         document.querySelector('.dashboard-content').classList.add(section);
 
         // Reflect the current tab in the hash. Root (no hash) defaults to Apps,
-        // but selecting any tab — including Apps — shows its #tab.
-        history.pushState(null, '', `#${section}`);
-        lastHandledHref = window.location.href;
+        // but selecting any tab — including Apps — shows its #tab. Only push a
+        // new history entry when the hash actually changes, so re-clicking the
+        // current tab doesn't stack duplicate entries that make Back a no-op.
+        if ( window.location.hash !== `#${section}` ) {
+            history.pushState(null, '', `#${section}`);
+            lastHandledHref = window.location.href;
+        }
 
         // Scroll content area to top
         $el_window.find('.dashboard-content').scrollTop(0);

@@ -536,7 +536,16 @@ if (jQuery) {
  * @returns {{ tab: string, path: string|null }} Route object with tab name and optional file path
  */
 function parseDashboardRoute() {
-    const hash = decodeURIComponent(window.location.hash.slice(1)); // Remove '#' and decode URL encoding
+    // decodeURIComponent throws URIError on a malformed percent-sequence (e.g.
+    // `#100%`). This runs at module load, so an unguarded throw blanks the whole
+    // GUI — fall back to the raw hash instead.
+    const rawHash = window.location.hash.slice(1); // Remove '#'
+    let hash;
+    try {
+        hash = decodeURIComponent(rawHash);
+    } catch {
+        hash = rawHash;
+    }
     if (!hash) return { tab: 'apps', path: null };
 
     const parts = hash.split('/').filter(Boolean); // ['files', 'username', 'Documents']
