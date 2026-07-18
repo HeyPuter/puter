@@ -73,7 +73,7 @@ function buildTileHtml (app) {
     const { title, targetLink } = resolveTileDisplay(app);
     const iconUrl = app.iconUrl || window.icons['app.svg'];
 
-    let h = `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" data-target-link="${html_encode(targetLink)}" title="${html_encode(title)}">`;
+    let h = `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" data-target-link="${html_encode(targetLink)}" data-app-uninstallable="${app.uninstallable ? '1' : '0'}" title="${html_encode(title)}">`;
     h += '<div class="myapps-tile-icon">';
     h += `<img src="${html_encode(iconUrl)}" alt="" draggable="false">`;
     h += '</div>';
@@ -292,10 +292,10 @@ const TabApps = {
             const appName = $(this).attr('data-app-name');
             const appTitle = $(this).attr('data-app-title');
             const appUid = $(this).attr('data-app-uid');
-            const nameLower = (appName || '').toLowerCase();
-            const noUninstall = APP_NAMES_NO_UNINSTALL.has(nameLower);
+            // Only offer Uninstall when it will actually stick (see loadApps).
+            const canUninstall = $(this).attr('data-app-uninstallable') === '1';
 
-            const items = noUninstall
+            const items = ! canUninstall
                 ? []
                 : [
                     {
@@ -943,6 +943,22 @@ const TabApps = {
                 iconUrl: app.iconUrl || app.icon || null,
             }));
 
+            // Uninstall only sticks for apps the user actually installed that
+            // are NOT in the hardcoded recommended list — revokeApp on a
+            // recommended app does nothing lasting because get-launch-apps
+            // re-adds it on the next load, so the tile "comes back" and the
+            // uninstall looks broken. Compute installability against both lists.
+            const recommendedNames = new Set(
+                (launchData.recommended || []).map(a => a.name),
+            );
+            const installedNames = new Set(
+                (Array.isArray(installedApps) ? installedApps : []).map(a => a.name),
+            );
+            const isUninstallable = name =>
+                installedNames.has(name)
+                && ! recommendedNames.has(name)
+                && ! APP_NAMES_NO_UNINSTALL.has((name || '').toLowerCase());
+
             // Build seen set from launch apps
             const seen = new Set();
             const merged = [];
@@ -950,14 +966,14 @@ const TabApps = {
             for ( const app of launchApps ) {
                 if ( seen.has(app.name) ) continue;
                 seen.add(app.name);
-                merged.push(app);
+                merged.push({ ...app, uninstallable: isUninstallable(app.name) });
             }
 
             // Append installed apps that aren't already in the list
             for ( const app of installedApps ) {
                 if ( seen.has(app.name) ) continue;
                 seen.add(app.name);
-                merged.push(app);
+                merged.push({ ...app, uninstallable: isUninstallable(app.name) });
             }
 
             // Overlay the user's saved ordering (if any). New apps are appended
