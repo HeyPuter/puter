@@ -1834,6 +1834,14 @@ const TabFiles = {
             r.classList.remove('selected');
         });
 
+        // Drop the shift-click anchor — it points at a row from the directory
+        // we're leaving, and a stale detached anchor makes the first shift-click
+        // in the new directory select nothing.
+        if ( window.latest_selected_item && ! document.body.contains(window.latest_selected_item) ) {
+            window.latest_selected_item = null;
+            window.active_element = null;
+        }
+
         // Determine whether target is a path or uid
         const isPath = typeof target === 'string' && target.startsWith('/');
         const readdirArg = isPath
@@ -2154,12 +2162,17 @@ const TabFiles = {
                 return;
             }
 
-            // Handle Shift+Click for range selection
-            if ( e.shiftKey && window.latest_selected_item && window.latest_selected_item !== el_item ) {
+            // Handle Shift+Click for range selection. Require the anchor to
+            // still be in this row list — a detached anchor (indexOf === -1)
+            // would otherwise set shift_clicked and then select nothing,
+            // leaving the click a no-op.
+            const allShiftRows = $(el_item).parent().find('.row').toArray();
+            if ( e.shiftKey && window.latest_selected_item && window.latest_selected_item !== el_item
+                && allShiftRows.indexOf(window.latest_selected_item) !== -1 ) {
                 e.preventDefault();
                 shift_clicked = true;
 
-                const allRows = $(el_item).parent().find('.row').toArray();
+                const allRows = allShiftRows;
                 const clickedIndex = allRows.indexOf(el_item);
                 const lastSelectedIndex = allRows.indexOf(window.latest_selected_item);
 
@@ -2186,6 +2199,22 @@ const TabFiles = {
                     _this.updateFooterStats();
                     return;
                 }
+            } else if ( e.shiftKey && e.pointerType !== 'touch' ) {
+                // Shift-click with no valid anchor (e.g. the first click after
+                // navigating to a new directory): select just this item and make
+                // it the anchor. onclick skips selection while Shift is held, so
+                // without this the click would select nothing.
+                e.preventDefault();
+                shift_clicked = true;
+                el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
+                    r.classList.remove('selected');
+                });
+                el_item.classList.add('selected');
+                window.latest_selected_item = el_item;
+                window.active_element = el_item;
+                window.active_item_container = el_item.closest('.files');
+                _this.updateFooterStats();
+                return;
             }
 
             // In select mode on mobile, treat taps like Ctrl+click (toggle selection)
@@ -2846,11 +2875,16 @@ const TabFiles = {
      * @returns {string} Formatted size string (e.g., "1.5 MB")
      */
     formatFileSize (bytes) {
-        if ( bytes === 0 ) return '0 B';
+        const num = Number(bytes);
+        // Missing/invalid sizes (undefined, null, NaN) and non-positive values
+        // shouldn't render as "NaN undefined".
+        if ( ! Number.isFinite(num) || num <= 0 ) return '0 B';
         const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return `${Math.round((bytes / Math.pow(k, i)) * 100) / 100 } ${ sizes[i]}`;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+        // Clamp the index so sizes beyond PB don't index past the array (which
+        // produced "1.5 undefined" for terabyte-plus files).
+        const i = Math.min(Math.floor(Math.log(num) / Math.log(k)), sizes.length - 1);
+        return `${Math.round((num / Math.pow(k, i)) * 100) / 100 } ${ sizes[i]}`;
     },
 
     /**
