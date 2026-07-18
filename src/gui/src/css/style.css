@@ -2126,7 +2126,7 @@ label {
 .oidc-btn {
     font-size: 14px;
     color: #393939;
-    background-color: transparent;
+    background: transparent;
 }
 
 .error {
