@@ -48,6 +48,7 @@ const icons = {
     restore: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M440-320h80v-166l64 62 56-56-160-160-160 160 56 56 64-62v166ZM280-120q-33 0-56.5-23.5T200-200v-520h-40v-80h200v-40h240v40h200v80h-40v520q0 33-23.5 56.5T680-120H280Zm400-600H280v520h400v-520Zm-400 0v520-520Z"/></svg>`,
     list: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M293.08-597.69v-60H820v60H293.08Zm0 147.69v-60H820v60H293.08Zm0 147.69v-60H820v60H293.08ZM172.31-595.38q-13.73 0-23.02-9.4t-9.29-23.3q0-13.56 9.29-22.74 9.29-9.18 23.02-9.18t23.02 9.18q9.29 9.18 9.29 22.74 0 13.9-9.29 23.3t-23.02 9.4Zm0 147.3q-13.73 0-23.02-9.18Q140-466.43 140-480q0-14.31 9.29-23.5t23.02-9.19q13.73 0 23.02 9.19t9.29 23.5q0 13.57-9.29 22.74-9.29 9.18-23.02 9.18Zm0 148.08q-13.73 0-23.02-9.4T140-332.69q0-13.57 9.29-22.75t23.02-9.18q13.73 0 23.02 9.18t9.29 22.75q0 13.89-9.29 23.29-9.29 9.4-23.02 9.4Z"/></svg>`,
     grid: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M140-520v-300h300v300H140Zm0 380v-300h300v300H140Zm380-380v-300h300v300H520Zm0 380v-300h300v300H520ZM200-580h180v-180H200v180Zm380 0h180v-180H580v180Zm0 380h180v-180H580v180Zm-380 0h180v-180H200v180Zm380-380Zm0 200Zm-200 0Zm0-200Z"/></svg>`,
+    gridSmall: `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3.2" y="3.2" width="4.8" height="4.8" rx="0.8"/><rect x="9.6" y="3.2" width="4.8" height="4.8" rx="0.8"/><rect x="16" y="3.2" width="4.8" height="4.8" rx="0.8"/><rect x="3.2" y="9.6" width="4.8" height="4.8" rx="0.8"/><rect x="9.6" y="9.6" width="4.8" height="4.8" rx="0.8"/><rect x="16" y="9.6" width="4.8" height="4.8" rx="0.8"/><rect x="3.2" y="16" width="4.8" height="4.8" rx="0.8"/><rect x="9.6" y="16" width="4.8" height="4.8" rx="0.8"/><rect x="16" y="16" width="4.8" height="4.8" rx="0.8"/></svg>`,
     sort: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M140-260v-60h215v60H140Zm0-190v-60h447.31v60H140Zm0-190v-60h680v60H140Z"/></svg>`,
     select: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="m424-325.85 268.92-268.92-42.15-42.15L424-410.15l-114-114L267.85-482 424-325.85ZM212.31-140Q182-140 161-161q-21-21-21-51.31v-535.38Q140-778 161-799q21-21 51.31-21h535.38Q778-820 799-799q21 21 21 51.31v535.38Q820-182 799-161q-21 21-51.31 21H212.31Zm0-60h535.38q4.62 0 8.46-3.85 3.85-3.84 3.85-8.46v-535.38q0-4.62-3.85-8.46-3.84-3.85-8.46-3.85H212.31q-4.62 0-8.46 3.85-3.85 3.84-3.85 8.46v535.38q0 4.62 3.85 8.46 3.84 3.85 8.46 3.85ZM200-760v560-560Z"/></svg>`,
     done: `<svg xmlns="http://www.w3.org/2000/svg" height="18" viewBox="0 -960 960 960" width="18" fill="currentcolor"><path d="M382-240 154-468l57-57 171 171 367-367 57 57-424 424Z"/></svg>`,
@@ -195,7 +196,7 @@ const TabFiles = {
                 $row.find('.item-modified').text(window.timeago.format(file.modified * 1000));
             }
             if (
-                _this.currentView === 'grid' &&
+                _this.isGridView() &&
                 typeof file.thumbnail === 'string' &&
                 file.thumbnail.length > 0
             ) {
@@ -536,17 +537,7 @@ const TabFiles = {
         this.initNativeFileDrop();
 
         // Apply initial view mode from persisted preferences
-
-        const $filesContainer = this.$el_window.find('.files-tab .files');
-        const $tabContent = this.$el_window.find('.files-tab');
-        if ( this.currentView === 'grid' ) {
-            $filesContainer.addClass('files-grid-view');
-            $tabContent.addClass('files-grid-mode');
-            this.$el_window.find('.view-toggle-btn').html(icons.list);
-        } else {
-            $filesContainer.addClass('files-list-view');
-            this.$el_window.find('.view-toggle-btn').html(icons.grid);
-        }
+        this.applyViewMode();
 
         // Check for initial file path from URL routing
         if ( window.dashboard_initial_file_path ) {
@@ -1270,9 +1261,9 @@ const TabFiles = {
             fileInput.click();
         };
 
-        // View toggle button
-        document.querySelector('.view-toggle-btn').onclick = () => {
-            this.toggleView();
+        // View button (shows dropdown menu: list / compact grid / grid)
+        document.querySelector('.view-toggle-btn').onclick = (e) => {
+            this.showViewMenu(e);
         };
 
         // Sort button (shows dropdown menu)
@@ -1583,7 +1574,7 @@ const TabFiles = {
                     $name.text(fullName);
                 }
             });
-        } else if ( this.currentView === 'grid' ) {
+        } else if ( this.isGridView() ) {
             // Apply middle-truncation in grid view
             $filesTab.find('.files.files-grid-view .row .item-name').each(function () {
                 const $name = $(this);
@@ -2516,13 +2507,13 @@ const TabFiles = {
                 const $clone = $(el_item).clone();
 
                 // Wrap in container structure so CSS selectors match
-                const viewClass = _this.currentView === 'grid' ? 'files-grid-view' : 'files-list-view';
+                const viewClass = _this.viewClass();
                 const $wrapper = $(`<div class="dashboard-section-files"><div class="files-tab"><div class="files ${viewClass}"></div></div></div>`);
                 $wrapper.find('.files').append($clone);
 
                 // In grid view, set fixed width since the grid auto-fill
                 // doesn't work without a proper parent width context
-                if ( _this.currentView === 'grid' ) {
+                if ( _this.isGridView() ) {
                     $clone.css('width', $(el_item).outerWidth());
                     $wrapper.find('.files').css('display', 'block');
                 }
@@ -2556,7 +2547,7 @@ const TabFiles = {
                 ui.helper.addClass('selected');
 
                 // Clone other selected items with proper container structure
-                const viewClass = _this.currentView === 'grid' ? 'files-grid-view' : 'files-list-view';
+                const viewClass = _this.viewClass();
                 $(el_item).siblings('.row.selected').each(function () {
                     const $clone = $(this).clone();
                     const $wrapper = $(`<div class="dashboard-section-files item-selected-clone"><div class="files-tab"><div class="files ${viewClass}"></div></div></div>`);
@@ -2987,37 +2978,102 @@ const TabFiles = {
     },
 
     /**
-     * Toggles between list and grid view modes.
+     * Whether the current view mode is one of the grid variants.
      *
-     * Persists the preference to storage.
+     * Both 'grid' and 'grid-sm' share the files-grid-view container class
+     * (and all grid behavior); 'grid-sm' adds a size-modifier class on top.
      *
+     * @returns {boolean}
+     */
+    isGridView () {
+        return this.currentView === 'grid' || this.currentView === 'grid-sm';
+    },
+
+    /**
+     * Container classes for the current view mode, e.g. for drag-ghost wrappers.
+     *
+     * @returns {string} Space-separated class list for the .files container
+     */
+    viewClass () {
+        if ( this.currentView === 'grid-sm' ) return 'files-grid-view files-grid-view-sm';
+        if ( this.currentView === 'grid' ) return 'files-grid-view';
+        return 'files-list-view';
+    },
+
+    /**
+     * Displays the view mode selection menu (list / compact grid / grid).
+     *
+     * @param {MouseEvent} e - The click event from the view button
      * @returns {void}
      */
-    toggleView () {
-        const $filesContainer = this.$el_window.find('.files-tab .files');
-        const $toggleBtn = this.$el_window.find('.view-toggle-btn');
-        const $tabContent = this.$el_window.find('.files-tab');
+    showViewMenu (e) {
+        const _this = this;
 
-        if ( this.currentView === 'list' ) {
-            this.currentView = 'grid';
-            $filesContainer.removeClass('files-list-view').addClass('files-grid-view');
-            $tabContent.addClass('files-grid-mode');
-            $toggleBtn.html(icons.list);
-            $toggleBtn.attr('title', 'Switch to list view');
-        } else {
-            this.currentView = 'list';
-            $filesContainer.removeClass('files-grid-view').addClass('files-list-view');
-            $tabContent.removeClass('files-grid-mode');
-            $toggleBtn.html(icons.grid);
-            $toggleBtn.attr('title', 'Switch to grid view');
-        }
+        const viewOptions = [
+            { mode: 'list', label: 'List' },
+            { mode: 'grid-sm', label: 'Compact Grid' },
+            { mode: 'grid', label: 'Grid' },
+        ];
 
-        puter.kv.set('view_mode', this.currentView);
+        const items = viewOptions.map(opt => {
+            return {
+                html: `<span>${opt.label}</span>`,
+                checked: _this.currentView === opt.mode,
+                onClick: () => {
+                    _this.setView(opt.mode);
+                },
+            };
+        });
+
+        UIContextMenu({
+            items: items,
+            position: { left: e.pageX, top: e.pageY },
+        });
+    },
+
+    /**
+     * Switches to the given view mode and persists the preference.
+     *
+     * @param {string} mode - 'list', 'grid', or 'grid-sm'
+     * @returns {void}
+     */
+    setView (mode) {
+        if ( this.currentView === mode ) return;
+        this.currentView = mode;
+        this.applyViewMode();
+
+        puter.kv.set('view_mode', mode);
 
         // Refresh content to update icons for the new view mode
         if ( this.currentPath ) {
             this.renderDirectory(this.currentPath);
         }
+    },
+
+    /**
+     * Applies the current view mode's classes and button icon to the DOM.
+     *
+     * @returns {void}
+     */
+    applyViewMode () {
+        const $filesContainer = this.$el_window.find('.files-tab .files');
+        const $toggleBtn = this.$el_window.find('.view-toggle-btn');
+        const $tabContent = this.$el_window.find('.files-tab');
+
+        $filesContainer.removeClass('files-list-view files-grid-view files-grid-view-sm');
+        if ( this.isGridView() ) {
+            $filesContainer.addClass(this.viewClass());
+            $tabContent.addClass('files-grid-mode');
+        } else {
+            $filesContainer.addClass('files-list-view');
+            $tabContent.removeClass('files-grid-mode');
+        }
+
+        // The button shows the active view's icon and opens the view menu
+        const btnIcon = this.currentView === 'grid' ? icons.grid
+            : this.currentView === 'grid-sm' ? icons.gridSmall
+                : icons.list;
+        $toggleBtn.html(btnIcon);
     },
 
     /**

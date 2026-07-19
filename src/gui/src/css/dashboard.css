@@ -2263,6 +2263,41 @@ body.myapps-reordering .myapps-tile {
     text-align: center;
 }
 
+/* --- Compact grid view ---
+   The container carries both files-grid-view and files-grid-view-sm, so all
+   grid rules above apply; this block only shrinks tile/icon/badge sizing. */
+
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row {
+    padding: 8px;
+    gap: 6px;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row .item-icon {
+    width: 80px;
+    height: 80px;
+    border-radius: 6px;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row .item-icon svg {
+    width: 40px;
+    height: 40px;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row .item-name {
+    font-size: 12px;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row img.item-badge {
+    width: 16px !important;
+    height: 16px !important;
+    margin: 3px;
+}
+
 .dashboard-section-files .files-tab.files-grid-mode .header .columns {
     display: none;
 }
