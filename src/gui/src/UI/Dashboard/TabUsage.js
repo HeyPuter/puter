@@ -23,6 +23,7 @@ let usageTableSortState = {
     direction: 'desc', // default descending (highest cost first)
 };
 let usageTableData = []; // Store raw data for sorting
+let usageTableRendered = false; // A table (possibly empty) has rendered from a successful load
 let usageTableExpanded = false; // Track if table is showing all rows
 const USAGE_TABLE_INITIAL_ROWS = 10;
 
@@ -145,13 +146,15 @@ function setupPlanButton ($el_window, retryDelay = 250) {
     // UIUpgradeAccount is only present on hosted puter.com; on a self-hosted
     // install the button has no working target, so hide it entirely rather
     // than showing a dead control. Hosted deployments can attach it *after*
-    // the dashboard initializes, though — keep re-checking (backing off to a
-    // slow poll) so a load-order race can't leave a subscriber without the
-    // button for the whole session, no matter how late the script lands.
+    // the dashboard initializes, though — keep re-checking so a load-order
+    // race can't leave a subscriber without the button for the whole session,
+    // no matter how late the script lands. The backoff decays to a slow
+    // heartbeat so a self-hosted install (where it never appears) isn't left
+    // running a hot poll forever.
     if ( typeof window.UIUpgradeAccount !== 'function' ) {
         $planBtn.hide();
         planBtnRetryTimer = setTimeout(
-            () => setupPlanButton($el_window, Math.min(retryDelay * 1.5, 2000)),
+            () => setupPlanButton($el_window, Math.min(retryDelay * 1.5, 60000)),
             retryDelay,
         );
         return;
@@ -266,10 +269,6 @@ function renderUsageTable () {
 }
 
 async function update_usage_details ($el_window) {
-    // Add spinning animation and record start time
-    const startTime = Date.now();
-    $($el_window).find('.update-usage-details-icon').css('animation', 'spin 1s linear infinite');
-
     const monthlyUsagePromise = puter.auth.getMonthlyUsage().then(res => {
         let monthlyAllowance = res.allowanceInfo?.monthUsageAllowance;
         // Actual month-to-date spend. `allowanceInfo.remaining` folds purchased
@@ -315,12 +314,15 @@ async function update_usage_details ($el_window) {
         }
 
         renderUsageTable();
+        usageTableRendered = true;
     }).catch(err => {
         console.error('Failed to load monthly usage:', err);
         // Only show the failure note when nothing has rendered yet — a
         // transient refresh error must not wipe a table the user is already
-        // looking at (mirrors the Apps grid's error handling).
-        if ( usageTableData.length === 0 ) {
+        // looking at (mirrors the Apps grid's error handling). Track "has
+        // rendered", not data length: an account with zero usage renders a
+        // legitimately empty table.
+        if ( ! usageTableRendered ) {
             $('.driver-usage-details-content').html(
                 '<p style="opacity:0.7; font-size:13px;">Usage details are unavailable right now.</p>',
             );
@@ -366,16 +368,6 @@ async function update_usage_details ($el_window) {
 
     // Wait for both promises to complete
     await Promise.all([monthlyUsagePromise, spacePromise]);
-
-    // Ensure spinning continues for at least 1 second
-    const elapsed = Date.now() - startTime;
-    const minDuration = 1000; // 1 second
-    if ( elapsed < minDuration ) {
-        await new Promise(resolve => setTimeout(resolve, minDuration - elapsed));
-    }
-
-    // Remove spinning animation
-    $($el_window).find('.update-usage-details-icon').css('animation', '');
 }
 
 export default TabUsage;
