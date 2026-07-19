@@ -1454,7 +1454,6 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard .path-btn {
-    opacity: 0.6;
     width: 28px;
     cursor: pointer;
     border-radius: 5px;
@@ -1464,9 +1463,8 @@ body.myapps-reordering .myapps-tile {
 
 @media (hover: hover) {
     .dashboard .path-btn:hover {
-        filter: invert(1) hue-rotate(180deg);
-        background-color: var(--select-color);
-        opacity: 1;
+        background-color: #EEE;
+        border-color: #EEE;
     }
 }
 
@@ -1475,10 +1473,12 @@ body.myapps-reordering .myapps-tile {
         filter: invert(1) hue-rotate(180deg);
     }
     @media (hover: hover) {
+        /* The hover chip is light (#EEE) even in dark mode, so the icon must
+           drop its dark-mode inversion to stay readable on it. */
         .path-btn:hover {
             filter: invert(0) hue-rotate(0deg);
-            background-color: var(--select-color);
-            opacity: 1;
+            background-color: #EEE;
+            border-color: #EEE;
         }
     }
 }
@@ -1513,8 +1513,8 @@ body.myapps-reordering .myapps-tile {
 
 @media (hover: hover) {
     .dashboard-section-files .header .path-action-btn:hover {
-        color: var(--dashboard-background);
-        background-color: var(--select-color);
+        background-color: #EEE;
+        border-color: #EEE;
     }
 }
 
@@ -1543,9 +1543,8 @@ body.myapps-reordering .myapps-tile {
 
 @media (hover: hover) {
     .dashboard-section-files .header .path .dirname:hover {
-        color: var(--dashboard-background);
-        background-color: var(--select-color);
-        border: 1px solid var(--select-color);
+        background-color: #EEE;
+        border-color: #EEE;
     }
 }
 
