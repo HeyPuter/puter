@@ -2214,9 +2214,10 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-icon img {
     width: 96px;
     height: 96px;
+    /* override the desktop UI's 45px .item-icon img cap from style.css */
+    max-width: none;
+    max-height: none;
     object-fit: contain;
-    max-width: fit-content;
-    max-height: fit-content;
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-icon svg {
