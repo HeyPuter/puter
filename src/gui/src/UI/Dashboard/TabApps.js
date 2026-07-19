@@ -183,7 +183,7 @@ function showUninstallModal ({ appName, appTitle, appUid, removesTile, self, $el
             // and restores its position if it comes back.
             if ( removesTile ) {
                 self._apps = self._apps.filter(a => a.name !== appName);
-                self.renderApps($el_window, { preservePage: true });
+                self.renderApps($el_window, { preservePage: true, instant: true });
             }
             // Keep the user's page and skip the load fade — this is a
             // background sync, not a fresh visit.
@@ -925,11 +925,17 @@ const TabApps = {
         this._pendingLoad = null;
         if ( pending.loadSeq < (this._appliedSeq || 0) ) return;
         this._appliedSeq = pending.loadSeq;
-        this._savedOrderNames = pending.orderedNames;
 
-        const orderedNames = this._hasCustomOrder && Array.isArray(this._apps)
-            ? serializeAppOrder(this._apps)
+        // The drag that deferred this load may have just saved a newer order;
+        // _savedOrderNames tracks the canonical saved list (saveOrder keeps
+        // it merged, with hidden apps at their ranks). Prefer it over the kv
+        // snapshot the stashed load fetched — that may predate the drag — and
+        // never reconcile against the visible-only on-screen order, which
+        // would tail-append any app returning to the grid.
+        const orderedNames = this._hasCustomOrder && Array.isArray(this._savedOrderNames)
+            ? this._savedOrderNames
             : pending.orderedNames;
+        this._savedOrderNames = orderedNames;
         this._hasCustomOrder = Array.isArray(orderedNames) && orderedNames.length > 0;
         this._apps = reconcileAppOrder(pending.merged, orderedNames);
         this.renderApps(pending.$el_window, { preservePage: true, instant: true });

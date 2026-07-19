@@ -94,35 +94,26 @@ export function mergeSavedOrder (currentNames, previousNames) {
     const currentSet = new Set(result);
     const prevSet = new Set(previousNames);
     // A survivor is a name present in both lists; re-inserted missing names
-    // and brand-new names never count when locating the k-th survivor.
+    // and brand-new names never count when advancing past a survivor.
     const isSurvivor = name => currentSet.has(name) && prevSet.has(name);
 
     const seen = new Set();
-    let rank = 0;        // survivors encountered so far in the saved order
-    let lastInsert = -1; // keeps runs of missing names in their saved order
+    // Single forward pointer over `result`: for each survivor in the saved
+    // order it advances just past the next survivor; each missing name is
+    // spliced in at the pointer, which puts it right after the same number
+    // of survivors that preceded it in the saved order — its rank.
+    let at = 0;
     for ( const name of previousNames ) {
         if ( typeof name !== 'string' || name.length === 0 ) continue;
         if ( seen.has(name) ) continue;
         seen.add(name);
         if ( currentSet.has(name) ) {
-            rank++;
-            lastInsert = -1;
+            while ( at < result.length && ! isSurvivor(result[at]) ) at++;
+            at++;
             continue;
         }
-        // Find the index just past the rank-th survivor in the result.
-        let at = 0;
-        if ( rank > 0 ) {
-            let survivors = 0;
-            for ( let i = 0; i < result.length; i++ ) {
-                if ( isSurvivor(result[i]) && ++survivors === rank ) {
-                    at = i + 1;
-                    break;
-                }
-            }
-        }
-        if ( lastInsert >= at ) at = lastInsert + 1;
         result.splice(at, 0, name);
-        lastInsert = at;
+        at++;
     }
     return result;
 }
