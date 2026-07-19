@@ -243,6 +243,7 @@ const TabApps = {
     _loadPromise: null,
     _pendingLoad: null,
     _savedOrderNames: null,
+    _orderSavedAtSeq: 0,
 
     html () {
         let h = '<div class="dashboard-tab-content myapps-tab">';
@@ -916,9 +917,9 @@ const TabApps = {
     },
 
     // A load that resolved mid-drag was stashed rather than rendered (see
-    // _fetchAndRenderApps). Apply it now, reconciled against the on-screen
-    // order the drag just produced — re-fetching or replaying the fetched kv
-    // order here could undo a reorder whose save is still in flight.
+    // _fetchAndRenderApps). Apply it now; _resolveOrderNames picks between
+    // the canonical in-memory saved order and the kv snapshot this load
+    // fetched, based on which is fresher.
     _applyPendingLoad () {
         const pending = this._pendingLoad;
         if ( ! pending ) return;
@@ -926,19 +927,25 @@ const TabApps = {
         if ( pending.loadSeq < (this._appliedSeq || 0) ) return;
         this._appliedSeq = pending.loadSeq;
 
-        // The drag that deferred this load may have just saved a newer order;
-        // _savedOrderNames tracks the canonical saved list (saveOrder keeps
-        // it merged, with hidden apps at their ranks). Prefer it over the kv
-        // snapshot the stashed load fetched — that may predate the drag — and
-        // never reconcile against the visible-only on-screen order, which
-        // would tail-append any app returning to the grid.
-        const orderedNames = this._hasCustomOrder && Array.isArray(this._savedOrderNames)
-            ? this._savedOrderNames
-            : pending.orderedNames;
+        const orderedNames = this._resolveOrderNames(pending.loadSeq, pending.orderedNames);
         this._savedOrderNames = orderedNames;
         this._hasCustomOrder = Array.isArray(orderedNames) && orderedNames.length > 0;
         this._apps = reconcileAppOrder(pending.merged, orderedNames);
         this.renderApps(pending.$el_window, { preservePage: true, instant: true });
+    },
+
+    // Decide which saved-order snapshot a resolving load reconciles against.
+    // A fetch issued before the user's latest local order save carries a
+    // pre-save kv snapshot — replaying it would visibly revert the reorder,
+    // and permanently clobber it after the next save. A fetch issued after
+    // the save is at least as fresh and may carry a newer arrangement from
+    // another window, so it wins. Never resolve to the visible-only
+    // on-screen order: it would tail-append any app returning to the grid.
+    _resolveOrderNames (loadSeq, fetchedOrderNames) {
+        const fetchedBeforeSave = loadSeq <= (this._orderSavedAtSeq || 0);
+        return fetchedBeforeSave && Array.isArray(this._savedOrderNames)
+            ? this._savedOrderNames
+            : fetchedOrderNames;
     },
 
     // A local mutation of _apps (uninstall) must invalidate loads fetched
@@ -961,6 +968,10 @@ const TabApps = {
         // reconcileAppOrder ignores them.
         const names = mergeSavedOrder(serializeAppOrder(this._apps), this._savedOrderNames);
         this._savedOrderNames = names;
+        // Loads already in flight fetched kv before this save; mark the
+        // boundary so their stale snapshot can't replay over it (see
+        // _resolveOrderNames).
+        this._orderSavedAtSeq = this._loadSeq || 0;
         try {
             const p = puter.kv.set(APPS_ORDER_KV_KEY, JSON.stringify(names));
             if ( p && typeof p.catch === 'function' ) {
@@ -1150,11 +1161,15 @@ const TabApps = {
             }
             this._pendingLoad = null;
             this._appliedSeq = loadSeq;
-            this._savedOrderNames = orderedNames;
+            // A drag may have started AND committed while this load was in
+            // flight; _resolveOrderNames keeps its saved reorder from being
+            // replayed over by this load's pre-save kv snapshot.
+            const effectiveOrder = this._resolveOrderNames(loadSeq, orderedNames);
+            this._savedOrderNames = effectiveOrder;
 
-            this._hasCustomOrder = Array.isArray(orderedNames) && orderedNames.length > 0;
+            this._hasCustomOrder = Array.isArray(effectiveOrder) && effectiveOrder.length > 0;
 
-            this._apps = reconcileAppOrder(merged, orderedNames);
+            this._apps = reconcileAppOrder(merged, effectiveOrder);
             this.renderApps($el_window, renderOpts);
         } catch (e) {
             console.error('Failed to load installed apps:', e);
