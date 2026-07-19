@@ -179,13 +179,9 @@ function showUninstallModal ({ appName, appTitle, appUid, removesTile, self, $el
                 // Keep the persisted order free of the now-uninstalled app, but
                 // only if the user already has a custom order (don't create one).
                 if ( self._hasCustomOrder ) self.saveOrder();
-                // Mark any in-flight load stale: it fetched before the revoke,
-                // and applying it would pop the just-removed tile back in.
-                // Also stop sharing its promise, so the next activation
-                // fetches fresh instead of joining the doomed load.
-                self._loadSeq = (self._loadSeq || 0) + 1;
-                self._appliedSeq = self._loadSeq;
-                self._loadPromise = null;
+                // A load fetched before the revoke must not apply — it would
+                // pop the just-removed tile back in.
+                self._invalidateInFlightLoads();
                 self.renderApps($el_window, { preservePage: true });
             }
         } catch ( err ) {
@@ -242,6 +238,7 @@ const TabApps = {
     _reduceMotionMQL: undefined,
     _loadPromise: null,
     _pendingLoad: null,
+    _partialLoad: false,
 
     html () {
         let h = '<div class="dashboard-tab-content myapps-tab">';
@@ -294,6 +291,15 @@ const TabApps = {
                 window.open(targetLink, '_blank', 'noopener,noreferrer');
             } else if ( appName ) {
                 window.open(`/app/${appName}`, '_blank', 'noopener,noreferrer');
+                // Opening records an app-open, which puts this app in the
+                // server-side recent list — from now on a revoke leaves the
+                // tile in place (see isUninstallable in _fetchAndRenderApps).
+                // Flip the flag now so the uninstall modal doesn't act on a
+                // stale load-time snapshot and remove a tile that will
+                // silently reappear.
+                const app = (self._apps || []).find(a => a.name === appName);
+                if ( app ) app.uninstallable = false;
+                $(this).attr('data-app-uninstallable', '0');
             }
         });
 
@@ -924,6 +930,7 @@ const TabApps = {
         this._pendingLoad = null;
         if ( pending.loadSeq < (this._appliedSeq || 0) ) return;
         this._appliedSeq = pending.loadSeq;
+        this._partialLoad = pending.partial;
 
         const orderedNames = this._hasCustomOrder && Array.isArray(this._apps)
             ? serializeAppOrder(this._apps)
@@ -933,8 +940,27 @@ const TabApps = {
         this.renderApps(pending.$el_window, { preservePage: true, instant: true });
     },
 
+    // A local mutation of _apps (uninstall) must invalidate loads fetched
+    // before it — applying one would resurrect the pre-mutation state. Loads
+    // started after this call get a newer seq and still apply. Dropping the
+    // shared promise lets the next activation fetch fresh instead of joining
+    // the doomed load.
+    _invalidateInFlightLoads () {
+        this._loadSeq = (this._loadSeq || 0) + 1;
+        this._appliedSeq = this._loadSeq;
+        this._loadPromise = null;
+    },
+
     saveOrder () {
         this._hasCustomOrder = true;
+        // Never persist an order backed by a partial app list — the saved
+        // order is the only record of the missing apps' positions, and
+        // overwriting it would drop them for good. The in-session order still
+        // applies; the next complete load can persist again.
+        if ( this._partialLoad ) {
+            console.warn('App order not saved: the installed-apps list is incomplete (a page failed to load).');
+            return;
+        }
         const names = serializeAppOrder(this._apps);
         try {
             const p = puter.kv.set(APPS_ORDER_KV_KEY, JSON.stringify(names));
@@ -974,6 +1000,11 @@ const TabApps = {
 
         const $container = $el_window.find('.myapps-container');
 
+        // Whether the installed-apps list came back incomplete (a page beyond
+        // the first failed). A partial list may render when the grid is empty,
+        // but must never be persisted (see saveOrder).
+        let installedAppsPartial = false;
+
         try {
             // Fetch the two app lists and the saved order together. The
             // installedApps endpoint caps `limit` at 100 and paginates, so page
@@ -1007,9 +1038,13 @@ const TabApps = {
                         // A first-page failure is a failed load. A later page
                         // failing must not discard the pages already fetched —
                         // that would turn one flaky request among N into an
-                        // empty grid (the single-request load never had that).
-                        if ( page === 1 ) throw err;
+                        // empty grid — but a partial list is only better than
+                        // nothing: it must never REPLACE a complete grid
+                        // already on screen, so fail the refresh in that case
+                        // (the outer catch preserves what's showing).
+                        if ( page === 1 || this._apps ) throw err;
                         console.error(`Failed to fetch installedApps page ${page}; showing the ${all.length} apps fetched so far:`, err);
+                        installedAppsPartial = true;
                         break;
                     }
                 }
@@ -1102,12 +1137,13 @@ const TabApps = {
             // away either — stash it for _endDrag to apply.
             if ( this._drag?.started ) {
                 if ( ! this._pendingLoad || loadSeq > this._pendingLoad.loadSeq ) {
-                    this._pendingLoad = { $el_window, merged, orderedNames, loadSeq };
+                    this._pendingLoad = { $el_window, merged, orderedNames, loadSeq, partial: installedAppsPartial };
                 }
                 return;
             }
             this._pendingLoad = null;
             this._appliedSeq = loadSeq;
+            this._partialLoad = installedAppsPartial;
 
             this._hasCustomOrder = Array.isArray(orderedNames) && orderedNames.length > 0;
 
