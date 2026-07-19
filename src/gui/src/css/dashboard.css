@@ -904,6 +904,10 @@ input.myapps-search::-webkit-search-decoration {
 }
 
 .myapps-tile-icon {
+    /* flex: none — the tile's row height only budgets one label line; without
+       this, an overflowing label makes flexbox shrink the icon box, deforming
+       the icon into a landscape crop. */
+    flex: none;
     width: 56px;
     height: 56px;
     overflow: hidden;
@@ -948,8 +952,11 @@ input.myapps-search::-webkit-search-decoration {
     max-width: 100px;
     overflow: hidden;
     text-overflow: ellipsis;
+    /* Single line only: the 78px tile height (--myapps-tile-h) budgets icon +
+       margin + exactly one label line. A second line overflows the grid row
+       and gets clipped. Full names remain available via the tile tooltip. */
     display: -webkit-box;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 1;
     -webkit-box-orient: vertical;
     word-break: break-word;
 }
