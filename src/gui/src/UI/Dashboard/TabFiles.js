@@ -162,16 +162,21 @@ const TabFiles = {
         // drift — e.g. trashed items must show metadata.original_name, not
         // the UID that is their raw name (matching renderItem).
         window.UIDashboardFileItemUpdate = function ($row, file) {
-            let displayName = file.name || '';
-            try {
-                const meta = file.metadata ? JSON.parse(file.metadata) : null;
-                if ( meta && meta.original_name ) displayName = meta.original_name;
-            } catch { /* keep raw name */ }
-            $row.attr('data-name', displayName);
-            $row.attr('data-path', file.path || '');
-            $row.attr('data-type', file.type || '');
-            $row.find('.item-name').text(displayName);
-            $row.find('.item-name-editor').val(displayName);
+            // Minimal update payloads may omit fields — only write what the
+            // event actually carries, so it can't blank a correct name/path
+            // (or zero a size) that is already on screen.
+            if ( file.name || file.metadata ) {
+                let displayName = file.name || '';
+                try {
+                    const meta = file.metadata ? JSON.parse(file.metadata) : null;
+                    if ( meta && meta.original_name ) displayName = meta.original_name;
+                } catch { /* keep raw name */ }
+                $row.attr('data-name', displayName);
+                $row.find('.item-name').text(displayName);
+                $row.find('.item-name-editor').val(displayName);
+            }
+            if ( file.path ) $row.attr('data-path', file.path);
+            if ( typeof file.type !== 'undefined' ) $row.attr('data-type', file.type || '');
             // Refresh the visible Size/Modified cells too, not just the
             // hidden data attributes, so a remote overwrite is reflected.
             // Only when the payload actually carries the field — a minimal
@@ -2193,56 +2198,11 @@ const TabFiles = {
                 return;
             }
 
-            // Handle Shift+Click for range selection. Require the anchor to
-            // still be in this row list — a detached anchor (indexOf === -1)
-            // would otherwise set shift_clicked and then select nothing,
-            // leaving the click a no-op.
-            const allShiftRows = $(el_item).parent().find('.row').toArray();
-            const hasShiftAnchor = window.latest_selected_item
-                && allShiftRows.indexOf(window.latest_selected_item) !== -1;
-            if ( e.shiftKey && hasShiftAnchor && window.latest_selected_item !== el_item ) {
-                e.preventDefault();
-                shift_clicked = true;
-
-                const allRows = allShiftRows;
-                const clickedIndex = allRows.indexOf(el_item);
-                const lastSelectedIndex = allRows.indexOf(window.latest_selected_item);
-
-                if ( clickedIndex !== -1 && lastSelectedIndex !== -1 ) {
-                    const start = Math.min(clickedIndex, lastSelectedIndex);
-                    const end = Math.max(clickedIndex, lastSelectedIndex);
-
-                    // Clear selection if no Ctrl/Cmd held
-                    if ( !e.ctrlKey && !e.metaKey ) {
-                        el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
-                            r.classList.remove('selected');
-                        });
-                    }
-
-                    // Select all items in range
-                    for ( let i = start; i <= end; i++ ) {
-                        allRows[i].classList.add('selected');
-                    }
-
-                    // Update latest selected to the clicked item
-                    window.latest_selected_item = el_item;
-                    window.active_element = el_item;
-                    window.active_item_container = el_item.closest('.files');
-                    _this.updateFooterStats();
-                    return;
-                }
-            } else if ( e.shiftKey && ! hasShiftAnchor ) {
-                // Shift-click with no valid anchor (e.g. the first click after
-                // navigating to a new directory): select just this item and make
-                // it the anchor. onclick skips selection while Shift is held, so
-                // without this the click would select nothing. Shift-clicking
-                // the current anchor itself is NOT this case — that must fall
-                // through as a no-op so it can't collapse an existing
-                // multi-selection to one item.
-                e.preventDefault();
-                shift_clicked = true;
-                // Ctrl/Cmd+Shift extends: keep whatever is already selected.
-                if ( !e.ctrlKey && !e.metaKey ) {
+            // Select just el_item (or additionally to the current selection,
+            // when additive) and make it the anchor. Shared by the no-anchor
+            // shift-click and drag-handle paths so they can't drift apart.
+            const selectSingle = (additive = false) => {
+                if ( ! additive ) {
                     el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
                         r.classList.remove('selected');
                     });
@@ -2252,7 +2212,61 @@ const TabFiles = {
                 window.active_element = el_item;
                 window.active_item_container = el_item.closest('.files');
                 _this.updateFooterStats();
-                return;
+            };
+
+            // Handle Shift+Click for range selection. Require the anchor to
+            // still be in this row list — a detached anchor (indexOf === -1)
+            // would otherwise set shift_clicked and then select nothing,
+            // leaving the click a no-op. The row lookup happens only under
+            // Shift: this handler is the hot path for every click in the list.
+            if ( e.shiftKey ) {
+                const allRows = $(el_item).parent().find('.row').toArray();
+                const hasShiftAnchor = window.latest_selected_item
+                    && allRows.indexOf(window.latest_selected_item) !== -1;
+                if ( hasShiftAnchor && window.latest_selected_item !== el_item ) {
+                    e.preventDefault();
+                    shift_clicked = true;
+
+                    const clickedIndex = allRows.indexOf(el_item);
+                    const lastSelectedIndex = allRows.indexOf(window.latest_selected_item);
+
+                    if ( clickedIndex !== -1 && lastSelectedIndex !== -1 ) {
+                        const start = Math.min(clickedIndex, lastSelectedIndex);
+                        const end = Math.max(clickedIndex, lastSelectedIndex);
+
+                        // Clear selection if no Ctrl/Cmd held
+                        if ( !e.ctrlKey && !e.metaKey ) {
+                            el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
+                                r.classList.remove('selected');
+                            });
+                        }
+
+                        // Select all items in range
+                        for ( let i = start; i <= end; i++ ) {
+                            allRows[i].classList.add('selected');
+                        }
+
+                        // Update latest selected to the clicked item
+                        window.latest_selected_item = el_item;
+                        window.active_element = el_item;
+                        window.active_item_container = el_item.closest('.files');
+                        _this.updateFooterStats();
+                        return;
+                    }
+                } else if ( ! hasShiftAnchor ) {
+                    // Shift-click with no valid anchor (e.g. the first click
+                    // after navigating to a new directory): select just this
+                    // item and make it the anchor. onclick skips selection
+                    // while Shift is held, so without this the click would
+                    // select nothing. Ctrl/Cmd+Shift extends instead of
+                    // clearing.
+                    e.preventDefault();
+                    shift_clicked = true;
+                    selectSingle(e.ctrlKey || e.metaKey);
+                    return;
+                }
+                // Shift-click on the current anchor itself: deliberate no-op —
+                // it must not collapse an existing multi-selection.
             }
 
             // In select mode on mobile, treat taps like Ctrl+click (toggle selection)
@@ -2263,15 +2277,8 @@ const TabFiles = {
             // won't be reached — touches land on .row instead, deferring selection to onclick.
             const isDragHandle = e.target.closest('.item-name, .item-icon, .item-badges');
             if ( e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode && isDragHandle ) {
-                el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
-                    r.classList.remove('selected');
-                });
-                el_item.classList.add('selected');
-                window.latest_selected_item = el_item;
-                window.active_element = el_item;
-                window.active_item_container = el_item.closest('.files');
+                selectSingle();
                 itemWasSelectedOnMousedown = true;
-                _this.updateFooterStats();
                 return;
             }
 

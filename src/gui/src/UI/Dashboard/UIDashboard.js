@@ -278,9 +278,14 @@ async function UIDashboard (options) {
         // the freshly-added row instead of the stale one.
         const old_path = resp.old_path ?? resp.from_path;
         if ( old_path ) {
-            // data-path holds the raw path; match by comparison rather than a
-            // selector so quotes/special characters in names can't break it.
-            $('.item').filter(function () {
+            // Narrow by uid first when the payload carries one (uids are
+            // UUIDs, safe to interpolate into a selector) — a full-DOM scan
+            // per socket event is O(rows) on the hot path. The uid matches
+            // both the old and new rows, so still compare data-path (raw
+            // value, compared rather than interpolated so quotes/special
+            // characters in names can't break it) to pick the stale one.
+            const $candidates = resp.uid ? $(`.item[data-uid='${resp.uid}']`) : $('.item');
+            $candidates.filter(function () {
                 return $(this).attr('data-path') === old_path;
             }).fadeOut(150, function () {
                 $(this).remove();
@@ -298,9 +303,15 @@ async function UIDashboard (options) {
         if ( item.original_client_socket_id === window.socket.id ) return;
         if ( item.descendants_only ) return;
 
-        $('.item').filter(function () {
-            return $(this).attr('data-path') === item.path;
-        }).fadeOut(150, function () {
+        // Match by uid when present (O(1) attribute selector; uids are UUIDs,
+        // safe to interpolate) and fall back to a path scan for minimal
+        // payloads — a removed item has exactly one row either way.
+        const $rows = item.uid
+            ? $(`.item[data-uid='${item.uid}']`)
+            : $('.item').filter(function () {
+                return $(this).attr('data-path') === item.path;
+            });
+        $rows.fadeOut(150, function () {
             $(this).remove();
             // Keep the footer item count / total size in sync with the removal.
             window.dashboard_object?.updateFooterStats?.();
