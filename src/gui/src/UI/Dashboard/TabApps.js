@@ -1,6 +1,6 @@
 import UIContextMenu from '../UIContextMenu.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
-import { reconcileAppOrder, serializeAppOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
+import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 
 /** Lowercase app names that must not offer Uninstall in the My Apps tile context menu. */
 const APP_NAMES_NO_UNINSTALL = new Set([
@@ -185,7 +185,9 @@ function showUninstallModal ({ appName, appTitle, appUid, removesTile, self, $el
                 self._apps = self._apps.filter(a => a.name !== appName);
                 self.renderApps($el_window, { preservePage: true });
             }
-            self.loadApps($el_window);
+            // Keep the user's page and skip the load fade — this is a
+            // background sync, not a fresh visit.
+            self.loadApps($el_window, { preservePage: true, instant: true });
         } catch ( err ) {
             console.error('Failed to uninstall app:', err);
         }
@@ -946,18 +948,12 @@ const TabApps = {
 
     saveOrder () {
         this._hasCustomOrder = true;
-        const names = serializeAppOrder(this._apps);
-        // Carry over saved names that aren't in the current list (e.g. apps
-        // whose installedApps page failed to load this session): the saved
-        // order is the only record of their positions, so dropping them would
-        // lose those for good, while stale names are harmless —
+        // Merge with the previously saved order so names absent from the
+        // current list (e.g. apps whose installedApps page failed to load
+        // this session) keep their saved positions — the saved order is the
+        // only record of them, and stale names are harmless because
         // reconcileAppOrder ignores them.
-        if ( Array.isArray(this._savedOrderNames) ) {
-            const have = new Set(names);
-            for ( const name of this._savedOrderNames ) {
-                if ( ! have.has(name) ) names.push(name);
-            }
-        }
+        const names = mergeSavedOrder(serializeAppOrder(this._apps), this._savedOrderNames);
         this._savedOrderNames = names;
         try {
             const p = puter.kv.set(APPS_ORDER_KV_KEY, JSON.stringify(names));
@@ -969,7 +965,7 @@ const TabApps = {
         }
     },
 
-    loadApps ($el_window) {
+    loadApps ($el_window, renderOpts) {
         if ( this._drag ) {
             // Don't fetch/re-render on top of a live drag; cancel a pending
             // (not-yet-started) pickup so a rebuild can't strand it.
@@ -979,14 +975,14 @@ const TabApps = {
         // init and the initial-route onActivate both fire on open; join the
         // in-flight load instead of issuing a duplicate request trio.
         if ( this._loadPromise ) return this._loadPromise;
-        const p = this._fetchAndRenderApps($el_window).finally(() => {
+        const p = this._fetchAndRenderApps($el_window, renderOpts).finally(() => {
             if ( this._loadPromise === p ) this._loadPromise = null;
         });
         this._loadPromise = p;
         return p;
     },
 
-    async _fetchAndRenderApps ($el_window) {
+    async _fetchAndRenderApps ($el_window, renderOpts = {}) {
         // Give each load a monotonically increasing id. An older/slower
         // response must not clobber a newer one that already applied — or a
         // reorder the user saved while a stale fetch was in flight. We gate on
@@ -1153,7 +1149,7 @@ const TabApps = {
             this._hasCustomOrder = Array.isArray(orderedNames) && orderedNames.length > 0;
 
             this._apps = reconcileAppOrder(merged, orderedNames);
-            this.renderApps($el_window);
+            this.renderApps($el_window, renderOpts);
         } catch (e) {
             console.error('Failed to load installed apps:', e);
             // Only show the failure placeholder when nothing has loaded yet; a
