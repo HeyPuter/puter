@@ -1505,7 +1505,8 @@ body.myapps-reordering .myapps-tile {
     cursor: pointer;
     padding: 4px;
     border-radius: 4px;
-    color: var(--dashboard-icon);
+    /* Matches the #5c5c5c stroke of the arrow-*-thin.svg nav icons. */
+    color: #5c5c5c;
     display: flex;
     align-items: center;
     justify-content: center;
