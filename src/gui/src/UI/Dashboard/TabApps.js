@@ -71,7 +71,12 @@ function resolveTileDisplay (app) {
 
 function buildTileHtml (app) {
     const { title, targetLink } = resolveTileDisplay(app);
-    const iconUrl = app.iconUrl || window.icons['app.svg'];
+    // installedApps reports icon: null when an app has no icon at all; its
+    // iconUrl would be a wasted fetch, so use the bundled default instead.
+    // Strictly null — launch-list entries carry no icon key (undefined).
+    const iconUrl = app.icon === null
+        ? window.icons['app-default.svg']
+        : (app.iconUrl || window.icons['app.svg']);
 
     let h = `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" data-target-link="${html_encode(targetLink)}" title="${html_encode(title)}">`;
     h += '<div class="myapps-tile-icon">';
