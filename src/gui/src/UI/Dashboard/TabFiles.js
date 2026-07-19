@@ -164,13 +164,14 @@ const TabFiles = {
         window.UIDashboardFileItemUpdate = function ($row, file) {
             // Minimal update payloads may omit fields — only write what the
             // event actually carries, so it can't blank a correct name/path
-            // (or zero a size) that is already on screen.
-            if ( file.name || file.metadata ) {
-                let displayName = file.name || '';
-                try {
-                    const meta = file.metadata ? JSON.parse(file.metadata) : null;
-                    if ( meta && meta.original_name ) displayName = meta.original_name;
-                } catch { /* keep raw name */ }
+            // (or zero a size) that is already on screen. A metadata-only
+            // payload without original_name resolves to '' and is skipped too.
+            let displayName = file.name || '';
+            try {
+                const meta = file.metadata ? JSON.parse(file.metadata) : null;
+                if ( meta && meta.original_name ) displayName = meta.original_name;
+            } catch { /* keep raw name */ }
+            if ( displayName ) {
                 $row.attr('data-name', displayName);
                 $row.find('.item-name').text(displayName);
                 $row.find('.item-name-editor').val(displayName);
@@ -2198,16 +2199,17 @@ const TabFiles = {
                 return;
             }
 
-            // Select just el_item (or additionally to the current selection,
-            // when additive) and make it the anchor. Shared by the no-anchor
-            // shift-click and drag-handle paths so they can't drift apart.
-            const selectSingle = (additive = false) => {
+            // Select the given rows (replacing the current selection unless
+            // additive) and make el_item the anchor. Shared by the range,
+            // no-anchor shift-click, and drag-handle paths so their selection
+            // bookkeeping can't drift apart.
+            const applySelection = (rows, additive = false) => {
                 if ( ! additive ) {
                     el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
                         r.classList.remove('selected');
                     });
                 }
-                el_item.classList.add('selected');
+                for ( const row of rows ) row.classList.add('selected');
                 window.latest_selected_item = el_item;
                 window.active_element = el_item;
                 window.active_item_container = el_item.closest('.files');
@@ -2233,24 +2235,9 @@ const TabFiles = {
                     if ( clickedIndex !== -1 && lastSelectedIndex !== -1 ) {
                         const start = Math.min(clickedIndex, lastSelectedIndex);
                         const end = Math.max(clickedIndex, lastSelectedIndex);
-
-                        // Clear selection if no Ctrl/Cmd held
-                        if ( !e.ctrlKey && !e.metaKey ) {
-                            el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
-                                r.classList.remove('selected');
-                            });
-                        }
-
-                        // Select all items in range
-                        for ( let i = start; i <= end; i++ ) {
-                            allRows[i].classList.add('selected');
-                        }
-
-                        // Update latest selected to the clicked item
-                        window.latest_selected_item = el_item;
-                        window.active_element = el_item;
-                        window.active_item_container = el_item.closest('.files');
-                        _this.updateFooterStats();
+                        // Select the whole range; Ctrl/Cmd extends instead of
+                        // replacing.
+                        applySelection(allRows.slice(start, end + 1), e.ctrlKey || e.metaKey);
                         return;
                     }
                 } else if ( ! hasShiftAnchor ) {
@@ -2262,7 +2249,7 @@ const TabFiles = {
                     // clearing.
                     e.preventDefault();
                     shift_clicked = true;
-                    selectSingle(e.ctrlKey || e.metaKey);
+                    applySelection([el_item], e.ctrlKey || e.metaKey);
                     return;
                 }
                 // Shift-click on the current anchor itself: deliberate no-op —
@@ -2277,7 +2264,7 @@ const TabFiles = {
             // won't be reached — touches land on .row instead, deferring selection to onclick.
             const isDragHandle = e.target.closest('.item-name, .item-icon, .item-badges');
             if ( e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode && isDragHandle ) {
-                selectSingle();
+                applySelection([el_item]);
                 itemWasSelectedOnMousedown = true;
                 return;
             }
