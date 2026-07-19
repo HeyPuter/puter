@@ -146,17 +146,19 @@ function setupPlanButton ($el_window, retryDelay = 250) {
     // UIUpgradeAccount is only present on hosted puter.com; on a self-hosted
     // install the button has no working target, so hide it entirely rather
     // than showing a dead control. Hosted deployments can attach it *after*
-    // the dashboard initializes, though — keep re-checking so a load-order
-    // race can't leave a subscriber without the button for the whole session,
-    // no matter how late the script lands. The backoff decays to a slow
-    // heartbeat so a self-hosted install (where it never appears) isn't left
-    // running a hot poll forever.
+    // the dashboard initializes, though — retry with decaying backoff so a
+    // load-order race can't hide the button from a subscriber. Give up after
+    // ~30s: a script that hasn't landed by then never will (self-hosted), and
+    // onActivate re-checks on every return to the tab anyway. The bound also
+    // releases the captured $el_window instead of pinning it forever.
     if ( typeof window.UIUpgradeAccount !== 'function' ) {
         $planBtn.hide();
-        planBtnRetryTimer = setTimeout(
-            () => setupPlanButton($el_window, Math.min(retryDelay * 1.5, 60000)),
-            retryDelay,
-        );
+        if ( retryDelay <= 10000 ) {
+            planBtnRetryTimer = setTimeout(
+                () => setupPlanButton($el_window, retryDelay * 1.5),
+                retryDelay,
+            );
+        }
         return;
     }
     const hasSubscription = window.user?.subscription?.active;
