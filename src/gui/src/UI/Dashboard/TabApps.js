@@ -165,11 +165,11 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
             await puter.perms.revokeApp(appUid, '*');
             // A load fetched before the revoke must not apply — it would
             // resurrect the pre-revoke grid. No refetch here either: the
-            // recommended/recent launch lists don't know about the revoke,
-            // so an immediate reload would just re-add the tile. The saved
-            // order intentionally keeps the app's name: reconcileAppOrder
-            // ignores it while the app is gone and restores its position if
-            // it comes back.
+            // recommended launch list doesn't know about the revoke, so an
+            // immediate reload would just re-add a recommended app's tile.
+            // The saved order intentionally keeps the app's name:
+            // reconcileAppOrder ignores it while the app is gone and
+            // restores its position if it comes back.
             self._invalidateInFlightLoads();
             self._apps = self._apps.filter(a => a.name !== appName);
             self.renderApps($el_window, { preservePage: true, instant: true });
@@ -1047,11 +1047,13 @@ const TabApps = {
             const installedApps = installedResult.apps;
             const launchData = await launchRes.json();
 
-            // Normalize launch apps (recommended + recent) to same shape
-            const launchApps = [
-                ...(launchData.recommended || []),
-                ...(launchData.recent || []),
-            ].map(app => ({
+            // Normalize recommended launch apps to the tile shape. The
+            // recent list is deliberately unused: recents are open history,
+            // not installs, so they resurrected uninstalled apps' tiles and
+            // showed merely-visited sites as if installed. Anything the user
+            // actually uses appears via installedApps (opening an app grants
+            // it a permission). Recents still power the Home tab.
+            const launchApps = (launchData.recommended || []).map(app => ({
                 name: app.name,
                 title: app.title,
                 uid: app.uuid || app.uid || null,
