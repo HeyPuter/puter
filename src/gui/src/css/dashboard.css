@@ -952,7 +952,6 @@ input.myapps-search::-webkit-search-decoration {
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     word-break: break-word;
-    white-space: nowrap;
 }
 
 /* Uninstall confirmation modal */
@@ -1815,7 +1814,7 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard-section-files .row.folder.ui-droppable-hover,
-.dashboard-section-files .row.folder.selected.ui-droppable-over {
+.dashboard-section-files .row.folder.selected.ui-droppable-hover {
     color: var(--dashboard-text);
     background-color: rgba(59, 130, 246, 0.1);
     border: 2px dashed var(--select-color);
@@ -1901,14 +1900,16 @@ body.myapps-reordering .myapps-tile {
 }
 
 /* Dark mode support for native file drop */
-.window[data-color-scheme="dark"] .dashboard-section-files .files.native-drop-active {
-    background-color: rgba(100, 180, 255, 0.12);
-    outline-color: #4da3ff;
-}
+@media (prefers-color-scheme: dark) {
+    .dashboard-section-files .files.native-drop-active {
+        background-color: rgba(100, 180, 255, 0.12);
+        outline-color: #4da3ff;
+    }
 
-.window[data-color-scheme="dark"] .dashboard-section-files .directories li.native-drop-target,
-.window[data-color-scheme="dark"] .dashboard-section-files .files .row.folder.native-drop-target {
-    background-color: rgba(100, 180, 255, 0.2);
+    .dashboard-section-files .directories li.native-drop-target,
+    .dashboard-section-files .files .row.folder.native-drop-target {
+        background-color: rgba(100, 180, 255, 0.2);
+    }
 }
 
 .dashboard-section-files .files-footer {
@@ -1926,7 +1927,7 @@ body.myapps-reordering .myapps-tile {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    color: #666;
+    color: var(--dashboard-text-secondary);
     z-index: 10;
 }
 
@@ -1936,7 +1937,7 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard-section-files .files-footer-separator {
-    color: #CCC;
+    color: var(--dashboard-text-muted);
 }
 
 /* Floating Selection Actions Bar */
@@ -2179,11 +2180,9 @@ body.myapps-reordering .myapps-tile {
     display: flex;
     align-items: center;
     justify-content: center;
-    /* background: #fafafa; */
+    background: var(--dashboard-background);
     border-radius: 8px;
     overflow: hidden;
-    background: white;
-    border-radius: 2px;
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-icon img {
@@ -2239,15 +2238,11 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
-/* Hide .item-more on desktop (non-touch devices) - use right-click context menu instead */
-.dashboard-section-files .files-tab:not(.touch-device) .files.files-list-view .row .item-more,
-.dashboard-section-files .files-tab:not(.touch-device) .files.files-grid-view .row .item-more,
-@media (hover: hover) {
-    .dashboard-section-files .files-tab:not(.touch-device) .files.files-grid-view .row:hover .item-more,
-    .dashboard-section-files .files-tab:not(.touch-device) .header .columns .item-more {
-        display: none !important;
-    }
-}
+/* NOTE: a rule hiding .item-more on desktop (non-touch) used to sit here, but
+   it was malformed (selector list running into an @media block) and therefore
+   never in effect — desktop users have always had the visible '⋯' button, and
+   they use it, so repairing the rule into effect would remove a working
+   affordance. Intentionally removed instead. */
 
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-name-editor {
     text-align: center;
@@ -2444,12 +2439,6 @@ body.myapps-reordering .myapps-tile {
     transform: rotate(-45deg) translate(4px, -4px);
 }
 
-.dashboard-sidebar-separator {
-    height: 1px;
-    background: var(--dashboard-border);
-    margin: 15px 0;
-}
-
 /* Responsive: tablet and below */
 @media (max-width: 768px) {
     .dashboard-sidebar-header {
@@ -2484,6 +2473,15 @@ body.myapps-reordering .myapps-tile {
 
     .dashboard-content {
         padding: 64px 16px 24px;
+    }
+
+    /* The Files tab keeps its own `padding: 0 0 0 10px` (higher specificity)
+       so the rule above doesn't clear the fixed hamburger toggle for it. Push
+       the directories column down instead, so the toggle doesn't sit on top of
+       the first folder row (the column is hidden below 480px, so this only
+       affects the tablet range). */
+    .dashboard-section-files .directories {
+        padding-top: 52px;
     }
 
     .myapps-search-wrap {
@@ -3999,8 +3997,27 @@ body.myapps-reordering .myapps-tile {
     opacity: 0.8;
 }
 
-/* Desktop - transparent backdrop */
-@media (min-width: 768px) {
+/* Disabled item - inert and dimmed (mirrors the desktop context menu) */
+.context-menu-modal-dialog .context-menu-item--disabled {
+    opacity: 0.4;
+    cursor: default;
+    pointer-events: none;
+}
+
+/* Submenu chevron, pushed to the trailing edge */
+.context-menu-modal-dialog .context-menu-item-chevron {
+    margin-left: auto;
+    padding-left: 0.5rem;
+    color: var(--dashboard-text-muted, #94a3b8);
+    font-size: 1rem;
+}
+
+/* Desktop - transparent backdrop. Written as the exact complement of the
+   mobile rules (all keyed to max-width: 768px) so that no viewport width —
+   not even a fractional one from browser zoom / DPR scaling — gets desktop
+   styling with the mobile dimming, or vice versa. (min-width: 769px would
+   leave widths strictly between 768px and 769px uncovered.) */
+@media not all and (max-width: 768px) {
     .context-menu-modal-backdrop {
         background-color: transparent;
     }

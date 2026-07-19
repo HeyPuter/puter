@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { reconcileAppOrder, serializeAppOrder } from './appOrder.js';
+import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder } from './appOrder.js';
 
 const names = apps => apps.map(a => a.name);
 const mk = (...ns) => ns.map(n => ({ name: n }));
@@ -84,5 +84,60 @@ describe('serializeAppOrder', () => {
         const reordered = reconcileAppOrder(apps, ['d', 'c', 'b', 'a']);
         const saved = serializeAppOrder(reordered);
         expect(names(reconcileAppOrder(apps, saved))).toEqual(['d', 'c', 'b', 'a']);
+    });
+});
+
+describe('mergeSavedOrder', () => {
+    it('returns the current order when nothing was saved before', () => {
+        expect(mergeSavedOrder(['a', 'b'], null)).toEqual(['a', 'b']);
+        expect(mergeSavedOrder(['a', 'b'], [])).toEqual(['a', 'b']);
+    });
+
+    it('keeps present names exactly in the current order', () => {
+        expect(mergeSavedOrder(['c', 'a', 'b'], ['a', 'b', 'c'])).toEqual(['c', 'a', 'b']);
+    });
+
+    it('re-inserts a missing name after its surviving predecessor', () => {
+        // 'm' sat between 'b' and 'c' in the saved order; it must return to
+        // that slot, not be demoted to the tail.
+        expect(mergeSavedOrder(['a', 'b', 'c'], ['a', 'b', 'm', 'c'])).toEqual(['a', 'b', 'm', 'c']);
+    });
+
+    it('keeps a missing name at the front when it led the saved order', () => {
+        expect(mergeSavedOrder(['a', 'b'], ['m', 'a', 'b'])).toEqual(['m', 'a', 'b']);
+    });
+
+    it('keeps runs of missing names in their saved order', () => {
+        expect(mergeSavedOrder(['a', 'b'], ['a', 'm1', 'm2', 'b'])).toEqual(['a', 'm1', 'm2', 'b']);
+    });
+
+    it('keeps a missing name at its rank when visible tiles are rearranged', () => {
+        // 'm' was third; the user swapped 'a' and 'b'. 'm' stays third — it
+        // neither follows 'b' to the front nor gets demoted.
+        expect(mergeSavedOrder(['b', 'a', 'c'], ['a', 'b', 'm', 'c'])).toEqual(['b', 'a', 'm', 'c']);
+    });
+
+    it('preserves a truncated tail after a partial load and a drag', () => {
+        // Saved order covers 6 apps; only the first 4 loaded (page 2 failed)
+        // and the user dragged 'd' to the front. The unloaded tail must keep
+        // its saved position after the surviving 'c', not vanish.
+        const merged = mergeSavedOrder(['d', 'a', 'b', 'c'], ['a', 'b', 'c', 'd', 'e', 'f']);
+        expect(merged).toEqual(['d', 'a', 'b', 'c', 'e', 'f']);
+        // Round-trip: when the full list loads again, 'e' and 'f' come back
+        // in their saved slots.
+        expect(names(reconcileAppOrder(mk('a', 'b', 'c', 'd', 'e', 'f'), merged)))
+            .toEqual(['d', 'a', 'b', 'c', 'e', 'f']);
+    });
+
+    it('ignores unusable saved entries and duplicates', () => {
+        expect(mergeSavedOrder(['a'], ['', null, 'a', 'a', 'm'])).toEqual(['a', 'm']);
+    });
+
+    it('does not mutate its inputs', () => {
+        const current = ['a', 'b'];
+        const previous = ['b', 'm', 'a'];
+        mergeSavedOrder(current, previous);
+        expect(current).toEqual(['a', 'b']);
+        expect(previous).toEqual(['b', 'm', 'a']);
     });
 });

@@ -71,12 +71,17 @@ async function UIDashboard (options) {
     // Dispatch 'dashboard-will-open' event to allow extensions to add tabs
     window.dispatchEvent(new CustomEvent('dashboard-will-open', { detail: { tabs } }));
 
+    // True if the untrusted route tab id (from the URL hash) names a real tab.
+    // The routing paths below ignore unknown ids outright — this also keeps a
+    // crafted hash (e.g. one containing a quote) from being interpolated into
+    // a jQuery selector, which throws and would otherwise leave the
+    // dashboard's event handlers unbound.
+    const isKnownTabId = tab => tabs.some(t => t !== '-' && t.id === tab);
+
     // Tab to render active on open. Apps is the default (root URL / no hash);
     // Home is reached via #home. Fall back to Apps for an unknown/absent route.
     const routeTab = window.dashboard_initial_route?.tab;
-    const initialTabId = tabs.some(t => t !== '-' && t.id === routeTab)
-        ? routeTab
-        : 'apps';
+    const initialTabId = isKnownTabId(routeTab) ? routeTab : 'apps';
 
     let h = '';
 
@@ -273,8 +278,18 @@ async function UIDashboard (options) {
         // the freshly-added row instead of the stale one.
         const old_path = resp.old_path ?? resp.from_path;
         if ( old_path ) {
-            $(`.item[data-path='${html_encode(old_path)}']`).fadeOut(150, function () {
+            // Narrow by uid first when the payload carries one (uids are
+            // UUIDs, safe to interpolate into a selector) — a full-DOM scan
+            // per socket event is O(rows) on the hot path. The uid matches
+            // both the old and new rows, so still compare data-path (raw
+            // value, compared rather than interpolated so quotes/special
+            // characters in names can't break it) to pick the stale one.
+            const $candidates = resp.uid ? $(`.item[data-uid='${resp.uid}']`) : $('.item');
+            $candidates.filter(function () {
+                return $(this).attr('data-path') === old_path;
+            }).fadeOut(150, function () {
                 $(this).remove();
+                window.dashboard_object?.updateFooterStats?.();
             });
         }
 
@@ -288,8 +303,18 @@ async function UIDashboard (options) {
         if ( item.original_client_socket_id === window.socket.id ) return;
         if ( item.descendants_only ) return;
 
-        $(`.item[data-path='${html_encode(item.path)}']`).fadeOut(150, function () {
+        // Match by uid when present (O(1) attribute selector; uids are UUIDs,
+        // safe to interpolate) and fall back to a path scan for minimal
+        // payloads — a removed item has exactly one row either way.
+        const $rows = item.uid
+            ? $(`.item[data-uid='${item.uid}']`)
+            : $('.item').filter(function () {
+                return $(this).attr('data-path') === item.path;
+            });
+        $rows.fadeOut(150, function () {
             $(this).remove();
+            // Keep the footer item count / total size in sync with the removal.
+            window.dashboard_object?.updateFooterStats?.();
         });
     });
 
@@ -299,9 +324,9 @@ async function UIDashboard (options) {
         const $el = $(`.item[data-uid='${item.uid}']`);
         if ( $el.length === 0 ) return;
 
-        // Update data attributes
-        $el.attr('data-name', html_encode(item.name));
-        $el.attr('data-path', html_encode(item.path));
+        // Update data attributes (raw values — .attr() stores literally)
+        $el.attr('data-name', item.name);
+        $el.attr('data-path', item.path);
 
         // Update displayed name
         $el.find('.item-name').text(item.name);
@@ -314,24 +339,11 @@ async function UIDashboard (options) {
         const $el = $(`.item[data-uid='${item.uid}']`);
         if ( $el.length === 0 ) return;
 
-        // Update data attributes
-        $el.attr('data-name', html_encode(item.name));
-        $el.attr('data-path', html_encode(item.path));
-        $el.attr('data-size', item.size);
-        $el.attr('data-modified', item.modified);
-        $el.attr('data-type', html_encode(item.type));
-
-        // Update displayed name
-        $el.find('.item-name').text(item.name);
-        $el.find('.item-name-editor').val(item.name);
-
-        if (
-            window.dashboard_object?.currentView === 'grid'
-            && typeof item.thumbnail === 'string'
-            && item.thumbnail.length > 0
-        ) {
-            $el.find('.item-icon img').attr('src', item.thumbnail);
-        }
+        // Delegate to the shared row updater (defined in TabFiles.init) so
+        // this handler can't drift from renderItem's conventions — an inline
+        // copy here once showed trashed items' raw UID instead of their
+        // original name.
+        window.UIDashboardFileItemUpdate?.($el, item);
     });
 
     window.socket.on('item.added', async (item) => {
@@ -347,8 +359,9 @@ async function UIDashboard (options) {
     if ( window.dashboard_initial_route ) {
         const route = window.dashboard_initial_route;
 
-        // Activate the correct tab if not home
-        if ( route.tab && route.tab !== 'home' ) {
+        // Activate the correct tab if not home. An unknown tab id stays on
+        // the Apps default rendered above rather than being redirected.
+        if ( route.tab && route.tab !== 'home' && isKnownTabId(route.tab) ) {
             const tabId = route.tab;
             const $targetTab = $el_window.find(`.dashboard-sidebar-item[data-section="${tabId}"]`);
 
@@ -373,8 +386,18 @@ async function UIDashboard (options) {
 
     // Handle browser back/forward navigation
     // This handler is called for both hashchange (manual hash changes) and popstate (back/forward)
+    // A single back/forward fires BOTH popstate and hashchange; track the last
+    // handled URL so the second event doesn't run onActivate (and its fetches) again.
+    let lastHandledHref = window.location.href;
     const handleRouteChange = () => {
+        if ( window.location.href === lastHandledHref ) return;
+        lastHandledHref = window.location.href;
         const route = window.parseDashboardRoute();
+        // Ignore unknown tab ids entirely (a stale bookmark hash, an in-page
+        // anchor): switching the user to another tab out from under them was
+        // never the behavior, and the early return also keeps untrusted
+        // hashes out of the selectors below.
+        if ( ! isKnownTabId(route.tab) ) return;
         const tab = route.tab;
         const filePath = route.path;
 
@@ -445,8 +468,13 @@ async function UIDashboard (options) {
         document.querySelector('.dashboard-content').classList.add(section);
 
         // Reflect the current tab in the hash. Root (no hash) defaults to Apps,
-        // but selecting any tab — including Apps — shows its #tab.
-        history.pushState(null, '', `#${section}`);
+        // but selecting any tab — including Apps — shows its #tab. Only push a
+        // new history entry when the hash actually changes, so re-clicking the
+        // current tab doesn't stack duplicate entries that make Back a no-op.
+        if ( window.location.hash !== `#${section}` ) {
+            history.pushState(null, '', `#${section}`);
+            lastHandledHref = window.location.href;
+        }
 
         // Scroll content area to top
         $el_window.find('.dashboard-content').scrollTop(0);

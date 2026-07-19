@@ -1,6 +1,6 @@
 import UIContextMenu from '../UIContextMenu.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
-import { reconcileAppOrder, serializeAppOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
+import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 
 /** Lowercase app names that must not offer Uninstall in the My Apps tile context menu. */
 const APP_NAMES_NO_UNINSTALL = new Set([
@@ -163,11 +163,16 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
 
         try {
             await puter.perms.revokeApp(appUid, '*');
+            // A load fetched before the revoke must not apply — it would
+            // resurrect the pre-revoke grid. No refetch here either: the
+            // recommended launch list doesn't know about the revoke, so an
+            // immediate reload would just re-add a recommended app's tile.
+            // The saved order intentionally keeps the app's name:
+            // reconcileAppOrder ignores it while the app is gone and
+            // restores its position if it comes back.
+            self._invalidateInFlightLoads();
             self._apps = self._apps.filter(a => a.name !== appName);
-            // Keep the persisted order free of the now-uninstalled app, but
-            // only if the user already has a custom order (don't create one).
-            if ( self._hasCustomOrder ) self.saveOrder();
-            self.renderApps($el_window, { preservePage: true });
+            self.renderApps($el_window, { preservePage: true, instant: true });
         } catch ( err ) {
             console.error('Failed to uninstall app:', err);
         }
@@ -220,6 +225,10 @@ const TabApps = {
     _drag: null,
     _justDragged: false,
     _reduceMotionMQL: undefined,
+    _loadPromise: null,
+    _pendingLoad: null,
+    _savedOrderNames: null,
+    _orderSavedAtSeq: 0,
 
     html () {
         let h = '<div class="dashboard-tab-content myapps-tab">';
@@ -269,9 +278,9 @@ const TabApps = {
             const appName = $(this).attr('data-app-name');
             const targetLink = $(this).attr('data-target-link');
             if ( targetLink && targetLink !== '' ) {
-                window.open(targetLink, '_blank');
+                window.open(targetLink, '_blank', 'noopener,noreferrer');
             } else if ( appName ) {
-                window.open(`/app/${appName}`, '_blank');
+                window.open(`/app/${appName}`, '_blank', 'noopener,noreferrer');
             }
         });
 
@@ -292,8 +301,7 @@ const TabApps = {
             const appName = $(this).attr('data-app-name');
             const appTitle = $(this).attr('data-app-title');
             const appUid = $(this).attr('data-app-uid');
-            const nameLower = (appName || '').toLowerCase();
-            const noUninstall = APP_NAMES_NO_UNINSTALL.has(nameLower);
+            const noUninstall = APP_NAMES_NO_UNINSTALL.has((appName || '').toLowerCase());
 
             const items = noUninstall
                 ? []
@@ -882,11 +890,66 @@ const TabApps = {
 
         // Rebuild so pages rebalance to exactly perPage; skip the load fade.
         this.renderApps(d.$el_window, { preservePage: true, instant: true });
+
+        this._applyPendingLoad();
+    },
+
+    // A load that resolved mid-drag was stashed rather than rendered (see
+    // _fetchAndRenderApps). Apply it now; _resolveOrderNames picks between
+    // the canonical in-memory saved order and the kv snapshot this load
+    // fetched, based on which is fresher.
+    _applyPendingLoad () {
+        const pending = this._pendingLoad;
+        if ( ! pending ) return;
+        this._pendingLoad = null;
+        if ( pending.loadSeq < (this._appliedSeq || 0) ) return;
+        this._appliedSeq = pending.loadSeq;
+
+        const orderedNames = this._resolveOrderNames(pending.loadSeq, pending.orderedNames);
+        this._savedOrderNames = orderedNames;
+        this._hasCustomOrder = Array.isArray(orderedNames) && orderedNames.length > 0;
+        this._apps = reconcileAppOrder(pending.merged, orderedNames);
+        this.renderApps(pending.$el_window, { preservePage: true, instant: true });
+    },
+
+    // Decide which saved-order snapshot a resolving load reconciles against.
+    // A fetch issued before the user's latest local order save carries a
+    // pre-save kv snapshot — replaying it would visibly revert the reorder,
+    // and permanently clobber it after the next save. A fetch issued after
+    // the save is at least as fresh and may carry a newer arrangement from
+    // another window, so it wins. Never resolve to the visible-only
+    // on-screen order: it would tail-append any app returning to the grid.
+    _resolveOrderNames (loadSeq, fetchedOrderNames) {
+        const fetchedBeforeSave = loadSeq <= (this._orderSavedAtSeq || 0);
+        return fetchedBeforeSave && Array.isArray(this._savedOrderNames)
+            ? this._savedOrderNames
+            : fetchedOrderNames;
+    },
+
+    // A local mutation of _apps (uninstall) must invalidate loads fetched
+    // before it — applying one would resurrect the pre-mutation state. Loads
+    // started after this call get a newer seq and still apply. Dropping the
+    // shared promise lets the next activation fetch fresh instead of joining
+    // the doomed load.
+    _invalidateInFlightLoads () {
+        this._loadSeq = (this._loadSeq || 0) + 1;
+        this._appliedSeq = this._loadSeq;
+        this._loadPromise = null;
     },
 
     saveOrder () {
         this._hasCustomOrder = true;
-        const names = serializeAppOrder(this._apps);
+        // Merge with the previously saved order so names absent from the
+        // current list (e.g. apps whose installedApps page failed to load
+        // this session) keep their saved positions — the saved order is the
+        // only record of them, and stale names are harmless because
+        // reconcileAppOrder ignores them.
+        const names = mergeSavedOrder(serializeAppOrder(this._apps), this._savedOrderNames);
+        this._savedOrderNames = names;
+        // Loads already in flight fetched kv before this save; mark the
+        // boundary so their stale snapshot can't replay over it (see
+        // _resolveOrderNames).
+        this._orderSavedAtSeq = this._loadSeq || 0;
         try {
             const p = puter.kv.set(APPS_ORDER_KV_KEY, JSON.stringify(names));
             if ( p && typeof p.catch === 'function' ) {
@@ -897,26 +960,80 @@ const TabApps = {
         }
     },
 
-    async loadApps ($el_window) {
+    loadApps ($el_window) {
         if ( this._drag ) {
             // Don't fetch/re-render on top of a live drag; cancel a pending
             // (not-yet-started) pickup so a rebuild can't strand it.
             if ( this._drag.started ) return;
             this._endDrag(false);
         }
+        // init and the initial-route onActivate both fire on open; join the
+        // in-flight load instead of issuing a duplicate request trio.
+        if ( this._loadPromise ) return this._loadPromise;
+        const p = this._fetchAndRenderApps($el_window).finally(() => {
+            if ( this._loadPromise === p ) this._loadPromise = null;
+        });
+        this._loadPromise = p;
+        return p;
+    },
+
+    async _fetchAndRenderApps ($el_window) {
+        // Give each load a monotonically increasing id. An older/slower
+        // response must not clobber a newer one that already applied — or a
+        // reorder the user saved while a stale fetch was in flight. We gate on
+        // "already applied", not "latest started", so the first load to
+        // resolve still populates _apps (the pager's ResizeObserver needs
+        // _apps set as soon as any load resolves).
+        const loadSeq = (this._loadSeq = (this._loadSeq || 0) + 1);
 
         const $container = $el_window.find('.myapps-container');
 
         try {
-            // Fetch the two app lists and the saved order together.
-            const [installedRes, launchRes, savedOrderRaw] = await Promise.all([
-                fetch(
-                    `${window.api_origin}/installedApps?orderBy=name&limit=100`,
-                    {
-                        headers: { 'Authorization': `Bearer ${puter.authToken}` },
-                        method: 'GET',
-                    },
-                ),
+            // Fetch the two app lists and the saved order together. The
+            // installedApps endpoint caps `limit` at 100 and paginates, so page
+            // through it — otherwise a user with >100 apps silently loses the
+            // rest from the grid and from search. Common case is a single page
+            // (a short page ends the loop before a second request).
+            const fetchAllInstalledApps = async () => {
+                const PAGE_SIZE = 100;
+                const MAX_PAGES = 50; // 5000 apps — a runaway backstop
+                const all = [];
+                for ( let page = 1; page <= MAX_PAGES; page++ ) {
+                    try {
+                        const res = await fetch(
+                            `${window.api_origin}/installedApps?orderBy=name&limit=${PAGE_SIZE}&page=${page}`,
+                            {
+                                headers: { 'Authorization': `Bearer ${puter.authToken}` },
+                                method: 'GET',
+                            },
+                        );
+                        const batch = await res.json();
+                        // An error payload (e.g. `{"error": ...}` on a 401/500)
+                        // must fail the page — reading it as end-of-pagination
+                        // would silently drop every installed app.
+                        if ( ! Array.isArray(batch) ) {
+                            throw new Error(`installedApps returned a non-array response (status ${res.status})`);
+                        }
+                        if ( batch.length === 0 ) break;
+                        all.push(...batch);
+                        if ( batch.length < PAGE_SIZE ) break;
+                    } catch ( err ) {
+                        // A first-page failure is a failed load. A later page
+                        // failing must not fail the refresh — that would turn
+                        // one flaky request among N into an empty (or frozen)
+                        // grid. Return what we have and flag it incomplete;
+                        // the merge below fills the gap from the previous
+                        // list so the grid and saved order can't shrink.
+                        if ( page === 1 ) throw err;
+                        console.error(`Failed to fetch installedApps page ${page}; got ${all.length} apps before the failure:`, err);
+                        return { apps: all, complete: false };
+                    }
+                }
+                return { apps: all, complete: true };
+            };
+
+            const [installedResult, launchRes, savedOrderRaw] = await Promise.all([
+                fetchAllInstalledApps(),
                 fetch(
                     `${window.api_origin}/get-launch-apps?icon_size=128`,
                     {
@@ -927,14 +1044,16 @@ const TabApps = {
                 puter.kv.get(APPS_ORDER_KV_KEY).catch(() => null),
             ]);
 
-            const installedApps = await installedRes.json();
+            const installedApps = installedResult.apps;
             const launchData = await launchRes.json();
 
-            // Normalize launch apps (recommended + recent) to same shape
-            const launchApps = [
-                ...(launchData.recommended || []),
-                ...(launchData.recent || []),
-            ].map(app => ({
+            // Normalize recommended launch apps to the tile shape. The
+            // recent list is deliberately unused: recents are open history,
+            // not installs, so they resurrected uninstalled apps' tiles and
+            // showed merely-visited sites as if installed. Anything the user
+            // actually uses appears via installedApps (opening an app grants
+            // it a permission). Recents still power the Home tab.
+            const launchApps = (launchData.recommended || []).map(app => ({
                 name: app.name,
                 title: app.title,
                 uid: app.uuid || app.uid || null,
@@ -960,6 +1079,20 @@ const TabApps = {
                 merged.push(app);
             }
 
+            // A page beyond the first failed: fill the gap with apps we
+            // already know about so one flaky request among N can't make
+            // apps vanish from the grid, from search, or from a subsequently
+            // saved order. Apps uninstalled remotely may linger until the
+            // next complete refresh — the same staleness any between-refresh
+            // window has.
+            if ( ! installedResult.complete && Array.isArray(this._apps) ) {
+                for ( const app of this._apps ) {
+                    if ( seen.has(app.name) ) continue;
+                    seen.add(app.name);
+                    merged.push({ ...app });
+                }
+            }
+
             // Overlay the user's saved ordering (if any). New apps are appended
             // in their default order; stale names are ignored.
             let orderedNames = null;
@@ -972,13 +1105,36 @@ const TabApps = {
             } catch ( _e ) {
                 orderedNames = null;
             }
-            this._hasCustomOrder = Array.isArray(orderedNames) && orderedNames.length > 0;
+            // Skip only if a strictly newer load already applied its result.
+            if ( loadSeq < (this._appliedSeq || 0) ) return;
+            // A drag began while we were awaiting: rendering now would yank
+            // the grid out from under it, but the data must not be thrown
+            // away either — stash it for _endDrag to apply.
+            if ( this._drag?.started ) {
+                if ( ! this._pendingLoad || loadSeq > this._pendingLoad.loadSeq ) {
+                    this._pendingLoad = { $el_window, merged, orderedNames, loadSeq };
+                }
+                return;
+            }
+            this._pendingLoad = null;
+            this._appliedSeq = loadSeq;
+            // A drag may have started AND committed while this load was in
+            // flight; _resolveOrderNames keeps its saved reorder from being
+            // replayed over by this load's pre-save kv snapshot.
+            const effectiveOrder = this._resolveOrderNames(loadSeq, orderedNames);
+            this._savedOrderNames = effectiveOrder;
 
-            this._apps = reconcileAppOrder(merged, orderedNames);
+            this._hasCustomOrder = Array.isArray(effectiveOrder) && effectiveOrder.length > 0;
+
+            this._apps = reconcileAppOrder(merged, effectiveOrder);
             this.renderApps($el_window);
         } catch (e) {
             console.error('Failed to load installed apps:', e);
-            $container.html('<div class="myapps-empty"><p>Failed to load apps</p></div>');
+            // Only show the failure placeholder when nothing has loaded yet; a
+            // transient re-fetch error must not wipe a grid already on screen.
+            if ( ! this._apps ) {
+                $container.html('<div class="myapps-empty"><p>Failed to load apps</p></div>');
+            }
         }
     },
 

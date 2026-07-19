@@ -157,6 +157,53 @@ const TabFiles = {
         const _this = this;
         window.dashboard_object = _this;
 
+        // Refresh an existing row in place from an fs entry. Shared with
+        // UIDashboard's item.updated socket handler so the two paths can't
+        // drift — e.g. trashed items must show metadata.original_name, not
+        // the UID that is their raw name (matching renderItem).
+        window.UIDashboardFileItemUpdate = function ($row, file) {
+            // Minimal update payloads may omit fields — only write what the
+            // event actually carries, so it can't blank a correct name/path
+            // (or zero a size) that is already on screen. A metadata-only
+            // payload without original_name resolves to '' and is skipped too.
+            let displayName = file.name || '';
+            try {
+                const meta = file.metadata ? JSON.parse(file.metadata) : null;
+                if ( meta && meta.original_name ) displayName = meta.original_name;
+            } catch { /* keep raw name */ }
+            if ( displayName ) {
+                $row.attr('data-name', displayName);
+                $row.find('.item-name').text(displayName);
+                $row.find('.item-name-editor').val(displayName);
+            }
+            if ( file.path ) $row.attr('data-path', file.path);
+            if ( typeof file.type !== 'undefined' ) $row.attr('data-type', file.type || '');
+            // Refresh the visible Size/Modified cells too, not just the
+            // hidden data attributes, so a remote overwrite is reflected.
+            // Only when the payload actually carries the field — a minimal
+            // update event must not zero out a correct value on screen.
+            if ( typeof file.size !== 'undefined' ) {
+                $row.attr('data-size', file.size || 0);
+                if ( $row.attr('data-is_dir') !== '1' ) {
+                    $row.find('.item-size').text(_this.formatFileSize(file.size));
+                }
+            }
+            if ( file.modified ) {
+                $row.attr('data-modified', file.modified);
+                $row.find('.item-modified').text(window.timeago.format(file.modified * 1000));
+            }
+            if (
+                _this.currentView === 'grid' &&
+                typeof file.thumbnail === 'string' &&
+                file.thumbnail.length > 0
+            ) {
+                $row.find('.item-icon img').attr('src', file.thumbnail);
+            }
+            // The footer's item-count/total-size line is computed from the
+            // rows' data-size attributes — keep it in step with the cell.
+            _this.updateFooterStats();
+        };
+
         // Dashboard-compatible item creator for use by helpers.js and socket handlers.
         // Wraps renderItem() with a directory check so items are only added
         // when the user is viewing the relevant directory.
@@ -171,27 +218,7 @@ const TabFiles = {
             // If item already exists in view, update in-place.
             const $existingRow = $(`.files-tab .files .item[data-uid='${file.uid}']`);
             if ( $existingRow.length > 0 ) {
-                // Match renderItem's display name: trashed items show
-                // metadata.original_name, not the UID that is their raw name.
-                let displayName = file.name || '';
-                try {
-                    const meta = file.metadata ? JSON.parse(file.metadata) : null;
-                    if ( meta && meta.original_name ) displayName = meta.original_name;
-                } catch { /* keep raw name */ }
-                $existingRow.attr('data-name', displayName);
-                $existingRow.attr('data-path', file.path || '');
-                $existingRow.attr('data-size', file.size || 0);
-                $existingRow.attr('data-modified', file.modified || 0);
-                $existingRow.attr('data-type', file.type || '');
-                $existingRow.find('.item-name').text(displayName);
-                $existingRow.find('.item-name-editor').val(displayName);
-                if (
-                    _this.currentView === 'grid' &&
-                    typeof file.thumbnail === 'string' &&
-                    file.thumbnail.length > 0
-                ) {
-                    $existingRow.find('.item-icon img').attr('src', file.thumbnail);
-                }
+                window.UIDashboardFileItemUpdate($existingRow, file);
                 return;
             }
 
@@ -214,6 +241,9 @@ const TabFiles = {
 
             // Highlight animation to indicate newly added item
             $newRow.addClass('item-newly-added');
+
+            // Reflect the new item in the footer item count / total size.
+            _this.updateFooterStats();
         };
 
         this.renderingDirectory = false;
@@ -1046,7 +1076,7 @@ const TabFiles = {
                 const history_item = window.dashboard_nav_history[index];
 
                 items.push({
-                    html: `<span>${history_item === window.home_path ? i18n('home') : path.basename(history_item)}</span>`,
+                    html: `<span>${history_item === window.home_path ? i18n('home') : html_encode(path.basename(history_item))}</span>`,
                     val: index,
                     onClick: function (e) {
                         window.dashboard_nav_history_current_position = e.value;
@@ -1087,7 +1117,7 @@ const TabFiles = {
                 const history_item = window.dashboard_nav_history[index];
 
                 items.push({
-                    html: `<span>${history_item === window.home_path ? i18n('home') : path.basename(history_item)}</span>`,
+                    html: `<span>${history_item === window.home_path ? i18n('home') : html_encode(path.basename(history_item))}</span>`,
                     val: index,
                     onClick: function (e) {
                         window.dashboard_nav_history_current_position = e.value;
@@ -1823,6 +1853,14 @@ const TabFiles = {
             r.classList.remove('selected');
         });
 
+        // Drop the shift-click anchor — it points at a row from the directory
+        // we're leaving, and a stale detached anchor makes the first shift-click
+        // in the new directory select nothing.
+        if ( window.latest_selected_item && ! document.body.contains(window.latest_selected_item) ) {
+            window.latest_selected_item = null;
+            window.active_element = null;
+        }
+
         // Determine whether target is a path or uid
         const isPath = typeof target === 'string' && target.startsWith('/');
         const readdirArg = isPath
@@ -1836,6 +1874,24 @@ const TabFiles = {
             // network). Without this, renderingDirectory would stay true and
             // the guard above would block all further navigation.
             console.error('Failed to read directory:', err);
+            // The container was already emptied above; show a message instead of
+            // leaving a blank pane with no explanation.
+            this.$el_window.find('.files-tab .files').html(`<div style="
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                pointer-events: none;
+                text-align: center;
+                padding: 0 16px;
+            ">This folder couldn't be opened.</div>`);
+            // The list was emptied above; without this the footer keeps the
+            // previous directory's item count over a pane with zero rows.
+            this.updateFooterStats();
             this.hideSpinner();
             this.renderingDirectory = false;
             return;
@@ -2035,21 +2091,24 @@ const TabFiles = {
         row.setAttribute("data-is_dir", file.is_dir ? "1" : "0");
         row.setAttribute("data-is_trash", file.is_trash ? "1" : "0");
         row.setAttribute("data-has_website", file.has_website ? "1" : "0");
-        row.setAttribute("data-website_url", website_url ? html_encode(website_url) : '');
+        // setAttribute stores values literally (no HTML parsing), so values must
+        // stay raw — encoding here would leave e.g. `&amp;` inside data-path and
+        // break every fs operation that reads the attribute back.
+        row.setAttribute("data-website_url", website_url || '');
         row.setAttribute("data-immutable", file.immutable ? "1" : "0");
         row.setAttribute("data-is_shortcut", is_shortcut);
-        row.setAttribute("data-shortcut_to", html_encode(file.shortcut_to));
-        row.setAttribute("data-shortcut_to_path", html_encode(file.shortcut_to_path));
+        row.setAttribute("data-shortcut_to", file.shortcut_to ?? '');
+        row.setAttribute("data-shortcut_to_path", file.shortcut_to_path ?? '');
         row.setAttribute("data-is_worker", is_worker ? "1" : "0");
         row.setAttribute("data-worker_url", is_worker ? worker_url : "0");
         row.setAttribute("data-sortable", file.sortable ?? 'true');
         row.setAttribute("data-metadata", JSON.stringify(metadata));
-        row.setAttribute("data-sort_by", html_encode(file.sort_by) ?? 'name');
+        row.setAttribute("data-sort_by", file.sort_by ?? 'name');
         row.setAttribute("data-size", file.size);
-        row.setAttribute("data-type", html_encode(file.type) ?? '');
+        row.setAttribute("data-type", file.type ?? '');
         row.setAttribute("data-modified", file.modified);
-        row.setAttribute("data-associated_app_name", html_encode(file.associated_app?.name) ?? '');
-        row.setAttribute("data-path", html_encode(file.path));
+        row.setAttribute("data-associated_app_name", file.associated_app?.name ?? '');
+        row.setAttribute("data-path", file.path);
         row.innerHTML = `
             <div class="item-checkbox"><span class="checkbox-icon"></span></div>
             <div class="item-icon">
@@ -2140,38 +2199,61 @@ const TabFiles = {
                 return;
             }
 
-            // Handle Shift+Click for range selection
-            if ( e.shiftKey && window.latest_selected_item && window.latest_selected_item !== el_item ) {
-                e.preventDefault();
-                shift_clicked = true;
+            // Select the given rows (replacing the current selection unless
+            // additive) and make el_item the anchor. Shared by the range,
+            // no-anchor shift-click, and drag-handle paths so their selection
+            // bookkeeping can't drift apart.
+            const applySelection = (rows, additive = false) => {
+                if ( ! additive ) {
+                    el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
+                        r.classList.remove('selected');
+                    });
+                }
+                for ( const row of rows ) row.classList.add('selected');
+                window.latest_selected_item = el_item;
+                window.active_element = el_item;
+                window.active_item_container = el_item.closest('.files');
+                _this.updateFooterStats();
+            };
 
+            // Handle Shift+Click for range selection. Require the anchor to
+            // still be in this row list — a detached anchor (indexOf === -1)
+            // would otherwise set shift_clicked and then select nothing,
+            // leaving the click a no-op. The row lookup happens only under
+            // Shift: this handler is the hot path for every click in the list.
+            if ( e.shiftKey ) {
                 const allRows = $(el_item).parent().find('.row').toArray();
-                const clickedIndex = allRows.indexOf(el_item);
-                const lastSelectedIndex = allRows.indexOf(window.latest_selected_item);
+                const hasShiftAnchor = window.latest_selected_item
+                    && allRows.indexOf(window.latest_selected_item) !== -1;
+                if ( hasShiftAnchor && window.latest_selected_item !== el_item ) {
+                    e.preventDefault();
+                    shift_clicked = true;
 
-                if ( clickedIndex !== -1 && lastSelectedIndex !== -1 ) {
-                    const start = Math.min(clickedIndex, lastSelectedIndex);
-                    const end = Math.max(clickedIndex, lastSelectedIndex);
+                    const clickedIndex = allRows.indexOf(el_item);
+                    const lastSelectedIndex = allRows.indexOf(window.latest_selected_item);
 
-                    // Clear selection if no Ctrl/Cmd held
-                    if ( !e.ctrlKey && !e.metaKey ) {
-                        el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
-                            r.classList.remove('selected');
-                        });
+                    if ( clickedIndex !== -1 && lastSelectedIndex !== -1 ) {
+                        const start = Math.min(clickedIndex, lastSelectedIndex);
+                        const end = Math.max(clickedIndex, lastSelectedIndex);
+                        // Select the whole range; Ctrl/Cmd extends instead of
+                        // replacing.
+                        applySelection(allRows.slice(start, end + 1), e.ctrlKey || e.metaKey);
+                        return;
                     }
-
-                    // Select all items in range
-                    for ( let i = start; i <= end; i++ ) {
-                        allRows[i].classList.add('selected');
-                    }
-
-                    // Update latest selected to the clicked item
-                    window.latest_selected_item = el_item;
-                    window.active_element = el_item;
-                    window.active_item_container = el_item.closest('.files');
-                    _this.updateFooterStats();
+                } else if ( ! hasShiftAnchor ) {
+                    // Shift-click with no valid anchor (e.g. the first click
+                    // after navigating to a new directory): select just this
+                    // item and make it the anchor. onclick skips selection
+                    // while Shift is held, so without this the click would
+                    // select nothing. Ctrl/Cmd+Shift extends instead of
+                    // clearing.
+                    e.preventDefault();
+                    shift_clicked = true;
+                    applySelection([el_item], e.ctrlKey || e.metaKey);
                     return;
                 }
+                // Shift-click on the current anchor itself: deliberate no-op —
+                // it must not collapse an existing multi-selection.
             }
 
             // In select mode on mobile, treat taps like Ctrl+click (toggle selection)
@@ -2182,15 +2264,8 @@ const TabFiles = {
             // won't be reached — touches land on .row instead, deferring selection to onclick.
             const isDragHandle = e.target.closest('.item-name, .item-icon, .item-badges');
             if ( e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode && isDragHandle ) {
-                el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
-                    r.classList.remove('selected');
-                });
-                el_item.classList.add('selected');
-                window.latest_selected_item = el_item;
-                window.active_element = el_item;
-                window.active_item_container = el_item.closest('.files');
+                applySelection([el_item]);
                 itemWasSelectedOnMousedown = true;
-                _this.updateFooterStats();
                 return;
             }
 
@@ -2832,11 +2907,16 @@ const TabFiles = {
      * @returns {string} Formatted size string (e.g., "1.5 MB")
      */
     formatFileSize (bytes) {
-        if ( bytes === 0 ) return '0 B';
+        const num = Number(bytes);
+        // Missing/invalid sizes (undefined, null, NaN) and non-positive values
+        // shouldn't render as "NaN undefined".
+        if ( ! Number.isFinite(num) || num <= 0 ) return '0 B';
         const k = 1024;
-        const sizes = ['B', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(k));
-        return `${Math.round((bytes / Math.pow(k, i)) * 100) / 100 } ${ sizes[i]}`;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+        // Clamp the index so sizes beyond PB don't index past the array (which
+        // produced "1.5 undefined" for terabyte-plus files).
+        const i = Math.min(Math.floor(Math.log(num) / Math.log(k)), sizes.length - 1);
+        return `${Math.round((num / Math.pow(k, i)) * 100) / 100 } ${ sizes[i]}`;
     },
 
     /**

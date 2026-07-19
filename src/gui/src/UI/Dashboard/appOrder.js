@@ -71,3 +71,49 @@ export function serializeAppOrder (apps) {
         .map(app => app && app.name)
         .filter(name => typeof name === 'string' && name.length > 0);
 }
+
+/**
+ * Merge the order being saved with the previously saved one so that names
+ * absent from `currentNames` (e.g. apps on an installedApps page that failed
+ * to load this session) keep their saved positions instead of being dropped
+ * or demoted to the tail. Each missing name keeps its RANK: if k survivors
+ * (names in both lists) preceded it in the saved order, it is re-inserted
+ * after the k-th survivor of the new order — so a drag of some visible tile
+ * neither drags hidden apps along nor pushes them off their slots. Present
+ * names appear exactly in `currentNames` order. Kept beside
+ * {@link serializeAppOrder} because it produces the same persisted shape.
+ *
+ * @param {string[]} currentNames - the on-screen order being saved
+ * @param {string[]|null|undefined} previousNames - the last saved order
+ * @returns {string[]}
+ */
+export function mergeSavedOrder (currentNames, previousNames) {
+    const result = Array.isArray(currentNames) ? currentNames.slice() : [];
+    if ( ! Array.isArray(previousNames) || previousNames.length === 0 ) return result;
+
+    const currentSet = new Set(result);
+    const prevSet = new Set(previousNames);
+    // A survivor is a name present in both lists; re-inserted missing names
+    // and brand-new names never count when advancing past a survivor.
+    const isSurvivor = name => currentSet.has(name) && prevSet.has(name);
+
+    const seen = new Set();
+    // Single forward pointer over `result`: for each survivor in the saved
+    // order it advances just past the next survivor; each missing name is
+    // spliced in at the pointer, which puts it right after the same number
+    // of survivors that preceded it in the saved order — its rank.
+    let at = 0;
+    for ( const name of previousNames ) {
+        if ( typeof name !== 'string' || name.length === 0 ) continue;
+        if ( seen.has(name) ) continue;
+        seen.add(name);
+        if ( currentSet.has(name) ) {
+            while ( at < result.length && ! isSurvivor(result[at]) ) at++;
+            at++;
+            continue;
+        }
+        result.splice(at, 0, name);
+        at++;
+    }
+    return result;
+}

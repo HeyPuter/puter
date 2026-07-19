@@ -42,6 +42,10 @@ export default class ContextMenuModal {
         if ( this.backdrop ) return; // Already showing
 
         this.menuItems = menuItems;
+        // Stack of parent menus for submenu drill-in, and the anchor rect so we
+        // can reposition when the menu height changes on navigation.
+        this._menuStack = [];
+        this._targetRect = targetRect;
 
         // Create backdrop
         this.backdrop = document.createElement('div');
@@ -62,7 +66,7 @@ export default class ContextMenuModal {
         this.modal.innerHTML = `
             ${titleHtml}
             <div class="context-menu-items">
-                ${this.renderMenuItems(menuItems)}
+                ${this.renderMenuItems(this.getVisibleItems())}
             </div>
         `;
 
@@ -102,39 +106,51 @@ export default class ContextMenuModal {
         const viewportWidth = window.innerWidth;
         const margin = 20; // Minimum margin from viewport edges
 
-        // Default: align with item left and top
-        let top = targetRect.top;
-        let left = targetRect.left;
+        const width = isMobile ? viewportWidth * 0.9 : modalWidth;
 
-        // Use target width as minimum, but allow modal to be wider if needed
-        const width = Math.max(targetRect.width, modalWidth);
-
-        // Horizontal positioning - center over item if possible
+        // Center over the target horizontally, clamped to the viewport. (The
+        // old code hardcoded left:300px on non-touch devices — which route here
+        // whenever maxTouchPoints > 0, e.g. touchscreen laptops — so the menu
+        // opened nowhere near the item on a wide screen.)
         const itemCenter = targetRect.left + (targetRect.width / 2);
-        const modalHalfWidth = width / 2;
+        let left = itemCenter - width / 2;
+        left = Math.max(margin, Math.min(left, viewportWidth - width - margin));
 
-        if ( itemCenter - modalHalfWidth >= margin &&
-            itemCenter + modalHalfWidth <= viewportWidth - margin ) {
-            left = itemCenter - modalHalfWidth;
-        } else {
-            // Align with item left, but ensure within viewport
-            left = 20; //Math.max(margin, Math.min(left, viewportWidth - width - margin));
-        }
-
-        // Vertical positioning - ensure modal stays within viewport
+        let top = targetRect.top;
         if ( top + modalHeight > viewportHeight - margin ) {
-            // Would go off bottom, shift up
             top = Math.max(margin, viewportHeight - modalHeight - margin);
         }
-
         if ( top < margin ) {
             top = margin;
         }
 
-        // Apply positioning
         this.modal.style.top = `${top}px`;
-        this.modal.style.left = isMobile ? `${left}px` : '300px';
+        this.modal.style.left = `${left}px`;
         this.modal.style.width = isMobile ? '90%' : 'auto';
+    }
+
+    /**
+     * The item list currently on screen: the active menu, prefixed with a Back
+     * row when we've drilled into a submenu.
+     * @returns {Array}
+     */
+    getVisibleItems () {
+        if ( this._menuStack && this._menuStack.length > 0 ) {
+            return [{ label: '‹ Back', _isBack: true }, '-', ...this.menuItems];
+        }
+        return this.menuItems;
+    }
+
+    /**
+     * Rebuild the item rows in place (after drilling in/out of a submenu) and
+     * reposition, since the height changed.
+     */
+    rerenderItems () {
+        const container = this.modal.querySelector('.context-menu-items');
+        if ( container ) {
+            container.innerHTML = this.renderMenuItems(this.getVisibleItems());
+        }
+        this.positionModal(this._targetRect);
     }
 
     /**
@@ -156,6 +172,8 @@ export default class ContextMenuModal {
             // Check for delete/danger styling
             const isDelete = label.toLowerCase().includes('delete');
             const deleteClass = isDelete ? 'context-menu-item--delete' : '';
+            const disabledClass = item.disabled ? 'context-menu-item--disabled' : '';
+            const hasSubmenu = Array.isArray(item.items) && item.items.length > 0;
 
             // Get icon - support both formats (HTML string or base64)
             let iconHtml = '';
@@ -169,12 +187,18 @@ export default class ContextMenuModal {
                 }
             }
 
+            // A submenu row gets a trailing chevron; a Back row a leading one.
+            const submenuChevron = hasSubmenu
+                ? '<span class="context-menu-item-chevron">›</span>'
+                : '';
+
             return `
-                <button class="context-menu-item ${deleteClass}" data-index="${index}">
+                <button class="context-menu-item ${deleteClass} ${disabledClass}" data-index="${index}"${item.disabled ? ' disabled' : ''}>
                     <div class="context-menu-item-icon">
                         ${iconHtml}
                     </div>
                     <span class="context-menu-item-label">${label}</span>
+                    ${submenuChevron}
                 </button>
             `;
         }).join('');
@@ -208,18 +232,36 @@ export default class ContextMenuModal {
             if ( ! itemBtn ) return;
 
             const index = parseInt(itemBtn.dataset.index, 10);
-            const menuItem = this.menuItems[index];
+            const menuItem = this.getVisibleItems()[index];
+            if ( ! menuItem || menuItem === '-' || menuItem.is_divider ) return;
 
-            if ( menuItem && menuItem !== '-' && !menuItem.is_divider ) {
-                // Support both action formats
-                const handler = menuItem.action || menuItem.onClick;
-                if ( handler ) {
-                    this.close();
-                    // Execute action after close animation starts
-                    setTimeout(() => {
-                        handler();
-                    }, 50);
-                }
+            // Back out of a submenu.
+            if ( menuItem._isBack ) {
+                this.menuItems = this._menuStack.pop();
+                this.rerenderItems();
+                return;
+            }
+
+            // Disabled items are inert (mirrors the desktop UIContextMenu).
+            if ( menuItem.disabled ) return;
+
+            // Drill into a submenu (e.g. "New", "Open With") instead of leaving
+            // it a dead button.
+            if ( Array.isArray(menuItem.items) && menuItem.items.length > 0 ) {
+                this._menuStack.push(this.menuItems);
+                this.menuItems = menuItem.items;
+                this.rerenderItems();
+                return;
+            }
+
+            // Support both action formats
+            const handler = menuItem.action || menuItem.onClick;
+            if ( handler ) {
+                this.close();
+                // Execute action after close animation starts
+                setTimeout(() => {
+                    handler();
+                }, 50);
             }
         };
         this.modal.addEventListener('click', this.itemClickHandler);
