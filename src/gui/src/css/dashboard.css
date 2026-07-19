@@ -2117,10 +2117,20 @@ body.myapps-reordering .myapps-tile {
     padding: 0 10px;
 }
 
+.dashboard-section-files .files-tab .files.files-list-view .row .item-size,
+.dashboard-section-files .files-tab .files.files-list-view .row .item-modified {
+    color: var(--dashboard-text-tertiary);
+}
+
+.dashboard-section-files .files-tab .files.files-list-view .row.selected .item-size,
+.dashboard-section-files .files-tab .files.files-list-view .row.selected .item-modified {
+    color: inherit;
+}
+
 .dashboard-section-files .files-tab .files.files-grid-view {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-    gap: 10px;
+    gap: 12px;
     padding: 16px;
     align-content: start;
     margin-bottom: 30px;
@@ -2159,6 +2169,8 @@ body.myapps-reordering .myapps-tile {
     height: 20px !important;
     margin: 5px;
     border-radius: 50%;
+    background: var(--dashboard-background);
+    box-shadow: 0 0 0 2px var(--dashboard-background);
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view .row {
@@ -2169,11 +2181,10 @@ body.myapps-reordering .myapps-tile {
     padding: 12px;
     height: auto;
     gap: 8px;
-    border: 1px solid var(--dashboard-border);
+    border: 1px solid transparent;
     border-radius: 8px;
     cursor: pointer;
-    transition: all 0.15s ease;
-    box-shadow: 0px 1px 3px rgba(0, 0, 0, 0.1);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 @media (hover: hover) {
@@ -2195,14 +2206,14 @@ body.myapps-reordering .myapps-tile {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--dashboard-background);
+    background: transparent;
     border-radius: 8px;
     overflow: hidden;
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-icon img {
-    width: 100%;
-    height: 100%;
+    width: 96px;
+    height: 96px;
     object-fit: contain;
     max-width: fit-content;
     max-height: fit-content;
@@ -2220,8 +2231,12 @@ body.myapps-reordering .myapps-tile {
     padding: 0;
     font-size: 13px;
     line-height: 1.4;
-    max-height: 2.8em;
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
+    text-overflow: ellipsis;
     word-break: break-word;
 }
 
@@ -2286,6 +2301,11 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row .item-icon svg {
     width: 40px;
     height: 40px;
+}
+
+.dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row .item-icon img {
+    width: 52px;
+    height: 52px;
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view.files-grid-view-sm .row .item-name {
