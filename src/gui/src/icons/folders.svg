@@ -6,7 +6,7 @@
 			<stop offset="1" stop-color="#000000" stop-opacity=".24"/>
 		</linearGradient>
 		<linearGradient id="g2" x2="1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(0,48.248,-203.712,0,24.927,1.266)">
-			<stop offset=".001" stop-color="#e19d00"/>
+			<stop offset=".001" stop-color="#f59e0b"/>
 			<stop offset="1" stop-color="#9f7000"/>
 		</linearGradient>
 		<linearGradient id="g3" x2="1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(0,41.867,-91.585,0,11.791,2.755)">
@@ -22,7 +22,7 @@
 			<stop offset="1" stop-color="#ffffff" stop-opacity=".392"/>
 		</linearGradient>
 		<linearGradient id="g5" x2="1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(0,49.575,-60.42,0,25.267,.507)">
-			<stop offset="0" stop-color="#f9bd30"/>
+			<stop offset="0" stop-color="#fcd34d"/>
 			<stop offset="1" stop-color="#e0a720"/>
 		</linearGradient>
 		<linearGradient id="g6" x2="1" gradientUnits="userSpaceOnUse" gradientTransform="matrix(0,33.308,-41.08,0,41.143,10.606)">
@@ -38,7 +38,7 @@
 		.s2 { fill: none;stroke: url(#g3);stroke-linecap: round;stroke-linejoin: round;stroke-width: 1 } 
 		.s3 { fill: none;stroke: url(#g4);stroke-linecap: round;stroke-linejoin: round;stroke-width: 1 } 
 		.s4 { opacity: .1;fill: #002e99 } 
-		.s5 { fill: url(#g5);stroke: #f9bd30 } 
+		.s5 { fill: url(#g5);stroke: #fcd34d } 
 		.s6 { opacity: .3;fill: none;stroke: url(#g6);stroke-linecap: round;stroke-linejoin: round } 
 		.s7 { fill: #fafafa } 
 	</style>
