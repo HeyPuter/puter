@@ -73,7 +73,7 @@ function buildTileHtml (app) {
     const { title, targetLink } = resolveTileDisplay(app);
     const iconUrl = app.iconUrl || window.icons['app.svg'];
 
-    let h = `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" data-target-link="${html_encode(targetLink)}" data-app-uninstallable="${app.uninstallable ? '1' : '0'}" title="${html_encode(title)}">`;
+    let h = `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" data-target-link="${html_encode(targetLink)}" title="${html_encode(title)}">`;
     h += '<div class="myapps-tile-icon">';
     h += `<img src="${html_encode(iconUrl)}" alt="" draggable="false">`;
     h += '</div>';
@@ -127,21 +127,13 @@ function buildPagerHtml (apps, layout, instant) {
     return h;
 }
 
-function showUninstallModal ({ appName, appTitle, appUid, removesTile, self, $el_window }) {
+function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
     const displayName = (appTitle || appName || '').trim();
-    // A recommended/recent app's tile reappears on the next load even after a
-    // successful revoke; say so up front so the uninstall doesn't look like it
-    // silently failed. (Recommended apps stay indefinitely; recent ones until
-    // they age out of the open history — don't claim more than that.)
-    const note = removesTile
-        ? ''
-        : '<p>Its icon will stay in Apps for now, because this app is in your recommended or recently used list.</p>';
     const $overlay = $(`
         <div class="myapps-modal-overlay">
             <div class="myapps-modal">
                 <h3>Uninstall ${html_encode(displayName)}?</h3>
                 <p>This will revoke all permissions for this app.</p>
-                ${note}
                 <div class="myapps-modal-buttons">
                     <button class="myapps-modal-btn myapps-modal-cancel">Cancel</button>
                     <button class="myapps-modal-btn myapps-modal-confirm">Uninstall</button>
@@ -172,22 +164,15 @@ function showUninstallModal ({ appName, appTitle, appUid, removesTile, self, $el
         try {
             await puter.perms.revokeApp(appUid, '*');
             // A load fetched before the revoke must not apply — it would
-            // resurrect the pre-revoke grid.
+            // resurrect the pre-revoke grid. No refetch here either: the
+            // recommended/recent launch lists don't know about the revoke,
+            // so an immediate reload would just re-add the tile. The saved
+            // order intentionally keeps the app's name: reconcileAppOrder
+            // ignores it while the app is gone and restores its position if
+            // it comes back.
             self._invalidateInFlightLoads();
-            // Drop the tile right away when we expect the uninstall to stick
-            // (immediate feedback) — but whether it really disappears depends
-            // on server-side state (recommended/recent lists) that load-time
-            // flags can only guess at, so refetch either way and let the grid
-            // converge to the truth. The saved order intentionally keeps the
-            // app's name: reconcileAppOrder ignores it while the app is gone
-            // and restores its position if it comes back.
-            if ( removesTile ) {
-                self._apps = self._apps.filter(a => a.name !== appName);
-                self.renderApps($el_window, { preservePage: true, instant: true });
-            }
-            // Keep the user's page and skip the load fade — this is a
-            // background sync, not a fresh visit.
-            self.loadApps($el_window, { preservePage: true, instant: true });
+            self._apps = self._apps.filter(a => a.name !== appName);
+            self.renderApps($el_window, { preservePage: true, instant: true });
         } catch ( err ) {
             console.error('Failed to uninstall app:', err);
         }
@@ -316,12 +301,6 @@ const TabApps = {
             const appName = $(this).attr('data-app-name');
             const appTitle = $(this).attr('data-app-title');
             const appUid = $(this).attr('data-app-uid');
-            // Whether the tile disappears for good on uninstall (see
-            // _fetchAndRenderApps). Uninstall is still offered when it won't —
-            // it is the only UI path that revokes an app's permissions, and
-            // recommended/recent apps need that path too; the modal just sets
-            // the expectation that their tile stays.
-            const removesTile = $(this).attr('data-app-uninstallable') === '1';
             const noUninstall = APP_NAMES_NO_UNINSTALL.has((appName || '').toLowerCase());
 
             const items = noUninstall
@@ -334,7 +313,6 @@ const TabApps = {
                                 appName,
                                 appTitle,
                                 appUid,
-                                removesTile,
                                 self,
                                 $el_window,
                             });
@@ -982,7 +960,7 @@ const TabApps = {
         }
     },
 
-    loadApps ($el_window, renderOpts) {
+    loadApps ($el_window) {
         if ( this._drag ) {
             // Don't fetch/re-render on top of a live drag; cancel a pending
             // (not-yet-started) pickup so a rebuild can't strand it.
@@ -992,14 +970,14 @@ const TabApps = {
         // init and the initial-route onActivate both fire on open; join the
         // in-flight load instead of issuing a duplicate request trio.
         if ( this._loadPromise ) return this._loadPromise;
-        const p = this._fetchAndRenderApps($el_window, renderOpts).finally(() => {
+        const p = this._fetchAndRenderApps($el_window).finally(() => {
             if ( this._loadPromise === p ) this._loadPromise = null;
         });
         this._loadPromise = p;
         return p;
     },
 
-    async _fetchAndRenderApps ($el_window, renderOpts = {}) {
+    async _fetchAndRenderApps ($el_window) {
         // Give each load a monotonically increasing id. An older/slower
         // response must not clobber a newer one that already applied — or a
         // reorder the user saved while a stale fetch was in flight. We gate on
@@ -1082,29 +1060,6 @@ const TabApps = {
                 iconUrl: app.iconUrl || app.icon || null,
             }));
 
-            // Whether an uninstall makes the tile disappear for good: apps the
-            // user actually installed that are in NEITHER launch list.
-            // revokeApp still revokes permissions for the others, but
-            // get-launch-apps re-adds their tiles on the next load — the
-            // recommended list is hardcoded and the recent list is built from
-            // app-open history, which a revoke doesn't touch. The context menu
-            // uses this flag to set expectations in the modal (see
-            // showUninstallModal), not to withhold the action.
-            const recommendedNames = new Set(
-                (launchData.recommended || []).map(a => a.name),
-            );
-            const recentNames = new Set(
-                (launchData.recent || []).map(a => a.name),
-            );
-            const installedNames = new Set(
-                (Array.isArray(installedApps) ? installedApps : []).map(a => a.name),
-            );
-            const isUninstallable = name =>
-                installedNames.has(name)
-                && ! recommendedNames.has(name)
-                && ! recentNames.has(name)
-                && ! APP_NAMES_NO_UNINSTALL.has((name || '').toLowerCase());
-
             // Build seen set from launch apps
             const seen = new Set();
             const merged = [];
@@ -1112,22 +1067,22 @@ const TabApps = {
             for ( const app of launchApps ) {
                 if ( seen.has(app.name) ) continue;
                 seen.add(app.name);
-                merged.push({ ...app, uninstallable: isUninstallable(app.name) });
+                merged.push(app);
             }
 
             // Append installed apps that aren't already in the list
             for ( const app of installedApps ) {
                 if ( seen.has(app.name) ) continue;
                 seen.add(app.name);
-                merged.push({ ...app, uninstallable: isUninstallable(app.name) });
+                merged.push(app);
             }
 
             // A page beyond the first failed: fill the gap with apps we
-            // already know about (keeping their previous uninstallable flags)
-            // so one flaky request among N can't make apps vanish from the
-            // grid, from search, or from a subsequently saved order. Apps
-            // uninstalled remotely may linger until the next complete
-            // refresh — the same staleness any between-refresh window has.
+            // already know about so one flaky request among N can't make
+            // apps vanish from the grid, from search, or from a subsequently
+            // saved order. Apps uninstalled remotely may linger until the
+            // next complete refresh — the same staleness any between-refresh
+            // window has.
             if ( ! installedResult.complete && Array.isArray(this._apps) ) {
                 for ( const app of this._apps ) {
                     if ( seen.has(app.name) ) continue;
@@ -1170,7 +1125,7 @@ const TabApps = {
             this._hasCustomOrder = Array.isArray(effectiveOrder) && effectiveOrder.length > 0;
 
             this._apps = reconcileAppOrder(merged, effectiveOrder);
-            this.renderApps($el_window, renderOpts);
+            this.renderApps($el_window);
         } catch (e) {
             console.error('Failed to load installed apps:', e);
             // Only show the failure placeholder when nothing has loaded yet; a
