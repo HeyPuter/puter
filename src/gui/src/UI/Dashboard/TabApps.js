@@ -171,19 +171,21 @@ function showUninstallModal ({ appName, appTitle, appUid, removesTile, self, $el
 
         try {
             await puter.perms.revokeApp(appUid, '*');
-            // Only drop the tile when the uninstall sticks — a recommended/
-            // recent app comes back on the next get-launch-apps load, so
-            // removing it here would just look like a broken flicker.
+            // A load fetched before the revoke must not apply — it would
+            // resurrect the pre-revoke grid.
+            self._invalidateInFlightLoads();
+            // Drop the tile right away when we expect the uninstall to stick
+            // (immediate feedback) — but whether it really disappears depends
+            // on server-side state (recommended/recent lists) that load-time
+            // flags can only guess at, so refetch either way and let the grid
+            // converge to the truth. The saved order intentionally keeps the
+            // app's name: reconcileAppOrder ignores it while the app is gone
+            // and restores its position if it comes back.
             if ( removesTile ) {
                 self._apps = self._apps.filter(a => a.name !== appName);
-                // Keep the persisted order free of the now-uninstalled app, but
-                // only if the user already has a custom order (don't create one).
-                if ( self._hasCustomOrder ) self.saveOrder();
-                // A load fetched before the revoke must not apply — it would
-                // pop the just-removed tile back in.
-                self._invalidateInFlightLoads();
                 self.renderApps($el_window, { preservePage: true });
             }
+            self.loadApps($el_window);
         } catch ( err ) {
             console.error('Failed to uninstall app:', err);
         }
@@ -238,7 +240,7 @@ const TabApps = {
     _reduceMotionMQL: undefined,
     _loadPromise: null,
     _pendingLoad: null,
-    _partialLoad: false,
+    _savedOrderNames: null,
 
     html () {
         let h = '<div class="dashboard-tab-content myapps-tab">';
@@ -291,15 +293,6 @@ const TabApps = {
                 window.open(targetLink, '_blank', 'noopener,noreferrer');
             } else if ( appName ) {
                 window.open(`/app/${appName}`, '_blank', 'noopener,noreferrer');
-                // Opening records an app-open, which puts this app in the
-                // server-side recent list — from now on a revoke leaves the
-                // tile in place (see isUninstallable in _fetchAndRenderApps).
-                // Flip the flag now so the uninstall modal doesn't act on a
-                // stale load-time snapshot and remove a tile that will
-                // silently reappear.
-                const app = (self._apps || []).find(a => a.name === appName);
-                if ( app ) app.uninstallable = false;
-                $(this).attr('data-app-uninstallable', '0');
             }
         });
 
@@ -930,7 +923,7 @@ const TabApps = {
         this._pendingLoad = null;
         if ( pending.loadSeq < (this._appliedSeq || 0) ) return;
         this._appliedSeq = pending.loadSeq;
-        this._partialLoad = pending.partial;
+        this._savedOrderNames = pending.orderedNames;
 
         const orderedNames = this._hasCustomOrder && Array.isArray(this._apps)
             ? serializeAppOrder(this._apps)
@@ -953,15 +946,19 @@ const TabApps = {
 
     saveOrder () {
         this._hasCustomOrder = true;
-        // Never persist an order backed by a partial app list — the saved
-        // order is the only record of the missing apps' positions, and
-        // overwriting it would drop them for good. The in-session order still
-        // applies; the next complete load can persist again.
-        if ( this._partialLoad ) {
-            console.warn('App order not saved: the installed-apps list is incomplete (a page failed to load).');
-            return;
-        }
         const names = serializeAppOrder(this._apps);
+        // Carry over saved names that aren't in the current list (e.g. apps
+        // whose installedApps page failed to load this session): the saved
+        // order is the only record of their positions, so dropping them would
+        // lose those for good, while stale names are harmless —
+        // reconcileAppOrder ignores them.
+        if ( Array.isArray(this._savedOrderNames) ) {
+            const have = new Set(names);
+            for ( const name of this._savedOrderNames ) {
+                if ( ! have.has(name) ) names.push(name);
+            }
+        }
+        this._savedOrderNames = names;
         try {
             const p = puter.kv.set(APPS_ORDER_KV_KEY, JSON.stringify(names));
             if ( p && typeof p.catch === 'function' ) {
@@ -1000,11 +997,6 @@ const TabApps = {
 
         const $container = $el_window.find('.myapps-container');
 
-        // Whether the installed-apps list came back incomplete (a page beyond
-        // the first failed). A partial list may render when the grid is empty,
-        // but must never be persisted (see saveOrder).
-        let installedAppsPartial = false;
-
         try {
             // Fetch the two app lists and the saved order together. The
             // installedApps endpoint caps `limit` at 100 and paginates, so page
@@ -1036,22 +1028,20 @@ const TabApps = {
                         if ( batch.length < PAGE_SIZE ) break;
                     } catch ( err ) {
                         // A first-page failure is a failed load. A later page
-                        // failing must not discard the pages already fetched —
-                        // that would turn one flaky request among N into an
-                        // empty grid — but a partial list is only better than
-                        // nothing: it must never REPLACE a complete grid
-                        // already on screen, so fail the refresh in that case
-                        // (the outer catch preserves what's showing).
-                        if ( page === 1 || this._apps ) throw err;
-                        console.error(`Failed to fetch installedApps page ${page}; showing the ${all.length} apps fetched so far:`, err);
-                        installedAppsPartial = true;
-                        break;
+                        // failing must not fail the refresh — that would turn
+                        // one flaky request among N into an empty (or frozen)
+                        // grid. Return what we have and flag it incomplete;
+                        // the merge below fills the gap from the previous
+                        // list so the grid and saved order can't shrink.
+                        if ( page === 1 ) throw err;
+                        console.error(`Failed to fetch installedApps page ${page}; got ${all.length} apps before the failure:`, err);
+                        return { apps: all, complete: false };
                     }
                 }
-                return all;
+                return { apps: all, complete: true };
             };
 
-            const [installedApps, launchRes, savedOrderRaw] = await Promise.all([
+            const [installedResult, launchRes, savedOrderRaw] = await Promise.all([
                 fetchAllInstalledApps(),
                 fetch(
                     `${window.api_origin}/get-launch-apps?icon_size=128`,
@@ -1063,6 +1053,7 @@ const TabApps = {
                 puter.kv.get(APPS_ORDER_KV_KEY).catch(() => null),
             ]);
 
+            const installedApps = installedResult.apps;
             const launchData = await launchRes.json();
 
             // Normalize launch apps (recommended + recent) to same shape
@@ -1118,6 +1109,20 @@ const TabApps = {
                 merged.push({ ...app, uninstallable: isUninstallable(app.name) });
             }
 
+            // A page beyond the first failed: fill the gap with apps we
+            // already know about (keeping their previous uninstallable flags)
+            // so one flaky request among N can't make apps vanish from the
+            // grid, from search, or from a subsequently saved order. Apps
+            // uninstalled remotely may linger until the next complete
+            // refresh — the same staleness any between-refresh window has.
+            if ( ! installedResult.complete && Array.isArray(this._apps) ) {
+                for ( const app of this._apps ) {
+                    if ( seen.has(app.name) ) continue;
+                    seen.add(app.name);
+                    merged.push({ ...app });
+                }
+            }
+
             // Overlay the user's saved ordering (if any). New apps are appended
             // in their default order; stale names are ignored.
             let orderedNames = null;
@@ -1137,13 +1142,13 @@ const TabApps = {
             // away either — stash it for _endDrag to apply.
             if ( this._drag?.started ) {
                 if ( ! this._pendingLoad || loadSeq > this._pendingLoad.loadSeq ) {
-                    this._pendingLoad = { $el_window, merged, orderedNames, loadSeq, partial: installedAppsPartial };
+                    this._pendingLoad = { $el_window, merged, orderedNames, loadSeq };
                 }
                 return;
             }
             this._pendingLoad = null;
             this._appliedSeq = loadSeq;
-            this._partialLoad = installedAppsPartial;
+            this._savedOrderNames = orderedNames;
 
             this._hasCustomOrder = Array.isArray(orderedNames) && orderedNames.length > 0;
 
