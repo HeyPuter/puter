@@ -1712,6 +1712,14 @@ body.myapps-reordering .myapps-tile {
     .dashboard-section-files .row:hover .item-more {
         color: var(--dashboard-text);
     }
+
+    .dashboard-section-files .row.selected:hover .item-more {
+        color: var(--primary-color-sidebar-item);
+    }
+}
+
+.dashboard-section-files .row.selected .item-more {
+    color: var(--primary-color-sidebar-item);
 }
 
 .dashboard-section-files.ui-draggable-dragging {
