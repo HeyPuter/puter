@@ -100,6 +100,7 @@ interface TranscribeArgs {
 
 export class SpeechToTextDriver extends PuterDriver {
     readonly driverInterface = 'puter-speech2txt';
+    readonly noUserSession = true;
     readonly driverName = 'openai-speech2txt';
     readonly isDefault = true;
 

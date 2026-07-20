@@ -662,6 +662,7 @@ const en = {
         token_expiry_90d: '90 days',
         token_shown_once_warning: 'Copy this token now \u2014 it won\u2019t be shown again. Keep it secret; anyone with it can access your account\u2019s data through the API.',
         token_manage_hint: 'You can revoke this token any time under',
+        verify_email_to_create_token: 'Verify your email address to create an API token.',
         shared_api_token: 'A restricted API token',
         shared_api_token_note: 'The app can use the Puter API on your behalf, but cannot change your password or email, or delete your account. You can revoke it any time under Settings \u2192 Security \u2192 Manage sessions.',
 

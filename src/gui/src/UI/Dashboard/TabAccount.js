@@ -112,7 +112,15 @@ const TabAccount = {
         h += `<span>${i18n('api_token_description')}</span>`;
         h += '</div>';
         h += '</div>';
-        h += `<button class="button copy-auth-token">${i18n('create_token')}</button>`;
+        if ( window.user?.email_confirmed ) {
+            h += `<button class="button copy-auth-token">${i18n('create_token')}</button>`;
+        } else {
+            // Disabled buttons have `pointer-events: none`, so the tooltip
+            // lives on a wrapping span that still receives hover.
+            h += `<span title="${html_encode(i18n('verify_email_to_create_token'))}" style="cursor: not-allowed;">`;
+            h += `<button class="button copy-auth-token" disabled>${i18n('create_token')}</button>`;
+            h += '</span>';
+        }
         h += '</div>';
 
         // Danger zone

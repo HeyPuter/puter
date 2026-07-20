@@ -79,6 +79,7 @@ interface MistralOcrClient {
 
 export class OCRDriver extends PuterDriver {
     readonly driverInterface = 'puter-ocr';
+    readonly noUserSession = true;
     readonly driverName = 'ai-ocr';
 
     // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.

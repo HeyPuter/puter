@@ -190,14 +190,16 @@ describe('PuterAIController.registerRoutes', () => {
             ]),
         );
 
-        // The four upstream-proxy routes reject third-party apps (they must
-        // call puter-chat-completion directly), but admit the user's own
-        // full-access personal access token: `requireUserActor` keeps apps out
-        // and `allowFullAccessToken` opens the gate to a full-access PAT. Each
-        // proxy route carries both flags, plus the shared per-tier AI
-        // rate-limit / concurrency policy — these routes bypass the
-        // `/drivers/call` dispatch (where the driver-declared limits are
-        // enforced), so without the route gates they'd be unthrottled.
+        // The four upstream-proxy routes accept exactly one credential
+        // shape — a full-access API token minted from the dashboard:
+        // `requireUserActor` keeps apps out, `allowFullAccessToken` admits
+        // the PAT, and `noUserSession` rejects the account session ("root")
+        // token. Each route also carries `requireVerified` (fresh accounts
+        // must confirm their email before using the AI wire surface) and
+        // the shared per-tier AI rate-limit / concurrency policy — these
+        // routes bypass the `/drivers/call` dispatch (where the
+        // driver-declared limits are enforced), so without the route gates
+        // they'd be unthrottled.
         const userOnlyPaths = [
             '/puterai/openai/v1/chat/completions',
             '/puterai/openai/v1/completions',
@@ -210,6 +212,8 @@ describe('PuterAIController.registerRoutes', () => {
                 subdomain: 'api',
                 requireUserActor: true,
                 allowFullAccessToken: true,
+                noUserSession: true,
+                requireVerified: true,
                 rateLimit: {
                     ...AI_RATE_LIMIT.default,
                     scope: 'driver:puter-chat-completion:complete',

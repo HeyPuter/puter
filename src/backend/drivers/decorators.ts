@@ -22,6 +22,7 @@ import {
     DRIVER_DEFAULT_KEY,
     DRIVER_INTERFACE_KEY,
     DRIVER_NAME_KEY,
+    DRIVER_NO_USER_SESSION_KEY,
     DRIVER_RATE_LIMIT_KEY,
     validateDriverConcurrent,
     validateDriverRateLimit,
@@ -80,6 +81,12 @@ export interface DriverOptions {
      * unbounded — matching today's behaviour where nothing is gated.
      */
     concurrent?: DriverConcurrentConfig;
+    /**
+     * When true, `/drivers/call` rejects bare account-session ("root")
+     * tokens for this driver — callers need an app/worker token or a
+     * dashboard-minted API token. See `DriverMeta.noUserSession`.
+     */
+    noUserSession?: boolean;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -130,5 +137,6 @@ export function Driver(interfaceName: string, opts: DriverOptions = {}) {
         proto[DRIVER_DEFAULT_KEY] = opts.default ?? false;
         if (rateLimit) proto[DRIVER_RATE_LIMIT_KEY] = rateLimit;
         if (concurrent) proto[DRIVER_CONCURRENT_KEY] = concurrent;
+        if (opts.noUserSession) proto[DRIVER_NO_USER_SESSION_KEY] = true;
     };
 }

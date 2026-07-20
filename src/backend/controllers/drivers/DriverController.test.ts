@@ -295,6 +295,133 @@ describe('DriverController.#handleCall (via captured router)', () => {
         ).rejects.toMatchObject({ statusCode: 404 });
     });
 
+    it('rejects a bare session ("root" token) actor on a noUserSession driver with a helpful 403', async () => {
+        // The AI drivers all set `noUserSession` — a session token must
+        // not double as an AI credential. The message has to point the
+        // caller at the credentials that DO work.
+        const actor = await makeUserActor();
+        const req = makeReq(
+            {
+                interface: 'puter-chat-completion',
+                method: 'complete',
+                args: { messages: [] },
+            },
+            actor,
+        );
+        await expect(
+            runWithContext({ actor }, () =>
+                routes['POST /call'](
+                    req,
+                    makeRes() as unknown as Response,
+                    () => {},
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 403,
+            legacyCode: 'app_or_api_token_required',
+            message: expect.stringMatching(/app or worker token|API token/i),
+        });
+    });
+
+    it('admits app and access-token actors past the noUserSession gate (they fail later on permission, not credential shape)', async () => {
+        const base = await makeUserActor();
+        const delegatedActors: Actor[] = [
+            { ...base, app: { uid: `app-${uuidv4()}` } },
+            {
+                ...base,
+                accessToken: {
+                    uid: `tok-${uuidv4()}`,
+                    issuer: base,
+                    fullAccess: true,
+                },
+            },
+        ];
+        for (const actor of delegatedActors) {
+            const req = makeReq(
+                {
+                    interface: 'puter-chat-completion',
+                    method: 'complete',
+                    args: { messages: [] },
+                },
+                actor,
+            );
+            await expect(
+                runWithContext({ actor }, () =>
+                    routes['POST /call'](
+                        req,
+                        makeRes() as unknown as Response,
+                        () => {},
+                    ),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                // Fresh actors hold no service:* perms, so the call still
+                // 403s — but at the permission scan, proving the
+                // credential-shape gate let the delegated actor through.
+                legacyCode: 'forbidden',
+            });
+        }
+    });
+
+    it('admits a user-scoped worker session past the noUserSession gate', async () => {
+        // Workers deployed without an app binding authenticate as a user
+        // actor whose session row is kind='worker' — they must keep their
+        // AI access (they fail later on permission here, not on
+        // credential shape).
+        const base = await makeUserActor();
+        const actor: Actor = {
+            ...base,
+            session: { uid: `sess-${uuidv4()}`, kind: 'worker' },
+        };
+        const req = makeReq(
+            {
+                interface: 'puter-chat-completion',
+                method: 'complete',
+                args: { messages: [] },
+            },
+            actor,
+        );
+        await expect(
+            runWithContext({ actor }, () =>
+                routes['POST /call'](
+                    req,
+                    makeRes() as unknown as Response,
+                    () => {},
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 403,
+            legacyCode: 'forbidden',
+        });
+    });
+
+    it('still allows bare session actors on drivers without the noUserSession flag', async () => {
+        // puter-kvstore doesn't set the flag; the session actor reaches
+        // the permission scan (403 forbidden — no perms granted) instead
+        // of being rejected for its credential shape.
+        const actor = await makeUserActor();
+        const req = makeReq(
+            {
+                interface: 'puter-kvstore',
+                method: 'set',
+                args: { key: 'x', value: 'y' },
+            },
+            actor,
+        );
+        await expect(
+            runWithContext({ actor }, () =>
+                routes['POST /call'](
+                    req,
+                    makeRes() as unknown as Response,
+                    () => {},
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 403,
+            legacyCode: 'forbidden',
+        });
+    });
+
     it('rejects with 403 when the actor lacks the service permission', async () => {
         // A fresh user has no service:* perms → permission.check returns
         // false → 403.

@@ -102,6 +102,13 @@ export const PuterDriver = class PuterDriver implements WithCostsReporting {
      * See `DriverConcurrentConfig` in `./meta` for the shape.
      */
     declare readonly concurrent?: DriverConcurrentConfig;
+    /**
+     * When true, `/drivers/call` rejects bare account-session ("root")
+     * tokens for this driver — callers need an app/worker token or a
+     * dashboard-minted API token. Set by `@Driver({ noUserSession: true })`
+     * or declared imperatively. See `DriverMeta.noUserSession` in `./meta`.
+     */
+    declare readonly noUserSession?: boolean;
 
     constructor(
         protected config: IConfig,

@@ -57,6 +57,7 @@ export const DRIVER_DEFAULT_KEY = '__driverDefault' as const;
 export const DRIVER_ALIASES_KEY = '__driverAliases' as const;
 export const DRIVER_RATE_LIMIT_KEY = '__driverRateLimit' as const;
 export const DRIVER_CONCURRENT_KEY = '__driverConcurrent' as const;
+export const DRIVER_NO_USER_SESSION_KEY = '__driverNoUserSession' as const;
 
 // -- Driver rate-limit config ----------------------------------------
 //
@@ -329,6 +330,15 @@ export interface DriverMeta {
      * in `finally`. Absent → no concurrency cap (current behaviour).
      */
     concurrent?: DriverConcurrentConfig;
+    /**
+     * When true, `/drivers/call` rejects bare account-session ("root")
+     * tokens for this driver: callers must present an app/worker token or
+     * a dashboard-minted API token. Per-driver counterpart of the
+     * `noUserSession` route option — the dispatch route is shared, so the
+     * flag lives on the driver. Set on the AI drivers so a copied session
+     * token can't double as an AI credential.
+     */
+    noUserSession?: boolean;
 }
 
 /**
@@ -384,6 +394,11 @@ export function resolveDriverMeta(
         );
     }
 
+    const noUserSession =
+        (proto[DRIVER_NO_USER_SESSION_KEY] as boolean | undefined) ??
+        (driver.noUserSession as boolean | undefined) ??
+        false;
+
     if (!interfaceName || !driverName) return null;
 
     return {
@@ -393,5 +408,6 @@ export function resolveDriverMeta(
         aliases,
         rateLimit,
         concurrent,
+        noUserSession,
     };
 }

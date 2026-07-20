@@ -22,6 +22,7 @@ import { actorUid } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { Controller } from '../../core/http/decorators.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
+import { assertNotUserSession } from '../../core/http/middleware/gates.js';
 import {
     acquireDriverConcurrent,
     checkDriverRateLimit,
@@ -219,6 +220,20 @@ export class DriverController extends PuterController {
             requestedDriver ??
             'unknown';
 
+        const driverMeta = this.#meta.get(driver);
+
+        // Drivers flagged `noUserSession` (the AI drivers) refuse the bare
+        // account-session ("root") token: callers must present an app or
+        // worker token, or an API token minted from the dashboard. This is
+        // the per-driver counterpart of the `noUserSession` route option —
+        // `/drivers/call` is one shared route, so the flag has to live on
+        // the driver rather than in `RouteOptions`. Checked before the
+        // permission scan so a session-token caller always gets the
+        // credential-shape message, not a permission error.
+        if (driverMeta?.noUserSession) {
+            assertNotUserSession(req.actor);
+        }
+
         if (req.actor) {
             const permService = this.services.permission as unknown as
                 | PermissionService
@@ -257,7 +272,6 @@ export class DriverController extends PuterController {
         // — we hook `res.finish` / `res.close` for that so streamed
         // responses hold their slot until the stream drains, and aborted
         // requests still give the slot back.
-        const driverMeta = this.#meta.get(driver);
         const rateLimitSpec = resolveDriverMethodRateLimit(
             driverMeta?.rateLimit,
             method,
