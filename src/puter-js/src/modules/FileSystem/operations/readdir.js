@@ -35,13 +35,20 @@ const readdir = async function (...args) {
             throw new Error({ code: 'NO_PATH_OR_UID', message: 'Either path or uid must be provided.' });
         }
 
-        // Generate cache key based on path or uid
+        // Presence of `cursor` (null = first page) or `includeTotal` opts
+        // into the paginated `{items, cursor?, total?}` envelope.
+        const paginated =
+            Object.prototype.hasOwnProperty.call(options, 'cursor') ||
+            options.includeTotal === true;
+
+        // Generate cache key based on path or uid. Pages are never cached —
+        // the cache stores full listings keyed by path only.
         let cacheKey;
-        if ( options.path ) {
+        if ( options.path && !paginated ) {
             cacheKey = `readdir:${ options.path}`;
         }
 
-        if ( options.consistency === 'eventual' ) {
+        if ( options.consistency === 'eventual' && cacheKey ) {
             // Check cache
             const cachedResult = await puter._cache.get(cacheKey);
             if ( cachedResult ) {
@@ -58,6 +65,12 @@ const readdir = async function (...args) {
             no_assocs: options.no_assocs,
             no_subdomains: options.no_subdomains,
             consistency: options.consistency,
+            limit: options.limit,
+            offset: options.offset,
+            cursor: paginated ? (options.cursor ?? null) : undefined,
+            includeTotal: options.includeTotal,
+            sortBy: options.sortBy,
+            sortOrder: options.sortOrder,
         });
 
         // Check if there's already an in-flight request for the same parameters
@@ -108,13 +121,14 @@ const readdir = async function (...args) {
                 // Cache the result if it's not bigger than MAX_CACHE_SIZE
                 const MAX_CACHE_SIZE = 100 * 1024 * 1024;
 
-                if ( resultSize <= MAX_CACHE_SIZE ) {
+                if ( cacheKey && resultSize <= MAX_CACHE_SIZE ) {
                     // UPSERT the cache
                     puter._cache.set(cacheKey, result);
                 }
 
                 // set each individual item's cache
-                for ( const item of result ) {
+                const entries = paginated ? (result?.items ?? []) : result;
+                for ( const item of entries ) {
                     puter._cache.set(`item:${ item.path}`, item);
                 }
 
@@ -128,6 +142,16 @@ const readdir = async function (...args) {
                 no_subdomains: options.no_subdomains,
                 auth_token: this.authToken,
             };
+            if ( options.limit !== undefined ) payload.limit = options.limit;
+            if ( options.offset !== undefined ) payload.offset = options.offset;
+            if ( options.sortBy !== undefined ) payload.sortBy = options.sortBy;
+            if ( options.sortOrder !== undefined ) payload.sortOrder = options.sortOrder;
+            if ( paginated ) {
+                payload.cursor = options.cursor ?? null;
+                if ( options.includeTotal !== undefined ) {
+                    payload.includeTotal = options.includeTotal;
+                }
+            }
 
             // Add either uid or path to the payload
             if ( options.uid ) {

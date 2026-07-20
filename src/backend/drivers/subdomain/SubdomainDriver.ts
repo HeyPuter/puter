@@ -32,6 +32,13 @@ import type { DriverRateLimitConfig } from '../meta.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
+import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.js';
+import {
+    decodeCursor,
+    encodeCursor,
+    normalizeLimit,
+    normalizeOffset,
+} from '../../util/pagination.js';
 
 const SUBDOMAIN_MAX_LEN = 64;
 const SUBDOMAIN_REGEX = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
@@ -171,12 +178,24 @@ export class SubdomainDriver extends PuterDriver {
         return shaped ?? null;
     }
 
-    async select(args: Record<string, unknown>): Promise<unknown[]> {
+    async select(args: Record<string, unknown>): Promise<unknown> {
         const actor = this.#requireActor();
         this.#requireUser(actor);
 
         const predicate = args.predicate as unknown[] | string | undefined;
-        const limit = Math.min(Number(args.limit ?? 5000), 5000);
+        const limit = normalizeLimit(args.limit, { cap: 5000 }) ?? 5000;
+        const offset = normalizeOffset(args.offset);
+        const hasCursor = Object.prototype.hasOwnProperty.call(args, 'cursor');
+        const payload = decodeCursor(
+            args.cursor as string | null | undefined,
+        ) as { id?: number } | undefined;
+        if (payload && offset !== undefined) {
+            throw new HttpError(400, 'cursor and offset cannot be combined', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const includeTotal = args.includeTotal === true;
+        const paginated = hasCursor || offset !== undefined || includeTotal;
 
         // Match v1: when the actor has `read-all-subdomains` (admin /
         // privileged accounts), widen to every subdomain. Without this
@@ -186,19 +205,55 @@ export class SubdomainDriver extends PuterDriver {
             predicate !== 'user-can-edit' &&
             (await this.#hasPermission(actor, 'read-all-subdomains'));
 
-        let rows = widenToAll
-            ? await this.stores.subdomain.listAll({ limit })
-            : await this.stores.subdomain.listByUserId(actor.user.id, {
-                  limit,
-              });
+        // App actors only see subdomains they own; read-all bypasses scoping.
+        const appOwner = !widenToAll && actor.app ? actor.app.id : undefined;
+        // Worker deployments live in the same table but aren't sites —
+        // they're listed through the workers driver instead.
+        const listOpts = {
+            limit: paginated ? limit + 1 : limit,
+            offset,
+            afterId: payload?.id !== undefined ? Number(payload.id) : undefined,
+            appOwner,
+            excludePrefix: WORKER_SUBDOMAIN_PREFIX,
+        };
 
-        // App-limited: app actors only see subdomains they own. Skip when
-        // we widened above — read-all is meant to bypass scoping.
-        if (!widenToAll && actor.app) {
-            rows = rows.filter((r) => r.app_owner === actor.app!.id);
+        let rows = (
+            widenToAll
+                ? await this.stores.subdomain.listAll(listOpts)
+                : await this.stores.subdomain.listByUserId(
+                      actor.user.id,
+                      listOpts,
+                  )
+        ) as Array<Record<string, unknown>>;
+
+        let cursor: string | undefined;
+        if (paginated && rows.length > limit) {
+            rows = rows.slice(0, limit);
+            const last = rows[rows.length - 1]!;
+            cursor = encodeCursor({ id: Number(last.id) });
         }
 
-        return this.#hydrateRows(rows as Array<Record<string, unknown>>);
+        const items = await this.#hydrateRows(rows);
+        if (!paginated) return items;
+
+        let total: number | undefined;
+        if (includeTotal) {
+            total = widenToAll
+                ? await this.stores.subdomain.count({
+                      excludePrefix: WORKER_SUBDOMAIN_PREFIX,
+                  })
+                : await this.stores.subdomain.count({
+                      userId: actor.user.id,
+                      appOwner,
+                      excludePrefix: WORKER_SUBDOMAIN_PREFIX,
+                  });
+        }
+
+        return {
+            items,
+            ...(cursor ? { cursor } : {}),
+            ...(total !== undefined ? { total } : {}),
+        };
     }
 
     async update(args: Record<string, unknown>): Promise<unknown> {

@@ -313,6 +313,13 @@ export class LegacyFSController extends PuterController {
         const actor = this.#requireActor(req);
         const body = asRecord(req.body);
 
+        // Presence of `cursor` (null means "first page") or `includeTotal`
+        // opts into the paginated `{items, cursor?, total?}` envelope.
+        // Requests without pagination params keep the bare-array response.
+        const paginated =
+            Object.prototype.hasOwnProperty.call(body, 'cursor') ||
+            body.includeTotal === true;
+
         if (this.#isRootPathRef(body)) {
             const { listRootEntries } =
                 await import('../../services/fs/rootListing.js');
@@ -342,6 +349,15 @@ export class LegacyFSController extends PuterController {
                     }),
                 ),
             );
+            if (paginated) {
+                res.json({
+                    items: shaped,
+                    ...(body.includeTotal === true
+                        ? { total: shaped.length }
+                        : {}),
+                });
+                return;
+            }
             res.json(shaped);
             return;
         }
@@ -360,10 +376,37 @@ export class LegacyFSController extends PuterController {
             'list',
         );
 
-        const children = await this.services.fs.listDirectory(parent.uuid, {
-            sortBy: this.#parseSortBy(body),
-            sortOrder: this.#parseSortOrder(body),
-        });
+        const sortBy = this.#parseSortBy(body);
+        const sortOrder = this.#parseSortOrder(body);
+        const limit =
+            typeof body.limit === 'number' || typeof body.limit === 'string'
+                ? Number(body.limit)
+                : undefined;
+        const offset =
+            typeof body.offset === 'number' || typeof body.offset === 'string'
+                ? Number(body.offset)
+                : undefined;
+
+        let children;
+        let cursor: string | undefined;
+        if (paginated) {
+            const page = await this.services.fs.listDirectoryPage(parent.uuid, {
+                limit,
+                cursor:
+                    typeof body.cursor === 'string' ? body.cursor : undefined,
+                sortBy,
+                sortOrder,
+            });
+            children = page.entries;
+            cursor = page.cursor;
+        } else {
+            children = await this.services.fs.listDirectory(parent.uuid, {
+                limit: Number.isFinite(limit) ? limit : undefined,
+                offset: Number.isFinite(offset) ? offset : undefined,
+                sortBy,
+                sortOrder,
+            });
+        }
 
         const suggestions =
             await this.services.suggestedApps.getSuggestedAppsForEntries(
@@ -386,6 +429,19 @@ export class LegacyFSController extends PuterController {
                 toLegacyEntry(this.clients.event, c, { appsById }),
             ),
         );
+
+        if (paginated) {
+            const total =
+                body.includeTotal === true
+                    ? await this.services.fs.countDirectory(parent.uuid)
+                    : undefined;
+            res.json({
+                items: shaped,
+                ...(cursor ? { cursor } : {}),
+                ...(total !== undefined ? { total } : {}),
+            });
+            return;
+        }
         res.json(shaped);
     };
 
@@ -2240,7 +2296,7 @@ export class LegacyFSController extends PuterController {
     #parseSortBy(
         body: Record<string, unknown>,
     ): 'name' | 'modified' | 'type' | 'size' | null {
-        const raw = getString(body, 'sort_by');
+        const raw = getString(body, 'sortBy') || getString(body, 'sort_by');
         if (!raw) return null;
         const normalized = raw.toLowerCase();
         return (
@@ -2251,7 +2307,8 @@ export class LegacyFSController extends PuterController {
     }
 
     #parseSortOrder(body: Record<string, unknown>): 'asc' | 'desc' | null {
-        const raw = getString(body, 'sort_order');
+        const raw =
+            getString(body, 'sortOrder') || getString(body, 'sort_order');
         if (!raw) return null;
         const normalized = raw.toLowerCase();
         return (['asc', 'desc'] as const).find((v) => v === normalized) ?? null;

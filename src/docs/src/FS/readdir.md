@@ -27,10 +27,24 @@ An object with the following properties:
 
 - `path` (String) - The path to the directory to read. Required when passing options as the only argument.
 - `uid` (String) (optional) - The UID of the directory to read.
+- `limit` (Number) (optional) - Maximum number of entries to return.
+- `offset` (Number) (optional) - Skips the given number of entries. Prefer `cursor` for paging through large directories.
+- `sortBy` (String) (optional) - Sort field: `name`, `modified`, `type`, or `size`. Default is `name`.
+- `sortOrder` (String) (optional) - `asc` or `desc`. Default is `asc`.
+- `cursor` (String | null) (optional) - Opts into paginated results. Pass `null` for the first page, then the `cursor` from each page to fetch the next one. The cursor pins the sort, so later pages must not request a different `sortBy`/`sortOrder`.
+- `includeTotal` (Boolean) (optional) - If `true`, the paginated result includes a `total` count of all entries in the directory.
 
 ## Return value
 
 A `Promise` that resolves to an array of [`FSItem`](/Objects/fsitem/) objects (files and directories) within the specified directory.
+
+When the request includes `cursor` (even `null`) or `includeTotal`, the promise instead resolves to a page object:
+
+- `items` (Array): The [`FSItem`](/Objects/fsitem/) objects on this page.
+- `cursor` (String) (optional): Present while more pages exist; pass it to the next call.
+- `total` (Number) (optional): Total entry count, present when `includeTotal` was set.
+
+Requests without pagination params keep returning the full listing as a plain array, so existing code is unaffected.
 
 ## Examples
 

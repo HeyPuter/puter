@@ -9,13 +9,32 @@ Returns an array of all subdomains in the user's subdomains that this app has ac
 ## Syntax
 ```js
 puter.hosting.list()
+puter.hosting.list(options)
 ```
 
 ## Parameters
-None
+
+#### `options` (Object) (optional)
+
+An object with the following optional properties:
+
+- `limit` (Number): Maximum number of subdomains to return in a single call.
+- `offset` (Number): Skips the given number of subdomains. Prefer `cursor` for paging through large lists.
+- `cursor` (String | null): Opts into paginated results. Pass `null` for the first page, then the `cursor` from each page to fetch the next one.
+- `includeTotal` (Boolean): If `true`, the paginated result includes a `total` count.
 
 ## Return value
-A `Promise` that will resolve to an array of all [`Subdomain`](/Objects/subdomain/) objects belonging to the user that this app has access to. 
+A `Promise` that will resolve to an array of all [`Subdomain`](/Objects/subdomain/) objects belonging to the user that this app has access to.
+
+When the request includes `cursor` (even `null`) or `includeTotal`, the promise instead resolves to a page object:
+
+- `items` (Array): The [`Subdomain`](/Objects/subdomain/) objects on this page.
+- `cursor` (String) (optional): Present while more pages exist; pass it to the next call.
+- `total` (Number) (optional): Present when `includeTotal` was set.
+
+Requests without pagination params keep returning the full list as a plain array, so existing code is unaffected.
+
+Worker-backed subdomains are never included in the results — pages and `total` only count sites. Use [`puter.workers.list()`](/Workers/list/) to list workers.
 
 ## Examples
 

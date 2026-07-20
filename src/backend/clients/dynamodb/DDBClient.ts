@@ -347,7 +347,15 @@ export class DDBClient extends PuterClient {
         pageKey?: Record<string, unknown>,
         index = '',
         consistentRead = false,
-        options?: { beginsWith?: { key: string; value: string } },
+        options?: {
+            beginsWith?: { key: string; value: string };
+            select?: 'COUNT';
+            filter?: {
+                expression: string;
+                values?: Record<string, unknown>;
+                names?: Record<string, string>;
+            };
+        },
     ) {
         const keyExpressionParts = Object.keys(keys).map(
             (key) => `#${key} = :${key}`,
@@ -378,6 +386,11 @@ export class DDBClient extends PuterClient {
             expressionAttributeNames[`#${beginsKey}`] = beginsKey;
         }
 
+        if (options?.filter) {
+            Object.assign(expressionAttributeValues, options.filter.values);
+            Object.assign(expressionAttributeNames, options.filter.names);
+        }
+
         const command = new QueryCommand({
             TableName: table,
             ...(!index ? {} : { IndexName: index }),
@@ -387,6 +400,10 @@ export class DDBClient extends PuterClient {
             ConsistentRead: consistentRead,
             ...(!pageKey ? {} : { ExclusiveStartKey: pageKey }),
             ...(!limit ? {} : { Limit: limit }),
+            ...(options?.filter
+                ? { FilterExpression: options.filter.expression }
+                : {}),
+            ...(options?.select ? { Select: options.select } : {}),
             ReturnConsumedCapacity: 'TOTAL',
         });
 

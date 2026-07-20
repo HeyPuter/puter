@@ -855,6 +855,13 @@ export class FSController extends PuterController {
         const actor = this.#requireActor(req);
         const body = this.#toObjectRecord(req.body);
 
+        // Presence of `cursor` (null means "first page") or `includeTotal`
+        // opts into the paginated `{items, cursor?, total?}` envelope.
+        // Legacy limit/offset requests keep the bare-array response.
+        const paginated =
+            Object.prototype.hasOwnProperty.call(body, 'cursor') ||
+            body.includeTotal === true;
+
         if (this.#isRootPathRef(body)) {
             const { listRootEntries } =
                 await import('../../services/fs/rootListing.js');
@@ -873,6 +880,15 @@ export class FSController extends PuterController {
                     child.suggestedApps = rootSuggestions[index] ?? [];
                 }
             }
+            if (paginated) {
+                res.json({
+                    items: rootChildren,
+                    ...(body.includeTotal === true
+                        ? { total: rootChildren.length }
+                        : {}),
+                });
+                return;
+            }
             res.json(rootChildren);
             return;
         }
@@ -888,19 +904,40 @@ export class FSController extends PuterController {
         const limit = this.#toNumberOrUndefined(body.limit);
         const offset = this.#toNumberOrUndefined(body.offset);
         const sortByRaw =
-            typeof body.sort_by === 'string'
-                ? body.sort_by.toLowerCase()
+            typeof (body.sortBy ?? body.sort_by) === 'string'
+                ? String(body.sortBy ?? body.sort_by).toLowerCase()
                 : undefined;
         const sortBy =
             (['name', 'modified', 'type', 'size'] as const).find(
                 (v) => v === sortByRaw,
             ) ?? null;
         const sortOrderRaw =
-            typeof body.sort_order === 'string'
-                ? body.sort_order.toLowerCase()
+            typeof (body.sortOrder ?? body.sort_order) === 'string'
+                ? String(body.sortOrder ?? body.sort_order).toLowerCase()
                 : undefined;
         const sortOrder =
             (['asc', 'desc'] as const).find((v) => v === sortOrderRaw) ?? null;
+
+        if (paginated) {
+            const page = await this.services.fs.listDirectoryPage(parent.uuid, {
+                limit,
+                cursor:
+                    typeof body.cursor === 'string' ? body.cursor : undefined,
+                sortBy,
+                sortOrder,
+            });
+            await this.#attachSuggestedApps(page.entries);
+            const total =
+                body.includeTotal === true
+                    ? await this.services.fs.countDirectory(parent.uuid)
+                    : undefined;
+            res.json({
+                items: page.entries,
+                ...(page.cursor ? { cursor: page.cursor } : {}),
+                ...(total !== undefined ? { total } : {}),
+            });
+            return;
+        }
 
         const children = await this.services.fs.listDirectory(parent.uuid, {
             limit,
@@ -908,19 +945,21 @@ export class FSController extends PuterController {
             sortBy,
             sortOrder,
         });
+        await this.#attachSuggestedApps(children);
+        res.json(children);
+    }
 
+    async #attachSuggestedApps(entries: FSEntry[]): Promise<void> {
         const suggestions =
             await this.services.suggestedApps.getSuggestedAppsForEntries(
-                children,
+                entries,
             );
-        for (let index = 0; index < children.length; index++) {
-            const child = children[index];
+        for (let index = 0; index < entries.length; index++) {
+            const child = entries[index];
             if (child) {
                 child.suggestedApps = suggestions[index] ?? [];
             }
         }
-
-        res.json(children);
     }
 
     @Post('/search', { subdomain: 'api', requireVerified: true })

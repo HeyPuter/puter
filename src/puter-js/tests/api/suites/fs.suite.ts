@@ -151,6 +151,73 @@ export default suite('fs', {
         );
     },
 
+    'readdir with limit keeps the bare array response': async (t) => {
+        const dir = `${home(t)}/fs-suite-page-legacy`;
+        await t.puter.fs.mkdir(dir);
+        for (const n of ['a.txt', 'b.txt', 'c.txt']) {
+            await t.puter.fs.write(`${dir}/${n}`, 'x');
+        }
+        const entries = await t.puter.fs.readdir({ path: dir, limit: 2 });
+        t.assert.ok(Array.isArray(entries), 'legacy limit should stay an array');
+        t.assert.equal(entries.length, 2);
+    },
+
+    'readdir with a cursor pages through a directory': async (t) => {
+        const dir = `${home(t)}/fs-suite-page-cursor`;
+        await t.puter.fs.mkdir(dir);
+        const names = ['a.txt', 'b.txt', 'c.txt', 'd.txt', 'e.txt'];
+        for (const n of names) {
+            await t.puter.fs.write(`${dir}/${n}`, 'x');
+        }
+        const seen: string[] = [];
+        let cursor: string | null | undefined = null;
+        do {
+            const page = (await t.puter.fs.readdir({
+                path: dir,
+                limit: 2,
+                cursor,
+            })) as { items: Array<{ name: string }>; cursor?: string };
+            seen.push(...page.items.map((e) => e.name));
+            cursor = page.cursor;
+        } while (cursor);
+        t.assert.deepEqual(seen, names);
+    },
+
+    'readdir with includeTotal reports the directory size': async (t) => {
+        const dir = `${home(t)}/fs-suite-page-total`;
+        await t.puter.fs.mkdir(dir);
+        for (const n of ['a.txt', 'b.txt', 'c.txt']) {
+            await t.puter.fs.write(`${dir}/${n}`, 'x');
+        }
+        const page = (await t.puter.fs.readdir({
+            path: dir,
+            limit: 1,
+            cursor: null,
+            includeTotal: true,
+        })) as { items: unknown[]; total?: number };
+        t.assert.equal(page.items.length, 1);
+        t.assert.equal(page.total, 3);
+    },
+
+    'readdir cursor respects descending name sort': async (t) => {
+        const dir = `${home(t)}/fs-suite-page-desc`;
+        await t.puter.fs.mkdir(dir);
+        for (const n of ['a.txt', 'b.txt', 'c.txt']) {
+            await t.puter.fs.write(`${dir}/${n}`, 'x');
+        }
+        const page = (await t.puter.fs.readdir({
+            path: dir,
+            limit: 2,
+            cursor: null,
+            sortBy: 'name',
+            sortOrder: 'desc',
+        })) as { items: Array<{ name: string }>; cursor?: string };
+        t.assert.deepEqual(
+            page.items.map((e) => e.name),
+            ['c.txt', 'b.txt'],
+        );
+    },
+
     'readdir of a missing directory rejects': async (t) => {
         await t.assert.rejects(
             () => t.puter.fs.readdir(`${home(t)}/fs-suite-no-such-dir`),

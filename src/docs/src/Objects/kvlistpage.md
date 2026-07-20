@@ -17,3 +17,9 @@ An array containing either:
 #### `cursor` (String) (optional)
 
 A pagination cursor to fetch the next page of results. Present only when there are more results to fetch. Pass this value to the next `puter.kv.list()` call to retrieve the next page.
+
+A page may hold fewer than `limit` items while `cursor` is still present — always iterate until `cursor` is absent.
+
+#### `total` (Number) (optional)
+
+The total number of items matching the query across all pages. Present only when the request set `includeTotal: true`.

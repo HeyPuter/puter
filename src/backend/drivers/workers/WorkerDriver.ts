@@ -25,15 +25,23 @@ import { Context } from '../../core/context.js';
 import { HttpError, type LegacyErrorCodes } from '../../core/http/HttpError.js';
 import { assertVerifiedEmail } from '../../core/http/verifiedEmail.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
-import type { SubdomainRow } from '../../stores/subdomain/SubdomainStore.js';
+import {
+    WORKER_SUBDOMAIN_PREFIX,
+    type SubdomainRow,
+} from '../../stores/subdomain/SubdomainStore.js';
 import { PuterDriver } from '../types.js';
 import { loadFileInput } from '../util/fileInput.js';
+import {
+    decodeCursor,
+    encodeCursor,
+    normalizeLimit,
+    normalizeOffset,
+} from '../../util/pagination.js';
 
 const CF_BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
 const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
 const MAX_WORKERS_PER_USER = 100;
 const MAX_SOURCE_SIZE = 10 * 1024 * 1024; // 10 MB
-const WORKER_SUBDOMAIN_PREFIX = 'workers.puter.';
 let USE_LOCAL_WORKERD = false;
 
 // -- Preamble --------------------------------------------------------
@@ -317,11 +325,31 @@ export class WorkerDriver extends PuterDriver {
         return cfResult;
     }
 
-    async getFilePaths(args: Record<string, unknown>): Promise<unknown[]> {
+    async getFilePaths(args: Record<string, unknown>): Promise<unknown> {
         const actor = this.#requireActor();
         const workerName = args.workerName as string | undefined;
 
+        const limit = normalizeLimit(args.limit, { cap: 5000 });
+        const offset = normalizeOffset(args.offset);
+        const hasCursor = Object.prototype.hasOwnProperty.call(args, 'cursor');
+        const payload = decodeCursor(
+            args.cursor as string | null | undefined,
+        ) as { id?: number } | undefined;
+        if (payload && offset !== undefined) {
+            throw new HttpError(400, 'cursor and offset cannot be combined', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const includeTotal = args.includeTotal === true;
+        const paginated =
+            hasCursor ||
+            limit !== undefined ||
+            offset !== undefined ||
+            includeTotal;
+        const pageSize = limit ?? 500;
+
         let rows: SubdomainRow[];
+        let cursor: string | undefined;
         if (typeof workerName === 'string' && workerName.length > 0) {
             const sub = await this.stores.subdomain.getBySubdomain(
                 `${WORKER_SUBDOMAIN_PREFIX}${workerName}`,
@@ -331,8 +359,26 @@ export class WorkerDriver extends PuterDriver {
             rows = await this.stores.subdomain.listByUserIdAndPrefix(
                 actor.user.id,
                 WORKER_SUBDOMAIN_PREFIX,
-                actor.app ? { appId: actor.app.id } : {},
+                {
+                    ...(actor.app ? { appId: actor.app.id } : {}),
+                    ...(paginated
+                        ? {
+                              limit: pageSize + 1,
+                              offset,
+                              afterId:
+                                  payload?.id !== undefined
+                                      ? Number(payload.id)
+                                      : undefined,
+                          }
+                        : {}),
+                },
             );
+            if (paginated && rows.length > pageSize) {
+                rows = rows.slice(0, pageSize);
+                cursor = encodeCursor({
+                    id: Number(rows[rows.length - 1]!.id),
+                });
+            }
         }
 
         const rootDirIds = rows
@@ -351,7 +397,7 @@ export class WorkerDriver extends PuterDriver {
             });
         }
 
-        return rows.map((r) => {
+        const items = rows.map((r) => {
             const name =
                 String(r.subdomain ?? '')
                     .split('.')
@@ -373,6 +419,23 @@ export class WorkerDriver extends PuterDriver {
                     : null,
             };
         });
+
+        if (!paginated) return items;
+
+        let total: number | undefined;
+        if (includeTotal) {
+            total = await this.stores.subdomain.countByUserIdAndPrefix(
+                actor.user.id,
+                WORKER_SUBDOMAIN_PREFIX,
+                actor.app ? { appId: actor.app.id } : {},
+            );
+        }
+
+        return {
+            items,
+            ...(cursor ? { cursor } : {}),
+            ...(total !== undefined ? { total } : {}),
+        };
     }
 
     async getLoggingUrl(): Promise<string | null> {

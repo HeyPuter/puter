@@ -212,6 +212,95 @@ describe('WorkerDriver', () => {
         });
     });
 
+    describe('getFilePaths pagination', () => {
+        let nextUserId = 90_000;
+        const seedWorkers = async (count: number) => {
+            const userId = nextUserId++;
+            const workerActor = makeActor({
+                user: {
+                    uuid: `wk-user-${userId}`,
+                    id: userId,
+                    username: `wk-user-${userId}`,
+                    email: `wk-${userId}@test.com`,
+                    email_confirmed: true,
+                },
+                app: undefined,
+            });
+            const names: string[] = [];
+            for (let i = 0; i < count; i++) {
+                const name = `wk${userId}n${i}`;
+                names.push(name);
+                await server.stores.subdomain.create({
+                    userId,
+                    subdomain: `workers.puter.${name}`,
+                    rootDirId: null,
+                    associatedAppId: null,
+                    appOwner: null,
+                });
+            }
+            return { workerActor, names };
+        };
+
+        it('keeps the bare array response when no pagination params are given', async () => {
+            const { workerActor, names } = await seedWorkers(3);
+            const res = (await inCtx(
+                () => target.getFilePaths({}),
+                workerActor,
+            )) as Array<{ name: string }>;
+            expect(Array.isArray(res)).toBe(true);
+            expect(res.map((r) => r.name)).toEqual(names);
+        });
+
+        it('returns the envelope and pages with cursors when limit is given', async () => {
+            const { workerActor, names } = await seedWorkers(5);
+            const seen: string[] = [];
+            let cursor: string | null | undefined = null;
+            do {
+                const page = (await inCtx(
+                    () => target.getFilePaths({ limit: 2, cursor }),
+                    workerActor,
+                )) as { items: Array<{ name: string }>; cursor?: string };
+                seen.push(...page.items.map((r) => r.name));
+                cursor = page.cursor;
+            } while (cursor);
+            expect(seen).toEqual(names);
+        });
+
+        it('supports offset paging and totals', async () => {
+            const { workerActor, names } = await seedWorkers(4);
+            const page = (await inCtx(
+                () =>
+                    target.getFilePaths({
+                        limit: 10,
+                        offset: 1,
+                        includeTotal: true,
+                    }),
+                workerActor,
+            )) as { items: Array<{ name: string }>; total?: number };
+            expect(page.items.map((r) => r.name)).toEqual(names.slice(1));
+            expect(page.total).toBe(names.length);
+        });
+
+        it('rejects cursor combined with offset', async () => {
+            const { workerActor } = await seedWorkers(2);
+            const first = (await inCtx(
+                () => target.getFilePaths({ limit: 1, cursor: null }),
+                workerActor,
+            )) as { cursor?: string };
+            expect(first.cursor).toBeDefined();
+            await expect(
+                inCtx(
+                    () =>
+                        target.getFilePaths({
+                            offset: 1,
+                            cursor: first.cursor,
+                        }),
+                    workerActor,
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+    });
+
     describe('getLoggingUrl', () => {
         it('returns null when loggingUrl is not configured', async () => {
             const res = await inCtx(() => target.getLoggingUrl());

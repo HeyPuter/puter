@@ -2743,6 +2743,22 @@ export class FSService extends PuterService {
         return this.stores.fsEntry.listChildren(parentUid, options);
     }
 
+    async listDirectoryPage(
+        parentUid: string,
+        options: {
+            limit?: number;
+            cursor?: string | null;
+            sortBy?: 'name' | 'modified' | 'type' | 'size' | null;
+            sortOrder?: 'asc' | 'desc' | null;
+        } = {},
+    ): Promise<{ entries: FSEntry[]; cursor?: string }> {
+        return this.stores.fsEntry.listChildrenPage(parentUid, options);
+    }
+
+    async countDirectory(parentUid: string): Promise<number> {
+        return this.stores.fsEntry.countChildren(parentUid);
+    }
+
     /**
      * Search by file name for a user. Linear-scan with LIKE — cheap for
      * typical library sizes, revisit if we need full-text.

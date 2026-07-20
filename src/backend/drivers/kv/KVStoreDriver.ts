@@ -223,6 +223,9 @@ export class KVStoreDriver extends PuterDriver {
         limit?: number;
         cursor?: string | Record<string, unknown>;
         pattern?: string;
+        offset?: number;
+        includeTotal?: boolean;
+        fetchUntilFull?: boolean;
         optConfig?: { appUuid?: string };
     }): Promise<unknown> {
         const opts = this.#opts(args.optConfig?.appUuid);
@@ -232,6 +235,9 @@ export class KVStoreDriver extends PuterDriver {
                 limit: args.limit,
                 cursor: args.cursor,
                 pattern: args.pattern,
+                offset: args.offset,
+                includeTotal: args.includeTotal,
+                fetchUntilFull: args.fetchUntilFull,
             },
             opts,
         );

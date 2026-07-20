@@ -690,6 +690,59 @@ describe('LegacyFSController.readdir', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
+
+    it('pages children with cursors and reports totals', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        for (const name of ['p1', 'p2', 'p3']) {
+            await withActor(actor, () =>
+                controller.mkdir(
+                    makeReq({
+                        body: { path: `/${username}/Documents/${name}` },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+        }
+
+        const readdir = async (body: Record<string, unknown>) => {
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.readdir(makeReq({ body, actor }), res),
+            );
+            return captured.body;
+        };
+
+        const seen: string[] = [];
+        let cursor: string | null | undefined = null;
+        let total: number | undefined;
+        do {
+            const page = (await readdir({
+                path: `/${username}/Documents`,
+                limit: 2,
+                cursor,
+                includeTotal: true,
+            })) as {
+                items: Array<{ name: string }>;
+                cursor?: string;
+                total?: number;
+            };
+            seen.push(...page.items.map((e) => e.name));
+            total = page.total;
+            cursor = page.cursor;
+        } while (cursor);
+        expect(seen).toEqual(['p1', 'p2', 'p3']);
+        expect(total).toBe(3);
+
+        // Legacy limit-only requests keep the bare array response.
+        const bare = await readdir({
+            path: `/${username}/Documents`,
+            limit: 2,
+        });
+        expect(Array.isArray(bare)).toBe(true);
+        expect((bare as unknown[]).length).toBe(2);
+    });
 });
 
 // ── copy ────────────────────────────────────────────────────────────

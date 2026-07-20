@@ -26,6 +26,12 @@ import {
 } from '../../core/actor';
 import { PUTER_KV_STORE_TABLE_DEFINITION } from './tableDefinition';
 import { HttpError } from '../../core/http';
+import {
+    decodeCursor,
+    encodeCursor,
+    normalizeLimit,
+    normalizeOffset,
+} from '../../util/pagination';
 
 // -- Types ------------------------------------------------------------
 
@@ -61,6 +67,16 @@ const MAX_KEY_BYTES = 1024;
 const MAX_VALUE_BYTES = 399 * 1024;
 const BATCH_GET_CHUNK = 100;
 const PATH_CLEANER_REGEX = /[^A-Za-z0-9_]/g;
+// Offset emulation re-scans everything before the requested position, so it
+// is bounded; cursors are the recommended way to page.
+const MAX_LIST_OFFSET = 5000;
+const MAX_FILL_PAGES = 10;
+
+const ttlFilter = (now: number) => ({
+    expression: 'attribute_not_exists(#ttlAttr) OR #ttlAttr > :nowTs',
+    names: { '#ttlAttr': 'ttl' },
+    values: { ':nowTs': now },
+});
 
 const emptyUsage = (): KVUsage => ({ read: 0, write: 0 });
 
@@ -110,44 +126,6 @@ const assertValueSize = (value: unknown): void => {
             { legacyCode: 'bad_request' },
         );
     }
-};
-
-const encodeCursor = (
-    pageKey?: Record<string, unknown>,
-): string | undefined => {
-    if (!pageKey || Object.keys(pageKey).length === 0) return undefined;
-    return Buffer.from(JSON.stringify(pageKey)).toString('base64');
-};
-
-const decodeCursor = (
-    cursor?: string | Record<string, unknown>,
-): Record<string, unknown> | undefined => {
-    if (!cursor) return undefined;
-    if (typeof cursor === 'object') return cursor;
-    const trimmed = cursor.trim();
-    if (trimmed === '') return undefined;
-    try {
-        return JSON.parse(Buffer.from(trimmed, 'base64').toString('utf8'));
-    } catch {
-        try {
-            return JSON.parse(trimmed);
-        } catch {
-            throw new HttpError(400, 'kv: invalid cursor', {
-                legacyCode: 'bad_request',
-            });
-        }
-    }
-};
-
-const normalizeLimit = (limit?: number): number | undefined => {
-    if (limit === undefined || limit === null) return undefined;
-    const parsed = Number(limit);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-        throw new HttpError(400, 'kv: limit must be a positive number', {
-            legacyCode: 'bad_request',
-        });
-    }
-    return Math.floor(parsed);
 };
 
 const normalizePattern = (pattern?: string): string | undefined => {
@@ -368,11 +346,17 @@ export class SystemKVStore extends PuterStore {
             limit,
             cursor,
             pattern,
+            offset,
+            includeTotal,
+            fetchUntilFull,
         }: {
             as?: 'keys' | 'values' | 'entries';
             limit?: number;
             cursor?: string | Record<string, unknown>;
             pattern?: string;
+            offset?: number;
+            includeTotal?: boolean;
+            fetchUntilFull?: boolean;
         },
         opts?: KVOpts,
     ): Promise<
@@ -380,41 +364,41 @@ export class SystemKVStore extends PuterStore {
             | string[]
             | unknown[]
             | { key: string; value: unknown }[]
-            | { items: string[]; cursor?: string }
-            | { items: unknown[]; cursor?: string }
-            | { items: { key: string; value: unknown }[]; cursor?: string }
+            | {
+                  items:
+                      | string[]
+                      | unknown[]
+                      | { key: string; value: unknown }[];
+                  cursor?: string;
+                  total?: number;
+              }
         >
     > {
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts?.appUuid);
 
-        const normalizedLimit = normalizeLimit(limit);
-        const pageKey = decodeCursor(cursor);
+        const normalizedLimit = normalizeLimit(limit, { label: 'kv: limit' });
+        const normalizedOffset = normalizeOffset(offset, {
+            cap: MAX_LIST_OFFSET,
+            label: 'kv: offset',
+        });
+        const pageKey = decodeCursor(cursor, 'kv: cursor');
         const normalizedPattern = normalizePattern(pattern);
-        const paginated =
-            normalizedLimit !== undefined || pageKey !== undefined;
 
-        const response = await this.clients.dynamo.query(
-            this.tableName,
-            { namespace },
-            normalizedLimit ?? 0,
-            pageKey,
-            '',
-            false,
-            normalizedPattern
-                ? { beginsWith: { key: 'key', value: normalizedPattern } }
-                : undefined,
-        );
-
-        const usage = readUsage(
-            (response.ConsumedCapacity?.CapacityUnits as number | undefined) ??
-                1,
-        );
-
-        const now = Date.now() / 1000;
-        const entries = (response.Items ?? [])
-            .filter((e) => e && (!e.ttl || e.ttl > now))
-            .map((e) => ({ key: e!.key as string, value: e!.value }));
+        if (pageKey !== undefined && normalizedOffset !== undefined) {
+            throw new HttpError(
+                400,
+                'kv: cursor and offset cannot be combined',
+                {
+                    legacyCode: 'bad_request',
+                },
+            );
+        }
+        if (fetchUntilFull && normalizedLimit === undefined) {
+            throw new HttpError(400, 'kv: fetchUntilFull requires limit', {
+                legacyCode: 'bad_request',
+            });
+        }
 
         const kind = as ?? 'entries';
         if (!['keys', 'values', 'entries'].includes(kind)) {
@@ -425,24 +409,137 @@ export class SystemKVStore extends PuterStore {
             );
         }
 
+        const paginated =
+            normalizedLimit !== undefined ||
+            pageKey !== undefined ||
+            normalizedOffset !== undefined ||
+            includeTotal === true ||
+            fetchUntilFull === true;
+
+        const now = Date.now() / 1000;
+        let usage = emptyUsage();
+        const runQuery = async (
+            qLimit: number,
+            startKey?: Record<string, unknown>,
+            select?: 'COUNT',
+        ) => {
+            const response = await this.clients.dynamo.query(
+                this.tableName,
+                { namespace },
+                qLimit,
+                startKey,
+                '',
+                false,
+                {
+                    ...(normalizedPattern
+                        ? {
+                              beginsWith: {
+                                  key: 'key',
+                                  value: normalizedPattern,
+                              },
+                          }
+                        : {}),
+                    filter: ttlFilter(now),
+                    ...(select ? { select } : {}),
+                },
+            );
+            usage = addUsage(
+                usage,
+                readUsage(
+                    (response.ConsumedCapacity?.CapacityUnits as
+                        | number
+                        | undefined) ?? 1,
+                ),
+            );
+            return response;
+        };
+
+        // Offset emulation: COUNT queries advance the page key past the
+        // skipped rows without transferring item data. Cost is still
+        // proportional to the offset — cursors are the cheap path.
+        let startKey = pageKey;
+        let exhausted = false;
+        if (normalizedOffset !== undefined && normalizedOffset > 0) {
+            let remaining = normalizedOffset;
+            while (remaining > 0) {
+                const skip = await runQuery(remaining, startKey, 'COUNT');
+                remaining -= Number(skip.Count ?? 0);
+                startKey = skip.LastEvaluatedKey as
+                    | Record<string, unknown>
+                    | undefined;
+                if (!startKey) {
+                    exhausted = remaining > 0;
+                    break;
+                }
+            }
+        }
+
+        const collected: Array<Record<string, unknown>> = [];
+        let nextKey = startKey;
+        if (!exhausted) {
+            let pages = 0;
+            do {
+                const want = normalizedLimit
+                    ? normalizedLimit - collected.length
+                    : 0;
+                const response = await runQuery(want, nextKey);
+                collected.push(
+                    ...((response.Items ?? []) as Array<
+                        Record<string, unknown>
+                    >),
+                );
+                nextKey = response.LastEvaluatedKey as
+                    | Record<string, unknown>
+                    | undefined;
+                pages++;
+                if (normalizedLimit === undefined) {
+                    // Legacy full listing: follow continuation pages so the
+                    // result is complete rather than capped at one response.
+                    if (!nextKey) break;
+                } else if (
+                    !fetchUntilFull ||
+                    collected.length >= normalizedLimit ||
+                    !nextKey ||
+                    pages >= MAX_FILL_PAGES
+                ) {
+                    break;
+                }
+            } while (true);
+        }
+
+        const entries = collected
+            .filter((e) => e && (!e.ttl || (e.ttl as number) > now))
+            .map((e) => ({ key: e.key as string, value: e.value }));
+
         let items: string[] | unknown[] | { key: string; value: unknown }[] =
             entries;
         if (kind === 'keys') items = entries.map((e) => e.key);
         else if (kind === 'values') items = entries.map((e) => e.value);
 
-        if (paginated) {
-            const nextCursor = encodeCursor(
-                response.LastEvaluatedKey as
+        if (!paginated) return { res: items, usage };
+
+        let total: number | undefined;
+        if (includeTotal) {
+            total = 0;
+            let countKey: Record<string, unknown> | undefined;
+            do {
+                const counted = await runQuery(0, countKey, 'COUNT');
+                total += Number(counted.Count ?? 0);
+                countKey = counted.LastEvaluatedKey as
                     | Record<string, unknown>
-                    | undefined,
-            );
-            return {
-                res: nextCursor ? { items, cursor: nextCursor } : { items },
-                usage,
-            };
+                    | undefined;
+            } while (countKey);
         }
 
-        return { res: items, usage };
+        const nextCursor = encodeCursor(nextKey);
+        return {
+            res: {
+                items,
+                ...(nextCursor ? { cursor: nextCursor } : {}),
+                ...(total !== undefined ? { total } : {}),
+            },
+            usage,
+        };
     }
 
     async flush(opts?: KVOpts): Promise<KVResult<boolean>> {

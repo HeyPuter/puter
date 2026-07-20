@@ -93,6 +93,38 @@ export default suite('workers', {
         );
     },
 
+    'list pages with cursors and reports totals': async (t) => {
+        await deployWorker(t, 'workers-suite-pg-a');
+        await deployWorker(t, 'workers-suite-pg-b');
+
+        const seen: string[] = [];
+        let cursor: string | null | undefined = null;
+        let total: number | undefined;
+        do {
+            const page = (await t.puter.workers.list({
+                limit: 1,
+                cursor,
+                includeTotal: true,
+            })) as {
+                items: Array<{ name: string }>;
+                cursor?: string;
+                total?: number;
+            };
+            t.assert.ok(Array.isArray(page.items), 'page should carry items');
+            t.assert.ok(page.items.length <= 1, 'page respects limit');
+            seen.push(...page.items.map((w) => w.name));
+            total = page.total;
+            cursor = page.cursor;
+        } while (cursor);
+
+        t.assert.ok(
+            seen.includes('workers-suite-pg-a') &&
+                seen.includes('workers-suite-pg-b'),
+            'both deployed workers should appear while paging',
+        );
+        t.assert.ok((total ?? 0) >= 2, 'total should count deployed workers');
+    },
+
     'delete removes the worker': async (t) => {
         await deployWorker(t, 'workers-suite-delete');
         const deleted = await t.puter.workers.delete('workers-suite-delete');

@@ -593,6 +593,15 @@ class KV {
             if ( input.cursor !== undefined ) {
                 options.cursor = input.cursor;
             }
+            if ( input.offset !== undefined ) {
+                options.offset = input.offset;
+            }
+            if ( input.includeTotal !== undefined ) {
+                options.includeTotal = input.includeTotal;
+            }
+            if ( input.fetchUntilFull !== undefined ) {
+                options.fetchUntilFull = input.fetchUntilFull;
+            }
         } else {
             if ( isObject(args[1]) ) {
                 options.optConfig = args[1];

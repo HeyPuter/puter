@@ -270,6 +270,127 @@ describe('SystemKVStore', () => {
             const result = await target.list({ as: 'keys' }, opts);
             expect(result.res as string[]).not.toContain('short-lived');
         });
+
+        it('skips ahead with offset', async () => {
+            const all = (await target.list({ as: 'keys' }, opts)).res as string[];
+            const result = await target.list(
+                { as: 'keys', offset: 1, limit: 5 },
+                opts,
+            );
+            const envelope = result.res as { items: string[] };
+            expect(envelope.items).toEqual(all.slice(1));
+        });
+
+        it('returns an empty page when offset passes the end', async () => {
+            const result = await target.list(
+                { as: 'keys', offset: 50, limit: 5 },
+                opts,
+            );
+            const envelope = result.res as { items: string[]; cursor?: string };
+            expect(envelope.items).toEqual([]);
+            expect(envelope.cursor).toBeUndefined();
+        });
+
+        it('rejects offset combined with cursor', async () => {
+            const page = (await target.list({ limit: 1 }, opts)).res as {
+                cursor?: string;
+            };
+            await expect(
+                target.list({ offset: 1, cursor: page.cursor }, opts),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('rejects offset above the cap', async () => {
+            await expect(
+                target.list({ offset: 5001 }, opts),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('reports total when includeTotal is set', async () => {
+            const result = await target.list(
+                { as: 'keys', limit: 1, includeTotal: true },
+                opts,
+            );
+            const envelope = result.res as {
+                items: string[];
+                total?: number;
+            };
+            expect(envelope.items.length).toBe(1);
+            expect(envelope.total).toBe(3);
+        });
+
+        it('excludes TTL-expired entries from total', async () => {
+            await target.set(
+                {
+                    key: 'expired-one',
+                    value: 'x',
+                    expireAt: Math.floor(Date.now() / 1000) - 10,
+                },
+                opts,
+            );
+            const result = await target.list(
+                { limit: 10, includeTotal: true },
+                opts,
+            );
+            const envelope = result.res as { total?: number };
+            expect(envelope.total).toBe(3);
+        });
+
+        it('scopes total to the pattern', async () => {
+            const result = await target.list(
+                { limit: 10, pattern: 'fruit:*', includeTotal: true },
+                opts,
+            );
+            const envelope = result.res as { total?: number };
+            expect(envelope.total).toBe(2);
+        });
+
+        it('refills short pages when fetchUntilFull is set', async () => {
+            const now = Math.floor(Date.now() / 1000);
+            await target.batchPut(
+                {
+                    items: [
+                        { key: 'a:1', value: 1, expireAt: now - 10 },
+                        { key: 'a:2', value: 2, expireAt: now - 10 },
+                        { key: 'a:3', value: 3 },
+                        { key: 'a:4', value: 4 },
+                    ],
+                },
+                opts,
+            );
+            const result = await target.list(
+                { as: 'keys', pattern: 'a:*', limit: 2, fetchUntilFull: true },
+                opts,
+            );
+            const envelope = result.res as { items: string[] };
+            expect(envelope.items).toEqual(['a:3', 'a:4']);
+        });
+
+        it('rejects fetchUntilFull without a limit', async () => {
+            await expect(
+                target.list({ fetchUntilFull: true }, opts),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('follows continuation pages across the full keyset via cursor', async () => {
+            const keys: string[] = [];
+            let cursor: string | undefined;
+            do {
+                const page = (
+                    await target.list(
+                        { as: 'keys', limit: 1, cursor },
+                        opts,
+                    )
+                ).res as { items: string[]; cursor?: string };
+                keys.push(...page.items);
+                cursor = page.cursor;
+            } while (cursor);
+            expect(keys.sort()).toEqual([
+                'fruit:apple',
+                'fruit:banana',
+                'veg:carrot',
+            ]);
+        });
     });
 
     describe('flush', () => {
