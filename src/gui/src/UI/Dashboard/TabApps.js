@@ -224,6 +224,13 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
                     el.style.transition = `transform ${DRAG_FLIP_ANIM_MS}ms ${DRAG_FLIP_EASING}`;
                     el.style.transform = '';
                 }
+                // The transform-only inline transition must not outlive the
+                // slide: left in place it overrides .myapps-tile-removing's
+                // transition on the next uninstall, snapping opacity to 0
+                // with no shrink animation.
+                setTimeout(() => {
+                    for ( const el of moved ) el.style.transition = '';
+                }, DRAG_FLIP_ANIM_MS + 60);
             }
             settleRemoval();
         };
@@ -233,6 +240,10 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
         if ( tileEl && ! self._reduceMotion() ) {
             // Let the modal's departure settle before the tile starts to go.
             setTimeout(() => {
+                // An earlier FLIP (uninstall slide or drag reorder) may have
+                // left a stale inline transition on this tile; clear it so
+                // the removing class's transition takes effect.
+                tileEl.style.transition = '';
                 tileEl.classList.add('myapps-tile-removing');
                 setTimeout(finishRemoval, TILE_REMOVE_ANIM_MS);
             }, TILE_REMOVE_DELAY_MS);
