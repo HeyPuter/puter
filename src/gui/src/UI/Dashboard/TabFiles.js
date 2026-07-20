@@ -2270,6 +2270,16 @@ const TabFiles = {
                 return;
             }
 
+            // A right-click must not change the selection: an unselected item
+            // gets the grey context-menu state instead (added by the
+            // contextmenu handler), and an existing selection is preserved
+            // so the multi-select menu still applies to it.
+            if ( e.button === 2 ) {
+                window.active_element = el_item;
+                window.active_item_container = el_item.closest('.files');
+                return;
+            }
+
             if ( !e.ctrlKey && !e.metaKey && !e.shiftKey && !el_item.classList.contains('selected') && !isMobileSelectMode ) {
                 el_item.parentElement.querySelectorAll('.row.selected').forEach(r => {
                     r.classList.remove('selected');
@@ -2493,7 +2503,15 @@ const TabFiles = {
                 const modal = new ContextMenuModal();
                 modal.show(items, el_item.getBoundingClientRect(), { title: file.name });
             } else {
-                UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
+                // Keep the row visually active while its menu is open — the
+                // pointer moves onto the menu, so :hover alone would drop it.
+                // Class added manually rather than via parent_element, whose
+                // inline overflow side effects would break the row's layout.
+                $(el_item).addClass('has-open-contextmenu');
+                const menu = UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
+                menu.onClose = () => {
+                    $(el_item).removeClass('has-open-contextmenu');
+                };
             }
         });
 
@@ -3244,7 +3262,14 @@ const TabFiles = {
             const modal = new ContextMenuModal();
             modal.show(items, targetRect, { title: file.name });
         } else {
-            UIContextMenu({ items: items });
+            // The '⋯' click doesn't select the row, so without this class the
+            // row would lose all visual state the moment the pointer moves
+            // onto the menu (same treatment as the right-click handler).
+            $(rowElement).addClass('has-open-contextmenu');
+            const menu = UIContextMenu({ items: items });
+            menu.onClose = () => {
+                $(rowElement).removeClass('has-open-contextmenu');
+            };
         }
     },
 

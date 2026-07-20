@@ -1631,6 +1631,11 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
+.dashboard-section-files .row.has-open-contextmenu:not(.selected) {
+    background: var(--dashboard-hover);
+    border-radius: 3px;
+}
+
 .dashboard-section-files .row.selected {
     color: var(--primary-color-sidebar-item);
     background-color: var(--select-color);
@@ -2220,6 +2225,13 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
+/* An open context menu keeps its row in the hover state (the pointer is on
+   the menu, so :hover no longer matches). Selected rows keep their own look. */
+.dashboard-section-files .files-tab .files.files-grid-view .row.has-open-contextmenu:not(.selected) {
+    background: var(--dashboard-sidebar-background);
+    border-color: var(--dashboard-border);
+}
+
 .dashboard-section-files .files-tab .files.files-grid-view .row.selected {
     background-color: var(--select-color);
     color: var(--dashboard-background);
@@ -2280,7 +2292,8 @@ body.myapps-reordering .myapps-tile {
 }
 
 @media (hover: hover) {
-    .dashboard-section-files .files-tab .files.files-grid-view .row:hover .item-more {
+    .dashboard-section-files .files-tab .files.files-grid-view .row:hover .item-more,
+    .dashboard-section-files .files-tab .files.files-grid-view .row.has-open-contextmenu .item-more {
         position: absolute;
         top: 1px;
         right: 1px;
