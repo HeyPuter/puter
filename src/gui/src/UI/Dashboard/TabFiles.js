@@ -2505,13 +2505,11 @@ const TabFiles = {
             } else {
                 // Keep the row visually active while its menu is open — the
                 // pointer moves onto the menu, so :hover alone would drop it.
-                // Class added manually rather than via parent_element, whose
+                // Class managed manually rather than via parent_element, whose
                 // inline overflow side effects would break the row's layout.
-                $(el_item).addClass('has-open-contextmenu');
+                const releaseCtxState = _this.markRowContextMenuOpen(el_item);
                 const menu = UIContextMenu({ items: items, position: { left: e.pageX, top: e.pageY } });
-                menu.onClose = () => {
-                    $(el_item).removeClass('has-open-contextmenu');
-                };
+                menu.onClose = releaseCtxState;
             }
         });
 
@@ -3245,6 +3243,27 @@ const TabFiles = {
      * @param {Object} file - The file/folder object data
      * @returns {Promise<void>}
      */
+    /**
+     * Marks a row as visually active for an open context menu and returns
+     * the release function for that menu's onClose. Menus can overlap on the
+     * same row (e.g. right-click while the '⋯' menu is still open): the newer
+     * menu takes ownership of the state, so the older menu's late close must
+     * not strip it — release only acts if its menu is still the owner.
+     *
+     * @param {HTMLElement} rowElement - The row the menu belongs to
+     * @returns {Function} Release callback to assign as the menu's onClose
+     */
+    markRowContextMenuOpen (rowElement) {
+        const token = (rowElement._ctxMenuToken = {});
+        rowElement.classList.add('has-open-contextmenu');
+        return () => {
+            if ( rowElement._ctxMenuToken === token ) {
+                rowElement.classList.remove('has-open-contextmenu');
+                delete rowElement._ctxMenuToken;
+            }
+        };
+    },
+
     async handleMoreClick (rowElement, file, targetElement) {
         const selectedRows = document.querySelectorAll('.files-tab .row.selected');
 
@@ -3265,11 +3284,9 @@ const TabFiles = {
             // The '⋯' click doesn't select the row, so without this class the
             // row would lose all visual state the moment the pointer moves
             // onto the menu (same treatment as the right-click handler).
-            $(rowElement).addClass('has-open-contextmenu');
+            const releaseCtxState = this.markRowContextMenuOpen(rowElement);
             const menu = UIContextMenu({ items: items });
-            menu.onClose = () => {
-                $(rowElement).removeClass('has-open-contextmenu');
-            };
+            menu.onClose = releaseCtxState;
         }
     },
 
