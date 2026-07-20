@@ -31,6 +31,7 @@ import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { DriverMeta } from '../../drivers/meta.js';
 import {
     isDriverStreamResult,
+    resolveCallableMethods,
     resolveDriverMeta,
     resolveDriverMethodConcurrent,
     resolveDriverMethodRateLimit,
@@ -124,6 +125,14 @@ export class DriverController extends PuterController {
      * lookup doesn't have to walk prototype chains on every request.
      */
     #meta = new WeakMap<DriverInstance, DriverMeta>();
+    /**
+     * driver instance → the set of method names callable via `/drivers/call`.
+     * Resolved once at registration (server startup) via
+     * `resolveCallableMethods`; the request path only does a `Set.has` lookup.
+     * This is what stops framework/lifecycle methods (`onServerStart`, etc.)
+     * and `Object.prototype` members from being invoked by remote callers.
+     */
+    #callableMethods = new WeakMap<DriverInstance, Set<string>>();
 
     constructor(...args: ConstructorParameters<typeof PuterController>) {
         super(...args);
@@ -202,14 +211,19 @@ export class DriverController extends PuterController {
             );
         }
 
-        const fn = driver[method];
-        if (typeof fn !== 'function') {
+        // Only methods in the pre-resolved callable set are dispatchable.
+        // This excludes framework/lifecycle hooks (onServerStart, etc.),
+        // inherited base methods, and Object.prototype members, none of
+        // which are part of any interface's RPC contract.
+        const callable = this.#callableMethods.get(driver);
+        if (!callable?.has(method)) {
             throw new HttpError(
                 404,
                 `Method '${method}' not found on driver '${ifaceName}'`,
                 { legacyCode: 'not_found' },
             );
         }
+        const fn = driver[method];
 
         // Resolve the concrete driver name for permission keys, falling
         // back through prototype metadata → instance field → requested name.
@@ -513,6 +527,11 @@ export class DriverController extends PuterController {
         // Cache the resolved meta so the request hot-path can read the
         // per-method rate-limit spec without re-walking the prototype.
         this.#meta.set(instance, meta);
+        // Resolve the callable RPC surface once, at startup. The request
+        // path checks membership against this set instead of reflecting on
+        // the live instance, so lifecycle hooks / inherited framework
+        // methods can never be dispatched.
+        this.#callableMethods.set(instance, resolveCallableMethods(instance));
         // Register each alias pointing at the same instance. Legacy puter-js
         // calls that pass a provider id in the `driver` slot (e.g. the TTS
         // module sends `aws-polly` / `openai-tts` / `elevenlabs-tts` instead

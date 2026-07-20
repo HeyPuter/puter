@@ -295,6 +295,30 @@ describe('DriverController.#handleCall (via captured router)', () => {
         ).rejects.toMatchObject({ statusCode: 404 });
     });
 
+    // A lifecycle hook *exists* on every driver (inherited from PuterDriver),
+    // so the old `typeof driver[method] === 'function'` dispatch would have
+    // invoked it. It must not be reachable over /drivers/call.
+    it.each([
+        'onServerStart',
+        'onServerShutdown',
+        'onServerPrepareShutdown',
+        'getReportedCosts',
+        'constructor',
+        'toString',
+    ])('rejects the framework method %s with 404', async (method) => {
+        const actor = await makeUserActor();
+        const req = makeReq({ interface: 'puter-kvstore', method }, actor);
+        await expect(
+            runWithContext({ actor }, () =>
+                routes['POST /call'](
+                    req,
+                    makeRes() as unknown as Response,
+                    () => {},
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
     it('rejects a bare session ("root" token) actor on a noUserSession driver with a helpful 403', async () => {
         // The AI drivers all set `noUserSession` — a session token must
         // not double as an AI credential. The message has to point the
