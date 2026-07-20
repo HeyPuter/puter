@@ -546,10 +546,10 @@ const TabFiles = {
             this.pushNavHistory(initialPath);
             this.renderDirectory(initialPath, { skipUrlUpdate: true });
         } else {
-            // Auto-select Documents folder on initialization
-            const documentsFolder = $el_window.find('[data-folder="Documents"]');
-            if ( documentsFolder.length ) {
-                documentsFolder.trigger('click');
+            // Auto-select Desktop folder on initialization
+            const desktopFolder = $el_window.find('[data-folder="Desktop"]');
+            if ( desktopFolder.length ) {
+                desktopFolder.trigger('click');
             }
         }
 
