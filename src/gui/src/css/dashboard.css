@@ -1386,7 +1386,7 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .directories {
     position: sticky;
     top: 0;
-    width: 160px;
+    width: 200px;
     padding: 16px 0;
 }
 
