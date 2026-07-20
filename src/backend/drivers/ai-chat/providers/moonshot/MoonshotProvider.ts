@@ -68,6 +68,7 @@ export class MoonshotProvider implements IChatProvider {
         stream,
         model,
         tools,
+        max_tokens,
     }: ICompleteArguments): Promise<IChatCompleteResult> {
         const actor = Context.get('actor');
         const availableModels = this.models();
@@ -89,7 +90,7 @@ export class MoonshotProvider implements IChatProvider {
                 messages,
                 model: modelUsed.id,
                 ...(tools ? { tools } : {}),
-                max_tokens: 1000,
+                max_tokens: max_tokens || modelUsed.max_tokens || 1000,
                 stream,
                 ...(stream
                     ? {

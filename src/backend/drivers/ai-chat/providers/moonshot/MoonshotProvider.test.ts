@@ -202,7 +202,7 @@ describe('MoonshotProvider.complete request shape', () => {
         usage: { prompt_tokens: 1, completion_tokens: 1 },
     };
 
-    it('forwards model + messages and locks max_tokens=1000', async () => {
+    it('forwards model + messages and passes max_tokens or falls back to model max_tokens', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
 
@@ -216,9 +216,24 @@ describe('MoonshotProvider.complete request shape', () => {
         const [args] = createMock.mock.calls[0]!;
         expect(args.model).toBe('kimi-k2.6');
         expect(args.messages).toEqual([{ role: 'user', content: 'hello' }]);
-        // max_tokens is hardcoded by the provider — the call to Moonshot
-        // should always cap at 1000 tokens of completion.
-        expect(args.max_tokens).toBe(1000);
+        expect(args.max_tokens).toBe(262_144);
+    });
+
+    it('passes custom max_tokens when provided in arguments', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'kimi-k3',
+                messages: [{ role: 'user', content: 'hello' }],
+                max_tokens: 4096,
+            }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.model).toBe('kimi-k3');
+        expect(args.max_tokens).toBe(4096);
     });
 
     it('omits the `tools` key entirely when no tools are supplied', async () => {
