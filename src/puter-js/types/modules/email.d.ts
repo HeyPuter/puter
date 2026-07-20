@@ -36,10 +36,12 @@ export interface EmailSendOptions {
 }
 
 export interface EmailSendResult {
-    /** Transport message id, when the mail server reports one. */
+    /** First transport message id reported for this send, when available. */
     messageId: string | null;
     /** Total charge for this send, in microcents. */
     cost: number;
+    /** Recipients omitted because they opted out of this sender's mail. */
+    suppressed: string[];
 }
 
 /**

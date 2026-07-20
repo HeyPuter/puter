@@ -45,6 +45,11 @@ export interface SendMailOptions {
     to: string;
     cc?: string;
     bcc?: string;
+    /** Optional transport recipients when they differ from visible headers. */
+    envelope?: {
+        from?: string;
+        to: string;
+    };
     subject: string;
     html?: string;
     text?: string;
