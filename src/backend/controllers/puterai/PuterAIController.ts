@@ -46,8 +46,10 @@ const GEMINI_DOWNLOAD_BASE =
  * ChatCompletionDriver, and translate the result (or NDJSON stream) back
  * into the vendor's response / SSE shape.
  *
- * All routes live on `subdomain: 'api'` and reject app-under-user actors —
- * only user actors may proxy.
+ * All routes live on `subdomain: 'api'` and require a full-access API
+ * token minted from the dashboard (user-scoped worker tokens also pass —
+ * workers are never treated as root tokens). Apps, scoped tokens, and
+ * account session ("root") tokens are rejected.
  */
 export class PuterAIController extends PuterController {
     registerRoutes(router: PuterRouter): void {
@@ -65,13 +67,18 @@ export class PuterAIController extends PuterController {
             req.actor?.user?.uuid || computeNetworkFingerprint(req);
         const apiAuthOpts = {
             subdomain: 'api',
+            // The wire routes want a delegated credential — a full-access
+            // API token minted from the dashboard (or a user-scoped worker
+            // token, which is never treated as a root token).
+            // `requireUserActor` keeps apps out, `allowFullAccessToken`
+            // admits the PAT, and `noUserSession` rejects the account's
+            // session ("root") token — a copied session credential
+            // shouldn't double as an AI API key. `requireVerified` keeps
+            // fresh/unconfirmed accounts out, same as FS writes.
             requireUserActor: true,
-            // These are the user's own programmatic AI surface (OpenAI/Anthropic
-            // wire). `requireUserActor` here exists to keep third-party apps
-            // out, not to block the user's own credential — so admit full-access
-            // personal access tokens (CLI/MCP/scripts). Apps and scoped tokens
-            // stay blocked.
             allowFullAccessToken: true,
+            noUserSession: true,
+            requireVerified: true,
             rateLimit: {
                 ...AI_RATE_LIMIT.default!,
                 scope: aiPolicyScope,

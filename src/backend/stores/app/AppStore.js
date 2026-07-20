@@ -20,6 +20,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
 import { HttpError } from '../../core/http/HttpError.js';
+import { isUniqueViolation } from '../../util/dbError.js';
 import { validateUrl } from '../../util/validation.js';
 
 /**
@@ -287,10 +288,15 @@ export class AppStore extends PuterStore {
             where.push('`name` = ?');
             params.push(filters.name);
         }
+        if (filters.afterId !== undefined && filters.afterId !== null) {
+            where.push('`id` > ?');
+            params.push(filters.afterId);
+        }
 
         const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
         const limit = filters.limit ?? 500;
-        const cacheKey = this.#listCacheKey(whereClause, params, limit);
+        const offset = filters.offset ?? 0;
+        const cacheKey = this.#listCacheKey(whereClause, params, limit, offset);
 
         try {
             const cached = await this.clients.redis.get(cacheKey);
@@ -304,14 +310,50 @@ export class AppStore extends PuterStore {
             // Fall through to DB on any cache failure.
         }
 
-        const rows = await this.clients.db.read(
-            `SELECT * FROM \`apps\` ${whereClause} LIMIT ?`,
-            [...params, limit],
-        );
+        let sql = `SELECT * FROM \`apps\` ${whereClause} ORDER BY \`id\` ASC LIMIT ?`;
+        const sqlParams = [...params, limit];
+        if (offset > 0) {
+            sql += ' OFFSET ?';
+            sqlParams.push(offset);
+        }
+        const rows = await this.clients.db.read(sql, sqlParams);
         const apps = rows.map((r) => this.#normalizeRow(r));
 
         this.#writeListCache(cacheKey, apps).catch(() => {});
         return apps;
+    }
+
+    /**
+     * Count apps matching the same equality filters as `list`.
+     * `visibleToUserId` counts the public catalog for one caller —
+     * non-protected apps plus their own; apps visible only via explicit
+     * permission grants are not included.
+     */
+    async count(filters = {}) {
+        const where = [];
+        const params = [];
+
+        if (filters.ownerUserId !== undefined) {
+            where.push('`owner_user_id` = ?');
+            params.push(filters.ownerUserId);
+        }
+        if (filters.appOwner !== undefined) {
+            where.push('`app_owner` = ?');
+            params.push(filters.appOwner);
+        }
+        if (filters.visibleToUserId !== undefined) {
+            where.push(
+                '(`protected` IS NULL OR `protected` = false OR `owner_user_id` = ?)',
+            );
+            params.push(filters.visibleToUserId);
+        }
+
+        const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+        const rows = await this.clients.db.read(
+            `SELECT COUNT(*) AS n FROM \`apps\` ${whereClause}`,
+            params,
+        );
+        return Number(rows[0]?.n ?? 0);
     }
 
     // -- Writes -------------------------------------------------------
@@ -396,10 +438,26 @@ export class AppStore extends PuterStore {
         const placeholders = columns.map(() => '?').join(', ');
         const colList = columns.map((c) => `\`${c}\``).join(', ');
 
-        const result = await this.clients.db.write(
-            `INSERT INTO \`apps\` (${colList}) VALUES (${placeholders})${this.clients.db.returningIdClause()}`,
-            values,
-        );
+        let result;
+        try {
+            result = await this.clients.db.write(
+                `INSERT INTO \`apps\` (${colList}) VALUES (${placeholders})${this.clients.db.returningIdClause()}`,
+                values,
+            );
+        } catch (error) {
+            if (!isUniqueViolation(error)) throw error;
+            // Lost a check-then-insert race: `uid` is deterministic
+            // (UUIDv5 of origin), so a concurrent request for the same
+            // origin already created the row. Read it from the primary —
+            // the replica may not have it yet, which is exactly the lag
+            // that let both callers past the existence check.
+            const rows = await this.clients.db.pread(
+                'SELECT * FROM `apps` WHERE `uid` = ? LIMIT 1',
+                [uid],
+            );
+            if (rows.length === 0) throw error;
+            return this.#normalizeRow(rows[0]);
+        }
         const insertId = result?.insertId;
         if (!insertId)
             throw new Error(
@@ -740,11 +798,12 @@ export class AppStore extends PuterStore {
         return `${CACHE_KEY_PREFIX}:${prop}:${value}`;
     }
 
-    #listCacheKey(whereClause, params, limit) {
+    #listCacheKey(whereClause, params, limit, offset = 0) {
         return `${LIST_CACHE_KEY_PREFIX}:${JSON.stringify([
             whereClause,
             params,
             limit,
+            offset,
         ])}`;
     }
 
@@ -753,7 +812,7 @@ export class AppStore extends PuterStore {
         try {
             const raw = cacheKey.slice(LIST_CACHE_KEY_PREFIX.length + 1);
             const parsed = JSON.parse(raw);
-            if (!Array.isArray(parsed) || parsed.length !== 3) return null;
+            if (!Array.isArray(parsed) || parsed.length < 3) return null;
             return { whereClause: parsed[0], params: parsed[1] };
         } catch {
             return null;

@@ -7,6 +7,16 @@ export type TestUserCredentials = {
     username: string;
     password: string;
     token: string;
+    /**
+     * Full-access access token (the dashboard "API Token"). AI surfaces
+     * reject bare session tokens, so AI tests authenticate with this.
+     */
+    apiToken: string;
+    /**
+     * User-scoped worker session token (`kind='worker'`) — what an
+     * app-less worker deployment holds. Never treated as a root token.
+     */
+    workerToken: string;
 };
 
 /**

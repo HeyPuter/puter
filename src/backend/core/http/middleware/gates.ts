@@ -19,6 +19,7 @@
 
 import type { Request, RequestHandler } from 'express';
 import { effectiveActorApp } from '../../actor';
+import type { Actor } from '../../actor';
 import { HttpError } from '../HttpError';
 import { assertVerifiedEmail } from '../verifiedEmail';
 
@@ -142,6 +143,59 @@ export const requireUserActorGate = (
                     { legacyCode: 'forbidden' },
                 ),
             );
+            return;
+        }
+        next();
+    };
+};
+
+/**
+ * Reject bare user-session actors — the "root" credential a browser session
+ * (or `/login`) holds, with no app and no access token in play. Use on API
+ * surfaces that must only be driven by a delegated credential: an app or
+ * worker token, or an API token minted from the dashboard. The point is that
+ * a leaked-or-copied session token (full account control) shouldn't double
+ * as an AI/API credential; users are pushed to mint a revocable token
+ * instead.
+ *
+ * This gate only rejects the bare-session shape. Which delegated credentials
+ * are acceptable is decided by the gates it composes with (`requireUserActor`
+ * + `allowFullAccessToken` to also keep apps out, `requireNonAccessTokenGate`
+ * for scoped tokens, etc.).
+ */
+export const assertNotUserSession = (
+    actor: Pick<Actor, 'app' | 'accessToken' | 'session'> | null | undefined,
+): void => {
+    if (!actor) return; // anonymous requests are the auth gate's problem
+    if (actor.app || actor.accessToken) return;
+    // User-scoped workers (deployed with no app binding) authenticate with
+    // a session-TYPE token whose session row is `kind='worker'` — a managed,
+    // revocable deployment credential, not a browser sign-in. Workers are
+    // never treated as root tokens: this gate is an annoyance for
+    // sign-up-and-scrape abuse, and someone who deploys a worker to reach
+    // an API has already left that path.
+    if (actor.session?.kind === 'worker') return;
+    throw new HttpError(
+        403,
+        'This API cannot be called with an account session token. ' +
+            'Use an app or worker token, or create an API token from the ' +
+            'dashboard (Account → API Token).',
+        { legacyCode: 'app_or_api_token_required' },
+    );
+};
+
+/** Route-option form of {@link assertNotUserSession} (`noUserSession: true`). */
+export const noUserSessionGate = (): RequestHandler => {
+    return (req, _res, next) => {
+        const actor = req.actor;
+        if (!actor) {
+            next(rejectAuth(req));
+            return;
+        }
+        try {
+            assertNotUserSession(actor);
+        } catch (err) {
+            next(err);
             return;
         }
         next();

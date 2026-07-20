@@ -24,6 +24,8 @@ import {
     DEFAULT_ADMIN_USERNAMES,
     adminOnlyGate,
     allowedAppIdsGate,
+    assertNotUserSession,
+    noUserSessionGate,
     requireAuthGate,
     requireVerifiedAccount,
     requireNonAccessTokenGate,
@@ -328,6 +330,103 @@ describe('requireNonAccessTokenGate', () => {
     it("falls back to 401 if there's no actor at all (defensive)", () => {
         const got = runGate(requireNonAccessTokenGate(), {});
         expectHttpError(got, 401, 'token_missing');
+    });
+});
+
+// ── noUserSessionGate ───────────────────────────────────────────────
+
+describe('noUserSessionGate', () => {
+    it('rejects a bare user-session ("root" token) actor with 403', () => {
+        const got = runGate(noUserSessionGate(), {
+            actor: { user: { uuid: 'u-1' } },
+        });
+        expectHttpError(got, 403, 'app_or_api_token_required');
+    });
+
+    it('passes through for app-under-user actors (app/worker tokens)', () => {
+        const got = runGate(noUserSessionGate(), {
+            actor: { user: { uuid: 'u-1' }, app: { uid: 'app-1' } },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('passes through for user-scoped worker sessions (kind="worker")', () => {
+        const got = runGate(noUserSessionGate(), {
+            actor: {
+                user: { uuid: 'u-1' },
+                session: { uid: 'sess-1', kind: 'worker' },
+            },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('passes through for access-token actors (which access tokens are OK is decided by the other gates)', () => {
+        const got = runGate(noUserSessionGate(), {
+            actor: {
+                user: { uuid: 'u-1' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: { user: { uuid: 'u-1' } },
+                    fullAccess: true,
+                },
+            },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it("falls back to 401 if there's no actor at all (defensive)", () => {
+        const got = runGate(noUserSessionGate(), {});
+        expectHttpError(got, 401, 'token_missing');
+    });
+});
+
+describe('assertNotUserSession', () => {
+    it('is a no-op for a missing actor (anonymous is the auth gate’s job)', () => {
+        expect(() => assertNotUserSession(undefined)).not.toThrow();
+        expect(() => assertNotUserSession(null)).not.toThrow();
+    });
+
+    it('always admits a user-scoped worker session — workers are never root tokens', () => {
+        // Workers deployed with no app binding hold a session-TYPE token
+        // whose row is kind='worker' (see AuthService.createWorkerSessionToken)
+        // — a bare user actor plus that session ref. The gate is an
+        // annoyance for sign-up-and-scrape abuse; a deployed worker is
+        // already a delegated, revocable credential.
+        expect(() =>
+            assertNotUserSession({
+                app: null,
+                accessToken: null,
+                session: { uid: 'sess-1', kind: 'worker' },
+            }),
+        ).not.toThrow();
+    });
+
+    it('still rejects web sessions', () => {
+        expect(() =>
+            assertNotUserSession({
+                app: null,
+                accessToken: null,
+                session: { uid: 'sess-1', kind: 'web' },
+            }),
+        ).toThrow();
+    });
+
+    it('throws 403 app_or_api_token_required for a bare session actor', () => {
+        try {
+            assertNotUserSession({ app: null, accessToken: null });
+            expect.unreachable('expected assertNotUserSession to throw');
+        } catch (err) {
+            expect(isHttpError(err)).toBe(true);
+            expect((err as HttpError).statusCode).toBe(403);
+            expect((err as HttpError).legacyCode).toBe(
+                'app_or_api_token_required',
+            );
+            // The user asked for a helpful message: it must point at the
+            // credentials that DO work and where to get one.
+            expect((err as HttpError).message).toMatch(/app or worker token/i);
+            expect((err as HttpError).message).toMatch(/API token/);
+            expect((err as HttpError).message).toMatch(/dashboard/i);
+        }
     });
 });
 

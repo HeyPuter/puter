@@ -64,6 +64,7 @@ const ALIAS_TO_PROVIDER: Record<TTSAlias, string> = {
 
 export class TTSDriver extends PuterDriver {
     readonly driverInterface = 'puter-tts';
+    readonly noUserSession = true;
     readonly driverName = 'ai-tts';
     readonly driverAliases = [...TTS_ALIASES];
     readonly isDefault = true;

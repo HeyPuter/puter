@@ -39,6 +39,7 @@ import { isHttpError } from './core/http/HttpError';
 import {
     adminOnlyGate,
     allowedAppIdsGate,
+    noUserSessionGate,
     requireAuthGate,
     requireVerifiedAccount,
     requireNonAccessTokenGate,
@@ -849,7 +850,8 @@ export class PuterServer {
             opts.requireUserActor ||
             opts.adminOnly ||
             opts.allowedAppIds ||
-            opts.requireVerified,
+            opts.requireVerified ||
+            opts.noUserSession,
         );
         if (needsAuth) {
             mwChain.push(requireAuthGate());
@@ -891,6 +893,14 @@ export class PuterServer {
                     allowFullAccess: opts.allowFullAccessToken,
                 }),
             );
+        }
+
+        // Bare user-session ("root" token) rejection. Runs after
+        // `requireUserActor` so that on routes combining both, an app is
+        // rejected with the user-actor message and only a bare session gets
+        // the "use an app or API token" message.
+        if (opts.noUserSession) {
+            mwChain.push(noUserSessionGate());
         }
 
         if (opts.adminOnly) {

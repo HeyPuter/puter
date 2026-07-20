@@ -117,6 +117,19 @@ export interface RouteOptions {
     allowAccessToken?: boolean;
 
     /**
+     * Reject bare user-session actors ("root" tokens — no app, no access
+     * token) with 403 `app_or_api_token_required`. Implies `requireAuth`.
+     * Use on API surfaces that must only be driven by a delegated
+     * credential (app/worker token or a dashboard-minted API token), so a
+     * copied session token can't double as an API credential. Compose with
+     * `requireUserActor` + `allowFullAccessToken` to further narrow to
+     * API tokens only (apps stay out too). Worker sessions
+     * (`session.kind === 'worker'`) always pass — a deployed worker is a
+     * delegated, revocable credential, never a root token.
+     */
+    noUserSession?: boolean;
+
+    /**
      * Reject unless the actor's username is `admin`, `system`, or one of the
      * extras in this array. `true` means just `admin`/`system`; an array adds
      * to that pair (does not replace it). Implies `requireAuth`.
@@ -332,7 +345,9 @@ export type AuthRequired<O extends RouteOptions> = O extends {
         ? true
         : O extends { allowedAppIds: readonly string[] | string[] }
           ? true
-          : false;
+          : O extends { noUserSession: true }
+            ? true
+            : false;
 
 /** Express `Request` with `actor` narrowed based on the route's options. */
 export type TypedRequest<O extends RouteOptions> = Omit<Request, 'actor'> & {

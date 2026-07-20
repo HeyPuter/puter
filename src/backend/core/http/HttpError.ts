@@ -53,7 +53,8 @@ export type LegacyErrorCodes =
     | 'password_required'
     | 'password_mismatch'
     | 'field_not_allowed_for_create'
-    | 'account_is_not_verified';
+    | 'account_is_not_verified'
+    | 'app_or_api_token_required';
 
 /**
  * Copyright (C) 2024-present Puter Technologies Inc.

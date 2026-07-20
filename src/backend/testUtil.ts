@@ -13,6 +13,7 @@ import {
 } from './clients/database/PostgresDatabaseClient';
 import type { PoolConfig } from 'pg';
 import { ADMIN_GROUP_UID } from './services/selfhosted/DefaultUserService';
+import { FULL_API_ACCESS } from './services/permission/consts';
 import { generateDefaultFsentries } from './util/userProvisioning';
 
 export const POSTGRES_TEST_MIGRATIONS_PATH =
@@ -208,6 +209,19 @@ export type TestUserCredentials = {
     username: string;
     password: string;
     token: string;
+    /**
+     * Full-access access token (what the dashboard's "API Token" flow
+     * mints). AI surfaces reject bare session tokens (`noUserSession`),
+     * so suites exercising them authenticate with this instead.
+     */
+    apiToken: string;
+    /**
+     * User-scoped worker session token (what deploying a worker with no
+     * app binding mints — `kind='worker'` session row). Never treated as
+     * a root token: suites use it to prove worker credentials pass the
+     * `noUserSession` gates.
+     */
+    workerToken: string;
 };
 
 /**
@@ -250,7 +264,30 @@ export const createTestUser = async (
         user_agent: 'puter-test-env',
     });
 
-    return { username: opts.username, password: opts.password, token };
+    // Mint the delegated credential the same way the dashboard's
+    // "API Token" flow does (POST /auth/create-access-token with the
+    // full-api-access sentinel).
+    const apiToken = await server.services.auth.createAccessToken(
+        { user },
+        [[FULL_API_ACCESS]],
+        { label: 'puter-test-env' },
+    );
+
+    // Mint a user-scoped worker token the same way deploying an app-less
+    // worker does (WorkerDriver falls back to createWorkerSessionToken).
+    const { token: workerToken } =
+        await server.services.auth.createWorkerSessionToken(
+            user,
+            'puter-test-env-worker',
+        );
+
+    return {
+        username: opts.username,
+        password: opts.password,
+        token,
+        apiToken,
+        workerToken,
+    };
 };
 
 export type PuterTestEnv = {

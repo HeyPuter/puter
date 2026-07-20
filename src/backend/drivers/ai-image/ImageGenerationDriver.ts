@@ -47,6 +47,7 @@ import type { IGenerateParams, IImageModel, IImageProvider } from './types.js';
  */
 export class ImageGenerationDriver extends PuterDriver {
     readonly driverInterface = 'puter-image-generation';
+    readonly noUserSession = true;
     readonly driverName = 'ai-image';
     // puter-js's `txt2img` falls through `options.driver` into the
     // driver-name slot (e.g. `xai-image-generation`), so alias all provider

@@ -57,6 +57,7 @@ interface ConvertArgs {
 
 export class VoiceChangerDriver extends PuterDriver {
     readonly driverInterface = 'puter-speech2speech';
+    readonly noUserSession = true;
     readonly driverName = 'elevenlabs-voice-changer';
     readonly isDefault = true;
 

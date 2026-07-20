@@ -150,6 +150,24 @@ describe.each([
     it('points at the shared AI_CONCURRENT constant', () => {
         expect(m.concurrent).toBe(AI_CONCURRENT);
     });
+
+    it('refuses bare account-session ("root") tokens', () => {
+        // AI calls need a delegated credential — an app/worker token or a
+        // dashboard-minted API token. `DriverController` enforces this off
+        // the meta flag; dropping it silently reopens session-token AI use.
+        expect(m.noUserSession).toBe(true);
+    });
+});
+
+describe('non-AI drivers — session tokens stay allowed', () => {
+    it.each([
+        ['KVStoreDriver', () => new KVStoreDriver(...fake())],
+        ['AppDriver', () => new AppDriver(...fake())],
+        ['SubdomainDriver', () => new SubdomainDriver(...fake())],
+        ['NotificationDriver', () => new NotificationDriver(...fake())],
+    ])('%s does not set noUserSession', (_name, build) => {
+        expect(meta(build()).noUserSession).toBe(false);
+    });
 });
 
 // ── Iface coordination cross-check ──────────────────────────────────

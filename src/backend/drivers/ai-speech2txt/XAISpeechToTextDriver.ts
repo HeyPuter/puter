@@ -66,6 +66,7 @@ interface TranscribeArgs {
 
 export class XAISpeechToTextDriver extends PuterDriver {
     readonly driverInterface = 'puter-speech2txt';
+    readonly noUserSession = true;
     readonly driverName = 'xai-speech2txt';
 
     // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.

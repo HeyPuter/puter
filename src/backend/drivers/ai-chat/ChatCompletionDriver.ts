@@ -205,6 +205,7 @@ const classifyAttempts = (attempts: ProviderAttempt[]): HttpError => {
  */
 export class ChatCompletionDriver extends PuterDriver {
     readonly driverInterface = 'puter-chat-completion';
+    readonly noUserSession = true;
     readonly driverName = 'ai-chat';
     readonly isDefault = true;
 
