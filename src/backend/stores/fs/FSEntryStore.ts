@@ -24,6 +24,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { LayerInstances } from '../../types.js';
 import { runWithConcurrencyLimit } from '../../util/concurrency.js';
+import {
+    decodeCursor,
+    encodeCursor,
+    normalizeLimit,
+} from '../../util/pagination.js';
 import type { puterStores } from '../index.js';
 import { PuterStore } from '../types.js';
 import {
@@ -2453,10 +2458,123 @@ export class FSEntryStore extends PuterStore {
             `SELECT ${this.#selectFsentriesColumns()}
              FROM fsentries
              WHERE parent_uid = ?
-             ORDER BY ${sortColumn} ${sortDirection}
+             ORDER BY ${sortColumn} ${sortDirection}, id ${sortDirection}
              LIMIT ? OFFSET ?`,
             [parentUid, limit, offset],
         )) as unknown as FSEntryRow[];
+        return this.#finalizeChildEntries(rows);
+    }
+
+    /**
+     * Cursor-paginated variant of `listChildren`. The cursor is an opaque
+     * keyset position that also pins the sort, so a page sequence stays
+     * consistent; conflicting sort params on a later page are rejected.
+     */
+    async listChildrenPage(
+        parentUid: string,
+        options: {
+            limit?: number;
+            cursor?: string | null;
+            sortBy?: 'name' | 'modified' | 'type' | 'size' | null;
+            sortOrder?: 'asc' | 'desc' | null;
+        } = {},
+    ): Promise<{ entries: FSEntry[]; cursor?: string }> {
+        const payload = decodeCursor(options.cursor) as
+            | { v: unknown; id: number; s?: string; o?: string }
+            | undefined;
+
+        const requestedSort = options.sortBy ?? null;
+        const requestedOrder = options.sortOrder ?? null;
+        if (
+            payload &&
+            ((requestedSort && payload.s !== requestedSort) ||
+                (requestedOrder && payload.o !== requestedOrder))
+        ) {
+            throw new HttpError(400, 'cursor does not match requested sort', {
+                legacyCode: 'bad_request',
+            });
+        }
+
+        const sortBy =
+            requestedSort ?? (payload?.s as typeof requestedSort) ?? 'name';
+        const sortOrder =
+            requestedOrder ?? (payload?.o as typeof requestedOrder) ?? 'asc';
+        const limit = normalizeLimit(options.limit, { cap: 10_000 }) ?? 1000;
+
+        // NULLs would silently drop out of keyset comparisons, so nullable
+        // sort columns are coalesced in both ORDER BY and the seek condition.
+        const sortExpr = (() => {
+            switch (sortBy) {
+                case 'modified':
+                    return 'COALESCE(modified, 0)';
+                case 'size':
+                    return 'COALESCE(size, -1)';
+                case 'type':
+                    return 'is_dir';
+                case 'name':
+                default:
+                    return 'name';
+            }
+        })();
+        const dir = sortOrder === 'desc' ? 'DESC' : 'ASC';
+        const cmp = sortOrder === 'desc' ? '<' : '>';
+
+        const seek = payload
+            ? `AND (${sortExpr} ${cmp} ? OR (${sortExpr} = ? AND id ${cmp} ?))`
+            : '';
+        const params: unknown[] = payload
+            ? [parentUid, payload.v, payload.v, payload.id, limit + 1]
+            : [parentUid, limit + 1];
+
+        const rows = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()}
+             FROM fsentries
+             WHERE parent_uid = ? ${seek}
+             ORDER BY ${sortExpr} ${dir}, id ${dir}
+             LIMIT ?`,
+            params,
+        )) as unknown as FSEntryRow[];
+
+        const hasMore = rows.length > limit;
+        const pageRows = hasMore ? rows.slice(0, limit) : rows;
+        const entries = await this.#finalizeChildEntries(pageRows);
+
+        let cursor: string | undefined;
+        if (hasMore) {
+            const last = pageRows[pageRows.length - 1]!;
+            const v = (() => {
+                switch (sortBy) {
+                    case 'modified':
+                        return last.modified ?? 0;
+                    case 'size':
+                        return last.size ?? -1;
+                    case 'type':
+                        return last.is_dir;
+                    case 'name':
+                    default:
+                        return last.name;
+                }
+            })();
+            cursor = encodeCursor({
+                v,
+                id: Number(last.id),
+                s: sortBy,
+                o: sortOrder,
+            });
+        }
+
+        return { entries, ...(cursor ? { cursor } : {}) };
+    }
+
+    async countChildren(parentUid: string): Promise<number> {
+        const rows = (await this.clients.db.read(
+            'SELECT COUNT(*) AS n FROM fsentries WHERE parent_uid = ?',
+            [parentUid],
+        )) as unknown as Array<{ n: number | string }>;
+        return Number(rows[0]?.n ?? 0);
+    }
+
+    async #finalizeChildEntries(rows: FSEntryRow[]): Promise<FSEntry[]> {
         const entries = rows.map((row) => this.#mapFSEntryRow(row));
         // Heal NULL-path rows before they reach the controller — readdir
         // consumers (GUI, suggested-apps, downstream `pathPosix.dirname`

@@ -65,6 +65,12 @@ export interface SubdomainRow {
 // `root_dir_id`, `associated_app_id`, and `domain` are intentionally NOT
 // here — they're legitimately editable through the driver with their own
 // access checks (FS permission, app ownership, custom-domain validation).
+/**
+ * Worker deployments are stored as subdomain rows under this prefix.
+ * Site-facing listings (the `puter-subdomains` driver) exclude them.
+ */
+export const WORKER_SUBDOMAIN_PREFIX = 'workers.puter.';
+
 const READ_ONLY_COLUMNS = new Set([
     'id',
     'uuid',
@@ -157,20 +163,127 @@ export class SubdomainStore extends PuterStore {
         return row;
     }
 
-    async listByUserId(userId: number, { limit = 500 } = {}) {
-        const rows = await this.clients.db.read(
-            `SELECT * FROM \`subdomains\` WHERE \`user_id\` = ? LIMIT ?`,
-            [userId, limit],
-        );
-        return rows;
+    async listByUserId(
+        userId: number,
+        {
+            limit = 500,
+            offset,
+            afterId,
+            appOwner,
+            excludePrefix,
+        }: {
+            limit?: number;
+            offset?: number;
+            afterId?: number;
+            appOwner?: number | null;
+            excludePrefix?: string;
+        } = {},
+    ) {
+        return this.#listWhere(['`user_id` = ?'], [userId], {
+            limit,
+            offset,
+            afterId,
+            appOwner,
+            excludePrefix,
+        });
     }
 
-    async listAll({ limit = 5000 } = {}) {
+    async listAll({
+        limit = 5000,
+        offset,
+        afterId,
+        appOwner,
+        excludePrefix,
+    }: {
+        limit?: number;
+        offset?: number;
+        afterId?: number;
+        appOwner?: number | null;
+        excludePrefix?: string;
+    } = {}) {
+        return this.#listWhere([], [], {
+            limit,
+            offset,
+            afterId,
+            appOwner,
+            excludePrefix,
+        });
+    }
+
+    async #listWhere(
+        where: string[],
+        params: unknown[],
+        {
+            limit,
+            offset,
+            afterId,
+            appOwner,
+            excludePrefix,
+        }: {
+            limit: number;
+            offset?: number;
+            afterId?: number;
+            appOwner?: number | null;
+            excludePrefix?: string;
+        },
+    ) {
+        const conditions = [...where];
+        const values = [...params];
+        if (appOwner !== undefined && appOwner !== null) {
+            conditions.push('`app_owner` = ?');
+            values.push(appOwner);
+        }
+        if (afterId !== undefined) {
+            conditions.push('`id` > ?');
+            values.push(afterId);
+        }
+        if (excludePrefix) {
+            conditions.push('`subdomain` NOT LIKE ?');
+            values.push(`${excludePrefix}%`);
+        }
+        const whereClause = conditions.length
+            ? `WHERE ${conditions.join(' AND ')}`
+            : '';
+        let sql = `SELECT * FROM \`subdomains\` ${whereClause} ORDER BY \`id\` ASC LIMIT ?`;
+        values.push(limit);
+        if (offset !== undefined && offset > 0) {
+            sql += ' OFFSET ?';
+            values.push(offset);
+        }
+        return this.clients.db.read(sql, values);
+    }
+
+    async count({
+        userId,
+        appOwner,
+        excludePrefix,
+    }: {
+        userId?: number;
+        appOwner?: number | null;
+        excludePrefix?: string;
+    } = {}) {
+        const conditions: string[] = [];
+        const values: unknown[] = [];
+        if (userId !== undefined) {
+            conditions.push('`user_id` = ?');
+            values.push(userId);
+        }
+        if (appOwner !== undefined && appOwner !== null) {
+            conditions.push('`app_owner` = ?');
+            values.push(appOwner);
+        }
+        if (excludePrefix) {
+            conditions.push('`subdomain` NOT LIKE ?');
+            values.push(`${excludePrefix}%`);
+        }
+        const whereClause = conditions.length
+            ? `WHERE ${conditions.join(' AND ')}`
+            : '';
         const rows = await this.clients.db.read(
-            `SELECT * FROM \`subdomains\` LIMIT ?`,
-            [limit],
+            `SELECT COUNT(*) AS n FROM \`subdomains\` ${whereClause}`,
+            values,
         );
-        return rows;
+        return Number(rows[0]?.n ?? 0);
     }
 
     async existsBySubdomain(subdomain: string) {
@@ -207,25 +320,57 @@ export class SubdomainStore extends PuterStore {
     async listByUserIdAndPrefix(
         userId: number,
         prefix: string,
-        extra: { appId?: number } = {},
+        extra: {
+            appId?: number;
+            limit?: number;
+            offset?: number;
+            afterId?: number;
+        } = {},
     ): Promise<SubdomainRow[]> {
         if (!userId || prefix == null) return [];
 
-        const like = `${prefix}%`;
-        let rows;
-        if (!extra.appId) {
-            rows = await this.clients.db.read(
-                'SELECT * FROM `subdomains` WHERE `user_id` = ? AND `subdomain` LIKE ?',
-                [userId, like],
-            );
-        } else {
-            rows = await this.clients.db.read(
-                'SELECT * FROM `subdomains` WHERE `user_id` = ? AND `app_owner` = ? AND `subdomain` LIKE ?',
-                [userId, extra.appId, like],
-            );
+        const conditions = ['`user_id` = ?', '`subdomain` LIKE ?'];
+        const values: unknown[] = [userId, `${prefix}%`];
+        if (extra.appId) {
+            conditions.push('`app_owner` = ?');
+            values.push(extra.appId);
+        }
+        if (extra.afterId !== undefined) {
+            conditions.push('`id` > ?');
+            values.push(extra.afterId);
+        }
+        let sql = `SELECT * FROM \`subdomains\` WHERE ${conditions.join(' AND ')} ORDER BY \`id\` ASC`;
+        if (extra.limit !== undefined) {
+            sql += ' LIMIT ?';
+            values.push(extra.limit);
+            if (extra.offset !== undefined && extra.offset > 0) {
+                sql += ' OFFSET ?';
+                values.push(extra.offset);
+            }
         }
 
+        const rows = await this.clients.db.read(sql, values);
         return rows as unknown as SubdomainRow[];
+    }
+
+    async countByUserIdAndPrefix(
+        userId: number,
+        prefix: string,
+        extra: { appId?: number } = {},
+    ): Promise<number> {
+        if (!userId || prefix == null) return 0;
+
+        const conditions = ['`user_id` = ?', '`subdomain` LIKE ?'];
+        const values: unknown[] = [userId, `${prefix}%`];
+        if (extra.appId) {
+            conditions.push('`app_owner` = ?');
+            values.push(extra.appId);
+        }
+        const rows = await this.clients.db.read(
+            `SELECT COUNT(*) AS n FROM \`subdomains\` WHERE ${conditions.join(' AND ')}`,
+            values,
+        );
+        return Number((rows[0] as { n?: number | string } | undefined)?.n ?? 0);
     }
 
     // -- Writes -------------------------------------------------------

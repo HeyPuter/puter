@@ -35,7 +35,10 @@ An object with the following optional properties:
 - `pattern` (String): Same as the `pattern` parameter.
 - `returnValues` (Boolean): Same as the `returnValues` parameter.
 - `limit` (Number): Maximum number of items to return in a single call.
-- `cursor` (String): A pagination cursor from a previous call.
+- `cursor` (String): A pagination cursor from a previous call. Pass the `cursor` value returned by the previous page to fetch the next one.
+- `offset` (Number): Skips the given number of items before the page starts. Not recommended — requests get slower and more expensive the larger the offset; prefer `cursor`. Maximum `5000`, and cannot be combined with `cursor`.
+- `includeTotal` (Boolean): If `true`, the result includes a `total` count of every item matching the query (across all pages). Computing the total costs more the more items you have, so request it on the first page only rather than on every page.
+- `fetchUntilFull` (Boolean): A page can come back with fewer than `limit` items even when more exist (for example when expired keys are excluded). If `true`, the page is filled up to `limit` items when possible. Requires `limit`.
 
 ## Return value
 
@@ -43,9 +46,11 @@ A `Promise` that will resolve to either:
 
 - An array of all keys the user has for the current app, or
 - An array of [`KVPair`](/Objects/kvpair) objects containing the user's key-value pairs for the current app, or
-- A [`KVListPage`](/Objects/kvlistpage) object when using `limit` or `cursor` in `options`
+- A [`KVListPage`](/Objects/kvlistpage) object when using any of `limit`, `cursor`, `offset`, `includeTotal`, or `fetchUntilFull` in `options`
 
 If the user has no keys, the array will be empty.
+
+When paginating, iterate until the result has no `cursor` — a page may hold fewer than `limit` items while more pages still exist.
 
 ## Examples
 

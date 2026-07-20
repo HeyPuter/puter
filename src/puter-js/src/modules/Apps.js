@@ -72,14 +72,28 @@ class Apps {
     list = async (...args) => {
         let options = {};
 
-        // if args is a single object, assume it is the options object
+        // if args is a single object, assume it is the options object.
+        // Pagination keys are lifted to top-level driver args; the rest
+        // (icon_size, stats_period, ...) stay in `params`.
         if ( typeof args[0] === 'object' && args[0] !== null ) {
-            options.params = args[0];
+            const { limit, offset, cursor, includeTotal, ...params } = args[0];
+            options.params = params;
+            if ( limit !== undefined ) options.limit = limit;
+            if ( offset !== undefined ) options.offset = offset;
+            if ( Object.prototype.hasOwnProperty.call(args[0], 'cursor') ) {
+                options.cursor = cursor ?? null;
+            }
+            if ( includeTotal !== undefined ) options.includeTotal = includeTotal;
         }
 
         options.predicate = ['user-can-edit'];
 
-        return this.#addUserIterationToApps(await utils.make_driver_method(['uid'], 'puter-apps', 'es:app', 'select').call(this, options));
+        const result = await utils.make_driver_method(['uid'], 'puter-apps', 'es:app', 'select').call(this, options);
+        if ( result && !Array.isArray(result) && Array.isArray(result.items) ) {
+            this.#addUserIterationToApps(result.items);
+            return result;
+        }
+        return this.#addUserIterationToApps(result);
     };
 
     create = async (...args) => {

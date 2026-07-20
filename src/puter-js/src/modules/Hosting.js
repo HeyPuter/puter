@@ -41,7 +41,13 @@ class Hosting {
 
     // todo document the `Subdomain` object.
     list = async (...args) => {
-        return (await utils.make_driver_method([], 'puter-subdomains', undefined, 'select')(...args)).filter(e => !e.subdomain.startsWith('workers.puter.'));
+        const result = await utils.make_driver_method([], 'puter-subdomains', undefined, 'select')(...args);
+        if ( result && !Array.isArray(result) && Array.isArray(result.items) ) {
+            return result;
+        }
+        // Older backends include worker-backed subdomain rows in select;
+        // current ones exclude them server-side.
+        return result.filter(e => !e.subdomain.startsWith('workers.puter.'));
     };
 
     create = async (...args) => {

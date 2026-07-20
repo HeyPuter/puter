@@ -332,6 +332,103 @@ describe('SubdomainDriver.read / select', () => {
     });
 });
 
+// -- select pagination --
+
+describe('SubdomainDriver.select pagination', () => {
+    const makeSubs = async (count: number) => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const subs: string[] = [];
+        for (let i = 0; i < count; i++) {
+            const sub = uniqueSubdomain(`page${i}`);
+            subs.push(sub);
+            await withActor(actor, () =>
+                driver.create({
+                    object: { subdomain: sub, root_dir: `/${username}/Public` },
+                }),
+            );
+        }
+        return { actor, subs };
+    };
+
+    it('keeps the bare array response for plain limit requests', async () => {
+        const { actor } = await makeSubs(2);
+        const result = await withActor(actor, () =>
+            driver.select({ limit: 10 }),
+        );
+        expect(Array.isArray(result)).toBe(true);
+    });
+
+    it('pages through subdomains with cursors', async () => {
+        const { actor, subs } = await makeSubs(3);
+        const seen: string[] = [];
+        let cursor: string | null | undefined = null;
+        do {
+            const page = (await withActor(actor, () =>
+                driver.select({ limit: 2, cursor }),
+            )) as { items: Array<{ subdomain: string }>; cursor?: string };
+            seen.push(...page.items.map((r) => r.subdomain));
+            cursor = page.cursor;
+        } while (cursor);
+        expect(seen.sort()).toEqual([...subs].sort());
+    });
+
+    it('supports offset paging', async () => {
+        const { actor, subs } = await makeSubs(3);
+        const page = (await withActor(actor, () =>
+            driver.select({ limit: 10, offset: 1 }),
+        )) as { items: Array<{ subdomain: string }> };
+        expect(page.items.length).toBe(subs.length - 1);
+    });
+
+    it('rejects cursor combined with offset', async () => {
+        const { actor } = await makeSubs(2);
+        const first = (await withActor(actor, () =>
+            driver.select({ limit: 1, cursor: null }),
+        )) as { cursor?: string };
+        expect(first.cursor).toBeDefined();
+        await expect(
+            withActor(actor, () =>
+                driver.select({ offset: 1, cursor: first.cursor }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('excludes worker-backed subdomains from listings and totals', async () => {
+        const { actor, subs } = await makeSubs(2);
+        await server.stores.subdomain.create({
+            userId: actor.user!.id as number,
+            subdomain: `workers.puter.wk-${Date.now()}`,
+            rootDirId: null,
+            associatedAppId: null,
+            appOwner: null,
+        });
+
+        const bare = (await withActor(actor, () =>
+            driver.select({}),
+        )) as Array<{ subdomain: string }>;
+        expect(bare.map((r) => r.subdomain).sort()).toEqual([...subs].sort());
+
+        const page = (await withActor(actor, () =>
+            driver.select({ limit: 10, cursor: null, includeTotal: true }),
+        )) as { items: Array<{ subdomain: string }>; total?: number };
+        expect(page.items.map((r) => r.subdomain).sort()).toEqual(
+            [...subs].sort(),
+        );
+        expect(page.total).toBe(subs.length);
+    });
+
+    it('reports total scoped to the actor with includeTotal', async () => {
+        const { actor, subs } = await makeSubs(3);
+        await makeSubs(2); // another user's rows must not count
+        const page = (await withActor(actor, () =>
+            driver.select({ limit: 1, includeTotal: true }),
+        )) as { items: unknown[]; total?: number };
+        expect(page.items.length).toBe(1);
+        expect(page.total).toBe(subs.length);
+    });
+});
+
 // ── update ──────────────────────────────────────────────────────────
 
 describe('SubdomainDriver.update', () => {

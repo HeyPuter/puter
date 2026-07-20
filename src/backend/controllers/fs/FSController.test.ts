@@ -1510,6 +1510,139 @@ describe('FSController.readdirEntries sort + limit', () => {
     });
 });
 
+// -- /readdir pagination envelope --
+
+describe('FSController.readdirEntries pagination', () => {
+    const makeDocs = async (names: string[]) => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        for (const name of names) {
+            await withActor(actor, () =>
+                controller.mkdirEntry(
+                    makeReq({
+                        body: { path: `/${username}/Documents/${name}` },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+        }
+        return { actor, path: `/${username}/Documents` };
+    };
+
+    const readdir = async (
+        actor: Awaited<ReturnType<typeof makeUser>>['actor'],
+        body: Record<string, unknown>,
+    ) => {
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.readdirEntries(makeReq({ body, actor }), res),
+        );
+        return captured.body;
+    };
+
+    it('keeps the bare array response for limit/offset requests', async () => {
+        const { actor, path } = await makeDocs(['a', 'b', 'c']);
+        const body = await readdir(actor, { path, limit: 2, offset: 1 });
+        expect(Array.isArray(body)).toBe(true);
+        expect((body as unknown[]).length).toBe(2);
+    });
+
+    it('returns the envelope when cursor is present (null = first page)', async () => {
+        const { actor, path } = await makeDocs(['a', 'b', 'c']);
+        const page = (await readdir(actor, { path, cursor: null })) as {
+            items: Array<{ name: string }>;
+            cursor?: string;
+        };
+        expect(page.items.map((e) => e.name)).toEqual(['a', 'b', 'c']);
+        expect(page.cursor).toBeUndefined();
+    });
+
+    it('pages through children with cursors in sort order', async () => {
+        const { actor, path } = await makeDocs(['d1', 'd2', 'd3', 'd4', 'd5']);
+        const names: string[] = [];
+        let cursor: string | null | undefined = null;
+        do {
+            const page = (await readdir(actor, {
+                path,
+                limit: 2,
+                cursor,
+            })) as { items: Array<{ name: string }>; cursor?: string };
+            names.push(...page.items.map((e) => e.name));
+            cursor = page.cursor;
+        } while (cursor);
+        expect(names).toEqual(['d1', 'd2', 'd3', 'd4', 'd5']);
+    });
+
+    it('respects descending sort across pages', async () => {
+        const { actor, path } = await makeDocs(['a', 'b', 'c', 'd']);
+        const first = (await readdir(actor, {
+            path,
+            limit: 2,
+            cursor: null,
+            sortBy: 'name',
+            sortOrder: 'desc',
+        })) as { items: Array<{ name: string }>; cursor?: string };
+        expect(first.items.map((e) => e.name)).toEqual(['d', 'c']);
+        const second = (await readdir(actor, {
+            path,
+            limit: 2,
+            cursor: first.cursor,
+        })) as { items: Array<{ name: string }>; cursor?: string };
+        expect(second.items.map((e) => e.name)).toEqual(['b', 'a']);
+    });
+
+    it('rejects a cursor that conflicts with the requested sort', async () => {
+        const { actor, path } = await makeDocs(['a', 'b', 'c']);
+        const first = (await readdir(actor, {
+            path,
+            limit: 1,
+            cursor: null,
+            sortBy: 'name',
+        })) as { cursor?: string };
+        await expect(
+            withActor(actor, () =>
+                controller.readdirEntries(
+                    makeReq({
+                        body: {
+                            path,
+                            limit: 1,
+                            cursor: first.cursor,
+                            sortBy: 'size',
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('reports total with includeTotal', async () => {
+        const { actor, path } = await makeDocs(['a', 'b', 'c']);
+        const page = (await readdir(actor, {
+            path,
+            limit: 1,
+            cursor: null,
+            includeTotal: true,
+        })) as { items: unknown[]; total?: number };
+        expect(page.items.length).toBe(1);
+        expect(page.total).toBe(3);
+    });
+
+    it('wraps the root listing in an envelope when asked', async () => {
+        const { actor } = await makeUser();
+        const page = (await readdir(actor, {
+            path: '/',
+            cursor: null,
+            includeTotal: true,
+        })) as { items: unknown[]; total?: number; cursor?: string };
+        expect(Array.isArray(page.items)).toBe(true);
+        expect(page.total).toBe(page.items.length);
+        expect(page.cursor).toBeUndefined();
+    });
+});
+
 // ── /touch additional branches ──────────────────────────────────────
 
 describe('FSController.touchEntry additional branches', () => {

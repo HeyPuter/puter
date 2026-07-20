@@ -23,9 +23,25 @@ An object containing the following properties:
 
 - `icon_size` (optional): An integer representing the size of the icons to return. Possible values are `null`, `16`, `32`, `64`, `128`, `256`, and `512`. Default is `null` (the original size).
 
+- `limit` (optional): Maximum number of apps to return in a single call.
+
+- `offset` (optional): Skips the given number of apps. Prefer `cursor` for paging through large lists.
+
+- `cursor` (optional): Opts into paginated results. Pass `null` for the first page, then the `cursor` from each page to fetch the next one.
+
+- `includeTotal` (optional): If `true`, the paginated result includes a `total` count of the user's apps.
+
 ## Return value
 
 A `Promise` that will resolve to an array of all [`App`](/Objects/app/) objects belonging to the user that this app has access to.
+
+When the request includes `cursor` (even `null`), `offset`, or `includeTotal`, the promise instead resolves to a page object:
+
+- `items` (Array): The [`App`](/Objects/app/) objects on this page.
+- `cursor` (String) (optional): Present while more pages exist; pass it to the next call.
+- `total` (Number) (optional): Total app count, present when `includeTotal` was set.
+
+Requests without pagination params keep returning the full list as a plain array, so existing code is unaffected.
 
 ## Examples
 

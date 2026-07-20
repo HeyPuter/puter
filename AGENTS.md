@@ -8,6 +8,7 @@ Use these as the source of truth before exploring further:
 
 - [README.md](README.md) — project overview and quickstart.
 - [doc/architecture.md](doc/architecture.md) — backend layered stack (controllers → drivers → services → stores → clients), `PuterServer` wiring, `Context` (ALS), and extensions.
+- [doc/pagination.md](doc/pagination.md) — the one pagination convention for list APIs (limit/cursor/offset/includeTotal, envelope shape, cursor semantics).
 - [doc/self-hosting.md](doc/self-hosting.md) — running Puter outside hosted infra.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — testing, security, AI-assisted code, PR conventions, Boy Scout Rule.
 - [SECURITY.md](SECURITY.md) — how to report vulnerabilities (do not file them publicly).

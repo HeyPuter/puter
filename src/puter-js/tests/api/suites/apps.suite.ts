@@ -60,6 +60,43 @@ export default suite('apps', {
         );
     },
 
+    'list pages with cursors and reports totals': async (t) => {
+        const names = ['apps-suite-pg-a', 'apps-suite-pg-b', 'apps-suite-pg-c'];
+        for (const name of names) {
+            await t.puter.apps.create(name, `https://example.com/${name}`);
+        }
+
+        const firstPage = (await t.puter.apps.list({
+            limit: 2,
+            cursor: null,
+            includeTotal: true,
+        })) as {
+            items: Array<{ name: string }>;
+            cursor?: string;
+            total?: number;
+        };
+        t.assert.ok(Array.isArray(firstPage.items), 'items should be an array');
+        t.assert.ok(firstPage.items.length <= 2, 'page respects limit');
+        t.assert.ok(
+            (firstPage.total ?? 0) >= names.length,
+            'total should count at least the created apps',
+        );
+
+        const seen: string[] = [];
+        let cursor: string | null | undefined = null;
+        do {
+            const page = (await t.puter.apps.list({ limit: 2, cursor })) as {
+                items: Array<{ name: string }>;
+                cursor?: string;
+            };
+            seen.push(...page.items.map((a) => a.name));
+            cursor = page.cursor;
+        } while (cursor);
+        for (const name of names) {
+            t.assert.ok(seen.includes(name), `${name} should appear while paging`);
+        }
+    },
+
     'update changes the index URL': async (t) => {
         await t.puter.apps.create(
             'apps-suite-update',

@@ -918,6 +918,125 @@ describe('AppDriver.select additional branches', () => {
     });
 });
 
+// -- select pagination --
+
+describe('AppDriver.select pagination', () => {
+    const makeApps = async (count: number) => {
+        const { actor } = await makeUser();
+        const names: string[] = [];
+        for (let i = 0; i < count; i++) {
+            const name = uniqueName(`pg${i}`);
+            names.push(name);
+            await withActor(actor, () =>
+                driver.create({
+                    object: { name, title: 't', index_url: uniqueIndexUrl() },
+                }),
+            );
+        }
+        return { actor, names };
+    };
+
+    it('keeps the bare array response for plain limit requests', async () => {
+        const { actor } = await makeApps(2);
+        const result = await withActor(actor, () =>
+            driver.select({ predicate: ['user-can-edit'], limit: 1 }),
+        );
+        expect(Array.isArray(result)).toBe(true);
+        expect((result as unknown[]).length).toBe(1);
+    });
+
+    it('pages through owned apps with cursors', async () => {
+        const { actor, names } = await makeApps(5);
+        const seen: string[] = [];
+        let cursor: string | null | undefined = null;
+        do {
+            const page = (await withActor(actor, () =>
+                driver.select({
+                    predicate: ['user-can-edit'],
+                    limit: 2,
+                    cursor,
+                }),
+            )) as { items: Array<{ name: string }>; cursor?: string };
+            seen.push(...page.items.map((r) => r.name));
+            cursor = page.cursor;
+        } while (cursor);
+        expect(seen).toEqual(names);
+    });
+
+    it('supports offset paging', async () => {
+        const { actor, names } = await makeApps(3);
+        const page = (await withActor(actor, () =>
+            driver.select({
+                predicate: ['user-can-edit'],
+                limit: 10,
+                offset: 1,
+            }),
+        )) as { items: Array<{ name: string }> };
+        expect(page.items.map((r) => r.name)).toEqual(names.slice(1));
+    });
+
+    it('rejects cursor combined with offset', async () => {
+        const { actor } = await makeApps(2);
+        const first = (await withActor(actor, () =>
+            driver.select({
+                predicate: ['user-can-edit'],
+                limit: 1,
+                cursor: null,
+            }),
+        )) as { cursor?: string };
+        expect(first.cursor).toBeDefined();
+        await expect(
+            withActor(actor, () =>
+                driver.select({ offset: 1, cursor: first.cursor }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('reports an exact total for owner-scoped selects', async () => {
+        const { actor, names } = await makeApps(3);
+        const page = (await withActor(actor, () =>
+            driver.select({
+                predicate: ['user-can-edit'],
+                limit: 1,
+                includeTotal: true,
+            }),
+        )) as { items: unknown[]; total?: number };
+        expect(page.items.length).toBe(1);
+        expect(page.total).toBe(names.length);
+    });
+
+    it("hides other users' protected apps from paginated catalog listings", async () => {
+        const a = await makeApps(3);
+        const [visible1, hidden, visible2] = a.names;
+        const created = await withActor(a.actor, () =>
+            driver.read({ id: { name: hidden } }),
+        );
+        const row = await server.stores.app.getByUid(
+            (created as Record<string, unknown>).uid as string,
+        );
+        await server.clients.db.write(
+            'UPDATE `apps` SET `protected` = 1 WHERE `id` = ?',
+            [row!.id],
+        );
+        await server.stores.app.invalidateByUid(row!.uid as string);
+
+        const b = await makeUser();
+        const seen: string[] = [];
+        let cursor: string | null | undefined = null;
+        do {
+            const page = (await withActor(b.actor, () =>
+                driver.select({ limit: 50, cursor }),
+            )) as { items: Array<{ name: string }>; cursor?: string };
+            seen.push(...page.items.map((r) => r.name));
+            cursor = page.cursor;
+        } while (cursor);
+
+        expect(seen).toContain(visible1);
+        expect(seen).toContain(visible2);
+        expect(seen).not.toContain(hidden);
+    });
+});
+
 // ── upsert ──────────────────────────────────────────────────────────
 
 describe('AppDriver.upsert additional branches', () => {

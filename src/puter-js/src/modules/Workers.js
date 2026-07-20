@@ -74,7 +74,7 @@ export class WorkersHandler {
         return fetch(req);
     }
 
-    async list () {
+    async list (options) {
         if ( !puter.authToken && puter.env === 'web' ) {
             try {
                 await puter.ui.authenticateWithPuter();
@@ -83,7 +83,18 @@ export class WorkersHandler {
                 throw 'Authentication failed.';
             }
         }
-        const driverCall = await utils.make_driver_method([], 'workers', 'worker-service', 'getFilePaths')();
+        const args = {};
+        if ( options && typeof options === 'object' ) {
+            if ( options.limit !== undefined ) args.limit = options.limit;
+            if ( options.offset !== undefined ) args.offset = options.offset;
+            if ( Object.prototype.hasOwnProperty.call(options, 'cursor') ) {
+                args.cursor = options.cursor ?? null;
+            }
+            if ( options.includeTotal !== undefined ) {
+                args.includeTotal = options.includeTotal;
+            }
+        }
+        const driverCall = await utils.make_driver_method([], 'workers', 'worker-service', 'getFilePaths')(args);
         return driverCall;
     }
 

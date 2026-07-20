@@ -65,6 +65,42 @@ export default suite('hosting', {
         );
     },
 
+    'list pages with cursors and reports totals': async (t) => {
+        const names = [
+            'hosting-suite-pg-a',
+            'hosting-suite-pg-b',
+            'hosting-suite-pg-c',
+        ];
+        for (const name of names) {
+            const dir = await makeSiteDir(t, `pg-${name.slice(-1)}`);
+            await t.puter.hosting.create(name, dir);
+        }
+
+        const seen: string[] = [];
+        let cursor: string | null | undefined = null;
+        do {
+            const page = (await t.puter.hosting.list({
+                limit: 2,
+                cursor,
+                includeTotal: true,
+            })) as {
+                items: Array<{ subdomain: string }>;
+                cursor?: string;
+                total?: number;
+            };
+            t.assert.ok(Array.isArray(page.items), 'page should carry items');
+            t.assert.ok(
+                (page.total ?? 0) >= names.length,
+                'total should count at least the created subdomains',
+            );
+            seen.push(...page.items.map((s) => s.subdomain));
+            cursor = page.cursor;
+        } while (cursor);
+        for (const name of names) {
+            t.assert.ok(seen.includes(name), `${name} should appear while paging`);
+        }
+    },
+
     'a subdomain serves its root directory': async (t) => {
         const dir = await makeSiteDir(
             t,
