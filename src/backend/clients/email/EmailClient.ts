@@ -45,11 +45,18 @@ export interface SendMailOptions {
     to: string;
     cc?: string;
     bcc?: string;
+    /** Optional transport recipients when they differ from visible headers. */
+    envelope?: {
+        from?: string;
+        to: string;
+    };
     subject: string;
     html?: string;
     text?: string;
     replyTo?: string;
     attachments?: EmailAttachment[];
+    /** Extra message headers (e.g. List-Unsubscribe), passed to the transport. */
+    headers?: Record<string, string>;
 }
 
 export type EmailValidator = (email: string) => Promise<boolean> | boolean;
