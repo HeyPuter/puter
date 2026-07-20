@@ -1,4 +1,5 @@
 import UIContextMenu from '../UIContextMenu.js';
+import UIAlert from '../UIAlert.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 
@@ -42,6 +43,7 @@ const DRAG_EDGE_DWELL_MS = 480;     // hold time at an edge before the page flip
 const DRAG_FLIP_SETTLE_MS = 440;    // time to let a page flip's smooth-scroll settle
 const DRAG_FLIP_ANIM_MS = 320;      // reflow animation duration (iOS-like, unhurried)
 const DRAG_FLIP_EASING = 'cubic-bezier(0.34, 1.08, 0.64, 1)'; // gentle spring settle
+const TILE_REMOVE_ANIM_MS = 180;    // uninstall shrink-out duration (keep in sync with .myapps-tile-removing)
 // A tile only becomes the drop target once the dragged icon's centre is well
 // inside it (this fraction is trimmed off every edge). The resulting deadzone
 // around each tile is what stops items flickering back and forth at a boundary.
@@ -162,26 +164,88 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
         if ( e.key === 'Escape' ) close();
     });
 
-    $overlay.on('click', '.myapps-modal-confirm', async function () {
-        const $btn = $(this);
-        $btn.prop('disabled', true).text('Uninstalling…');
-
-        try {
-            await puter.perms.revokeApp(appUid, '*');
-            // A load fetched before the revoke must not apply — it would
-            // resurrect the pre-revoke grid. No refetch here either: the
-            // recommended launch list doesn't know about the revoke, so an
-            // immediate reload would just re-add a recommended app's tile.
-            // The saved order intentionally keeps the app's name:
-            // reconcileAppOrder ignores it while the app is gone and
-            // restores its position if it comes back.
-            self._invalidateInFlightLoads();
-            self._apps = self._apps.filter(a => a.name !== appName);
-            self.renderApps($el_window, { preservePage: true, instant: true });
-        } catch ( err ) {
-            console.error('Failed to uninstall app:', err);
-        }
+    $overlay.on('click', '.myapps-modal-confirm', function () {
+        // Optimistic uninstall: the modal closes at once, the tile shrinks
+        // away, and the survivors slide into the closed-up grid; the revoke
+        // settles in the background and a failure restores the tile with a
+        // visible error.
+        //
+        // A load fetched before the revoke must not apply — it would
+        // resurrect the pre-revoke grid. No refetch here either: the
+        // recommended launch list doesn't know about the revoke, so an
+        // immediate reload would just re-add a recommended app's tile.
+        // The saved order intentionally keeps the app's name:
+        // reconcileAppOrder ignores it while the app is gone and
+        // restores its position if it comes back.
+        const removedIndex = self._apps.findIndex(a => a.name === appName);
+        const removedApp = removedIndex === -1 ? null : self._apps[removedIndex];
+        self._invalidateInFlightLoads();
         close();
+
+        // A failed revoke must not roll back mid-animation: finishRemoval
+        // splices by a fresh lookup, so a rollback that lands first would
+        // just be re-removed. The catch below waits on this instead.
+        let settleRemoval;
+        const removalSettled = new Promise(resolve => { settleRemoval = resolve; });
+
+        const finishRemoval = () => {
+            const idx = self._apps.findIndex(a => a.name === appName);
+            if ( idx === -1 ) {
+                settleRemoval();
+                return;
+            }
+            // FIRST: rects of the surviving tiles keyed by app name — the
+            // re-render replaces every node, so identity maps through names.
+            const firstRects = new Map();
+            if ( ! self._reduceMotion() ) {
+                for ( const el of $el_window.find('.myapps-tile').toArray() ) {
+                    if ( el.dataset.appName === appName ) continue;
+                    firstRects.set(el.dataset.appName, el.getBoundingClientRect());
+                }
+            }
+            self._apps.splice(idx, 1);
+            self.renderApps($el_window, { preservePage: true, instant: true });
+            // FLIP the survivors from their old boxes into the new layout.
+            const moved = [];
+            for ( const el of $el_window.find('.myapps-tile').toArray() ) {
+                const a = firstRects.get(el.dataset.appName);
+                if ( ! a ) continue;
+                const b = el.getBoundingClientRect();
+                const dx = a.left - b.left;
+                const dy = a.top - b.top;
+                if ( dx === 0 && dy === 0 ) continue;
+                el.style.transform = `translate(${dx}px, ${dy}px)`;
+                moved.push(el);
+            }
+            if ( moved.length > 0 ) {
+                void moved[0].offsetWidth; // one reflow commits every inverted offset
+                for ( const el of moved ) {
+                    el.style.transition = `transform ${DRAG_FLIP_ANIM_MS}ms ${DRAG_FLIP_EASING}`;
+                    el.style.transform = '';
+                }
+            }
+            settleRemoval();
+        };
+
+        const tileEl = $el_window.find('.myapps-tile').toArray()
+            .find(el => el.dataset.appName === appName);
+        if ( tileEl && ! self._reduceMotion() ) {
+            tileEl.classList.add('myapps-tile-removing');
+            setTimeout(finishRemoval, TILE_REMOVE_ANIM_MS);
+        } else {
+            finishRemoval();
+        }
+
+        puter.perms.revokeApp(appUid, '*').catch(async err => {
+            console.error('Failed to uninstall app:', err);
+            await removalSettled;
+            self._invalidateInFlightLoads();
+            if ( removedApp && ! self._apps.some(a => a.name === appName) ) {
+                self._apps.splice(Math.min(removedIndex, self._apps.length), 0, removedApp);
+                self.renderApps($el_window, { preservePage: true, instant: true });
+            }
+            UIAlert(`Couldn't uninstall ${html_encode(displayName)}. Please try again.`);
+        });
     });
 }
 
