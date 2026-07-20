@@ -42,6 +42,12 @@ export interface EmailSendResult {
     cost: number;
     /** Recipients omitted because they opted out of this sender's mail. */
     suppressed: string[];
+    /**
+     * Recipients whose delivery attempt failed. Everyone else got their
+     * copy — retry with just these addresses. A send where every delivery
+     * fails rejects instead.
+     */
+    failed: string[];
 }
 
 /**
