@@ -44,6 +44,7 @@ const DRAG_FLIP_SETTLE_MS = 440;    // time to let a page flip's smooth-scroll s
 const DRAG_FLIP_ANIM_MS = 320;      // reflow animation duration (iOS-like, unhurried)
 const DRAG_FLIP_EASING = 'cubic-bezier(0.34, 1.08, 0.64, 1)'; // gentle spring settle
 const TILE_REMOVE_ANIM_MS = 180;    // uninstall shrink-out duration (keep in sync with .myapps-tile-removing)
+const TILE_REMOVE_DELAY_MS = 500;   // pause between the uninstall modal closing and the shrink-out starting
 // A tile only becomes the drop target once the dragged icon's centre is well
 // inside it (this fraction is trimmed off every edge). The resulting deadzone
 // around each tile is what stops items flickering back and forth at a boundary.
@@ -230,8 +231,11 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
         const tileEl = $el_window.find('.myapps-tile').toArray()
             .find(el => el.dataset.appName === appName);
         if ( tileEl && ! self._reduceMotion() ) {
-            tileEl.classList.add('myapps-tile-removing');
-            setTimeout(finishRemoval, TILE_REMOVE_ANIM_MS);
+            // Let the modal's departure settle before the tile starts to go.
+            setTimeout(() => {
+                tileEl.classList.add('myapps-tile-removing');
+                setTimeout(finishRemoval, TILE_REMOVE_ANIM_MS);
+            }, TILE_REMOVE_DELAY_MS);
         } else {
             finishRemoval();
         }
