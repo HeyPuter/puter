@@ -50,6 +50,8 @@ export interface SendMailOptions {
     text?: string;
     replyTo?: string;
     attachments?: EmailAttachment[];
+    /** Extra message headers (e.g. List-Unsubscribe), passed to the transport. */
+    headers?: Record<string, string>;
 }
 
 export type EmailValidator = (email: string) => Promise<boolean> | boolean;

@@ -22,6 +22,11 @@ import * as utils from '../lib/utils.js';
  *   });
  *
  * Positional form: `await puter.email.send(to, subject, body)`.
+ *
+ * Every mail automatically gets an unsubscribe / report-abuse footer.
+ * Recipients who unsubscribe are dropped from future sends — they come
+ * back in the result's `suppressed` array — and a send whose `to` list
+ * is entirely unsubscribed is rejected.
  */
 class Email {
     /**
