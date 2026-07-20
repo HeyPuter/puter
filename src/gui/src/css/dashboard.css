@@ -943,6 +943,17 @@ input.myapps-search::-webkit-search-decoration {
     transform: scale(0.95);
 }
 
+/* Keyboard navigation: keyboard focus mirrors the mouse hover enlargement.
+   :focus-visible only, so a mouse click doesn't pin the effect after the
+   pointer moves away. */
+.myapps-tile:focus {
+    outline: none;
+}
+
+.myapps-tile:focus-visible .myapps-tile-icon {
+    transform: scale(1.08);
+}
+
 /* Uninstall: the tile shrinks away in place, then the surviving tiles
    FLIP-slide into the closed-up grid (see showUninstallModal). Duration is
    mirrored by TILE_REMOVE_ANIM_MS in TabApps.js. */

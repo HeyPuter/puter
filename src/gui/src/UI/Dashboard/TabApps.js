@@ -80,7 +80,7 @@ function buildTileHtml (app) {
         ? window.icons['app-default.svg']
         : (app.iconUrl || window.icons['app.svg']);
 
-    let h = `<div class="myapps-tile" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" data-target-link="${html_encode(targetLink)}" title="${html_encode(title)}">`;
+    let h = `<div class="myapps-tile" role="button" tabindex="-1" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" data-target-link="${html_encode(targetLink)}" title="${html_encode(title)}">`;
     h += '<div class="myapps-tile-icon">';
     h += `<img src="${html_encode(iconUrl)}" alt="" draggable="false">`;
     h += '</div>';
@@ -440,20 +440,64 @@ const TabApps = {
             self.goToPage($el_window, self._page + (oe.deltaY > 0 ? 1 : -1), true);
         });
 
-        // Left/right arrow keys flip pages, including while the (empty) search
-        // box holds focus — it's auto-focused on desktop, Launchpad-style.
-        $(document).off('keydown.myapps-pager').on('keydown.myapps-pager', function (e) {
-            if ( e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' ) return;
+        // -- Keyboard navigation --
+        // Arrow keys move focus between the current page's tiles and
+        // Enter/Space launches the focused one. Navigation is deliberately
+        // clamped to the visible page — the keyboard never flips pages; the
+        // dots, hover arrows, and wheel remain the paging affordances.
+        // updatePagerUI keeps one tile per render in the tab order (roving
+        // tabindex), so Tab lands on the grid and arrows take over from there.
+        $(document).off('keydown.myapps-keyboard').on('keydown.myapps-keyboard', function (e) {
+            if ( ! ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter', ' '].includes(e.key) ) return;
             if ( ! $el_window.find('.dashboard-section-apps').hasClass('active') ) return;
             if ( ! $el_window.is(':visible') ) return;
             if ( $el_window.find('.myapps-modal-overlay').length ) return;
             if ( $('.window').not($el_window[0]).filter(':visible').length ) return;
+
+            const pageTiles = $el_window.find('.myapps-page').eq(self._page).find('.myapps-tile').toArray();
+            if ( pageTiles.length === 0 ) return;
+
             const ae = document.activeElement;
-            if ( ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable) ) {
-                if ( ! ($(ae).hasClass('myapps-search') && ae.value === '') ) return;
+            const onTile = ae && ae.classList && ae.classList.contains('myapps-tile');
+
+            if ( ! onTile ) {
+                // ArrowDown steps from the search box into the grid; when the
+                // (auto-focused, Launchpad-style) search is empty, any arrow
+                // does. Other keys are left alone so the caret and native
+                // button behavior keep working.
+                if ( ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable) ) {
+                    const emptySearch = $(ae).hasClass('myapps-search') && ae.value === '';
+                    if ( e.key !== 'ArrowDown' && ! (emptySearch && e.key.startsWith('Arrow')) ) return;
+                } else if ( ! e.key.startsWith('Arrow') ) {
+                    return;
+                }
+                e.preventDefault();
+                pageTiles[0].focus({ preventScroll: true });
+                return;
             }
+
+            if ( e.key === 'Enter' || e.key === ' ' ) {
+                e.preventDefault();
+                $(ae).trigger('click');
+                return;
+            }
+
             e.preventDefault();
-            self.goToPage($el_window, self._page + (e.key === 'ArrowRight' ? 1 : -1), true);
+            const idx = pageTiles.indexOf(ae);
+            if ( idx === -1 ) {
+                // Focus is on a tile of an offscreen page (the page changed
+                // under it via dots/wheel); pull it back to the visible one.
+                pageTiles[0].focus({ preventScroll: true });
+                return;
+            }
+            const cols = (self._layout && self._layout.cols) || 1;
+            let next = idx;
+            if ( e.key === 'ArrowLeft' ) next = idx - 1;
+            else if ( e.key === 'ArrowRight' ) next = idx + 1;
+            else if ( e.key === 'ArrowUp' ) next = idx - cols;
+            else if ( e.key === 'ArrowDown' ) next = idx + cols;
+            if ( next === idx || next < 0 || next >= pageTiles.length ) return;
+            pageTiles[next].focus({ preventScroll: true });
         });
 
         // Re-paginate when the container resizes (window resize, sidebar
@@ -603,6 +647,10 @@ const TabApps = {
             .toggleClass('myapps-pager-arrow-hidden', page <= 0);
         $container.find('.myapps-pager-arrow-next')
             .toggleClass('myapps-pager-arrow-hidden', page >= this._pageCount - 1);
+        // Roving tabindex: exactly one tile — the current page's first — sits
+        // in the tab order; arrow keys move real focus from there.
+        $container.find('.myapps-tile').attr('tabindex', '-1');
+        $container.find('.myapps-page').eq(page).find('.myapps-tile').first().attr('tabindex', '0');
     },
 
     goToPage ($el_window, index, smooth) {
