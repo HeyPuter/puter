@@ -1449,7 +1449,6 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .directory-contents .header {
     position: sticky;
     top: 0;
-    padding-top: 12px;
     background: var(--dashboard-background);
 }
 
