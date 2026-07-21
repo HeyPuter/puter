@@ -3221,6 +3221,29 @@ describe('AuthController.handleConfirmEmail', () => {
             original_client_socket_id: 's',
         });
     });
+
+    it('rejects "null" as a code when no confirmation code is stored', async () => {
+        const { user, actor } = await makeUserAndActor();
+        // A row with no stored code must never be confirmable: String(null)
+        // would otherwise equal a submitted "null" and confirm the email.
+        await server.stores.user.update(user.id, { email_confirm_code: null });
+        const res = makeRes();
+        await controller.handleConfirmEmail(
+            makeReq(
+                { code: 'null', original_client_socket_id: 's' },
+                { actor },
+            ),
+            res,
+        );
+        expect(res.body).toEqual({
+            email_confirmed: false,
+            original_client_socket_id: 's',
+        });
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.email_confirmed).toBeFalsy();
+    });
 });
 
 // ── Password recovery flow ──────────────────────────────────────────

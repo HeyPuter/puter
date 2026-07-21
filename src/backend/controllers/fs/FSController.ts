@@ -845,9 +845,30 @@ export class FSController extends PuterController {
             await this.services.suggestedApps.getSuggestedApps(entry);
 
         res.json({
-            ...entry,
+            ...this.#toClientEntry(entry),
             ...(subtreeSize !== undefined ? { size: subtreeSize } : {}),
         });
+    }
+
+    /**
+     * Strip backend-internal fields before returning an entry to a client.
+     * Storage location (bucket/region), the owner's numeric id, and the
+     * capability-token columns are never used by clients and must not leak to
+     * callers who only hold `see`/`list` on the entry — a share recipient, or
+     * (with public folders enabled) any authenticated user. The legacy read
+     * path already curates its output; this does the same for the v2 routes.
+     */
+    #toClientEntry(entry: object): Record<string, unknown> {
+        const clone: Record<string, unknown> = { ...entry };
+        for (const field of [
+            'bucket',
+            'bucketRegion',
+            'userId',
+            'publicToken',
+            'fileRequestToken',
+        ])
+            delete clone[field];
+        return clone;
     }
 
     @Post('/readdir', { subdomain: 'api', requireVerified: true })
@@ -880,16 +901,7 @@ export class FSController extends PuterController {
                     child.suggestedApps = rootSuggestions[index] ?? [];
                 }
             }
-            if (paginated) {
-                res.json({
-                    items: rootChildren,
-                    ...(body.includeTotal === true
-                        ? { total: rootChildren.length }
-                        : {}),
-                });
-                return;
-            }
-            res.json(rootChildren);
+            res.json(rootChildren.map((child) => this.#toClientEntry(child)));
             return;
         }
 
@@ -960,6 +972,8 @@ export class FSController extends PuterController {
                 child.suggestedApps = suggestions[index] ?? [];
             }
         }
+
+        res.json(children.map((child) => this.#toClientEntry(child)));
     }
 
     @Post('/search', { subdomain: 'api', requireVerified: true })
@@ -1849,8 +1863,7 @@ export class FSController extends PuterController {
         // the ActorUser type. Access via the escape hatch until a proper
         // storage-quota mechanism is in place.
         const actorUser = req.actor?.user as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
 
         const candidates = [
             this.#toStorageCapacityCandidate(actorUser?.free_storage),

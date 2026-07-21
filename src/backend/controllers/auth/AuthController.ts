@@ -924,8 +924,7 @@ export class AuthController extends PuterController {
                     is_temp: user!.password === null && user!.email === null,
                     ip:
                         (req?.headers?.['x-forwarded-for'] as
-                            | string
-                            | undefined) ||
+                            string | undefined) ||
                         (
                             req as unknown as {
                                 connection?: { remoteAddress?: string };
@@ -1078,7 +1077,13 @@ export class AuthController extends PuterController {
             });
             return;
         }
-        if (String(user.email_confirm_code) !== String(code)) {
+        // Reject before comparing when no code is stored: `String(null)` would
+        // otherwise equal a submitted `"null"` and confirm the email without
+        // the real code.
+        if (
+            !user.email_confirm_code ||
+            String(user.email_confirm_code) !== String(code)
+        ) {
             res.json({
                 email_confirmed: false,
                 original_client_socket_id,
