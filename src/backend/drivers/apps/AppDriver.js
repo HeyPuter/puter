@@ -890,6 +890,23 @@ export class AppDriver extends PuterDriver {
         return subdomainOwnerId !== appOwnerId;
     }
 
+    /**
+     * Public wrapper over the authoritative client serializer. Callers
+     * outside the driver (e.g. the homepage shell baking app metadata into
+     * the rendered GUI) must never embed a raw store row — it carries
+     * `owner_user_id`, admin flags, and the private `index_url`. This
+     * projects the safe field subset and applies the private-app
+     * `index_url` gate for `actor`, which may be null for an anonymous
+     * request.
+     *
+     * @param {Record<string, unknown>} app - raw app store row
+     * @param {any} [actor] - request actor, or null when anonymous
+     * @param {Record<string, unknown>} [params]
+     */
+    async toClientView(app, actor = null, params = {}) {
+        return this.#toClient(app, actor, params);
+    }
+
     async #toClient(app, actor, params = {}) {
         if (!app) return null;
 

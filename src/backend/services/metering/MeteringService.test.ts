@@ -476,6 +476,17 @@ describe('MeteringService', () => {
             expect(result['kv:write']).toMatchObject({ count: 1, units: 2 });
         });
 
+        it('returns zero and writes nothing when every item is skipped', async () => {
+            const incrSpy = vi.spyOn(server.stores.kv, 'incr');
+            const result = await target.batchIncrementUsages(actor, [
+                { usageType: '', usageAmount: 1, costOverride: 10 },
+                { usageType: 'kv:write', usageAmount: 0, costOverride: 20 },
+            ]);
+            expect(result).toEqual({ total: 0 });
+            expect(incrSpy).not.toHaveBeenCalled();
+            incrSpy.mockRestore();
+        });
+
         it('raises an alarm for any negative costOverride in the batch', async () => {
             const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
             await target.batchIncrementUsages(actor, [

@@ -556,6 +556,12 @@ describe('SystemKVStore', () => {
             ).rejects.toMatchObject({ statusCode: 400 });
         });
 
+        it('rejects when pathAndAmountMap is empty', async () => {
+            await expect(
+                target.incr({ key: 'k', pathAndAmountMap: {} }, opts),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
         it('rejects when any value in pathAndAmountMap is not a number', async () => {
             await expect(
                 target.incr(

@@ -19,6 +19,7 @@
 
 import update_username_in_gui from '../helpers/update_username_in_gui.js';
 import { openRevalidatePopup } from '../util/openid.js';
+import { fetchWithSessionCookieRetry, isSessionAuthError } from '../util/sessionAuth.js';
 import UIWindow from './UIWindow.js';
 
 async function UIWindowChangeUsername (options) {
@@ -126,8 +127,9 @@ async function UIWindowChangeUsername (options) {
             await myOpenRevalidatePopup();
 
             const res = await doSubmit();
-            const data = res.ok ? await res.json().catch(() => ({})) : await res.json().catch(() => ({}));
+            const data = await res.json().catch(() => ({}));
             if ( res.ok ) onSuccess();
+            else if ( isSessionAuthError(res, data) ) onReauthRequired(data);
             else onError(data.message || 'Request failed');
             return;
         }
@@ -136,17 +138,26 @@ async function UIWindowChangeUsername (options) {
         $(el_window).find('.new-username, .change-username-password').attr('disabled', true);
 
         let res = await doSubmit(password);
-        const data = res.ok ? await res.json().catch(() => ({})) : await res.json().catch(() => ({}));
+        const data = await res.json().catch(() => ({}));
 
         if ( res.ok ) {
             onSuccess();
             return;
         }
+        if ( isSessionAuthError(res, data) ) {
+            onReauthRequired(data);
+            return;
+        }
         if ( data.code === 'oidc_revalidation_required' && data.revalidate_url ) {
             await myOpenRevalidatePopup(data.revalidate_url);
             const r = await doSubmit();
-            if ( r.ok ) onSuccess();
-            else r.json().then((d) => onError(d.message || 'Request failed')).catch(() => onError('Request failed'));
+            if ( r.ok ) {
+                onSuccess();
+                return;
+            }
+            const d = await r.json().catch(() => ({}));
+            if ( isSessionAuthError(r, d) ) onReauthRequired(d);
+            else onError(d.message || 'Request failed');
             return;
         }
         onError(data.message || 'Request failed');
@@ -156,8 +167,10 @@ async function UIWindowChangeUsername (options) {
         const new_username = $(el_window).find('.new-username').val();
         const body = { new_username };
         if ( password !== undefined && password !== '' ) body.password = password;
-        // Do not send Authorization: user-protected endpoints use session cookie (hasHttpOnlyCookie)
-        return fetch(apiUrl, {
+        // Do not send Authorization: user-protected endpoints use session cookie (hasHttpOnlyCookie).
+        // On a 401 caused by a missing/bad cookie the wrapper mints the cookie
+        // from the GUI bearer token via /session/sync-cookie and retries once.
+        const send = () => fetch(apiUrl, {
             method: 'POST',
             credentials: 'include',
             headers: {
@@ -165,6 +178,7 @@ async function UIWindowChangeUsername (options) {
             },
             body: JSON.stringify(body),
         });
+        return fetchWithSessionCookieRetry(send, { origin, authToken: window.auth_token });
     }
 
     function onSuccess () {
@@ -183,6 +197,14 @@ async function UIWindowChangeUsername (options) {
         $(el_window).find('.form-error-msg').fadeIn();
         $(el_window).find('.change-username-btn').removeClass('disabled');
         $(el_window).find('.new-username, .change-username-password').attr('disabled', false);
+    }
+
+    // Session cookie is absent and couldn't be minted from the bearer
+    // token — force the sign-in flow so it gets set, then the user can
+    // retry the change.
+    function onReauthRequired (data) {
+        onError(i18n('reauth_required_message'));
+        window.handleReauthRequired({ reason: data.reason, auth_id: data.auth_id });
     }
 }
 

@@ -101,6 +101,18 @@ export class HomepageController extends PuterController {
                         ? safeJsonParse(app.metadata)
                         : (app.metadata as Record<string, unknown> | null)) ??
                     {};
+                // Never bake the raw store row into the shell — it exposes
+                // `index_url`, `owner_user_id`, and admin flags. Run it
+                // through the authoritative serializer, which redacts to a
+                // safe field subset and drops `index_url` for a private app
+                // this actor (possibly anonymous) isn't entitled to.
+                const actor =
+                    (req as express.Request & { actor?: unknown }).actor ??
+                    null;
+                const clientApp = await this.drivers.apps.toClientView(
+                    app,
+                    actor,
+                );
                 await sendShell(req, res, {
                     title: String(app.title ?? name),
                     description: String(app.description ?? ''),
@@ -110,7 +122,7 @@ export class HomepageController extends PuterController {
                         typeof metadata.social_image === 'string'
                             ? metadata.social_image
                             : undefined,
-                    app: app as Record<string, unknown>,
+                    app: clientApp as Record<string, unknown>,
                 });
                 return;
             }

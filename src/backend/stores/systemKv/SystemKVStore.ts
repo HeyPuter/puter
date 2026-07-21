@@ -334,8 +334,7 @@ export class SystemKVStore extends PuterStore {
             res: true,
             usage: writeUsage(
                 (response.ConsumedCapacity?.CapacityUnits as
-                    | number
-                    | undefined) ?? 1,
+                    number | undefined) ?? 1,
             ),
         };
     }
@@ -366,9 +365,7 @@ export class SystemKVStore extends PuterStore {
             | { key: string; value: unknown }[]
             | {
                   items:
-                      | string[]
-                      | unknown[]
-                      | { key: string; value: unknown }[];
+                      string[] | unknown[] | { key: string; value: unknown }[];
                   cursor?: string;
                   total?: number;
               }
@@ -447,8 +444,7 @@ export class SystemKVStore extends PuterStore {
                 usage,
                 readUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined) ?? 1,
+                        number | undefined) ?? 1,
                 ),
             );
             return response;
@@ -465,8 +461,7 @@ export class SystemKVStore extends PuterStore {
                 const skip = await runQuery(remaining, startKey, 'COUNT');
                 remaining -= Number(skip.Count ?? 0);
                 startKey = skip.LastEvaluatedKey as
-                    | Record<string, unknown>
-                    | undefined;
+                    Record<string, unknown> | undefined;
                 if (!startKey) {
                     exhausted = remaining > 0;
                     break;
@@ -489,8 +484,7 @@ export class SystemKVStore extends PuterStore {
                     >),
                 );
                 nextKey = response.LastEvaluatedKey as
-                    | Record<string, unknown>
-                    | undefined;
+                    Record<string, unknown> | undefined;
                 pages++;
                 if (normalizedLimit === undefined) {
                     // Legacy full listing: follow continuation pages so the
@@ -526,8 +520,7 @@ export class SystemKVStore extends PuterStore {
                 const counted = await runQuery(0, countKey, 'COUNT');
                 total += Number(counted.Count ?? 0);
                 countKey = counted.LastEvaluatedKey as
-                    | Record<string, unknown>
-                    | undefined;
+                    Record<string, unknown> | undefined;
             } while (countKey);
         }
 
@@ -613,7 +606,7 @@ export class SystemKVStore extends PuterStore {
         KVResult<T extends { '': number } ? number : RecursiveRecord<number>>
     > {
         assertKey(key);
-        if (!pathAndAmountMap)
+        if (!pathAndAmountMap || Object.keys(pathAndAmountMap).length === 0)
             throw new HttpError(400, 'kv: incr requires pathAndAmountMap', {
                 legacyCode: 'bad_request',
             });
@@ -846,8 +839,7 @@ export class SystemKVStore extends PuterStore {
                 res: response.Attributes?.value,
                 usage: writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined) ?? 1,
+                        number | undefined) ?? 1,
                 ),
             };
         } catch (e) {

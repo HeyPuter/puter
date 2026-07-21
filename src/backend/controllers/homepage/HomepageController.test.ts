@@ -277,6 +277,43 @@ describe('HomepageController GET /app/:name', () => {
         expect(html).toMatch(/<!DOCTYPE html>/i);
         expect(html).toContain('Cool App');
     });
+
+    it('does not leak a private app index_url or owner id to an anonymous visitor', async () => {
+        const { userId } = await makeUser();
+        const name = `priv-${Math.random().toString(36).slice(2, 10)}`;
+        const secretUrl = `https://secret-${name}.example.com/`;
+        // `is_private` is a READ_ONLY_COLUMN, so it can't be set through the
+        // store's create/update allow-list — insert the private row directly.
+        await server.clients.db.write(
+            `INSERT INTO \`apps\` (\`uid\`, \`name\`, \`title\`, \`description\`, \`index_url\`, \`owner_user_id\`, \`is_private\`)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+                `app-${uuidv4()}`,
+                name,
+                'Private App',
+                'a private app row',
+                secretUrl,
+                userId,
+                1,
+            ],
+        );
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app/:name',
+            makeReq({ params: { name }, path: `/app/${name}` }),
+            res,
+        );
+
+        expect(captured.statusCode).toBe(200);
+        const html = String(captured.body);
+        // Public meta (title) is fine to render...
+        expect(html).toContain('Private App');
+        // ...but the private hosting URL and owner id must be redacted.
+        expect(html).not.toContain(secretUrl);
+        expect(html).not.toContain('owner_user_id');
+    });
 });
 
 // ── /show/* ─────────────────────────────────────────────────────────

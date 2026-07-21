@@ -584,6 +584,17 @@ export async function resolvePublicHostedIdentity(opts: {
 
 // -- Redirect helpers ------------------------------------------------
 
+/**
+ * Turn a request path into a safe reference for `new URL(path, base)`.
+ * Collapses any run of leading slashes/backslashes into a single `/` so a
+ * scheme-relative path (`//evil.com`, `/\evil.com`, which the URL parser
+ * folds to `//`) can't override the base authority and turn the redirect
+ * into an open redirect. Guarantees exactly one leading slash.
+ */
+function normalizeRedirectPath(originalUrl: string | undefined): string {
+    return '/' + (originalUrl || '/').replace(/^[/\\]+/, '');
+}
+
 /** Build the URL to redirect a private-app request to its private host. */
 export function buildPrivateHostRedirect(
     req: Request,
@@ -605,9 +616,7 @@ export function buildPrivateHostRedirect(
     try {
         const protocol = config.protocol || req.protocol || 'https';
         const base = `${protocol}://${subdomain}.${privateDomain}`;
-        const reqPath = (req.originalUrl || '/').startsWith('/')
-            ? req.originalUrl || '/'
-            : `/${req.originalUrl}`;
+        const reqPath = normalizeRedirectPath(req.originalUrl);
         return new URL(reqPath, base).toString();
     } catch {
         return null;
@@ -638,9 +647,7 @@ export function buildPublicHostRedirect(
     try {
         const protocol = config.protocol || req.protocol || 'https';
         const base = `${protocol}://${subdomain}.${publicDomain}`;
-        const reqPath = (req.originalUrl || '/').startsWith('/')
-            ? req.originalUrl || '/'
-            : `/${req.originalUrl}`;
+        const reqPath = normalizeRedirectPath(req.originalUrl);
         return new URL(reqPath, base).toString();
     } catch {
         return null;
