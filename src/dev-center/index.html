@@ -275,6 +275,30 @@
                 class="button button-primary button-block disabled insta-deploy-existing-app-deploy-btn">Deploy</button>
             <div class="insta-deploy-cancel">Cancel</div>
         </dialog>
+        <!---------------------------------------->
+        <!-- App Users Modal                     -->
+        <!---------------------------------------->
+        <dialog class="app-users-modal" style="width: 500px; max-width: 90vw;">
+            <p>Users who have authenticated into <strong class="app-users-modal-app-name"></strong></p>
+                <div class="app-users-list-container" style="max-height: 400px; overflow-y: auto; margin-top: 10px;">
+                    <table class="table" id="app-users-table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>Username</th>
+                                <th>Email</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                    <p class="app-users-empty-notice" style="display:none; text-align:center; color:#888;">No users yet.</p>
+                </div>  
+            </div>
+                <div style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
+                <span class="app-users-loading-notice" style="display:none; color:#888; font-size: 13px;">Loading…</span>
+                <button class="button app-users-load-more-btn" style="display:none;">Load more</button>
+                <span class="app-users-cancel" style="cursor:pointer; margin-left:auto;">Close</span>
+                </div>
+            </dialog>
 
         <!---------------------------------------->
         <!-- App List                           -->

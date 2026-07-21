@@ -545,6 +545,7 @@ function generate_edit_app_section (app) {
                 <div class="analytics-card" id="analytics-users">
                     <h3 style="margin-top:0;">Users</h3>
                     <div class="count" style="font-size: 35px;"></div>
+                    <div class="view-app-users-btn" style="margin-top:10px; cursor:pointer; color:var(--primary-color, #3f51b5); font-size:13px;">View Users</div>
                 </div>
                 <div class="analytics-card" id="analytics-opens">
                     <h3 style="margin-top:0;">Opens</h3>
@@ -3030,6 +3031,82 @@ async function render_analytics (period) {
 
     puter.ui.hideSpinner();
 }
+// ── App Users modal ──────────────────────────────────────────────
+let app_users_state = null; // { app, offset, pageSize, done }
+
+async function open_app_users_modal (app) {
+    app_users_state = { app, offset: 0, pageSize: 50, done: false };
+    $('.app-users-modal-app-name').text(app.title || app.name);
+    $('#app-users-table > tbody').empty();
+    $('.app-users-empty-notice').hide();
+    $('.app-users-load-more-btn').hide();
+    $('.app-users-modal').get(0).showModal();
+    await load_more_app_users();
+}
+
+function render_app_user_row (user) {
+    const emailCell = Object.prototype.hasOwnProperty.call(user, 'user_email')
+        ? html_encode(user.user_email)
+        : '<span style="color:#aaa;">Not shared</span>';
+    return `<tr>
+        <td>${html_encode(user.user)}</td>
+        <td>${emailCell}</td>
+    </tr>`;
+}
+
+async function load_more_app_users () {
+    if ( !app_users_state || app_users_state.done ) return;
+
+    $('.app-users-loading-notice').show();
+    $('.app-users-load-more-btn').hide();
+
+    try {
+        const app = await puter.apps.get(app_users_state.app.name);
+        const users = await app.getUsers({
+            limit: app_users_state.pageSize,
+            offset: app_users_state.offset,
+        });
+
+        if ( !users || users.length === 0 ) {
+            app_users_state.done = true;
+            if ( app_users_state.offset === 0 ) {
+                $('.app-users-empty-notice').show();
+            }
+            return;
+        }
+
+        users.forEach(user => {
+            $('#app-users-table > tbody').append(render_app_user_row(user));
+        });
+
+        app_users_state.offset += users.length;
+        if ( users.length < app_users_state.pageSize ) {
+            app_users_state.done = true;
+        } else {
+            $('.app-users-load-more-btn').show();
+        }
+    } catch (e) {
+        console.error('Failed to load app users', e);
+        $('.app-users-empty-notice').text('Failed to load users.').show();
+    } finally {
+        $('.app-users-loading-notice').hide();
+    }
+}
+
+$(document).on('click', '.view-app-users-btn', async function (e) {
+    if ( !currently_editing_app ) return;
+    await open_app_users_modal(currently_editing_app);
+});
+
+$(document).on('click', '.app-users-load-more-btn', async function (e) {
+    await load_more_app_users();
+});
+
+$(document).on('click', '.app-users-cancel', function (e) {
+    $('.app-users-modal').get(0).close();
+    app_users_state = null;
+});
+// added the logic to open the analytics section when clicking on the stats cell in the app card
 
 $(document).on('click', '.stats-cell', function (e) {
     edit_app_section($(this).attr('data-app-name'), 'analytics');
