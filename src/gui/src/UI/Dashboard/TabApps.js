@@ -408,26 +408,38 @@ const TabApps = {
             const appName = $(this).attr('data-app-name');
             const appTitle = $(this).attr('data-app-title');
             const appUid = $(this).attr('data-app-uid');
+            const targetLink = $(this).attr('data-target-link');
             const noUninstall = APP_NAMES_NO_UNINSTALL.has((appName || '').toLowerCase());
 
-            const items = noUninstall
-                ? []
-                : [
-                    {
-                        html: 'Uninstall',
-                        onClick: () => {
-                            showUninstallModal({
-                                appName,
-                                appTitle,
-                                appUid,
-                                self,
-                                $el_window,
-                            });
-                        },
+            // Every app opens in a new browser tab the way tiles did before
+            // in-page windows: external tiles via their site link, everything
+            // else via its /app/<name> URL.
+            const items = [
+                {
+                    html: 'Open in new tab',
+                    onClick: () => {
+                        if ( targetLink && targetLink !== '' ) {
+                            window.open(targetLink, '_blank', 'noopener,noreferrer');
+                        } else if ( appName ) {
+                            window.open(`/app/${encodeURIComponent(appName)}`, '_blank', 'noopener,noreferrer');
+                        }
                     },
-                ];
-
-            if ( items.length === 0 ) return;
+                },
+            ];
+            if ( ! noUninstall ) {
+                items.push('-', {
+                    html: 'Uninstall',
+                    onClick: () => {
+                        showUninstallModal({
+                            appName,
+                            appTitle,
+                            appUid,
+                            self,
+                            $el_window,
+                        });
+                    },
+                });
+            }
 
             // A touch long-press arms a drag pickup (see _onTilePointerDown). If
             // the user held rather than dragged, they want this menu — cancel the
