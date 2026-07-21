@@ -49,11 +49,17 @@ const EXPECTED: Record<string, string[]> = {
     aiSpeech2Txt: ['list_models', 'transcribe', 'translate'],
     aiSpeech2TxtXai: ['list_models', 'transcribe', 'translate'],
     aiOcr: ['recognize'],
-    // `isNameAvailable` is an AppController helper, not an interface method,
-    // but it is a plain public method so it is (and always was, under the
-    // old reflection dispatch) remotely callable. Documented here rather than
-    // silently — lock it down separately if that exposure is unwanted.
-    apps: ['create', 'delete', 'isNameAvailable', 'read', 'select', 'update', 'upsert'],
+    // AppDriver is the legacy `.js` driver: its non-RPC helpers are plain
+    // public methods (not `#`-private), so `isNameAvailable` (an AppController
+    // helper) and `toClientView` (a safe-field projection used by the homepage
+    // shell) sit on the callable surface. Both are (and always were, under the
+    // old reflection dispatch) remotely callable — pinned here rather than
+    // silently exposed. See the follow-up note: lock these down by making them
+    // `#`-private with dedicated call sites if the exposure is unwanted.
+    apps: [
+        'create', 'delete', 'isNameAvailable', 'read', 'select',
+        'toClientView', 'update', 'upsert',
+    ],
     subdomains: ['create', 'delete', 'read', 'select', 'update', 'upsert'],
     notifications: ['create', 'mark_acknowledged', 'mark_shown', 'read', 'select'],
     workers: ['create', 'destroy', 'getFilePaths', 'getLoggingUrl'],
