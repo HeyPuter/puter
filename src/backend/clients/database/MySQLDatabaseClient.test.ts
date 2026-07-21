@@ -17,8 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { describe, expect, it } from 'vitest';
-import { compareMigrationFilenames } from './MySQLDatabaseClient.js';
+import { describe, expect, it, vi } from 'vitest';
+import type { IConfig } from '../../types';
+import {
+    MySQLDatabaseClient,
+    compareMigrationFilenames,
+} from './MySQLDatabaseClient.js';
 
 describe('compareMigrationFilenames', () => {
     it('orders numbered migrations numerically, not lexically', () => {
@@ -91,5 +95,78 @@ describe('compareMigrationFilenames', () => {
             'mysql_mig_11.sql',
         ];
         expect([...sorted].sort(compareMigrationFilenames)).toEqual(sorted);
+    });
+});
+
+// ── Replica read failover ───────────────────────────────────────────
+//
+// `read()` normally goes to the replica batcher; when the replica side is
+// degraded (batcher load-shed or a transient connection error) and a real
+// replica is configured, the read retries once on the primary batcher.
+
+type Batcher = { execute: ReturnType<typeof vi.fn> };
+
+const makeClient = (opts: {
+    replica: Batcher;
+    primary: Batcher;
+    multiNode?: boolean;
+}) => {
+    const client = new MySQLDatabaseClient({
+        database: { engine: 'mysql' },
+    } as IConfig);
+    // Bypass onServerStart (which would connect to a real database) and
+    // inject the batchers directly. Configuration enum: SINGLE=0, REPLICA=1.
+    Object.assign(client as unknown as Record<string, unknown>, {
+        dbReplica: opts.replica,
+        db: opts.primary,
+        configuration: opts.multiNode === false ? 0 : 1,
+    });
+    return client;
+};
+
+const codedError = (code: string) => {
+    const err = new Error(code) as Error & { code: string };
+    err.code = code;
+    return err;
+};
+
+describe('MySQLDatabaseClient.read — replica failover', () => {
+    it('fails over to the primary on batcher load-shed errors', async () => {
+        const replica = { execute: vi.fn().mockRejectedValue(codedError('dbBatchFailed')) };
+        const primary = { execute: vi.fn().mockResolvedValue([[{ ok: 1 }]]) };
+        const client = makeClient({ replica, primary });
+
+        await expect(client.read('SELECT 1')).resolves.toEqual([{ ok: 1 }]);
+        expect(primary.execute).toHaveBeenCalledTimes(1);
+    });
+
+    it('fails over on transient connection errors', async () => {
+        const replica = { execute: vi.fn().mockRejectedValue(codedError('ECONNRESET')) };
+        const primary = { execute: vi.fn().mockResolvedValue([[{ ok: 1 }]]) };
+        const client = makeClient({ replica, primary });
+
+        await expect(client.read('SELECT 1')).resolves.toEqual([{ ok: 1 }]);
+    });
+
+    it('rethrows deterministic SQL errors without touching the primary', async () => {
+        const replica = { execute: vi.fn().mockRejectedValue(codedError('ER_PARSE_ERROR')) };
+        const primary = { execute: vi.fn() };
+        const client = makeClient({ replica, primary });
+
+        await expect(client.read('SELEC oops')).rejects.toMatchObject({
+            code: 'ER_PARSE_ERROR',
+        });
+        expect(primary.execute).not.toHaveBeenCalled();
+    });
+
+    it('does not fail over in single-node configuration', async () => {
+        const replica = { execute: vi.fn().mockRejectedValue(codedError('dbBatchFailed')) };
+        const primary = { execute: vi.fn() };
+        const client = makeClient({ replica, primary, multiNode: false });
+
+        await expect(client.read('SELECT 1')).rejects.toMatchObject({
+            code: 'dbBatchFailed',
+        });
+        expect(primary.execute).not.toHaveBeenCalled();
     });
 });

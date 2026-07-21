@@ -901,7 +901,19 @@ export class FSController extends PuterController {
                     child.suggestedApps = rootSuggestions[index] ?? [];
                 }
             }
-            res.json(rootChildren.map((child) => this.#toClientEntry(child)));
+            const rootItems = rootChildren.map((child) =>
+                this.#toClientEntry(child),
+            );
+            if (paginated) {
+                res.json({
+                    items: rootItems,
+                    ...(body.includeTotal === true
+                        ? { total: rootItems.length }
+                        : {}),
+                });
+                return;
+            }
+            res.json(rootItems);
             return;
         }
 
@@ -944,7 +956,7 @@ export class FSController extends PuterController {
                     ? await this.services.fs.countDirectory(parent.uuid)
                     : undefined;
             res.json({
-                items: page.entries,
+                items: page.entries.map((child) => this.#toClientEntry(child)),
                 ...(page.cursor ? { cursor: page.cursor } : {}),
                 ...(total !== undefined ? { total } : {}),
             });
@@ -958,7 +970,7 @@ export class FSController extends PuterController {
             sortOrder,
         });
         await this.#attachSuggestedApps(children);
-        res.json(children);
+        res.json(children.map((child) => this.#toClientEntry(child)));
     }
 
     async #attachSuggestedApps(entries: FSEntry[]): Promise<void> {
@@ -972,8 +984,6 @@ export class FSController extends PuterController {
                 child.suggestedApps = suggestions[index] ?? [];
             }
         }
-
-        res.json(children.map((child) => this.#toClientEntry(child)));
     }
 
     @Post('/search', { subdomain: 'api', requireVerified: true })
@@ -1863,7 +1873,8 @@ export class FSController extends PuterController {
         // the ActorUser type. Access via the escape hatch until a proper
         // storage-quota mechanism is in place.
         const actorUser = req.actor?.user as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
 
         const candidates = [
             this.#toStorageCapacityCandidate(actorUser?.free_storage),
