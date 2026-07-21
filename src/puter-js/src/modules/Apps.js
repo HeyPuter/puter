@@ -1,4 +1,5 @@
 import * as utils from '../lib/utils.js';
+import { fetchUrl } from '../lib/PuterClient.js';
 
 class Apps {
     /**
@@ -228,13 +229,9 @@ class Apps {
             };
         }
 
-        const resp = await fetch(
+        const resp = await fetchUrl(
             `${puter.APIOrigin}/apps/nameAvailable?name=${encodeURIComponent(name)}`,
-            {
-                headers: {
-                    Authorization: `Bearer ${puter.authToken}`,
-                },
-            },
+            { includePuterAuth: true },
         );
         const result = await resp.json();
         if ( ! resp.ok ) {

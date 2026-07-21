@@ -1,5 +1,6 @@
 import kvjs from '@heyputer/kv.js';
 import APICallLogger from './lib/APICallLogger.js';
+import { fetchUrl } from './lib/PuterClient.js';
 import { isStoredTokenUsableForOrigin } from './lib/authTokenOrigin.js';
 import path from './lib/path.js';
 import localStorageMemory from './lib/polyfills/localStorage.js';
@@ -666,12 +667,12 @@ const puterInit = function () {
             this.net = {
                 generateWispV1URL: async () => {
                     const { token: wispToken, server: wispServer } = await (
-                        await fetch(
+                        await fetchUrl(
                             `${this.APIOrigin}/wisp/relay-token/create`,
                             {
                                 method: 'POST',
+                                includePuterAuth: true,
                                 headers: {
-                                    Authorization: `Bearer ${this.authToken}`,
                                     'Content-Type': 'application/json',
                                 },
                                 body: JSON.stringify({}),
@@ -717,10 +718,10 @@ const puterInit = function () {
 
             let had_error = false;
             try {
-                const resp = await fetch(`${this.APIOrigin}/rao`, {
+                const resp = await fetchUrl(`${this.APIOrigin}/rao`, {
                     method: 'POST',
+                    includePuterAuth: true,
                     headers: {
-                        Authorization: `Bearer ${this.authToken}`,
                         Origin: location.origin, // This is ignored in the browser but needed for workers and nodejs
                     },
                 });
@@ -1064,7 +1065,7 @@ const puterInit = function () {
                 // everywhere else the JSON token response is all we need.
                 const sameOrigin =
                     globalThis.location?.origin === this.defaultGUIOrigin;
-                const resp = await fetch(
+                const resp = await fetchUrl(
                     `${this.defaultGUIOrigin}/auth/migrate-token`,
                     {
                         method: 'POST',
@@ -1072,7 +1073,7 @@ const puterInit = function () {
                             Authorization: `Bearer ${v1Token}`,
                             'Content-Type': 'application/json',
                         },
-                        credentials: sameOrigin ? 'include' : 'omit',
+                        withCredentials: sameOrigin,
                         body: JSON.stringify({}),
                     },
                 );

@@ -1,4 +1,5 @@
 import * as utils from '../lib/utils.js';
+import { fetchUrl } from '../lib/PuterClient.js';
 import getAbsolutePathForApp from './FileSystem/utils/getAbsolutePathForApp.js';
 
 const normalizeTTSProvider = (value) => {
@@ -59,10 +60,10 @@ class AI {
      */
     async listModels (provider) {
         // Prefer the public API endpoint and fall back to the legacy driver call if needed.
-        const headers = this.authToken ? { Authorization: `Bearer ${this.authToken}` } : {};
-
         const tryFetchModels = async () => {
-            const resp = await fetch(`${this.APIOrigin }/puterai/chat/models/details`, { headers });
+            const resp = await fetchUrl(`${this.APIOrigin }/puterai/chat/models/details`, {
+                includePuterAuth: !! this.authToken,
+            });
             if ( ! resp.ok ) return null;
             const data = await resp.json();
             const models = Array.isArray(data?.models) ? data.models : [];

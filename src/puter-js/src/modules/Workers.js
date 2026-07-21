@@ -71,6 +71,9 @@ export class WorkersHandler {
             req.headers.set('puter-auth', puter.authToken);
         }
         req.headers.delete('x-puter-no-auth');
+        // Passthrough to a user worker URL: takes the fetch Request interface and
+        // returns the raw fetch Response as public API, so it stays on fetch
+        // rather than the XHR-based fetchUrl (whose response is a narrower shape).
         return fetch(req);
     }
 

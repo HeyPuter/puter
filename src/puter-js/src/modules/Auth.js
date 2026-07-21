@@ -1,4 +1,5 @@
 import * as utils from '../lib/utils.js';
+import { fetchUrl } from '../lib/PuterClient.js';
 import PuterDialog from './PuterDialog.js';
 import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
 
@@ -73,7 +74,7 @@ class Auth {
                 (async () => {
                     while (true) {
                         try {
-                            const result = await fetch(`${this.APIOrigin}/login/wait`, {
+                            const result = await fetchUrl(`${this.APIOrigin}/login/wait`, {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json',
@@ -249,79 +250,19 @@ class Auth {
             };
         }
 
-        try {
-            const resp = await fetch(`${this.APIOrigin}/whoami`, {
-                headers: {
-                    Authorization: `Bearer ${this.authToken}`,
-                },
-            });
-
-            const result = await resp.json();
-
-            // Log the response
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'auth',
-                    operation: 'whoami',
-                    params: {},
-                    result: result,
-                });
-            }
-
-            return result;
-        } catch ( error ) {
-            // Log the error
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'auth',
-                    operation: 'whoami',
-                    params: {},
-                    error: {
-                        message: error.message || error.toString(),
-                        stack: error.stack,
-                    },
-                });
-            }
-            throw error;
-        }
+        const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
+            includePuterAuth: true,
+            logContext: { service: 'auth', operation: 'whoami', params: {} },
+        });
+        return await resp.json();
     }
 
     async getMonthlyUsage () {
-        try {
-            const resp = await fetch(`${this.APIOrigin}/metering/usage`, {
-                headers: {
-                    Authorization: `Bearer ${this.authToken}`,
-                },
-            });
-
-            const result = await resp.json();
-
-            // Log the response
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'auth',
-                    operation: 'usage',
-                    params: {},
-                    result: result,
-                });
-            }
-
-            return result;
-        } catch ( error ) {
-            // Log the error
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'auth',
-                    operation: 'usage',
-                    params: {},
-                    error: {
-                        message: error.message || error.toString(),
-                        stack: error.stack,
-                    },
-                });
-            }
-            throw error;
-        }
+        const resp = await fetchUrl(`${this.APIOrigin}/metering/usage`, {
+            includePuterAuth: true,
+            logContext: { service: 'auth', operation: 'usage', params: {} },
+        });
+        return await resp.json();
     }
 
     async getDetailedAppUsage (appId) {
@@ -329,79 +270,19 @@ class Auth {
             throw new Error('appId is required');
         }
 
-        try {
-            const resp = await fetch(`${this.APIOrigin}/metering/usage/${appId}`, {
-                headers: {
-                    Authorization: `Bearer ${this.authToken}`,
-                },
-            });
-
-            const result = await resp.json();
-
-            // Log the response
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'auth',
-                    operation: 'detailed_app_usage',
-                    params: { appId },
-                    result: result,
-                });
-            }
-
-            return result;
-        } catch ( error ) {
-            // Log the error
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'auth',
-                    operation: 'detailed_app_usage',
-                    params: { appId },
-                    error: {
-                        message: error.message || error.toString(),
-                        stack: error.stack,
-                    },
-                });
-            }
-            throw error;
-        }
+        const resp = await fetchUrl(`${this.APIOrigin}/metering/usage/${appId}`, {
+            includePuterAuth: true,
+            logContext: { service: 'auth', operation: 'detailed_app_usage', params: { appId } },
+        });
+        return await resp.json();
     }
 
     async getGlobalUsage () {
-        try {
-            const resp = await fetch(`${this.APIOrigin}/metering/globalUsage`, {
-                headers: {
-                    Authorization: `Bearer ${this.authToken}`,
-                },
-            });
-
-            const result = await resp.json();
-
-            // Log the response
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'auth',
-                    operation: 'global_usage',
-                    params: {},
-                    result: result,
-                });
-            }
-
-            return result;
-        } catch ( error ) {
-            // Log the error
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'auth',
-                    operation: 'global_usage',
-                    params: {},
-                    error: {
-                        message: error.message || error.toString(),
-                        stack: error.stack,
-                    },
-                });
-            }
-            throw error;
-        }
+        const resp = await fetchUrl(`${this.APIOrigin}/metering/globalUsage`, {
+            includePuterAuth: true,
+            logContext: { service: 'auth', operation: 'global_usage', params: {} },
+        });
+        return await resp.json();
     }
 }
 

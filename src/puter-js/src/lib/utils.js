@@ -156,6 +156,64 @@ function replayXhrAfterReauth (response, success_cb, error_cb, resolve_func, rej
 }
 
 /**
+ * Shared 401 reauth policy for a parsed response body. Drives the env-specific
+ * reauth flow on the Puter class and tells the caller what to do next, so the
+ * generic XHR path (`handle_resp`) and the fetch replacement (`fetchUrl`) apply
+ * the exact same policy. The driver-call handler (`driverCall_`) keeps its own
+ * replay because it must preserve streaming/transform semantics on retry.
+ *
+ * Recognised backend signals:
+ *   - `reauth_required` (v2 `authProbe`): legacy v1 tokens, revoked sessions,
+ *     and expired sessions beyond the silent re-mint window.
+ *   - `token_auth_failed` (legacy `APIError.create('token_auth_failed')`):
+ *     token no longer valid, prompt re-login (web env only).
+ *
+ * @param {Object} resp - The parsed response body.
+ * @returns {Promise<{action: 'replay'}|{action: 'reject', error: Object}|null>}
+ *   `replay` when the caller should re-issue the request once with the fresh
+ *   token, `reject` with the error to surface, or `null` when this is not a
+ *   reauth-recoverable 401 and the caller should handle it normally.
+ */
+async function resolveReauth (resp) {
+    if ( resp?.code === 'reauth_required' ) {
+        try {
+            await puter.triggerReauth({
+                reason: resp.reason,
+                auth_id: resp.auth_id,
+            });
+            return { action: 'replay' };
+        } catch ( e ) {
+            return {
+                action: 'reject',
+                error: {
+                    status: 401,
+                    code: 'reauth_required',
+                    reason: resp.reason,
+                    auth_id: resp.auth_id,
+                    message: e?.message || 'Reauthentication required',
+                },
+            };
+        }
+    }
+    if ( resp?.code === 'token_auth_failed' && puter.env === 'web' ) {
+        try {
+            puter.resetAuthToken();
+            await puter.ui.authenticateWithPuter();
+        } catch (e) {
+            return {
+                action: 'reject',
+                error: {
+                    error: {
+                        code: 'auth_canceled', message: 'Authentication canceled',
+                    },
+                },
+            };
+        }
+    }
+    return null;
+}
+
+/**
  * Handles an HTTP response by invoking appropriate callback functions and resolving or rejecting a promise.
  *
  * @param {Function} success_cb - An optional callback function for successful responses. It should take a response object
@@ -176,50 +234,17 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
     const resp = await parseResponse(response);
     // error - unauthorized
     if ( response.status === 401 ) {
-        // v2 reauth signal. The backend `authProbe` middleware returns
-        // `401 { code: 'reauth_required', reason, auth_id }` for legacy
-        // v1 tokens, revoked sessions, and expired sessions beyond the
-        // silent re-mint window. Drive the env-specific reauth flow on
-        // the Puter class, then replay the original request with the
-        // new token.
-        if ( resp?.code === 'reauth_required' ) {
-            try {
-                await puter.triggerReauth({
-                    reason: resp.reason,
-                    auth_id: resp.auth_id,
-                });
-                if ( replayXhrAfterReauth(response, success_cb, error_cb, resolve_func, reject_func) ) {
-                    return;
-                }
-            } catch ( e ) {
-                const err = {
-                    status: 401,
-                    code: 'reauth_required',
-                    reason: resp.reason,
-                    auth_id: resp.auth_id,
-                    message: e?.message || 'Reauthentication required',
-                };
-                if ( error_cb && typeof error_cb === 'function' ) error_cb(err);
-                return reject_func(err);
+        const reauth = await resolveReauth(resp);
+        if ( reauth?.action === 'replay' ) {
+            // Replay the original request with the fresh token. If the replay
+            // can't be scheduled (no captured request, or already retried),
+            // fall through to the generic Unauthorized rejection below.
+            if ( replayXhrAfterReauth(response, success_cb, error_cb, resolve_func, reject_func) ) {
+                return;
             }
-        }
-        // Backend signals "token is no longer valid, prompt re-login" via
-        // the legacy `token_auth_failed` code (matches v1 backend's
-        // APIError.create('token_auth_failed') shape). Trigger the same
-        // reset + re-auth flow the driver-call handler uses, so stale or
-        // legacy-shaped tokens auto-recover instead of bubbling a raw
-        // "Unauthorized" up to every caller.
-        if ( resp?.code === 'token_auth_failed' && puter.env === 'web' ) {
-            try {
-                puter.resetAuthToken();
-                await puter.ui.authenticateWithPuter();
-            } catch (e) {
-                return reject_func({
-                    error: {
-                        code: 'auth_canceled', message: 'Authentication canceled',
-                    },
-                });
-            }
+        } else if ( reauth?.action === 'reject' ) {
+            if ( error_cb && typeof error_cb === 'function' ) error_cb(reauth.error);
+            return reject_func(reauth.error);
         }
         // if error callback is provided, call it
         if ( error_cb && typeof error_cb === 'function' )
@@ -786,5 +811,5 @@ const isVideoInput = (url) => {
 };
 
 export {
-    arrayBufferToDataUri, blob_to_url, blobToDataUri, driverCall, handle_error, handle_resp, initXhr, isVideoInput, make_driver_method, parseResponse, setupXhrEventHandlers, uuidv4,
+    arrayBufferToDataUri, blob_to_url, blobToDataUri, createDeferred, driverCall, handle_error, handle_resp, initXhr, isVideoInput, make_driver_method, parseResponse, resolveReauth, setupXhrEventHandlers, uuidv4,
 };

@@ -1,4 +1,5 @@
 import EventListener from '../../lib/EventListener.js';
+import { fetchUrl } from '../../lib/PuterClient.js';
 import { errors } from './parsers.js';
 import { PWispHandler } from './PWispHandler.js';
 const texten = new TextEncoder();
@@ -27,10 +28,10 @@ export class PSocket extends EventListener {
             }
             if ( ! wispInfo.handler ) {
                 // first launch -- lets init the socket
-                const { token: wispToken, server: wispServer } = (await (await fetch(`${puter.APIOrigin }/wisp/relay-token/create`, {
+                const { token: wispToken, server: wispServer } = (await (await fetchUrl(`${puter.APIOrigin }/wisp/relay-token/create`, {
                     method: 'POST',
+                    includePuterAuth: !! puter.authToken,
                     headers: {
-                        Authorization: puter.authToken ? `Bearer ${puter.authToken}` : '',
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({}),
