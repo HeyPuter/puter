@@ -4077,7 +4077,23 @@ $.fn.hideWindow = async function (options) {
                         ghost.style.transformOrigin = 'top left';
                         ghost.style.willChange = 'transform, opacity';
                         ghost.style.opacity = '0';
-                        ghost.style.transform = `translate(${win_rect.left - icon_rect.left}px, ${win_rect.top - icon_rect.top}px) scale(${win_rect.width / icon_rect.width}, ${win_rect.height / icon_rect.height})`;
+                        // UNIFORM start scale so the icon stays square (a
+                        // rect-onto-rect mapping stretches it), sized to fit
+                        // INSIDE the window (contain, centered) — a covering
+                        // square would protrude past the card's short edge
+                        // and the protruding halo pops in mid-crossfade
+                        // (visible jitter). Contained, the ghost's side
+                        // tracks the card's short edge exactly for the whole
+                        // flight (both interpolate linearly between the same
+                        // start and end sizes), so the card's rectangular
+                        // flanks simply melt away around a steady square.
+                        const ghost_scale = Math.min(
+                            win_rect.width / icon_rect.width,
+                            win_rect.height / icon_rect.height,
+                        );
+                        const ghost_left = win_rect.left + (win_rect.width - icon_rect.width * ghost_scale) / 2;
+                        const ghost_top = win_rect.top + (win_rect.height - icon_rect.height * ghost_scale) / 2;
+                        ghost.style.transform = `translate(${ghost_left - icon_rect.left}px, ${ghost_top - icon_rect.top}px) scale(${ghost_scale})`;
                         document.body.appendChild(ghost);
                         icon.style.visibility = 'hidden';
 
