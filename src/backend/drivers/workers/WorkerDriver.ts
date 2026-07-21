@@ -110,6 +110,7 @@ export class WorkerDriver extends PuterDriver {
     readonly isDefault = true;
 
     #cfBaseUrl = '';
+    #hotReloadSubscribed = false;
 
     static currentPreambleVersion(): string | null {
         return preambleVersion;
@@ -622,6 +623,11 @@ export class WorkerDriver extends PuterDriver {
 
     #subscribeHotReload(): void {
         if (!this.#cfBaseUrl && !USE_LOCAL_WORKERD) return;
+        // Idempotent: re-entry (e.g. a second onServerStart) must not stack
+        // duplicate listeners — each duplicate would multiply redeploys on
+        // every user's worker-source save.
+        if (this.#hotReloadSubscribed) return;
+        this.#hotReloadSubscribed = true;
 
         this.clients.event.on(
             'fs.write.file',

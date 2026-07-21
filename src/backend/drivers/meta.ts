@@ -411,3 +411,65 @@ export function resolveDriverMeta(
         noUserSession,
     };
 }
+
+/**
+ * Framework/lifecycle method names that must never be reachable via
+ * `/drivers/call`. These live on `PuterDriver` (see `drivers/types.ts`) and
+ * are the machinery the dispatch surface must exclude. For class-based
+ * drivers a concrete `override` of one still carries the same name and is
+ * caught here; for plain-object drivers (registered by extensions — see
+ * `server.ts`, `typeof DriverClass === 'object'`) there is no base prototype
+ * to distinguish them, so this denylist is the *only* thing keeping a
+ * hook off the RPC surface. Any lifecycle hook added to `PuterDriver` must
+ * be added here too — the per-driver guard test (`callableMethods.test.ts`)
+ * fails loudly if a base method starts leaking into every driver's surface.
+ */
+export const RESERVED_DRIVER_METHODS: ReadonlySet<string> = new Set([
+    'onServerStart',
+    'onServerPrepareShutdown',
+    'onServerShutdown',
+    'getReportedCosts',
+]);
+
+/**
+ * Compute the set of method names a driver exposes over `/drivers/call`.
+ *
+ * The RPC surface is defined structurally rather than by a hand-maintained
+ * per-method allow-list. Walking from the instance up to (but not including)
+ * `Object.prototype`, a name is callable iff it resolves to a function and is
+ * neither `constructor` nor a `RESERVED_DRIVER_METHODS` entry. This covers
+ * both driver shapes the server accepts (`server.ts`): class instances (RPC
+ * methods on the concrete prototype, config on the instance) and plain
+ * objects (everything own, used verbatim by extensions). It excludes all
+ * `Object.prototype` members (`toString`, `valueOf`, `__proto__`, …), the
+ * `constructor`, and the lifecycle hooks.
+ *
+ * `#`-private helpers need no handling: they are not real property keys, so
+ * `getOwnPropertyNames` never lists them and `driver['#x']` is `undefined`.
+ * Only *plain* public methods can appear here.
+ *
+ * Getters are excluded (we read the descriptor's `.value`, never access the
+ * property), so evaluating this set never runs driver code. Intended to be
+ * called once per driver at registration and cached — not on the hot path.
+ */
+export function resolveCallableMethods(driver: object): Set<string> {
+    const callable = new Set<string>();
+    const seen = new Set<string>();
+    for (
+        let o: object | null = driver;
+        o && o !== Object.prototype;
+        o = Object.getPrototypeOf(o) as object | null
+    ) {
+        for (const name of Object.getOwnPropertyNames(o)) {
+            // First (lowest) definition wins — a subclass override shadows
+            // the base, and we decide against the resolved descriptor.
+            if (seen.has(name)) continue;
+            seen.add(name);
+            if (name === 'constructor') continue;
+            if (RESERVED_DRIVER_METHODS.has(name)) continue;
+            const desc = Object.getOwnPropertyDescriptor(o, name);
+            if (desc && typeof desc.value === 'function') callable.add(name);
+        }
+    }
+    return callable;
+}
