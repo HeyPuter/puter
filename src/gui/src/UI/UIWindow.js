@@ -3975,6 +3975,32 @@ $.fn.focusWindow = function (event) {
     return this;
 };
 
+/**
+ * The dashboard Apps-tab tile for `app_name`, but only when the user can
+ * actually see it right now: the dashboard's Apps section must be the active
+ * tab AND the tile must sit on the pager page currently in view (pages are
+ * laid side by side in a horizontal scroller, so an off-page tile has a
+ * rendered box the user can't see). Returns the tile element, or null.
+ */
+function dashboard_tile_in_view (app_name) {
+    if ( ! app_name || typeof CSS === 'undefined' || ! CSS.escape ) return null;
+    const tiles = document.querySelectorAll(
+        `.dashboard-section-apps.active .myapps-tile[data-app-name="${CSS.escape(app_name)}"]`,
+    );
+    for ( const tile of tiles ) {
+        const rect = tile.getBoundingClientRect();
+        if ( rect.width <= 0 || rect.height <= 0 ) continue;
+        const scroller = tile.closest('.myapps-pager-scroller');
+        const clip = (scroller || tile.parentElement).getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        if ( cx >= clip.left && cx <= clip.right && cy >= clip.top && cy <= clip.bottom ) {
+            return tile;
+        }
+    }
+    return null;
+}
+
 // hides a window
 $.fn.hideWindow = async function (options) {
     $(this).each(async function () {
@@ -3983,15 +4009,145 @@ $.fn.hideWindow = async function (options) {
             let taskbar_item_pos = $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).position();
 
             // No taskbar item to animate toward (e.g. dashboard mode, which
-            // has no taskbar): simply hide the window in place, geometry
-            // untouched. showWindow() un-hides it via the
-            // data-minimized_in_place flag.
+            // has no taskbar): if the app's tile is visible on the Apps tab's
+            // current page, shrink the window into it so the user sees where
+            // the app went; otherwise simply hide the window in place. Either
+            // way the geometry is untouched afterwards and showWindow()
+            // un-hides via the data-minimized_in_place flag.
             if ( ! taskbar_item_pos ) {
-                $(this).attr({
+                const el_window = this;
+                const $win = $(this);
+                const reduce_motion = window.matchMedia
+                    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                const tile = (reduce_motion || isMobile.phone)
+                    ? null
+                    : dashboard_tile_in_view($win.attr('data-app'));
+
+                if ( tile ) {
+                    // iOS-style zoom-to-icon morph, two congruent layers on
+                    // the same 450ms decelerating path so it reads as ONE
+                    // object transforming:
+                    //   1. the LIVE window scales onto the tile's icon box,
+                    //      its corner radius growing toward the squircle,
+                    //      fading OUT once it has mostly shrunk;
+                    //   2. an enlarged clone of the icon ("ghost") starts
+                    //      covering the window and flies/shrinks with it,
+                    //      fading IN as the window fades out, landing exactly
+                    //      on the real icon's slot (the real icon is hidden
+                    //      until the ghost lands, so nothing doubles).
+                    // Transform + opacity animate on the compositor (no
+                    // per-frame reflow of the app's iframe); the window's
+                    // geometry (top/left/width/height) is never touched, so
+                    // restore is trivial.
+                    const icon = tile.querySelector('.myapps-tile-icon') || tile;
+                    const win_rect = el_window.getBoundingClientRect();
+                    const icon_rect = icon.getBoundingClientRect();
+                    if ( win_rect.width > 0 && win_rect.height > 0
+                        && icon_rect.width > 0 && icon_rect.height > 0 ) {
+                        // Everything touched is restored from these exact
+                        // inline values once the animation ends.
+                        const orig_style = {
+                            transform: el_window.style.transform,
+                            transformOrigin: el_window.style.transformOrigin,
+                            opacity: el_window.style.opacity,
+                            borderRadius: el_window.style.borderRadius,
+                            overflow: el_window.style.overflow,
+                            willChange: el_window.style.willChange,
+                            pointerEvents: el_window.style.pointerEvents,
+                            transition: el_window.style.transition,
+                        };
+                        const icon_orig_visibility = icon.style.visibility;
+                        // Map the window rect exactly onto the icon rect (and
+                        // the ghost the exact inverse: icon rect onto window
+                        // rect), so the two layers stay congruent throughout.
+                        const scale_x = icon_rect.width / win_rect.width;
+                        const scale_y = icon_rect.height / win_rect.height;
+                        const dx = icon_rect.left - win_rect.left;
+                        const dy = icon_rect.top - win_rect.top;
+
+                        const ghost = icon.cloneNode(true);
+                        ghost.style.position = 'fixed';
+                        ghost.style.left = `${icon_rect.left}px`;
+                        ghost.style.top = `${icon_rect.top}px`;
+                        ghost.style.width = `${icon_rect.width}px`;
+                        ghost.style.height = `${icon_rect.height}px`;
+                        ghost.style.margin = '0';
+                        ghost.style.zIndex = (parseInt($win.css('z-index'), 10) || 1) + 1;
+                        ghost.style.pointerEvents = 'none';
+                        ghost.style.transformOrigin = 'top left';
+                        ghost.style.willChange = 'transform, opacity';
+                        ghost.style.opacity = '0';
+                        ghost.style.transform = `translate(${win_rect.left - icon_rect.left}px, ${win_rect.top - icon_rect.top}px) scale(${win_rect.width / icon_rect.width}, ${win_rect.height / icon_rect.height})`;
+                        document.body.appendChild(ghost);
+                        icon.style.visibility = 'hidden';
+
+                        $win.attr({
+                            'data-is_minimized': true,
+                            'data-minimized_in_place': '1',
+                        });
+                        el_window.style.transformOrigin = 'top left';
+                        el_window.style.overflow = 'hidden'; // let the radius clip the content
+                        el_window.style.willChange = 'transform, opacity';
+                        el_window.style.pointerEvents = 'none';
+                        // Flush the starting state (both layers) so the
+                        // transitions animate from it rather than snapping.
+                        void el_window.offsetWidth;
+                        // The handoff: by ~130ms the decelerating curve has
+                        // done ~80% of the shrink — the ghost fades in just
+                        // before (80→240ms) and the window fades out just
+                        // after (120→320ms). The overlap means there is never
+                        // a hole, and since both ride the same path the swap
+                        // is invisible: the window "becomes" the icon.
+                        el_window.style.transition = [
+                            'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+                            'border-radius 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+                            'opacity 0.2s ease-out 0.12s',
+                        ].join(', ');
+                        el_window.style.transform = `translate(${dx}px, ${dy}px) scale(${scale_x}, ${scale_y})`;
+                        // Percentage radius stays proportional under the
+                        // scale — ~22% is the icon-squircle look.
+                        el_window.style.borderRadius = '22%';
+                        el_window.style.opacity = '0';
+                        ghost.style.transition = [
+                            'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+                            'opacity 0.16s ease-in 0.08s',
+                        ].join(', ');
+                        ghost.style.transform = 'none';
+                        ghost.style.opacity = '1';
+
+                        setTimeout(() => {
+                            // End of the zoom: the ghost has landed on the
+                            // real icon's slot — swap them back in the same
+                            // frame, hide the window, and put every touched
+                            // inline property back while nothing is visible.
+                            // If the user re-opened the window mid-animation
+                            // (tile click → showWindow cleared the flags),
+                            // restore but leave it visible.
+                            ghost.remove();
+                            icon.style.visibility = icon_orig_visibility;
+                            const minimized = $win.attr('data-is_minimized');
+                            if ( minimized === '1' || minimized === 'true' ) $win.hide();
+                            el_window.style.transition = 'none';
+                            el_window.style.transform = orig_style.transform;
+                            el_window.style.transformOrigin = orig_style.transformOrigin;
+                            el_window.style.opacity = orig_style.opacity;
+                            el_window.style.borderRadius = orig_style.borderRadius;
+                            el_window.style.overflow = orig_style.overflow;
+                            el_window.style.willChange = orig_style.willChange;
+                            el_window.style.pointerEvents = orig_style.pointerEvents;
+                            setTimeout(() => {
+                                el_window.style.transition = orig_style.transition;
+                            }, 50);
+                        }, 480);
+                        return;
+                    }
+                }
+
+                $win.attr({
                     'data-is_minimized': true,
                     'data-minimized_in_place': '1',
                 });
-                $(this).fadeOut(150);
+                $win.fadeOut(150);
                 return;
             }
 
