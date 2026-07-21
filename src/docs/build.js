@@ -314,7 +314,7 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
     }
     // Social Media
     html += `<meta property="og:title" content="${docTitle}">`;
-    html += '<meta name="og:image" content="https://assets.puter.site/twitter.png">';
+    html += '<meta property="og:image" content="https://assets.puter.site/twitter.png">';
     html += '<meta name="twitter:image" content="https://assets.puter.site/twitter.png">';
 
     // Robot tag
