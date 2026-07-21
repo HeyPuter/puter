@@ -696,6 +696,41 @@ describe('FSController.statEntry', () => {
         expect(body.name).toBe('stat-me');
     });
 
+    it('does not leak backend-internal fields to the client', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({
+                    body: { path: `/${username}/Documents/no-leak` },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.statEntry(
+                makeReq({
+                    body: { path: `/${username}/Documents/no-leak` },
+                    actor,
+                }),
+                res,
+            ),
+        );
+        const body = captured.body as Record<string, unknown>;
+        for (const field of [
+            'bucket',
+            'bucketRegion',
+            'userId',
+            'publicToken',
+            'fileRequestToken',
+        ]) {
+            expect(body).not.toHaveProperty(field);
+        }
+    });
+
     it('includes the subtree size when return_size is set on a directory', async () => {
         const { actor } = await makeUser();
         const username = actor.user!.username!;

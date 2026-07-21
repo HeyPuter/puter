@@ -391,7 +391,11 @@ export class OIDCService extends PuterService {
         providerId: string,
         claims: OIDCUserInfo,
     ): Promise<{ success: boolean; error?: string }> {
-        if (claims.email_verified === false) {
+        // Fail closed: linking an OIDC identity to an EXISTING account hands
+        // login control to whoever holds that identity, so an absent
+        // `email_verified` claim (from a lax/custom provider) must not be
+        // treated as verified. Built-in providers always send it as `true`.
+        if (claims.email_verified !== true) {
             return {
                 success: false,
                 error: 'Provider did not verify this email address.',

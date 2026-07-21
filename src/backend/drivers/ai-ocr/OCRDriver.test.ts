@@ -374,6 +374,23 @@ it('meters one usage line per detected page at the per-page rate from costs.ts',
 // ── Mistral OCR ─────────────────────────────────────────────────────
 
 describe('OCRDriver.recognize (mistral)', () => {
+    it('throws 402 when the actor does not have enough credits', async () => {
+        hasCreditsSpy.mockResolvedValueOnce(false);
+        const { actor } = await makeUser();
+
+        await expect(
+            withActor(actor, () =>
+                driver.recognize({
+                    source: dataUrl(Buffer.from('img'), 'image/png'),
+                    provider: 'mistral',
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 402 });
+
+        // The paid Mistral call must not happen when credits are short.
+        expect(mistralOcrProcessMock).not.toHaveBeenCalled();
+    });
+
     it('packages an image as an image_url chunk with a base64 data URL', async () => {
         const { actor } = await makeUser();
         mistralOcrProcessMock.mockResolvedValueOnce({

@@ -117,11 +117,9 @@ export class OCRDriver extends PuterDriver {
         const providers = this.config.providers ?? {};
 
         const textract = providers['aws-textract'] as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const textractAws = (textract?.aws ?? textract) as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const textractAccessKey = textractAws?.access_key as string | undefined;
         const textractSecretKey = textractAws?.secret_key as string | undefined;
         const textractRegion =
@@ -325,6 +323,18 @@ export class OCRDriver extends PuterDriver {
         args: RecognizeArgs,
         actor: Actor,
     ) {
+        // Gate on credits before the paid upstream call, mirroring the
+        // Textract branch. Page count isn't known until Mistral responds, so
+        // pre-flight one page's cost and meter the real total afterward.
+        const hasCredits = await this.services.metering.hasEnoughCredits(
+            actor,
+            OCR_COSTS['mistral-ocr:ocr:page'],
+        );
+        if (!hasCredits)
+            throw new HttpError(402, 'Insufficient credits', {
+                legacyCode: 'insufficient_funds',
+            });
+
         const model = args.model ?? 'mistral-ocr-latest';
         const chunk = this.#mistralBuildChunk(loaded);
         const payload: Record<string, unknown> = { model, document: chunk };

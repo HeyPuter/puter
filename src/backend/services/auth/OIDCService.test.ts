@@ -233,3 +233,38 @@ describe('OIDCService.createUserFromOIDC', () => {
         }
     });
 });
+
+describe('OIDCService.linkProviderToUser', () => {
+    const makeConfirmedUser = async (): Promise<number> => {
+        const username = `oidc-link-${crypto.randomBytes(4).toString('hex')}`;
+        const created = await server.stores.user.create({
+            username,
+            uuid: crypto.randomUUID(),
+            password: null,
+            email: `${username}@corp.example`,
+            requires_email_confirmation: false,
+        });
+        await server.stores.user.update(created.id, { email_confirmed: 1 });
+        return created.id;
+    };
+
+    it('refuses to link to an existing account when the provider omits email_verified', async () => {
+        const userId = await makeConfirmedUser();
+        const result = await oidc().linkProviderToUser(userId, 'custom-idp', {
+            sub: `attacker-${crypto.randomBytes(4).toString('hex')}`,
+            email: 'anything@corp.example',
+        });
+        expect(result.success).toBe(false);
+        expect(result.error).toMatch(/verify/i);
+    });
+
+    it('links when the provider attests email_verified: true', async () => {
+        const userId = await makeConfirmedUser();
+        const result = await oidc().linkProviderToUser(userId, 'custom-idp', {
+            sub: `legit-${crypto.randomBytes(4).toString('hex')}`,
+            email: 'anything@corp.example',
+            email_verified: true,
+        });
+        expect(result.success).toBe(true);
+    });
+});
