@@ -292,14 +292,11 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
     html += '<head>';
     html += '<meta charset="utf-8">';
     // Title
-    if ( isIndex ) {
-        html += '<title>Puter.js: Free, Serverless, Cloud and AI Powered by Puter.</title>';
-        html += '<meta name="title" content="Puter.js: Free, Serverless, Cloud and AI Powered by Puter." />';
-    }
-    else {
-        html += `<title>${removeTags(page.title_tag ?? page.title)}</title>`;
-        html += `<meta name="title" content="${removeTags(page.title_tag ?? page.title)}" />`;
-    }
+    const docTitle = isIndex
+        ? 'Puter.js Documentation'
+        : `${removeTags(page.title_tag ?? page.title)} - Puter.js Docs`;
+    html += `<title>${docTitle}</title>`;
+    html += `<meta name="title" content="${docTitle}" />`;
     // Self referencing canonical
     let canonicalUrl = new URL(page.path, site).href;
     if (!canonicalUrl.endsWith('/')) {
@@ -310,13 +307,13 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
     html += '<meta name="viewport" content="width=device-width, initial-scale=1.0">';
     // Description
     if ( isIndex ) {
-        html += '<meta name="description" content="Puter.js: Free, Serverless, Cloud and AI Powered by Puter.">';
+        html += '<meta name="description" content="Puter.js documentation: API reference, examples, and playground for adding auth, cloud storage, databases, and AI with no API keys and no infrastructure setup.">';
     }
     else if ( frontMatter.description ) {
         html += `<meta name="description" content="${frontMatter.description}">`;
     }
     // Social Media
-    html += `<meta property="og:title" content="${removeTags(page.title_tag ?? page.title)}">`;
+    html += `<meta property="og:title" content="${docTitle}">`;
     html += '<meta name="og:image" content="https://assets.puter.site/twitter.png">';
     html += '<meta name="twitter:image" content="https://assets.puter.site/twitter.png">';
 
@@ -324,7 +321,7 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
     html += '<meta name="robots" content="index, follow" />';
 
     // Site name
-    html += '<meta property="og:site_name" content="Puter.js" />';
+    html += '<meta property="og:site_name" content="Puter.js Docs" />';
 
     // favicons
     html += `
@@ -357,8 +354,12 @@ function generateDocsHTML (filePath, rootDir, page, isIndex = false) {
             {
                 "@context":"https://schema.org",
                 "@type":"WebSite",
-                "name":"Puter.js",
-                "url":"${site}"
+                "@id": "https://docs.puter.com/#website",
+                "name":"Puter.js Docs",
+                "alternateName": "Puter.js Documentation",
+                "url":"${site}",
+                "about": { "@id": "https://developer.puter.com/#puterjs" },
+                "publisher": { "@id": "https://puter.com/#organization" }
             }
         </script>
         `;
@@ -551,7 +552,7 @@ function findMdFiles (rootDir) {
     //index page
     const indexPath = path.join(rootDir, 'index.md');
     const indexChild = {
-        title: 'Puter.js',
+        title: 'Puter.js Documentation',
         path: '',
         next: sidebar[0].children[0],
     };
