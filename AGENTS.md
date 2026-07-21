@@ -8,6 +8,7 @@ Use these as the source of truth before exploring further:
 
 - [README.md](README.md) — project overview and quickstart.
 - [doc/architecture.md](doc/architecture.md) — backend layered stack (controllers → drivers → services → stores → clients), `PuterServer` wiring, `Context` (ALS), and extensions.
+- [doc/contributing-apis.md](doc/contributing-apis.md) — adding and maintaining public APIs end to end (backend surface → puter.js → types → docs → tests). Follow it for any API work.
 - [doc/pagination.md](doc/pagination.md) — the one pagination convention for list APIs (limit/cursor/offset/includeTotal, envelope shape, cursor semantics).
 - [doc/self-hosting.md](doc/self-hosting.md) — running Puter outside hosted infra.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — testing, security, AI-assisted code, PR conventions, Boy Scout Rule.
@@ -17,72 +18,21 @@ Use these as the source of truth before exploring further:
 
 ---
 
-## Backend
+## Repo-wide conventions
 
-The backend is organized as a layered stack inspired by Controller–Service–Repository with dependency injection. Every layer only depends on the layers beneath it, and `PuterServer` ([src/backend/server.ts](src/backend/server.ts)) wires the whole thing together.
+These apply everywhere — backend, puter.js, and GUI.
 
-### Layers (top → bottom)
+### Language & files
 
-| Layer           | Lives in                                             | Responsibility                                                                                                                                                 |
-| --------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Controllers** | [src/backend/controllers/](src/backend/controllers/) | Route handlers. Parse + validate input, apply per-route gates (auth, subdomain, rate limit, body parsers via `RouteOptions`), call services, format responses. |
-| **Drivers**     | [src/backend/drivers/](src/backend/drivers/)         | Optional. RPC-style handlers exposed over `/drivers/*`. Thin shells that validate RPC inputs and call into services/stores.                                    |
-| **Services**    | [src/backend/services/](src/backend/services/)       | Business logic. Assume the caller is already authenticated/authorized — services do not run auth gates themselves.                                             |
-| **Stores**      | [src/backend/stores/](src/backend/stores/)           | Persistence. Wraps clients with the domain shape services consume (rows, entities, KV namespaces).                                                             |
-| **Clients**     | [src/backend/clients/](src/backend/clients/)         | Adapters for external/internal services (sql, redis, s3, dynamo, email, event bus). Knows protocols, not domain concepts.                                      |
-| **Config**      | `config.*.json` → `IConfig`                          | Flat, typed config object every layer receives at construction.                                                                                                |
-
-Each layer receives the layers beneath it through its constructor. Dependencies are explicit and traceable from `PuterServer`.
-
-### Cross-layer rules
-
-- **Don't reach across layers.** Controllers do not poke clients directly; services do not register routes. If you want to, the abstraction is wrong — fix the abstraction.
-- **Don't call sideways within a layer for code reuse.** If two services need the same logic, lift it into a util/helper. Services should not depend on other services for shared code.
-- **Prefer explicit arguments over `Context` (ALS).** Reach for [Context](src/backend/core/context.ts) only when the value is genuinely request-scoped and would otherwise thread through many layers. Today it's used sparingly — mostly for `actor` and `req`.
-
-### Extensions
-
-Extensions live in [extensions/](extensions/) and parallel the layered stack. They are for **non-crucial parts of the system** — things Puter still works without if removed. If a feature is load-bearing for clients, it belongs in core, not in an extension (see [whoami](extensions/whoami.ts) as the cautionary example).
-
-The `extension` global ([src/backend/extensions.ts](src/backend/extensions.ts)) exposes:
-
-- `extension.registerClient/Store/Service/Driver/Controller(name, Class)` for first-class additions.
-- `extension.on(event, handler)` and `extension.get/post/put/delete/patch/use(path, opts?, handler)` for the lightweight common case. `opts` is the same `RouteOptions` controllers use.
-- `extension.import('client' | 'store' | 'service' | 'controller' | 'driver')` returns a lazy proxy to instantiated objects. `extension.config` exposes live config.
-
-### Language & file conventions
-
-- **Modules:** We transpile and build as needed — write ES modules, not CommonJS.
-- **TypeScript preferred for new files.** Existing JS is fine; convert opportunistically when you're already touching a file.
-- **Reuse types and code before adding duplicates.** Before defining a type, search for an existing one; extend it if close. Before writing a helper or repeating logic, search for an existing utility, helper, or implementation and reuse or extend it. Only add a new type or helper when nothing suitable exists.
-- **Make new types findable.** Co-locate them with the layer/module that owns them, export from the obvious entry point, and use a descriptive `PascalCase` name. Don't hide types in random files where future readers won't grep them.
-- **Naming:** `camelCase` for variables/functions, `PascalCase` for classes and for files containing a class (`AuthService.ts`, `KVStoreDriver.ts`).
+- Write ES modules, not CommonJS — we transpile and build as needed.
+- TypeScript preferred for new files (the GUI is the exception — it is plain JS; match it). Convert existing JS opportunistically when you're already touching a file.
+- **Reuse before adding.** Search for an existing type, helper, or implementation and extend it; only add a new one when nothing suitable exists.
+- Make new types findable: descriptive `PascalCase` names, exported from the obvious entry point. A type used from many places belongs in the owning module's `types.ts` (e.g. [src/backend/controllers/types.ts](src/backend/controllers/types.ts)) rather than bloating a logic file; a type with a single consumer can stay next to it.
+- Naming: `camelCase` for variables/functions, `PascalCase` for classes and files containing a class (`AuthService.ts`).
 
 ### Comments
 
-Keep comments light. Prefer self-documenting code — clear names, small functions, obvious flow. Add a comment **only** when:
-
-- The _why_ is non-obvious (a hidden constraint, a workaround, a subtle invariant).
-- A non-trivial usage detail would otherwise trip the next reader.
-
-If comments need to be more than a line, its probably too long, and when it does need multiline comments, use multiline `/** ... */` JSDoc style for consistency. Use `//` for single-line comments.
-
-Don't restate what the code already says. Don't write comments that reference the current task or PR or version of something — those rot.
-
-**No ticket references in code or test comments.** Don't write `PUT-1234`, `AUTH-3`, `GUI-2`, `// fix for FOO-99`, `// per ROLLOUT-1`, or section headers like `// -- PUT-1020: ... --`. The ticket exists in git history and the issue tracker; the code should describe the _why_ in domain terms ("logout cascade transparently invalidates...") not project-management terms ("the cascade from AUTH-3..."). Same rule for test-block names and section dividers — describe what's being tested, not which ticket asked for it.
-
-**Use plain ASCII `-` in comment section dividers, not box-drawing characters.** Write `// -- Section name --`, not `// ── Section name ──`. The `─` (U+2500) character renders inconsistently in some editors and diff tools and adds nothing over `-`.
-
-### Tests
-
-When adding new behavior (function, endpoint, driver method, branch of logic), add a test for it.
-
-- Use Vitest for unit and integration tests. Test files go next to the code they test, named `*.test.ts` or `*.test.js`.
-- **Mock data, not methods.** Stub the inputs (fixtures, fake rows, sample payloads) rather than mocking the function under test or the layer beneath it. Over-mocking produces tests that pass while production breaks. If you must mock, mock at a real boundary (a client/external service), not within the same layer you're testing.
-- Prefer test server over mocking deps. We have existing test utilities for running full test server to boot deps based on config. (see [src/backend/testUtil.ts](src/backend/testUtil.ts)).
-- **Hit a real database / real client where reasonable.** Integration shapes catch the things unit tests with mocks miss.
-- **Regression tests for bug fixes.** A test that fails before your fix and passes after is the cheapest insurance against the bug coming back.
-- If something is genuinely hard to test (UI animation, third-party glue), skip it but say so in the PR.
+Keep comments light; prefer self-documenting code. Comment only when the _why_ is non-obvious or a usage detail would trip the next reader. Use `//` for single lines and `/** ... */` JSDoc when it genuinely needs more — if a comment runs long, it's probably too long. Don't restate the code and don't reference the current task, PR, or version — those rot. **No ticket references** (`PUT-1234`, `// fix for FOO-99`) in code, comments, or test names; describe the why in domain terms, not project-management terms. Use plain ASCII `-` in comment section dividers (`// -- Section --`), never box-drawing characters.
 
 ### Security & privacy
 
@@ -97,6 +47,78 @@ When in doubt, return less. Auth-, permission-, or data-export-related changes d
 ### Working rules of thumb
 
 - **Run it, don't just compile it.** "It type-checks" is not "it works." Exercise the code path end-to-end at least once.
-- **Read the neighbors before writing.** Match the shape of similar things already in the tree. If you genuinely think the existing pattern is wrong, raise it — don't quietly diverge.
-- **Boy Scout Rule, proportional to the change.** Fix the obvious typo, dead import, or missing typehint in files you're already touching. Don't ride a refactor along with a bug fix — that just makes review harder.
+- **Read the neighbors before writing.** Match the shape of similar things already in the tree. If you think the existing pattern is wrong, raise it — don't quietly diverge.
+- **Test new behavior.** Every new function, endpoint, driver method, or logic branch gets a test; every bug fix gets a regression test that fails before the fix. If something is genuinely hard to test, skip it but say so in the PR.
+- **Boy Scout Rule, proportional to the change.** Fix the obvious typo or dead import in files you're already touching; don't ride a refactor along with a bug fix.
 - **Understand what you commit.** AI assistance is fine; shipping code you couldn't defend in review is not.
+
+---
+
+## Backend
+
+A layered stack with explicit dependency injection: each layer depends only on the layers beneath it, receives them through its constructor, and `PuterServer` ([src/backend/server.ts](src/backend/server.ts)) wires the whole thing together. [doc/architecture.md](doc/architecture.md) is the full reference.
+
+| Layer (top → bottom) | Lives in                                             | Responsibility                                                                                                              |
+| -------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| **Controllers**      | [src/backend/controllers/](src/backend/controllers/) | Route handlers: parse/validate input, per-route gates via `RouteOptions` (auth, subdomain, rate limit, body parsers), call services, format responses. |
+| **Drivers**          | [src/backend/drivers/](src/backend/drivers/)         | Optional RPC-style handlers on `/drivers/*`; thin shells that validate inputs and call services/stores.                       |
+| **Services**         | [src/backend/services/](src/backend/services/)       | Business logic. Assume the caller is already authenticated/authorized.                                                        |
+| **Stores**           | [src/backend/stores/](src/backend/stores/)           | Persistence; wraps clients in the domain shapes services consume.                                                             |
+| **Clients**          | [src/backend/clients/](src/backend/clients/)         | Adapters for external/internal services (sql, redis, s3, email, event bus). Protocols, not domain concepts.                   |
+| **Config**           | `config.*.json` → `IConfig`                          | Flat, typed config object every layer receives at construction.                                                               |
+
+A public API can be exposed through either a controller or a driver — both are supported; prefer a controller when you need fine-grained control over routes and gates. [doc/contributing-apis.md](doc/contributing-apis.md) has the decision guide with links to the decorators and middleware for each.
+
+Cross-layer rules:
+
+- **Don't reach across layers.** Controllers don't poke clients; services don't register routes. If you want to, the abstraction is wrong — fix the abstraction.
+- **Don't call sideways within a layer for code reuse.** Two services needing the same logic means a util/helper, not a service-to-service dependency.
+- **Prefer explicit arguments over `Context` (ALS).** Reach for [Context](src/backend/core/context.ts) only for genuinely request-scoped values that would otherwise thread through many layers — today mostly `actor` and `req`.
+
+### Extensions
+
+[extensions/](extensions/) parallels the layered stack and is for **non-crucial parts of the system** — Puter still works with the extension removed. If core needs to call it, it belongs in core, not an extension (see [whoami](extensions/whoami.ts) as the cautionary example). The `extension` global ([src/backend/extensions.ts](src/backend/extensions.ts)) exposes:
+
+- `extension.registerClient/Store/Service/Driver/Controller(name, Class)` for first-class additions.
+- `extension.on(event, handler)` and `extension.get/post/put/delete/patch/use(path, opts?, handler)` for the lightweight common case. `opts` is the same `RouteOptions` controllers use.
+- `extension.import('client' | 'store' | 'service' | 'controller' | 'driver')` — lazy proxy to instantiated core objects. `extension.config` exposes live config.
+
+Follow the same layered structure inside an extension — unless it only needs a few route handlers, in which case the lightweight helpers are enough on their own.
+
+### Backend tests
+
+- Vitest; test files sit next to the code they test (`*.test.ts` / `*.test.js`). Run with `npm run test:backend`.
+- **Mock data, not methods.** Stub inputs (fixtures, fake rows, payloads), not the function under test or the layer beneath it — over-mocking produces tests that pass while production breaks. If you must mock, mock at a real boundary (a client/external service).
+- **Prefer the test server over mocking deps.** `setupPuterTestEnv()` in [src/backend/testUtil.ts](src/backend/testUtil.ts) boots a fully in-memory backend; hit a real database/client shape where reasonable — integration shapes catch what mocked unit tests miss.
+
+---
+
+## puter.js (the SDK)
+
+[src/puter-js/](src/puter-js/) is the public SDK. It ships live from `https://js.puter.com/v2/` with no version pinning — every existing app picks up changes immediately. Treat every observable behavior (signatures, response fields, error codes) as something a production app depends on.
+
+Layout: SDK modules in [src/puter-js/src/modules/](src/puter-js/src/modules/) (one file or directory per area — `FileSystem/`, `KV.js`, `AI.js`, …), shared plumbing in [src/puter-js/src/lib/](src/puter-js/src/lib/), hand-maintained type declarations in [src/puter-js/types/](src/puter-js/types/), API tests in [src/puter-js/tests/api/](src/puter-js/tests/api/), UI e2e tests in [src/puter-js/tests/e2e/](src/puter-js/tests/e2e/), developer docs in [src/docs/](src/docs/).
+
+Every SDK change carries all five of the following — a puter.js PR missing one is incomplete:
+
+1. **Backward compatibility.** Mandatory unless a maintainer explicitly signs off on a break. Existing call signatures keep working (including both positional and options-object forms where a method supports them); new parameters are optional with defaults that preserve old behavior; never rename or repurpose existing params, response fields, or error codes. New parameter names are `camelCase` (existing `snake_case` stays for compatibility). Say in the PR how existing callers are unaffected.
+2. **Tests.** Add or extend a suite in [tests/api/suites/](src/puter-js/tests/api/suites/) (`<area>.suite.ts`; register new suites in `suites/index.ts` — no globbing). One suite runs unchanged on node, browser, and workerd via `npm run test:puterjs`; never write a per-platform test. The runners execute the **built** bundle — run `npm run build:workerLib` after SDK changes or the suite silently tests stale code. For `puter.ui.*` methods rendered by the desktop, use the Playwright e2e harness instead — see [src/puter-js/TESTING.md](src/puter-js/TESTING.md).
+3. **Docs.** New or changed APIs update [src/docs/src/](src/docs/src/): the method page (`<Area>/<method>.md`, with frontmatter and a runnable example) and the area overview when the surface changes. Docs are the contract users code against — signatures, defaults, and return shapes must match the implementation exactly.
+4. **Types.** Update [src/puter-js/types/modules/](src/puter-js/types/modules/)`<module>.d.ts` and re-export new types through `index.d.ts` / `types/puter.d.ts`. Declarations must match runtime behavior exactly — a wrong type is worse than a missing one.
+5. **Error handling.** Reject/throw `{ message, code }` objects with stable `snake_case` codes, matching the existing modules (see `KV.js`). Validate cheap preconditions client-side before making the network call; pass backend errors through unchanged rather than swallowing or re-wrapping them. Error codes are API surface — changing one is a breaking change.
+
+[doc/contributing-apis.md](doc/contributing-apis.md) walks the full lifecycle of adding an API across backend + SDK.
+
+---
+
+## GUI
+
+[src/gui/](src/gui/) is the Puter desktop: deliberately plain JavaScript + jQuery with HTML-string templates. Don't introduce a UI framework or a new rendering pattern.
+
+The guiding rule here is **conformity over novelty** — match the existing design and code structure even where you'd personally choose differently. A visually or structurally divergent addition is a defect even when it works.
+
+- **Reuse existing UI primitives before writing new ones.** Windows and dialogs are `UIWindow*` functions in [src/gui/src/UI/](src/gui/src/UI/); generic pieces already exist (`UIAlert`, `UIPrompt`, `UIContextMenu`, `UINotification`, `UIPopover`, widgets in [UI/Components/](src/gui/src/UI/Components/)). A new window should read like its neighbors: an async function taking an options object, composing an HTML string, wiring behavior with jQuery, delegating to `UIWindow(...)`.
+- **Match the visual language.** Use existing CSS classes (`button`, `button-primary`, window chrome, form styles) and copy the layout patterns of neighboring windows; new styles go in [src/gui/src/css/](src/gui/src/css/) following existing conventions. Verify anything positional (menus, overlays, z-index) on both desktop and mobile viewports.
+- **i18n every user-facing string.** No hardcoded UI text — use `i18n('key')` and add the key to [src/gui/src/i18n/translations/en.js](src/gui/src/i18n/translations/en.js). Run `npm run check-translations` before opening the PR.
+- **Shared logic goes in helpers/services.** Reusable non-UI logic belongs in [src/gui/src/helpers/](src/gui/src/helpers/) or [src/gui/src/services/](src/gui/src/services/), not copy-pasted between windows.
+- **Tests.** Vitest is wired for the GUI (`src/**/*.test.js`; see [appOrder.test.js](src/gui/src/UI/Dashboard/appOrder.test.js) for the shape). Extract pure logic into functions and test those. Desktop behavior driven through puter.js (`puter.ui.*`) is covered by the Playwright harness in [src/puter-js/tests/e2e/](src/puter-js/tests/e2e/) — add a spec there when you change how the desktop renders SDK-driven UI.

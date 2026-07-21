@@ -26,9 +26,9 @@ For private security reports, see [SECURITY.md](SECURITY.md).
 
 Don't commit code you couldn't have written, debugged, or defended yourself. Read the diff, run it, and be ready to explain it in review.
 
-## 5. Update docs for API changes
+## 5. Adding or changing APIs
 
-If you change puter-js APIs (drivers or endpoints used by puter-js), update [developer docs](src/docs/). puter-js itself may also need updating.
+If you add or change a public API (an endpoint, driver method, or puter-js method), follow [doc/contributing-apis.md](doc/contributing-apis.md) — backward compatibility, [developer docs](src/docs/), types, and tests all move in the same PR.
 
 ## 6. Boy Scout Rule — leave it 1% better
 
