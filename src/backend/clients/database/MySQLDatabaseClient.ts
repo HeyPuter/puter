@@ -19,32 +19,24 @@
 
 import { readdirSync, readFileSync } from 'fs';
 import { isAbsolute, resolve as resolvePath } from 'path';
+import { metrics } from '@opentelemetry/api';
 import { createPool, type Pool } from 'mysql2';
 import { Span } from '../../util/span.js';
 import { AbstractDatabaseClient, type WriteResult } from './DatabaseClient';
 import { SQLBatcher } from './SQLBatcher.js';
+import { isRetriableError } from './retriableErrors.js';
 import { splitMysqlStatements } from './splitMysqlStatements.js';
 import { compareMigrationFilenames } from './migrationFilenames.js';
 import type { IConfig } from '../../types';
 
-const RETRIABLE_ERROR_CODES = new Set([
-    'PROTOCOL_CONNECTION_LOST',
-    'PROTOCOL_SEQUENCE_TIMEOUT',
-    'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR',
-    'ECONNRESET',
-    'ETIMEDOUT',
-    'EPIPE',
-    'ECONNREFUSED',
-    'EHOSTUNREACH',
-    'ENETUNREACH',
-    'EAI_AGAIN',
-]);
+const DEFAULT_SELECT_TIMEOUT_MS = 30_000;
 
-const RETRIABLE_ERROR_MESSAGES = [
-    'Connection lost',
-    'read ECONNRESET',
-    'ETIMEDOUT',
-];
+const replicaFailoverCounter = metrics
+    .getMeter('puter-backend')
+    .createCounter('db.read.replica_failover', {
+        description:
+            'Reads that failed on the replica batcher and were retried on the primary',
+    });
 
 export { compareMigrationFilenames };
 
@@ -86,7 +78,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         });
         console.log('[mysql] connected to primary');
 
-        this.db = new SQLBatcher(this.primaryPool, 30, 5);
+        this.db = this.createPrimaryBatcher(this.primaryPool);
 
         if (dbConf.replica) {
             this.replicaPool = this.createPool(dbConf.replica);
@@ -97,7 +89,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
             this.configuration = Configuration.SINGLE;
         }
 
-        this.dbReplica = new SQLBatcher(this.replicaPool, 10, 5);
+        this.dbReplica = this.createReplicaBatcher(this.replicaPool);
 
         await this.runMigrations();
     }
@@ -144,7 +136,23 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         query: string,
         params: unknown[] = [],
     ): Promise<Record<string, unknown>[]> {
-        const result = await this.dbReplica.execute(query, params);
+        let result;
+        try {
+            result = await this.dbReplica.execute(query, params);
+        } catch (error) {
+            // Replica-side degradation (batcher load-shed or a transient
+            // connection failure) shouldn't fail reads while the primary is
+            // healthy. Deterministic errors (bad SQL) are rethrown — they
+            // would fail identically on the primary.
+            if (
+                this.configuration !== Configuration.REPLICA ||
+                !MySQLDatabaseClient.isFailoverWorthy(error)
+            ) {
+                throw error;
+            }
+            replicaFailoverCounter.add(1);
+            result = await this.db.execute(query, params);
+        }
         if (!result) return [];
         return (result[0] as Record<string, unknown>[]) ?? [];
     }
@@ -307,12 +315,53 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
     // ------------------------------------------------------------------
 
     private createPool(poolConfig: PoolConfig): Pool {
-        return createPool({
+        const pool = createPool({
             maxPreparedStatements: 900,
             connectionLimit: 30,
+            enableKeepAlive: true,
             ...poolConfig,
             multipleStatements: true,
         } as PoolConfig);
+
+        // Server-side kill switch for runaway reads: MySQL applies
+        // max_execution_time to SELECT statements only, so this is
+        // write-safe. Without it, a stalled database turns reads into
+        // indefinite hangs that no client-side timeout ever converts
+        // into a failure. 0 disables.
+        const selectTimeoutMs = Math.floor(
+            Number(
+                this.config.database?.selectTimeoutMs ??
+                    DEFAULT_SELECT_TIMEOUT_MS,
+            ),
+        );
+        if (selectTimeoutMs > 0) {
+            pool.on('connection', (conn) => {
+                conn.query(
+                    `SET SESSION max_execution_time = ${selectTimeoutMs}`,
+                );
+            });
+        }
+
+        return pool;
+    }
+
+    private createPrimaryBatcher(pool: Pool): SQLBatcher {
+        return new SQLBatcher(pool, {
+            maxTimeInQueue: 30,
+            maxBatchSize: 5,
+            poolLabel: 'primary',
+            acquireTimeoutMs: this.config.database?.acquireTimeoutMs,
+        });
+    }
+
+    private createReplicaBatcher(pool: Pool): SQLBatcher {
+        return new SQLBatcher(pool, {
+            maxTimeInQueue: 10,
+            maxBatchSize: 5,
+            poolLabel: 'replica',
+            readOnly: true,
+            acquireTimeoutMs: this.config.database?.acquireTimeoutMs,
+        });
     }
 
     /** Reinitialize the primary pool (e.g. after a health-check failure). */
@@ -328,11 +377,11 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
             password: dbConf.password ?? '',
             database: dbConf.database ?? 'puter',
         });
-        this.db = new SQLBatcher(this.primaryPool, 30, 5);
+        this.db = this.createPrimaryBatcher(this.primaryPool);
 
         if (this.configuration === Configuration.SINGLE) {
             this.replicaPool = this.primaryPool;
-            this.dbReplica = new SQLBatcher(this.primaryPool, 10, 5);
+            this.dbReplica = this.createReplicaBatcher(this.primaryPool);
         }
 
         if (previous && previous !== this.primaryPool) {
@@ -346,7 +395,7 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
 
         const previous = this.replicaPool;
         this.replicaPool = this.createPool(this.config.database.replica);
-        this.dbReplica = new SQLBatcher(this.replicaPool, 10, 5);
+        this.dbReplica = this.createReplicaBatcher(this.replicaPool);
 
         if (
             previous &&
@@ -362,11 +411,14 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
     // ------------------------------------------------------------------
 
     static isRetriableError(error: unknown): boolean {
-        const code = (error as { code?: string })?.code;
-        if (code && RETRIABLE_ERROR_CODES.has(code)) return true;
+        return isRetriableError(error);
+    }
 
-        const msg = String((error as Error)?.message ?? '');
-        return RETRIABLE_ERROR_MESSAGES.some((m) => msg.includes(m));
+    /** Replica failures worth retrying on the primary: batcher load-shed
+     *  or transient connection errors — never deterministic SQL errors. */
+    private static isFailoverWorthy(error: unknown): boolean {
+        const code = (error as { code?: string })?.code;
+        return code === 'dbBatchFailed' || isRetriableError(error);
     }
 
     async readWithRetry(

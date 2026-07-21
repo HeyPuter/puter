@@ -232,3 +232,50 @@ describe('createErrorHandler — when the response has already started streaming
         expect(onError).toHaveBeenCalledTimes(1);
     });
 });
+
+// ── Database load-shed translation ──────────────────────────────────
+
+describe('createErrorHandler — dbBatchFailed load-shed errors', () => {
+    const makeDbBatchError = (reason: string) => {
+        const err = new Error('Database operation failed') as Error & {
+            code: string;
+            reason: string;
+        };
+        err.code = 'dbBatchFailed';
+        err.reason = reason;
+        return err;
+    };
+
+    it('maps to 503 + Retry-After instead of a generic 500', () => {
+        const onUnhandled = vi.fn();
+        const handler = createErrorHandler({ onUnhandled });
+        const { out } = runHandler(handler, makeDbBatchError('breakerOpen'));
+
+        expect(out.statusCode).toBe(503);
+        expect(out.headers['Retry-After']).toBe(5);
+        expect(out.body).toMatchObject({
+            code: 'db_unavailable',
+            error: 'Service temporarily unavailable',
+        });
+        // Translated errors are expected degradation, not unhandled bugs.
+        expect(onUnhandled).not.toHaveBeenCalled();
+    });
+
+    it('translates every load-shed reason the batcher emits', () => {
+        const handler = createErrorHandler({ onUnhandled: () => {} });
+        for (const reason of ['breakerOpen', 'queueOverflow', 'connAcquire']) {
+            const { out } = runHandler(handler, makeDbBatchError(reason));
+            expect(out.statusCode).toBe(503);
+        }
+    });
+
+    it('leaves unrelated coded errors on the generic 500 path', () => {
+        const onUnhandled = vi.fn();
+        const handler = createErrorHandler({ onUnhandled });
+        const err = new Error('boom') as Error & { code: string };
+        err.code = 'somethingElse';
+        const { out } = runHandler(handler, err);
+        expect(out.statusCode).toBe(500);
+        expect(onUnhandled).toHaveBeenCalledTimes(1);
+    });
+});

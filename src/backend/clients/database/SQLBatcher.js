@@ -18,10 +18,19 @@
  */
 
 import { metrics } from '@opentelemetry/api';
+import {
+    POOL_ACQUIRE_TIMEOUT,
+    isNeverSentError,
+    isRetriableError,
+} from './retriableErrors.js';
 
 const DEFAULT_MAX_QUEUE_SIZE = 1000;
 const DEFAULT_FAILURE_THRESHOLD = 5;
 const DEFAULT_COOLDOWN_MS = 5_000;
+const DEFAULT_ACQUIRE_TIMEOUT_MS = 5_000;
+const ACQUIRE_ATTEMPTS = 3;
+const ITEM_RETRY_ATTEMPTS = 2;
+const RETRY_BASE_BACKOFF_MS = 100;
 const FALLBACK_RETRY_CONCURRENCY = 8;
 
 const meter = metrics.getMeter('puter-backend');
@@ -53,6 +62,15 @@ const fallbackItemFailuresCounter = meter.createCounter(
             'Per-item failures observed during SQLBatcher per-item retry',
     },
 );
+const fallbackItemRetriesCounter = meter.createCounter(
+    'sql_batcher.fallback.item_retries',
+    {
+        description:
+            'Transient per-item failures retried during SQLBatcher fallback',
+    },
+);
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export class SQLBatcher {
     dbPool;
@@ -61,18 +79,43 @@ export class SQLBatcher {
     maxQueueSize;
     failureThreshold;
     cooldownMs;
+    poolLabel;
+    readOnly;
+    acquireTimeoutMs;
     queue = [];
     timeouts = [];
     #consecutiveFailures = 0;
     #lastFailureAt = 0;
+    #metricAttrs;
 
+    /**
+     * @param {object} dbPool mysql2 pool
+     * @param {object} [opts]
+     * @param {number} [opts.maxTimeInQueue] ms an item may wait before flush
+     * @param {number} [opts.maxBatchSize] items coalesced per flush
+     * @param {number} [opts.maxQueueSize] drop-oldest high-water mark
+     * @param {number} [opts.failureThreshold] consecutive failures to open the breaker
+     * @param {number} [opts.cooldownMs] breaker open duration after last failure
+     * @param {'primary'|'replica'} [opts.poolLabel] role label on metrics; in
+     *   single-node setups the 'replica' batcher shares the primary pool, so
+     *   this reflects the read/write role rather than a physical instance
+     * @param {boolean} [opts.readOnly] this batcher only ever carries SELECTs,
+     *   so any transient failure is safe to retry
+     * @param {number} [opts.acquireTimeoutMs] max wait for a pooled
+     *   connection; 0 disables the bound
+     */
     constructor(
         dbPool,
-        maxTimeInQueue = 20,
-        maxBatchSize = 50,
-        maxQueueSize = DEFAULT_MAX_QUEUE_SIZE,
-        failureThreshold = DEFAULT_FAILURE_THRESHOLD,
-        cooldownMs = DEFAULT_COOLDOWN_MS,
+        {
+            maxTimeInQueue = 20,
+            maxBatchSize = 50,
+            maxQueueSize = DEFAULT_MAX_QUEUE_SIZE,
+            failureThreshold = DEFAULT_FAILURE_THRESHOLD,
+            cooldownMs = DEFAULT_COOLDOWN_MS,
+            poolLabel = 'primary',
+            readOnly = false,
+            acquireTimeoutMs = DEFAULT_ACQUIRE_TIMEOUT_MS,
+        } = {},
     ) {
         this.dbPool = dbPool;
         this.maxTimeInQueue = maxTimeInQueue;
@@ -80,6 +123,10 @@ export class SQLBatcher {
         this.maxQueueSize = maxQueueSize;
         this.failureThreshold = failureThreshold;
         this.cooldownMs = cooldownMs;
+        this.poolLabel = poolLabel;
+        this.readOnly = readOnly;
+        this.acquireTimeoutMs = acquireTimeoutMs;
+        this.#metricAttrs = { pool: poolLabel };
     }
 
     async execute(sql, values) {
@@ -90,9 +137,13 @@ export class SQLBatcher {
         return this;
     }
 
-    #createPublicBatchError() {
+    // The public error is deliberately opaque (no SQL, no internals), but
+    // `reason` distinguishes the load-shed path for logs and callers:
+    // breakerOpen | queueOverflow | connAcquire.
+    #createPublicBatchError(reason) {
         const error = new Error('Database operation failed');
         error.code = 'dbBatchFailed';
+        error.reason = reason;
         return error;
     }
 
@@ -106,8 +157,8 @@ export class SQLBatcher {
 
     async query(sql, values) {
         if (this.#isBreakerOpen()) {
-            enqueueRejectedCounter.add(1);
-            throw this.#createPublicBatchError();
+            enqueueRejectedCounter.add(1, this.#metricAttrs);
+            throw this.#createPublicBatchError('breakerOpen');
         }
 
         const { promise, resolve, reject } = Promise.withResolvers();
@@ -117,8 +168,8 @@ export class SQLBatcher {
         // to have already exceeded any caller-side timeout anyway.
         while (this.queue.length >= this.maxQueueSize) {
             const dropped = this.queue.shift();
-            dropped.reject(this.#createPublicBatchError());
-            enqueueDroppedCounter.add(1);
+            dropped.reject(this.#createPublicBatchError('queueOverflow'));
+            enqueueDroppedCounter.add(1, this.#metricAttrs);
         }
 
         this.queue.push({
@@ -142,6 +193,61 @@ export class SQLBatcher {
         return promise;
     }
 
+    // Bounded wait for a pooled connection. Without a bound, a stalled
+    // database turns every flush into an indefinite hang — nothing fails,
+    // so neither the breaker nor callers' own timeouts ever engage.
+    #getConnectionWithTimeout() {
+        const acquire = this.dbPool.promise().getConnection();
+        if (!this.acquireTimeoutMs) return acquire;
+
+        return new Promise((resolve, reject) => {
+            let timedOut = false;
+            const timer = setTimeout(() => {
+                timedOut = true;
+                // A connection that arrives late must go back to the pool.
+                acquire.then(
+                    (conn) => conn.release(),
+                    () => {},
+                );
+                const error = new Error(
+                    'Timed out acquiring database connection',
+                );
+                error.code = POOL_ACQUIRE_TIMEOUT;
+                reject(error);
+            }, this.acquireTimeoutMs);
+
+            acquire.then(
+                (conn) => {
+                    if (timedOut) return;
+                    clearTimeout(timer);
+                    resolve(conn);
+                },
+                (err) => {
+                    if (timedOut) return;
+                    clearTimeout(timer);
+                    reject(err);
+                },
+            );
+        });
+    }
+
+    // Acquisition failures never sent a statement, so retrying is always
+    // safe regardless of what the batch contains.
+    async #acquireConnection() {
+        let lastError;
+        for (let attempt = 1; attempt <= ACQUIRE_ATTEMPTS; attempt++) {
+            try {
+                return await this.#getConnectionWithTimeout();
+            } catch (error) {
+                lastError = error;
+                if (attempt < ACQUIRE_ATTEMPTS) {
+                    await sleep(RETRY_BASE_BACKOFF_MS * attempt);
+                }
+            }
+        }
+        throw lastError;
+    }
+
     async flush(batch) {
         const timeout = this.timeouts.shift();
         if (timeout && !timeout._destroyed) {
@@ -154,17 +260,17 @@ export class SQLBatcher {
 
         let connection;
         try {
-            connection = await this.dbPool.promise().getConnection();
+            connection = await this.#acquireConnection();
         } catch (error) {
             this.#consecutiveFailures++;
             this.#lastFailureAt = Date.now();
-            flushFailureCounter.add(1);
+            flushFailureCounter.add(1, this.#metricAttrs);
             console.warn(
                 'SQLBatcher could not acquire connection for flush:',
                 error,
             );
             for (const b of batch) {
-                b.reject(this.#createPublicBatchError());
+                b.reject(this.#createPublicBatchError('connAcquire'));
             }
             return;
         }
@@ -206,8 +312,8 @@ export class SQLBatcher {
         // committed; re-running each item independently produces clean
         // success/failure outcomes for each caller. Concurrency is capped to
         // avoid briefly saturating the pool when a large batch fails.
-        flushFailureCounter.add(1);
-        fallbackInvocationsCounter.add(1);
+        flushFailureCounter.add(1, this.#metricAttrs);
+        fallbackInvocationsCounter.add(1, this.#metricAttrs);
 
         const settled = new Array(batch.length);
         let cursor = 0;
@@ -216,17 +322,7 @@ export class SQLBatcher {
             async () => {
                 while (cursor < batch.length) {
                     const i = cursor++;
-                    const b = batch[i];
-                    try {
-                        settled[i] = {
-                            ok: true,
-                            value: await this.dbPool
-                                .promise()
-                                .query(b.sql, b.values ?? []),
-                        };
-                    } catch (error) {
-                        settled[i] = { ok: false, error };
-                    }
+                    settled[i] = await this.#runFallbackItem(batch[i]);
                 }
             },
         );
@@ -246,7 +342,7 @@ export class SQLBatcher {
             }
         }
         if (failureCount > 0) {
-            fallbackItemFailuresCounter.add(failureCount);
+            fallbackItemFailuresCounter.add(failureCount, this.#metricAttrs);
         }
 
         // Only escalate the breaker when the database itself looks unhealthy
@@ -257,6 +353,41 @@ export class SQLBatcher {
             this.#consecutiveFailures = 0;
         } else {
             this.#consecutiveFailures++;
+        }
+    }
+
+    // Run one fallback item, retrying transient failures with backoff.
+    // A read-only batcher may retry anything transient; a batcher that
+    // carries writes only retries failures where the statement provably
+    // never reached the server — a write that died mid-flight may have
+    // committed, and re-running it would double-apply.
+    async #runFallbackItem(b) {
+        let attempt = 0;
+        while (true) {
+            let connection;
+            try {
+                connection = await this.#acquireConnection();
+            } catch (error) {
+                return { ok: false, error };
+            }
+            try {
+                return {
+                    ok: true,
+                    value: await connection.query(b.sql, b.values ?? []),
+                };
+            } catch (error) {
+                const canRetry = this.readOnly
+                    ? isRetriableError(error)
+                    : isNeverSentError(error);
+                if (!canRetry || attempt >= ITEM_RETRY_ATTEMPTS) {
+                    return { ok: false, error };
+                }
+                attempt++;
+                fallbackItemRetriesCounter.add(1, this.#metricAttrs);
+                await sleep(RETRY_BASE_BACKOFF_MS * attempt);
+            } finally {
+                connection.release();
+            }
         }
     }
 }

@@ -711,7 +711,9 @@ export class PuterServer {
      *      without `next(err)` ceremony.
      */
     #installTerminalMiddleware() {
-        this.#app.use(createNotFoundHandler());
+        this.#app.use(
+            createNotFoundHandler({ guiDomain: this.#config.domain }),
+        );
         this.#app.use(
             createErrorHandler({
                 onError: (err, req) => {

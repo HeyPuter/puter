@@ -379,6 +379,18 @@ export interface IDatabaseConfig {
         url?: string;
     };
     /**
+     * Server-side execution cap for SELECT statements in ms (mysql engine;
+     * applies to both pools — MySQL only enforces it on SELECTs, so writes
+     * are unaffected). 0 disables. Default 30000.
+     */
+    selectTimeoutMs?: number;
+    /**
+     * Max time to wait for a pooled connection before the query batcher
+     * treats acquisition as failed, in ms (mysql engine). 0 disables the
+     * bound. Default 5000.
+     */
+    acquireTimeoutMs?: number;
+    /**
      * Ordered list of directories whose `.sql` files are run sequentially at
      * server start (mysql/postgres engines). Numbered migration filenames sort
      * numerically; directories are processed in array order. Files MUST be

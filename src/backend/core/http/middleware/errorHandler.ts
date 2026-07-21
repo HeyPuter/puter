@@ -85,6 +85,17 @@ export const createErrorHandler = (
             err = translated;
         }
 
+        // Database-batcher load-shed (circuit open, queue overflow, or no
+        // connection available): the persistence layer is temporarily
+        // degraded, not a programming bug. Surface as 503 so clients back
+        // off and retry instead of treating it as a hard failure.
+        if ((err as { code?: string } | null)?.code === 'dbBatchFailed') {
+            res.setHeader('Retry-After', 5);
+            err = new HttpError(503, 'Service temporarily unavailable', {
+                code: 'db_unavailable',
+            });
+        }
+
         if (isHttpError(err)) {
             opts.onError?.(err, req);
             if (err.statusCode === 402 || err.statusCode === 413) {
