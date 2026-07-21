@@ -351,6 +351,11 @@ export class MeteringService extends PuterService {
                     (aggregated[`${escaped}.count`] || 0) + 1;
             }
 
+            // Every usage entry may be skipped (zero amount or missing type);
+            // an empty map would build an invalid `SET ` update expression.
+            if (Object.keys(aggregated).length === 0)
+                return { total: 0 } as UsageByType;
+
             const appId = actor.app?.uid || GLOBAL_APP_KEY;
             const userId = actor.user.uuid!;
 

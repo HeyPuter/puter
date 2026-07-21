@@ -331,6 +331,27 @@ describe('buildPrivateHostRedirect', () => {
         expect(url).toBe('http://beans.app.puter.localhost:4100/');
     });
 
+    it('collapses a scheme-relative path so it cannot escape the host (open redirect)', () => {
+        for (const evil of [
+            '//evil.com/',
+            '///evil.com/',
+            '/\\evil.com/',
+            '/\\/evil.com/',
+        ]) {
+            const url = buildPrivateHostRedirect(
+                reqOf({
+                    hostname: 'beans.site.puter.localhost',
+                    originalUrl: evil,
+                }),
+                { name: 'beans' },
+                cfg,
+            );
+            expect(url).toBe(
+                'http://beans.app.puter.localhost:4100/evil.com/',
+            );
+        }
+    });
+
     it('returns null when no private hosting domain is configured', () => {
         const noPrivate = {
             ...cfg,
@@ -398,6 +419,26 @@ describe('buildPublicHostRedirect', () => {
             cfg,
         );
         expect(url).toBe('http://beans.site.puter.localhost:4100/');
+    });
+
+    it('collapses a scheme-relative path so it cannot escape the host (open redirect)', () => {
+        for (const evil of [
+            '//evil.com/',
+            '///evil.com/',
+            '/\\evil.com/',
+            '/\\/evil.com/',
+        ]) {
+            const url = buildPublicHostRedirect(
+                reqOf({
+                    hostname: 'beans.app.puter.localhost',
+                    originalUrl: evil,
+                }),
+                cfg,
+            );
+            expect(url).toBe(
+                'http://beans.site.puter.localhost:4100/evil.com/',
+            );
+        }
     });
 
     it('returns null when no public hosting domain is configured', () => {
