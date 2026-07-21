@@ -3821,6 +3821,25 @@ $.fn.showWindow = async function (options) {
         if ( $(this).hasClass('window') ) {
             // show window
             const el_window = this;
+
+            // A window minimized with no taskbar to animate toward (dashboard
+            // mode) was simply hidden in place by hideWindow — its geometry
+            // was never disturbed, so just un-hide it. (The explicit flag is
+            // used because data-orig-* can't distinguish the two minimize
+            // paths: drag/maximize handlers set it too.)
+            if ( $(el_window).attr('data-minimized_in_place') === '1' ) {
+                $(el_window).attr({
+                    'data-is_minimized': false,
+                    'data-minimized_in_place': '0',
+                });
+                $(el_window).fadeIn(150);
+                $(el_window).css('z-index', ++window.last_window_zindex);
+                setTimeout(() => {
+                    $(this).focusWindow();
+                }, 80);
+                return;
+            }
+
             $(el_window).css({
                 'transition': 'top 0.2s, left 0.2s, bottom 0.2s, right 0.2s, width 0.2s, height 0.2s',
                 top: `${$(el_window).attr('data-orig-top') }px`,
@@ -3962,6 +3981,19 @@ $.fn.hideWindow = async function (options) {
         if ( $(this).hasClass('window') ) {
             // get taskbar item location
             let taskbar_item_pos = $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).position();
+
+            // No taskbar item to animate toward (e.g. dashboard mode, which
+            // has no taskbar): simply hide the window in place, geometry
+            // untouched. showWindow() un-hides it via the
+            // data-minimized_in_place flag.
+            if ( ! taskbar_item_pos ) {
+                $(this).attr({
+                    'data-is_minimized': true,
+                    'data-minimized_in_place': '1',
+                });
+                $(this).fadeOut(150);
+                return;
+            }
 
             // Calculate animation target based on taskbar position
             let animationTarget = {};

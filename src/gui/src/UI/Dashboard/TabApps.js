@@ -1,5 +1,6 @@
 import UIContextMenu from '../UIContextMenu.js';
 import UIAlert from '../UIAlert.js';
+import launch_app from '../../helpers/launch_app.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 
@@ -313,6 +314,7 @@ const TabApps = {
     _pendingLoad: null,
     _savedOrderNames: null,
     _orderSavedAtSeq: 0,
+    _launchingApps: new Set(),
 
     html () {
         let h = '<div class="dashboard-tab-content myapps-tab">';
@@ -349,8 +351,9 @@ const TabApps = {
         });
 
         // Handle app tile clicks. External apps carry a target link (their
-        // index_url) and open the app's website directly; everything else
-        // opens the Puter app page — matching the Home tab.
+        // index_url) and open the app's website directly in a new browser tab
+        // (an external site can't be reliably iframed); everything else
+        // launches the app as a maximized window in this same page.
         $el_window.on('click', '.myapps-tile', function (e) {
             e.preventDefault();
             e.stopPropagation();
@@ -364,7 +367,27 @@ const TabApps = {
             if ( targetLink && targetLink !== '' ) {
                 window.open(targetLink, '_blank', 'noopener,noreferrer');
             } else if ( appName ) {
-                window.open(`/app/${appName}`, '_blank', 'noopener,noreferrer');
+                // One instance per app when launched from here: un-hide a
+                // minimized instance / focus a visible one rather than
+                // launching a duplicate.
+                const $existing = $(`.window[data-app="${html_encode(appName)}"]`);
+                if ( $existing.length ) {
+                    const $win = $existing.last();
+                    const minimized = $win.attr('data-is_minimized');
+                    if ( minimized === '1' || minimized === 'true' ) {
+                        $win.showWindow();
+                    } else {
+                        $win.focusWindow();
+                    }
+                    return;
+                }
+                // A second click while the first launch's fetches are still in
+                // flight has no window to find yet — swallow it instead of
+                // spawning a duplicate instance.
+                if ( self._launchingApps.has(appName) ) return;
+                self._launchingApps.add(appName);
+                launch_app({ name: appName, maximized: true })
+                    .finally(() => self._launchingApps.delete(appName));
             }
         });
 

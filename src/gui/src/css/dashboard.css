@@ -4198,3 +4198,17 @@ body.myapps-reordering .myapps-tile {
 .submenu-arrow {
     margin-left: auto;
 }
+
+/* Dashboard mode runs fullpage (which normally hides the minimize button
+   because there's no taskbar to restore from), but here a minimized app can
+   be brought back from its Apps-tab tile — so keep the button available. */
+body.dashboard-mode .window-minimize-btn {
+    display: inline;
+}
+
+/* Fullpage mode sizes .window-body-app to 100% because fullpage windows have
+   no titlebar — but dashboard-mode app windows keep their 29px head, so
+   without this the bottom of every app is clipped by that much. */
+body.dashboard-mode .window-body-app {
+    height: calc(100% - 29px) !important;
+}
