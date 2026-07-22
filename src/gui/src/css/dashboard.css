@@ -4305,9 +4305,13 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 }
 
 .dashboard-app-pill-icon {
-    width: 16px;
-    height: 16px;
-    border-radius: 4px;
+    /* 20px balances the 26px buttons and the 36px capsule (16px read as
+       undersized); radius stays 25% of the icon for the app-icon look.
+       Square icons only — cover guards against a non-square one. */
+    width: 20px;
+    height: 20px;
+    border-radius: 5px;
+    object-fit: cover;
     display: block;
     transition: width 0.18s ease, height 0.18s ease;
 }
