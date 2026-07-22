@@ -52,7 +52,7 @@ class PuterPeerServer extends EventTarget {
         this.#wsconn = new WebSocket(peerConfig.signallerUrl);
     }
 
-    async start () {
+    async start(options = {}) {
         await new Promise((resolve, reject) => {
             this.#wsconn.onopen = resolve;
             this.#wsconn.onerror = reject;
@@ -75,6 +75,7 @@ class PuterPeerServer extends EventTarget {
                 server: {
                     create: {
                         authToken: this.#peerConfig.authToken,
+                        port: options.port,
                     },
                 },
             }),
@@ -221,7 +222,7 @@ class PuterPeerConnection extends EventTarget {
         }
     }
 
-    async connect (invitecode) {
+    async connect(invitecode, options = {}) {
         this.#wsconn = new WebSocket(this.#peerConfig.signallerUrl);
         await new Promise((resolve, reject) => {
             this.#wsconn.onopen = resolve;
@@ -243,6 +244,7 @@ class PuterPeerConnection extends EventTarget {
                     connect: {
                         authToken: this.#peerConfig.authToken,
                         invitecode,
+                        port: options.port,
                     },
                 },
             }),
@@ -454,7 +456,7 @@ class Peer {
         await this.#authenticateForPeerAction('create a server');
         const peerConfig = await this.#resolvePeerConfig(options);
         const server = new PuterPeerServer(peerConfig);
-        await server.start();
+        await server.start(options);
         return server;
     }
 
@@ -462,7 +464,7 @@ class Peer {
         await this.#authenticateForPeerAction('connect to a server');
         const peerConfig = await this.#resolvePeerConfig(options);
         const conn = new PuterPeerConnection(peerConfig);
-        await conn.connect(invitecode);
+        await conn.connect(invitecode, options);
         return conn;
     }
 }
