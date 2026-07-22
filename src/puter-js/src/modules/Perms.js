@@ -1,3 +1,5 @@
+import { fetchUrl } from '../lib/networkUtils.js';
+
 export default class Perms {
     constructor (puter) {
         this.puter = puter;
@@ -12,10 +14,10 @@ export default class Perms {
     }
     async req_ (route, body) {
         try {
-            const resp = await fetch(this.APIOrigin + route, {
+            const resp = await fetchUrl(this.APIOrigin + route, {
                 method: body ? 'POST' : 'GET',
+                includePuterAuth: true,
                 headers: {
-                    Authorization: `Bearer ${this.authToken}`,
                     'Content-Type': 'application/json',
                 },
                 ...(body ? { body: JSON.stringify(body) } : {}),

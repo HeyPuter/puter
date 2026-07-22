@@ -1,3 +1,5 @@
+import { fetchUrl } from '../lib/networkUtils.js';
+
 class PuterPeerServerConnectionEvent extends Event {
     conn;
     user;
@@ -389,11 +391,11 @@ class Peer {
         if ( this.#turnFailed ) return;
         if ( this.#turnServers && Date.now() - this.#turnStartedAt < this.#turnTTL * 1000 ) return;
 
-        const response = await fetch(`${this.APIOrigin}/peer/generate-turn`, {
+        const response = await fetchUrl(`${this.APIOrigin}/peer/generate-turn`, {
             method: 'POST',
+            includePuterAuth: true,
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${this.authToken}`,
             },
         });
 
@@ -411,7 +413,7 @@ class Peer {
 
     async #loadMetadata () {
         if ( this.#signallerUrl ) return;
-        const response = await fetch(`${this.APIOrigin}/peer/signaller-info`);
+        const response = await fetchUrl(`${this.APIOrigin}/peer/signaller-info`);
         if ( ! response.ok ) {
             throw new Error('Failed to get signaller info from Puter.');
         }

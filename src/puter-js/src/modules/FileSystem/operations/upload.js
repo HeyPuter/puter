@@ -1,4 +1,5 @@
 import path from '../../../lib/path.js';
+import { fetchUrl } from '../../../lib/networkUtils.js';
 import * as utils from '../../../lib/utils.js';
 import { showUsageLimitDialog } from '../../../modules/UsageLimitDialog.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
@@ -178,10 +179,9 @@ const toRequestError = (response, body, fallbackMessage) => {
 };
 
 const postJson = async (apiOrigin, authToken, endpoint, payload) => {
-    const response = await fetch(`${apiOrigin}${endpoint}`, {
+    const response = await fetchUrl(`${apiOrigin}${endpoint}`, {
         method: 'POST',
         headers: createApiHeaders(authToken),
-        credentials: 'include',
         body: JSON.stringify(payload),
     });
     const body = await parseFetchResponseBody(response);

@@ -1,3 +1,5 @@
+import { fetchUrl } from '../../lib/networkUtils.js';
+
 export default puter => class Batch {
     constructor () {
         this.form = new FormData();
@@ -34,15 +36,11 @@ export default puter => class Batch {
             this.form.append('operation', JSON.stringify(operation));
         }
 
-        // Send Request
-        const res = await fetch(`${puter.APIOrigin}/batch`, {
-            headers: {
-                Authorization: `Bearer ${puter.authToken}`,
-                ...(['web', 'app'].includes(puter.env) ? {
-                    Origin: 'https://puter.work',
-                } : {}),
-            },
+        // Send Request. The Content-Type (multipart boundary) is set by the
+        // transport from the FormData body, so it is not passed explicitly.
+        const res = await fetchUrl(`${puter.APIOrigin}/batch`, {
             method: 'POST',
+            includePuterAuth: true,
             body: this.form,
         });
 

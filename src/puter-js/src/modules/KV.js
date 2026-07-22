@@ -1,4 +1,5 @@
 import * as utils from '../lib/utils.js';
+import { fetchUrl } from '../lib/networkUtils.js';
 
 const createDeferred = () => {
     let resolve;
@@ -54,7 +55,7 @@ class KV {
         (async () => {
             await this.gui_cache_init.promise;
             this.gui_cache_init = null;
-            const resp = await fetch(`${this.APIOrigin}/drivers/call`, {
+            const resp = await fetchUrl(`${this.APIOrigin}/drivers/call`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'text/plain;actually=json',

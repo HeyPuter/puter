@@ -1,3 +1,5 @@
+import { fetchUrl } from '../lib/networkUtils.js';
+
 class FetchDriverCallBackend {
     constructor ({ getAPIOrigin, getAuthToken }) {
         this.getAPIOrigin = getAPIOrigin;
@@ -5,39 +7,22 @@ class FetchDriverCallBackend {
         this.response_handlers = this.constructor.response_handlers;
     }
 
+    // Dispatched by response content type. The handlers consume the
+    // fetchUrl PuterResponse: stream() yields parsed NDJSON lines, json()/blob()
+    // read the buffered body.
     static response_handlers = {
-        'application/x-ndjson': async resp => {
-            const Stream = async function* Stream (readableStream) {
-                const reader = readableStream.getReader();
-                let value, done;
-                while ( !done ) {
-                    ({ value, done } = await reader.read());
-                    if ( done ) break;
-                    const parts = (new TextDecoder().decode(value).split('\n'));
-                    for ( const part of parts ) {
-                        if ( part.trim() === '' ) continue;
-                        yield JSON.parse(part);
-                    }
-                }
-            };
-
-            return Stream(resp.body);
-        },
-        'application/json': async resp => {
-            return await resp.json();
-        },
-        'application/octet-stream': async resp => {
-            return await resp.blob();
-        },
+        'application/x-ndjson': resp => resp.stream(),
+        'application/json': resp => resp.json(),
+        'application/octet-stream': resp => resp.blob(),
     };
 
     async call ({ driver, method_name, parameters }) {
         try {
-            const resp = await fetch(`${this.getAPIOrigin()}/drivers/call`, {
+            const resp = await fetchUrl(`${this.getAPIOrigin()}/drivers/call`, {
+                method: 'POST',
                 headers: {
                     'Content-Type': 'text/plain;actually=json',
                 },
-                method: 'POST',
                 body: JSON.stringify({
                     'interface': driver.iface_name,
                     ...(driver.service_name
@@ -170,42 +155,13 @@ class Drivers {
     }
 
     async list () {
-        try {
-            const resp = await fetch(`${this.APIOrigin}/lsmod`, {
-                headers: {
-                    Authorization: `Bearer ${ this.authToken}`,
-                },
-                method: 'POST',
-            });
-
-            const list = await resp.json();
-
-            // Log the response
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'drivers',
-                    operation: 'list',
-                    params: {},
-                    result: list.interfaces,
-                });
-            }
-
-            return list.interfaces;
-        } catch ( error ) {
-            // Log the error
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'drivers',
-                    operation: 'list',
-                    params: {},
-                    error: {
-                        message: error.message || error.toString(),
-                        stack: error.stack,
-                    },
-                });
-            }
-            throw error;
-        }
+        const resp = await fetchUrl(`${this.APIOrigin}/lsmod`, {
+            method: 'POST',
+            includePuterAuth: true,
+            logContext: { service: 'drivers', operation: 'list', params: {} },
+        });
+        const list = await resp.json();
+        return list.interfaces;
     }
 
     async get (iface_name, service_name) {

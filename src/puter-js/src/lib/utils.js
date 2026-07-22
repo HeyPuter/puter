@@ -1,4 +1,5 @@
 import { FileReaderPoly } from './polyfills/fileReaderPoly.js';
+import { resolveReauth } from './networkUtils.js';
 import { showUsageLimitDialog } from '../modules/UsageLimitDialog.js';
 import { showEmailConfirmationDialog } from '../modules/EmailConfirmationDialog.js';
 
@@ -176,50 +177,17 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
     const resp = await parseResponse(response);
     // error - unauthorized
     if ( response.status === 401 ) {
-        // v2 reauth signal. The backend `authProbe` middleware returns
-        // `401 { code: 'reauth_required', reason, auth_id }` for legacy
-        // v1 tokens, revoked sessions, and expired sessions beyond the
-        // silent re-mint window. Drive the env-specific reauth flow on
-        // the Puter class, then replay the original request with the
-        // new token.
-        if ( resp?.code === 'reauth_required' ) {
-            try {
-                await puter.triggerReauth({
-                    reason: resp.reason,
-                    auth_id: resp.auth_id,
-                });
-                if ( replayXhrAfterReauth(response, success_cb, error_cb, resolve_func, reject_func) ) {
-                    return;
-                }
-            } catch ( e ) {
-                const err = {
-                    status: 401,
-                    code: 'reauth_required',
-                    reason: resp.reason,
-                    auth_id: resp.auth_id,
-                    message: e?.message || 'Reauthentication required',
-                };
-                if ( error_cb && typeof error_cb === 'function' ) error_cb(err);
-                return reject_func(err);
+        const reauth = await resolveReauth(resp);
+        if ( reauth?.action === 'replay' ) {
+            // Replay the original request with the fresh token. If the replay
+            // can't be scheduled (no captured request, or already retried),
+            // fall through to the generic Unauthorized rejection below.
+            if ( replayXhrAfterReauth(response, success_cb, error_cb, resolve_func, reject_func) ) {
+                return;
             }
-        }
-        // Backend signals "token is no longer valid, prompt re-login" via
-        // the legacy `token_auth_failed` code (matches v1 backend's
-        // APIError.create('token_auth_failed') shape). Trigger the same
-        // reset + re-auth flow the driver-call handler uses, so stale or
-        // legacy-shaped tokens auto-recover instead of bubbling a raw
-        // "Unauthorized" up to every caller.
-        if ( resp?.code === 'token_auth_failed' && puter.env === 'web' ) {
-            try {
-                puter.resetAuthToken();
-                await puter.ui.authenticateWithPuter();
-            } catch (e) {
-                return reject_func({
-                    error: {
-                        code: 'auth_canceled', message: 'Authentication canceled',
-                    },
-                });
-            }
+        } else if ( reauth?.action === 'reject' ) {
+            if ( error_cb && typeof error_cb === 'function' ) error_cb(reauth.error);
+            return reject_func(reauth.error);
         }
         // if error callback is provided, call it
         if ( error_cb && typeof error_cb === 'function' )
