@@ -25,7 +25,7 @@ These apply everywhere — backend, puter.js, and GUI.
 ### Language & files
 
 - Write ES modules, not CommonJS — we transpile and build as needed.
-- TypeScript preferred for new files (the GUI is the exception — it is plain JS; match it). Convert existing JS opportunistically when you're already touching a file.
+- TypeScript preferred for new files in the backend and extensions; convert existing JS there opportunistically when you're already touching a file. The GUI and puter.js are plain JavaScript — don't introduce TypeScript files in them. In puter.js, type with JSDoc instead (see the puter.js section for what must be typed).
 - **Reuse before adding.** Search for an existing type, helper, or implementation and extend it; only add a new one when nothing suitable exists.
 - Make new types findable: descriptive `PascalCase` names, exported from the obvious entry point. A type used from many places belongs in the owning module's `types.ts` (e.g. [src/backend/controllers/types.ts](src/backend/controllers/types.ts)) rather than bloating a logic file; a type with a single consumer can stay next to it.
 - Naming: `camelCase` for variables/functions, `PascalCase` for classes and files containing a class (`AuthService.ts`).
@@ -58,14 +58,14 @@ When in doubt, return less. Auth-, permission-, or data-export-related changes d
 
 A layered stack with explicit dependency injection: each layer depends only on the layers beneath it, receives them through its constructor, and `PuterServer` ([src/backend/server.ts](src/backend/server.ts)) wires the whole thing together. [doc/architecture.md](doc/architecture.md) is the full reference.
 
-| Layer (top → bottom) | Lives in                                             | Responsibility                                                                                                              |
-| -------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Layer (top → bottom) | Lives in                                             | Responsibility                                                                                                                                         |
+| -------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Controllers**      | [src/backend/controllers/](src/backend/controllers/) | Route handlers: parse/validate input, per-route gates via `RouteOptions` (auth, subdomain, rate limit, body parsers), call services, format responses. |
-| **Drivers**          | [src/backend/drivers/](src/backend/drivers/)         | Optional RPC-style handlers on `/drivers/*`; thin shells that validate inputs and call services/stores.                       |
-| **Services**         | [src/backend/services/](src/backend/services/)       | Business logic. Assume the caller is already authenticated/authorized.                                                        |
-| **Stores**           | [src/backend/stores/](src/backend/stores/)           | Persistence; wraps clients in the domain shapes services consume.                                                             |
-| **Clients**          | [src/backend/clients/](src/backend/clients/)         | Adapters for external/internal services (sql, redis, s3, email, event bus). Protocols, not domain concepts.                   |
-| **Config**           | `config.*.json` → `IConfig`                          | Flat, typed config object every layer receives at construction.                                                               |
+| **Drivers**          | [src/backend/drivers/](src/backend/drivers/)         | Optional RPC-style handlers on `/drivers/*`; thin shells that validate inputs and call services/stores.                                                |
+| **Services**         | [src/backend/services/](src/backend/services/)       | Business logic. Assume the caller is already authenticated/authorized.                                                                                 |
+| **Stores**           | [src/backend/stores/](src/backend/stores/)           | Persistence; wraps clients in the domain shapes services consume.                                                                                      |
+| **Clients**          | [src/backend/clients/](src/backend/clients/)         | Adapters for external/internal services (sql, redis, s3, email, event bus). Protocols, not domain concepts.                                            |
+| **Config**           | `config.*.json` → `IConfig`                          | Flat, typed config object every layer receives at construction.                                                                                        |
 
 A public API can be exposed through either a controller or a driver — both are supported; prefer a controller when you need fine-grained control over routes and gates. [doc/contributing-apis.md](doc/contributing-apis.md) has the decision guide with links to the decorators and middleware for each.
 
@@ -97,7 +97,35 @@ Follow the same layered structure inside an extension — unless it only needs a
 
 [src/puter-js/](src/puter-js/) is the public SDK. It ships live from `https://js.puter.com/v2/` with no version pinning — every existing app picks up changes immediately. Treat every observable behavior (signatures, response fields, error codes) as something a production app depends on.
 
-Layout: SDK modules in [src/puter-js/src/modules/](src/puter-js/src/modules/) (one file or directory per area — `FileSystem/`, `KV.js`, `AI.js`, …), shared plumbing in [src/puter-js/src/lib/](src/puter-js/src/lib/), hand-maintained type declarations in [src/puter-js/types/](src/puter-js/types/), API tests in [src/puter-js/tests/api/](src/puter-js/tests/api/), UI e2e tests in [src/puter-js/tests/e2e/](src/puter-js/tests/e2e/), developer docs in [src/docs/](src/docs/).
+Layout: SDK modules in [src/puter-js/src/modules/](src/puter-js/src/modules/) (one file or directory per area — `FileSystem/`, `KV.js`, `ai/`, …), shared plumbing in [src/puter-js/src/lib/](src/puter-js/src/lib/), hand-maintained type declarations in [src/puter-js/types/](src/puter-js/types/), API tests in [src/puter-js/tests/api/](src/puter-js/tests/api/), UI e2e tests in [src/puter-js/tests/e2e/](src/puter-js/tests/e2e/), developer docs in [src/docs/](src/docs/).
+
+Language & typing: puter.js source is plain JavaScript — never TypeScript files — typed via JSDoc. Reference the hand-maintained declarations in [src/puter-js/types/](src/puter-js/types/) with `import(...)` types rather than re-declaring shapes:
+
+```js
+/** @typedef {import('../../types/modules/ai').ChatOptions} ChatOptions */
+
+/** @type {ChatOptions} */
+const options = { model: 'gpt-5-nano' };
+```
+
+When a shape only exists locally, declare it as an inline object literal — not the `@typedef {Object}` + `@property` list form — and use `unknown` over `*`:
+
+```js
+/** @typedef {{ key: string, value: unknown }} KVEntry */
+```
+
+Public (exposed) methods must carry JSDoc types — parameters and return value, matching the `.d.ts` declarations exactly. Unexposed/private helpers are typed at the contributor's discretion: annotate where it helps the next reader, and either way keep them clean.
+
+Typing in JS files is encouraged: annotate with JSDoc `@type`/`@param`/`@returns` using the TypeScript type system, and define shared shapes with `@typedef`. API types must not be `unknown` or untyped `...args` — spell out the real parameter and return shapes; the only exception is values passed through transparently to an upstream layer that owns their type. For example:
+
+```js
+/**
+ * @typedef {{key:string, value: unknown}} KVEntry
+ */
+
+/** @type {KVEntry[]} */
+let entries = [];
+```
 
 Every SDK change carries all five of the following — a puter.js PR missing one is incomplete:
 
