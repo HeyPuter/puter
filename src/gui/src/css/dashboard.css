@@ -911,7 +911,7 @@ input.myapps-search::-webkit-search-decoration {
     width: 56px;
     height: 56px;
     overflow: hidden;
-    background: var(--dashboard-card-background);
+    background: none;
     transition: transform 0.15s ease, box-shadow 0.15s ease;
     display: flex;
     align-items: center;
