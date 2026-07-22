@@ -1,4 +1,4 @@
-import { fetchUrl } from '../lib/PuterClient.js';
+import { fetchUrl } from '../lib/networkUtils.js';
 
 class FetchDriverCallBackend {
     constructor ({ getAPIOrigin, getAuthToken }) {

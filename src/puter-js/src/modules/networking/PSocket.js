@@ -1,5 +1,5 @@
 import EventListener from '../../lib/EventListener.js';
-import { fetchUrl } from '../../lib/PuterClient.js';
+import { fetchUrl } from '../../lib/networkUtils.js';
 import { errors } from './parsers.js';
 import { PWispHandler } from './PWispHandler.js';
 const texten = new TextEncoder();

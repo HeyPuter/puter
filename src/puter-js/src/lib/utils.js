@@ -1,5 +1,5 @@
 import { FileReaderPoly } from './polyfills/fileReaderPoly.js';
-import { resolveReauth } from './PuterClient.js';
+import { resolveReauth } from './networkUtils.js';
 import { showUsageLimitDialog } from '../modules/UsageLimitDialog.js';
 import { showEmailConfirmationDialog } from '../modules/EmailConfirmationDialog.js';
 

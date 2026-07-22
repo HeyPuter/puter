@@ -1,6 +1,6 @@
 import kvjs from '@heyputer/kv.js';
 import APICallLogger from './lib/APICallLogger.js';
-import { fetchUrl } from './lib/PuterClient.js';
+import { fetchUrl } from './lib/networkUtils.js';
 import { isStoredTokenUsableForOrigin } from './lib/authTokenOrigin.js';
 import path from './lib/path.js';
 import localStorageMemory from './lib/polyfills/localStorage.js';

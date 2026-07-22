@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchUrl } from './PuterClient.js';
+import { fetchUrl } from './networkUtils.js';
 
 // -- Controllable fake XMLHttpRequest --
 // Drives fetchUrl's event handlers deterministically. Each instance plays the

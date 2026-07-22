@@ -1,5 +1,5 @@
 import * as utils from '../lib/utils.js';
-import { fetchUrl } from '../lib/PuterClient.js';
+import { fetchUrl } from '../lib/networkUtils.js';
 
 const createDeferred = () => {
     let resolve;
