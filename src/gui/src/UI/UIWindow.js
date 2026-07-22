@@ -654,6 +654,18 @@ async function UIWindow (options) {
         $(el_window).focusWindow();
     }
 
+    // In dashboard mode an opening app claims the URL (/app/<name>) with a
+    // real history entry — Back then reads as "leave the app" and minimizes
+    // it (see the popstate handler next to push_dashboard_app_url). Same
+    // ownership rule as focusWindow's desktop-mode replaceState: only
+    // windows asked to update the URL, and never explorer (its URL scheme
+    // is the desktop's custom_path, meaningless on the dashboard).
+    if ( window.is_dashboard_mode && options.is_visible
+        && options.app && options.app !== 'explorer'
+        && options.update_window_url ) {
+        push_dashboard_app_url(options.app, options.title);
+    }
+
     // A launch from a dashboard Apps-tab tile (TabApps passes
     // morph_from_dashboard_tile) morphs the tile's icon into the opening
     // window — the reverse of hideWindow's minimize morph. The window is
@@ -1719,6 +1731,10 @@ async function UIWindow (options) {
     // Minimize button
     // --------------------------------------------------------
     $(`#window-${win_id} > .window-head > .window-minimize-btn`).click(function () {
+        // Dashboard mode: if this app owns the URL, consume its history
+        // entry instead — the popstate handler does the minimize, keeping
+        // the button and the browser's Back button one code path.
+        if ( pop_dashboard_app_url($(el_window).attr('data-app')) ) return;
         $(el_window).hideWindow();
     });
 
@@ -2289,6 +2305,8 @@ async function UIWindow (options) {
             menu_items.push({
                 html: i18n('minimize'),
                 onClick: function () {
+                    // Same URL bookkeeping as the minimize button.
+                    if ( pop_dashboard_app_url($(el_window).attr('data-app')) ) return;
                     $(el_window).hideWindow();
                 },
             });
@@ -3582,12 +3600,11 @@ $.fn.close = async function (options) {
             else {
                 // close any open FileDialogs belonging to this window
                 $(`.window-filedialog[data-parent_uuid="${window_uuid}"]`).close();
-                // reset URL to desktop first; focusWindow will set the correct URL for the next focused window
-                // only reset the URL if this window was the one that owns it (mirrors the open-side check in focusWindow)
-                const update_window_url = $(this).attr('data-update_window_url');
-                if ( ! window.is_dashboard_mode && (update_window_url === 'true' || update_window_url === null) ) {
-                    window.history.replaceState(null, document.title, '/desktop');
-                }
+                // Dashboard mode: consume this app's URL entry so the
+                // address bar doesn't keep naming a dead app (the popstate
+                // handler finds no window left and just restores the title;
+                // no-op when the closing app doesn't own the URL).
+                pop_dashboard_app_url($(this).attr('data-app'));
                 // bring focus to the last window in the window-stack (only if not minimized)
                 let next_window_focused = false;
                 if ( window.window_stack.length > 0 ) {
@@ -3889,6 +3906,14 @@ $.fn.showWindow = async function (options) {
                     if ( ! morphed && was_hidden ) $(el_window).hide();
                 }
                 if ( ! morphed ) $(el_window).fadeIn(150);
+                // A restore re-claims the URL for this app — except when
+                // the restore was DRIVEN by a history traversal (popstate
+                // passes no_history: the entry is already current).
+                if ( ! options?.no_history
+                    && $(el_window).attr('data-update_window_url') === 'true'
+                    && $(el_window).attr('data-app') !== 'explorer' ) {
+                    push_dashboard_app_url($(el_window).attr('data-app'), $(el_window).attr('data-name'));
+                }
                 setTimeout(() => {
                     $(this).focusWindow();
                 }, 80);
@@ -4001,23 +4026,13 @@ $.fn.focusWindow = function (event) {
         }
         // remove blurred class from items on this window
         $(window.active_item_container).find('.item-blurred').removeClass('item-blurred');
-        //change window URL (skip in dashboard mode — URL should stay on the dashboard route)
+        // Update the tab title to the focused window. The URL itself is
+        // deliberately NOT touched here: on the desktop it stays /desktop
+        // (apps don't rewrite it), and in dashboard mode the open app owns
+        // it through real history entries (push_dashboard_app_url).
         if ( ! window.is_dashboard_mode ) {
             const update_window_url = $(this).attr('data-update_window_url');
-            const url_app_name = $(this).attr('data-app_pseudonym') || $(this).attr('data-app');
-            let custom_path = $(this).attr('data-custom_path');
-
-            if ( custom_path && custom_path !== '' ) {
-                if ( update_window_url === 'true' || update_window_url === null ) {
-                    if ( ! custom_path.startsWith('/') ) {
-                        custom_path = `/${ custom_path}`;
-                    }
-                    window.history.replaceState({ window_id: $(this).attr('data-id') }, '', custom_path);
-                    document.title = $(this).attr('data-name');
-                }
-            }
-            else if ( update_window_url === 'true' || update_window_url === null ) {
-                window.history.replaceState({ window_id: $(this).attr('data-id') }, '', `/app/${url_app_name}${$(this).attr('data-user_set_url_params')}`);
+            if ( update_window_url === 'true' || update_window_url === null ) {
                 document.title = $(this).attr('data-name');
             }
         }
@@ -4055,6 +4070,123 @@ function dashboard_tile_in_view (app_name) {
     }
     return null;
 }
+
+// ---------------------------------------------------------------------
+// Dashboard app URL ownership
+// ---------------------------------------------------------------------
+// In dashboard mode the open app claims the URL as /app/<name> with a REAL
+// history entry (the desktop's version of this is focusWindow's
+// replaceState, which Back can't return to), so the browser's Back button
+// reads as "leave the app": popping the entry MINIMIZES the window — the
+// app keeps running, the zoom-to-tile morph shows where it went, and
+// Forward (or the tile) brings it back. The dashboard's own route stays
+// underneath the app entries. The minimize/close buttons consume the
+// entry via pop_dashboard_app_url so the address bar never keeps naming
+// an app that is no longer on screen.
+
+// The app name the URL currently claims, kept in lockstep with pushes and
+// traversals so the popstate handler knows which window a traversal LEFT
+// (module-local: every push goes through push_dashboard_app_url).
+let dashboard_url_app = null;
+
+function dashboard_app_url_current () {
+    const m = /^\/app\/([^/]+)\/?$/.exec(window.location.pathname);
+    if ( ! m ) return null;
+    // A malformed percent-sequence in a hand-edited URL must not throw
+    // out of the popstate handler.
+    try {
+        return decodeURIComponent(m[1]);
+    } catch (e) {
+        return m[1];
+    }
+}
+
+function push_dashboard_app_url (app_name, title) {
+    if ( ! window.is_dashboard_mode || ! app_name ) return;
+    if ( dashboard_app_url_current() === app_name ) {
+        // Already current (e.g. the popstate handler relaunching a closed
+        // app's entry): claim it without stacking a duplicate.
+        dashboard_url_app = app_name;
+        if ( title ) document.title = title;
+        return;
+    }
+    // The title to come back to when the last app entry is popped.
+    if ( window.dashboard_base_title === undefined ) {
+        window.dashboard_base_title = document.title;
+    }
+    window.history.pushState({ dashboard_app: app_name }, '', `/app/${encodeURIComponent(app_name)}`);
+    dashboard_url_app = app_name;
+    if ( title ) document.title = title;
+}
+
+/**
+ * Consume an app's URL entry (history.back()) if it is the one the URL
+ * currently shows; the popstate handler then does the actual minimize —
+ * so a minimize button and the browser's Back button are one code path,
+ * and Forward re-restores the window either way. Returns true if the
+ * back() was issued (the caller must NOT also hide the window), false
+ * when this app doesn't own the URL (caller falls back to hiding
+ * directly, e.g. an app stacked under another app's entry).
+ */
+function pop_dashboard_app_url (app_name) {
+    if ( ! window.is_dashboard_mode || ! app_name ) return false;
+    if ( dashboard_app_url_current() !== app_name ) return false;
+    window.history.back();
+    return true;
+}
+
+window.addEventListener('popstate', () => {
+    if ( ! window.is_dashboard_mode ) return;
+    const new_app = dashboard_app_url_current();
+    const prev_app = dashboard_url_app;
+    // Same app on both sides means the traversal wasn't ours (e.g. an app
+    // iframe's internal history) — leave the windows alone.
+    if ( new_app === prev_app ) return;
+    dashboard_url_app = new_app;
+
+    // The traversal left an app's entry: minimize that window (closed
+    // windows are simply gone — close consumed its entry already, or the
+    // entry went stale mid-stack).
+    if ( prev_app ) {
+        const $prev_win = $(`.window[data-app="${html_encode(prev_app)}"]`);
+        if ( $prev_win.length ) {
+            const $win = $prev_win.last();
+            const minimized = $win.attr('data-is_minimized');
+            if ( minimized !== '1' && minimized !== 'true' ) {
+                $win.hideWindow();
+            }
+        }
+    }
+
+    if ( new_app ) {
+        // ...and landed on another app's entry (Forward, or Back across
+        // two stacked apps): restore its window — or relaunch it if it
+        // was closed, so the entry behaves as a live deep link.
+        const $new_win = $(`.window[data-app="${html_encode(new_app)}"]`);
+        if ( $new_win.length ) {
+            const $win = $new_win.last();
+            const minimized = $win.attr('data-is_minimized');
+            if ( minimized === '1' || minimized === 'true' ) {
+                // no_history: the entry being restored to is already
+                // current — showWindow must not push it again.
+                $win.showWindow({ no_history: true });
+            } else {
+                $win.focusWindow();
+            }
+            document.title = $win.attr('data-name') || document.title;
+        } else {
+            launch_app({
+                name: new_app,
+                maximized: true,
+                window_options: { morph_from_dashboard_tile: true },
+            }).catch((err) => {
+                console.error(`Failed to launch ${new_app}:`, err);
+            });
+        }
+    } else if ( window.dashboard_base_title !== undefined ) {
+        document.title = window.dashboard_base_title;
+    }
+});
 
 /**
  * Tiles whose click feedback has played (or is playing) for the launch
@@ -4533,10 +4665,10 @@ $.fn.hideWindow = async function (options) {
                 });
             }, 250);
 
-            // update title and window URL — only if this window was the one that owns the URL
+            // reset the tab title (the URL is not touched — apps never
+            // rewrite it on the desktop) — only if this window owned it
             const update_window_url = $(this).attr('data-update_window_url');
             if ( ! window.is_dashboard_mode && (update_window_url === 'true' || update_window_url === null) ) {
-                window.history.replaceState(null, document.title, '/desktop');
                 document.title = i18n('window_title_puter');
             }
         }

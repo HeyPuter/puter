@@ -1049,12 +1049,6 @@ window.show_save_account_notice_if_needed = function (message) {
     });
 };
 
-window.onpopstate = (event) => {
-    if ( event.state !== null && event.state.window_id !== null ) {
-        $(`.window[data-id="${event.state.window_id}"]`).focusWindow();
-    }
-};
-
 window.sort_items = (item_container, sort_by, sort_order) => {
     if ( sort_order !== 'asc' && sort_order !== 'desc' )
     {

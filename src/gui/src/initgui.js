@@ -40,6 +40,7 @@ import { PROCESS_RUNNING } from './definitions.js';
 import create_access_token from './helpers/create_access_token.js';
 import init_device_signals from './helpers/device_signals.js';
 import item_icon from './helpers/item_icon.js';
+import launch_app from './helpers/launch_app.js';
 import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
 import update_mouse_position from './helpers/update_mouse_position.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
@@ -116,6 +117,51 @@ const postAuthActions = async (action) => {
     // -------------------------------------------------------------------------------------
     else if ( window.is_dashboard_mode ) {
         UIDashboard();
+        // Direct landing on /app/<name>: open the app in the dashboard the
+        // same way a tile launch does. The dashboard's route is slotted
+        // underneath first (replaceState) and the launch re-claims
+        // /app/<name> as a real history entry, so Back minimizes to the
+        // dashboard exactly like an in-dashboard launch. (`?c` suppresses
+        // the auto-launch, mirroring the desktop URL-launch flow.)
+        if ( window.url_paths[0]?.toLocaleLowerCase() === 'app'
+            && window.url_paths[1]
+            && ! window.url_query_params.has('c') ) {
+            // any query param that doesn't start with 'puter.' is passed
+            // through to the app (mirrors the desktop URL-launch flow)
+            const app_query_params = {};
+            for ( const [key, value] of window.url_query_params ) {
+                if ( ! key.startsWith('puter.') ) {
+                    app_query_params[key] = value;
+                }
+            }
+            let posargs;
+            if ( app_query_params.posargs ) {
+                try {
+                    posargs = JSON.parse(app_query_params.posargs);
+                } catch (e) {
+                    // malformed posargs: launch without them
+                }
+            }
+            // The server titles /app/<name> pages after the app, so the
+            // launch's lazy base-title capture would keep the app's name
+            // forever — preset the title to fall back to when the app's
+            // history entry is popped.
+            window.dashboard_base_title = i18n('window_title_puter');
+            window.history.replaceState(null, '', '/');
+            launch_app({
+                name: window.url_paths[1],
+                maximized: true,
+                params: app_query_params,
+                readURL: window.url_query_params.get('readURL'),
+                ...(posargs ? {
+                    args: {
+                        command_line: { args: posargs },
+                    },
+                } : {}),
+            }).catch((err) => {
+                console.error(`Failed to launch ${window.url_paths[1]} from URL:`, err);
+            });
+        }
     }
     // -------------------------------------------------------------------------------------
     // If embedded in a popup, send the token to the opener and close the popup
@@ -503,10 +549,14 @@ if (jQuery) {
 
 // are we in dashboard mode?
 // The dashboard is the default interface at the root path; `/dashboard` is kept as an
-// alias, and `/desktop` loads the desktop instead. Root URLs that carry a desktop-only
-// flow keep booting the desktop: auth popups (`?embedded_in_popup=`), app deep links
-// (`?app=`), direct downloads (`?download=`), fullpage mode (`?puter.fullpage=`), and
-// iframe embeds.
+// alias, and `/desktop` loads the desktop instead. Direct app landings (`/app/<name>`)
+// open in the dashboard too: the app comes up maximized in-page with the dashboard
+// route slotted underneath (see postAuthActions), so Back minimizes to the dashboard.
+// URLs that carry a desktop-only flow keep booting the desktop: auth popups
+// (`?embedded_in_popup=`), app deep links (`?app=`), direct downloads (`?download=`),
+// fullpage mode (`?puter.fullpage=`), and iframe embeds. App metadata like
+// fullpage_on_landing does NOT opt a landing out of the dashboard; it only affects
+// boots that still go through the desktop flow.
 {
     const pathname = window.location.pathname;
     const search_params = new URLSearchParams(window.location.search);
@@ -523,7 +573,8 @@ if (jQuery) {
         search_params.has('download');
     const is_dashboard_alias =
         pathname === '/dashboard' || pathname === '/dashboard/';
-    if (is_dashboard_alias || (pathname === '/' && !needs_desktop_at_root)) {
+    const is_app_landing = /^\/app\/[^/]+\/?$/.test(pathname);
+    if (is_dashboard_alias || ((pathname === '/' || is_app_landing) && !needs_desktop_at_root)) {
         window.is_dashboard_mode = true;
         window.dashboard_initial_route = parseDashboardRoute();
     }
@@ -1000,6 +1051,9 @@ window.initgui = async function (options) {
     // Early check for fullpage mode from app metadata
     // If the user navigated to /app/<app_name> and the app has fullpage_on_landing,
     // set fullpage mode now so we can skip loading the desktop background and items.
+    // Dashboard mode never reaches the fetch (it sets is_fullpage_mode itself): app
+    // landings open in the dashboard regardless of fullpage_on_landing — the flag only
+    // matters for the boots that still go through the desktop flow (embeds, popups).
     //--------------------------------------------------------------------------------------
     if (
         !window.is_fullpage_mode &&

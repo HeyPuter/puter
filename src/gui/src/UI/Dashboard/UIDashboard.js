@@ -395,6 +395,13 @@ async function UIDashboard (options) {
     let lastHandledHref = window.location.href;
     const handleRouteChange = () => {
         if ( window.location.href === lastHandledHref ) return;
+        // A traversal INTO an /app/<name> entry belongs to an open app
+        // window (UIWindow's popstate handler restores/minimizes it), not
+        // tab routing. lastHandledHref deliberately keeps the dashboard URL
+        // underneath: traversing back out of the app returns to exactly
+        // that URL and the equality check above skips re-routing (the
+        // dashboard never actually left).
+        if ( window.location.pathname.startsWith('/app/') ) return;
         lastHandledHref = window.location.href;
         const route = window.parseDashboardRoute();
         // Ignore unknown tab ids entirely (a stale bookmark hash, an in-page
