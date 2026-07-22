@@ -4206,8 +4206,210 @@ body.dashboard-mode .window-minimize-btn {
 }
 
 /* Fullpage mode sizes .window-body-app to 100% because fullpage windows have
-   no titlebar — but dashboard-mode app windows keep their 29px head, so
-   without this the bottom of every app is clipped by that much. */
-body.dashboard-mode .window-body-app {
+   no titlebar — but dashboard-mode app windows WITH a head still lose 29px to
+   it, so compensate for those. Headless dashboard app windows
+   (.window-dashboard-headless — the maximized in-page apps, whose controls
+   live in the floating pill) get the full height. */
+body.dashboard-mode .window:not(.window-dashboard-headless) .window-body-app {
     height: calc(100% - 29px) !important;
+}
+
+body.dashboard-mode .window-dashboard-headless .window-body-app {
+    height: 100% !important;
+}
+
+/* ==========================================================================
+   Dashboard app pill — floating controls for headless in-page app windows.
+   A child of the window element (so it shows/hides/scales with it), painted
+   above the app's iframe. Expanded it shows icon + title + minimize + close;
+   collapsed it shrinks to a subtle icon capsule (see
+   attach_dashboard_app_pill in UIWindow.js for the expand/collapse logic).
+   Dark translucent glass on every theme: it overlays arbitrary app content,
+   not the dashboard's surfaces.
+   ========================================================================== */
+
+.dashboard-app-pill {
+    position: absolute;
+    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 6px;
+    border-radius: 999px;
+    background: rgba(24, 24, 28, 0.62);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.2);
+    color: #fff;
+    -webkit-user-select: none;
+    user-select: none;
+    transition: opacity 0.18s ease, padding 0.18s ease;
+}
+
+/* Invisible halo: keeps the collapsed capsule comfortably hittable and
+   hoverable without costing more visual space. (Clicks it absorbs would
+   have hit the app within ~10px of the pill — acceptable dead zone.) */
+.dashboard-app-pill::after {
+    content: '';
+    position: absolute;
+    inset: -10px;
+    border-radius: inherit;
+}
+
+.dashboard-app-pill.collapsed {
+    opacity: 0.55;
+    padding: 3px 12px;
+    gap: 0;
+}
+
+.dashboard-app-pill.collapsed:hover {
+    opacity: 0.9;
+}
+
+.dashboard-app-pill-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    background: none;
+    border: none;
+    padding: 2px;
+    margin: 0;
+    cursor: pointer;
+    border-radius: 50%;
+}
+
+.dashboard-app-pill-icon {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    display: block;
+    transition: width 0.18s ease, height 0.18s ease;
+}
+
+.dashboard-app-pill.collapsed .dashboard-app-pill-icon {
+    width: 12px;
+    height: 12px;
+}
+
+.dashboard-app-pill-title {
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1;
+    color: rgba(255, 255, 255, 0.92);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 168px;
+    margin: 0 6px 0 4px;
+    transition: max-width 0.22s ease, opacity 0.15s ease, margin 0.22s ease;
+}
+
+.dashboard-app-pill-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    max-width: 26px;
+    flex: none;
+    background: none;
+    border: none;
+    border-radius: 50%;
+    padding: 0;
+    margin: 0;
+    color: rgba(255, 255, 255, 0.9);
+    cursor: pointer;
+    overflow: hidden;
+    transition: max-width 0.22s ease, opacity 0.15s ease, background-color 0.12s ease;
+}
+
+.dashboard-app-pill-btn svg {
+    width: 14px;
+    height: 14px;
+    flex: none;
+}
+
+@media (hover: hover) {
+    .dashboard-app-pill-btn:hover {
+        background-color: rgba(255, 255, 255, 0.16);
+    }
+}
+
+.dashboard-app-pill-btn:active {
+    background-color: rgba(255, 255, 255, 0.26);
+}
+
+.dashboard-app-pill.collapsed .dashboard-app-pill-title,
+.dashboard-app-pill.collapsed .dashboard-app-pill-btn {
+    max-width: 0;
+    opacity: 0;
+    margin: 0;
+    pointer-events: none;
+}
+
+.dashboard-app-pill-toggle:focus-visible,
+.dashboard-app-pill-btn:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.9);
+    outline-offset: 1px;
+}
+
+/* Touch: bigger targets (≥32px buttons + halo ≈ 44px effective), and the
+   collapsed capsule keeps a generous tap zone via the halo. */
+@media (pointer: coarse) {
+    .dashboard-app-pill {
+        padding: 6px 8px;
+    }
+
+    .dashboard-app-pill.collapsed {
+        padding: 5px 14px;
+    }
+
+    .dashboard-app-pill-btn {
+        width: 32px;
+        height: 32px;
+        max-width: 32px;
+    }
+
+    .dashboard-app-pill::after {
+        inset: -12px;
+    }
+}
+
+/* Tight screens: identity shrinks to the icon; the controls keep their
+   size — they're the part that must stay usable. */
+@media (max-width: 500px) {
+    .dashboard-app-pill-title {
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-app-pill,
+    .dashboard-app-pill * {
+        transition: none !important;
+    }
+}
+
+/* Running dot: marks Apps-tab tiles whose app has a live window (visible or
+   minimized), macOS-dock style — sits centered in the gap between the 56px
+   icon and the label. Kept/removed by updateRunningDots in TabApps.js. */
+.myapps-tile {
+    position: relative;
+}
+
+.myapps-tile-running::after {
+    content: '';
+    position: absolute;
+    top: 58px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--dashboard-text-tertiary, #71717a);
 }

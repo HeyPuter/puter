@@ -233,7 +233,30 @@ async function UIWindow (options) {
         options.is_visible = false;
     }
 
-    h += `<div class="window window-active 
+    // --------------------------------------------------------
+    // Dashboard app chrome
+    // --------------------------------------------------------
+    // In dashboard mode a maximized app window renders HEADLESS — the app
+    // covers the full tab, and the titlebar's controls live elsewhere: Back
+    // minimizes (URL ownership), the floating pill overlay carries
+    // minimize/close (attach_dashboard_app_pill), and the app's tile shows
+    // a running dot with a Quit item. Everything else keeps its head:
+    // dialogs and the dashboard window itself (update_window_url is false
+    // for both), explorer, and non-maximized windows (apps launching child
+    // windows) — a headless floating window would have no drag handle.
+    const is_dashboard_app_chrome = !! (window.is_dashboard_mode
+        && options.app && options.app !== 'explorer'
+        && options.update_window_url
+        && options.is_maximized && options.is_visible
+        && (options.iframe_url || options.iframe_srcdoc));
+    if ( is_dashboard_app_chrome ) {
+        options.has_head = false;
+        // The class exempts this window from dashboard.css's 29px
+        // head-height compensation on .window-body-app.
+        options.window_class = `${options.window_class ?? ''} window-dashboard-headless`;
+    }
+
+    h += `<div class="window window-active
                         ${options.app === 'explorer' ? 'window-explorer' : ''}
                         ${options.cover_page ? 'window-cover-page' : ''}
                         ${options.uid !== undefined ? `window-${options.uid}` : ''} 
@@ -664,6 +687,17 @@ async function UIWindow (options) {
         && options.app && options.app !== 'explorer'
         && options.update_window_url ) {
         push_dashboard_app_url(options.app, options.title);
+    }
+
+    // Headless dashboard app windows get the floating control pill in
+    // place of the head (see the Dashboard app chrome section above).
+    if ( is_dashboard_app_chrome ) {
+        attach_dashboard_app_pill(el_window, options);
+    }
+
+    // Let the Apps tab refresh its tiles' running dots (see TabApps).
+    if ( window.is_dashboard_mode && options.app ) {
+        document.dispatchEvent(new CustomEvent('dashboard-app-windows-changed'));
     }
 
     // A launch from a dashboard Apps-tab tile (TabApps passes
@@ -2825,6 +2859,7 @@ function delete_window_element (el_window) {
     if ( window.active_element === el_window ) {
         window.active_element = null;
     }
+    const was_app = $(el_window).attr('data-app');
     // remove DOM element
     $(el_window).remove();
     // if no other windows open, reset window_counter
@@ -2832,6 +2867,11 @@ function delete_window_element (el_window) {
     if ( $('.window').length === 0 )
     {
         window.window_counter = 0;
+    }
+    // Every close path funnels through here — after the element is gone,
+    // let the Apps tab turn the app tile's running dot off (see TabApps).
+    if ( window.is_dashboard_mode && was_app ) {
+        document.dispatchEvent(new CustomEvent('dashboard-app-windows-changed'));
     }
 }
 
@@ -3906,6 +3946,9 @@ $.fn.showWindow = async function (options) {
                     if ( ! morphed && was_hidden ) $(el_window).hide();
                 }
                 if ( ! morphed ) $(el_window).fadeIn(150);
+                // Re-introduce the control pill on restore (headless
+                // dashboard windows only; no-op otherwise).
+                el_window._dashboard_pill_flash?.();
                 // A restore re-claims the URL for this app — except when
                 // the restore was DRIVEN by a history traversal (popstate
                 // passes no_history: the entry is already current).
@@ -4187,6 +4230,112 @@ window.addEventListener('popstate', () => {
         document.title = window.dashboard_base_title;
     }
 });
+
+/**
+ * The floating control pill for headless dashboard app windows: a small
+ * translucent capsule top-center of the app (parent DOM, above the app's
+ * iframe) carrying the head's surviving controls — app identity, minimize,
+ * and close. It opens expanded so first-time and deep-link users see it,
+ * then collapses to a subtle handle; hovering, tapping, or keyboard-focusing
+ * it expands it again. Timers rather than hover alone drive the collapse
+ * because mousemove inside the app's iframe is invisible to the parent —
+ * the pill itself is the only hover surface there is.
+ *
+ * The pill is a CHILD of the window element, so it shows/hides/scales with
+ * the window for free (minimize morphs, display:none, fullscreen requests
+ * from the iframe hide it via the browser's own fullscreen stacking).
+ */
+function attach_dashboard_app_pill (el_window, options) {
+    const app_name = options.app;
+    const icon = options.icon || window.icons['app.svg'];
+    const title = options.title || app_name;
+
+    const $pill = $(`
+        <div class="dashboard-app-pill">
+            <button type="button" class="dashboard-app-pill-toggle" aria-expanded="true" title="App controls" aria-label="App controls">
+                <img class="dashboard-app-pill-icon" src="${html_encode(icon)}" alt="" draggable="false">
+            </button>
+            <span class="dashboard-app-pill-title">${html_encode(title)}</span>
+            <button type="button" class="dashboard-app-pill-btn dashboard-app-pill-minimize" title="Minimize to Dashboard" aria-label="Minimize to Dashboard">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            </button>
+            <button type="button" class="dashboard-app-pill-btn dashboard-app-pill-close" title="Close App" aria-label="Close App">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+            </button>
+        </div>
+    `);
+    const pill = $pill.get(0);
+    const toggle = $pill.find('.dashboard-app-pill-toggle').get(0);
+
+    let collapse_timer = null;
+    const expand = () => {
+        clearTimeout(collapse_timer);
+        pill.classList.remove('collapsed');
+        toggle.setAttribute('aria-expanded', 'true');
+    };
+    const collapse = () => {
+        clearTimeout(collapse_timer);
+        pill.classList.add('collapsed');
+        toggle.setAttribute('aria-expanded', 'false');
+    };
+    const schedule_collapse = (ms) => {
+        clearTimeout(collapse_timer);
+        collapse_timer = setTimeout(collapse, ms);
+    };
+    // Expand + auto-collapse: played on open and again on restore, so the
+    // controls introduce themselves without permanently costing pixels.
+    const flash = () => {
+        expand();
+        schedule_collapse(2600);
+    };
+
+    // Hover keeps it open (pointer devices); leaving lets it settle. Touch
+    // devices never fire mouseleave, so every expansion also self-schedules
+    // a collapse — the mouseenter clear undoes it for real hovers.
+    $pill.on('mouseenter', () => expand());
+    $pill.on('mouseleave', () => schedule_collapse(1100));
+    $pill.on('focusin', () => expand());
+    $pill.on('focusout', () => schedule_collapse(1100));
+
+    // A click anywhere on the collapsed pill (incl. its invisible touch
+    // halo) expands it; the toggle also collapses an expanded pill for an
+    // explicit dismiss. Buttons are pointer-events:none while collapsed,
+    // so a collapsed tap can't accidentally minimize or close.
+    $pill.on('click', function (e) {
+        if ( pill.classList.contains('collapsed') ) {
+            e.stopPropagation();
+            expand();
+            schedule_collapse(3500);
+        }
+    });
+    $(toggle).on('click', function (e) {
+        if ( ! pill.classList.contains('collapsed') ) {
+            e.stopPropagation();
+            collapse();
+        }
+    });
+
+    // The head's controls, rerouted through the same code paths the head
+    // used: minimize consumes the app's URL entry when it owns it (the
+    // popstate handler then plays the minimize morph — one path with the
+    // browser's Back button), and close tears the window down normally.
+    $pill.find('.dashboard-app-pill-minimize').on('click', function (e) {
+        e.stopPropagation();
+        collapse();
+        if ( pop_dashboard_app_url(app_name) ) return;
+        $(el_window).hideWindow();
+    });
+    $pill.find('.dashboard-app-pill-close').on('click', function (e) {
+        e.stopPropagation();
+        $(el_window).close();
+    });
+
+    // showWindow re-plays the intro when the window is restored.
+    el_window._dashboard_pill_flash = flash;
+
+    $(el_window).append($pill);
+    flash();
+}
 
 /**
  * Tiles whose click feedback has played (or is playing) for the launch

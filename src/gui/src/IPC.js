@@ -614,8 +614,10 @@ const ipc_listener = async (event, handled) => {
             return;
         }
 
-        // set window title
+        // set window title (headless dashboard windows show it in the
+        // floating control pill instead of a head)
         $(el_window).find('.window-head-title').html(html_encode(event.data.new_title));
+        $(el_window).find('.dashboard-app-pill-title').text(event.data.new_title);
         // send confirmation to requester window
         target_iframe.contentWindow.postMessage({
             original_msg_id: msg_id,
