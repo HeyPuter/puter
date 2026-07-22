@@ -715,7 +715,8 @@ input.myapps-search::-webkit-search-decoration {
 .myapps-container {
     /* Pager geometry; TabApps.js reads these to size pages. */
     --myapps-tile-w: 100px;
-    --myapps-tile-h: 78px;
+    /* icon 56 + label margin 10 + one 12px/1.3 label line (~16) */
+    --myapps-tile-h: 82px;
     --myapps-gap-x: 32px;
     --myapps-gap-y: 32px;
     --myapps-dots-h: 28px;
@@ -964,7 +965,10 @@ input.myapps-search::-webkit-search-decoration {
 }
 
 .myapps-tile-label {
-    margin-top: 6px;
+    /* 10px, not 6: the gap between icon and label hosts the running dot,
+       which needs clearance from the icon's 1.08x hover growth above it
+       and from the label text below it. */
+    margin-top: 10px;
     font-size: 12px;
     color: var(--dashboard-text-heading);
     text-align: center;
@@ -972,7 +976,7 @@ input.myapps-search::-webkit-search-decoration {
     max-width: 100px;
     overflow: hidden;
     text-overflow: ellipsis;
-    /* Single line only: the 78px tile height (--myapps-tile-h) budgets icon +
+    /* Single line only: the 82px tile height (--myapps-tile-h) budgets icon +
        margin + exactly one label line. A second line overflows the grid row
        and gets clipped. Full names remain available via the tile tooltip. */
     display: -webkit-box;
@@ -4316,7 +4320,10 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 .dashboard-app-pill-title {
     font-size: 12px;
     font-weight: 500;
-    line-height: 1;
+    /* Roomy enough for descenders: overflow:hidden (needed for the
+       ellipsis) clips vertically too, so a line-height of 1 cut the
+       tails off g/p/y. The flex container centers the taller box. */
+    line-height: 1.35;
     color: rgba(255, 255, 255, 0.92);
     white-space: nowrap;
     overflow: hidden;
@@ -4422,7 +4429,10 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 .myapps-tile-running::after {
     content: '';
     position: absolute;
-    top: 58px;
+    /* 4px under the 56px icon at rest — enough that the icon's 1.08x
+       hover scale (bottom edge grows ~2px downward) never touches it.
+       The label sits lower to make the room (see .myapps-tile-label). */
+    top: 60px;
     left: 50%;
     transform: translateX(-50%);
     width: 4px;
