@@ -4050,12 +4050,94 @@ function dashboard_tile_in_view (app_name) {
 }
 
 /**
+ * Tiles whose click feedback has played (or is playing) for the launch
+ * currently in flight. A fresh app launch has a server round-trip between
+ * the click and the window's creation; so the click is acknowledged
+ * instantly, TabApps plays the icon half of the open morph immediately
+ * (begin_dashboard_tile_launch) and the mark here tells the window's half
+ * not to replay it when the window finally opens (morph_window_from_tile).
+ */
+const tile_launch_ghosts = new WeakMap();
+
+/**
+ * Play a tile's launch feedback NOW, before the app's fetches resolve: a
+ * ghost of the icon pops out of the slot — the icon half of
+ * morph_window_from_tile, enlarging in place and dissolving — while the
+ * REAL icon stays exactly as it is, so the slot is never left empty
+ * however long the launch takes. The tile is marked so the window's morph
+ * runs only its window half when it opens;
+ * settle_dashboard_tile_launch clears the mark once the launch attempt is
+ * over. No-op when the open morph itself wouldn't run (animations off,
+ * phone, reduced motion) so the two halves always agree.
+ */
+export function begin_dashboard_tile_launch (tile) {
+    const reduce_motion = window.matchMedia
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if ( ! tile || ! window.animate_window_opening || isMobile.phone || reduce_motion ) return;
+    if ( tile_launch_ghosts.has(tile) ) return;
+    const icon = tile.querySelector('.myapps-tile-icon') || tile;
+    const icon_rect = icon.getBoundingClientRect();
+    if ( icon_rect.width <= 0 || icon_rect.height <= 0 ) return;
+
+    const ghost = icon.cloneNode(true);
+    ghost.style.position = 'fixed';
+    ghost.style.left = `${icon_rect.left}px`;
+    ghost.style.top = `${icon_rect.top}px`;
+    ghost.style.width = `${icon_rect.width}px`;
+    ghost.style.height = `${icon_rect.height}px`;
+    ghost.style.margin = '0';
+    // The window this click opens doesn't exist yet; it will be created on
+    // the same stay-on-top formula (99999999 + counter), so sit safely above
+    // where it will land.
+    ghost.style.zIndex = 99999999 + (window.last_window_zindex || 0) + 10;
+    ghost.style.pointerEvents = 'none';
+    ghost.style.transformOrigin = 'center';
+    ghost.style.willChange = 'transform, opacity';
+    ghost.style.opacity = '1';
+    ghost.style.transform = 'none';
+    document.body.appendChild(ghost);
+    tile_launch_ghosts.set(tile, true);
+
+    // The icon half of the open morph, played over the untouched real
+    // icon: enlarge in place on the decelerating curve, fully dissolved
+    // right around 200% (see morph_window_from_tile for why the growth is
+    // capped), then clean up after itself. Runs at ~1.7x the window
+    // half's 0.45s — as a standalone flourish it reads better unhurried.
+    void ghost.offsetWidth;
+    ghost.style.transition = [
+        'transform 0.76s cubic-bezier(0.32, 0.72, 0, 1)',
+        'opacity 0.338s ease-out 0.203s',
+    ].join(', ');
+    ghost.style.transform = 'scale(2)';
+    ghost.style.opacity = '0';
+    setTimeout(() => {
+        ghost.remove();
+    }, 820);
+}
+
+/**
+ * Clear a tile's click-feedback mark once its launch attempt is over (the
+ * ghost cleans itself up and the real icon was never touched; the mark
+ * only stops the window's morph from replaying the icon half). Call it
+ * from the launch's finally so failures and fallbacks don't leave a stale
+ * mark on the tile.
+ */
+export function settle_dashboard_tile_launch (tile) {
+    if ( tile ) tile_launch_ghosts.delete(tile);
+}
+
+/**
  * The reverse of hideWindow's zoom-to-tile morph: the tile's icon flies out
  * and inflates into the window while the window fades in — the same two
  * congruent layers on the same 450ms decelerating path, run backwards, so
  * opening reads as the icon becoming the window. See hideWindow's morph for
  * the mechanics (congruent layers, contain-fit ghost, compositor-only
  * animation); this mirrors it constant for constant.
+ *
+ * If begin_dashboard_tile_launch already played the icon half at click
+ * time, no second ghost is spawned and the real icon (which the click
+ * feedback never touches) is left alone: only the window half runs,
+ * expanding out of the tile's slot.
  *
  * The window must be in the DOM, displayed, and at its final geometry —
  * geometry is never touched, and every inline property this sets is restored
@@ -4072,6 +4154,12 @@ function morph_window_from_tile (el_window, tile) {
     }
 
     const $win = $(el_window);
+    // Click feedback already played for this launch (see
+    // begin_dashboard_tile_launch): the icon half popped out of the slot
+    // at click time, so only the window half runs here — no second ghost,
+    // and the real icon (untouched by the click feedback) stays as it is.
+    const click_feedback_played = tile_launch_ghosts.has(tile);
+    if ( click_feedback_played ) tile_launch_ghosts.delete(tile);
     // Everything touched is restored from these exact inline values once
     // the animation ends.
     const orig_style = {
@@ -4110,31 +4198,34 @@ function morph_window_from_tile (el_window, tile) {
     // capped: it fades out completely by ~97% of the decelerating path,
     // right around 200% of its size, and the window alone carries the
     // motion and the rest of the growth.
-    const ghost = icon.cloneNode(true);
-    ghost.style.position = 'fixed';
-    ghost.style.left = `${icon_rect.left}px`;
-    ghost.style.top = `${icon_rect.top}px`;
-    ghost.style.width = `${icon_rect.width}px`;
-    ghost.style.height = `${icon_rect.height}px`;
-    ghost.style.margin = '0';
-    // +2, not +1: showWindow's delayed focusWindow() bumps the window's
-    // z-index once more mid-flight, and the ghost must stay above it.
-    ghost.style.zIndex = (parseInt($win.css('z-index'), 10) || 1) + 2;
-    ghost.style.pointerEvents = 'none';
-    // 'center' so the scale below enlarges the ghost in place around its
-    // own slot (the minimize morph's ghost uses 'top left' because it
-    // translates as it flies; this one never moves).
-    ghost.style.transformOrigin = 'center';
-    ghost.style.willChange = 'transform, opacity';
-    ghost.style.opacity = '1';
-    ghost.style.transform = 'none';
+    let ghost = null;
+    if ( ! click_feedback_played ) {
+        ghost = icon.cloneNode(true);
+        ghost.style.position = 'fixed';
+        ghost.style.left = `${icon_rect.left}px`;
+        ghost.style.top = `${icon_rect.top}px`;
+        ghost.style.width = `${icon_rect.width}px`;
+        ghost.style.height = `${icon_rect.height}px`;
+        ghost.style.margin = '0';
+        // +2, not +1: showWindow's delayed focusWindow() bumps the window's
+        // z-index once more mid-flight, and the ghost must stay above it.
+        ghost.style.zIndex = (parseInt($win.css('z-index'), 10) || 1) + 2;
+        ghost.style.pointerEvents = 'none';
+        // 'center' so the scale below enlarges the ghost in place around its
+        // own slot (the minimize morph's ghost uses 'top left' because it
+        // translates as it flies; this one never moves).
+        ghost.style.transformOrigin = 'center';
+        ghost.style.willChange = 'transform, opacity';
+        ghost.style.opacity = '1';
+        ghost.style.transform = 'none';
+        document.body.appendChild(ghost);
+        icon.style.visibility = 'hidden';
+    }
     const ghost_scale = Math.min(
         2,
         win_rect.width / icon_rect.width,
         win_rect.height / icon_rect.height,
     );
-    document.body.appendChild(ghost);
-    icon.style.visibility = 'hidden';
 
     $win.attr('data-window_morphing', '1');
     el_window.style.transition = 'none';
@@ -4163,20 +4254,29 @@ function morph_window_from_tile (el_window, tile) {
     el_window.style.transform = end_transform;
     el_window.style.borderRadius = end_radius;
     el_window.style.opacity = '1';
-    ghost.style.transition = [
-        'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
-        'opacity 0.2s ease-out 0.12s',
-    ].join(', ');
-    ghost.style.transform = `scale(${ghost_scale})`;
-    ghost.style.opacity = '0';
+    if ( ghost ) {
+        // Same unhurried pace as the click-time ghost (see
+        // begin_dashboard_tile_launch) so the icon flourish looks the same
+        // on every open. Its fade outlives the window's 480ms cleanup
+        // (ends ~541ms), so it cleans up on its own clock — and the real
+        // icon, hidden for the flight, comes back as the ghost goes.
+        ghost.style.transition = [
+            'transform 0.76s cubic-bezier(0.32, 0.72, 0, 1)',
+            'opacity 0.338s ease-out 0.203s',
+        ].join(', ');
+        ghost.style.transform = `scale(${ghost_scale})`;
+        ghost.style.opacity = '0';
+        setTimeout(() => {
+            ghost.remove();
+            icon.style.visibility = icon_orig_visibility;
+        }, 820);
+    }
 
     setTimeout(() => {
-        // End of the zoom: the ghost has dissolved over the window's
-        // center — drop it, un-hide the real icon, and put every touched
+        // End of the zoom: the window has landed — put every touched
         // inline property back (the end states equal the resting computed
-        // values, so nothing visibly changes).
-        ghost.remove();
-        icon.style.visibility = icon_orig_visibility;
+        // values, so nothing visibly changes). The ghost and the real
+        // icon are handled on the ghost's own slower timer above.
         $win.attr('data-window_morphing', '0');
         el_window.style.transition = 'none';
         el_window.style.transform = orig_style.transform;
