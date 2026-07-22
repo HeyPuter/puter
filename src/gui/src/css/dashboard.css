@@ -911,7 +911,7 @@ input.myapps-search::-webkit-search-decoration {
     width: 56px;
     height: 56px;
     overflow: hidden;
-    background: var(--dashboard-card-background);
+    background: none;
     transition: transform 0.15s ease, box-shadow 0.15s ease;
     display: flex;
     align-items: center;
@@ -939,9 +939,8 @@ input.myapps-search::-webkit-search-decoration {
     }
 }
 
-.myapps-tile:active .myapps-tile-icon {
-    transform: scale(0.95);
-}
+/* No :active press-shrink on tiles: clicking launches the app, whose open
+   morph grows the icon — a shrink-then-grow stutter reads as jank. */
 
 /* Keyboard navigation: keyboard focus mirrors the mouse hover enlargement.
    :focus-visible only, so a mouse click doesn't pin the effect after the
@@ -4197,4 +4196,18 @@ body.myapps-reordering .myapps-tile {
 
 .submenu-arrow {
     margin-left: auto;
+}
+
+/* Dashboard mode runs fullpage (which normally hides the minimize button
+   because there's no taskbar to restore from), but here a minimized app can
+   be brought back from its Apps-tab tile — so keep the button available. */
+body.dashboard-mode .window-minimize-btn {
+    display: inline;
+}
+
+/* Fullpage mode sizes .window-body-app to 100% because fullpage windows have
+   no titlebar — but dashboard-mode app windows keep their 29px head, so
+   without this the bottom of every app is clipped by that much. */
+body.dashboard-mode .window-body-app {
+    height: calc(100% - 29px) !important;
 }

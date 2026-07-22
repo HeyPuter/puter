@@ -654,7 +654,32 @@ async function UIWindow (options) {
         $(el_window).focusWindow();
     }
 
-    if ( window.animate_window_opening ) {
+    // A launch from a dashboard Apps-tab tile (TabApps passes
+    // morph_from_dashboard_tile) morphs the tile's icon into the opening
+    // window — the reverse of hideWindow's minimize morph. The window is
+    // already appended, displayed, and at its final (maximized) geometry
+    // here, and nothing has painted since it was appended, so the morph's
+    // collapsed start state applies without a flash of the full window.
+    // Falls through to the standard opening fade when the tile isn't
+    // visible (other tab, other pager page, phone, reduced motion).
+    let morphed_from_tile = false;
+    if ( options.morph_from_dashboard_tile && window.animate_window_opening
+        && options.is_visible && ! options.fadeIn && ! isMobile.phone
+        && ! (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) ) {
+        const tile = dashboard_tile_in_view(options.app);
+        if ( tile ) {
+            // .window is display:none from the stylesheet until the show()
+            // further down; the morph needs the window laid out to measure
+            // it, so show it now — nothing has painted yet, so neither the
+            // early show nor the hide-back on failure ever flashes.
+            const was_hidden = ! $(el_window).is(':visible');
+            if ( was_hidden ) $(el_window).show();
+            morphed_from_tile = morph_window_from_tile(el_window, tile);
+            if ( ! morphed_from_tile && was_hidden ) $(el_window).hide();
+        }
+    }
+
+    if ( ! morphed_from_tile && window.animate_window_opening ) {
         // animate window opening
         $(el_window).css({
             'opacity': '0',
@@ -3821,6 +3846,48 @@ $.fn.showWindow = async function (options) {
         if ( $(this).hasClass('window') ) {
             // show window
             const el_window = this;
+
+            // A window minimized with no taskbar to animate toward (dashboard
+            // mode) was hidden in place by hideWindow — its geometry was
+            // never disturbed. If the app's tile is visible on the Apps tab's
+            // current page, grow the window back out of it (the reverse of
+            // hideWindow's zoom-to-tile morph); otherwise just fade it back
+            // in as before. (The explicit flag is used because data-orig-*
+            // can't distinguish the two minimize paths: drag/maximize
+            // handlers set it too.)
+            if ( $(el_window).attr('data-minimized_in_place') === '1' ) {
+                $(el_window).attr({
+                    'data-is_minimized': false,
+                    'data-minimized_in_place': '0',
+                });
+                $(el_window).css('z-index', ++window.last_window_zindex);
+                const reduce_motion = window.matchMedia
+                    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                // Skip the morph while another morph still owns the window's
+                // inline styles (reopen mid-minimize-zoom): clearing the
+                // flags above already makes that animation's cleanup leave
+                // the window visible and restored, same as before.
+                const tile = (reduce_motion || isMobile.phone
+                    || $(el_window).attr('data-window_morphing') === '1')
+                    ? null
+                    : dashboard_tile_in_view($(el_window).attr('data-app'));
+                let morphed = false;
+                if ( tile ) {
+                    // The morph needs the window displayed and laid out to
+                    // measure it; no paint happens between this show() and
+                    // the morph's start state, so nothing flashes.
+                    const was_hidden = ! $(el_window).is(':visible');
+                    if ( was_hidden ) $(el_window).show();
+                    morphed = morph_window_from_tile(el_window, tile);
+                    if ( ! morphed && was_hidden ) $(el_window).hide();
+                }
+                if ( ! morphed ) $(el_window).fadeIn(150);
+                setTimeout(() => {
+                    $(this).focusWindow();
+                }, 80);
+                return;
+            }
+
             $(el_window).css({
                 'transition': 'top 0.2s, left 0.2s, bottom 0.2s, right 0.2s, width 0.2s, height 0.2s',
                 top: `${$(el_window).attr('data-orig-top') }px`,
@@ -3956,12 +4023,348 @@ $.fn.focusWindow = function (event) {
     return this;
 };
 
+/**
+ * The dashboard Apps-tab tile for `app_name`, but only when the user can
+ * actually see it right now: the dashboard's Apps section must be the active
+ * tab AND the tile must sit on the pager page currently in view (pages are
+ * laid side by side in a horizontal scroller, so an off-page tile has a
+ * rendered box the user can't see). Returns the tile element, or null.
+ */
+function dashboard_tile_in_view (app_name) {
+    if ( ! app_name || typeof CSS === 'undefined' || ! CSS.escape ) return null;
+    const tiles = document.querySelectorAll(
+        `.dashboard-section-apps.active .myapps-tile[data-app-name="${CSS.escape(app_name)}"]`,
+    );
+    for ( const tile of tiles ) {
+        const rect = tile.getBoundingClientRect();
+        if ( rect.width <= 0 || rect.height <= 0 ) continue;
+        const scroller = tile.closest('.myapps-pager-scroller');
+        const clip = (scroller || tile.parentElement).getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        if ( cx >= clip.left && cx <= clip.right && cy >= clip.top && cy <= clip.bottom ) {
+            return tile;
+        }
+    }
+    return null;
+}
+
+/**
+ * The reverse of hideWindow's zoom-to-tile morph: the tile's icon flies out
+ * and inflates into the window while the window fades in — the same two
+ * congruent layers on the same 450ms decelerating path, run backwards, so
+ * opening reads as the icon becoming the window. See hideWindow's morph for
+ * the mechanics (congruent layers, contain-fit ghost, compositor-only
+ * animation); this mirrors it constant for constant.
+ *
+ * The window must be in the DOM, displayed, and at its final geometry —
+ * geometry is never touched, and every inline property this sets is restored
+ * byte-identical when the animation ends. Returns true if the morph started;
+ * false if either box was unmeasurable (caller falls back to its fade).
+ */
+function morph_window_from_tile (el_window, tile) {
+    const icon = tile.querySelector('.myapps-tile-icon') || tile;
+    const win_rect = el_window.getBoundingClientRect();
+    const icon_rect = icon.getBoundingClientRect();
+    if ( win_rect.width <= 0 || win_rect.height <= 0
+        || icon_rect.width <= 0 || icon_rect.height <= 0 ) {
+        return false;
+    }
+
+    const $win = $(el_window);
+    // Everything touched is restored from these exact inline values once
+    // the animation ends.
+    const orig_style = {
+        transform: el_window.style.transform,
+        transformOrigin: el_window.style.transformOrigin,
+        opacity: el_window.style.opacity,
+        borderRadius: el_window.style.borderRadius,
+        overflow: el_window.style.overflow,
+        willChange: el_window.style.willChange,
+        pointerEvents: el_window.style.pointerEvents,
+        transition: el_window.style.transition,
+    };
+    const icon_orig_visibility = icon.style.visibility;
+    // Unlike the minimize morph (whose end states are inline values it
+    // sets itself), this direction ends on the window's RESTING look, which
+    // lives in the stylesheet — transitions need explicit end values, so
+    // read the computed radius up front (the inline value goes back at the
+    // end either way).
+    const end_radius = getComputedStyle(el_window).borderRadius;
+    const end_transform = orig_style.transform || 'none';
+
+    // Same mapping as the minimize morph, driven backwards: the window
+    // starts collapsed onto the icon's box...
+    const scale_x = icon_rect.width / win_rect.width;
+    const scale_y = icon_rect.height / win_rect.height;
+    const dx = icon_rect.left - win_rect.left;
+    const dy = icon_rect.top - win_rect.top;
+
+    // ...and the ghost simply enlarges IN PLACE on the real icon's slot,
+    // dissolving as the window grows out from underneath it. Unlike the
+    // minimize morph's contain-fit flight (where the huge ghost only
+    // becomes visible once it has shrunk near icon size), this ghost is
+    // visible from frame one — flown toward the window it visibly drifts
+    // away from its slot, and grown to full contain-fit (easily 10x+) it
+    // reads as a giant blurry sticker. So it stays put and its growth is
+    // capped: it fades out completely by ~97% of the decelerating path,
+    // right around 200% of its size, and the window alone carries the
+    // motion and the rest of the growth.
+    const ghost = icon.cloneNode(true);
+    ghost.style.position = 'fixed';
+    ghost.style.left = `${icon_rect.left}px`;
+    ghost.style.top = `${icon_rect.top}px`;
+    ghost.style.width = `${icon_rect.width}px`;
+    ghost.style.height = `${icon_rect.height}px`;
+    ghost.style.margin = '0';
+    // +2, not +1: showWindow's delayed focusWindow() bumps the window's
+    // z-index once more mid-flight, and the ghost must stay above it.
+    ghost.style.zIndex = (parseInt($win.css('z-index'), 10) || 1) + 2;
+    ghost.style.pointerEvents = 'none';
+    // 'center' so the scale below enlarges the ghost in place around its
+    // own slot (the minimize morph's ghost uses 'top left' because it
+    // translates as it flies; this one never moves).
+    ghost.style.transformOrigin = 'center';
+    ghost.style.willChange = 'transform, opacity';
+    ghost.style.opacity = '1';
+    ghost.style.transform = 'none';
+    const ghost_scale = Math.min(
+        2,
+        win_rect.width / icon_rect.width,
+        win_rect.height / icon_rect.height,
+    );
+    document.body.appendChild(ghost);
+    icon.style.visibility = 'hidden';
+
+    $win.attr('data-window_morphing', '1');
+    el_window.style.transition = 'none';
+    el_window.style.transformOrigin = 'top left';
+    el_window.style.overflow = 'hidden'; // let the radius clip the content
+    el_window.style.willChange = 'transform, opacity';
+    el_window.style.pointerEvents = 'none';
+    el_window.style.transform = `translate(${dx}px, ${dy}px) scale(${scale_x}, ${scale_y})`;
+    // Percentage radius stays proportional under the scale — ~22% is the
+    // icon-squircle look.
+    el_window.style.borderRadius = '22%';
+    el_window.style.opacity = '0';
+    // Flush the starting state (both layers) so the transitions animate
+    // from it rather than snapping.
+    void el_window.offsetWidth;
+
+    // The minimize morph's handoff, mirrored: the incoming layer (here the
+    // window) fades in at 80→240ms, the outgoing ghost lingers to 120→320ms,
+    // and both ride the same decelerating path — so there is never a hole
+    // and the swap is invisible: the icon "becomes" the window.
+    el_window.style.transition = [
+        'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+        'border-radius 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+        'opacity 0.16s ease-in 0.08s',
+    ].join(', ');
+    el_window.style.transform = end_transform;
+    el_window.style.borderRadius = end_radius;
+    el_window.style.opacity = '1';
+    ghost.style.transition = [
+        'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+        'opacity 0.2s ease-out 0.12s',
+    ].join(', ');
+    ghost.style.transform = `scale(${ghost_scale})`;
+    ghost.style.opacity = '0';
+
+    setTimeout(() => {
+        // End of the zoom: the ghost has dissolved over the window's
+        // center — drop it, un-hide the real icon, and put every touched
+        // inline property back (the end states equal the resting computed
+        // values, so nothing visibly changes).
+        ghost.remove();
+        icon.style.visibility = icon_orig_visibility;
+        $win.attr('data-window_morphing', '0');
+        el_window.style.transition = 'none';
+        el_window.style.transform = orig_style.transform;
+        el_window.style.transformOrigin = orig_style.transformOrigin;
+        el_window.style.opacity = orig_style.opacity;
+        el_window.style.borderRadius = orig_style.borderRadius;
+        el_window.style.overflow = orig_style.overflow;
+        el_window.style.willChange = orig_style.willChange;
+        el_window.style.pointerEvents = orig_style.pointerEvents;
+        setTimeout(() => {
+            el_window.style.transition = orig_style.transition;
+        }, 50);
+    }, 480);
+    return true;
+}
+
 // hides a window
 $.fn.hideWindow = async function (options) {
     $(this).each(async function () {
         if ( $(this).hasClass('window') ) {
             // get taskbar item location
             let taskbar_item_pos = $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).position();
+
+            // No taskbar item to animate toward (e.g. dashboard mode, which
+            // has no taskbar): if the app's tile is visible on the Apps tab's
+            // current page, shrink the window into it so the user sees where
+            // the app went; otherwise simply hide the window in place. Either
+            // way the geometry is untouched afterwards and showWindow()
+            // un-hides via the data-minimized_in_place flag.
+            if ( ! taskbar_item_pos ) {
+                const el_window = this;
+                const $win = $(this);
+                const reduce_motion = window.matchMedia
+                    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                // (A morph already in flight — either direction — owns the
+                // window's inline transform/opacity and will restore them at
+                // its end, so don't start another on top; fall back to the
+                // plain fade below, exactly as before the morphs existed.)
+                const tile = (reduce_motion || isMobile.phone
+                    || $win.attr('data-window_morphing') === '1')
+                    ? null
+                    : dashboard_tile_in_view($win.attr('data-app'));
+
+                if ( tile ) {
+                    // iOS-style zoom-to-icon morph, two congruent layers on
+                    // the same 450ms decelerating path so it reads as ONE
+                    // object transforming:
+                    //   1. the LIVE window scales onto the tile's icon box,
+                    //      its corner radius growing toward the squircle,
+                    //      fading OUT once it has mostly shrunk;
+                    //   2. an enlarged clone of the icon ("ghost") starts
+                    //      covering the window and flies/shrinks with it,
+                    //      fading IN as the window fades out, landing exactly
+                    //      on the real icon's slot (the real icon is hidden
+                    //      until the ghost lands, so nothing doubles).
+                    // Transform + opacity animate on the compositor (no
+                    // per-frame reflow of the app's iframe); the window's
+                    // geometry (top/left/width/height) is never touched, so
+                    // restore is trivial.
+                    const icon = tile.querySelector('.myapps-tile-icon') || tile;
+                    const win_rect = el_window.getBoundingClientRect();
+                    const icon_rect = icon.getBoundingClientRect();
+                    if ( win_rect.width > 0 && win_rect.height > 0
+                        && icon_rect.width > 0 && icon_rect.height > 0 ) {
+                        // Everything touched is restored from these exact
+                        // inline values once the animation ends.
+                        const orig_style = {
+                            transform: el_window.style.transform,
+                            transformOrigin: el_window.style.transformOrigin,
+                            opacity: el_window.style.opacity,
+                            borderRadius: el_window.style.borderRadius,
+                            overflow: el_window.style.overflow,
+                            willChange: el_window.style.willChange,
+                            pointerEvents: el_window.style.pointerEvents,
+                            transition: el_window.style.transition,
+                        };
+                        const icon_orig_visibility = icon.style.visibility;
+                        // Map the window rect exactly onto the icon rect (and
+                        // the ghost the exact inverse: icon rect onto window
+                        // rect), so the two layers stay congruent throughout.
+                        const scale_x = icon_rect.width / win_rect.width;
+                        const scale_y = icon_rect.height / win_rect.height;
+                        const dx = icon_rect.left - win_rect.left;
+                        const dy = icon_rect.top - win_rect.top;
+
+                        const ghost = icon.cloneNode(true);
+                        ghost.style.position = 'fixed';
+                        ghost.style.left = `${icon_rect.left}px`;
+                        ghost.style.top = `${icon_rect.top}px`;
+                        ghost.style.width = `${icon_rect.width}px`;
+                        ghost.style.height = `${icon_rect.height}px`;
+                        ghost.style.margin = '0';
+                        ghost.style.zIndex = (parseInt($win.css('z-index'), 10) || 1) + 1;
+                        ghost.style.pointerEvents = 'none';
+                        ghost.style.transformOrigin = 'top left';
+                        ghost.style.willChange = 'transform, opacity';
+                        ghost.style.opacity = '0';
+                        // UNIFORM start scale so the icon stays square (a
+                        // rect-onto-rect mapping stretches it), sized to fit
+                        // INSIDE the window (contain, centered) — a covering
+                        // square would protrude past the card's short edge
+                        // and the protruding halo pops in mid-crossfade
+                        // (visible jitter). Contained, the ghost's side
+                        // tracks the card's short edge exactly for the whole
+                        // flight (both interpolate linearly between the same
+                        // start and end sizes), so the card's rectangular
+                        // flanks simply melt away around a steady square.
+                        const ghost_scale = Math.min(
+                            win_rect.width / icon_rect.width,
+                            win_rect.height / icon_rect.height,
+                        );
+                        const ghost_left = win_rect.left + (win_rect.width - icon_rect.width * ghost_scale) / 2;
+                        const ghost_top = win_rect.top + (win_rect.height - icon_rect.height * ghost_scale) / 2;
+                        ghost.style.transform = `translate(${ghost_left - icon_rect.left}px, ${ghost_top - icon_rect.top}px) scale(${ghost_scale})`;
+                        document.body.appendChild(ghost);
+                        icon.style.visibility = 'hidden';
+
+                        $win.attr({
+                            'data-is_minimized': true,
+                            'data-minimized_in_place': '1',
+                            'data-window_morphing': '1',
+                        });
+                        el_window.style.transformOrigin = 'top left';
+                        el_window.style.overflow = 'hidden'; // let the radius clip the content
+                        el_window.style.willChange = 'transform, opacity';
+                        el_window.style.pointerEvents = 'none';
+                        // Flush the starting state (both layers) so the
+                        // transitions animate from it rather than snapping.
+                        void el_window.offsetWidth;
+                        // The handoff: by ~130ms the decelerating curve has
+                        // done ~80% of the shrink — the ghost fades in just
+                        // before (80→240ms) and the window fades out just
+                        // after (120→320ms). The overlap means there is never
+                        // a hole, and since both ride the same path the swap
+                        // is invisible: the window "becomes" the icon.
+                        el_window.style.transition = [
+                            'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+                            'border-radius 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+                            'opacity 0.2s ease-out 0.12s',
+                        ].join(', ');
+                        el_window.style.transform = `translate(${dx}px, ${dy}px) scale(${scale_x}, ${scale_y})`;
+                        // Percentage radius stays proportional under the
+                        // scale — ~22% is the icon-squircle look.
+                        el_window.style.borderRadius = '22%';
+                        el_window.style.opacity = '0';
+                        ghost.style.transition = [
+                            'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+                            'opacity 0.16s ease-in 0.08s',
+                        ].join(', ');
+                        ghost.style.transform = 'none';
+                        ghost.style.opacity = '1';
+
+                        setTimeout(() => {
+                            // End of the zoom: the ghost has landed on the
+                            // real icon's slot — swap them back in the same
+                            // frame, hide the window, and put every touched
+                            // inline property back while nothing is visible.
+                            // If the user re-opened the window mid-animation
+                            // (tile click → showWindow cleared the flags),
+                            // restore but leave it visible.
+                            ghost.remove();
+                            icon.style.visibility = icon_orig_visibility;
+                            $win.attr('data-window_morphing', '0');
+                            const minimized = $win.attr('data-is_minimized');
+                            if ( minimized === '1' || minimized === 'true' ) $win.hide();
+                            el_window.style.transition = 'none';
+                            el_window.style.transform = orig_style.transform;
+                            el_window.style.transformOrigin = orig_style.transformOrigin;
+                            el_window.style.opacity = orig_style.opacity;
+                            el_window.style.borderRadius = orig_style.borderRadius;
+                            el_window.style.overflow = orig_style.overflow;
+                            el_window.style.willChange = orig_style.willChange;
+                            el_window.style.pointerEvents = orig_style.pointerEvents;
+                            setTimeout(() => {
+                                el_window.style.transition = orig_style.transition;
+                            }, 50);
+                        }, 480);
+                        return;
+                    }
+                }
+
+                $win.attr({
+                    'data-is_minimized': true,
+                    'data-minimized_in_place': '1',
+                });
+                $win.fadeOut(150);
+                return;
+            }
 
             // Calculate animation target based on taskbar position
             let animationTarget = {};
