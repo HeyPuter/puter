@@ -365,6 +365,16 @@ const TabApps = {
             }
             const appName = $(this).attr('data-app-name');
             const targetLink = $(this).attr('data-target-link');
+            // Ctrl/Cmd+click opens in a new browser tab, mirroring the
+            // context menu's "Open in new tab" item.
+            if ( e.ctrlKey || e.metaKey ) {
+                if ( targetLink && targetLink !== '' ) {
+                    window.open(targetLink, '_blank', 'noopener,noreferrer');
+                } else if ( appName ) {
+                    window.open(`/app/${encodeURIComponent(appName)}`, '_blank', 'noopener,noreferrer');
+                }
+                return;
+            }
             if ( targetLink && targetLink !== '' ) {
                 window.open(targetLink, '_blank', 'noopener,noreferrer');
             } else if ( appName ) {
