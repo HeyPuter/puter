@@ -3878,7 +3878,14 @@ $.fn.showWindow = async function (options) {
                     // the morph's start state, so nothing flashes.
                     const was_hidden = ! $(el_window).is(':visible');
                     if ( was_hidden ) $(el_window).show();
-                    morphed = morph_window_from_tile(el_window, tile);
+                    // The lighter cut of the launch morph — window half
+                    // only, on a shorter path — so un-minimizing reads as
+                    // the window coming back out of the tile, not the app
+                    // launching again (no icon flourish, no launch pacing).
+                    morphed = morph_window_from_tile(el_window, tile, {
+                        icon_half: false,
+                        duration: 0.3,
+                    });
                     if ( ! morphed && was_hidden ) $(el_window).hide();
                 }
                 if ( ! morphed ) $(el_window).fadeIn(150);
@@ -4143,8 +4150,17 @@ export function settle_dashboard_tile_launch (tile) {
  * geometry is never touched, and every inline property this sets is restored
  * byte-identical when the animation ends. Returns true if the morph started;
  * false if either box was unmeasurable (caller falls back to its fade).
+ *
+ * Options let a restore (un-minimizing — see showWindow) run a lighter cut
+ * of the morph than a launch, so coming back to a running app doesn't read
+ * as relaunching it:
+ *   icon_half: false — never spawn the icon ghost; only the window half
+ *     expands out of the tile's slot (the real icon is left untouched).
+ *   duration — seconds for the zoom path (default 0.45, the launch pace).
  */
-function morph_window_from_tile (el_window, tile) {
+function morph_window_from_tile (el_window, tile, morph_options = {}) {
+    const icon_half = morph_options.icon_half !== false;
+    const duration = morph_options.duration || 0.45;
     const icon = tile.querySelector('.myapps-tile-icon') || tile;
     const win_rect = el_window.getBoundingClientRect();
     const icon_rect = icon.getBoundingClientRect();
@@ -4199,7 +4215,7 @@ function morph_window_from_tile (el_window, tile) {
     // right around 200% of its size, and the window alone carries the
     // motion and the rest of the growth.
     let ghost = null;
-    if ( ! click_feedback_played ) {
+    if ( ! click_feedback_played && icon_half ) {
         ghost = icon.cloneNode(true);
         ghost.style.position = 'fixed';
         ghost.style.left = `${icon_rect.left}px`;
@@ -4245,10 +4261,12 @@ function morph_window_from_tile (el_window, tile) {
     // The minimize morph's handoff, mirrored: the incoming layer (here the
     // window) fades in at 80→240ms, the outgoing ghost lingers to 120→320ms,
     // and both ride the same decelerating path — so there is never a hole
-    // and the swap is invisible: the icon "becomes" the window.
+    // and the swap is invisible: the icon "becomes" the window. (The fade's
+    // timing stays fixed when the path is shortened: it still completes
+    // before the shortest landing.)
     el_window.style.transition = [
-        'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
-        'border-radius 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+        `transform ${duration}s cubic-bezier(0.32, 0.72, 0, 1)`,
+        `border-radius ${duration}s cubic-bezier(0.32, 0.72, 0, 1)`,
         'opacity 0.16s ease-in 0.08s',
     ].join(', ');
     el_window.style.transform = end_transform;
@@ -4289,7 +4307,7 @@ function morph_window_from_tile (el_window, tile) {
         setTimeout(() => {
             el_window.style.transition = orig_style.transition;
         }, 50);
-    }, 480);
+    }, Math.round(duration * 1000) + 30);
     return true;
 }
 
