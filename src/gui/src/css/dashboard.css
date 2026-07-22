@@ -4252,12 +4252,27 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 
 /* Invisible halo: keeps the collapsed capsule comfortably hittable and
    hoverable without costing more visual space. (Clicks it absorbs would
-   have hit the app within ~10px of the pill — acceptable dead zone.) */
+   have hit the app within ~10px of the pill — acceptable dead zone.)
+   z-index -1 keeps it BELOW the pill's own content: absolutely-positioned
+   pseudo-elements otherwise paint above static siblings, and the halo
+   would swallow every real click on the buttons (element.click() works,
+   hit-testing doesn't). The pill is its own stacking context, so even at
+   -1 the halo still sits above the app's iframe for the ring outside
+   the capsule. */
 .dashboard-app-pill::after {
     content: '';
     position: absolute;
     inset: -10px;
     border-radius: inherit;
+    z-index: -1;
+}
+
+/* Belt and braces for the same trap: the interactive children stack
+   explicitly above the halo. */
+.dashboard-app-pill-toggle,
+.dashboard-app-pill-btn {
+    position: relative;
+    z-index: 1;
 }
 
 .dashboard-app-pill.collapsed {
