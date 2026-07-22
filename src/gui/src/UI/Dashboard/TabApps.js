@@ -182,6 +182,11 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
         // restores its position if it comes back.
         const removedIndex = self._apps.findIndex(a => a.name === appName);
         const removedApp = removedIndex === -1 ? null : self._apps[removedIndex];
+        // A running instance would be stranded: the tile is a headless
+        // app's only switcher, so once it's gone a minimized window could
+        // never be restored OR quit. Close the app's windows first (close
+        // also consumes the app's URL entry if it owns one).
+        $(`.window[data-app="${html_encode(appName)}"]`).close();
         self._invalidateInFlightLoads();
         close();
 

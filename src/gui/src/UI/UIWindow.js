@@ -4159,6 +4159,7 @@ function push_dashboard_app_url (app_name, title) {
     }
     window.history.pushState({ dashboard_app: app_name }, '', `/app/${encodeURIComponent(app_name)}`);
     dashboard_url_app = app_name;
+    dashboard_url_pop_pending = false;
     if ( title ) document.title = title;
 }
 
@@ -4171,15 +4172,28 @@ function push_dashboard_app_url (app_name, title) {
  * when this app doesn't own the URL (caller falls back to hiding
  * directly, e.g. an app stacked under another app's entry).
  */
+// True while a pop's history.back() is in flight (issued but its
+// popstate not yet processed). The URL doesn't change until the popstate
+// lands, so without this latch a double-click on minimize — or a close
+// racing a minimize — would issue TWO back()s, and the second would pop
+// the dashboard's own entry and navigate clean out of the page.
+let dashboard_url_pop_pending = false;
+
 function pop_dashboard_app_url (app_name) {
     if ( ! window.is_dashboard_mode || ! app_name ) return false;
     if ( dashboard_app_url_current() !== app_name ) return false;
+    // Duplicate request for an entry already being popped: report it
+    // handled so the caller doesn't ALSO hide the window.
+    if ( dashboard_url_pop_pending ) return true;
+    dashboard_url_pop_pending = true;
     window.history.back();
     return true;
 }
 
 window.addEventListener('popstate', () => {
     if ( ! window.is_dashboard_mode ) return;
+    // Any traversal settles a pending pop (see pop_dashboard_app_url).
+    dashboard_url_pop_pending = false;
     const new_app = dashboard_app_url_current();
     const prev_app = dashboard_url_app;
     // Same app on both sides means the traversal wasn't ours (e.g. an app

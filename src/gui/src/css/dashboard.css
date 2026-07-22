@@ -4242,7 +4242,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     background: rgba(24, 24, 28, 0.62);
     -webkit-backdrop-filter: blur(14px) saturate(140%);
     backdrop-filter: blur(14px) saturate(140%);
-    border: 1px solid rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.22);
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.2);
     color: #fff;
     -webkit-user-select: none;
@@ -4276,7 +4276,9 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 }
 
 .dashboard-app-pill.collapsed {
-    opacity: 0.55;
+    /* Subtle but findable over both light and dark app content — the
+       white hairline border carries the dark-on-dark case. */
+    opacity: 0.65;
     padding: 3px 12px;
     gap: 0;
 }
