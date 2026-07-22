@@ -4108,7 +4108,7 @@ function morph_window_from_tile (el_window, tile) {
     // away from its slot, and grown to full contain-fit (easily 10x+) it
     // reads as a giant blurry sticker. So it stays put and its growth is
     // capped: it fades out completely by ~97% of the decelerating path,
-    // right around 250% of its size, and the window alone carries the
+    // right around 200% of its size, and the window alone carries the
     // motion and the rest of the growth.
     const ghost = icon.cloneNode(true);
     ghost.style.position = 'fixed';
@@ -4129,7 +4129,7 @@ function morph_window_from_tile (el_window, tile) {
     ghost.style.opacity = '1';
     ghost.style.transform = 'none';
     const ghost_scale = Math.min(
-        2.5,
+        2,
         win_rect.width / icon_rect.width,
         win_rect.height / icon_rect.height,
     );
