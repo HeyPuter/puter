@@ -1,7 +1,6 @@
 import UIContextMenu from '../UIContextMenu.js';
 import UIAlert from '../UIAlert.js';
 import launch_app from '../../helpers/launch_app.js';
-import { begin_dashboard_tile_launch, settle_dashboard_tile_launch } from '../UIWindow.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 
@@ -387,26 +386,15 @@ const TabApps = {
                 // spawning a duplicate instance.
                 if ( self._launchingApps.has(appName) ) return;
                 self._launchingApps.add(appName);
-                const tile = this;
-                // Acknowledge the click NOW: the icon's half of the open
-                // morph starts immediately, while the app's fetches are
-                // still in flight; the window's half claims it when the
-                // window opens (morph_from_dashboard_tile → see UIWindow),
-                // and settle puts the icon back if it never does (launch
-                // failed, or the morph fell back to the plain fade).
-                begin_dashboard_tile_launch(tile);
+                // morph_from_dashboard_tile: the new window opens by
+                // morphing this tile's icon into it (see UIWindow) instead
+                // of the plain opening fade.
                 launch_app({
                     name: appName,
                     maximized: true,
                     window_options: { morph_from_dashboard_tile: true },
                 })
-                    .catch((err) => {
-                        console.error(`Failed to launch ${appName}:`, err);
-                    })
-                    .finally(() => {
-                        self._launchingApps.delete(appName);
-                        settle_dashboard_tile_launch(tile);
-                    });
+                    .finally(() => self._launchingApps.delete(appName));
             }
         });
 
