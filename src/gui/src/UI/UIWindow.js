@@ -661,10 +661,10 @@ async function UIWindow (options) {
     // here, and nothing has painted since it was appended, so the morph's
     // collapsed start state applies without a flash of the full window.
     // Falls through to the standard opening fade when the tile isn't
-    // visible (other tab, other pager page, phone, reduced motion).
+    // visible (other tab, other pager page, reduced motion).
     let morphed_from_tile = false;
     if ( options.morph_from_dashboard_tile && window.animate_window_opening
-        && options.is_visible && ! options.fadeIn && ! isMobile.phone
+        && options.is_visible && ! options.fadeIn
         && ! (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) ) {
         const tile = dashboard_tile_in_view(options.app);
         if ( tile ) {
@@ -3867,7 +3867,7 @@ $.fn.showWindow = async function (options) {
                 // inline styles (reopen mid-minimize-zoom): clearing the
                 // flags above already makes that animation's cleanup leave
                 // the window visible and restored, same as before.
-                const tile = (reduce_motion || isMobile.phone
+                const tile = (reduce_motion
                     || $(el_window).attr('data-window_morphing') === '1')
                     ? null
                     : dashboard_tile_in_view($(el_window).attr('data-app'));
@@ -4068,12 +4068,12 @@ const tile_launch_ghosts = new WeakMap();
  * runs only its window half when it opens;
  * settle_dashboard_tile_launch clears the mark once the launch attempt is
  * over. No-op when the open morph itself wouldn't run (animations off,
- * phone, reduced motion) so the two halves always agree.
+ * reduced motion) so the two halves always agree.
  */
 export function begin_dashboard_tile_launch (tile) {
     const reduce_motion = window.matchMedia
         && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if ( ! tile || ! window.animate_window_opening || isMobile.phone || reduce_motion ) return;
+    if ( ! tile || ! window.animate_window_opening || reduce_motion ) return;
     if ( tile_launch_ghosts.has(tile) ) return;
     const icon = tile.querySelector('.myapps-tile-icon') || tile;
     const icon_rect = icon.getBoundingClientRect();
@@ -4315,7 +4315,7 @@ $.fn.hideWindow = async function (options) {
                 // window's inline transform/opacity and will restore them at
                 // its end, so don't start another on top; fall back to the
                 // plain fade below, exactly as before the morphs existed.)
-                const tile = (reduce_motion || isMobile.phone
+                const tile = (reduce_motion
                     || $win.attr('data-window_morphing') === '1')
                     ? null
                     : dashboard_tile_in_view($win.attr('data-app'));
