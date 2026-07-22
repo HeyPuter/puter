@@ -939,9 +939,8 @@ input.myapps-search::-webkit-search-decoration {
     }
 }
 
-.myapps-tile:active .myapps-tile-icon {
-    transform: scale(0.95);
-}
+/* No :active press-shrink on tiles: clicking launches the app, whose open
+   morph grows the icon — a shrink-then-grow stutter reads as jank. */
 
 /* Keyboard navigation: keyboard focus mirrors the mouse hover enlargement.
    :focus-visible only, so a mouse click doesn't pin the effect after the
