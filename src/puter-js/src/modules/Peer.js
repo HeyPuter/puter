@@ -404,8 +404,7 @@ class Peer {
             return;
         }
 
-        const { iceServers, ttl, fallbackIce } = await response.json();
-        this.#fallbackIceServers = fallbackIce;
+        const { iceServers, ttl } = await response.json();
         this.#turnServers = iceServers;
         this.#turnTTL = ttl;
         this.#turnStartedAt = Date.now();
@@ -417,7 +416,8 @@ class Peer {
         if ( ! response.ok ) {
             throw new Error('Failed to get signaller info from Puter.');
         }
-        const { url } = await response.json();
+        const { url, fallbackIce } = await response.json();
+        this.#fallbackIceServers = fallbackIce;
         this.#signallerUrl = url;
     }
 
