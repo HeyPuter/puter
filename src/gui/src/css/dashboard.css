@@ -4328,7 +4328,15 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 168px;
+    /* FIXED title box (not a cap): every app's pill is the same width, so
+       the minimize/close buttons sit at the same screen position in every
+       app — they're operated by muscle memory. Short titles center in
+       the box like a classic titlebar. The collapse animation still
+       drives max-width to 0. */
+    flex: none;
+    width: 150px;
+    max-width: 150px;
+    text-align: center;
     margin: 0 6px 0 4px;
     transition: max-width 0.22s ease, opacity 0.15s ease, margin 0.22s ease;
 }
