@@ -386,7 +386,14 @@ const TabApps = {
                 // spawning a duplicate instance.
                 if ( self._launchingApps.has(appName) ) return;
                 self._launchingApps.add(appName);
-                launch_app({ name: appName, maximized: true })
+                // morph_from_dashboard_tile: the new window opens by
+                // morphing this tile's icon into it (see UIWindow) instead
+                // of the plain opening fade.
+                launch_app({
+                    name: appName,
+                    maximized: true,
+                    window_options: { morph_from_dashboard_tile: true },
+                })
                     .finally(() => self._launchingApps.delete(appName));
             }
         });
