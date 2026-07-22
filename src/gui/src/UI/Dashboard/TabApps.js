@@ -182,6 +182,11 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
         // restores its position if it comes back.
         const removedIndex = self._apps.findIndex(a => a.name === appName);
         const removedApp = removedIndex === -1 ? null : self._apps[removedIndex];
+        // A running instance would be stranded: the tile is a headless
+        // app's only switcher, so once it's gone a minimized window could
+        // never be restored OR quit. Close the app's windows first (close
+        // also consumes the app's URL entry if it owns one).
+        $(`.window[data-app="${html_encode(appName)}"]`).close();
         self._invalidateInFlightLoads();
         close();
 
@@ -339,6 +344,13 @@ const TabApps = {
 
         const self = this;
 
+        // Tiles double as the app switcher for headless in-page apps: a
+        // dot marks tiles whose app has an open (or minimized) window.
+        // UIWindow fires this event on every window open/close.
+        document.addEventListener('dashboard-app-windows-changed', () => {
+            self.updateRunningDots($el_window);
+        });
+
         $el_window.on('input', '.myapps-search', function () {
             self.updateSearchIcons($el_window);
             self.renderApps($el_window);
@@ -439,6 +451,7 @@ const TabApps = {
             const appUid = $(this).attr('data-app-uid');
             const targetLink = $(this).attr('data-target-link');
             const noUninstall = APP_NAMES_NO_UNINSTALL.has((appName || '').toLowerCase());
+            const isRunning = !! appName && $(`.window[data-app="${html_encode(appName)}"]`).length > 0;
 
             // Every app opens in a new browser tab the way tiles did before
             // in-page windows: external tiles via their site link, everything
@@ -455,6 +468,20 @@ const TabApps = {
                     },
                 },
             ];
+            // The tile doubles as the app switcher (headless apps have no
+            // titlebar): a running app — the tile shows its dot — can be
+            // quit from here without entering it. Closing consumes the
+            // app's URL entry only if it owns the URL (it doesn't, here on
+            // the dashboard), and the running dot clears via the
+            // dashboard-app-windows-changed event once the window is gone.
+            if ( isRunning ) {
+                items.push({
+                    html: 'Quit',
+                    onClick: () => {
+                        $(`.window[data-app="${html_encode(appName)}"]`).close();
+                    },
+                });
+            }
             if ( ! noUninstall ) {
                 items.push('-', {
                     html: 'Uninstall',
@@ -685,6 +712,7 @@ const TabApps = {
 
         $container.html(buildPagerHtml(list, layout, instant));
         revealWhenLoaded($container);
+        this.updateRunningDots($el_window);
 
         const scroller = $container.find('.myapps-pager-scroller')[0];
         if ( this._page > 0 ) {
@@ -709,6 +737,17 @@ const TabApps = {
                 }
             });
         }, { passive: true });
+    },
+
+    // Mark tiles whose app has a live window (visible OR minimized — both
+    // are running) with the macOS-dock-style dot. Cheap enough to re-run
+    // wholesale on every open/close/render.
+    updateRunningDots ($el_window) {
+        for ( const tile of $el_window.find('.myapps-tile').toArray() ) {
+            const name = tile.getAttribute('data-app-name');
+            const running = !! name && $(`.window[data-app="${html_encode(name)}"]`).length > 0;
+            tile.classList.toggle('myapps-tile-running', running);
+        }
     },
 
     updatePagerUI ($el_window) {

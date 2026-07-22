@@ -614,8 +614,21 @@ const ipc_listener = async (event, handled) => {
             return;
         }
 
-        // set window title
+        // set window title (headless dashboard windows show it in the
+        // floating control pill instead of a head)
         $(el_window).find('.window-head-title').html(html_encode(event.data.new_title));
+        $(el_window).find('.dashboard-app-pill-title').text(event.data.new_title);
+        // In dashboard mode the app's title is also the browser-tab title,
+        // and data-name is what a restore re-applies (see showWindow's
+        // push) — keep both fresh. The tab title only changes while this
+        // window's app actually owns the URL.
+        if ( window.is_dashboard_mode ) {
+            $(el_window).attr('data-name', event.data.new_title);
+            const app = $(el_window).attr('data-app');
+            if ( app && window.location.pathname === `/app/${encodeURIComponent(app)}` ) {
+                document.title = event.data.new_title;
+            }
+        }
         // send confirmation to requester window
         target_iframe.contentWindow.postMessage({
             original_msg_id: msg_id,
