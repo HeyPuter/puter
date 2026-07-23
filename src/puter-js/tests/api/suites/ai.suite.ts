@@ -57,6 +57,33 @@ export default suite('ai', {
         t.assert.ok(textOf(result).length > 0, 'message should contain text');
     },
 
+    'chat accepts the vision form with a media argument': async (t) => {
+        useApiToken(t);
+        // 1x1 transparent PNG — a data URI keeps the test keyless and
+        // avoids any backend media fetching.
+        const pixel =
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+        const result = await t.puter.ai.chat('What is in this image?', pixel, {
+            model: 'fake',
+        });
+        t.assert.ok(result.message, 'vision form should carry a message');
+        t.assert.ok(textOf(result).length > 0, 'message should contain text');
+    },
+
+    'chat accepts messages with content parts': async (t) => {
+        useApiToken(t);
+        const result = await t.puter.ai.chat(
+            [
+                {
+                    role: 'user',
+                    content: [{ type: 'text', text: 'Describe the weather.' }],
+                },
+            ],
+            { model: 'fake' },
+        );
+        t.assert.ok(textOf(result).length > 0, 'message should contain text');
+    },
+
     'chat with stream true yields text parts': async (t) => {
         useApiToken(t);
         const stream = await t.puter.ai.chat('Stream this', {

@@ -16,6 +16,8 @@ Add tests for new behavior, endpoints, or bug fixes. If something's genuinely ha
 
 Match the shape of similar code already in the repo. [doc/architecture.md](doc/architecture.md) is the source of truth for layers, wiring, and naming. If you think a pattern is wrong, raise it — don't quietly diverge.
 
+In plain-JS files, typing is encouraged via JSDoc `@type` annotations using the TypeScript type system, with `@typedef` for shared shapes. Don't type API surfaces as `unknown` or untyped `...args` unless the values are passed through transparently to an upstream layer that owns their type.
+
 ## 3. Don't expose system or user information
 
 Scan your diff for stray logs, debug routes, internal paths, secrets, tokens, or user data in errors/responses. When in doubt, return less. Flag any auth, permission, or data-export changes in the PR description.

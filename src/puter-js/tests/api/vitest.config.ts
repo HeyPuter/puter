@@ -35,7 +35,11 @@ export default defineConfig(({ mode }) => ({
         // PUTER_TEST_* capability vars (harness/capabilities.ts) work
         // from `.env` files too.
         env: loadEnv(mode, '', 'PUTER_'),
-        include: ['src/puter-js/tests/api/runners/*.test.{js,ts}'],
+        include: [
+            'src/puter-js/tests/api/runners/*.test.{js,ts}',
+            // SDK unit tests (pure logic, no server) live next to the code.
+            'src/puter-js/src/**/*.test.{js,ts}',
+        ],
         // Server boot + SDK/worker bundling happen in hooks; browser and
         // workerd runners are slower than unit tests.
         testTimeout: 60_000,

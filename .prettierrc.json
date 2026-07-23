@@ -1,4 +1,5 @@
 {
     "tabWidth": 4,
-    "singleQuote": true
+    "singleQuote": true,
+    "plugins": ["prettier-plugin-jsdoc"]
 }

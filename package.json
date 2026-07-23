@@ -40,6 +40,7 @@
     "license-check-and-add": "^4.0.5",
     "nodemon": "^3.1.0",
     "prettier": "^3.8.3",
+    "prettier-plugin-jsdoc": "^1.8.1",
     "simple-git": "^3.32.3",
     "typescript": "^5.4.5",
     "uglify-js": "^3.17.4",

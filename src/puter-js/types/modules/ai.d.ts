@@ -432,13 +432,13 @@ export class AI {
     chat (prompt: string, imageURL: string | File, options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
     chat (prompt: string, imageURLArray: string[], options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
 
-    chat (prompt: string, options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
-    chat (prompt: string, imageURL: string | File, options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
-    chat (prompt: string, imageURLArray: string[], options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
+    chat (prompt: string, options: StreamingChatOptions, testMode?: boolean): Promise<AsyncIterable<ChatResponseChunk>>;
+    chat (prompt: string, imageURL: string | File, options: StreamingChatOptions, testMode?: boolean): Promise<AsyncIterable<ChatResponseChunk>>;
+    chat (prompt: string, imageURLArray: string[], options: StreamingChatOptions, testMode?: boolean): Promise<AsyncIterable<ChatResponseChunk>>;
 
     chat (messages: ChatMessage[], testMode?: boolean): Promise<ChatResponse>;
     chat (messages: ChatMessage[], options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
-    chat (messages: ChatMessage[], options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
+    chat (messages: ChatMessage[], options: StreamingChatOptions, testMode?: boolean): Promise<AsyncIterable<ChatResponseChunk>>;
 
     img2txt (source: string | File | Blob, testMode?: boolean): Promise<string>;
     img2txt (source: string | File | Blob, options: Img2TxtOptions, testMode?: boolean): Promise<string>;

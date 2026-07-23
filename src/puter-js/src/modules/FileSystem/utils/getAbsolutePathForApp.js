@@ -1,6 +1,6 @@
 import path from '../../../lib/path.js';
 
-const getAbsolutePathForApp = (relativePath) => {
+const getAbsolutePathForApp = (relativePath, puter = globalThis.puter) => {
     // preserve previous behavior for falsy values when env is gui
     if ( puter.env === 'gui' && !relativePath )
     {

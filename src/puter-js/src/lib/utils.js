@@ -297,6 +297,9 @@ class Valid {
  * @param {string} driverInterface - name of the interface
  * @param {string} driverName - name of the driver
  * @param {string} driverMethod - name of the method
+ *
+ * `settings.puter` carries the SDK instance the call runs against; callers
+ * that don't pass one fall back to the global instance.
  */
 function make_driver_method (arg_defs, driverInterface, driverName, driverMethod, settings = {}) {
     return async function (...args) {
@@ -365,6 +368,7 @@ async function driverCall_ (
     contentType = 'text/plain;actually=json',
     settings = {},
 ) {
+    const puter = settings.puter ?? globalThis.puter;
     // Generate request ID for logging
     // Store request info for logging
     let requestInfo = null;

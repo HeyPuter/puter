@@ -1,9 +1,15 @@
 /* eslint-disable */
 // TODO: Make these more compatible with eslint
 
+// IMPORTANT: the video providers only honor `test_mode` inside the options
+// object; the envelope-level flag set by the positional boolean form
+// (txt2vid(prompt, true)) is ignored by the media drivers, so that form
+// would trigger real, billed video generation. Always use the options form.
+// (Path helpers appDataPathTilde/appDataPathAbsolute come from txt2img.test.js.)
+
 // Core test functions for txt2vid functionality
 const testTxt2VidBasicCore = async function() {
-    const result = await puter.ai.txt2vid("A sunrise over the ocean", true);
+    const result = await puter.ai.txt2vid("A sunrise over the ocean", { test_mode: true });
 
     assert(result !== null, "txt2vid should not return null");
     assert(typeof result === 'object', "txt2vid should return an object");
@@ -73,8 +79,10 @@ const testTxt2VidPuterOutputPathCore = async function() {
 };
 
 const testTxt2VidPuterOutputPathAbsoluteCore = async function() {
+    // App-scoped actors can only write inside their own AppData; an
+    // absolute path into it still exercises absolute-path handling.
     const user = await puter.auth.getUser();
-    const outputPath = `/${user.username}/test_output_abs_${Date.now()}.mp4`;
+    const outputPath = appDataPathAbsolute(user.username, `test_output_abs_${Date.now()}.mp4`);
 
     const result = await puter.ai.txt2vid("Rain falling on a window", {
         test_mode: true,
@@ -95,7 +103,7 @@ const testTxt2VidPuterOutputPathAbsoluteCore = async function() {
 };
 
 const testTxt2VidPuterOutputPathHomeTildeCore = async function() {
-    const outputPath = `~/test_output_tilde_${Date.now()}.mp4`;
+    const outputPath = appDataPathTilde(`test_output_tilde_${Date.now()}.mp4`);
 
     const result = await puter.ai.txt2vid("Waves crashing on a beach", {
         test_mode: true,
@@ -148,7 +156,7 @@ const testTxt2VidPuterOutputPathPermissionDeniedCore = async function() {
 window.txt2vidTests = [
     {
         name: "testTxt2VidBasic",
-        description: "Test basic text-to-video generation with test mode and verify video element structure",
+        description: "Test basic text-to-video generation (options-form test mode) and verify video element structure",
         test: async function() {
             try {
                 await testTxt2VidBasicCore();
