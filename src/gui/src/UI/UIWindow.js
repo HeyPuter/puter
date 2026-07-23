@@ -3956,9 +3956,10 @@ $.fn.showWindow = async function (options) {
                     if ( ! morphed && was_hidden ) $(el_window).hide();
                 }
                 if ( ! morphed ) $(el_window).fadeIn(150);
-                // Re-introduce the control drawer on restore (headless
-                // dashboard windows only; no-op otherwise).
-                el_window._dashboard_drawer_flash?.();
+                // Restores come back with the control drawer collapsed —
+                // whatever state it was minimized in (headless dashboard
+                // windows only; no-op otherwise).
+                el_window._dashboard_drawer_collapse?.();
                 // A restore re-claims the URL for this app — except when
                 // the restore was DRIVEN by a history traversal (popstate
                 // passes no_history: the entry is already current).
@@ -4316,9 +4317,9 @@ function attach_dashboard_app_drawer (el_window, options) {
         clearTimeout(collapse_timer);
         collapse_timer = setTimeout(collapse, ms);
     };
-    // Expand + auto-collapse: played on open and again on restore, so the
-    // controls introduce themselves — and retract INTO the tongue, teaching
-    // where they live — without permanently costing pixels.
+    // Expand + auto-collapse: played once on open, so the controls
+    // introduce themselves — and retract INTO the tongue, teaching where
+    // they live — without permanently costing pixels.
     const flash = () => {
         expand();
         schedule_collapse(2600);
@@ -4379,8 +4380,11 @@ function attach_dashboard_app_drawer (el_window, options) {
         $(el_window).close();
     });
 
-    // showWindow re-plays the intro when the window is restored.
-    el_window._dashboard_drawer_flash = flash;
+    // showWindow forces the drawer shut when the window is restored — the
+    // intro already ran on open, and a restore should bring back the app,
+    // not the chrome. (Minimize collapses too, but the Back-button path
+    // hides the window without touching the drawer.)
+    el_window._dashboard_drawer_collapse = collapse;
 
     $(el_window).append($drawer);
     // Two frames so the collapsed state paints first and the intro slides
