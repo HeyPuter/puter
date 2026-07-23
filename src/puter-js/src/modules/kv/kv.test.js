@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { KV } from './index.js';
 
 /**
@@ -63,6 +63,7 @@ const origPuter = globalThis.puter;
 
 let kv;
 let fakePuter;
+let warnSpy;
 
 beforeEach(() => {
     FakeXHR.requests = [];
@@ -71,11 +72,13 @@ beforeEach(() => {
     fakePuter = makeFakePuter();
     globalThis.puter = fakePuter;
     kv = new KV(fakePuter);
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
 afterEach(() => {
     globalThis.XMLHttpRequest = origXHR;
     globalThis.puter = origPuter;
+    warnSpy.mockRestore();
 });
 
 describe('kv.set driver payloads', () => {
@@ -470,62 +473,160 @@ describe('kv.del driver payloads', () => {
 });
 
 describe('kv.list driver payloads', () => {
-    it('list() asks for keys only', async () => {
+    // Unbound (non-paginated) forms fetch pages on the caller's behalf, so
+    // their wire args carry the SDK's paging params on top of the base args.
+    const SDK_PAGING_ARGS = { limit: 1000, fetchUntilFull: true, cursor: null };
+
+    beforeEach(() => {
         FakeXHR.respondWith = () => ({ success: true, result: [] });
+    });
+
+    it('list() asks for keys only', async () => {
         await kv.list();
         const body = lastBody();
         expect(body.method).toBe('list');
-        expect(body.args).toEqual({ as: 'keys' });
+        expect(body.args).toEqual({ as: 'keys', ...SDK_PAGING_ARGS });
     });
 
     it('list(true) asks for key-value pairs', async () => {
         await kv.list(true);
-        expect(lastBody().args).toEqual({});
+        expect(lastBody().args).toEqual({ ...SDK_PAGING_ARGS });
     });
 
     it('list(pattern) strips a trailing wildcard', async () => {
         await kv.list('abc*');
-        expect(lastBody().args).toEqual({ as: 'keys', pattern: 'abc' });
+        expect(lastBody().args).toEqual({ as: 'keys', pattern: 'abc', ...SDK_PAGING_ARGS });
     });
 
     it('list(pattern) keeps a bare prefix as-is', async () => {
         await kv.list('abc');
-        expect(lastBody().args).toEqual({ as: 'keys', pattern: 'abc' });
+        expect(lastBody().args).toEqual({ as: 'keys', pattern: 'abc', ...SDK_PAGING_ARGS });
     });
 
     it('list("*") matches everything, so no pattern is sent', async () => {
         await kv.list('*');
-        expect(lastBody().args).toEqual({ as: 'keys' });
+        expect(lastBody().args).toEqual({ as: 'keys', ...SDK_PAGING_ARGS });
     });
 
     it('list(pattern) keeps an inner literal * in the prefix', async () => {
         await kv.list('k**');
-        expect(lastBody().args).toEqual({ as: 'keys', pattern: 'k*' });
+        expect(lastBody().args).toEqual({ as: 'keys', pattern: 'k*', ...SDK_PAGING_ARGS });
     });
 
     it('list(pattern, true) asks for pairs matching the pattern', async () => {
         await kv.list('abc*', true);
-        expect(lastBody().args).toEqual({ pattern: 'abc' });
+        expect(lastBody().args).toEqual({ pattern: 'abc', ...SDK_PAGING_ARGS });
     });
 
     it('list(pattern, false) keeps the pattern', async () => {
         await kv.list('abc*', false);
-        expect(lastBody().args).toEqual({ as: 'keys', pattern: 'abc' });
+        expect(lastBody().args).toEqual({ as: 'keys', pattern: 'abc', ...SDK_PAGING_ARGS });
     });
 
     it('list(true, optConfig) asks for pairs with optConfig', async () => {
         await kv.list(true, { appUuid: 'u' });
-        expect(lastBody().args).toEqual({ optConfig: { appUuid: 'u' } });
+        expect(lastBody().args).toEqual({ optConfig: { appUuid: 'u' }, ...SDK_PAGING_ARGS });
     });
 
     it('list(pattern, optConfig) includes optConfig', async () => {
         await kv.list('abc*', { appUuid: 'u' });
-        expect(lastBody().args).toEqual({ as: 'keys', pattern: 'abc', optConfig: { appUuid: 'u' } });
+        expect(lastBody().args).toEqual({ as: 'keys', pattern: 'abc', optConfig: { appUuid: 'u' }, ...SDK_PAGING_ARGS });
     });
 
     it('list(pattern, true, optConfig) sends all three', async () => {
         await kv.list('abc*', true, { appUuid: 'u' });
-        expect(lastBody().args).toEqual({ pattern: 'abc', optConfig: { appUuid: 'u' } });
+        expect(lastBody().args).toEqual({ pattern: 'abc', optConfig: { appUuid: 'u' }, ...SDK_PAGING_ARGS });
+    });
+
+    it('list() follows cursors and concatenates the full listing', async () => {
+        FakeXHR.respondWith = (body) =>
+            body.args.cursor === null
+                ? { success: true, result: { items: ['a', 'b'], cursor: 'c2' } }
+                : { success: true, result: { items: ['c'] } };
+        await expect(kv.list()).resolves.toEqual(['a', 'b', 'c']);
+        expect(FakeXHR.requests).toHaveLength(2);
+        expect(JSON.parse(FakeXHR.requests[0].requestBody).args.cursor).toBe(null);
+        expect(JSON.parse(FakeXHR.requests[1].requestBody).args.cursor).toBe('c2');
+    });
+
+    it('list() treats a bare-array response as the complete listing', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: ['a', 'b'] });
+        await expect(kv.list()).resolves.toEqual(['a', 'b']);
+        expect(FakeXHR.requests).toHaveLength(1);
+    });
+
+    it('warns once when a full listing spans multiple pages', async () => {
+        FakeXHR.respondWith = (body) =>
+            body.args.cursor === null
+                ? { success: true, result: { items: ['a'], cursor: 'c2' } }
+                : { success: true, result: { items: ['b'] } };
+        await kv.list();
+        await kv.list();
+        const scanWarnings = warnSpy.mock.calls
+            .filter(([msg]) => String(msg).includes('spanned multiple pages'));
+        expect(scanWarnings).toHaveLength(1);
+    });
+
+    it('does not warn when the full listing fits in one page', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: { items: ['a'] } });
+        await kv.list();
+        expect(warnSpy).not.toHaveBeenCalled();
+    });
+
+    it('warns once when includeTotal is requested', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: { items: [], total: 0 } });
+        await kv.list({ limit: 1, includeTotal: true });
+        await kv.list({ limit: 1, includeTotal: true });
+        const totalWarnings = warnSpy.mock.calls
+            .filter(([msg]) => String(msg).includes('includeTotal'));
+        expect(totalWarnings).toHaveLength(1);
+    });
+
+    it('list({ stream: true }) yields envelope pages and follows cursors', async () => {
+        FakeXHR.respondWith = (body) =>
+            body.args.cursor === null
+                ? { success: true, result: { items: ['a'], cursor: 'c2', total: 2 } }
+                : { success: true, result: { items: ['b'] } };
+        const pages = [];
+        for await ( const page of kv.list({ stream: true, includeTotal: true }) ) {
+            pages.push(page);
+        }
+        expect(pages).toEqual([
+            { items: ['a'], cursor: 'c2', total: 2 },
+            { items: ['b'] },
+        ]);
+        // `includeTotal` rides the first request only.
+        expect(JSON.parse(FakeXHR.requests[0].requestBody).args)
+            .toEqual({ as: 'keys', limit: 1000, fetchUntilFull: true, cursor: null, includeTotal: true });
+        expect(JSON.parse(FakeXHR.requests[1].requestBody).args)
+            .toEqual({ as: 'keys', limit: 1000, fetchUntilFull: true, cursor: 'c2' });
+    });
+
+    it('list({ stream: true, limit }) keeps the caller\'s page size', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: { items: ['a'] } });
+        for await ( const page of kv.list({ stream: true, limit: 2, returnValues: true }) ) {
+            expect(page).toEqual({ items: ['a'] });
+        }
+        expect(lastBody().args).toEqual({ limit: 2, cursor: null });
+    });
+
+    it('list({ stream: true, cursor }) resumes from the cursor', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: { items: [] } });
+        for await ( const page of kv.list({ stream: true, cursor: 'c9' }) ) {
+            expect(page).toEqual({ items: [] });
+        }
+        expect(lastBody().args).toEqual({ as: 'keys', limit: 1000, fetchUntilFull: true, cursor: 'c9' });
+    });
+
+    it('list({ stream: true, offset }) rejects client-side', () => {
+        let err;
+        try {
+            kv.list({ stream: true, offset: 1 });
+        } catch (e) {
+            err = e;
+        }
+        expect(err).toMatchObject({ code: 'invalid_request' });
+        expect(FakeXHR.requests).toHaveLength(0);
     });
 
     it('list(options) copies every pagination option', async () => {
@@ -557,7 +658,15 @@ describe('kv.list driver payloads', () => {
 
     it('list(optConfig) treats an appUuid object as optConfig shorthand', async () => {
         await kv.list({ appUuid: 'u' });
-        expect(lastBody().args).toEqual({ as: 'keys', optConfig: { appUuid: 'u' } });
+        expect(lastBody().args).toEqual({ as: 'keys', optConfig: { appUuid: 'u' }, ...SDK_PAGING_ARGS });
+    });
+
+    it('list({ appUuid, stream }) strips stream from the optConfig shorthand', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: { items: [] } });
+        for await ( const page of kv.list({ appUuid: 'u', stream: true }) ) {
+            expect(page).toEqual({ items: [] });
+        }
+        expect(lastBody().args).toEqual({ as: 'keys', optConfig: { appUuid: 'u' }, ...SDK_PAGING_ARGS });
     });
 });
 

@@ -1,4 +1,5 @@
 import * as utils from '../../../lib/utils.js';
+import { fetchAllPages, iteratePages } from '../../../lib/pagination.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 
 // Track in-flight requests to avoid duplicate backend calls
@@ -9,7 +10,66 @@ const inflightRequests = new Map();
 // Requests made within this window will share the same backend call
 const DEDUPLICATION_WINDOW_MS = 2000; // 2 seconds
 
-const readdir = async function (...args) {
+// One HTTP /readdir request. `pageParams` holds the pagination params for
+// this page (cursor/includeTotal), if any. Resolves with the raw response:
+// a bare array (legacy) or an `{items, cursor?, total?}` envelope.
+const requestOnce = function (options, pageParams) {
+    return new Promise(async (resolve, reject) => {
+        // If auth token is not provided and we are in the web environment,
+        // try to authenticate with Puter
+        if ( !puter.authToken && puter.env === 'web' ) {
+            try {
+                await puter.ui.authenticateWithPuter();
+            } catch (e) {
+                // if authentication fails, throw an error
+                reject('Authentication failed.');
+                return;
+            }
+        }
+
+        // create xhr object
+        const xhr = utils.initXhr('/readdir', this.APIOrigin, undefined, 'post', 'text/plain;actually=json');
+
+        // set up event handlers for load and error events
+        utils.setupXhrEventHandlers(xhr, undefined, undefined, (result) => {
+            // set each individual item's cache
+            const entries = Array.isArray(result) ? result : (result?.items ?? []);
+            for ( const item of entries ) {
+                puter._cache.set(`item:${ item.path}`, item);
+            }
+            resolve(result);
+        }, reject);
+
+        // Build request payload - support both path and uid parameters
+        const payload = {
+            no_thumbs: options.no_thumbs,
+            no_assocs: options.no_assocs,
+            no_subdomains: options.no_subdomains,
+            auth_token: this.authToken,
+        };
+        if ( options.limit !== undefined ) payload.limit = options.limit;
+        if ( options.offset !== undefined ) payload.offset = options.offset;
+        if ( options.sortBy !== undefined ) payload.sortBy = options.sortBy;
+        if ( options.sortOrder !== undefined ) payload.sortOrder = options.sortOrder;
+        if ( pageParams ) {
+            payload.cursor = pageParams.cursor ?? null;
+            if ( pageParams.includeTotal !== undefined ) {
+                payload.includeTotal = pageParams.includeTotal;
+            }
+        }
+
+        // Add either uid or path to the payload
+        if ( options.uid ) {
+            payload.uid = options.uid;
+        } else if ( options.path ) {
+            payload.path = getAbsolutePathForApp(options.path);
+        }
+
+        xhr.send(JSON.stringify(payload));
+    });
+};
+
+const readdir = function (...args) {
     let options;
 
     // If first argument is an object, it's the options
@@ -22,6 +82,23 @@ const readdir = async function (...args) {
             success: args[1],
             error: args[2],
         };
+    }
+
+    // Streaming form: an async iterator of `{items, cursor?, total?}` pages.
+    // No listing cache and no dedup — a generator can't be shared between
+    // consumers — and no legacy callbacks.
+    if ( options.stream === true ) {
+        if ( options.offset !== undefined ) {
+            throw { message: '`offset` cannot be combined with `stream`; pass `cursor` to resume from a position.', code: 'invalid_request' };
+        }
+        if ( !options.path && !options.uid ) {
+            throw { message: 'Either path or uid must be provided.', code: 'NO_PATH_OR_UID' };
+        }
+        const fetchPage = pageParams => requestOnce.call(this, options, pageParams);
+        return iteratePages(fetchPage, {
+            cursor: options.cursor,
+            includeTotal: options.includeTotal === true,
+        });
     }
 
     return new Promise(async (resolve, reject) => {
@@ -41,10 +118,16 @@ const readdir = async function (...args) {
             Object.prototype.hasOwnProperty.call(options, 'cursor') ||
             options.includeTotal === true;
 
-        // Generate cache key based on path or uid. Pages are never cached —
-        // the cache stores full listings keyed by path only.
+        // Unbound listings (no pagination params at all) are fetched page by
+        // page under the hood and returned as the legacy full array.
+        const unbound = ! paginated &&
+            options.limit === undefined &&
+            options.offset === undefined;
+
+        // Generate cache key based on path. Only full listings are cached —
+        // pages and limit/offset-truncated results never are.
         let cacheKey;
-        if ( options.path && !paginated ) {
+        if ( options.path && unbound ) {
             cacheKey = `readdir:${ options.path}`;
         }
 
@@ -96,72 +179,39 @@ const readdir = async function (...args) {
             }
         }
 
-        // Create a promise for this request and store it to deduplicate concurrent calls
-        const requestPromise = new Promise(async (resolveRequest, rejectRequest) => {
-            // If auth token is not provided and we are in the web environment,
-            // try to authenticate with Puter
-            if ( !puter.authToken && puter.env === 'web' ) {
-                try {
-                    await puter.ui.authenticateWithPuter();
-                } catch (e) {
-                    // if authentication fails, throw an error
-                    rejectRequest('Authentication failed.');
-                    return;
-                }
+        const requestPromise = (async () => {
+            if ( ! unbound ) {
+                // Single request: legacy limit/offset form, or one page of the
+                // envelope when the caller passed cursor/includeTotal.
+                const pageParams = paginated
+                    ? { cursor: options.cursor, includeTotal: options.includeTotal }
+                    : undefined;
+                return await requestOnce.call(this, options, pageParams);
             }
 
-            // create xhr object
-            const xhr = utils.initXhr('/readdir', this.APIOrigin, undefined, 'post', 'text/plain;actually=json');
+            const fetchPage = pageParams => requestOnce.call(this, options, pageParams);
+            const result = await fetchAllPages(fetchPage);
 
-            // set up event handlers for load and error events
-            utils.setupXhrEventHandlers(xhr, options.success, options.error, async (result) => {
-                // Calculate the size of the result for cache eligibility check
-                const resultSize = JSON.stringify(result).length;
+            // Calculate the size of the result for cache eligibility check
+            const resultSize = JSON.stringify(result).length;
 
-                // Cache the result if it's not bigger than MAX_CACHE_SIZE
-                const MAX_CACHE_SIZE = 100 * 1024 * 1024;
+            // Cache the result if it's not bigger than MAX_CACHE_SIZE
+            const MAX_CACHE_SIZE = 100 * 1024 * 1024;
 
-                if ( cacheKey && resultSize <= MAX_CACHE_SIZE ) {
-                    // UPSERT the cache
-                    puter._cache.set(cacheKey, result);
-                }
-
-                // set each individual item's cache
-                const entries = paginated ? (result?.items ?? []) : result;
-                for ( const item of entries ) {
-                    puter._cache.set(`item:${ item.path}`, item);
-                }
-
-                resolveRequest(result);
-            }, rejectRequest);
-
-            // Build request payload - support both path and uid parameters
-            const payload = {
-                no_thumbs: options.no_thumbs,
-                no_assocs: options.no_assocs,
-                no_subdomains: options.no_subdomains,
-                auth_token: this.authToken,
-            };
-            if ( options.limit !== undefined ) payload.limit = options.limit;
-            if ( options.offset !== undefined ) payload.offset = options.offset;
-            if ( options.sortBy !== undefined ) payload.sortBy = options.sortBy;
-            if ( options.sortOrder !== undefined ) payload.sortOrder = options.sortOrder;
-            if ( paginated ) {
-                payload.cursor = options.cursor ?? null;
-                if ( options.includeTotal !== undefined ) {
-                    payload.includeTotal = options.includeTotal;
-                }
+            if ( cacheKey && resultSize <= MAX_CACHE_SIZE ) {
+                // UPSERT the cache
+                puter._cache.set(cacheKey, result);
             }
 
-            // Add either uid or path to the payload
-            if ( options.uid ) {
-                payload.uid = options.uid;
-            } else if ( options.path ) {
-                payload.path = getAbsolutePathForApp(options.path);
-            }
+            return result;
+        })();
 
-            xhr.send(JSON.stringify(payload));
-        });
+        // Legacy callbacks fire once, for the caller that initiated the
+        // request (dedup-reused and cache-served calls never fired them).
+        requestPromise.then(
+            result => { if ( typeof options.success === 'function' ) options.success(result); },
+            err => { if ( typeof options.error === 'function' ) options.error(err); },
+        );
 
         // Store the promise and timestamp in the in-flight tracker
         inflightRequests.set(deduplicationKey, {

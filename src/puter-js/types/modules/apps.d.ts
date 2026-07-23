@@ -1,4 +1,4 @@
-import type { RequestCallbacks } from '../shared.d.ts';
+import type { ListPage, ListPaginationOptions, ListStreamOptions, RequestCallbacks } from '../shared.d.ts';
 
 /** A user of an app, as returned by `App.users()` and `App.getUsers()`. */
 export interface AppUser {
@@ -179,10 +179,15 @@ export interface CheckAppNameResult {
 /** Create, manage, and interact with applications in the Puter ecosystem. */
 export class Apps {
     /**
-     * Returns all apps belonging to the user that this app has access to.
-     * Resolves to an empty array if the user has no apps.
+     * Returns all apps belonging to the user that this app has access to,
+     * fetching page by page under the hood. Resolves to an empty array if
+     * the user has no apps. With `stream: true` it instead returns an async
+     * iterator of pages for `for await ... of`; with `cursor` (even `null`),
+     * `offset`, or `includeTotal` it resolves to a single page envelope.
      */
-    list (options?: AppListOptions): Promise<App[]>;
+    list (options: AppListOptions & ListStreamOptions): AsyncIterableIterator<ListPage<App>>;
+    list (options: AppListOptions & ListPaginationOptions & ({ cursor: string | null } | { offset: number } | { includeTotal: true })): Promise<ListPage<App>>;
+    list (options?: AppListOptions & { limit?: number }): Promise<App[]>;
     /**
      * Creates a Puter app with the given name. The app name must be unique to
      * the user's apps; if one already exists the promise is rejected. `indexURL`

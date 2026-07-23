@@ -1,3 +1,5 @@
+import type { ListPage, ListPaginationOptions, ListStreamOptions } from '../shared.d.ts';
+
 /** Information about a deployed worker, as returned by `get()` and `list()`. */
 export interface WorkerInfo {
     /** The name of the worker. */
@@ -50,7 +52,14 @@ export class WorkersHandler {
     exec (request: RequestInfo | URL, init?: RequestInit): Promise<Response>;
     /** Gets information for a specific worker, or `undefined` if it does not exist. */
     get (workerName: string): Promise<WorkerInfo | undefined>;
-    /** Lists all workers in your account with their details. */
+    /**
+     * Lists all workers in your account with their details, fetching page by
+     * page under the hood. With `stream: true` it instead returns an async
+     * iterator of pages for `for await ... of`; with any pagination option
+     * it resolves to a single page envelope.
+     */
+    list (options: ListStreamOptions): AsyncIterableIterator<ListPage<WorkerInfo>>;
+    list (options: ListPaginationOptions & ({ limit: number } | { offset: number } | { cursor: string | null } | { includeTotal: true })): Promise<ListPage<WorkerInfo>>;
     list (): Promise<WorkerInfo[]>;
     getLoggingHandle (workerName: string): Promise<EventTarget & {
         close: () => void;

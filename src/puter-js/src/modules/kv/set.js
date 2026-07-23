@@ -86,16 +86,14 @@ const setBatch = (puter, args) =>
  * @returns {Promise<boolean>}
  */
 /**
- * @template [T = KVScalar]
  * @overload
- * @param {KVSetItem<T>[]} items
+ * @param {KVSetItem[]} items
  * @param {KVOptConfig} [optConfig]
  * @returns {Promise<boolean>}
  */
 /**
- * @template [T = KVScalar]
  * @overload
- * @param {KVSetBatch<T>} batch
+ * @param {KVSetBatch} batch
  * @returns {Promise<boolean>}
  */
 /**

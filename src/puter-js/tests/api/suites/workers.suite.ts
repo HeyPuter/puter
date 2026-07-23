@@ -125,6 +125,28 @@ export default suite('workers', {
         t.assert.ok((total ?? 0) >= 2, 'total should count deployed workers');
     },
 
+    'list with stream iterates pages via for await': async (t) => {
+        await deployWorker(t, 'workers-suite-st-a');
+        await deployWorker(t, 'workers-suite-st-b');
+
+        const seen: string[] = [];
+        let pages = 0;
+        for await (const page of t.puter.workers.list({ stream: true, limit: 1 }) as AsyncIterable<{
+            items: Array<{ name: string }>;
+            cursor?: string;
+        }>) {
+            pages++;
+            t.assert.ok(page.items.length <= 1, 'stream pages respect limit');
+            seen.push(...page.items.map((w) => w.name));
+        }
+        t.assert.ok(pages >= 2, 'stream should yield multiple pages');
+        t.assert.ok(
+            seen.includes('workers-suite-st-a') &&
+                seen.includes('workers-suite-st-b'),
+            'both deployed workers should appear while streaming',
+        );
+    },
+
     'delete removes the worker': async (t) => {
         await deployWorker(t, 'workers-suite-delete');
         const deleted = await t.puter.workers.delete('workers-suite-delete');

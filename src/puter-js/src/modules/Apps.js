@@ -1,5 +1,6 @@
 import * as utils from '../lib/utils.js';
 import { fetchUrl } from '../lib/networkUtils.js';
+import { fetchAllPages, iteratePages } from '../lib/pagination.js';
 
 class Apps {
     /**
@@ -70,31 +71,55 @@ class Apps {
         this.APIOrigin = APIOrigin;
     }
 
-    list = async (...args) => {
-        let options = {};
-
+    list = (...args) => {
         // if args is a single object, assume it is the options object.
-        // Pagination keys are lifted to top-level driver args; the rest
-        // (icon_size, stats_period, ...) stay in `params`.
-        if ( typeof args[0] === 'object' && args[0] !== null ) {
-            const { limit, offset, cursor, includeTotal, ...params } = args[0];
-            options.params = params;
-            if ( limit !== undefined ) options.limit = limit;
-            if ( offset !== undefined ) options.offset = offset;
-            if ( Object.prototype.hasOwnProperty.call(args[0], 'cursor') ) {
-                options.cursor = cursor ?? null;
+        // Pagination keys (and `stream`) are lifted to top-level driver args;
+        // the rest (icon_size, stats_period, ...) stay in `params`.
+        const isObjectForm = typeof args[0] === 'object' && args[0] !== null;
+        const opts = isObjectForm ? args[0] : {};
+        const { limit, offset, cursor, includeTotal, stream, ...params } = opts;
+        const hasCursor = Object.prototype.hasOwnProperty.call(opts, 'cursor');
+
+        const select = utils.make_driver_method(['uid'], 'puter-apps', 'es:app', 'select');
+        const base = { predicate: ['user-can-edit'] };
+        if ( isObjectForm ) base.params = params;
+        if ( limit !== undefined ) base.limit = limit;
+        const fetchPage = pageParams => select.call(this, { ...base, ...pageParams });
+
+        if ( stream === true ) {
+            if ( offset !== undefined ) {
+                throw { message: '`offset` cannot be combined with `stream`; pass `cursor` to resume from a position.', code: 'invalid_request' };
             }
-            if ( includeTotal !== undefined ) options.includeTotal = includeTotal;
+            const self = this;
+            return (async function* () {
+                for await ( const page of iteratePages(fetchPage, { cursor, includeTotal: includeTotal === true }) ) {
+                    self.#addUserIterationToApps(page.items ?? []);
+                    yield page;
+                }
+            })();
         }
 
-        options.predicate = ['user-can-edit'];
-
-        const result = await utils.make_driver_method(['uid'], 'puter-apps', 'es:app', 'select').call(this, options);
-        if ( result && !Array.isArray(result) && Array.isArray(result.items) ) {
-            this.#addUserIterationToApps(result.items);
-            return result;
+        // Any pagination param keeps the single-request behavior: a bare
+        // (possibly limit-capped) array, or the page envelope once the
+        // request opts into pagination via cursor/offset/includeTotal.
+        if ( limit !== undefined || offset !== undefined || hasCursor || includeTotal !== undefined ) {
+            return (async () => {
+                const options = { ...base };
+                if ( offset !== undefined ) options.offset = offset;
+                if ( hasCursor ) options.cursor = cursor ?? null;
+                if ( includeTotal !== undefined ) options.includeTotal = includeTotal;
+                const result = await select.call(this, options);
+                if ( result && !Array.isArray(result) && Array.isArray(result.items) ) {
+                    this.#addUserIterationToApps(result.items);
+                    return result;
+                }
+                return this.#addUserIterationToApps(result);
+            })();
         }
-        return this.#addUserIterationToApps(result);
+
+        // Unbound listing: fetch page by page under the hood so no single
+        // request carries the whole result, then return the legacy array.
+        return fetchAllPages(fetchPage).then(items => this.#addUserIterationToApps(items));
     };
 
     create = async (...args) => {

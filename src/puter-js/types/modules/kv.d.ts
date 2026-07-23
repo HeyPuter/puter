@@ -97,8 +97,10 @@ export interface KVListOptions {
     offset?: number;
     /**
      * When `true`, the result includes a `total` count of every item matching
-     * the query across all pages. Computing the total costs more the more
-     * items there are, so request it on the first page only.
+     * the query across all pages. The count is metered and its cost grows
+     * with the store — request it once (on the first page) and avoid it in
+     * hot paths; to know whether more pages exist, check for `cursor`
+     * instead.
      */
     includeTotal?: boolean;
     /**
@@ -113,6 +115,16 @@ export interface KVListOptions {
 export type KVListPaginationOptions =
     | { limit: number; cursor?: string }
     | { cursor: string; limit?: number };
+
+/**
+ * The `stream: true` form of `list()`: returns an async iterator of
+ * `KVListPage`s for `for await ... of` instead of a promise. Cannot be
+ * combined with `offset`; pass `cursor` to resume from a position.
+ */
+export interface KVListStreamOptions {
+    /** Stream page envelopes as they are fetched. */
+    stream: true;
+}
 
 /** A page of paginated results from `list()` when `limit` or `cursor` is used. */
 export interface KVListPage<T = unknown> {
@@ -155,8 +167,8 @@ export class KV {
     /** @param expireAt - Timestamp, in seconds, at which the key should expire. */
     set<T = KVScalar>(key: string, value: T, expireAt?: number, optConfig?: KVOptConfig): Promise<boolean>;
     set<T = KVScalar>(item: KVSetObject<T>): Promise<boolean>;
-    set<T = KVScalar>(items: KVSetItem<T>[], optConfig?: KVOptConfig): Promise<boolean>;
-    set<T = KVScalar>(batch: KVSetBatch<T>): Promise<boolean>;
+    set(items: KVSetItem[], optConfig?: KVOptConfig): Promise<boolean>;
+    set(batch: KVSetBatch): Promise<boolean>;
     /** Returns the key's value, or `undefined` if the key does not exist. */
     get<T = unknown>(key: string, optConfig?: KVOptConfig): Promise<T | undefined>;
     /**
@@ -220,6 +232,11 @@ export class KV {
      * Lists keys in the store for the current app, sorted lexicographically by
      * key. Returns just the keys, an array of `KVPair` objects when
      * `returnValues` is `true`, or a `KVListPage` when `limit`/`cursor` is used.
+     * With `stream: true` it instead returns an async iterator of
+     * `KVListPage`s for `for await ... of`. Full (non-paginated) listings are
+     * fetched page by page under the hood, but still read the entire store —
+     * every page is metered, so prefer `stream`/`limit` with a narrow
+     * `pattern` on large stores.
      * @param pattern - Prefix-based key filter with an optional trailing `*`
      * wildcard. Defaults to `*`, matching all keys.
      */
@@ -229,6 +246,8 @@ export class KV {
     list (pattern: string, returnValues: boolean, optConfig: KVOptConfig): Promise<string[] | KVPair<unknown>[]>;
     list (pattern: string, optConfig: KVOptConfig): Promise<string[]>;
     list<T = unknown>(returnValues: true, optConfig: KVOptConfig): Promise<KVPair<T>[]>;
+    list (options: KVListOptions & KVListStreamOptions & { returnValues?: false }): AsyncIterableIterator<KVListPage<string>>;
+    list<T = unknown>(options: KVListOptions & KVListStreamOptions & { returnValues: true }): AsyncIterableIterator<KVListPage<KVPair<T>>>;
     list (options: KVListOptions & KVListPaginationOptions & { returnValues?: false }): Promise<KVListPage<string>>;
     list<T = unknown>(options: KVListOptions & KVListPaginationOptions & { returnValues: true }): Promise<KVListPage<KVPair<T>>>;
     list (options: KVListOptions & { returnValues?: false }): Promise<string[]>;

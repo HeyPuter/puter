@@ -185,21 +185,10 @@ const CASES = [
     { name: "expireAt('k', ts)", run: (kv) => kv.expireAt('k', 1234567890) },
     { name: "expireAt('k', ts, optConfig)", run: (kv) => kv.expireAt('k', 1, { appUuid: 'u' }) },
 
-    // -- list (equivalent forms) --
-    { name: 'list()', run: (kv) => kv.list() },
-    { name: 'list(true)', run: (kv) => kv.list(true) },
-    { name: 'list(false)', run: (kv) => kv.list(false) },
-    { name: "list('abc*')", run: (kv) => kv.list('abc*') },
-    { name: "list('abc')", run: (kv) => kv.list('abc') },
-    { name: "list('*')", run: (kv) => kv.list('*') },
-    { name: "list('k**')", run: (kv) => kv.list('k**') },
-    { name: "list('  ')", run: (kv) => kv.list('  ') },
-    { name: "list('abc*', true)", run: (kv) => kv.list('abc*', true) },
-    { name: "list('abc*', optConfig)", run: (kv) => kv.list('abc*', { appUuid: 'u' }) },
-    { name: "list('abc*', true, optConfig)", run: (kv) => kv.list('abc*', true, { appUuid: 'u' }) },
+    // -- list (equivalent paginated forms; unbound forms diverge and are
+    // asserted in the divergences block below) --
     { name: 'list(full options object)', run: (kv) => kv.list({ pattern: 'p*', returnValues: true, limit: 5, cursor: 'c1', offset: 2, includeTotal: true, fetchUntilFull: true, optConfig: { appUuid: 'u' } }) },
     { name: 'list({ limit })', run: (kv) => kv.list({ limit: 5 }) },
-    { name: 'list(optConfig shorthand object)', run: (kv) => kv.list({ appUuid: 'u' }) },
 
     // -- flush / clear --
     { name: 'flush()', run: (kv) => kv.flush() },
@@ -238,18 +227,56 @@ describe('old vs new KV module equivalence', () => {
 });
 
 describe('deliberate divergences (runtime now matches kv.d.ts/docs)', () => {
+    // Unbound (non-paginated) list forms now fetch pages under the hood: the
+    // wire request carries the SDK's paging params, but the resolved value —
+    // the full listing as a plain array — is unchanged.
+    const UNBOUND_LIST_FORMS = [
+        { name: 'list()', run: (kv) => kv.list() },
+        { name: 'list(true)', run: (kv) => kv.list(true) },
+        { name: 'list(false)', run: (kv) => kv.list(false) },
+        { name: "list('abc*')", run: (kv) => kv.list('abc*') },
+        { name: "list('abc')", run: (kv) => kv.list('abc') },
+        { name: "list('*')", run: (kv) => kv.list('*') },
+        { name: "list('k**')", run: (kv) => kv.list('k**') },
+        { name: "list('  ')", run: (kv) => kv.list('  ') },
+        { name: "list('abc*', true)", run: (kv) => kv.list('abc*', true) },
+        { name: "list('abc*', optConfig)", run: (kv) => kv.list('abc*', { appUuid: 'u' }) },
+        { name: "list('abc*', true, optConfig)", run: (kv) => kv.list('abc*', true, { appUuid: 'u' }) },
+        { name: 'list(optConfig shorthand object)', run: (kv) => kv.list({ appUuid: 'u' }) },
+    ];
+    for ( const form of UNBOUND_LIST_FORMS ) {
+        it(`${form.name}: new pages under the hood, same resolved value`, async () => {
+            FakeXHR.respondWith = () => ({ success: true, result: ['k1', 'k2'] });
+            const oldRun = await capture(OldKV, form.run);
+            const newRun = await capture(NewKV, form.run);
+
+            // A bare-array response ends the paging loop after one request.
+            expect(newRun.bodies).toHaveLength(oldRun.bodies.length);
+            expect(newRun.bodies[0].args).toEqual({
+                ...oldRun.bodies[0].args,
+                limit: 1000,
+                fetchUntilFull: true,
+                cursor: null,
+            });
+            expect(newRun.result).toEqual(oldRun.result);
+            expect(newRun.rejectionCode).toEqual(oldRun.rejectionCode);
+        });
+    }
+
     it("list(pattern, false): old dropped the pattern, new keeps it", async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: [] });
         const oldRun = await capture(OldKV, (kv) => kv.list('abc*', false));
         const newRun = await capture(NewKV, (kv) => kv.list('abc*', false));
         expect(oldRun.bodies[0].args).toEqual({ as: 'keys' });
-        expect(newRun.bodies[0].args).toEqual({ as: 'keys', pattern: 'abc' });
+        expect(newRun.bodies[0].args).toEqual({ as: 'keys', pattern: 'abc', limit: 1000, fetchUntilFull: true, cursor: null });
     });
 
     it('list(true, optConfig): old returned keys, new returns pairs', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: [] });
         const oldRun = await capture(OldKV, (kv) => kv.list(true, { appUuid: 'u' }));
         const newRun = await capture(NewKV, (kv) => kv.list(true, { appUuid: 'u' }));
         expect(oldRun.bodies[0].args).toEqual({ as: 'keys', optConfig: { appUuid: 'u' } });
-        expect(newRun.bodies[0].args).toEqual({ optConfig: { appUuid: 'u' } });
+        expect(newRun.bodies[0].args).toEqual({ optConfig: { appUuid: 'u' }, limit: 1000, fetchUntilFull: true, cursor: null });
     });
 
     it('destructured get: old threw (unbound method), new works', async () => {
