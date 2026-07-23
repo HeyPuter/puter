@@ -213,7 +213,7 @@ export function list (patternOrOptions, returnValuesOrOptConfig, maybeOptConfig)
         nudgeOnce(this, 'includeTotal', '`includeTotal` runs a metered count over every key matching the query, so its cost grows with the store. Request the total once — on the first page — and avoid it in hot paths; to know whether more pages exist, check for `cursor` instead.');
     }
 
-    const callList = utils.make_driver_method([], 'puter-kvstore', undefined, 'list', { puter: this.puter });
+    const callList = utils.make_driver_method([], 'puter-kvstore', undefined, 'list', { puter: this.puter, readonly: true });
 
     if ( stream ) {
         if ( options.offset !== undefined ) {
