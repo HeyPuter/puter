@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import bcrypt from 'bcrypt';
@@ -107,14 +108,13 @@ const RESERVED_USERNAMES = new Set([
  * Auth controller — login/logout, permission grants/revokes, session
  * management, OTP, and permission checks.
  *
- * Routes are declared via decorators (@Get/@Post on each handler). The
- * five `/user-protected/*` and `/user-protected/delete-own-user` routes
- * also need a per-instance `createUserProtectedGate(...)` middleware
- * built from `this.config / this.stores / this.services`, which can't
- * live in a static decorator literal — those are wired imperatively in
- * the `registerRoutes` override below. The override also re-runs the
- * default decorator-walker logic so the rest of the routes register
- * normally.
+ * Routes are declared via decorators (@Get/@Post on each handler). The five
+ * `/user-protected/*` and `/user-protected/delete-own-user` routes also need a
+ * per-instance `createUserProtectedGate(...)` middleware built from
+ * `this.config / this.stores / this.services`, which can't live in a static
+ * decorator literal — those are wired imperatively in the `registerRoutes`
+ * override below. The override also re-runs the default decorator-walker logic
+ * so the rest of the routes register normally.
  */
 @Controller('')
 export class AuthController extends PuterController {
@@ -1140,10 +1140,10 @@ export class AuthController extends PuterController {
      * single greppable line tying that id to the real reason (so support can
      * look it up in CloudWatch with the id the user quotes), stores the same
      * record in KV under `sms-send-error:<error_id>` for a week (the admin
-     * abuse page looks it up there without needing log access), and returns
-     * the `HttpError` with the id attached as `error_id` for the GUI to
-     * surface. The phone number is deliberately omitted from the log line and
-     * the KV record (PII); the user + country are enough to correlate.
+     * abuse page looks it up there without needing log access), and returns the
+     * `HttpError` with the id attached as `error_id` for the GUI to surface.
+     * The phone number is deliberately omitted from the log line and the KV
+     * record (PII); the user + country are enough to correlate.
      */
     private async smsSendError(
         statusCode: number,
@@ -1650,11 +1650,11 @@ export class AuthController extends PuterController {
 
     /**
      * Start card verification for the calling user. Pure mechanism: the
-     * endpoint emits `puter.card-verification.setup` and a payments
-     * extension fills in the client credentials — the OSS backend holds
-     * no provider knowledge or config. Phone verification (when required)
-     * must be completed first; the ordering is enforced here so a client
-     * can't skip the cheaper gate.
+     * endpoint emits `puter.card-verification.setup` and a payments extension
+     * fills in the client credentials — the OSS backend holds no provider
+     * knowledge or config. Phone verification (when required) must be completed
+     * first; the ordering is enforced here so a client can't skip the cheaper
+     * gate.
      */
     @Post('/card-verification/setup', {
         subdomain: ['api', ''],
@@ -1765,9 +1765,9 @@ export class AuthController extends PuterController {
     }
 
     /**
-     * Complete card verification. The client confirms the setup intent with
-     * the payment provider directly, then posts the resulting id here; the
-     * payments extension checks it (and applies its own abuse limits) via
+     * Complete card verification. The client confirms the setup intent with the
+     * payment provider directly, then posts the resulting id here; the payments
+     * extension checks it (and applies its own abuse limits) via
      * `puter.card-verification.confirm`. On success the gate clears exactly
      * like `/confirm-phone` clears the phone gate.
      */
@@ -3052,7 +3052,13 @@ export class AuthController extends PuterController {
 
         let app = await this.stores.app.getByUid(app_uid);
         if (!app && resolvedFromOrigin) {
-            app = await this.stores.app.createFromOrigin(app_uid, origin);
+            // Hosted-subdomain origins get the site owner stamped as the
+            // app's creator at bootstrap; external origins stay unowned.
+            const ownerUserId =
+                await this.services.auth.subdomainOwnerIdFromOrigin(origin);
+            app = await this.stores.app.createFromOrigin(app_uid, origin, {
+                ownerUserId,
+            });
         }
         if (!app) {
             throw new HttpError(404, `App ${app_uid} does not exist`, {
@@ -4046,10 +4052,10 @@ export class AuthController extends PuterController {
     }
 
     /**
-     * Config-blocklist + extension-driven email validation.
-     * Config blocklist (suffix match on cleaned email) blocks first; then
-     * the `email.validate` event lets extensions (abuse) reject.
-     * Throws HttpError(400) on rejection.
+     * Config-blocklist + extension-driven email validation. Config blocklist
+     * (suffix match on cleaned email) blocks first; then the `email.validate`
+     * event lets extensions (abuse) reject. Throws HttpError(400) on
+     * rejection.
      */
     async #validateEmail(email: string): Promise<void> {
         if (
@@ -4094,9 +4100,9 @@ export class AuthController extends PuterController {
 
     /**
      * Per-IP enumeration clamp on `auth_id`-bearing auth requests. Separate
-     * from the route-level rate limit so a tighter ceiling applies only to
-     * the path that takes a uuid hint from the body — the normal login
-     * path stays at its more generous limit.
+     * from the route-level rate limit so a tighter ceiling applies only to the
+     * path that takes a uuid hint from the body — the normal login path stays
+     * at its more generous limit.
      */
     async #checkAuthIdRateLimit(req: Request): Promise<void> {
         const ip = req.ip || req.socket?.remoteAddress || 'unknown';
@@ -4114,12 +4120,11 @@ export class AuthController extends PuterController {
     }
 
     /**
-     * Extract the `auth_id` claim from a client-supplied reauth_token.
-     * Returns null when no token was supplied. Throws on invalid/expired
-     * tokens. The reauth_token is a server-signed JWT minted by the
-     * authProbe at 401 time — accepting only the signed envelope (vs. a
-     * raw UUID) means a leaked auth_id alone can't attach a session to
-     * an existing account.
+     * Extract the `auth_id` claim from a client-supplied reauth_token. Returns
+     * null when no token was supplied. Throws on invalid/expired tokens. The
+     * reauth_token is a server-signed JWT minted by the authProbe at 401 time —
+     * accepting only the signed envelope (vs. a raw UUID) means a leaked
+     * auth_id alone can't attach a session to an existing account.
      */
     #extractAuthIdFromReauthToken(suppliedToken: unknown): string | null {
         if (suppliedToken === undefined || suppliedToken === null) return null;
@@ -4133,18 +4138,17 @@ export class AuthController extends PuterController {
     }
 
     /**
-     * Enforce a verified `auth_id` against the user the credential flow
-     * has resolved. Caller has already extracted `auth_id` from the
-     * server-signed reauth_token (or from an OTP-flow JWT). When the GUI
-     * is forced through reauth, the 401 response embeds the reauth_token;
-     * the client echoes it back so we can confirm the second login lands
-     * on the same user row — critical for temp users, where a fresh
-     * signup would otherwise mint a new account and strand their files.
+     * Enforce a verified `auth_id` against the user the credential flow has
+     * resolved. Caller has already extracted `auth_id` from the server-signed
+     * reauth_token (or from an OTP-flow JWT). When the GUI is forced through
+     * reauth, the 401 response embeds the reauth_token; the client echoes it
+     * back so we can confirm the second login lands on the same user row —
+     * critical for temp users, where a fresh signup would otherwise mint a new
+     * account and strand their files.
      *
-     * No `authId` supplied → no-op (normal login). Unknown `authId` →
-     * 404 (mirrors username-not-found, avoids being an enumeration
-     * oracle). Mismatch against the resolved user → 409
-     * (`auth_id_mismatch`).
+     * No `authId` supplied → no-op (normal login). Unknown `authId` → 404
+     * (mirrors username-not-found, avoids being an enumeration oracle).
+     * Mismatch against the resolved user → 409 (`auth_id_mismatch`).
      */
     async #enforceAuthIdMatch(
         req: Request,

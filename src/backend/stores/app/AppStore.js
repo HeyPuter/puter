@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -26,10 +27,10 @@ import { validateUrl } from '../../util/validation.js';
 /**
  * Persistence + cache for the `apps` table.
  *
- * CRUD over app rows with multi-key caching (uid, name, id). No
- * validation or permission logic — those live in AppDriver. Callers
- * that need enforcement should go through the driver; callers that
- * just need data (internal services) can hit the store directly.
+ * CRUD over app rows with multi-key caching (uid, name, id). No validation or
+ * permission logic — those live in AppDriver. Callers that need enforcement
+ * should go through the driver; callers that just need data (internal services)
+ * can hit the store directly.
  */
 
 const CACHE_KEY_PREFIX = 'apps';
@@ -134,10 +135,9 @@ export class AppStore extends PuterStore {
 
     /**
      * Batched lookup by id. Dedupes input ids, reads cache via a pipelined
-     * MGET, and resolves remaining misses with a single
-     * `SELECT … WHERE id IN (…)` per chunk. Use this in place of
-     * `Promise.all(ids.map(getById))` to avoid one connection per row on
-     * large id sets.
+     * MGET, and resolves remaining misses with a single `SELECT … WHERE id IN
+     * (…)` per chunk. Use this in place of `Promise.all(ids.map(getById))` to
+     * avoid one connection per row on large id sets.
      *
      * Missing ids (no DB row) are simply absent from the returned map.
      */
@@ -218,11 +218,11 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Find the oldest app whose `index_url` matches one of `candidates`.
-     * Used by the driver to detect duplicate puter-hosted index_url rows
-     * (origin-bootstrap apps + same-owner duplicates) so they can be
-     * merged on `create` / `update`. Returns the minimal row shape
-     * needed by the merge path; falsy when nothing matches.
+     * Find the oldest app whose `index_url` matches one of `candidates`. Used
+     * by the driver to detect duplicate puter-hosted index_url rows
+     * (origin-bootstrap apps + same-owner duplicates) so they can be merged on
+     * `create` / `update`. Returns the minimal row shape needed by the merge
+     * path; falsy when nothing matches.
      */
     async findByIndexUrlCandidates(candidates, { excludeAppId } = {}) {
         if (!Array.isArray(candidates) || candidates.length === 0) return null;
@@ -239,10 +239,10 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Set `owner_user_id` on an app row only if it has no current owner.
-     * Used by the merge path to claim ownership of an origin-bootstrap
-     * app row (auto-created with no owner) before merging into it.
-     * Returns true iff the row was modified.
+     * Set `owner_user_id` on an app row only if it has no current owner. Used
+     * by the merge path to claim ownership of an origin-bootstrap app row
+     * (auto-created with no owner) before merging into it. Returns true iff the
+     * row was modified.
      */
     async claimOwnership(appId, userId) {
         if (!Number.isInteger(appId) || appId <= 0) return false;
@@ -262,15 +262,15 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * List apps with optional filters. Returns raw normalised rows —
-     * the driver is responsible for permission filtering + icon URL
-     * resolution when serving to clients.
+     * List apps with optional filters. Returns raw normalised rows — the driver
+     * is responsible for permission filtering + icon URL resolution when
+     * serving to clients.
      *
      * @param {object} filters
      * @param {number} [filters.ownerUserId] — only apps owned by this user
      * @param {number} [filters.appOwner] — only apps created by another app
      * @param {string} [filters.name] — exact name match
-     * @param {number} [filters.limit=500]
+     * @param {number} [filters.limit=500] Default is `500`
      */
     async list(filters = {}) {
         const where = [];
@@ -361,18 +361,17 @@ export class AppStore extends PuterStore {
     /**
      * Create a new app row.
      *
-     * `fields` is the post-validation column map from the driver.
-     * `ownerUserId` and `appOwner` come in as a separate arg rather
-     * than living on `fields` so user-derived patches can never fake
-     * ownership — the store's READ_ONLY_COLUMNS filter would strip
-     * them from `fields` anyway; putting them here makes the
-     * privileged contract obvious at the call site.
+     * `fields` is the post-validation column map from the driver. `ownerUserId`
+     * and `appOwner` come in as a separate arg rather than living on `fields`
+     * so user-derived patches can never fake ownership — the store's
+     * READ_ONLY_COLUMNS filter would strip them from `fields` anyway; putting
+     * them here makes the privileged contract obvious at the call site.
      *
      * Returns the created app row.
      */
     async create(
         fields,
-        /** @type {{ownerUserId?: number, appOwner?: number}} */
+        /** @type {{ ownerUserId?: number; appOwner?: number }} */
         { ownerUserId, appOwner = null } = {},
     ) {
         if (typeof ownerUserId !== 'number') {
@@ -409,14 +408,21 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Create an origin-bootstrap app row for `origin` with the
-     * deterministic `uid` (UUIDv5 of origin). No owner — the row stays
-     * unclaimed until a developer registers an app for the same origin
-     * and AppDriver's merge path takes ownership. Marker shape
-     * (`name === uid && title === uid` + description prefix) is what
+     * Create an origin-bootstrap app row for `origin` with the deterministic
+     * `uid` (UUIDv5 of origin). `ownerUserId` is a privileged arg (same
+     * contract as `create`) — callers pass the hosted-subdomain owner so the
+     * site owner is the app's creator from the first minted token. Without one
+     * the row stays unclaimed until a developer registers an app for the same
+     * origin and AppDriver's merge path takes ownership. Marker shape (`name
+     * === uid && title === uid` + description prefix) is what
      * `#isOriginBootstrapApp` checks.
      */
-    async createFromOrigin(uid, origin) {
+    async createFromOrigin(
+        uid,
+        origin,
+        /** @type {{ ownerUserId?: number | null }} */
+        { ownerUserId = null } = {},
+    ) {
         // Bootstrap apps persist `origin` straight into `index_url`, which is
         // later loaded as `iframe.src`. Enforce the same http(s) scheme
         // allow-list as the AppDriver create/update path so a caller-supplied
@@ -429,7 +435,10 @@ export class AppStore extends PuterStore {
             title: uid,
             description: `App created from origin ${origin}`,
             index_url: origin,
-            owner_user_id: null,
+            owner_user_id:
+                Number.isInteger(ownerUserId) && ownerUserId > 0
+                    ? ownerUserId
+                    : null,
         };
 
         const columns = ['uid', ...Object.keys(fields)];
@@ -517,12 +526,12 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Record `oldName` as a redirect to the app identified by `appUid`.
-     * The (app_uid, name) tuple is unique in `old_app_names`, so the
-     * upsert refreshes the timestamp when the same app re-records the
-     * same previous name (which happens whenever a user renames back
-     * and forth) — that resets the TTL clock so the redirect stays live
-     * for another {@link OLD_APP_NAME_TTL_MONTHS} months.
+     * Record `oldName` as a redirect to the app identified by `appUid`. The
+     * (app_uid, name) tuple is unique in `old_app_names`, so the upsert
+     * refreshes the timestamp when the same app re-records the same previous
+     * name (which happens whenever a user renames back and forth) — that resets
+     * the TTL clock so the redirect stays live for another
+     * {@link OLD_APP_NAME_TTL_MONTHS} months.
      */
     async #recordOldAppName(appUid, oldName) {
         if (!appUid || typeof oldName !== 'string' || oldName.length === 0) {
@@ -540,10 +549,10 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Drop every `old_app_names` row for `name`. Called whenever a name
-     * is freshly claimed in `apps` (create or rename-into) so the
-     * authoritative live row isn't shadowed by a stale redirect that
-     * pointed `name` at some prior owner.
+     * Drop every `old_app_names` row for `name`. Called whenever a name is
+     * freshly claimed in `apps` (create or rename-into) so the authoritative
+     * live row isn't shadowed by a stale redirect that pointed `name` at some
+     * prior owner.
      */
     async #clearOldAppNamesForName(name) {
         if (typeof name !== 'string' || name.length === 0) return;
@@ -554,8 +563,8 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Delete an app row. Also deletes its filetype associations.
-     * Invalidates cache.
+     * Delete an app row. Also deletes its filetype associations. Invalidates
+     * cache.
      */
     async delete(appId) {
         const app = await this.getById(appId);
@@ -583,9 +592,9 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Batch sibling of {@link getFiletypeAssociations} — one query for many
-     * app ids, returns `Map<appId, string[]>` (every requested id is
-     * present, with `[]` for apps that have no associations).
+     * Batch sibling of {@link getFiletypeAssociations} — one query for many app
+     * ids, returns `Map<appId, string[]>` (every requested id is present, with
+     * `[]` for apps that have no associations).
      */
     async getFiletypeAssociationsByIds(appIds) {
         const ids = Array.isArray(appIds)
@@ -765,10 +774,10 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Resolve an app by a previously-used name via `old_app_names`.
-     * Lazy-GCs entries older than {@link OLD_APP_NAME_TTL_MONTHS}: a
-     * cutoff DELETE runs before the JOIN, so an expired redirect is
-     * removed and the lookup returns null on the very same call.
+     * Resolve an app by a previously-used name via `old_app_names`. Lazy-GCs
+     * entries older than {@link OLD_APP_NAME_TTL_MONTHS}: a cutoff DELETE runs
+     * before the JOIN, so an expired redirect is removed and the lookup returns
+     * null on the very same call.
      */
     async #resolveByOldName(name) {
         const cutoffClause = this.clients.db.case({
@@ -969,9 +978,9 @@ export class AppStore extends PuterStore {
     /**
      * Batched, cached all-time { open_count, user_count } for a set of apps.
      *
-     * Flow: pipelined redis MGET → on miss, one ClickHouse (or MySQL) query
-     * for all misses at once → backfill cache. Apps with no rows in
-     * `app_opens` resolve to zero counts. Returns `Map<uid, stats>`.
+     * Flow: pipelined redis MGET → on miss, one ClickHouse (or MySQL) query for
+     * all misses at once → backfill cache. Apps with no rows in `app_opens`
+     * resolve to zero counts. Returns `Map<uid, stats>`.
      */
     async getAppsStats(appUids) {
         const uids = Array.isArray(appUids)
@@ -1040,16 +1049,16 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Detailed / period-filtered / grouped stats for a single app.
-     * Deliberately uncached — UI-driven, rarely repeated with the exact same
-     * args, and ClickHouse is fast enough at interactive latency.
+     * Detailed / period-filtered / grouped stats for a single app. Deliberately
+     * uncached — UI-driven, rarely repeated with the exact same args, and
+     * ClickHouse is fast enough at interactive latency.
      *
      * @param {object} [options]
      * @param {string} [options.period='all'] — today, yesterday, 7d, 30d,
      *   this_week, last_week, this_month, last_month, this_year, last_year,
-     *   12m, all
+     *   12m, all. Default is `'all'`
      * @param {string} [options.grouping] — hour, day, week, month, year
-     * @param {number|string|Date} [options.createdAt] — app creation ts;
+     * @param {number | string | Date} [options.createdAt] — app creation ts;
      *   used to bound the `all` period
      */
     async getAppStatsDetailed(appUid, options = {}) {

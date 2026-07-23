@@ -1258,6 +1258,37 @@ describe('AppDriver hosted-subdomain ownership check', () => {
         }
     });
 
+    it('create merges into an owner-stamped bootstrap stub for an owned subdomain', async () => {
+        // The get-user-app-token bootstrap path stamps the subdomain owner
+        // on the stub at mint time — the owner's later create must still
+        // absorb the stub (claimOwnership is skipped, merge proceeds).
+        const { actor, userId } = await makeUser();
+        const sub = uniqueName('ownedstub');
+        await server.stores.subdomain.create({ userId, subdomain: sub });
+        const stubUid = `app-${uuidv4()}`;
+        await server.stores.app.createFromOrigin(
+            stubUid,
+            `https://${sub}.site.puter.localhost`,
+            { ownerUserId: userId },
+        );
+
+        const name = uniqueName('owned-create');
+        const result = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name,
+                    title: 'Owned stub',
+                    index_url: hostedUrl(sub),
+                },
+            }),
+        );
+
+        expect(result.uid).toBe(stubUid);
+        expect(result.name).toBe(name);
+        const stored = await server.stores.app.getByUid(stubUid);
+        expect(stored?.owner_user_id).toBe(userId);
+    });
+
     it('rejects a hosted index_url whose subdomain does not exist anywhere', async () => {
         const { actor } = await makeUser();
         await expect(
