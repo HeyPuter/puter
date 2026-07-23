@@ -4334,17 +4334,14 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     text-overflow: ellipsis;
     /* FIXED title box (not a cap): every app's pill is the same width, so
        the minimize/close buttons sit at the same screen position in every
-       app — they're operated by muscle memory. Left-aligned against the
-       icon: the pill is asymmetric (one icon left, two buttons right), so
-       a centered title lands off the pill's true center and reads as
-       misaligned. Icon + title cluster as the identity on the left, the
-       controls cluster on the right. The collapse animation still drives
-       max-width to 0. */
+       app — they're operated by muscle memory. Short titles center in
+       the box like a classic titlebar. The collapse animation still
+       drives max-width to 0. */
     flex: none;
     width: 150px;
     max-width: 150px;
-    text-align: left;
-    margin: 0 6px 0 8px;
+    text-align: center;
+    margin: 0 6px 0 4px;
     transition: max-width 0.22s ease, opacity 0.15s ease, margin 0.22s ease;
 }
 
