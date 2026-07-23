@@ -3904,6 +3904,16 @@ $.fn.showWindow = async function (options) {
             // show window
             const el_window = this;
 
+            // Stay-on-top windows (every fullpage/dashboard app window) are
+            // CREATED in the 99999999+ z band; restore must re-raise them
+            // into that same band. A plain counter z would demote the window
+            // below whatever gets focused next — and focusWindow deliberately
+            // never raises stay_on_top windows, so the demotion would stick
+            // (a dashboard-mode app would sit buried under the dashboard).
+            const raised_zindex = () => ($(el_window).attr('data-stay_on_top') === 'true'
+                ? 99999999 + (++window.last_window_zindex)
+                : ++window.last_window_zindex);
+
             // A window minimized with no taskbar to animate toward (dashboard
             // mode) was hidden in place by hideWindow — its geometry was
             // never disturbed. If the app's tile is visible on the Apps tab's
@@ -3917,7 +3927,7 @@ $.fn.showWindow = async function (options) {
                     'data-is_minimized': false,
                     'data-minimized_in_place': '0',
                 });
-                $(el_window).css('z-index', ++window.last_window_zindex);
+                $(el_window).css('z-index', raised_zindex());
                 const reduce_motion = window.matchMedia
                     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
                 // Skip the morph while another morph still owns the window's
@@ -3970,7 +3980,7 @@ $.fn.showWindow = async function (options) {
                 width: `${$(el_window).attr('data-orig-width') }px`,
                 height: `${$(el_window).attr('data-orig-height') }px`,
             });
-            $(el_window).css('z-index', ++window.last_window_zindex);
+            $(el_window).css('z-index', raised_zindex());
 
             $(el_window).attr({
                 'data-is_minimized': false,
@@ -4310,6 +4320,16 @@ function attach_dashboard_app_pill (el_window, options) {
     $pill.on('mouseleave', () => schedule_collapse(1100));
     $pill.on('focusin', () => expand());
     $pill.on('focusout', () => schedule_collapse(1100));
+
+    // Pressing the pill activates its window, as pressing a titlebar
+    // would — the pill took over the head's job. Deferred a tick because
+    // the document-level activation handler (initgui's mousedown →
+    // mouseover_window) runs after this one on hover bookkeeping that only
+    // mousemove refreshes; a tap with no mousemove since a dashboard click
+    // (touch, restored windows) would re-raise the dashboard OVER the app.
+    $pill.on('mousedown', () => {
+        setTimeout(() => $(el_window).focusWindow(), 0);
+    });
 
     // A click anywhere on the collapsed pill (incl. its invisible touch
     // halo) expands it; the toggle also collapses an expanded pill for an
