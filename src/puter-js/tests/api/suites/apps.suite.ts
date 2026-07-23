@@ -97,6 +97,28 @@ export default suite('apps', {
         }
     },
 
+    'list with stream iterates pages via for await': async (t) => {
+        const names = ['apps-suite-st-a', 'apps-suite-st-b', 'apps-suite-st-c'];
+        for (const name of names) {
+            await t.puter.apps.create(name, `https://example.com/${name}`);
+        }
+
+        const seen: string[] = [];
+        let pages = 0;
+        for await (const page of t.puter.apps.list({ stream: true, limit: 2 }) as AsyncIterable<{
+            items: Array<{ name: string }>;
+            cursor?: string;
+        }>) {
+            pages++;
+            t.assert.ok(page.items.length <= 2, 'stream pages respect limit');
+            seen.push(...page.items.map((a) => a.name));
+        }
+        t.assert.ok(pages >= 2, 'stream should yield multiple pages');
+        for (const name of names) {
+            t.assert.ok(seen.includes(name), `${name} should appear while streaming`);
+        }
+    },
+
     'update changes the index URL': async (t) => {
         await t.puter.apps.create(
             'apps-suite-update',

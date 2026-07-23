@@ -101,6 +101,29 @@ export default suite('hosting', {
         }
     },
 
+    'list with stream iterates pages via for await': async (t) => {
+        const names = ['hosting-suite-st-a', 'hosting-suite-st-b', 'hosting-suite-st-c'];
+        for (const name of names) {
+            const dir = await makeSiteDir(t, `st-${name.slice(-1)}`);
+            await t.puter.hosting.create(name, dir);
+        }
+
+        const seen: string[] = [];
+        let pages = 0;
+        for await (const page of t.puter.hosting.list({ stream: true, limit: 2 }) as AsyncIterable<{
+            items: Array<{ subdomain: string }>;
+            cursor?: string;
+        }>) {
+            pages++;
+            t.assert.ok(page.items.length <= 2, 'stream pages respect limit');
+            seen.push(...page.items.map((s) => s.subdomain));
+        }
+        t.assert.ok(pages >= 2, 'stream should yield multiple pages');
+        for (const name of names) {
+            t.assert.ok(seen.includes(name), `${name} should appear while streaming`);
+        }
+    },
+
     'a subdomain serves its root directory': async (t) => {
         const dir = await makeSiteDir(
             t,

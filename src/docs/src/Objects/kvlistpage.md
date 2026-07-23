@@ -22,4 +22,4 @@ A page may hold fewer than `limit` items while `cursor` is still present — alw
 
 #### `total` (Number) (optional)
 
-The total number of items matching the query across all pages. Present only when the request set `includeTotal: true`.
+The total number of items matching the query across all pages. Present only when the request set `includeTotal: true`. Computing it is metered and its cost grows with the store — request it once (on the first page) and avoid it in hot paths. If you only need to know whether more pages exist, check for `cursor` instead.

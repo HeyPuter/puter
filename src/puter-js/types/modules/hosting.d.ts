@@ -1,4 +1,5 @@
 import type { FSItem } from './fs-item.d.ts';
+import type { ListPage, ListPaginationOptions, ListStreamOptions } from '../shared.d.ts';
 
 /** A subdomain hosted on Puter, containing its details. */
 export interface Subdomain {
@@ -13,10 +14,15 @@ export interface Subdomain {
 /** Deploy and manage websites on Puter by hosting directories under subdomains. */
 export class Hosting {
     /**
-     * Lists all subdomains belonging to the user that this app has access to.
-     * Resolves to an empty array if the user has no subdomains.
+     * Lists all subdomains belonging to the user that this app has access
+     * to, fetching page by page under the hood. Resolves to an empty array
+     * if the user has no subdomains. With `stream: true` it instead returns
+     * an async iterator of pages for `for await ... of`; with `cursor` (even
+     * `null`) or `includeTotal` it resolves to a single page envelope.
      */
-    list (): Promise<Subdomain[]>;
+    list (options: ListStreamOptions): AsyncIterableIterator<ListPage<Subdomain>>;
+    list (options: ListPaginationOptions & ({ cursor: string | null } | { includeTotal: true })): Promise<ListPage<Subdomain>>;
+    list (options?: { limit?: number; offset?: number }): Promise<Subdomain[]>;
 
     /**
      * Creates a new subdomain served by the hosting service from the given directory.

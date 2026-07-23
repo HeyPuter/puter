@@ -1,5 +1,6 @@
 import getAbsolutePathForApp from './FileSystem/utils/getAbsolutePathForApp.js';
 import * as utils from '../lib/utils.js';
+import { fetchAllPages, iteratePages } from '../lib/pagination.js';
 
 export class WorkersHandler {
 
@@ -8,14 +9,7 @@ export class WorkersHandler {
     }
 
     async create (workerName, filePath, appName) {
-        if ( !puter.authToken && puter.env === 'web' ) {
-            try {
-                await puter.ui.authenticateWithPuter();
-            } catch (e) {
-                // if authentication fails, throw an error
-                throw 'Authentication failed.';
-            }
-        }
+        await this.#authenticateIfNeeded();
 
         let appId;
         if ( typeof (appName) === 'object' || typeof (appName) === 'undefined' ) {
@@ -57,14 +51,7 @@ export class WorkersHandler {
     }
 
     async exec (...args) {
-        if ( !puter.authToken && puter.env === 'web' ) {
-            try {
-                await puter.ui.authenticateWithPuter();
-            } catch (e) {
-                // if authentication fails, throw an error
-                throw 'Authentication failed.';
-            }
-        }
+        await this.#authenticateIfNeeded();
 
         const req = new Request(...args);
         if ( ! req.headers.get('puter-auth') && !req.headers.get('x-puter-no-auth')) {
@@ -77,7 +64,7 @@ export class WorkersHandler {
         return fetch(req);
     }
 
-    async list (options) {
+    async #authenticateIfNeeded () {
         if ( !puter.authToken && puter.env === 'web' ) {
             try {
                 await puter.ui.authenticateWithPuter();
@@ -86,30 +73,51 @@ export class WorkersHandler {
                 throw 'Authentication failed.';
             }
         }
-        const args = {};
-        if ( options && typeof options === 'object' ) {
-            if ( options.limit !== undefined ) args.limit = options.limit;
-            if ( options.offset !== undefined ) args.offset = options.offset;
-            if ( Object.prototype.hasOwnProperty.call(options, 'cursor') ) {
-                args.cursor = options.cursor ?? null;
+    }
+
+    list (options) {
+        const opts = (options && typeof options === 'object') ? options : {};
+        const hasCursor = Object.prototype.hasOwnProperty.call(opts, 'cursor');
+        const getFilePaths = utils.make_driver_method([], 'workers', 'worker-service', 'getFilePaths');
+
+        const base = {};
+        if ( opts.limit !== undefined ) base.limit = opts.limit;
+        const fetchPage = pageParams => getFilePaths({ ...base, ...pageParams });
+
+        if ( opts.stream === true ) {
+            if ( opts.offset !== undefined ) {
+                throw { message: '`offset` cannot be combined with `stream`; pass `cursor` to resume from a position.', code: 'invalid_request' };
             }
-            if ( options.includeTotal !== undefined ) {
-                args.includeTotal = options.includeTotal;
-            }
+            const self = this;
+            return (async function* () {
+                await self.#authenticateIfNeeded();
+                yield* iteratePages(fetchPage, { cursor: opts.cursor, includeTotal: opts.includeTotal === true });
+            })();
         }
-        const driverCall = await utils.make_driver_method([], 'workers', 'worker-service', 'getFilePaths')(args);
-        return driverCall;
+
+        // Any pagination param keeps the single-request behavior: the page
+        // envelope from the backend, exactly as requested.
+        if ( opts.limit !== undefined || opts.offset !== undefined || hasCursor || opts.includeTotal !== undefined ) {
+            return (async () => {
+                await this.#authenticateIfNeeded();
+                const args = { ...base };
+                if ( opts.offset !== undefined ) args.offset = opts.offset;
+                if ( hasCursor ) args.cursor = opts.cursor ?? null;
+                if ( opts.includeTotal !== undefined ) args.includeTotal = opts.includeTotal;
+                return await getFilePaths(args);
+            })();
+        }
+
+        // Unbound listing: fetch page by page under the hood so no single
+        // request carries the whole result, then return the legacy array.
+        return (async () => {
+            await this.#authenticateIfNeeded();
+            return await fetchAllPages(fetchPage);
+        })();
     }
 
     async get (workerName) {
-        if ( !puter.authToken && puter.env === 'web' ) {
-            try {
-                await puter.ui.authenticateWithPuter();
-            } catch (e) {
-                // if authentication fails, throw an error
-                throw 'Authentication failed.';
-            }
-        }
+        await this.#authenticateIfNeeded();
 
         workerName = workerName.toLocaleLowerCase(); // just incase
         const driverCall = await utils.make_driver_method(['workerName'], 'workers', 'worker-service', 'getFilePaths')(workerName);
@@ -117,14 +125,7 @@ export class WorkersHandler {
     }
 
     async delete (workerName) {
-        if ( !puter.authToken && puter.env === 'web' ) {
-            try {
-                await puter.ui.authenticateWithPuter();
-            } catch (e) {
-                // if authentication fails, throw an error
-                throw 'Authentication failed.';
-            }
-        }
+        await this.#authenticateIfNeeded();
 
         workerName = workerName.toLocaleLowerCase(); // just incase
         // const driverCall = await puter.drivers.call("workers", "worker-service", "destroy", { authorization: puter.authToken, workerName });

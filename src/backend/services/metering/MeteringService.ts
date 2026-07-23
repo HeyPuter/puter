@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import murmurhash from 'murmurhash';
@@ -53,12 +54,12 @@ interface UsageInput {
 // -- MeteringService --------------------------------------------------
 
 /**
- * Tracks per-actor and global usage, and exposes subscription/addon lookup.
- * All metering data is persisted under the system namespace via
- * `stores.kv` (SystemKVStore)
+ * Tracks per-actor and global usage, and exposes subscription/addon lookup. All
+ * metering data is persisted under the system namespace via `stores.kv`
+ * (SystemKVStore)
  *
- * Callers (typically drivers or controllers) pass the user-scoped actor in; we fan that
- * out into several aggregated KV records.
+ * Callers (typically drivers or controllers) pass the user-scoped actor in; we
+ * fan that out into several aggregated KV records.
  */
 export class MeteringService extends PuterService {
     static GLOBAL_SHARD_COUNT = 10000;
@@ -107,7 +108,7 @@ export class MeteringService extends PuterService {
     }
 
     /**
-     * Register a resolver that maps an actor to a *default* subscription id,
+     * Register a resolver that maps an actor to a _default_ subscription id,
      * used when no explicit subscription is set. First non-empty wins.
      */
     registerDefaultSubscriptionResolver(fn: SubscriptionResolver): void {
@@ -787,7 +788,8 @@ export class MeteringService extends PuterService {
     }
 
     /**
-     * Randomized shard key to spread writes across the global consumption bucket.
+     * Randomized shard key to spread writes across the global consumption
+     * bucket.
      */
     private globalUsageKey(
         userId: string,
@@ -888,26 +890,36 @@ export class MeteringService extends PuterService {
         // No metered allowance to exceed (e.g. unlimited policies) — nothing to flag.
         if (!(allowance > 0)) return;
 
-        const previousUsage = actorUsages.total - incrementCost;
-        const allowedMultiple = Math.floor(actorUsages.total / allowance);
-        const previousMultiple = Math.floor(previousUsage / allowance);
+        // Purchased credit extends the budget: the actor is only genuinely
+        // "over" once they've burned through the monthly allowance AND every
+        // purchased credit. Measure usage net of the purchased credit so the
+        // allowance multiples below are counted from the point that whole budget
+        // is exhausted rather than from zero — otherwise a user actively
+        // spending down a large credit balance trips the alarm on every
+        // allowance-sized expense the moment the credit runs dry. (Purchased
+        // credit is a lifetime balance, so in the month it finally runs out this
+        // also grants a small grace window before paging.)
+        const purchasedCredits = actorAddons.purchasedCredits || 0;
+        const consumedPurchaseCredits =
+            actorAddons.consumedPurchaseCredits || 0;
+        const netUsage = actorUsages.total - purchasedCredits;
+        const previousNetUsage = netUsage - incrementCost;
 
-        // Only alarm if the actor was ALREADY at or past their allowance before
-        // this expense arrived. A single large request that jumps past the limit
-        // in one shot (previous usage still under the allowance) is legitimate
-        // and shouldn't page.
-        const wasAlreadyOverLimit = previousUsage >= allowance;
+        const currentMultiple = Math.floor(netUsage / allowance);
+        const previousMultiple = Math.floor(previousNetUsage / allowance);
+
+        // Only alarm if the actor was ALREADY past their full budget (allowance
+        // + purchased credit) before this expense arrived. A single large
+        // request that jumps past the limit in one shot (net usage still under
+        // the allowance beforehand) is legitimate and shouldn't page.
+        const wasAlreadyOverLimit = previousNetUsage >= allowance;
         // And only when this expense crosses into a new whole multiple of the
-        // allowance (2x, 3x, …) rather than on every expense once over — that
-        // first-over multiple is 2x, since being already over means the previous
-        // multiple was at least 1.
-        const crossedMultiple = previousMultiple < allowedMultiple;
-        const hasNoAddonCredit =
-            (actorAddons.purchasedCredits || 0) <=
-            (actorAddons.consumedPurchaseCredits || 0);
+        // allowance beyond that budget. Being already over means the previous
+        // multiple was at least 1, so the first multiple that fires is 2x — i.e.
+        // usage has reached (purchased credit + 2 x the monthly allowance).
+        const crossedMultiple = previousMultiple < currentMultiple;
 
-        if (!(wasAlreadyOverLimit && crossedMultiple && hasNoAddonCredit))
-            return;
+        if (!(wasAlreadyOverLimit && crossedMultiple)) return;
 
         this.clients.alarm.create(
             `metering usage exceeded by user: ${actor.user?.username}`,
@@ -923,6 +935,8 @@ export class MeteringService extends PuterService {
                 batchUsages: ctx.batchUsages,
                 totalUsage: actorUsages.total,
                 monthUsageAllowance: actorSubscription.monthUsageAllowance,
+                purchasedCredits,
+                consumedPurchaseCredits,
             },
             // Expected-but-worth-tracking signal — record/de-dupe it but don't page on-call.
             'warning',

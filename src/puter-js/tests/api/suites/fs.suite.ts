@@ -199,6 +199,28 @@ export default suite('fs', {
         t.assert.equal(page.total, 3);
     },
 
+    'readdir with stream iterates pages via for await': async (t) => {
+        const dir = `${home(t)}/fs-suite-page-stream`;
+        await t.puter.fs.mkdir(dir);
+        const names = ['a.txt', 'b.txt', 'c.txt'];
+        for (const n of names) {
+            await t.puter.fs.write(`${dir}/${n}`, 'x');
+        }
+        const seen: string[] = [];
+        let pages = 0;
+        for await (const page of t.puter.fs.readdir({
+            path: dir,
+            limit: 2,
+            stream: true,
+        }) as AsyncIterable<{ items: Array<{ name: string }>; cursor?: string }>) {
+            pages++;
+            t.assert.ok(page.items.length <= 2, 'stream pages respect limit');
+            seen.push(...page.items.map((e) => e.name));
+        }
+        t.assert.ok(pages >= 2, 'stream should yield multiple pages');
+        t.assert.deepEqual(seen, names);
+    },
+
     'readdir cursor respects descending name sort': async (t) => {
         const dir = `${home(t)}/fs-suite-page-desc`;
         await t.puter.fs.mkdir(dir);

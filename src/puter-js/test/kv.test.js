@@ -1004,6 +1004,202 @@ window.kvTests = [
         }
     },
     {
+        name: "testListIncludeTotalWarnsOnce",
+        description: "Test that includeTotal returns a numeric total and logs its cost warning exactly once per page load (reload before re-running)",
+        test: async function() {
+            try {
+                const prefix = 'listTotalWarn-' + puter.randName() + '-';
+                await puter.kv.set(prefix + 'a', 1);
+                await puter.kv.set(prefix + 'b', 1);
+
+                const warnings = [];
+                const originalWarn = console.warn;
+                console.warn = function(...args) {
+                    warnings.push(args.join(' '));
+                    originalWarn.apply(console, args);
+                };
+                let firstPage;
+                try {
+                    firstPage = await puter.kv.list({ pattern: prefix + '*', limit: 1, includeTotal: true });
+                    await puter.kv.list({ pattern: prefix + '*', limit: 1, includeTotal: true });
+                } finally {
+                    console.warn = originalWarn;
+                }
+
+                assert(typeof firstPage.total === 'number' && firstPage.total >= 2,
+                    "Expected a numeric total >= 2, got: " + firstPage.total);
+                const totalWarnings = warnings.filter(w => w.includes('includeTotal'));
+                assert(totalWarnings.length === 1,
+                    "Expected exactly one includeTotal warning, got: " + totalWarnings.length +
+                    " (the nudge fires once per page load — reload before re-running)");
+                pass("testListIncludeTotalWarnsOnce passed");
+            } catch (error) {
+                fail("testListIncludeTotalWarnsOnce failed:", error);
+            }
+        }
+    },
+    {
+        name: "testListStreamPages",
+        description: "Test list({ stream: true, limit }) yields pages directly in a for await ... of loop",
+        test: async function() {
+            try {
+                const prefix = 'listStream-' + puter.randName() + '-';
+                for (let i = 1; i <= 5; i++) {
+                    await puter.kv.set(prefix + i, 'v' + i);
+                }
+                const seen = [];
+                let pages = 0;
+                for await (const page of puter.kv.list({ pattern: prefix + '*', limit: 2, stream: true })) {
+                    pages++;
+                    assert(Array.isArray(page.items), "Stream page is missing an items array");
+                    assert(page.items.length <= 2, "Stream page exceeded the limit: " + page.items.length);
+                    for (const item of page.items) seen.push(item);
+                }
+                assert(pages >= 2, "Expected multiple stream pages, got: " + pages);
+                assert(seen.length === 5, "Expected 5 keys across stream pages, got: " + seen.length);
+                pass("testListStreamPages passed");
+            } catch (error) {
+                fail("testListStreamPages failed:", error);
+            }
+        }
+    },
+    {
+        name: "testListStreamAwaitedForm",
+        description: "Test that awaiting list({ stream: true }) first (puter.ai.chat style) also yields an iterable of pages",
+        test: async function() {
+            try {
+                const prefix = 'listStreamAwait-' + puter.randName() + '-';
+                await puter.kv.set(prefix + 'a', 1);
+                await puter.kv.set(prefix + 'b', 2);
+                const iterator = await puter.kv.list({ pattern: prefix + '*', limit: 1, stream: true, returnValues: true });
+                const seen = [];
+                for await (const page of iterator) {
+                    for (const item of page.items) seen.push(item.key);
+                }
+                assert(seen.length === 2, "Expected 2 pairs across pages, got: " + seen.length);
+                pass("testListStreamAwaitedForm passed");
+            } catch (error) {
+                fail("testListStreamAwaitedForm failed:", error);
+            }
+        }
+    },
+    {
+        name: "testListStreamIncludeTotalFirstPageOnly",
+        description: "Test that a stream with includeTotal carries total on the first page only",
+        test: async function() {
+            try {
+                const prefix = 'listStreamTotal-' + puter.randName() + '-';
+                for (let i = 1; i <= 3; i++) {
+                    await puter.kv.set(prefix + i, 'v' + i);
+                }
+                let firstTotal;
+                const laterTotals = [];
+                let pages = 0;
+                for await (const page of puter.kv.list({ pattern: prefix + '*', limit: 1, stream: true, includeTotal: true })) {
+                    if (pages === 0) firstTotal = page.total;
+                    else laterTotals.push(page.total);
+                    pages++;
+                }
+                assert(pages >= 2, "Expected multiple pages, got: " + pages);
+                assert(typeof firstTotal === 'number' && firstTotal >= 3,
+                    "Expected a numeric total >= 3 on the first page, got: " + firstTotal);
+                assert(laterTotals.every(t => t === undefined),
+                    "Later pages should not carry a total, got: " + JSON.stringify(laterTotals));
+                pass("testListStreamIncludeTotalFirstPageOnly passed");
+            } catch (error) {
+                fail("testListStreamIncludeTotalFirstPageOnly failed:", error);
+            }
+        }
+    },
+    {
+        name: "testListStreamResumesFromCursor",
+        description: "Test that a stream started from a previous page's cursor covers exactly the remaining keys",
+        test: async function() {
+            try {
+                const prefix = 'listStreamResume-' + puter.randName() + '-';
+                const created = [];
+                for (let i = 1; i <= 4; i++) {
+                    created.push(prefix + i);
+                    await puter.kv.set(prefix + i, 'v' + i);
+                }
+                const first = await puter.kv.list({ pattern: prefix + '*', limit: 2 });
+                assert(first.cursor, "Expected a cursor on the first page");
+                const seen = first.items.slice();
+                for await (const page of puter.kv.list({ pattern: prefix + '*', limit: 2, stream: true, cursor: first.cursor })) {
+                    for (const item of page.items) seen.push(item);
+                }
+                assert(seen.length === 4, "Expected 4 keys in total, got: " + seen.length);
+                assert(new Set(seen).size === 4, "Resumed stream repeated keys: " + JSON.stringify(seen));
+                assert(created.every(k => seen.includes(k)), "Missing keys after resume: " + JSON.stringify(seen));
+                pass("testListStreamResumesFromCursor passed");
+            } catch (error) {
+                fail("testListStreamResumesFromCursor failed:", error);
+            }
+        }
+    },
+    {
+        name: "testListStreamRejectsOffset",
+        description: "Test that list({ stream: true, offset }) throws invalid_request synchronously without a request",
+        test: async function() {
+            try {
+                let threw = null;
+                try {
+                    puter.kv.list({ stream: true, offset: 1 });
+                } catch (error) {
+                    threw = error;
+                }
+                assert(threw, "Expected a synchronous throw for stream + offset");
+                assert(threw.code === 'invalid_request',
+                    "Expected code 'invalid_request', got: " + (threw && threw.code));
+                pass("testListStreamRejectsOffset passed");
+            } catch (error) {
+                fail("testListStreamRejectsOffset failed:", error);
+            }
+        }
+    },
+    {
+        name: "testListUnboundScanWarnsOnMultiplePages",
+        description: "SLOW: seeds ~1050 keys, checks a full listing pages under the hood and logs its scan warning once per page load, then flushes the store",
+        test: async function() {
+            try {
+                const prefix = 'listBig-' + puter.randName() + '-';
+                const total = 1050;
+                for (let start = 0; start < total; start += 100) {
+                    const items = [];
+                    for (let i = start; i < Math.min(start + 100, total); i++) {
+                        items.push({ key: prefix + String(i).padStart(4, '0'), value: 1 });
+                    }
+                    await puter.kv.set(items);
+                }
+
+                const warnings = [];
+                const originalWarn = console.warn;
+                console.warn = function(...args) {
+                    warnings.push(args.join(' '));
+                    originalWarn.apply(console, args);
+                };
+                let keys;
+                try {
+                    keys = await puter.kv.list(prefix + '*');
+                } finally {
+                    console.warn = originalWarn;
+                }
+
+                assert(Array.isArray(keys), "Unbound list() should still resolve to a plain array");
+                assert(keys.length === total, "Expected " + total + " keys, got: " + keys.length);
+                const scanWarnings = warnings.filter(w => w.includes('spanned multiple pages'));
+                assert(scanWarnings.length === 1,
+                    "Expected exactly one unbounded-scan warning, got: " + scanWarnings.length +
+                    " (the nudge fires once per page load — reload before re-running)");
+
+                await puter.kv.flush();
+                pass("testListUnboundScanWarnsOnMultiplePages passed");
+            } catch (error) {
+                fail("testListUnboundScanWarnsOnMultiplePages failed:", error);
+            }
+        }
+    },
+    {
         name: "testClearAlias",
         description: "Test that clear() is the same function as flush() and empties the store",
         test: async function() {

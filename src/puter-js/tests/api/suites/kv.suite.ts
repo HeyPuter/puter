@@ -260,6 +260,39 @@ export default suite('kv', {
         ]);
     },
 
+    'list with stream iterates pages via for await': async (t) => {
+        for (let i = 1; i <= 3; i++) {
+            await t.puter.kv.set(`kv-suite-stream-${i}`, `v${i}`);
+        }
+        const seen: string[] = [];
+        let pages = 0;
+        for await (const page of t.puter.kv.list({
+            pattern: 'kv-suite-stream-*',
+            limit: 2,
+            stream: true,
+        }) as AsyncIterable<{ items: string[]; cursor?: string }>) {
+            pages++;
+            t.assert.ok(page.items.length <= 2, 'stream pages respect limit');
+            seen.push(...page.items);
+        }
+        t.assert.ok(pages >= 2, 'stream should yield multiple pages');
+        t.assert.deepEqual(seen.sort(), [
+            'kv-suite-stream-1',
+            'kv-suite-stream-2',
+            'kv-suite-stream-3',
+        ]);
+    },
+
+    'list with stream rejects offset client-side': async (t) => {
+        let err: { code?: string } | undefined;
+        try {
+            t.puter.kv.list({ stream: true, offset: 1 } as never);
+        } catch (e) {
+            err = e as { code?: string };
+        }
+        t.assert.equal(err?.code, 'invalid_request');
+    },
+
     'clear is an alias of flush and empties the store': async (t) => {
         await t.puter.kv.set('kv-suite-clear-a', 1);
         await t.puter.kv.clear();

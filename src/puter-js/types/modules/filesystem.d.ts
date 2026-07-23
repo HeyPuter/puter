@@ -1,4 +1,4 @@
-import type { RequestCallbacks } from '../shared.d.ts';
+import type { ListPage, ListStreamOptions, RequestCallbacks } from '../shared.d.ts';
 import type { FSItem } from './fs-item.d.ts';
 
 /**
@@ -98,6 +98,14 @@ export interface ReaddirOptions extends RequestCallbacks<FSItem[]> {
     no_thumbs?: boolean;
     no_assocs?: boolean;
     consistency?: 'strong' | 'eventual';
+    /** Maximum number of entries to return. */
+    limit?: number;
+    /** Skips the given number of entries. Prefer `cursor` for paging through large directories. */
+    offset?: number;
+    /** Sort field. Default is `name`. */
+    sortBy?: 'name' | 'modified' | 'type' | 'size';
+    /** Sort direction. Default is `asc`. */
+    sortOrder?: 'asc' | 'desc';
 }
 
 /**
@@ -238,6 +246,8 @@ export class FS {
      * (files and directories) within the specified directory.
      * If `path` is not absolute, it is resolved relative to the app's root directory.
      */
+    readdir (options: ReaddirOptions & ListStreamOptions): AsyncIterableIterator<ListPage<FSItem>>;
+    readdir (options: ReaddirOptions & { includeTotal?: boolean } & ({ cursor: string | null } | { includeTotal: true })): Promise<ListPage<FSItem>>;
     readdir (options: ReaddirOptions): Promise<FSItem[]>;
     readdir (path: string, success?: (value: FSItem[]) => void, error?: (reason: unknown) => void): Promise<FSItem[]>;
 
