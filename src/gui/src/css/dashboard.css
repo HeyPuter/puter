@@ -4223,98 +4223,152 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 }
 
 /* ==========================================================================
-   Dashboard app drawer — controls for headless in-page app windows. A slim
-   glass tray flush with the top edge (icon + title + minimize + close) with
-   a tongue-shaped handle hanging from its bottom center, like a drawer
-   pull. Collapsed, the tray slides up off-screen and only the tongue peeks
-   in from the top edge; hover (mouse), tap, or keyboard focus pulls it
-   back down (see attach_dashboard_app_drawer in UIWindow.js). A child of
-   the window element (so it shows/hides/scales with it), painted above the
-   app's iframe. Dark translucent glass on every theme: it overlays
-   arbitrary app content, not the dashboard's surfaces.
+   Dashboard app drawer — controls for headless in-page app windows. One
+   glass surface flush with the top edge that MORPHS between two shapes:
+   at rest a small tongue (a grabber bar peeking in from the edge);
+   opened, the same surface swells into a tray carrying icon + title +
+   minimize + close, the grabber settling into a slim strip along the
+   tray's bottom edge as the dismiss handle. Hover (mouse), tap, or
+   keyboard focus opens it (see attach_dashboard_app_drawer in
+   UIWindow.js). A child of the window element (so it shows/hides/scales
+   with it), painted above the app's iframe. Dark translucent glass on
+   every theme: it overlays arbitrary app content, not the dashboard's
+   surfaces.
+
+   The base rules below describe the OPEN shape; .collapsed overrides to
+   the tongue. Each state carries its own transition, so opening gets a
+   soft overshoot (the tongue swells past the tray and settles) while
+   closing is quicker and lands without bounce.
    ========================================================================== */
 
 .dashboard-app-drawer {
-    /* --tray-h is both the tray's height and the collapse travel — the
-       retracted transform below must hide exactly the tray. --safe-top
-       keeps the tray's contents below a notch in standalone/fullscreen
-       display modes while the drawer stays flush with the physical edge. */
-    --tray-h: 40px;
+    /* The morph's two shapes. --open-w is DERIVED from the part sizes —
+       the controls row is laid out with the same variables, so the open
+       surface always fits its content exactly and breakpoints only
+       override parts. --safe-top keeps content below a notch in
+       standalone/fullscreen display modes while the surface stays flush
+       with the physical edge. */
     --safe-top: env(safe-area-inset-top, 0px);
+    --icon: 20px;
+    --btn: 26px;
+    --title-w: 150px;
+    --i2t: 8px;   /* icon → title gap */
+    --t2b: 6px;   /* title → buttons gap */
+    --controls-h: 40px;
+    --strip-h: 14px;  /* grabber strip along the open bottom edge */
+    --open-w: calc(12px + var(--icon) + var(--i2t) + var(--title-w) + var(--t2b) + var(--btn) + 2px + var(--btn) + 10px);
+    --open-h: 47px;
+    --shut-w: 56px;
+    --shut-h: 16px;
+
     position: absolute;
     top: 0;
     left: 50%;
-    z-index: 500;
-    display: flex;
-    /* Handle first in the DOM (Tab reaches the toggle before the tray's
-       buttons) but drawn below the tray. */
-    flex-direction: column-reverse;
-    align-items: center;
     transform: translateX(-50%);
-    transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
-    color: #fff;
-    -webkit-user-select: none;
-    user-select: none;
-    /* The wrapper is layout-only — it must never eat clicks meant for the
-       app. The tray and handle opt back in themselves. */
-    pointer-events: none;
-}
-
-.dashboard-app-drawer.collapsed {
-    transform: translateX(-50%)
-        translateY(calc(-1 * (var(--tray-h) + var(--safe-top))));
-}
-
-.dashboard-app-drawer-tray {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    box-sizing: border-box;
-    height: calc(var(--tray-h) + var(--safe-top));
-    padding: var(--safe-top) 8px 0 10px;
-    border-radius: 0 0 14px 14px;
+    z-index: 500;
+    width: var(--open-w);
+    height: calc(var(--open-h) + var(--safe-top));
+    border-radius: 0 0 16px 16px;
     background: rgba(24, 24, 28, 0.62);
     -webkit-backdrop-filter: blur(14px) saturate(140%);
     backdrop-filter: blur(14px) saturate(140%);
     border: 1px solid rgba(255, 255, 255, 0.22);
     border-top: none;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.2);
-    pointer-events: auto;
+    color: #fff;
+    -webkit-user-select: none;
+    user-select: none;
+    transition:
+        width 0.45s cubic-bezier(0.34, 1.2, 0.4, 1),
+        height 0.45s cubic-bezier(0.34, 1.2, 0.4, 1),
+        border-radius 0.45s ease,
+        opacity 0.2s ease;
 }
 
-/* Retracted, the tray sits above the viewport — visibility (flipped AFTER
-   the slide finishes, hence the transition-delay; removing the class
-   restores it instantly) additionally drops its buttons out of the Tab
-   order and the accessibility tree. */
-.dashboard-app-drawer.collapsed .dashboard-app-drawer-tray {
-    visibility: hidden;
-    transition: visibility 0s linear 0.3s;
+.dashboard-app-drawer.collapsed {
+    width: var(--shut-w);
+    height: calc(var(--shut-h) + var(--safe-top));
+    border-radius: 0 0 12px 12px;
+    /* Subtle but findable over both light and dark app content — the
+       white hairline border carries the dark-on-dark case. */
+    opacity: 0.7;
+    transition:
+        width 0.3s cubic-bezier(0.5, 0.05, 0.25, 1),
+        height 0.3s cubic-bezier(0.5, 0.05, 0.25, 1),
+        border-radius 0.3s ease,
+        opacity 0.2s ease 0.08s;
+}
+
+/* Clipping window for the controls. The surface itself can't be
+   overflow:hidden — that would clip the toggle's invisible touch halo —
+   so an inner layer inherits the rounded shape and does the clipping:
+   mid-morph, the growing surface reveals the controls from the center
+   outward instead of letting them spill past the glass. */
+.dashboard-app-drawer-clip {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: inherit;
     pointer-events: none;
 }
 
-/* The tongue. No top border and a -1px overlap fuse it with the tray's
-   bottom edge into one drawer-pull silhouette; collapsed, the same missing
-   top border makes it read as emerging from the screen edge itself. */
-.dashboard-app-drawer-handle {
-    position: relative;
+/* The controls row is a FIXED-size layer centered on the surface: it
+   never reflows during the morph, the glass just grows around it. */
+.dashboard-app-drawer-controls {
+    position: absolute;
+    top: var(--safe-top);
+    left: 50%;
+    transform: translateX(-50%);
+    box-sizing: border-box;
+    width: var(--open-w);
+    height: var(--controls-h);
+    display: flex;
+    align-items: center;
+    padding: 0 10px 0 12px;
+    transition:
+        opacity 0.25s ease 0.1s,
+        filter 0.25s ease 0.1s,
+        transform 0.45s cubic-bezier(0.34, 1.2, 0.4, 1);
+}
+
+/* Shut, the controls condense out of focus — fade + blur + slight
+   shrink — and visibility (flipped AFTER the morph, hence the delay;
+   removing the class restores it instantly) drops the buttons out of
+   the Tab order and the accessibility tree. */
+.dashboard-app-drawer.collapsed .dashboard-app-drawer-controls {
+    opacity: 0;
+    filter: blur(5px);
+    transform: translateX(-50%) scale(0.82);
+    visibility: hidden;
+    transition:
+        opacity 0.12s ease,
+        filter 0.12s ease,
+        transform 0.3s cubic-bezier(0.5, 0.05, 0.25, 1),
+        visibility 0s linear 0.3s;
+}
+
+/* The grabber toggle: fills the tongue when shut; open, it settles into
+   a slim strip along the tray's bottom edge — the same handle, ridden
+   through the morph. Absolutely positioned, so its DOM position (first,
+   for Tab order) doesn't affect the visuals. */
+.dashboard-app-drawer-toggle {
+    position: absolute;
+    inset: calc(var(--safe-top) + var(--open-h) - var(--strip-h)) 0 0 0;
+    z-index: 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    flex: none;
-    width: 56px;
-    height: 17px;
-    margin: -1px 0 0;
+    background: none;
+    border: none;
+    margin: 0;
     padding: 0;
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    border-top: none;
-    border-radius: 0 0 12px 12px;
-    background: rgba(24, 24, 28, 0.62);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
-    backdrop-filter: blur(14px) saturate(140%);
-    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
     cursor: pointer;
-    pointer-events: auto;
-    transition: opacity 0.18s ease;
+    transition: inset 0.45s cubic-bezier(0.34, 1.2, 0.4, 1);
+}
+
+.dashboard-app-drawer.collapsed .dashboard-app-drawer-toggle {
+    inset: var(--safe-top) 0 0 0;
+    transition: inset 0.3s cubic-bezier(0.5, 0.05, 0.25, 1);
 }
 
 /* Invisible halo: keeps the tongue comfortably hittable and hoverable
@@ -4322,41 +4376,42 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
    hits on it are hits on the button — no stacking games needed. (Clicks
    it absorbs would have hit the app within ~14px of the tongue —
    acceptable dead zone.) */
-.dashboard-app-drawer-handle::after {
+.dashboard-app-drawer-toggle::after {
     content: '';
     position: absolute;
     inset: 0 -14px -14px;
 }
 
-/* Subtle but findable over both light and dark app content — the white
-   hairline border carries the dark-on-dark case. */
-.dashboard-app-drawer.collapsed .dashboard-app-drawer-handle {
-    opacity: 0.7;
-}
-
-@media (hover: hover) {
-    .dashboard-app-drawer.collapsed .dashboard-app-drawer-handle:hover {
-        opacity: 1;
-    }
-}
-
 .dashboard-app-drawer-grabber {
-    width: 20px;
+    width: 24px;
     height: 3px;
     border-radius: 2px;
+    background: rgba(255, 255, 255, 0.6);
+    transition: width 0.3s ease, background-color 0.15s ease;
+}
+
+.dashboard-app-drawer.collapsed .dashboard-app-drawer-grabber {
+    width: 20px;
     background: rgba(255, 255, 255, 0.78);
 }
 
+@media (hover: hover) {
+    .dashboard-app-drawer-toggle:hover .dashboard-app-drawer-grabber {
+        background: rgba(255, 255, 255, 0.95);
+    }
+}
+
 .dashboard-app-drawer-icon {
-    /* 20px balances the 26px buttons and the 40px tray; radius stays 25%
-       of the icon for the app-icon look. Square icons only — cover guards
+    /* Sized to balance the buttons and the tray; radius stays 25% of the
+       icon for the app-icon look. Square icons only — cover guards
        against a non-square one. */
-    width: 20px;
-    height: 20px;
+    width: var(--icon);
+    height: var(--icon);
     border-radius: 5px;
     object-fit: cover;
     display: block;
     flex: none;
+    margin-right: var(--i2t);
 }
 
 .dashboard-app-drawer-title {
@@ -4378,17 +4433,17 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
        misaligned against the centered tongue below. Icon + title cluster
        as the identity on the left, controls cluster on the right. */
     flex: none;
-    width: 150px;
+    width: var(--title-w);
     text-align: left;
-    margin: 0 6px 0 8px;
+    margin-right: var(--t2b);
 }
 
 .dashboard-app-drawer-btn {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 26px;
-    height: 26px;
+    width: var(--btn);
+    height: var(--btn);
     flex: none;
     background: none;
     border: none;
@@ -4397,7 +4452,14 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     margin: 0;
     color: rgba(255, 255, 255, 0.9);
     cursor: pointer;
+    /* The clip layer is pointer-events:none so stray clicks fall through
+       to the surface; the buttons opt back in. */
+    pointer-events: auto;
     transition: background-color 0.12s ease;
+}
+
+.dashboard-app-drawer-minimize {
+    margin-right: 2px;
 }
 
 .dashboard-app-drawer-btn svg {
@@ -4416,7 +4478,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     background-color: rgba(255, 255, 255, 0.26);
 }
 
-.dashboard-app-drawer-handle:focus-visible,
+.dashboard-app-drawer-toggle:focus-visible,
 .dashboard-app-drawer-btn:focus-visible {
     outline: 2px solid rgba(255, 255, 255, 0.9);
     outline-offset: 1px;
@@ -4426,42 +4488,39 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
    brings the effective target to ~44px. */
 @media (pointer: coarse) {
     .dashboard-app-drawer {
-        --tray-h: 48px;
-    }
-
-    .dashboard-app-drawer-tray {
-        padding: var(--safe-top) 10px 0 12px;
-    }
-
-    .dashboard-app-drawer-btn {
-        width: 36px;
-        height: 36px;
-    }
-
-    .dashboard-app-drawer-handle {
-        width: 68px;
-        height: 21px;
+        --btn: 36px;
+        --controls-h: 48px;
+        --strip-h: 16px;
+        --open-h: 58px;
+        --shut-w: 68px;
+        --shut-h: 20px;
     }
 
     .dashboard-app-drawer-grabber {
-        width: 26px;
+        width: 28px;
         height: 4px;
     }
 
-    .dashboard-app-drawer-handle::after {
-        inset: 0 -16px -20px;
+    .dashboard-app-drawer.collapsed .dashboard-app-drawer-grabber {
+        width: 24px;
+    }
+
+    .dashboard-app-drawer-toggle::after {
+        inset: 0 -16px -18px;
     }
 }
 
 /* Tight screens: identity shrinks to the icon; the controls keep their
-   size — they're the part that must stay usable. */
+   size — they're the part that must stay usable. Zeroing the title
+   variables shrinks --open-w to match. */
 @media (max-width: 500px) {
-    .dashboard-app-drawer-title {
-        display: none;
+    .dashboard-app-drawer {
+        --title-w: 0px;
+        --t2b: 0px;
     }
 
-    .dashboard-app-drawer-icon {
-        margin-right: 6px;
+    .dashboard-app-drawer-title {
+        display: none;
     }
 }
 

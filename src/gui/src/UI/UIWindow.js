@@ -4257,16 +4257,19 @@ window.addEventListener('popstate', () => {
 });
 
 /**
- * The control drawer for headless dashboard app windows: a slim glass tray
+ * The control drawer for headless dashboard app windows: one glass surface
  * flush with the top edge of the app (parent DOM, above the app's iframe)
- * carrying the head's surviving controls — app identity, minimize, and
- * close — with a tongue-shaped handle hanging from its bottom center like a
- * drawer pull. It opens expanded so first-time and deep-link users see the
- * controls, then the tray retracts off the top edge leaving only the tongue
- * peeking in; hovering the tongue (mouse), tapping it, or keyboard-focusing
- * the drawer pulls it back down. Timers rather than hover alone drive the
- * collapse because mousemove inside the app's iframe is invisible to the
- * parent — the drawer itself is the only hover surface there is.
+ * that MORPHS between two shapes. At rest it's a small tongue — a grabber
+ * bar peeking in from the edge; opened, the same surface swells into a
+ * tray carrying the head's surviving controls — app identity, minimize,
+ * and close — while the grabber settles into a slim strip along the
+ * tray's bottom edge as the dismiss handle. It opens expanded so
+ * first-time and deep-link users see the controls, then shrinks back into
+ * the tongue; hovering the tongue (mouse), tapping it, or keyboard-
+ * focusing the drawer opens it again. Timers rather than hover alone
+ * drive the collapse because mousemove inside the app's iframe is
+ * invisible to the parent — the drawer itself is the only hover surface
+ * there is.
  *
  * The drawer is a CHILD of the window element, so it shows/hides/scales with
  * the window for free (minimize morphs, display:none, fullscreen requests
@@ -4277,28 +4280,30 @@ function attach_dashboard_app_drawer (el_window, options) {
     const icon = options.icon || window.icons['app.svg'];
     const title = options.title || app_name;
 
-    // The handle comes FIRST in the DOM so Tab reaches the toggle before
-    // the tray's buttons; flex column-reverse (see dashboard.css) puts it
-    // back below the tray visually.
+    // The toggle comes FIRST in the DOM so Tab reaches it before the
+    // controls' buttons; both layers are absolutely positioned (see
+    // dashboard.css), so DOM order doesn't affect the visuals.
     const $drawer = $(`
         <div class="dashboard-app-drawer collapsed">
-            <button type="button" class="dashboard-app-drawer-handle" aria-expanded="false" title="App controls" aria-label="App controls">
+            <button type="button" class="dashboard-app-drawer-toggle" aria-expanded="false" title="App controls" aria-label="App controls">
                 <span class="dashboard-app-drawer-grabber" aria-hidden="true"></span>
             </button>
-            <div class="dashboard-app-drawer-tray">
-                <img class="dashboard-app-drawer-icon" src="${html_encode(icon)}" alt="" draggable="false">
-                <span class="dashboard-app-drawer-title">${html_encode(title)}</span>
-                <button type="button" class="dashboard-app-drawer-btn dashboard-app-drawer-minimize" title="Minimize to Dashboard" aria-label="Minimize to Dashboard">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                </button>
-                <button type="button" class="dashboard-app-drawer-btn dashboard-app-drawer-close" title="Close App" aria-label="Close App">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
-                </button>
+            <div class="dashboard-app-drawer-clip">
+                <div class="dashboard-app-drawer-controls">
+                    <img class="dashboard-app-drawer-icon" src="${html_encode(icon)}" alt="" draggable="false">
+                    <span class="dashboard-app-drawer-title">${html_encode(title)}</span>
+                    <button type="button" class="dashboard-app-drawer-btn dashboard-app-drawer-minimize" title="Minimize to Dashboard" aria-label="Minimize to Dashboard">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    </button>
+                    <button type="button" class="dashboard-app-drawer-btn dashboard-app-drawer-close" title="Close App" aria-label="Close App">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+                    </button>
+                </div>
             </div>
         </div>
     `);
     const drawer = $drawer.get(0);
-    const handle = $drawer.find('.dashboard-app-drawer-handle').get(0);
+    const toggle = $drawer.find('.dashboard-app-drawer-toggle').get(0);
 
     let collapse_timer = null;
     let opened_at = 0;
@@ -4306,12 +4311,12 @@ function attach_dashboard_app_drawer (el_window, options) {
         clearTimeout(collapse_timer);
         if ( drawer.classList.contains('collapsed') ) opened_at = Date.now();
         drawer.classList.remove('collapsed');
-        handle.setAttribute('aria-expanded', 'true');
+        toggle.setAttribute('aria-expanded', 'true');
     };
     const collapse = () => {
         clearTimeout(collapse_timer);
         drawer.classList.add('collapsed');
-        handle.setAttribute('aria-expanded', 'false');
+        toggle.setAttribute('aria-expanded', 'false');
     };
     const schedule_collapse = (ms) => {
         clearTimeout(collapse_timer);
@@ -4327,9 +4332,9 @@ function attach_dashboard_app_drawer (el_window, options) {
 
     // Hover pulls the drawer open and leaving lets it settle — mouse only:
     // a touch tap synthesizes a pointerenter right before its click, which
-    // would make the handle's toggle below see an already-open drawer and
-    // shut it again. Touch devices open by tap instead, and since they
-    // never fire pointerleave, that path self-schedules its collapse.
+    // would make the toggle below see an already-open drawer and shut it
+    // again. Touch devices open by tap instead, and since they never fire
+    // pointerleave, that path self-schedules its collapse.
     $drawer.on('pointerenter', (e) => {
         if ( e.pointerType === 'mouse' ) expand();
     });
@@ -4349,11 +4354,11 @@ function attach_dashboard_app_drawer (el_window, options) {
         setTimeout(() => $(el_window).focusWindow(), 0);
     });
 
-    // The tongue is the drawer's one toggle: pulls it open when shut,
-    // pushes it shut when open. A click landing within a beat of the open
-    // is the SAME gesture that opened it (hover-then-click mice, tap) —
-    // hold the drawer open instead of instantly re-shutting it.
-    $(handle).on('click', function (e) {
+    // The grabber is the drawer's one toggle: opens it when shut, shuts
+    // it when open. A click landing within a beat of the open is the
+    // SAME gesture that opened it (hover-then-click mice, tap) — hold
+    // the drawer open instead of instantly re-shutting it.
+    $(toggle).on('click', function (e) {
         e.stopPropagation();
         if ( drawer.classList.contains('collapsed') ) {
             expand();
@@ -4387,8 +4392,8 @@ function attach_dashboard_app_drawer (el_window, options) {
     el_window._dashboard_drawer_collapse = collapse;
 
     $(el_window).append($drawer);
-    // Two frames so the collapsed state paints first and the intro slides
-    // in from the top edge instead of popping in fully open.
+    // Two frames so the collapsed state paints first and the intro
+    // morphs out of the tongue instead of popping in fully open.
     requestAnimationFrame(() => requestAnimationFrame(flash));
 }
 
