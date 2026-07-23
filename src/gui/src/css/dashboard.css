@@ -4213,7 +4213,7 @@ body.dashboard-mode .window-minimize-btn {
    no titlebar — but dashboard-mode app windows WITH a head still lose 29px to
    it, so compensate for those. Headless dashboard app windows
    (.window-dashboard-headless — the maximized in-page apps, whose controls
-   live in the floating pill) get the full height. */
+   live in the top-edge control drawer) get the full height. */
 body.dashboard-mode .window:not(.window-dashboard-headless) .window-body-app {
     height: calc(100% - 29px) !important;
 }
@@ -4223,105 +4223,143 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 }
 
 /* ==========================================================================
-   Dashboard app pill — floating controls for headless in-page app windows.
-   A child of the window element (so it shows/hides/scales with it), painted
-   above the app's iframe. Expanded it shows icon + title + minimize + close;
-   collapsed it shrinks to a subtle icon capsule (see
-   attach_dashboard_app_pill in UIWindow.js for the expand/collapse logic).
-   Dark translucent glass on every theme: it overlays arbitrary app content,
-   not the dashboard's surfaces.
+   Dashboard app drawer — controls for headless in-page app windows. A slim
+   glass tray flush with the top edge (icon + title + minimize + close) with
+   a tongue-shaped handle hanging from its bottom center, like a drawer
+   pull. Collapsed, the tray slides up off-screen and only the tongue peeks
+   in from the top edge; hover (mouse), tap, or keyboard focus pulls it
+   back down (see attach_dashboard_app_drawer in UIWindow.js). A child of
+   the window element (so it shows/hides/scales with it), painted above the
+   app's iframe. Dark translucent glass on every theme: it overlays
+   arbitrary app content, not the dashboard's surfaces.
    ========================================================================== */
 
-.dashboard-app-pill {
+.dashboard-app-drawer {
+    /* --tray-h is both the tray's height and the collapse travel — the
+       retracted transform below must hide exactly the tray. --safe-top
+       keeps the tray's contents below a notch in standalone/fullscreen
+       display modes while the drawer stays flush with the physical edge. */
+    --tray-h: 40px;
+    --safe-top: env(safe-area-inset-top, 0px);
     position: absolute;
-    top: calc(env(safe-area-inset-top, 0px) + 10px);
+    top: 0;
     left: 50%;
-    transform: translateX(-50%);
     z-index: 500;
+    display: flex;
+    /* Handle first in the DOM (Tab reaches the toggle before the tray's
+       buttons) but drawn below the tray. */
+    flex-direction: column-reverse;
+    align-items: center;
+    transform: translateX(-50%);
+    transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+    color: #fff;
+    -webkit-user-select: none;
+    user-select: none;
+    /* The wrapper is layout-only — it must never eat clicks meant for the
+       app. The tray and handle opt back in themselves. */
+    pointer-events: none;
+}
+
+.dashboard-app-drawer.collapsed {
+    transform: translateX(-50%)
+        translateY(calc(-1 * (var(--tray-h) + var(--safe-top))));
+}
+
+.dashboard-app-drawer-tray {
     display: flex;
     align-items: center;
     gap: 2px;
-    padding: 4px 6px;
-    border-radius: 999px;
+    box-sizing: border-box;
+    height: calc(var(--tray-h) + var(--safe-top));
+    padding: var(--safe-top) 8px 0 10px;
+    border-radius: 0 0 14px 14px;
     background: rgba(24, 24, 28, 0.62);
     -webkit-backdrop-filter: blur(14px) saturate(140%);
     backdrop-filter: blur(14px) saturate(140%);
     border: 1px solid rgba(255, 255, 255, 0.22);
+    border-top: none;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.2);
-    color: #fff;
-    -webkit-user-select: none;
-    user-select: none;
-    transition: opacity 0.18s ease, padding 0.18s ease;
+    pointer-events: auto;
 }
 
-/* Invisible halo: keeps the collapsed capsule comfortably hittable and
-   hoverable without costing more visual space. (Clicks it absorbs would
-   have hit the app within ~10px of the pill — acceptable dead zone.)
-   z-index -1 keeps it BELOW the pill's own content: absolutely-positioned
-   pseudo-elements otherwise paint above static siblings, and the halo
-   would swallow every real click on the buttons (element.click() works,
-   hit-testing doesn't). The pill is its own stacking context, so even at
-   -1 the halo still sits above the app's iframe for the ring outside
-   the capsule. */
-.dashboard-app-pill::after {
-    content: '';
-    position: absolute;
-    inset: -10px;
-    border-radius: inherit;
-    z-index: -1;
+/* Retracted, the tray sits above the viewport — visibility (flipped AFTER
+   the slide finishes, hence the transition-delay; removing the class
+   restores it instantly) additionally drops its buttons out of the Tab
+   order and the accessibility tree. */
+.dashboard-app-drawer.collapsed .dashboard-app-drawer-tray {
+    visibility: hidden;
+    transition: visibility 0s linear 0.3s;
+    pointer-events: none;
 }
 
-/* Belt and braces for the same trap: the interactive children stack
-   explicitly above the halo. */
-.dashboard-app-pill-toggle,
-.dashboard-app-pill-btn {
+/* The tongue. No top border and a -1px overlap fuse it with the tray's
+   bottom edge into one drawer-pull silhouette; collapsed, the same missing
+   top border makes it read as emerging from the screen edge itself. */
+.dashboard-app-drawer-handle {
     position: relative;
-    z-index: 1;
-}
-
-.dashboard-app-pill.collapsed {
-    /* Subtle but findable over both light and dark app content — the
-       white hairline border carries the dark-on-dark case. */
-    opacity: 0.65;
-    padding: 3px 12px;
-    gap: 0;
-}
-
-.dashboard-app-pill.collapsed:hover {
-    opacity: 0.9;
-}
-
-.dashboard-app-pill-toggle {
     display: flex;
     align-items: center;
     justify-content: center;
     flex: none;
-    background: none;
-    border: none;
-    padding: 2px;
-    margin: 0;
+    width: 56px;
+    height: 17px;
+    margin: -1px 0 0;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-top: none;
+    border-radius: 0 0 12px 12px;
+    background: rgba(24, 24, 28, 0.62);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.22);
     cursor: pointer;
-    border-radius: 50%;
+    pointer-events: auto;
+    transition: opacity 0.18s ease;
 }
 
-.dashboard-app-pill-icon {
-    /* 20px balances the 26px buttons and the 36px capsule (16px read as
-       undersized); radius stays 25% of the icon for the app-icon look.
-       Square icons only — cover guards against a non-square one. */
+/* Invisible halo: keeps the tongue comfortably hittable and hoverable
+   without costing more visual space. A pseudo-element OF the button, so
+   hits on it are hits on the button — no stacking games needed. (Clicks
+   it absorbs would have hit the app within ~14px of the tongue —
+   acceptable dead zone.) */
+.dashboard-app-drawer-handle::after {
+    content: '';
+    position: absolute;
+    inset: 0 -14px -14px;
+}
+
+/* Subtle but findable over both light and dark app content — the white
+   hairline border carries the dark-on-dark case. */
+.dashboard-app-drawer.collapsed .dashboard-app-drawer-handle {
+    opacity: 0.7;
+}
+
+@media (hover: hover) {
+    .dashboard-app-drawer.collapsed .dashboard-app-drawer-handle:hover {
+        opacity: 1;
+    }
+}
+
+.dashboard-app-drawer-grabber {
+    width: 20px;
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.78);
+}
+
+.dashboard-app-drawer-icon {
+    /* 20px balances the 26px buttons and the 40px tray; radius stays 25%
+       of the icon for the app-icon look. Square icons only — cover guards
+       against a non-square one. */
     width: 20px;
     height: 20px;
     border-radius: 5px;
     object-fit: cover;
     display: block;
-    transition: width 0.18s ease, height 0.18s ease;
+    flex: none;
 }
 
-.dashboard-app-pill.collapsed .dashboard-app-pill-icon {
-    width: 12px;
-    height: 12px;
-}
-
-.dashboard-app-pill-title {
+.dashboard-app-drawer-title {
     font-size: 12px;
     font-weight: 500;
     /* Roomy enough for descenders: overflow:hidden (needed for the
@@ -4332,26 +4370,22 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    /* FIXED title box (not a cap): every app's pill is the same width, so
+    /* FIXED title box (not a cap): every app's tray is the same width, so
        the minimize/close buttons sit at the same screen position in every
        app — they're operated by muscle memory. Short titles center in
-       the box like a classic titlebar. The collapse animation still
-       drives max-width to 0. */
+       the box like a classic titlebar. */
     flex: none;
     width: 150px;
-    max-width: 150px;
     text-align: center;
     margin: 0 6px 0 4px;
-    transition: max-width 0.22s ease, opacity 0.15s ease, margin 0.22s ease;
 }
 
-.dashboard-app-pill-btn {
+.dashboard-app-drawer-btn {
     display: flex;
     align-items: center;
     justify-content: center;
     width: 26px;
     height: 26px;
-    max-width: 26px;
     flex: none;
     background: none;
     border: none;
@@ -4360,73 +4394,77 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     margin: 0;
     color: rgba(255, 255, 255, 0.9);
     cursor: pointer;
-    overflow: hidden;
-    transition: max-width 0.22s ease, opacity 0.15s ease, background-color 0.12s ease;
+    transition: background-color 0.12s ease;
 }
 
-.dashboard-app-pill-btn svg {
+.dashboard-app-drawer-btn svg {
     width: 14px;
     height: 14px;
     flex: none;
 }
 
 @media (hover: hover) {
-    .dashboard-app-pill-btn:hover {
+    .dashboard-app-drawer-btn:hover {
         background-color: rgba(255, 255, 255, 0.16);
     }
 }
 
-.dashboard-app-pill-btn:active {
+.dashboard-app-drawer-btn:active {
     background-color: rgba(255, 255, 255, 0.26);
 }
 
-.dashboard-app-pill.collapsed .dashboard-app-pill-title,
-.dashboard-app-pill.collapsed .dashboard-app-pill-btn {
-    max-width: 0;
-    opacity: 0;
-    margin: 0;
-    pointer-events: none;
-}
-
-.dashboard-app-pill-toggle:focus-visible,
-.dashboard-app-pill-btn:focus-visible {
+.dashboard-app-drawer-handle:focus-visible,
+.dashboard-app-drawer-btn:focus-visible {
     outline: 2px solid rgba(255, 255, 255, 0.9);
     outline-offset: 1px;
 }
 
-/* Touch: bigger targets (≥32px buttons + halo ≈ 44px effective), and the
-   collapsed capsule keeps a generous tap zone via the halo. */
+/* Touch: a taller tray with 36px buttons, and a bigger tongue whose halo
+   brings the effective target to ~44px. */
 @media (pointer: coarse) {
-    .dashboard-app-pill {
-        padding: 6px 8px;
+    .dashboard-app-drawer {
+        --tray-h: 48px;
     }
 
-    .dashboard-app-pill.collapsed {
-        padding: 5px 14px;
+    .dashboard-app-drawer-tray {
+        padding: var(--safe-top) 10px 0 12px;
     }
 
-    .dashboard-app-pill-btn {
-        width: 32px;
-        height: 32px;
-        max-width: 32px;
+    .dashboard-app-drawer-btn {
+        width: 36px;
+        height: 36px;
     }
 
-    .dashboard-app-pill::after {
-        inset: -12px;
+    .dashboard-app-drawer-handle {
+        width: 68px;
+        height: 21px;
+    }
+
+    .dashboard-app-drawer-grabber {
+        width: 26px;
+        height: 4px;
+    }
+
+    .dashboard-app-drawer-handle::after {
+        inset: 0 -16px -20px;
     }
 }
 
 /* Tight screens: identity shrinks to the icon; the controls keep their
    size — they're the part that must stay usable. */
 @media (max-width: 500px) {
-    .dashboard-app-pill-title {
+    .dashboard-app-drawer-title {
         display: none;
+    }
+
+    .dashboard-app-drawer-icon {
+        margin-right: 6px;
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .dashboard-app-pill,
-    .dashboard-app-pill * {
+    .dashboard-app-drawer,
+    .dashboard-app-drawer * {
         transition: none !important;
     }
 }

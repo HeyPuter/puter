@@ -238,8 +238,8 @@ async function UIWindow (options) {
     // --------------------------------------------------------
     // In dashboard mode a maximized app window renders HEADLESS — the app
     // covers the full tab, and the titlebar's controls live elsewhere: Back
-    // minimizes (URL ownership), the floating pill overlay carries
-    // minimize/close (attach_dashboard_app_pill), and the app's tile shows
+    // minimizes (URL ownership), the top-edge control drawer carries
+    // minimize/close (attach_dashboard_app_drawer), and the app's tile shows
     // a running dot with a Quit item. Everything else keeps its head:
     // dialogs and the dashboard window itself (update_window_url is false
     // for both), explorer, and non-maximized windows (apps launching child
@@ -689,10 +689,10 @@ async function UIWindow (options) {
         push_dashboard_app_url(options.app, options.title);
     }
 
-    // Headless dashboard app windows get the floating control pill in
+    // Headless dashboard app windows get the top-edge control drawer in
     // place of the head (see the Dashboard app chrome section above).
     if ( is_dashboard_app_chrome ) {
-        attach_dashboard_app_pill(el_window, options);
+        attach_dashboard_app_drawer(el_window, options);
     }
 
     // Let the Apps tab refresh its tiles' running dots (see TabApps).
@@ -3904,6 +3904,16 @@ $.fn.showWindow = async function (options) {
             // show window
             const el_window = this;
 
+            // Stay-on-top windows (every fullpage/dashboard app window) are
+            // CREATED in the 99999999+ z band; restore must re-raise them
+            // into that same band. A plain counter z would demote the window
+            // below whatever gets focused next — and focusWindow deliberately
+            // never raises stay_on_top windows, so the demotion would stick
+            // (a dashboard-mode app would sit buried under the dashboard).
+            const raised_zindex = () => ($(el_window).attr('data-stay_on_top') === 'true'
+                ? 99999999 + (++window.last_window_zindex)
+                : ++window.last_window_zindex);
+
             // A window minimized with no taskbar to animate toward (dashboard
             // mode) was hidden in place by hideWindow — its geometry was
             // never disturbed. If the app's tile is visible on the Apps tab's
@@ -3917,7 +3927,7 @@ $.fn.showWindow = async function (options) {
                     'data-is_minimized': false,
                     'data-minimized_in_place': '0',
                 });
-                $(el_window).css('z-index', ++window.last_window_zindex);
+                $(el_window).css('z-index', raised_zindex());
                 const reduce_motion = window.matchMedia
                     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
                 // Skip the morph while another morph still owns the window's
@@ -3946,9 +3956,9 @@ $.fn.showWindow = async function (options) {
                     if ( ! morphed && was_hidden ) $(el_window).hide();
                 }
                 if ( ! morphed ) $(el_window).fadeIn(150);
-                // Re-introduce the control pill on restore (headless
+                // Re-introduce the control drawer on restore (headless
                 // dashboard windows only; no-op otherwise).
-                el_window._dashboard_pill_flash?.();
+                el_window._dashboard_drawer_flash?.();
                 // A restore re-claims the URL for this app — except when
                 // the restore was DRIVEN by a history traversal (popstate
                 // passes no_history: the entry is already current).
@@ -3970,7 +3980,7 @@ $.fn.showWindow = async function (options) {
                 width: `${$(el_window).attr('data-orig-width') }px`,
                 height: `${$(el_window).attr('data-orig-height') }px`,
             });
-            $(el_window).css('z-index', ++window.last_window_zindex);
+            $(el_window).css('z-index', raised_zindex());
 
             $(el_window).attr({
                 'data-is_minimized': false,
@@ -4246,85 +4256,110 @@ window.addEventListener('popstate', () => {
 });
 
 /**
- * The floating control pill for headless dashboard app windows: a small
- * translucent capsule top-center of the app (parent DOM, above the app's
- * iframe) carrying the head's surviving controls — app identity, minimize,
- * and close. It opens expanded so first-time and deep-link users see it,
- * then collapses to a subtle handle; hovering, tapping, or keyboard-focusing
- * it expands it again. Timers rather than hover alone drive the collapse
- * because mousemove inside the app's iframe is invisible to the parent —
- * the pill itself is the only hover surface there is.
+ * The control drawer for headless dashboard app windows: a slim glass tray
+ * flush with the top edge of the app (parent DOM, above the app's iframe)
+ * carrying the head's surviving controls — app identity, minimize, and
+ * close — with a tongue-shaped handle hanging from its bottom center like a
+ * drawer pull. It opens expanded so first-time and deep-link users see the
+ * controls, then the tray retracts off the top edge leaving only the tongue
+ * peeking in; hovering the tongue (mouse), tapping it, or keyboard-focusing
+ * the drawer pulls it back down. Timers rather than hover alone drive the
+ * collapse because mousemove inside the app's iframe is invisible to the
+ * parent — the drawer itself is the only hover surface there is.
  *
- * The pill is a CHILD of the window element, so it shows/hides/scales with
+ * The drawer is a CHILD of the window element, so it shows/hides/scales with
  * the window for free (minimize morphs, display:none, fullscreen requests
  * from the iframe hide it via the browser's own fullscreen stacking).
  */
-function attach_dashboard_app_pill (el_window, options) {
+function attach_dashboard_app_drawer (el_window, options) {
     const app_name = options.app;
     const icon = options.icon || window.icons['app.svg'];
     const title = options.title || app_name;
 
-    const $pill = $(`
-        <div class="dashboard-app-pill">
-            <button type="button" class="dashboard-app-pill-toggle" aria-expanded="true" title="App controls" aria-label="App controls">
-                <img class="dashboard-app-pill-icon" src="${html_encode(icon)}" alt="" draggable="false">
+    // The handle comes FIRST in the DOM so Tab reaches the toggle before
+    // the tray's buttons; flex column-reverse (see dashboard.css) puts it
+    // back below the tray visually.
+    const $drawer = $(`
+        <div class="dashboard-app-drawer collapsed">
+            <button type="button" class="dashboard-app-drawer-handle" aria-expanded="false" title="App controls" aria-label="App controls">
+                <span class="dashboard-app-drawer-grabber" aria-hidden="true"></span>
             </button>
-            <span class="dashboard-app-pill-title">${html_encode(title)}</span>
-            <button type="button" class="dashboard-app-pill-btn dashboard-app-pill-minimize" title="Minimize to Dashboard" aria-label="Minimize to Dashboard">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            </button>
-            <button type="button" class="dashboard-app-pill-btn dashboard-app-pill-close" title="Close App" aria-label="Close App">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
-            </button>
+            <div class="dashboard-app-drawer-tray">
+                <img class="dashboard-app-drawer-icon" src="${html_encode(icon)}" alt="" draggable="false">
+                <span class="dashboard-app-drawer-title">${html_encode(title)}</span>
+                <button type="button" class="dashboard-app-drawer-btn dashboard-app-drawer-minimize" title="Minimize to Dashboard" aria-label="Minimize to Dashboard">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+                <button type="button" class="dashboard-app-drawer-btn dashboard-app-drawer-close" title="Close App" aria-label="Close App">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+                </button>
+            </div>
         </div>
     `);
-    const pill = $pill.get(0);
-    const toggle = $pill.find('.dashboard-app-pill-toggle').get(0);
+    const drawer = $drawer.get(0);
+    const handle = $drawer.find('.dashboard-app-drawer-handle').get(0);
 
     let collapse_timer = null;
+    let opened_at = 0;
     const expand = () => {
         clearTimeout(collapse_timer);
-        pill.classList.remove('collapsed');
-        toggle.setAttribute('aria-expanded', 'true');
+        if ( drawer.classList.contains('collapsed') ) opened_at = Date.now();
+        drawer.classList.remove('collapsed');
+        handle.setAttribute('aria-expanded', 'true');
     };
     const collapse = () => {
         clearTimeout(collapse_timer);
-        pill.classList.add('collapsed');
-        toggle.setAttribute('aria-expanded', 'false');
+        drawer.classList.add('collapsed');
+        handle.setAttribute('aria-expanded', 'false');
     };
     const schedule_collapse = (ms) => {
         clearTimeout(collapse_timer);
         collapse_timer = setTimeout(collapse, ms);
     };
     // Expand + auto-collapse: played on open and again on restore, so the
-    // controls introduce themselves without permanently costing pixels.
+    // controls introduce themselves — and retract INTO the tongue, teaching
+    // where they live — without permanently costing pixels.
     const flash = () => {
         expand();
         schedule_collapse(2600);
     };
 
-    // Hover keeps it open (pointer devices); leaving lets it settle. Touch
-    // devices never fire mouseleave, so every expansion also self-schedules
-    // a collapse — the mouseenter clear undoes it for real hovers.
-    $pill.on('mouseenter', () => expand());
-    $pill.on('mouseleave', () => schedule_collapse(1100));
-    $pill.on('focusin', () => expand());
-    $pill.on('focusout', () => schedule_collapse(1100));
+    // Hover pulls the drawer open and leaving lets it settle — mouse only:
+    // a touch tap synthesizes a pointerenter right before its click, which
+    // would make the handle's toggle below see an already-open drawer and
+    // shut it again. Touch devices open by tap instead, and since they
+    // never fire pointerleave, that path self-schedules its collapse.
+    $drawer.on('pointerenter', (e) => {
+        if ( e.pointerType === 'mouse' ) expand();
+    });
+    $drawer.on('pointerleave', (e) => {
+        if ( e.pointerType === 'mouse' ) schedule_collapse(900);
+    });
+    $drawer.on('focusin', () => expand());
+    $drawer.on('focusout', () => schedule_collapse(1100));
 
-    // A click anywhere on the collapsed pill (incl. its invisible touch
-    // halo) expands it; the toggle also collapses an expanded pill for an
-    // explicit dismiss. Buttons are pointer-events:none while collapsed,
-    // so a collapsed tap can't accidentally minimize or close.
-    $pill.on('click', function (e) {
-        if ( pill.classList.contains('collapsed') ) {
-            e.stopPropagation();
+    // Pressing the drawer activates its window, as pressing a titlebar
+    // would — the drawer took over the head's job. Deferred a tick because
+    // the document-level activation handler (initgui's mousedown →
+    // mouseover_window) runs after this one on hover bookkeeping that only
+    // mousemove refreshes; a tap with no mousemove since a dashboard click
+    // (touch, restored windows) would re-raise the dashboard OVER the app.
+    $drawer.on('mousedown', () => {
+        setTimeout(() => $(el_window).focusWindow(), 0);
+    });
+
+    // The tongue is the drawer's one toggle: pulls it open when shut,
+    // pushes it shut when open. A click landing within a beat of the open
+    // is the SAME gesture that opened it (hover-then-click mice, tap) —
+    // hold the drawer open instead of instantly re-shutting it.
+    $(handle).on('click', function (e) {
+        e.stopPropagation();
+        if ( drawer.classList.contains('collapsed') ) {
             expand();
             schedule_collapse(3500);
-        }
-    });
-    $(toggle).on('click', function (e) {
-        if ( ! pill.classList.contains('collapsed') ) {
-            e.stopPropagation();
+        } else if ( Date.now() - opened_at < 500 ) {
+            schedule_collapse(3500);
+        } else {
             collapse();
         }
     });
@@ -4333,22 +4368,24 @@ function attach_dashboard_app_pill (el_window, options) {
     // used: minimize consumes the app's URL entry when it owns it (the
     // popstate handler then plays the minimize morph — one path with the
     // browser's Back button), and close tears the window down normally.
-    $pill.find('.dashboard-app-pill-minimize').on('click', function (e) {
+    $drawer.find('.dashboard-app-drawer-minimize').on('click', function (e) {
         e.stopPropagation();
         collapse();
         if ( pop_dashboard_app_url(app_name) ) return;
         $(el_window).hideWindow();
     });
-    $pill.find('.dashboard-app-pill-close').on('click', function (e) {
+    $drawer.find('.dashboard-app-drawer-close').on('click', function (e) {
         e.stopPropagation();
         $(el_window).close();
     });
 
     // showWindow re-plays the intro when the window is restored.
-    el_window._dashboard_pill_flash = flash;
+    el_window._dashboard_drawer_flash = flash;
 
-    $(el_window).append($pill);
-    flash();
+    $(el_window).append($drawer);
+    // Two frames so the collapsed state paints first and the intro slides
+    // in from the top edge instead of popping in fully open.
+    requestAnimationFrame(() => requestAnimationFrame(flash));
 }
 
 /**
