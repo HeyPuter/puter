@@ -1396,6 +1396,23 @@ describe('AuthService (integration)', () => {
             ).resolves.toBeNull();
         });
 
+        it('returns null for a subdomain of the main domain', async () => {
+            // `<sub>.puter.localhost` sits under the main `domain`, not a
+            // hosting domain — no owner resolves even when a subdomain row
+            // with the same name exists.
+            const user = await makeUser();
+            const subdomain = `own-${Math.random().toString(36).slice(2, 10)}`;
+            await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain,
+            });
+            await expect(
+                authService.subdomainOwnerIdFromOrigin(
+                    `https://${subdomain}.puter.localhost`,
+                ),
+            ).resolves.toBeNull();
+        });
+
         it('returns null for an unregistered subdomain and for the apex host', async () => {
             await expect(
                 authService.subdomainOwnerIdFromOrigin(
