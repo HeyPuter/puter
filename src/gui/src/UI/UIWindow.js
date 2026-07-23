@@ -4262,8 +4262,9 @@ window.addEventListener('popstate', () => {
  * that MORPHS between two shapes. At rest it's a small tongue — a grabber
  * bar peeking in from the edge; opened, the same surface swells into a
  * tray carrying the head's surviving controls — app identity, minimize,
- * and close — while the grabber settles into a slim strip along the
- * tray's bottom edge as the dismiss handle. It opens expanded so
+ * and close — while the grabber bar fades away, leaving a bare strip
+ * along the tray's bottom edge as the dismiss hit area (the bar
+ * reappears as the drawer shuts). It opens expanded so
  * first-time and deep-link users see the controls, then shrinks back into
  * the tongue; hovering the tongue (mouse), tapping it, or keyboard-
  * focusing the drawer opens it again. Timers rather than hover alone

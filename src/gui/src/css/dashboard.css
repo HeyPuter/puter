@@ -4227,10 +4227,11 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
    glass surface flush with the top edge that MORPHS between two shapes:
    at rest a small tongue (a grabber bar peeking in from the edge);
    opened, the same surface swells into a tray carrying icon + title +
-   minimize + close, the grabber settling into a slim strip along the
-   tray's bottom edge as the dismiss handle. Hover (mouse), tap, or
-   keyboard focus opens it (see attach_dashboard_app_drawer in
-   UIWindow.js). A child of the window element (so it shows/hides/scales
+   minimize + close while the grabber bar dissolves — the open tray is
+   clean glass, and a bare strip along its bottom edge stays behind as
+   the dismiss hit area; shutting condenses the bar back into the
+   settling tongue. Hover (mouse), tap, or keyboard focus opens it (see
+   attach_dashboard_app_drawer in UIWindow.js). A child of the window element (so it shows/hides/scales
    with it), painted above the app's iframe. Dark translucent glass on
    every theme: it overlays arbitrary app content, not the dashboard's
    surfaces.
@@ -4255,9 +4256,16 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     --i2t: 8px;   /* icon → title gap */
     --t2b: 6px;   /* title → buttons gap */
     --controls-h: 40px;
-    --strip-h: 14px;  /* grabber strip along the open bottom edge */
+    /* With no visible handle when open, the tray hugs the controls row:
+       --open-h leaves just enough glass below the buttons to balance the
+       padding above them (plus ~2px the bottom corner radius eats
+       optically). The bare dismiss strip fills exactly that leftover —
+       it must never rise past the buttons' bottom edge at
+       (controls-h + btn)/2, because the toggle stacks OVER the controls
+       layer and would steal their clicks. */
+    --strip-h: 9px;
     --open-w: calc(12px + var(--icon) + var(--i2t) + var(--title-w) + var(--t2b) + var(--btn) + 2px + var(--btn) + 10px);
-    --open-h: 47px;
+    --open-h: 42px;
     --shut-w: 56px;
     --shut-h: 16px;
 
@@ -4348,9 +4356,10 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 }
 
 /* The grabber toggle: fills the tongue when shut; open, it settles into
-   a slim strip along the tray's bottom edge — the same handle, ridden
-   through the morph. Absolutely positioned, so its DOM position (first,
-   for Tab order) doesn't affect the visuals. */
+   a slim strip along the tray's bottom edge — same dismiss hit area,
+   but the bar inside it hides (below), so the open tray shows no
+   handle. Absolutely positioned, so its DOM position (first, for Tab
+   order) doesn't affect the visuals. */
 .dashboard-app-drawer-toggle {
     position: absolute;
     inset: calc(var(--safe-top) + var(--open-h) - var(--strip-h)) 0 0 0;
@@ -4382,17 +4391,27 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     inset: 0 -14px -14px;
 }
 
+/* Open, the bar is GONE (base = open shape): it dissolves in the first
+   beat of the swell — stretching a touch as it goes, absorbed into the
+   widening glass — before the controls bloom at 0.1s, one handing off
+   to the other. On collapse it condenses back in: the delay below skips
+   the controls' 0.12s fade-out so the bar never materializes mid-tray,
+   then it fades up while riding the shrinking toggle home, landing with
+   the tongue (0.14s + 0.18s ≈ the 0.3s shut morph). */
 .dashboard-app-drawer-grabber {
     width: 24px;
     height: 3px;
     border-radius: 2px;
     background: rgba(255, 255, 255, 0.6);
-    transition: width 0.3s ease, background-color 0.15s ease;
+    opacity: 0;
+    transition: width 0.3s ease, background-color 0.15s ease, opacity 0.12s ease;
 }
 
 .dashboard-app-drawer.collapsed .dashboard-app-drawer-grabber {
     width: 20px;
     background: rgba(255, 255, 255, 0.78);
+    opacity: 1;
+    transition: width 0.3s ease, background-color 0.15s ease, opacity 0.18s ease 0.14s;
 }
 
 @media (hover: hover) {
@@ -4490,8 +4509,8 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     .dashboard-app-drawer {
         --btn: 36px;
         --controls-h: 48px;
-        --strip-h: 16px;
-        --open-h: 58px;
+        --strip-h: 8px;
+        --open-h: 50px;
         --shut-w: 68px;
         --shut-h: 20px;
     }
