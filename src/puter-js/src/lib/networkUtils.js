@@ -87,6 +87,66 @@ async function resolveReauth (resp) {
 }
 
 /**
+ * The one XHR builder both `initXhr` (utils.js) and `fetchUrl` wrap. Opens the
+ * request, applies headers/credentials/responseType, and stashes the whole
+ * `spec` on `xhr._puterReq` as the single replay representation — any attempt
+ * (reauth, permission, transient) rebuilds the request by calling
+ * `buildXhr(spec)` again, which re-reads the live token when `includePuterAuth`.
+ *
+ * @param {Object} spec
+ * @param {string} spec.url - Full request URL.
+ * @param {string} [spec.method='GET']
+ * @param {Object} [spec.headers] - Extra headers (nullish values skipped).
+ * @param {boolean} [spec.includePuterAuth=false] - Add a fresh `Authorization: Bearer`.
+ * @param {boolean} [spec.withCredentials=true]
+ * @param {string} [spec.responseType='']
+ * @param {Object} [spec.logId] - Pre-built apiCallLogger request id.
+ * @returns {XMLHttpRequest}
+ */
+function buildXhr (spec) {
+    const {
+        url,
+        method = 'GET',
+        headers = {},
+        includePuterAuth = false,
+        withCredentials = true,
+        responseType = '',
+    } = spec;
+
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, url, true);
+    xhr.withCredentials = withCredentials;
+    xhr.responseType = responseType ?? '';
+
+    if ( includePuterAuth && globalThis.puter?.authToken ) {
+        xhr.setRequestHeader('Authorization', `Bearer ${globalThis.puter.authToken}`);
+    }
+    for ( const [ name, value ] of Object.entries(headers) ) {
+        if ( value !== undefined && value !== null ) {
+            xhr.setRequestHeader(name, value);
+        }
+    }
+
+    xhr._puterReq = spec;
+    const origSend = xhr.send.bind(xhr);
+    xhr.send = function (body) {
+        spec.body = body;
+        return origSend(body);
+    };
+
+    if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
+        xhr._puterRequestId = spec.logId ?? {
+            method,
+            service: 'xhr',
+            operation: url,
+            params: { url, method, responseType },
+        };
+    }
+
+    return xhr;
+}
+
+/**
  * The single HTTP core for puter.js. `fetchUrl` is an XHR-based replacement for
  * `fetch()` — every request that used to call `fetch()` directly routes through
  * here so auth headers, streaming, API-call logging, and 401 reauth-replay live
@@ -181,6 +241,226 @@ async function bodyForLog (xhr) {
     return `[${contentType || 'binary'}]`;
 }
 
+// -- Retry engine --
+// One loop drives every request: build the XHR from its spec, send, classify
+// the outcome, and either replay (reauth / permission / transient backoff) or
+// hand the result to the caller's shaper. A replay just rebuilds from the same
+// spec, so there are no hand-listed argument lists to get wrong.
+
+const RETRYABLE_STATUS = new Set([ 429, 502, 503, 504 ]);
+const MAX_ATTEMPTS = 5;         // transient attempts (network / retryable 5xx / 429)
+const BASE_DELAY_MS = 500;
+const MAX_DELAY_MS = 60_000;    // cap each backoff wait at 1 minute
+
+// Kill-switch seam: puter.configure() (deferred) will drive this. Default on.
+const autoRetryEnabled = () => globalThis.puter?.config?.autoRetry ?? true;
+
+const sleep = (ms, signal) => new Promise((resolve, reject) => {
+    if ( signal?.aborted ) return reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+        clearTimeout(t);
+        reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+    }, { once: true });
+});
+
+// Full-jitter exponential backoff, each wait capped at MAX_DELAY_MS.
+const backoffDelay = attempt => Math.random() * Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** (attempt - 1));
+
+/**
+ * Drive the env-specific permission prompt for a denied driver call.
+ * @returns {Promise<{granted: boolean}>}
+ */
+async function resolvePermission (permission) {
+    try {
+        const perm = await puter.ui.requestPermission({ permission });
+        return { granted: !! perm?.granted };
+    } catch ( e ) {
+        return { granted: false };
+    }
+}
+
+/**
+ * Send one attempt. Resolves with a terminal outcome:
+ *   { streamed: true, xhr, lineStream } — NDJSON, resolved at HEADERS_RECEIVED
+ *   { xhr, status }                     — buffered response (any HTTP status)
+ *   { networkError: true, xhr }         — transport error
+ * Rejects only on abort. The NDJSON line buffering matches the old inline
+ * streaming in fetchUrl and driverCall_; per-line semantics (usage/email/etc.)
+ * belong to the caller's `shapeStream`.
+ */
+function sendOnce (spec) {
+    return new Promise((resolve, reject) => {
+        const xhr = buildXhr(spec);
+
+        let streamed = false;
+        let responseComplete = false;
+        let signalStreamUpdate = null;
+        const lines = [];
+        let carry = '';
+        let consumed = 0;
+
+        const lineStream = (async function* () {
+            while ( true ) {
+                while ( lines.length > 0 ) {
+                    const line = lines.shift();
+                    if ( line.trim() === '' ) continue;
+                    yield JSON.parse(line);
+                }
+                if ( responseComplete ) break;
+                const sig = createDeferred();
+                signalStreamUpdate = sig.resolve;
+                await sig.promise;
+            }
+        })();
+
+        xhr.onreadystatechange = () => {
+            if ( xhr.readyState === 2 && isNdjson(xhr.getResponseHeader('Content-Type')) ) {
+                streamed = true;
+                resolve({ streamed: true, xhr, lineStream });
+            }
+            if ( xhr.readyState === 4 && streamed ) {
+                if ( carry.length > 0 ) { lines.push(carry); carry = ''; }
+                responseComplete = true;
+                signalStreamUpdate?.();
+            }
+        };
+
+        xhr.onprogress = () => {
+            if ( ! streamed ) return;
+            const fresh = xhr.responseText.slice(consumed);
+            consumed = xhr.responseText.length;
+            if ( ! fresh ) return;
+            carry += fresh;
+            let nl;
+            while ( (nl = carry.indexOf('\n')) !== -1 ) {
+                lines.push(carry.slice(0, nl));
+                carry = carry.slice(nl + 1);
+            }
+            signalStreamUpdate?.();
+        };
+
+        xhr.addEventListener('load', () => {
+            if ( streamed ) return;
+            resolve({ xhr, status: xhr.status });
+        });
+        xhr.addEventListener('error', () => resolve({ networkError: true, xhr }));
+        xhr.addEventListener('abort', () => reject(spec.signal?.reason ?? new DOMException('Aborted', 'AbortError')));
+
+        if ( spec.signal ) {
+            if ( spec.signal.aborted ) return reject(spec.signal.reason ?? new DOMException('Aborted', 'AbortError'));
+            spec.signal.addEventListener('abort', () => xhr.abort(), { once: true });
+        }
+
+        const body = typeof spec.buildBody === 'function' ? spec.buildBody() : spec.body;
+        xhr.send(body ?? null);
+    });
+}
+
+/**
+ * Classify a completed attempt into a retry decision. Reauth and permission are
+ * one-shot (tracked in `ctx.done`) and apply to any request; transient backoff
+ * applies only to `ctx.retrySafe` requests and honors the autoRetry kill switch.
+ * Memoizes the parsed body on `outcome.parsed` and stashes any reauth error on
+ * `outcome.reauthError` for the shaper.
+ *
+ * @returns {Promise<{delayMs:number}|null>} a delay to retry after, or null to stop.
+ */
+async function classifyRetry (outcome, ctx) {
+    if ( outcome.streamed ) return null; // committed stream — never retried
+
+    if ( outcome.networkError ) {
+        return ( ctx.retrySafe && autoRetryEnabled() && ctx.attempt < MAX_ATTEMPTS )
+            ? { delayMs: backoffDelay(ctx.attempt) } : null;
+    }
+
+    const { xhr, status } = outcome;
+    if ( outcome.parsed === undefined ) {
+        outcome.parsed = await bodyJson(xhr).catch(() => null);
+    }
+    const parsed = outcome.parsed;
+
+    // reauth (401 / token_auth_failed) — one-shot, any method, no backoff.
+    if ( status === 401 || parsed?.code === 'token_auth_failed' ) {
+        if ( ! ctx.done.has('reauth') ) {
+            const reauth = await resolveReauth(parsed);
+            if ( reauth?.action === 'replay' ) { ctx.done.add('reauth'); return { delayMs: 0 }; }
+            if ( reauth?.action === 'reject' ) outcome.reauthError = reauth.error;
+        }
+        return null;
+    }
+
+    // permission denied (200 success:false) — one-shot, any method, no backoff.
+    if ( ctx.permission && parsed?.success === false && parsed?.error?.code === 'permission_denied' ) {
+        if ( ! ctx.done.has('permission') ) {
+            const perm = await resolvePermission(ctx.permission);
+            if ( perm.granted ) { ctx.done.add('permission'); return { delayMs: 0 }; }
+        }
+        return null;
+    }
+
+    // transient status — read-safe only, honors kill switch, bounded + backed off.
+    if ( RETRYABLE_STATUS.has(status) ) {
+        return ( ctx.retrySafe && autoRetryEnabled() && ctx.attempt < MAX_ATTEMPTS )
+            ? { delayMs: backoffDelay(ctx.attempt) } : null;
+    }
+
+    return null;
+}
+
+/**
+ * The one retry loop. Sends `spec` (rebuilding per attempt), classifies each
+ * outcome, and retries on reauth / permission / transient causes; otherwise
+ * hands the outcome to `shape`.
+ *
+ * @param {Object} spec - buildXhr spec (+ optional buildBody, signal).
+ * @param {Object} opts
+ * @param {boolean} [opts.retrySafe=false] - eligible for transient backoff retry.
+ * @param {string|null} [opts.permission] - `driver:<iface>:<method>` enables the permission cause.
+ * @param {(lineStream, xhr) => any} opts.shapeStream - wrap an NDJSON stream.
+ * @param {(outcome) => any} opts.shape - shape a buffered outcome (may throw).
+ */
+async function sendWithRetry (spec, { retrySafe = false, permission = null, shapeStream, shape }) {
+    const ctx = { attempt: 0, retrySafe, permission, done: new Set() };
+    while ( true ) {
+        ctx.attempt++;
+        const outcome = await sendOnce(spec);
+        if ( outcome.streamed ) return shapeStream(outcome.lineStream, outcome.xhr);
+        const decision = await classifyRetry(outcome, ctx);
+        if ( decision ) { await sleep(decision.delayMs, spec.signal); continue; }
+        return shape(outcome);
+    }
+}
+
+// -- In-flight request dedup --
+// Coalesce concurrent identical requests: a second caller within `windowMs`
+// gets the first request's promise (shared resolved value). The entry is
+// deleted when the request settles. Generalized from the copy-pasted logic in
+// FileSystem readdir/stat (which keep their own bespoke cache and are untouched).
+const inflightRequests = new Map();
+
+/**
+ * @param {string} key - fully-qualified request key (namespace it yourself, e.g.
+ *   `${method}:${url}:${bodyKey}`).
+ * @param {() => Promise<any>} factory - runs the request; called only on a miss.
+ * @param {{windowMs?: number}} [opts]
+ * @returns {Promise<any>} shared promise (resolved value shared by reference).
+ */
+function dedupe (key, factory, { windowMs = 2000 } = {}) {
+    const existing = inflightRequests.get(key);
+    if ( existing ) {
+        if ( Date.now() - existing.timestamp < windowMs ) return existing.promise;
+        inflightRequests.delete(key); // stale — fall through and re-issue
+    }
+    const promise = factory();
+    inflightRequests.set(key, { promise, timestamp: Date.now() });
+    const cleanup = () => {
+        if ( inflightRequests.get(key)?.promise === promise ) inflightRequests.delete(key);
+    };
+    promise.then(cleanup, cleanup);
+    return promise;
+}
+
 /**
  * XHR-based `fetch()` replacement. Returns a `fetch`-Response-like object.
  *
@@ -201,8 +481,11 @@ async function bodyForLog (xhr) {
  * @param {AbortSignal} [opts.signal]
  * @param {{service: string, operation: string, params?: Object}} [opts.logContext]
  *   Semantic context for the centralized API-call log. Omit to log generically.
- * @param {Object} [opts.retry] - Reserved for a later sprint step (ignored).
- * @param {Object} [opts.dedupe] - Reserved for a later sprint step (ignored).
+ * @param {boolean} [opts.retry] - Force-enable (`true`) or disable (`false`)
+ *   transient-failure auto-retry for this request; omit for the default
+ *   (idempotent methods retry, others don't). Never retries a write.
+ * @param {boolean|string} [opts.dedupe] - Coalesce concurrent identical in-flight
+ *   requests (reads only): `true` auto-keys by method+url+body, or pass a key.
  * @param {Object} [opts.paginate] - Reserved for a later sprint step (ignored).
  * @returns {Promise<PuterResponse>}
  */
@@ -216,132 +499,49 @@ function fetchUrl (url, opts = {}) {
         withCredentials = true,
         signal,
         logContext,
-        _reauthReplayed = false, // internal one-shot guard for reauth replay
+        retry,
+        dedupe: dedupeOpt,
     } = opts;
 
-    return new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open(method, url, true);
-        xhr.withCredentials = withCredentials;
-        // Text mode keeps NDJSON progress deltas available for stream(); callers
-        // that need binary/parsed bodies pass an explicit responseType.
-        xhr.responseType = responseType;
+    const logId = logContext ?? { service: 'fetchUrl', operation: `${method} ${url}`, params: { url, method } };
+    const spec = { url, method, headers, includePuterAuth, withCredentials, responseType, body, signal, logId };
 
-        if ( includePuterAuth && globalThis.puter?.authToken ) {
-            xhr.setRequestHeader('Authorization', `Bearer ${globalThis.puter.authToken}`);
-        }
-        for ( const [ name, value ] of Object.entries(headers) ) {
-            if ( value !== undefined && value !== null ) {
-                xhr.setRequestHeader(name, value);
+    // Read-safety: idempotent methods auto-retry; a POST read opts in with
+    // `retry:true`; nothing retries when `retry:false` (writes/uploads).
+    const idempotent = method === 'GET' || method === 'HEAD';
+    const retrySafe = retry === false ? false : ( retry === true || idempotent );
+
+    const loggingOn = () => globalThis.puter?.apiCallLogger?.isEnabled();
+
+    const run = () => sendWithRetry(spec, {
+        retrySafe,
+        shapeStream: (lineStream, xhr) => {
+            if ( loggingOn() ) logRequest(logId, { result: '[stream]' });
+            return makeResponse(xhr, lineStream);
+        },
+        shape: async (outcome) => {
+            if ( outcome.networkError ) {
+                if ( loggingOn() ) logRequest(logId, { error: { message: 'Network error occurred' } });
+                throw new TypeError(`Network request to ${url} failed`);
             }
-        }
-
-        if ( signal ) {
-            if ( signal.aborted ) return reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
-            signal.addEventListener('abort', () => xhr.abort(), { once: true });
-        }
-
-        let logId = null;
-        if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-            logId = logContext ?? { service: 'fetchUrl', operation: `${method} ${url}`, params: { url, method } };
-        }
-
-        // -- NDJSON streaming --
-        // Detect a stream at HEADERS_RECEIVED and resolve early with a response
-        // whose stream() yields parsed lines as onprogress deltas arrive. This
-        // mirrors the streaming in driverCall_ (utils.js) and the xhrshim.
-        let resolvedAsStream = false;
-        let responseComplete = false;
-        let signalStreamUpdate = null;
-        const linesReceived = [];
-        let carry = '';
-        let consumedLength = 0;
-
-        const pushLines = text => {
-            carry += text;
-            let nl;
-            while ( (nl = carry.indexOf('\n')) !== -1 ) {
-                linesReceived.push(carry.slice(0, nl));
-                carry = carry.slice(nl + 1);
-            }
-        };
-
-        xhr.onreadystatechange = () => {
-            if ( xhr.readyState === 2 && ! isNdjson(xhr.getResponseHeader('Content-Type')) ) return;
-            if ( xhr.readyState === 2 ) {
-                resolvedAsStream = true;
-                const stream = (async function* () {
-                    while ( true ) {
-                        while ( linesReceived.length > 0 ) {
-                            const line = linesReceived.shift();
-                            if ( line.trim() === '' ) continue;
-                            yield JSON.parse(line);
-                        }
-                        if ( responseComplete ) break;
-                        const sig = createDeferred();
-                        signalStreamUpdate = sig.resolve;
-                        await sig.promise;
-                    }
-                })();
-                logRequest(logId, { result: '[stream]' });
-                resolve(makeResponse(xhr, stream));
-            }
-            if ( xhr.readyState === 4 && resolvedAsStream ) {
-                if ( carry.length > 0 ) { linesReceived.push(carry); carry = ''; }
-                responseComplete = true;
-                signalStreamUpdate?.();
-            }
-        };
-
-        xhr.onprogress = () => {
-            if ( ! resolvedAsStream ) return;
-            const fresh = xhr.responseText.slice(consumedLength);
-            consumedLength = xhr.responseText.length;
-            if ( ! fresh ) return;
-            pushLines(fresh);
-            signalStreamUpdate?.();
-        };
-
-        // -- Buffered (non-stream) response --
-        xhr.addEventListener('load', async function () {
-            if ( resolvedAsStream ) return;
-
-            if ( this.status === 401 && ! _reauthReplayed ) {
-                let parsed = null;
-                try { parsed = await bodyJson(this); } catch ( e ) { parsed = null; }
-                const reauth = await resolveReauth(parsed);
-                if ( reauth?.action === 'replay' ) {
-                    try {
-                        return resolve(await fetchUrl(url, { ...opts, _reauthReplayed: true }));
-                    } catch ( e ) {
-                        return reject(e);
-                    }
-                }
-                // reauth 'reject'/null (incl. token_auth_failed handled inside
-                // resolveReauth): surface the 401 as an ok:false response, the
-                // same way fetch does for any error status.
-            }
-
-            const resp = makeResponse(this);
-            if ( logId ) {
-                const logged = await bodyForLog(this);
-                logRequest(logId, this.status >= 400
-                    ? { error: logged ?? { message: this.statusText, status: this.status } }
+            const { xhr } = outcome;
+            const resp = makeResponse(xhr);
+            if ( loggingOn() ) {
+                const logged = await bodyForLog(xhr);
+                logRequest(logId, xhr.status >= 400
+                    ? { error: logged ?? { message: xhr.statusText, status: xhr.status } }
                     : { result: logged });
             }
-            resolve(resp);
-        });
-
-        xhr.addEventListener('error', function (e) {
-            logRequest(logId, { error: { message: 'Network error occurred', event: e.type } });
-            reject(new TypeError(`Network request to ${url} failed`));
-        });
-        xhr.addEventListener('abort', function () {
-            reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
-        });
-
-        xhr.send(body);
+            return resp;
+        },
     });
+
+    if ( dedupeOpt ) {
+        const bodyKey = body == null ? '' : ( typeof body === 'string' ? body : '[body]' );
+        const key = typeof dedupeOpt === 'string' ? dedupeOpt : `${method}:${url}:${bodyKey}`;
+        return dedupe(key, run);
+    }
+    return run();
 }
 
-export { fetchUrl, resolveReauth };
+export { buildXhr, dedupe, fetchUrl, resolveReauth, sendWithRetry };

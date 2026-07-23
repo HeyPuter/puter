@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fetchUrl } from './networkUtils.js';
+import { dedupe, fetchUrl, sendWithRetry } from './networkUtils.js';
 
 // -- Controllable fake XMLHttpRequest --
 // Drives fetchUrl's event handlers deterministically. Each instance plays the
@@ -108,9 +108,11 @@ describe('fetchUrl', () => {
         }
     });
 
-    it('rejects on a network error', async () => {
+    it('rejects on a network error (write — no retry)', async () => {
+        // A write never auto-retries, so the network error surfaces immediately.
+        // Read retry-then-reject is covered in the transient-retry suite.
         installFakeXHR(xhr => xhr._networkError());
-        await expect(fetchUrl('https://api.example/x')).rejects.toThrow(/failed/);
+        await expect(fetchUrl('https://api.example/x', { method: 'POST' })).rejects.toThrow(/failed/);
     });
 
     it('exposes text(), json(), and blob() accessors', async () => {
@@ -218,5 +220,159 @@ describe('fetchUrl', () => {
             expect(entry).toMatchObject({ service: 'auth', operation: 'whoami' });
             expect(entry.result).toEqual({ u: 1 });
         });
+    });
+});
+
+// Play a scripted response per attempt (retries create fresh XHR instances).
+const sequence = (...steps) => {
+    let i = 0;
+    return xhr => steps[Math.min(i++, steps.length - 1)](xhr);
+};
+const netError = () => xhr => xhr._networkError();
+
+describe('transient retry', () => {
+    beforeEach(() => { globalThis.puter = {}; });
+
+    it('retries a GET on 503 then resolves the success', async () => {
+        vi.useFakeTimers();
+        const xhrs = installFakeXHR(sequence(
+            respond({ status: 503, body: {} }),
+            respond({ status: 200, body: { ok: 1 } }),
+        ));
+        const p = fetchUrl('https://api.example/x'); // GET → retry-safe
+        await vi.advanceTimersByTimeAsync(60_000);
+        const resp = await p;
+        expect(resp.status).toBe(200);
+        expect(xhrs.length).toBe(2);
+        vi.useRealTimers();
+    });
+
+    it('does not retry a POST by default', async () => {
+        const xhrs = installFakeXHR(sequence(respond({ status: 503, body: {} })));
+        const resp = await fetchUrl('https://api.example/x', { method: 'POST' });
+        expect(resp.status).toBe(503);
+        expect(xhrs.length).toBe(1);
+    });
+
+    it('retries a POST when retry:true (read-style opt-in)', async () => {
+        vi.useFakeTimers();
+        const xhrs = installFakeXHR(sequence(
+            respond({ status: 503, body: {} }),
+            respond({ status: 200, body: { ok: 1 } }),
+        ));
+        const p = fetchUrl('https://api.example/x', { method: 'POST', retry: true });
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect((await p).status).toBe(200);
+        expect(xhrs.length).toBe(2);
+        vi.useRealTimers();
+    });
+
+    it('retry:false disables retry even for a GET', async () => {
+        const xhrs = installFakeXHR(sequence(respond({ status: 503, body: {} })));
+        const resp = await fetchUrl('https://api.example/x', { retry: false });
+        expect(resp.status).toBe(503);
+        expect(xhrs.length).toBe(1);
+    });
+
+    it('does not retry a non-retryable status (400)', async () => {
+        const xhrs = installFakeXHR(sequence(respond({ status: 400, body: {} })));
+        const resp = await fetchUrl('https://api.example/x'); // GET
+        expect(resp.status).toBe(400);
+        expect(xhrs.length).toBe(1);
+    });
+
+    it('respects the autoRetry kill switch', async () => {
+        globalThis.puter = { config: { autoRetry: false } };
+        const xhrs = installFakeXHR(sequence(respond({ status: 503, body: {} })));
+        const resp = await fetchUrl('https://api.example/x'); // GET, but retry off
+        expect(resp.status).toBe(503);
+        expect(xhrs.length).toBe(1);
+    });
+
+    it('retries a network error for a read, then rejects after the cap', async () => {
+        vi.useFakeTimers();
+        const xhrs = installFakeXHR(netError()); // every attempt fails
+        const p = fetchUrl('https://api.example/x').catch(e => e); // GET
+        await vi.advanceTimersByTimeAsync(60_000 * 6);
+        const err = await p;
+        expect(err).toBeInstanceOf(TypeError);
+        expect(xhrs.length).toBe(5); // MAX_ATTEMPTS
+        vi.useRealTimers();
+    });
+
+    it('rejects a write network error immediately (no retry)', async () => {
+        const xhrs = installFakeXHR(netError());
+        await expect(fetchUrl('https://api.example/x', { method: 'POST' })).rejects.toThrow(/failed/);
+        expect(xhrs.length).toBe(1);
+    });
+});
+
+describe('dedupe', () => {
+    it('coalesces concurrent identical requests into one call', async () => {
+        let calls = 0;
+        const factory = () => { calls++; return new Promise(r => setTimeout(() => r({ v: calls }), 5)); };
+        const [ a, b ] = await Promise.all([ dedupe('k', factory), dedupe('k', factory) ]);
+        expect(calls).toBe(1);
+        expect(a).toBe(b); // shared resolved value by reference
+    });
+
+    it('re-issues after the in-flight request settles', async () => {
+        let calls = 0;
+        const factory = () => Promise.resolve(++calls);
+        await dedupe('k2', factory);
+        await dedupe('k2', factory);
+        expect(calls).toBe(2);
+    });
+
+    it('does not collide across distinct keys', async () => {
+        let calls = 0;
+        const factory = () => new Promise(r => setTimeout(() => r(++calls), 5));
+        await Promise.all([ dedupe('a', factory), dedupe('b', factory) ]);
+        expect(calls).toBe(2);
+    });
+});
+
+describe('driver permission-grant replay (regression)', () => {
+    it('replays exactly once after a grant, preserving the rebuilt request', async () => {
+        // Before the fix, the driver permission replay dropped arguments; here we
+        // assert one prompt, one replay, and the same body on the retry.
+        const requestPermission = vi.fn(async () => ({ granted: true }));
+        globalThis.puter = { ui: { requestPermission } };
+        const xhrs = installFakeXHR(sequence(
+            respond({ status: 200, body: { success: false, error: { code: 'permission_denied' } } }),
+            respond({ status: 200, body: { success: true, result: 'ok' } }),
+        ));
+        const spec = {
+            url: 'https://api.example/drivers/call',
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;actually=json' },
+            buildBody: () => JSON.stringify({ interface: 'iface', method: 'm', args: { a: 1 } }),
+        };
+        const result = await sendWithRetry(spec, {
+            permission: 'driver:iface:m',
+            shapeStream: () => {},
+            shape: outcome => outcome.parsed,
+        });
+        expect(requestPermission).toHaveBeenCalledTimes(1);
+        expect(requestPermission).toHaveBeenCalledWith({ permission: 'driver:iface:m' });
+        expect(xhrs.length).toBe(2);
+        expect(xhrs[1].reqBody).toBe(JSON.stringify({ interface: 'iface', method: 'm', args: { a: 1 } }));
+        expect(result).toEqual({ success: true, result: 'ok' });
+    });
+
+    it('does not loop when the grant still yields permission_denied', async () => {
+        const requestPermission = vi.fn(async () => ({ granted: true }));
+        globalThis.puter = { ui: { requestPermission } };
+        const denied = respond({ status: 200, body: { success: false, error: { code: 'permission_denied' } } });
+        const xhrs = installFakeXHR(sequence(denied, denied, denied));
+        const spec = { url: 'https://api.example/drivers/call', method: 'POST', headers: {}, buildBody: () => '{}' };
+        const result = await sendWithRetry(spec, {
+            permission: 'driver:iface:m',
+            shapeStream: () => {},
+            shape: outcome => outcome.parsed,
+        });
+        expect(requestPermission).toHaveBeenCalledTimes(1); // one-shot
+        expect(xhrs.length).toBe(2);
+        expect(result.error.code).toBe('permission_denied');
     });
 });
