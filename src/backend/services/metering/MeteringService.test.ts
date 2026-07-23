@@ -170,11 +170,11 @@ describe('MeteringService', () => {
         });
 
         it('updateAddonCredit increments purchasedCredits', async () => {
-            await target.updateAddonCredit(actor.user.uuid, 1000);
+            await target.updateAddonCredit(actor.user.uuid!, 1000);
             const addons = await target.getActorAddons(actor);
             expect(addons.purchasedCredits).toBe(1000);
 
-            await target.updateAddonCredit(actor.user.uuid, 500);
+            await target.updateAddonCredit(actor.user.uuid!, 500);
             const updated = await target.getActorAddons(actor);
             expect(updated.purchasedCredits).toBe(1500);
         });
@@ -302,7 +302,7 @@ describe('MeteringService', () => {
         it('consumes purchased credits once monthly allowance is exceeded', async () => {
             const overActor: Actor = { user: makeUser() };
             const sub = await target.getActorSubscription(overActor);
-            await target.updateAddonCredit(overActor.user.uuid, 5_000_000);
+            await target.updateAddonCredit(overActor.user.uuid!, 5_000_000);
 
             // Spend the entire monthly allowance — no overage yet.
             await target.incrementUsage(
@@ -405,7 +405,7 @@ describe('MeteringService', () => {
             const creditActor: Actor = { user: makeUser() };
             const sub = await target.getActorSubscription(creditActor);
             await target.updateAddonCredit(
-                creditActor.user.uuid,
+                creditActor.user.uuid!,
                 5_000_000_000,
             );
 
@@ -426,6 +426,100 @@ describe('MeteringService', () => {
             );
 
             expect(wasOveruseAlarmed(alarmSpy)).toBe(false);
+            alarmSpy.mockRestore();
+        });
+
+        it('does not alarm while the actor is spending down purchased credit', async () => {
+            const creditActor: Actor = { user: makeUser() };
+            const sub = await target.getActorSubscription(creditActor);
+            // Three allowances' worth of purchased credit on top of the monthly
+            // allowance — a total budget of 4x the allowance.
+            await target.updateAddonCredit(
+                creditActor.user.uuid!,
+                sub.monthUsageAllowance * 3,
+            );
+
+            const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
+            // Burn through the entire budget (allowance + all purchased credit).
+            // A user actively spending paid-for credit must never page, and even
+            // landing exactly at the budget shouldn't yet.
+            await target.incrementUsage(
+                creditActor,
+                'ai:chat',
+                1,
+                sub.monthUsageAllowance * 3,
+            );
+            await target.incrementUsage(
+                creditActor,
+                'ai:chat',
+                1,
+                sub.monthUsageAllowance,
+            );
+
+            expect(wasOveruseAlarmed(alarmSpy)).toBe(false);
+            alarmSpy.mockRestore();
+        });
+
+        it('does not page the moment purchased credit runs dry between allowance marks', async () => {
+            // Regression: the alarm used to count allowance multiples from zero
+            // and only gate on the credit being gone, so the first expense after
+            // a user's purchased credit ran out would page even though they had
+            // just been spending credit they paid for. The purchased credit must
+            // shift the baseline the multiples are measured from.
+            //
+            // The registered-user free allowance is 25e6 micro-cents. Purchased
+            // credit of 37.5e6 (1.5x) makes the full budget run dry at 62.5e6 —
+            // between the 2x (50e6) and 3x (75e6) allowance marks — so a small
+            // expense just past it crosses a from-zero multiple (old: pages)
+            // without crossing a net-of-credit multiple (new: quiet).
+            const creditActor: Actor = { user: makeUser() };
+            const sub = await target.getActorSubscription(creditActor);
+            expect(sub.monthUsageAllowance).toBe(25_000_000);
+            await target.updateAddonCredit(creditActor.user.uuid!, 37_500_000);
+
+            // Burn the allowance + all credit and a bit beyond, one legit jump.
+            await target.incrementUsage(creditActor, 'ai:chat', 1, 70_000_000);
+
+            // A small further expense crosses the 3x-from-zero mark but is still
+            // well within (credit + 2x allowance) — it must stay quiet.
+            const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
+            await target.incrementUsage(creditActor, 'ai:chat', 1, 7_500_000);
+
+            expect(wasOveruseAlarmed(alarmSpy)).toBe(false);
+            alarmSpy.mockRestore();
+        });
+
+        it('alarms once usage reaches purchased credit + 2x the monthly allowance', async () => {
+            const creditActor: Actor = { user: makeUser() };
+            const sub = await target.getActorSubscription(creditActor);
+            const credit = sub.monthUsageAllowance * 3;
+            await target.updateAddonCredit(creditActor.user.uuid!, credit);
+
+            // Consume the allowance + all purchased credit and land one band
+            // past the budget in a single jump — legitimate, so no alarm yet.
+            await target.incrementUsage(
+                creditActor,
+                'ai:chat',
+                1,
+                sub.monthUsageAllowance * 4,
+            );
+
+            // The next allowance-sized expense crosses into 2x-past-the-credit
+            // and is what should finally page.
+            const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
+            await target.incrementUsage(
+                creditActor,
+                'ai:chat',
+                1,
+                sub.monthUsageAllowance,
+            );
+
+            expect(alarmSpy).toHaveBeenCalledWith(
+                expect.stringContaining('usage exceeded'),
+                expect.stringContaining('exceeded their usage allowance'),
+                expect.objectContaining({ purchasedCredits: credit }),
+                'warning',
+            );
             alarmSpy.mockRestore();
         });
     });
@@ -682,8 +776,7 @@ describe('MeteringService', () => {
             expect(result.total).toBe(500);
             const adj = (result as Record<string, unknown>)
                 .manual_adjustment as
-                | { cost: number; units: number; count: number }
-                | undefined;
+                { cost: number; units: number; count: number } | undefined;
             expect(adj).toMatchObject({ cost: 500, units: 500, count: 1 });
         });
 
@@ -769,7 +862,7 @@ describe('MeteringService', () => {
         });
 
         it('adds purchased credits to remaining', async () => {
-            await target.updateAddonCredit(actor.user.uuid, 5_000);
+            await target.updateAddonCredit(actor.user.uuid!, 5_000);
             const allowed = await target.getAllowedUsage(actor);
             expect(allowed.remaining).toBe(allowed.monthUsageAllowance + 5_000);
         });
@@ -800,7 +893,7 @@ describe('MeteringService', () => {
 
         it('does not double-charge same-month overage against remaining (usage total + consumed credits)', async () => {
             const sub = await target.getActorSubscription(actor);
-            await target.updateAddonCredit(actor.user.uuid, 5_000_000);
+            await target.updateAddonCredit(actor.user.uuid!, 5_000_000);
 
             // Exhaust the allowance, then overspend by 1_000_000 — the overage
             // is consumed from purchased credits.
@@ -825,7 +918,7 @@ describe('MeteringService', () => {
         it('counts consumed credits from prior months against the credit pool only', async () => {
             // Simulate a prior-month overage: consumed credits exist but the
             // current month has no usage (monthly usage keys roll over).
-            await target.updateAddonCredit(actor.user.uuid, 5_000_000);
+            await target.updateAddonCredit(actor.user.uuid!, 5_000_000);
             await server.stores.kv.incr({
                 key: `${POLICY_PREFIX}:actor:${actor.user.uuid}:addons`,
                 pathAndAmountMap: { consumedPurchaseCredits: 2_000_000 },
@@ -838,7 +931,7 @@ describe('MeteringService', () => {
         });
 
         it('hasEnoughCredits compares remaining against the requested amount', async () => {
-            await target.updateAddonCredit(actor.user.uuid, 1_000);
+            await target.updateAddonCredit(actor.user.uuid!, 1_000);
             expect(await target.hasEnoughCredits(actor, 100)).toBe(true);
             expect(
                 await target.hasEnoughCredits(actor, Number.MAX_SAFE_INTEGER),
@@ -880,7 +973,7 @@ describe('MeteringService', () => {
         });
 
         it('persists addons under the policy prefix', async () => {
-            await target.updateAddonCredit(actor.user.uuid, 250);
+            await target.updateAddonCredit(actor.user.uuid!, 250);
             const key = `${POLICY_PREFIX}:actor:${actor.user.uuid}:addons`;
             const { res } = await server.stores.kv.get({ key });
             expect(res).toMatchObject({ purchasedCredits: 250 });
