@@ -37,6 +37,7 @@ import { DeepSeekProvider } from './providers/deepseek/DeepSeekProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import { GeminiChatProvider } from './providers/gemini/GeminiChatProvider.js';
 import { GroqAIProvider } from './providers/groq/GroqAIProvider.js';
+import { InfronProvider } from './providers/infron/InfronProvider.js';
 import { MiniMaxProvider } from './providers/minimax/MiniMaxProvider.js';
 import { MistralAIProvider } from './providers/mistral/MistralAiProvider.js';
 import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
@@ -986,6 +987,18 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
+        const infron = providers['infron'];
+        const infronKey = readKey(infron);
+        if (infronKey) {
+            this.#providers['infron'] = new InfronProvider(
+                {
+                    apiKey: infronKey,
+                    apiBaseUrl: infron?.apiBaseUrl as string | undefined,
+                },
+                metering,
+            );
+        }
+
         // Fake provider — always available for testing
         this.#providers['fake-chat'] = new FakeChatProvider();
     }
@@ -993,7 +1006,7 @@ export class ChatCompletionDriver extends PuterDriver {
     // -- Model map ---------------------------------------------------
 
     async #buildModelMap() {
-        const AGGREGATORS = new Set(['together-ai', 'openrouter']);
+        const AGGREGATORS = new Set(['together-ai', 'openrouter', 'infron']);
 
         for (const providerName in this.#providers) {
             const provider = this.#providers[providerName];
