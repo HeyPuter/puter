@@ -1348,6 +1348,74 @@ describe('AuthService (integration)', () => {
         });
     });
 
+    describe('subdomainOwnerIdFromOrigin', () => {
+        // Test servers inherit the four hosting domains (production:
+        // puter.site / puter.host / puter.app / puter.dev) from
+        // config.default.json.
+        it.each([
+            'site.puter.localhost',
+            'host.puter.localhost',
+            'app.puter.localhost',
+            'dev.puter.localhost',
+        ])(
+            'returns the subdomain owner for an origin under %s',
+            async (hostingDomain) => {
+                const user = await makeUser();
+                const subdomain = `own-${Math.random().toString(36).slice(2, 10)}`;
+                await server.stores.subdomain.create({
+                    userId: user.id,
+                    subdomain,
+                });
+                await expect(
+                    authService.subdomainOwnerIdFromOrigin(
+                        `https://${subdomain}.${hostingDomain}`,
+                    ),
+                ).resolves.toBe(user.id);
+            },
+        );
+
+        it('matches a hosted origin that carries an explicit port', async () => {
+            const user = await makeUser();
+            const subdomain = `own-${Math.random().toString(36).slice(2, 10)}`;
+            await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain,
+            });
+            await expect(
+                authService.subdomainOwnerIdFromOrigin(
+                    `http://${subdomain}.site.puter.localhost:4100`,
+                ),
+            ).resolves.toBe(user.id);
+        });
+
+        it('returns null for an origin outside the hosting domains', async () => {
+            await expect(
+                authService.subdomainOwnerIdFromOrigin(
+                    `https://external-${uuidv4()}.example.com`,
+                ),
+            ).resolves.toBeNull();
+        });
+
+        it('returns null for an unregistered subdomain and for the apex host', async () => {
+            await expect(
+                authService.subdomainOwnerIdFromOrigin(
+                    `https://ghost-${uuidv4().slice(0, 8)}.site.puter.localhost`,
+                ),
+            ).resolves.toBeNull();
+            await expect(
+                authService.subdomainOwnerIdFromOrigin(
+                    'https://site.puter.localhost',
+                ),
+            ).resolves.toBeNull();
+        });
+
+        it('returns null for an unparseable origin', async () => {
+            await expect(
+                authService.subdomainOwnerIdFromOrigin('not-a-url'),
+            ).resolves.toBeNull();
+        });
+    });
+
     describe('app origin blocklist enforcement', () => {
         // The blocklist service caches with a TTL, so seed the row then
         // invalidate the in-memory snapshot to force a reload for the test.

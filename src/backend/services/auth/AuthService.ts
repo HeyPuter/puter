@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
@@ -52,10 +53,10 @@ export interface AuthResult {
     reauth?: { reason: ReauthReason; auth_id?: string };
     invalid?: true;
     /**
-     * The token authenticated, but its app is on the origin blocklist. The
-     * auth probe surfaces this as `req.appBlocked`; gates translate it to a
-     * 403 `app_blocked`. Distinct from `invalid` so the client sees a clear
-     * "app blocked" error rather than a generic auth failure.
+     * The token authenticated, but its app is on the origin blocklist. The auth
+     * probe surfaces this as `req.appBlocked`; gates translate it to a 403
+     * `app_blocked`. Distinct from `invalid` so the client sees a clear "app
+     * blocked" error rather than a generic auth failure.
      */
     blocked?: { reason?: string };
 }
@@ -63,10 +64,10 @@ export interface AuthResult {
 /**
  * Authentication service.
  *
- * Scope is currently narrow — just `authenticateFromToken`, the one method
- * the auth-probe middleware needs. Session creation, logout, token
- * rotation, 2FA, and the rest of the auth surface will land when the auth
- * controller is wired up (it will own mint / rotate / revoke).
+ * Scope is currently narrow — just `authenticateFromToken`, the one method the
+ * auth-probe middleware needs. Session creation, logout, token rotation, 2FA,
+ * and the rest of the auth surface will land when the auth controller is wired
+ * up (it will own mint / rotate / revoke).
  */
 export class AuthService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
@@ -101,16 +102,16 @@ export class AuthService extends PuterService {
 
     /**
      * Mint a short-lived, server-signed JWT that proves the bearer was
-     * previously identified as `authId` by a real session (the one that
-     * just rejected with reauth-required). The 401 response embeds this
-     * token; the GUI echoes it back on /login or /signup so the controller
-     * can re-attach the new session to the same user row.
+     * previously identified as `authId` by a real session (the one that just
+     * rejected with reauth-required). The 401 response embeds this token; the
+     * GUI echoes it back on /login or /signup so the controller can re-attach
+     * the new session to the same user row.
      *
-     * Signing here — rather than letting the client present the raw
-     * `auth_id` UUID — means a leaked UUID alone is not enough to attach
-     * a session to an existing temp account; the attacker would also
-     * have to have intercepted a live 401 from that user. The token's
-     * 10-minute TTL bounds that intercept window.
+     * Signing here — rather than letting the client present the raw `auth_id`
+     * UUID — means a leaked UUID alone is not enough to attach a session to an
+     * existing temp account; the attacker would also have to have intercepted a
+     * live 401 from that user. The token's 10-minute TTL bounds that intercept
+     * window.
      */
     signReauthToken(authId: string): string {
         return this.services.token.sign(
@@ -121,8 +122,8 @@ export class AuthService extends PuterService {
     }
 
     /**
-     * Verify a reauth token and return its `auth_id` claim. Throws an
-     * HttpError on signature failure, expiry, or wrong purpose.
+     * Verify a reauth token and return its `auth_id` claim. Throws an HttpError
+     * on signature failure, expiry, or wrong purpose.
      */
     verifyReauthToken(token: string): { authId: string } {
         let decoded: { auth_id?: string; purpose?: string };
@@ -205,8 +206,8 @@ export class AuthService extends PuterService {
     /**
      * Create a session and sign a session JWT + GUI JWT for the user.
      *
-     * `meta` is enriched with request metadata (IP, user-agent, etc.)
-     * when a request context is available.
+     * `meta` is enriched with request metadata (IP, user-agent, etc.) when a
+     * request context is available.
      */
     async createSessionToken(
         user: UserRow,
@@ -262,7 +263,10 @@ export class AuthService extends PuterService {
         );
     }
 
-    /** Shared signer for session/gui tokens — keeps the v2 claim shape consistent. */
+    /**
+     * Shared signer for session/gui tokens — keeps the v2 claim shape
+     * consistent.
+     */
     #signSessionTypeToken(
         type: 'session' | 'gui',
         user: UserRow,
@@ -287,14 +291,13 @@ export class AuthService extends PuterService {
     }
 
     /**
-     * Worker variant of `createSessionToken` for user-scoped workers
-     * (not bound to any specific app). Idempotent on
-     * (user_id, worker_name) via the `kind='worker'` partial unique
-     * index — redeploying the same worker reuses the row and returns
-     * the same stable token. Expires after `WORKER_WINDOW_SECONDS`
-     * (effectively infinite). The emitted JWT carries `worker: true`
-     * and `worker_name` so downstream code can tell a worker session
-     * from a user-driven one without a DB round-trip.
+     * Worker variant of `createSessionToken` for user-scoped workers (not bound
+     * to any specific app). Idempotent on (user_id, worker_name) via the
+     * `kind='worker'` partial unique index — redeploying the same worker reuses
+     * the row and returns the same stable token. Expires after
+     * `WORKER_WINDOW_SECONDS` (effectively infinite). The emitted JWT carries
+     * `worker: true` and `worker_name` so downstream code can tell a worker
+     * session from a user-driven one without a DB round-trip.
      */
     async createWorkerSessionToken(
         user: UserRow,
@@ -344,13 +347,12 @@ export class AuthService extends PuterService {
     }
 
     /**
-     * Worker variant of `getUserAppToken` for app-scoped workers.
-     * Idempotent on (user_id, app_uid, worker_name) via the
-     * `kind='worker'` partial unique index — the same app can host
-     * many workers distinguished by name, each getting its own
-     * stable long-lived token. Coexists with an interactive
-     * `kind='app'` session for the same (user, app) because the
-     * uniqueness keys don't overlap.
+     * Worker variant of `getUserAppToken` for app-scoped workers. Idempotent on
+     * (user_id, app_uid, worker_name) via the `kind='worker'` partial unique
+     * index — the same app can host many workers distinguished by name, each
+     * getting its own stable long-lived token. Coexists with an interactive
+     * `kind='app'` session for the same (user, app) because the uniqueness keys
+     * don't overlap.
      */
     async createWorkerAppToken(
         actor: Actor,
@@ -397,8 +399,8 @@ export class AuthService extends PuterService {
 
     /**
      * Scope app token delegation by actor kind. An app-under-user or
-     * access-token actor is bound to a single app and may only mint a token
-     * for that same app; only a root user session may request a token for an
+     * access-token actor is bound to a single app and may only mint a token for
+     * that same app; only a root user session may request a token for an
      * arbitrary app (the GUI's app-launch delegation).
      */
     #assertAppDelegationAllowed(actor: Actor, appUid: string): void {
@@ -414,8 +416,8 @@ export class AuthService extends PuterService {
     /**
      * Convert a jsonwebtoken-style `expiresIn` (seconds, or `'1h'`/`'30d'`)
      * into an absolute unix-seconds timestamp for the session row. Returns
-     * `null` when no expiry is requested (caller passed `undefined`).
-     * Mirrors `jsonwebtoken`'s allowed unit suffixes (s/m/h/d/w/y).
+     * `null` when no expiry is requested (caller passed `undefined`). Mirrors
+     * `jsonwebtoken`'s allowed unit suffixes (s/m/h/d/w/y).
      */
     #hardExpiryFromExpiresIn(
         expiresIn: string | number | undefined,
@@ -473,11 +475,11 @@ export class AuthService extends PuterService {
     }
 
     /**
-     * List sessions surfaced to the manage-sessions UI. Excludes `asset`
-     * rows (per-cookie children of `web` rows, revoked transitively via
-     * cascade — surfacing them as standalone entries would be confusing).
-     * App rows are joined to the apps table so the UI can render the
-     * authorizing app's title and icon without a second round trip.
+     * List sessions surfaced to the manage-sessions UI. Excludes `asset` rows
+     * (per-cookie children of `web` rows, revoked transitively via cascade —
+     * surfacing them as standalone entries would be confusing). App rows are
+     * joined to the apps table so the UI can render the authorizing app's title
+     * and icon without a second round trip.
      */
     async listSessions(actor: Actor): Promise<Array<Record<string, unknown>>> {
         if (!actor.user?.id) return [];
@@ -557,21 +559,20 @@ export class AuthService extends PuterService {
     }
 
     /**
-     * Revoke a session by uuid, cascading to any rows whose
-     * `parent_session_id` points at it. Used by the manage-sessions UI
-     * and by `removeSessionByToken` — semantics are identical.
+     * Revoke a session by uuid, cascading to any rows whose `parent_session_id`
+     * points at it. Used by the manage-sessions UI and by
+     * `removeSessionByToken` — semantics are identical.
      */
     async revokeSession(uuid: string): Promise<void> {
         await this.stores.session.revokeCascade(uuid);
     }
 
     /**
-     * Rename a session's user-visible label. Throws 404 when the row
-     * doesn't exist or belongs to another user — ownership is enforced
-     * inside `SessionStore.setLabel` via the (uuid, user_id) WHERE
-     * clause, so the 404 vs 403 distinction is collapsed (a user can't
-     * tell from this endpoint whether a uuid exists under another
-     * account).
+     * Rename a session's user-visible label. Throws 404 when the row doesn't
+     * exist or belongs to another user — ownership is enforced inside
+     * `SessionStore.setLabel` via the (uuid, user_id) WHERE clause, so the 404
+     * vs 403 distinction is collapsed (a user can't tell from this endpoint
+     * whether a uuid exists under another account).
      */
     async setSessionLabel(
         actor: Actor,
@@ -598,17 +599,17 @@ export class AuthService extends PuterService {
     }
 
     /**
-     * Admin-driven cascade: revoke EVERY session row for the given user
-     * (web, app, access_token, asset, worker). No actor context — this
-     * is the "suspension / forced sign-out" path, where workers
-     * deliberately go too (a suspended user shouldn't keep long-lived
-     * worker credentials calling back into the backend). Distinct from
-     * `revokeAllSessions` which is the user-driven UI flow and exempts
-     * workers + standalone access tokens by design.
+     * Admin-driven cascade: revoke EVERY session row for the given user (web,
+     * app, access_token, asset, worker). No actor context — this is the
+     * "suspension / forced sign-out" path, where workers deliberately go too (a
+     * suspended user shouldn't keep long-lived worker credentials calling back
+     * into the backend). Distinct from `revokeAllSessions` which is the
+     * user-driven UI flow and exempts workers + standalone access tokens by
+     * design.
      *
-     * Iterates each top-level row through `revokeCascade` so derived
-     * rows (asset under web, app-issued access tokens under their app
-     * session) follow via the parent_session_id link.
+     * Iterates each top-level row through `revokeCascade` so derived rows
+     * (asset under web, app-issued access tokens under their app session)
+     * follow via the parent_session_id link.
      */
     async revokeAllSessionsForUserId(userId: number): Promise<void> {
         if (!userId) return;
@@ -619,12 +620,12 @@ export class AuthService extends PuterService {
     }
 
     /**
-     * Password-reset cascade: revoke every interactive (web/app) session
-     * for the user, so a hijacked session doesn't outlive a password
-     * reset. No actor context — the recovery flow has no authenticated
-     * caller. Leaves workers and standalone access tokens alone: those
-     * are managed credentials rather than sign-ins, and a routine
-     * forgot-password reset shouldn't break deployments.
+     * Password-reset cascade: revoke every interactive (web/app) session for
+     * the user, so a hijacked session doesn't outlive a password reset. No
+     * actor context — the recovery flow has no authenticated caller. Leaves
+     * workers and standalone access tokens alone: those are managed credentials
+     * rather than sign-ins, and a routine forgot-password reset shouldn't break
+     * deployments.
      */
     async revokeInteractiveSessionsForUserId(userId: number): Promise<void> {
         if (!userId) return;
@@ -843,9 +844,9 @@ export class AuthService extends PuterService {
     }
 
     /**
-     * Per-`auth_id` rate limit for migrate-token. Keyed on the stable
-     * v2 identity so an attacker rotating IPs but holding one user's
-     * v1 token still hits a ceiling.
+     * Per-`auth_id` rate limit for migrate-token. Keyed on the stable v2
+     * identity so an attacker rotating IPs but holding one user's v1 token
+     * still hits a ceiling.
      */
     async #enforceMigrateAuthIdLimit(auth_id: string): Promise<void> {
         // 20 migrations per 15min per identity matches the per-IP
@@ -875,15 +876,16 @@ export class AuthService extends PuterService {
      * surfaces resolve to the same app row).
      *
      * Lookup order:
-     *   1. **Canonical DB match.** If any app in the DB has an `index_url`
-     *      that normalizes to this origin (across every configured hosting
-     *      variant — `puter.site`, `puter.app`, etc.), return that app's
-     *      real UID. Required for private apps: their `/auth/get-user-app-token`
-     *      tokens must reference the real app row so the app-under-user
-     *      verification path can load them.
-     *   2. **UUIDv5 deterministic fallback.** Origins that don't match any
-     *      app (third-party sites, apps not yet in the DB) get a deterministic
-     *      namespaced UUID
+     *
+     * 1. **Canonical DB match.** If any app in the DB has an `index_url` that
+     *    normalizes to this origin (across every configured hosting variant —
+     *    `puter.site`, `puter.app`, etc.), return that app's real UID. Required
+     *    for private apps: their `/auth/get-user-app-token` tokens must
+     *    reference the real app row so the app-under-user verification path can
+     *    load them.
+     * 2. **UUIDv5 deterministic fallback.** Origins that don't match any app
+     *    (third-party sites, apps not yet in the DB) get a deterministic
+     *    namespaced UUID
      */
     async appUidFromOrigin(origin: string): Promise<string> {
         const parsed = this.#originFromUrl(origin);
@@ -923,10 +925,41 @@ export class AuthService extends PuterService {
     }
 
     /**
-     * Read `app_origin_aliases` from config and return normalized groups —
-     * each group is a deduped list of lowercased, trimmed host strings.
-     * Malformed entries are skipped silently so a bad config row doesn't
-     * brick UID resolution for everyone else.
+     * Resolve the user who owns the hosted subdomain `origin` points at.
+     * Returns the `subdomains` row's `user_id` when the origin's host sits
+     * under a configured hosting domain (`static_hosting_domain(_alt)` /
+     * `private_app_hosting_domain(_alt)`) and the subdomain is registered; null
+     * for external origins, apex hosting-domain hosts, and unknown subdomains.
+     * Used to stamp the site owner as the creator of origin-bootstrap app
+     * rows.
+     */
+    async subdomainOwnerIdFromOrigin(origin: string): Promise<number | null> {
+        let parsed: URL;
+        try {
+            parsed = new URL(origin);
+        } catch {
+            return null;
+        }
+        const subdomain = this.#hostedSubdomainForHost(
+            parsed.host.toLowerCase(),
+            parsed.hostname.toLowerCase(),
+            this.#getHostingDomains(),
+        );
+        if (!subdomain) return null;
+        const row = await this.stores.subdomain.getBySubdomain(subdomain);
+        const ownerId = row?.user_id;
+        return typeof ownerId === 'number' &&
+            Number.isInteger(ownerId) &&
+            ownerId > 0
+            ? ownerId
+            : null;
+    }
+
+    /**
+     * Read `app_origin_aliases` from config and return normalized groups — each
+     * group is a deduped list of lowercased, trimmed host strings. Malformed
+     * entries are skipped silently so a bad config row doesn't brick UID
+     * resolution for everyone else.
      */
     #getOriginAliasGroups(): string[][] {
         const config = this.config as { app_origin_aliases?: unknown };
@@ -991,6 +1024,59 @@ export class AuthService extends PuterService {
     }
 
     /**
+     * Configured hosting domains (`static_hosting_domain(_alt)` +
+     * `private_app_hosting_domain(_alt)`), normalized, each in both raw
+     * (possibly `host:port`) and port-stripped form.
+     */
+    #getHostingDomains(): string[] {
+        const config = this.config as {
+            static_hosting_domain?: string;
+            static_hosting_domain_alt?: string;
+            private_app_hosting_domain?: string;
+            private_app_hosting_domain_alt?: string;
+        };
+
+        const normalizeDomainValue = (v: unknown): string | null => {
+            if (typeof v !== 'string') return null;
+            const trimmed = v.trim().toLowerCase().replace(/^\./, '');
+            return trimmed || null;
+        };
+        const stripPort = (v: string): string => v.split(':')[0] || v;
+
+        const raw = [
+            normalizeDomainValue(config.static_hosting_domain),
+            normalizeDomainValue(config.static_hosting_domain_alt),
+            normalizeDomainValue(config.private_app_hosting_domain),
+            normalizeDomainValue(config.private_app_hosting_domain_alt),
+        ].filter((d): d is string => !!d);
+        return [...new Set([...raw, ...raw.map(stripPort)])];
+    }
+
+    /**
+     * Extract the subdomain label under the longest matching hosting domain —
+     * longest-first avoids matching `puter.app` before `foo.puter.app`. Null
+     * when the host IS a hosting domain or sits under none of them.
+     */
+    #hostedSubdomainForHost(
+        hostRaw: string,
+        hostStripped: string,
+        hostingDomains: string[],
+    ): string | null {
+        const sorted = [...hostingDomains].sort((a, b) => b.length - a.length);
+        for (const d of sorted) {
+            const suffix = `.${d}`;
+            if (hostRaw === d || hostStripped === d) return null;
+            for (const host of [hostRaw, hostStripped]) {
+                if (host.endsWith(suffix)) {
+                    const prefix = host.slice(0, host.length - suffix.length);
+                    return prefix.split('.')[0] || null;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
      * Find the real app row whose `index_url` canonically matches `origin`.
      *
      * Build candidate URLs from the origin's subdomain crossed with every
@@ -1008,62 +1094,17 @@ export class AuthService extends PuterService {
             return null;
         }
 
-        const config = this.config as {
-            static_hosting_domain?: string;
-            static_hosting_domain_alt?: string;
-            private_app_hosting_domain?: string;
-            private_app_hosting_domain_alt?: string;
-            protocol?: string;
-        };
-
-        const normalizeDomainValue = (v: unknown): string | null => {
-            if (typeof v !== 'string') return null;
-            const trimmed = v.trim().toLowerCase().replace(/^\./, '');
-            return trimmed || null;
-        };
-        const stripPort = (v: string): string => v.split(':')[0] || v;
-
-        const hostingDomainsRaw = [
-            normalizeDomainValue(config.static_hosting_domain),
-            normalizeDomainValue(config.static_hosting_domain_alt),
-            normalizeDomainValue(config.private_app_hosting_domain),
-            normalizeDomainValue(config.private_app_hosting_domain_alt),
-        ].filter((d): d is string => !!d);
-        const hostingDomainsStripped = hostingDomainsRaw.map(stripPort);
-        const hostingDomains = [
-            ...new Set([...hostingDomainsRaw, ...hostingDomainsStripped]),
-        ];
+        const config = this.config as { protocol?: string };
+        const hostingDomains = this.#getHostingDomains();
 
         const hostRaw = parsed.host.toLowerCase();
         const hostStripped = parsed.hostname.toLowerCase();
 
-        // Extract the subdomain label under the longest matching hosting
-        // domain — longest-first avoids matching `puter.app` before
-        // `foo.puter.app`.
-        let subdomain: string | null = null;
-        const sortedHostingDomains = [...hostingDomains].sort(
-            (a, b) => b.length - a.length,
+        const subdomain = this.#hostedSubdomainForHost(
+            hostRaw,
+            hostStripped,
+            hostingDomains,
         );
-        for (const d of sortedHostingDomains) {
-            const suffix = `.${d}`;
-            if (hostRaw === d || hostStripped === d) {
-                subdomain = null;
-                break;
-            }
-            if (hostRaw.endsWith(suffix)) {
-                subdomain = hostRaw.slice(0, hostRaw.length - suffix.length);
-                subdomain = subdomain.split('.')[0] || null;
-                break;
-            }
-            if (hostStripped.endsWith(suffix)) {
-                subdomain = hostStripped.slice(
-                    0,
-                    hostStripped.length - suffix.length,
-                );
-                subdomain = subdomain.split('.')[0] || null;
-                break;
-            }
-        }
 
         const hostCandidates = new Set<string>([hostRaw, hostStripped]);
         if (subdomain) {
@@ -1150,8 +1191,8 @@ export class AuthService extends PuterService {
     // replayed against another. `verify*Token` enforces those expectations.
 
     /**
-     * Cookie name that carries the sticky private-asset token. Legacy
-     * dot-style name kept readable through the v2 deprecation window —
+     * Cookie name that carries the sticky private-asset token. Legacy dot-style
+     * name kept readable through the v2 deprecation window —
      * `resolvePrivateIdentity` still reads it as a fallback.
      */
     getPrivateAssetCookieName(): string {
@@ -1163,12 +1204,12 @@ export class AuthService extends PuterService {
         return 'puter.public.hosted.actor.token';
     }
 
-    /** v2 cookie name for the sticky private-asset token. */
+    /** V2 cookie name for the sticky private-asset token. */
     getPrivateAssetCookieNameV2(): string {
         return 'puter_private_asset_token_v2';
     }
 
-    /** v2 cookie name for the public hosted-actor token. */
+    /** V2 cookie name for the public hosted-actor token. */
     getPublicHostedActorCookieNameV2(): string {
         return 'puter_public_hosted_actor_token_v2';
     }
@@ -1243,18 +1284,18 @@ export class AuthService extends PuterService {
 
     /**
      * Materialize the `kind='asset'` session row that the cookie's
-     * `session_uuid` claim points at. Parented to the web session so a
-     * logout cascade kills every asset cookie minted under it. Both
-     * fields are `null` only when the caller didn't supply a web session
-     * at all — the cookie still mints unparented and without an
-     * `auth_id` claim (matches v1 behavior for access-token-minted
-     * cookies that aren't tied to an interactive session).
+     * `session_uuid` claim points at. Parented to the web session so a logout
+     * cascade kills every asset cookie minted under it. Both fields are `null`
+     * only when the caller didn't supply a web session at all — the cookie
+     * still mints unparented and without an `auth_id` claim (matches v1
+     * behavior for access-token-minted cookies that aren't tied to an
+     * interactive session).
      *
-     * If the caller DID supply a `webSessionUuid` but the lookup misses
-     * (row revoked / expired between mint request and this lookup),
-     * throw — otherwise we'd quietly emit an unparented "ghost" cookie
-     * that has no revocation hook for 7 days. The extra check piggybacks
-     * on the lookup we already had to do, so no added perf cost.
+     * If the caller DID supply a `webSessionUuid` but the lookup misses (row
+     * revoked / expired between mint request and this lookup), throw —
+     * otherwise we'd quietly emit an unparented "ghost" cookie that has no
+     * revocation hook for 7 days. The extra check piggybacks on the lookup we
+     * already had to do, so no added perf cost.
      */
     async #mintAssetSessionContext(
         webSessionUuid: string | undefined,
@@ -1470,9 +1511,8 @@ export class AuthService extends PuterService {
     /**
      * Create an access token with the given permissions.
      *
-     * Each permission spec is `[permissionString, extraObject?]`.
-     * The token is stored in `access_token_permissions` and a JWT is
-     * returned.
+     * Each permission spec is `[permissionString, extraObject?]`. The token is
+     * stored in `access_token_permissions` and a JWT is returned.
      */
     async createAccessToken(
         actor: Actor,
