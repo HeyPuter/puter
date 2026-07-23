@@ -89,6 +89,24 @@ export interface KVListOptions {
     limit?: number;
     /** Pagination cursor from a previous call. */
     cursor?: string;
+    /**
+     * Skips the given number of items before the page starts. Maximum `5000`,
+     * and cannot be combined with `cursor`. Prefer `cursor` — requests get
+     * slower and more expensive the larger the offset.
+     */
+    offset?: number;
+    /**
+     * When `true`, the result includes a `total` count of every item matching
+     * the query across all pages. Computing the total costs more the more
+     * items there are, so request it on the first page only.
+     */
+    includeTotal?: boolean;
+    /**
+     * A page can come back with fewer than `limit` items even when more exist
+     * (for example when expired keys are excluded). When `true`, the page is
+     * filled up to `limit` items when possible. Requires `limit`.
+     */
+    fetchUntilFull?: boolean;
     optConfig?: KVOptConfig;
 }
 
@@ -105,6 +123,11 @@ export interface KVListPage<T = unknown> {
      * results to fetch; pass it to the next `list()` call.
      */
     cursor?: string;
+    /**
+     * Total count of items matching the query across all pages. Present only
+     * when the page was requested with `includeTotal`.
+     */
+    total?: number;
 }
 
 export interface KVOptConfig {
