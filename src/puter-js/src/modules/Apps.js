@@ -80,7 +80,7 @@ class Apps {
         const { limit, offset, cursor, includeTotal, stream, ...params } = opts;
         const hasCursor = Object.prototype.hasOwnProperty.call(opts, 'cursor');
 
-        const select = utils.make_driver_method(['uid'], 'puter-apps', 'es:app', 'select');
+        const select = utils.make_driver_method(['uid'], 'puter-apps', 'es:app', 'select', { readonly: true });
         const base = { predicate: ['user-can-edit'] };
         if ( isObjectForm ) base.params = params;
         if ( limit !== undefined ) base.limit = limit;
@@ -230,7 +230,7 @@ class Apps {
         if ( typeof args[0] === 'object' && args[0] !== null ) {
             options.params = args[0];
         }
-        return this.#addUserIterationToApp(await utils.make_driver_method(['uid'], 'puter-apps', 'es:app', 'read').call(this, options));
+        return this.#addUserIterationToApp(await utils.make_driver_method(['uid'], 'puter-apps', 'es:app', 'read', { readonly: true }).call(this, options));
     };
 
     delete = async (...args) => {
