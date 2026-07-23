@@ -153,10 +153,8 @@ const createApiHeaders = (authToken) => {
         'Content-Type': 'application/json',
     };
 
-    if ( ['web', 'app'].includes(puter.env) ) {
-        headers.Origin = 'https://puter.work';
-    }
-
+    // Origin is not set here: browsers forbid it (and set the real one), and
+    // the non-browser xhrshim already sets `origin: https://puter.work` itself.
     return headers;
 };
 
