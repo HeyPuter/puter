@@ -1,3 +1,8 @@
+// FROZEN pre-restructure copy of the KV module (extracted from git history),
+// used only by modules/kv/equivalence.test.js to prove the restructured
+// module is wire-compatible. Not part of the SDK bundle. Delete this file and
+// the equivalence test together once the baseline is no longer useful.
+/* eslint-disable */
 import * as utils from '../lib/utils.js';
 import { fetchUrl } from '../lib/networkUtils.js';
 

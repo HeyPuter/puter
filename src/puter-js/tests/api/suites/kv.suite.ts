@@ -260,6 +260,12 @@ export default suite('kv', {
         ]);
     },
 
+    'clear is an alias of flush and empties the store': async (t) => {
+        await t.puter.kv.set('kv-suite-clear-a', 1);
+        await t.puter.kv.clear();
+        t.assert.equal(await t.puter.kv.get('kv-suite-clear-a'), null);
+    },
+
     'flush removes every key for the app': async (t) => {
         await t.puter.kv.set('kv-suite-flush-a', 1);
         await t.puter.kv.set('kv-suite-flush-b', 2);

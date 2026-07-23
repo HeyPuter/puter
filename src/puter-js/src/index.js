@@ -15,7 +15,7 @@ import Email from './modules/Email.js';
 import { PuterJSFileSystemModule } from './modules/FileSystem/index.js';
 import FSItem from './modules/FSItem.js';
 import Hosting from './modules/Hosting.js';
-import KV from './modules/KV.js';
+import { KV } from './modules/kv/index.js';
 import { PSocket } from './modules/networking/PSocket.js';
 import { PTLSSocket } from './modules/networking/PTLS.js';
 import { pFetch } from './modules/networking/requests.js';
