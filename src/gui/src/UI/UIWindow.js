@@ -4143,6 +4143,15 @@ function dashboard_tile_in_view (app_name) {
 // (module-local: every push goes through push_dashboard_app_url).
 let dashboard_url_app = null;
 
+// The dashboard's own URL at the moment an app entry was pushed over it,
+// used by pop_dashboard_app_url's watchdog to repair the address bar when
+// a back() failed to consume the app's entry. Recaptured on every push
+// made FROM the dashboard route (not on pushes stacking app over app) so
+// it tracks the tab hash the user actually left. '/' — the same route the
+// deep-link handler slots underneath — is the fallback if no push ever
+// captured it.
+let dashboard_url_base = null;
+
 function dashboard_app_url_current () {
     const m = /^\/app\/([^/]+)\/?$/.exec(window.location.pathname);
     if ( ! m ) return null;
@@ -4168,6 +4177,10 @@ function push_dashboard_app_url (app_name, title) {
     if ( window.dashboard_base_title === undefined ) {
         window.dashboard_base_title = document.title;
     }
+    // The URL being pushed over (see dashboard_url_base above).
+    if ( dashboard_app_url_current() === null ) {
+        dashboard_url_base = window.location.pathname + window.location.search + window.location.hash;
+    }
     window.history.pushState({ dashboard_app: app_name }, '', `/app/${encodeURIComponent(app_name)}`);
     dashboard_url_app = app_name;
     dashboard_url_pop_pending = false;
@@ -4189,6 +4202,7 @@ function push_dashboard_app_url (app_name, title) {
 // racing a minimize — would issue TWO back()s, and the second would pop
 // the dashboard's own entry and navigate clean out of the page.
 let dashboard_url_pop_pending = false;
+let dashboard_url_pop_watchdog = null;
 
 function pop_dashboard_app_url (app_name) {
     if ( ! window.is_dashboard_mode || ! app_name ) return false;
@@ -4198,6 +4212,41 @@ function pop_dashboard_app_url (app_name) {
     if ( dashboard_url_pop_pending ) return true;
     dashboard_url_pop_pending = true;
     window.history.back();
+    // WATCHDOG — back() traverses the JOINT session history, which the
+    // app's iframe shares. If the app navigated internally after load
+    // (SPA router, redirects; browsers differ on which iframe navigations
+    // stack joint entries, so this is engine-dependent), the entry
+    // consumed is the IFRAME's: the URL here never changes and no
+    // popstate reaches this window — which would leave the pending latch
+    // stuck and every later minimize/close a silent no-op. A successful
+    // pop is a same-document traversal of THIS document (app entries are
+    // pushState over the dashboard's route), so its popstate arrives well
+    // inside this delay; if the URL still names the app by then, do what
+    // that popstate would have done — minimize the window — and REPLACE
+    // the stranded /app/<name> entry with the dashboard's own route so no
+    // later traversal resurrects a window the user already dismissed.
+    clearTimeout(dashboard_url_pop_watchdog);
+    dashboard_url_pop_watchdog = setTimeout(() => {
+        // Settled properly in the meantime: a popstate landed, or a new
+        // push claimed the URL (both clear the latch).
+        if ( ! dashboard_url_pop_pending ) return;
+        dashboard_url_pop_pending = false;
+        if ( dashboard_app_url_current() !== app_name ) return;
+        window.history.replaceState(null, '', dashboard_url_base || '/');
+        dashboard_url_app = null;
+        if ( window.dashboard_base_title !== undefined ) {
+            document.title = window.dashboard_base_title;
+        }
+        // Same window lookup and minimized guard as the popstate handler.
+        // On the close path the window is already gone — the URL repair
+        // above was the part that still mattered.
+        const $win = $(`.window[data-app="${html_encode(app_name)}"]`).last();
+        if ( $win.length
+            && $win.attr('data-is_minimized') !== '1'
+            && $win.attr('data-is_minimized') !== 'true' ) {
+            $win.hideWindow();
+        }
+    }, 400);
     return true;
 }
 
