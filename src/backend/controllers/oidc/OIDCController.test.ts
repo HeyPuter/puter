@@ -329,6 +329,54 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
         expect(decoded).toMatchObject({ referrer: 'http://ref.test' });
     });
 
+    it('bakes a whitelisted return_to (/app/<name>) into the state redirect_uri', async () => {
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/:provider/start',
+            makeReq({
+                params: { provider: 'custom' },
+                query: { return_to: '/app/my-App_2' },
+            }),
+            res,
+        );
+        const state = new URL(captured.redirectUrl ?? '').searchParams.get(
+            'state',
+        );
+        const decoded = oidc().verifyState(state!);
+        expect(String(decoded?.redirect_uri)).toBe(
+            `${TEST_ORIGIN}/app/my-App_2`,
+        );
+    });
+
+    it('ignores a non-whitelisted return_to', async () => {
+        const bad_values = [
+            '/app/evil/extra',
+            '/app/',
+            '/app/name?x=1',
+            '//evil.test',
+            '/settings',
+            `/app/${'a'.repeat(101)}`,
+        ];
+        for (const return_to of bad_values) {
+            const { res, captured } = makeRes();
+            await callRoute(
+                'get',
+                '/auth/oidc/:provider/start',
+                makeReq({
+                    params: { provider: 'custom' },
+                    query: { return_to },
+                }),
+                res,
+            );
+            const state = new URL(
+                captured.redirectUrl ?? '',
+            ).searchParams.get('state');
+            const decoded = oidc().verifyState(state!);
+            expect(String(decoded?.redirect_uri)).toBe(TEST_ORIGIN);
+        }
+    });
+
     it('signs revalidate-flow state with user_uuid + flow=revalidate', async () => {
         const userUuid = uuidv4();
         const { res, captured } = makeRes();
@@ -618,6 +666,76 @@ describe('OIDCController login callback', () => {
         expect(captured.redirectUrl).toContain('auth_error=1');
         expect(captured.redirectUrl).toContain('message=account_suspended');
         // No session cookie issued for suspended accounts.
+        expect(captured.cookies).toHaveLength(0);
+    });
+
+    it('redirects back to an /app/<name> landing after sign-in', async () => {
+        const state = oidc().signState({
+            provider: 'custom',
+            redirect_uri: `${TEST_ORIGIN}/app/some-app`,
+        });
+        vi.spyOn(oidc(), 'exchangeCodeForTokens').mockResolvedValue({
+            access_token: 'access',
+            id_token: 'id',
+        } as never);
+        vi.spyOn(oidc(), 'getUserInfo').mockResolvedValue({
+            sub: `sub-${Math.random().toString(36).slice(2, 8)}`,
+            email: `oidc-${Math.random().toString(36).slice(2, 8)}@test.local`,
+            email_verified: true,
+        } as never);
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/callback/login',
+            makeReq({ query: { code: 'c', state } }),
+            res,
+        );
+        expect(captured.cookies).toHaveLength(1);
+        expect(captured.redirectUrl).toBe(`${TEST_ORIGIN}/app/some-app`);
+    });
+
+    it('keeps an /app/<name> landing in the error redirect (suspended user)', async () => {
+        const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
+        const email = `sus-app-${Math.random().toString(36).slice(2, 8)}@test.local`;
+        const created = await runWithContext(
+            { req: makeReq({}) },
+            () =>
+                oidc().createUserFromOIDC('custom', {
+                    sub,
+                    email,
+                    email_verified: true,
+                }),
+        );
+        expect(created.success).toBe(true);
+        await server.stores.user.update(created.user!.id, { suspended: 1 });
+
+        const state = oidc().signState({
+            provider: 'custom',
+            redirect_uri: `${TEST_ORIGIN}/app/some-app`,
+        });
+        vi.spyOn(oidc(), 'exchangeCodeForTokens').mockResolvedValue({
+            access_token: 'access',
+            id_token: 'id',
+        } as never);
+        vi.spyOn(oidc(), 'getUserInfo').mockResolvedValue({
+            sub,
+            email,
+            email_verified: true,
+        } as never);
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/callback/login',
+            makeReq({ query: { code: 'c', state } }),
+            res,
+        );
+        expect(captured.redirectStatus).toBe(302);
+        const url = new URL(captured.redirectUrl ?? '');
+        expect(url.pathname).toBe('/app/some-app');
+        expect(url.searchParams.get('auth_error')).toBe('1');
+        expect(url.searchParams.get('action')).toBe('login');
         expect(captured.cookies).toHaveLength(0);
     });
 

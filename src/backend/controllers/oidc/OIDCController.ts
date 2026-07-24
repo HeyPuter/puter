@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import crypto from 'node:crypto';
@@ -47,6 +48,17 @@ const ALLOWED_ERRORS = [
     'signup_blocked',
 ] as const;
 
+// GUI pages an OIDC flow may return to: /desktop, /dashboard, and direct app
+// landings (/app/<name>, mirroring APP_NAME_REGEX in AppDriver). Strict
+// whitelist — never a client-supplied URL (no open redirect).
+function isWhitelistedReturnPath(path: string): boolean {
+    return (
+        path === '/desktop' ||
+        path === '/dashboard' ||
+        /^\/app\/[a-zA-Z0-9_-]{1,100}$/.test(path)
+    );
+}
+
 function buildErrorRedirectUrl(
     origin: string,
     sourceFlow: string,
@@ -61,6 +73,20 @@ function buildErrorRedirectUrl(
     const clamped = (ALLOWED_ERRORS as readonly string[]).includes(message)
         ? message
         : 'unauthorized';
+
+    // Land back on the whitelisted page the flow started from (e.g. an
+    // /app/<name> landing) so the retry — and the eventual success — keeps
+    // the user's destination. redirect_uri comes from the signed state and
+    // was built server-side, but re-check the path against the whitelist.
+    let pagePath = '/';
+    if (typeof stateDecoded?.redirect_uri === 'string') {
+        try {
+            const statePath = new URL(stateDecoded.redirect_uri).pathname;
+            if (isWhitelistedReturnPath(statePath)) pagePath = statePath;
+        } catch {
+            // unparsable redirect_uri: fall back to the root page
+        }
+    }
 
     let params: URLSearchParams;
     if (stateDecoded?.embedded_in_popup && stateDecoded?.msg_id != null) {
@@ -84,7 +110,7 @@ function buildErrorRedirectUrl(
     if (requestCode) {
         params.set('request_code', requestCode);
     }
-    return `${base}/?${params.toString()}`;
+    return `${base}${pagePath}?${params.toString()}`;
 }
 
 function appendQueryParam(url: string, key: string, value: string): string {
@@ -101,8 +127,8 @@ function constantTimeEqual(a: string, b: string): boolean {
 }
 
 /**
- * True iff `target` parses as a URL whose origin equals `origin`. Used to
- * clamp OIDC redirect targets — `startsWith` would accept
+ * True iff `target` parses as a URL whose origin equals `origin`. Used to clamp
+ * OIDC redirect targets — `startsWith` would accept
  * `https://puter.com.evil.com` against `https://puter.com`.
  */
 function isSameOrigin(target: string, origin: string): boolean {
@@ -166,15 +192,15 @@ export class OIDCController extends PuterController {
 
                 let appRedirectUri = flowRedirects[flow] ?? (origin || '/');
 
-                // Optional GUI return path so login started from /desktop or
-                // /dashboard lands back there. Strict whitelist — never a
-                // client-supplied URL (no open redirect).
+                // Optional GUI return path so login started from /desktop,
+                // /dashboard, or an /app/<name> landing lands back there.
                 const rawReturnTo = Array.isArray(req.query.return_to)
                     ? req.query.return_to[0]
                     : req.query.return_to;
                 if (
                     (flow === 'login' || flow === 'signup') &&
-                    (rawReturnTo === '/desktop' || rawReturnTo === '/dashboard')
+                    typeof rawReturnTo === 'string' &&
+                    isWhitelistedReturnPath(rawReturnTo)
                 ) {
                     appRedirectUri = `${origin}${rawReturnTo}`;
                 }
@@ -497,13 +523,14 @@ if (window.opener) {
 
     /**
      * Resolve an OIDC callback to a Puter user. In order:
-     *   1. Existing link on (provider, sub) → that user.
-     *   2. Email matches an existing account whose email is CONFIRMED →
-     *      link (provider, sub) to that user.
-     *   3. Email matches an account whose email is UNCONFIRMED → refuse.
-     *      We don't know who owns an unconfirmed address, so linking would
-     *      let whoever controls the OIDC identity hijack a pending signup.
-     *   4. Otherwise create a new user and link.
+     *
+     * 1. Existing link on (provider, sub) → that user.
+     * 2. Email matches an existing account whose email is CONFIRMED → link
+     *    (provider, sub) to that user.
+     * 3. Email matches an account whose email is UNCONFIRMED → refuse. We don't
+     *    know who owns an unconfirmed address, so linking would let whoever
+     *    controls the OIDC identity hijack a pending signup.
+     * 4. Otherwise create a new user and link.
      *
      * Step 2 also requires `email_verified !== false` on the OIDC side,
      * otherwise a malicious IdP could claim someone else's email.
