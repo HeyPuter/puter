@@ -274,6 +274,12 @@ body {
     opacity: 0.6;
 }
 
+@media (prefers-color-scheme: dark) {
+    .dashboard-sidebar-collapse-toggle img {
+        filter: invert(1);
+    }
+}
+
 .dashboard-sidebar-collapse-toggle .sidebar-toggle-open {
     display: none;
 }
