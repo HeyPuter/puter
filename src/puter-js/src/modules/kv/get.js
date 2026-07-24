@@ -7,6 +7,7 @@ import { assertKeySize } from './lib/validate.js';
 const getDriverCall = (puter, args) =>
     utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'get', {
         puter,
+        readonly: true,
         preprocess: (driverArgs) => {
             assertKeySize(driverArgs.key);
             return driverArgs;

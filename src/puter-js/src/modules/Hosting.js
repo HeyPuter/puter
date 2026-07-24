@@ -48,7 +48,7 @@ class Hosting {
 
     // todo document the `Subdomain` object.
     list = (...args) => {
-        const select = utils.make_driver_method([], 'puter-subdomains', undefined, 'select');
+        const select = utils.make_driver_method([], 'puter-subdomains', undefined, 'select', { readonly: true });
 
         const opts = (typeof args[0] === 'object' && args[0] !== null) ? args[0] : {};
         const { limit, offset, cursor, includeTotal, stream, success, error, ...rest } = opts;
@@ -171,7 +171,7 @@ class Hosting {
 
             options = { id: { subdomain: args[0] } };
         }
-        return utils.make_driver_method(['uid'], 'puter-subdomains', undefined, 'read').call(this, options);
+        return utils.make_driver_method(['uid'], 'puter-subdomains', undefined, 'read', { readonly: true }).call(this, options);
     };
 
     delete = async (...args) => {

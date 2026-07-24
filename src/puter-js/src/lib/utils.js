@@ -1,5 +1,5 @@
 import { FileReaderPoly } from './polyfills/fileReaderPoly.js';
-import { resolveReauth } from './networkUtils.js';
+import { buildXhr, resolveReauth, sendWithRetry } from './networkUtils.js';
 import { showUsageLimitDialog } from '../modules/UsageLimitDialog.js';
 import { showEmailConfirmationDialog } from '../modules/EmailConfirmationDialog.js';
 
@@ -91,68 +91,42 @@ const createDeferred = () => {
  * @returns {XMLHttpRequest} The initialized XMLHttpRequest object.
  */
 function initXhr (endpoint, APIOrigin, authToken, method = 'post', contentType = 'text/plain;actually=json', responseType = undefined) {
-    const xhr = new XMLHttpRequest();
-    xhr.open(method, APIOrigin + endpoint, true);
-    xhr.withCredentials = true;
-    if ( authToken )
-    {
-        xhr.setRequestHeader('Authorization', `Bearer ${ authToken}`);
-    }
-    xhr.setRequestHeader('Content-Type', contentType);
-    xhr.responseType = responseType ?? '';
-
-    // Capture enough request shape to replay this XHR after a
-    // reauth_required. The body is captured below by intercepting send().
-    xhr._puterReq = {
-        endpoint,
-        APIOrigin,
+    return buildXhr({
+        url: APIOrigin + endpoint,
         method,
-        contentType,
-        responseType,
-    };
-    const origSend = xhr.send.bind(xhr);
-    xhr.send = function (body) {
-        xhr._puterReq.body = body;
-        return origSend(body);
-    };
-
-    // Add API call logging if available
-    if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-        xhr._puterRequestId = {
+        headers: { 'Content-Type': contentType },
+        // `includePuterAuth` re-reads the live token at build time, so a replay
+        // picks up a freshly-minted token (same as the old replay path, which
+        // passed `globalThis.puter.authToken`).
+        includePuterAuth: !! authToken,
+        withCredentials: true,
+        responseType: responseType ?? '',
+        logId: {
             method,
             service: 'xhr',
             operation: endpoint.replace(/^\//, ''),
             params: { endpoint, contentType, responseType },
-        };
-    }
-
-    return xhr;
+        },
+    });
 }
 
 /**
- * Re-issue an XHR after the reauth coordinator resolves. Uses the request
- * shape captured on `_puterReq` and the fresh `puter.authToken` to build a
- * new XHR; the new response is then routed back through the same callbacks.
- * Returns true if a replay was scheduled, false otherwise.
+ * Re-issue an XHR after the reauth coordinator resolves. Rebuilds the request
+ * from the captured `_puterReq` spec (with a fresh token via `buildXhr`) and
+ * routes the new response back through the same callbacks. Returns true if a
+ * replay was scheduled, false otherwise.
  */
 function replayXhrAfterReauth (response, success_cb, error_cb, resolve_func, reject_func) {
     const xhr = response.target ?? response;
-    const req = xhr?._puterReq;
-    if ( ! req ) return false;
+    const spec = xhr?._puterReq;
+    if ( ! spec ) return false;
     // Already a replay attempt — don't loop into reauth a second time if
     // even the fresh token comes back rejected. The retry path is one-shot.
-    if ( req._replayed ) return false;
-    const newXhr = initXhr(
-        req.endpoint,
-        req.APIOrigin,
-        globalThis.puter?.authToken,
-        req.method,
-        req.contentType,
-        req.responseType,
-    );
-    newXhr._puterReq._replayed = true;
+    if ( spec._replayed ) return false;
+    const newSpec = { ...spec, _replayed: true };
+    const newXhr = buildXhr(newSpec);
     setupXhrEventHandlers(newXhr, success_cb, error_cb, resolve_func, reject_func);
-    newXhr.send(req.body);
+    newXhr.send(spec.body);
     return true;
 }
 
@@ -405,311 +379,139 @@ async function driverCall_ (
 
     const success_cb = Valid.callback(options.success) ?? NOOP;
     const error_cb = Valid.callback(options.error) ?? NOOP;
-    // create xhr object
-    const xhr = initXhr('/drivers/call', puter.APIOrigin, undefined, 'POST', contentType);
 
-    // Store request info for later logging
-    if ( requestInfo ) {
-        xhr._puterDriverRequestInfo = requestInfo;
-    }
-
-    if ( settings.responseType ) {
-        xhr.responseType = settings.responseType;
-        // Keep _puterReq in sync with the live XHR config so any replay
-        // path (driver or generic) builds the retry with the correct
-        // responseType rather than the stale value captured by initXhr.
-        if ( xhr._puterReq ) xhr._puterReq.responseType = settings.responseType;
-    }
-
-    // ===============================================
-    // TO UNDERSTAND THIS CODE, YOU MUST FIRST
-    // UNDERSTAND THE FOLLOWING TEXT:
-    //
-    // Everything between here and the comment reading
-    // "=== END OF STREAMING ===" is ONLY for handling
-    // requests with content type "application/x-ndjson"
-    // ===============================================
-
-    let is_stream = false;
-    let signal_stream_update = null;
-    let lastLength = 0;
-    let response_complete = false;
-
-    let buffer = '';
-
-    // NOTE: linked-list technically would perform better,
-    //       but in practice there are at most 2-3 lines
-    //       buffered so this does not matter.
-    const lines_received = [];
-
-    xhr.onreadystatechange = () => {
-        if ( xhr.readyState === 2 ) {
-            if ( xhr.getResponseHeader('Content-Type') !==
-                'application/x-ndjson'
-            ) return;
-            is_stream = true;
-            const Stream = async function* Stream () {
-                while ( !response_complete ) {
-                    const signal = createDeferred();
-                    signal_stream_update = signal.resolve;
-                    await signal.promise;
-                    if ( response_complete ) break;
-                    while ( lines_received.length > 0 ) {
-                        const line = lines_received.shift();
-                        if ( line.trim() === '' ) continue;
-                        const lineObject = (JSON.parse(line));
-
-                        // Check for usage limit errors in streaming responses
-                        if ( lineObject?.error?.code === 'insufficient_funds' || lineObject?.metadata?.usage_limited === true ) {
-                            if ( puter.env === 'web' ) {
-                                showUsageLimitDialog('You have reached your usage limit for this account.<br>Please upgrade to continue.');
-                            } else if ( puter.env === 'app' ) {
-                                await puter.ui.requestUpgrade();
-                            }
-                        }
-                        // Check for email confirmation required (e.g. AI calls)
-                        if ( lineObject?.error?.code === 'email_must_be_confirmed' && puter.env === 'web' ) {
-                            showEmailConfirmationDialog(lineObject?.error?.message || 'Email confirmation required. Go to Puter.com to confirm your email address.');
-                        }
-
-                        if ( typeof (lineObject.text) === 'string' ) {
-                            Object.defineProperty(lineObject, 'toString', {
-                                enumerable: false,
-                                value: () => lineObject.text,
-                            });
-                        }
-                        yield lineObject;
-                    }
-                }
-            };
-
-            const startedStream = Stream();
-            Object.defineProperty(startedStream, 'start', {
-                enumerable: false,
-                value: async (controller) => {
-                    const texten = new TextEncoder();
-                    for await ( const part of startedStream ) {
-                        controller.enqueue(texten.encode(part));
-                    }
-                    controller.close();
-                },
-            });
-
-            return resolve_func(startedStream);
-        }
-        if ( xhr.readyState === 4 ) {
-            response_complete = true;
-            if ( is_stream ) {
-                signal_stream_update?.();
-            }
-        }
-    };
-
-    xhr.onprogress = function () {
-        if ( ! signal_stream_update ) return;
-
-        const newText = xhr.responseText.slice(lastLength);
-        lastLength = xhr.responseText.length; // Update lastLength to the current length
-
-        let hasUpdates = false;
-        for ( let i = 0; i < newText.length; i++ ) {
-            buffer += newText[i];
-            if ( newText[i] === '\n' ) {
-                hasUpdates = true;
-                lines_received.push(buffer);
-                buffer = '';
-            }
-        }
-
-        if ( hasUpdates ) {
-            signal_stream_update();
-        }
-    };
-
-    // ========================
-    // === END OF STREAMING ===
-    // ========================
-
-    // load: success or error
-    xhr.addEventListener('load', async function (response) {
-        if ( is_stream ) {
-            return;
-        }
-        const resp = await parseResponse(response.target);
-
-        // Log driver call response
-        if ( this._puterDriverRequestInfo && globalThis.puter?.apiCallLogger?.isEnabled() ) {
+    const logDriver = fields => {
+        if ( requestInfo && globalThis.puter?.apiCallLogger?.isEnabled() ) {
             globalThis.puter.apiCallLogger.logRequest({
                 service: 'drivers',
-                operation: `${this._puterDriverRequestInfo.interface}::${this._puterDriverRequestInfo.method}`,
-                params: { interface: this._puterDriverRequestInfo.interface, driver: this._puterDriverRequestInfo.driver, method: this._puterDriverRequestInfo.method, args: this._puterDriverRequestInfo.args },
-                result: response.status >= 400 || resp?.success === false ? null : resp,
-                error: response.status >= 400 || resp?.success === false ? resp : null,
+                operation: `${driverInterface}::${driverMethod}`,
+                params: { interface: driverInterface, driver: driverName, method: driverMethod, args: driverArgs },
+                ...fields,
             });
         }
+    };
 
-        // Check for usage limit errors and show upgrade dialog
-        const isInsufficientFunds = (response.target?.status === 402) ||
+    // The request spec is rebuilt per attempt by the retry engine, so a reauth
+    // replay carries a freshly-minted token in the body.
+    const spec = {
+        url: puter.APIOrigin + '/drivers/call',
+        method: 'POST',
+        headers: { 'Content-Type': contentType },
+        withCredentials: true,
+        responseType: settings.responseType || '',
+        buildBody: () => JSON.stringify({
+            interface: driverInterface,
+            driver: driverName,
+            test_mode: settings?.test_mode,
+            method: driverMethod,
+            args: driverArgs,
+            auth_token: puter.authToken,
+        }),
+    };
+
+    // Wrap the engine's raw parsed-line NDJSON stream with the driver's per-line
+    // semantics (usage-limit / email-confirmation dialogs, `toString`) and the
+    // ReadableStream `.start` adapter, then resolve with it.
+    const shapeStream = lineStream => {
+        const startedStream = (async function* () {
+            for await ( const lineObject of lineStream ) {
+                if ( lineObject?.error?.code === 'insufficient_funds' || lineObject?.metadata?.usage_limited === true ) {
+                    if ( puter.env === 'web' ) {
+                        showUsageLimitDialog('You have reached your usage limit for this account.<br>Please upgrade to continue.');
+                    } else if ( puter.env === 'app' ) {
+                        await puter.ui.requestUpgrade();
+                    }
+                }
+                if ( lineObject?.error?.code === 'email_must_be_confirmed' && puter.env === 'web' ) {
+                    showEmailConfirmationDialog(lineObject?.error?.message || 'Email confirmation required. Go to Puter.com to confirm your email address.');
+                }
+                if ( typeof (lineObject.text) === 'string' ) {
+                    Object.defineProperty(lineObject, 'toString', {
+                        enumerable: false,
+                        value: () => lineObject.text,
+                    });
+                }
+                yield lineObject;
+            }
+        })();
+        Object.defineProperty(startedStream, 'start', {
+            enumerable: false,
+            value: async (controller) => {
+                const texten = new TextEncoder();
+                for await ( const part of startedStream ) {
+                    controller.enqueue(texten.encode(part));
+                }
+                controller.close();
+            },
+        });
+        return resolve_func(startedStream);
+    };
+
+    // Interpret the final (non-stream) driver response. Reauth, permission-grant,
+    // and transient retries have already been handled by the engine, so anything
+    // reaching here is terminal.
+    const shape = async outcome => {
+        if ( outcome.networkError ) {
+            logDriver({ error: { message: 'Network error occurred' } });
+            return handle_error(error_cb, reject_func, outcome.xhr);
+        }
+
+        const xhr = outcome.xhr;
+        const status = xhr.status;
+        const resp = await parseResponse(xhr);
+
+        logDriver({
+            result: status >= 400 || resp?.success === false ? null : resp,
+            error: status >= 400 || resp?.success === false ? resp : null,
+        });
+
+        const isInsufficientFunds = (status === 402) ||
             (resp?.error?.code === 'insufficient_funds') ||
             (resp?.error?.status === 402);
         const isUsageLimited = resp?.metadata?.usage_limited === true;
-
         if ( (isInsufficientFunds || isUsageLimited) && puter.env === 'web' ) {
             showUsageLimitDialog('Your account has not enough funding to complete this request.<br>Please upgrade to continue.');
         } else if ( (isInsufficientFunds || isUsageLimited) && puter.env === 'app' ) {
             await puter.ui.requestUpgrade();
         }
-
-        // Check for email confirmation required (e.g. AI calls) - web only
         if ( resp?.error?.code === 'email_must_be_confirmed' && puter.env === 'web' ) {
             showEmailConfirmationDialog(resp?.error?.message || 'Email confirmation required. Go to Puter.com to confirm your email address.');
         }
 
-        // HTTP Error - unauthorized
-        if ( response.target.status === 401 || resp?.code === 'token_auth_failed' ) {
-            // v2 reauth signal. Replay the driver call by re-entering
-            // driverCall_ rather than using the
-            // generic replayXhrAfterReauth helper: the generic helper
-            // wires the retried XHR through setupXhrEventHandlers, which
-            // resolves with the parsed response and skips driverCall_'s
-            // streaming detection, usage-limit / email-confirmation
-            // handling, settings.transform, and `resp.result` unwrapping
-            // — i.e. it would silently change the driver call API
-            // contract on retry. One-shot via `settings._reauthReplayed`
-            // so a fresh-token rejection bubbles up instead of looping.
-            if ( resp?.code === 'reauth_required' ) {
-                try {
-                    await puter.triggerReauth({
-                        reason: resp.reason,
-                        auth_id: resp.auth_id,
-                    });
-                    if ( ! settings._reauthReplayed ) {
-                        return driverCall_(
-                            options,
-                            resolve_func,
-                            reject_func,
-                            driverInterface,
-                            driverName,
-                            driverMethod,
-                            driverArgs,
-                            method,
-                            contentType,
-                            { ...settings, _reauthReplayed: true },
-                        );
-                    }
-                    // Already replayed once — the fresh token is still
-                    // rejected. Bubble the reauth error.
-                    const err = {
-                        status: 401,
-                        code: 'reauth_required',
-                        reason: resp.reason,
-                        auth_id: resp.auth_id,
-                        message: 'Reauthentication still required after retry',
-                    };
-                    if ( error_cb && typeof error_cb === 'function' ) error_cb(err);
-                    return reject_func(err);
-                } catch ( e ) {
-                    const err = {
-                        status: 401,
-                        code: 'reauth_required',
-                        reason: resp.reason,
-                        auth_id: resp.auth_id,
-                        message: e?.message || 'Reauthentication required',
-                    };
-                    if ( error_cb && typeof error_cb === 'function' ) error_cb(err);
-                    return reject_func(err);
-                }
-            }
-            if ( resp?.code === 'token_auth_failed' && puter.env === 'web' ) {
-                try {
-                    puter.resetAuthToken();
-                    await puter.ui.authenticateWithPuter();
-                } catch (e) {
-                    return reject_func({
-                        error: {
-                            code: 'auth_canceled', message: 'Authentication canceled',
-                        },
-                    });
-                }
-            }
-            // if error callback is provided, call it
-            if ( error_cb && typeof error_cb === 'function' )
-            {
-                error_cb({ status: 401, message: 'Unauthorized' });
-            }
-            // reject promise
+        // Unauthorized — the reauth / token_auth_failed flows already ran in the
+        // engine's classifier; a leftover 401 here is terminal.
+        if ( status === 401 || resp?.code === 'token_auth_failed' ) {
+            error_cb({ status: 401, message: 'Unauthorized' });
             return reject_func({ status: 401, message: 'Unauthorized' });
         }
-        // HTTP Error - other
-        else if ( response.target.status && response.target.status !== 200 ) {
-            // if error callback is provided, call it
+        // Other HTTP error
+        if ( status && status !== 200 ) {
             error_cb(resp);
-            // reject promise
             return reject_func(resp);
         }
-        // HTTP Success
-        else {
-            // Driver Error: permission denied
-            if ( resp.success === false && resp.error?.code === 'permission_denied' ) {
-                let perm = await puter.ui.requestPermission({ permission: `driver:${ driverInterface }:${ driverMethod}` });
-                // try sending again if permission was granted
-                if ( perm.granted ) {
-                    // repeat request with permission granted
-                    return driverCall_(options, resolve_func, reject_func, driverInterface, driverMethod, driverArgs, method, contentType, settings);
-                } else {
-                    // if error callback is provided, call it
-                    error_cb(resp);
-                    // reject promise
-                    return reject_func(resp);
-                }
-            }
-            // Driver Error: other
-            else if ( resp.success === false ) {
-                // if error callback is provided, call it
-                error_cb(resp);
-                // reject promise
-                return reject_func(resp);
-            }
-
-            let result = resp.result !== undefined ? resp.result : resp;
-            if ( settings.transform ) {
-                result = await settings.transform(result);
-            }
-
-            // Success: if callback is provided, call it
-            if ( resolve_func.success )
-            {
-                success_cb(result);
-            }
-            // Success: resolve with the result
-            return resolve_func(result);
+        // Driver-level error (incl. a permission_denied the engine couldn't clear)
+        if ( resp.success === false ) {
+            error_cb(resp);
+            return reject_func(resp);
         }
-    });
 
-    // error
-    xhr.addEventListener('error', function (e) {
-        // Log driver call error
-        if ( this._puterDriverRequestInfo && globalThis.puter?.apiCallLogger?.isEnabled() ) {
-            globalThis.puter.apiCallLogger.logRequest({
-                service: 'drivers',
-                operation: `${this._puterDriverRequestInfo.interface}::${this._puterDriverRequestInfo.method}`,
-                params: { interface: this._puterDriverRequestInfo.interface, driver: this._puterDriverRequestInfo.driver, method: this._puterDriverRequestInfo.method, args: this._puterDriverRequestInfo.args },
-                error: { message: 'Network error occurred', event: e.type },
-            });
+        let result = resp.result !== undefined ? resp.result : resp;
+        if ( settings.transform ) {
+            result = await settings.transform(result);
         }
-        return handle_error(error_cb, reject_func, this);
-    });
+        if ( resolve_func.success ) {
+            success_cb(result);
+        }
+        return resolve_func(result);
+    };
 
-    // send request
-    xhr.send(JSON.stringify({
-        interface: driverInterface,
-        driver: driverName,
-        test_mode: settings?.test_mode,
-        method: driverMethod,
-        args: driverArgs,
-        auth_token: puter.authToken,
-    }));
-
+    sendWithRetry(spec, {
+        // Read-style driver methods opt into transient retry via settings.readonly.
+        retrySafe: !! settings.readonly,
+        permission: `driver:${ driverInterface }:${ driverMethod }`,
+        shapeStream,
+        shape,
+    }).catch(reject_func);
 }
 
 async function blob_to_url (blob) {
