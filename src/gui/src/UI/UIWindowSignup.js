@@ -24,6 +24,7 @@ import UIWindowPhoneVerificationRequired from './UIWindowPhoneVerificationRequir
 import UIWindowCardVerificationRequired from './UIWindowCardVerificationRequired.js';
 import UIWindowLogin from './UIWindowLogin.js';
 import { KNOWN_OIDC_PROVIDERS, OIDC_GENERIC_PROVIDER_ICON, humanizeOidcProviderId } from '../util/openid.js';
+import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/auth_redirect.js';
 
 function UIWindowSignup(options) {
     options = options ?? {};
@@ -31,6 +32,11 @@ function UIWindowSignup(options) {
     options.has_head = options.has_head ?? true;
     options.send_confirmation_code = options.send_confirmation_code ?? false;
     options.show_close_button = options.show_close_button ?? true;
+    if (options.redirect_url === undefined) {
+        // stay on the page the signup started from (e.g. an /app/<name>
+        // landing), with standalone auth pages going to the root dashboard
+        options.redirect_url = get_auth_redirect_url();
+    }
 
     return new Promise(async (resolve) => {
         const internal_id = window.uuidv4();
@@ -230,11 +236,8 @@ function UIWindowSignup(options) {
                                 .on('click', function () {
                                     let url = `${window.gui_origin}/auth/oidc/${provider}/start?flow=signup`;
                                     // return to the interface the signup started from (backend whitelists the path)
-                                    const return_to = window.location.pathname;
-                                    if (
-                                        return_to === '/desktop' ||
-                                        return_to === '/dashboard'
-                                    ) {
+                                    const return_to = get_oidc_return_to();
+                                    if (return_to) {
                                         url += `&return_to=${encodeURIComponent(return_to)}`;
                                     }
                                     const referrer =
@@ -559,7 +562,6 @@ function UIWindowSignup(options) {
 
                         if (options.reload_on_success) {
                             window.onbeforeunload = null;
-                            // either options.redirect_url or the current page
                             const redirectUrl = options.redirect_url || '/';
                             window.location.replace(redirectUrl);
                         } else {
