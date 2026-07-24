@@ -28,7 +28,7 @@ These apply everywhere — backend, puter.js, and GUI.
 - TypeScript preferred for new files in the backend and extensions; convert existing JS there opportunistically when you're already touching a file. The GUI and puter.js are plain JavaScript — don't introduce TypeScript files in them. In puter.js, type with JSDoc instead (see the puter.js section for what must be typed).
 - **Reuse before adding.** Search for an existing type, helper, or implementation and extend it; only add a new one when nothing suitable exists.
 - Make new types findable: descriptive `PascalCase` names, exported from the obvious entry point. A type used from many places belongs in the owning module's `types.ts` (e.g. [src/backend/controllers/types.ts](src/backend/controllers/types.ts)) rather than bloating a logic file; a type with a single consumer can stay next to it.
-- Naming: `camelCase` for variables/functions, `PascalCase` for classes and files containing a class (`AuthService.ts`).
+- Naming: `camelCase` for variables/functions, `PascalCase` for classes and files containing a class (`AuthService.ts`). **Prefer `camelCase` for all new code** — new local variables, parameters, functions, and internal object properties. `snake_case` is reserved for identifiers that are part of an external contract: wire/JSON keys sent to or received from the backend, stable API error codes, public option names that already ship as `snake_case`, and established `puter_*` namespaced fields. Don't rename those (it's a breaking change), but don't introduce new `snake_case` alongside them either — a camelCase local can carry a value into a `snake_case` wire key (`{ operation_id: operationId }`).
 
 ### Comments
 

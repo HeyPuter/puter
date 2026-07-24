@@ -416,6 +416,94 @@ export default suite('fs', {
         t.assert.equal(await blob.text(), 'upload two');
     },
 
+    'upload of a single File resolves to one entry, not an array': async (t) => {
+        const dir = `${home(t)}/fs-suite-upload-single`;
+        await t.puter.fs.mkdir(dir);
+        const result = await t.puter.fs.upload(
+            new File(['solo upload'], 'solo.txt', { type: 'text/plain' }),
+            dir,
+        );
+        t.assert.equal(Array.isArray(result), false);
+        t.assert.equal(result.name, 'solo.txt');
+        const blob = await t.puter.fs.read(`${dir}/solo.txt`);
+        t.assert.equal(await blob.text(), 'solo upload');
+    },
+
+    'upload of a string writes it to default.txt': async (t) => {
+        const dir = `${home(t)}/fs-suite-upload-string`;
+        await t.puter.fs.mkdir(dir);
+        await t.puter.fs.upload('hello as a string', dir);
+        const blob = await t.puter.fs.read(`${dir}/default.txt`);
+        t.assert.equal(await blob.text(), 'hello as a string');
+    },
+
+    'upload of a Blob uses options.name for the file name': async (t) => {
+        const dir = `${home(t)}/fs-suite-upload-blob`;
+        await t.puter.fs.mkdir(dir);
+        await t.puter.fs.upload(new Blob(['blob contents']), dir, {
+            name: 'from-blob.dat',
+        });
+        const blob = await t.puter.fs.read(`${dir}/from-blob.dat`);
+        t.assert.equal(await blob.text(), 'blob contents');
+    },
+
+    'upload fires the start and success callbacks with the result': async (t) => {
+        const dir = `${home(t)}/fs-suite-upload-callbacks`;
+        await t.puter.fs.mkdir(dir);
+        let started = false;
+        let successArg: { name?: string } | undefined;
+        // progress is intentionally not asserted: it is timing-dependent and
+        // may not fire for a file small enough to finish within one tick.
+        const result = await t.puter.fs.upload(
+            new File(['callback file'], 'cb.txt', { type: 'text/plain' }),
+            dir,
+            {
+                start: () => { started = true; },
+                success: (items: { name?: string }) => { successArg = items; },
+            },
+        );
+        t.assert.equal(started, true, 'start callback should fire');
+        t.assert.equal(successArg?.name, 'cb.txt', 'success should receive the entry');
+        t.assert.equal((result as { name?: string }).name, 'cb.txt');
+    },
+
+    'upload with dedupeName creates a sibling instead of overwriting': async (t) => {
+        const dir = `${home(t)}/fs-suite-upload-dedupe`;
+        await t.puter.fs.mkdir(dir);
+        const first = await t.puter.fs.upload(
+            new File(['original'], 'dupe.txt', { type: 'text/plain' }),
+            dir,
+        );
+        const second = await t.puter.fs.upload(
+            new File(['copy'], 'dupe.txt', { type: 'text/plain' }),
+            dir,
+            { overwrite: false, dedupeName: true },
+        );
+        t.assert.ok(first.name !== second.name, 'dedupe should pick a new name');
+        const blob = await t.puter.fs.read(`${dir}/dupe.txt`);
+        t.assert.equal(await blob.text(), 'original');
+    },
+
+    'upload to the root directory rejects': async (t) => {
+        await t.assert.rejects(
+            () => t.puter.fs.upload(
+                new File(['nope'], 'nope.txt', { type: 'text/plain' }),
+                '/',
+            ),
+            'uploading to root should reject',
+        );
+    },
+
+    'upload of an unsupported type rejects with field_invalid': async (t) => {
+        const dir = `${home(t)}/fs-suite-upload-invalid`;
+        await t.puter.fs.mkdir(dir);
+        const err = await t.assert.rejects(
+            () => t.puter.fs.upload(12345 as unknown as File, dir),
+            'uploading a number should reject',
+        );
+        t.assert.equal((err as { code?: string })?.code, 'field_invalid');
+    },
+
     'read of a directory rejects': async (t) => {
         const dir = `${home(t)}/fs-suite-read-dir`;
         await t.puter.fs.mkdir(dir);
