@@ -674,7 +674,7 @@ const TabFiles = {
                     // Cleanup
                     $('.drag-cancel-zone').remove();
                     $('.item-selected-clone').remove();
-                    $('.draggable-count-badge').remove();
+                    $('.row.dragging-source').removeClass('dragging-source');
                     window.an_item_is_being_dragged = false;
                     $('.window-app-iframe').css('pointer-events', 'auto');
                     return false;
@@ -1134,6 +1134,47 @@ const TabFiles = {
             if ( _this.currentPath === '/' ) return;
 
             const target_path = path.resolve(path.join(_this.currentPath, '..'));
+            _this.pushNavHistory(target_path);
+            _this.renderDirectory(target_path);
+        });
+
+        // Spring-loaded navigation: holding a dragged item over back/forward/up
+        // navigates so the drag can continue in the newly shown directory.
+        const makeNavBtnSpringLoaded = (btn, navigate) => {
+            $(btn).droppable({
+                accept: '.row',
+                tolerance: 'pointer',
+                over: function (_event, ui) {
+                    if ( ! $(ui.draggable).hasClass('row') ) return;
+                    if ( $(btn).hasClass('path-btn-disabled') ) return;
+                    _this.startNavDwell(btn, navigate);
+                },
+                out: function (_event, _ui) {
+                    _this.clearNavDwell(btn);
+                },
+            });
+        };
+
+        makeNavBtnSpringLoaded(el_window_navbar_back_btn, () => {
+            if ( window.dashboard_nav_history_current_position <= 0 ) return false;
+            const target_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position - 1];
+            if ( ! _this.canSpringLoadInto(target_path) ) return false;
+            window.dashboard_nav_history_current_position--;
+            _this.renderDirectory(target_path);
+        });
+
+        makeNavBtnSpringLoaded(el_window_navbar_forward_btn, () => {
+            if ( window.dashboard_nav_history_current_position >= window.dashboard_nav_history.length - 1 ) return false;
+            const target_path = window.dashboard_nav_history[window.dashboard_nav_history_current_position + 1];
+            if ( ! _this.canSpringLoadInto(target_path) ) return false;
+            window.dashboard_nav_history_current_position++;
+            _this.renderDirectory(target_path);
+        });
+
+        makeNavBtnSpringLoaded(el_window_navbar_up_btn, () => {
+            if ( _this.currentPath === '/' ) return false;
+            const target_path = path.resolve(path.join(_this.currentPath, '..'));
+            if ( ! _this.canSpringLoadInto(target_path) ) return false;
             _this.pushNavHistory(target_path);
             _this.renderDirectory(target_path);
         });
@@ -1957,6 +1998,12 @@ const TabFiles = {
                 tolerance: 'pointer',
 
                 drop: async function (event, ui) {
+                    // Clear dwell timer to prevent navigation after drop
+                    clearTimeout(_this.folderDwellTimer);
+                    _this.folderDwellTimer = null;
+                    _this.folderDwellTarget = null;
+                    $(dirnameElement).removeClass('dwell-opening');
+
                     const targetPath = $(this).attr('data-path');
                     const draggedPath = $(ui.draggable).attr('data-path');
 
@@ -2000,12 +2047,21 @@ const TabFiles = {
                 over: function (_event, ui) {
                     if ( $(ui.draggable).hasClass('row') ) {
                         $(this).addClass('drop-target');
+
+                        // Holding over an ancestor breadcrumb navigates to it
+                        if ( clickedPath !== _this.currentPath && _this.canSpringLoadInto(clickedPath) ) {
+                            _this.startNavDwell(dirnameElement, () => {
+                                _this.pushNavHistory(clickedPath);
+                                _this.renderDirectory(clickedPath);
+                            });
+                        }
                     }
                 },
 
                 out: function (_event, ui) {
                     if ( $(ui.draggable).hasClass('row') ) {
                         $(this).removeClass('drop-target');
+                        _this.clearNavDwell(dirnameElement);
                     }
                 },
             });
@@ -2520,22 +2576,31 @@ const TabFiles = {
             appendTo: 'body',
             refreshPositions: true,
             helper: function () {
-                const $clone = $(el_item).clone();
+                // Compact drag ghost: an icon+name chip near the cursor, with
+                // stacked sheets and a count badge when dragging a multi-selection.
+                const iconSrc = $(el_item).find('.item-icon img').attr('src');
+                const name = $(el_item).attr('data-name') || '';
+                const count = $(el_item).siblings('.row.selected').length + 1;
 
-                // Wrap in container structure so CSS selectors match
-                const viewClass = _this.viewClass();
-                const $wrapper = $(`<div class="dashboard-section-files"><div class="files-tab"><div class="files ${viewClass}"></div></div></div>`);
-                $wrapper.find('.files').append($clone);
+                const $ghost = $('<div class="files-drag-ghost"></div>');
+                if ( count > 2 ) $ghost.append('<div class="files-drag-ghost-sheet files-drag-ghost-sheet-2"></div>');
+                if ( count > 1 ) $ghost.append('<div class="files-drag-ghost-sheet files-drag-ghost-sheet-1"></div>');
 
-                // In grid view, set fixed width since the grid auto-fill
-                // doesn't work without a proper parent width context
-                if ( _this.isGridView() ) {
-                    $clone.css('width', $(el_item).outerWidth());
-                    $wrapper.find('.files').css('display', 'block');
+                const $card = $('<div class="files-drag-ghost-card"></div>');
+                $card.append($('<img class="files-drag-ghost-icon" alt="" draggable="false">').attr('src', iconSrc));
+                $card.append($('<span class="files-drag-ghost-name"></span>').text(name));
+                $ghost.append($card);
+
+                if ( count > 1 ) {
+                    $ghost.append($('<span class="files-drag-ghost-count"></span>').text(count));
                 }
 
-                return $wrapper;
+                return $ghost;
             },
+            // Anchor the chip just below-right of the pointer so it never
+            // obscures the drop target under the cursor.
+            cursorAt: { left: -14, top: -12 },
+            cursor: 'grabbing',
             revert: 'invalid',
             zIndex: 10000,
             scroll: false,
@@ -2560,21 +2625,19 @@ const TabFiles = {
                     el_item.classList.add('selected');
                 }
 
-                ui.helper.addClass('selected');
+                // Dim the source rows while their drag is in flight
+                $(el_item).add($(el_item).siblings('.row.selected')).addClass('dragging-source');
 
-                // Clone other selected items with proper container structure
-                const viewClass = _this.viewClass();
+                // Clone other selected items as hidden data carriers — drop
+                // handlers read data attributes off these to move the whole
+                // selection. They are never displayed; the drag ghost itself
+                // conveys the multi-item count.
                 $(el_item).siblings('.row.selected').each(function () {
-                    const $clone = $(this).clone();
-                    const $wrapper = $(`<div class="dashboard-section-files item-selected-clone"><div class="files-tab"><div class="files ${viewClass}"></div></div></div>`);
-                    $wrapper.find('.files').append($clone);
-                    $wrapper.css('position', 'absolute').appendTo('body').hide();
+                    $('<div class="item-selected-clone"></div>')
+                        .append($(this).clone())
+                        .hide()
+                        .appendTo('body');
                 });
-
-                const itemCount = $('.item-selected-clone').length;
-                if ( itemCount > 0 ) {
-                    $('body').append(`<span class="draggable-count-badge">${itemCount + 1}</span>`);
-                }
 
                 window.an_item_is_being_dragged = true;
                 $('.window-app-iframe').css('pointer-events', 'none');
@@ -2595,30 +2658,6 @@ const TabFiles = {
                         ui.helper.data('dropped', true);
                         ui.helper.data('cancelled', true);
                     },
-                });
-            },
-
-            drag: function (event, ui) {
-                // Show helpers after 5px movement
-                if ( Math.abs(ui.originalPosition.top - ui.offset.top) > 5 ||
-                    Math.abs(ui.originalPosition.left - ui.offset.left) > 5 ) {
-                    ui.helper.show();
-                    $('.item-selected-clone').show();
-                    $('.draggable-count-badge').show();
-                }
-
-                $('.draggable-count-badge').css({
-                    top: event.pageY,
-                    left: event.pageX + 10,
-                });
-
-                $('.item-selected-clone').each(function (i) {
-                    $(this).css({
-                        left: ui.position.left + 3 * (i + 1),
-                        top: ui.position.top + 3 * (i + 1),
-                        'z-index': 999 - i,
-                        'opacity': 0.5 - i * 0.1,
-                    });
                 });
             },
 
@@ -2679,7 +2718,7 @@ const TabFiles = {
                 _this.springLoadedOriginalPath = null;
                 $('.drag-cancel-zone').remove();
                 $('.item-selected-clone').remove();
-                $('.draggable-count-badge').remove();
+                $('.row.dragging-source').removeClass('dragging-source');
                 window.an_item_is_being_dragged = false;
                 $('.window-app-iframe').css('pointer-events', 'auto');
             },
@@ -3152,8 +3191,84 @@ const TabFiles = {
                 return;
             }
         }
+        // The drag may have sprung backward through history (Back button),
+        // leaving the original path ahead of the current position — walk
+        // forward too.
+        for ( let i = window.dashboard_nav_history_current_position + 1; i < window.dashboard_nav_history.length; i++ ) {
+            if ( window.dashboard_nav_history[i] === this.springLoadedOriginalPath ) {
+                window.dashboard_nav_history_current_position = i;
+                this.renderDirectory(this.springLoadedOriginalPath);
+                return;
+            }
+        }
         // Fallback: render the original path directly
         this.renderDirectory(this.springLoadedOriginalPath);
+    },
+
+    /**
+     * Starts a spring-loaded dwell timer for a drag hovering a navigation
+     * control (back/forward/up button or a breadcrumb segment). After the
+     * dwell delay the control's navigation runs — marked as a spring-loaded
+     * move so cancelling the drag returns to the original directory — and
+     * the drag continues in the newly shown directory.
+     *
+     * @param {HTMLElement} el - The hovered control element
+     * @param {Function} navigate - Performs the control's navigation; return false to skip
+     * @returns {void}
+     */
+    startNavDwell (el, navigate) {
+        const _this = this;
+        clearTimeout(this.folderDwellTimer);
+        $(el).addClass('dwell-opening');
+        this.folderDwellTarget = el;
+        this.folderDwellTimer = setTimeout(() => {
+            _this.folderDwellTimer = null;
+            _this.folderDwellTarget = null;
+            $(el).removeClass('dwell-opening');
+
+            const originalPath = _this.currentPath;
+            if ( navigate() === false ) return;
+
+            if ( ! _this.springLoadedActive ) {
+                _this.springLoadedOriginalPath = originalPath;
+            }
+            _this.springLoadedActive = true;
+            $('.drag-cancel-zone').show();
+
+            // Refresh jQuery UI droppable detection for the active drag
+            if ( $.ui.ddmanager && $.ui.ddmanager.current ) {
+                $.ui.ddmanager.current.helper.addClass('ui-draggable-dragging');
+                $.ui.ddmanager.prepareOffsets($.ui.ddmanager.current);
+            }
+        }, 700);
+    },
+
+    /**
+     * Cancels a pending nav-control dwell started by startNavDwell.
+     *
+     * @param {HTMLElement} el - The control element whose dwell to cancel
+     * @returns {void}
+     */
+    clearNavDwell (el) {
+        if ( this.folderDwellTarget === el ) {
+            clearTimeout(this.folderDwellTimer);
+            this.folderDwellTimer = null;
+            this.folderDwellTarget = null;
+        }
+        $(el).removeClass('dwell-opening');
+    },
+
+    /**
+     * Whether a path may be auto-opened by a spring-loaded drag. Trash is
+     * excluded, matching the folder and sidebar dwell behavior.
+     *
+     * @param {string} targetPath - The path the dwell would navigate to
+     * @returns {boolean}
+     */
+    canSpringLoadInto (targetPath) {
+        return !! targetPath &&
+            targetPath !== window.trash_path &&
+            ! targetPath.startsWith(`${window.trash_path}/`);
     },
 
     /**
