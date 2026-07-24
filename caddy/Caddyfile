@@ -1,0 +1,35 @@
+# Default development configuration.
+#
+# Accessible via:
+#   http://localhost
+#   http://127.0.0.1
+#   http://puter.localhost
+#
+# To enable HTTPS:
+#   1. Set PUTER_PROTOCOL=https
+#   2. Replace :80 with your domain blocks below.
+#   3. Point your DNS to this machine.
+#   4. Expose ports 80 and 443.
+#
+# Example:
+#
+# example.com, *.example.com {
+#     reverse_proxy puter:4100
+# }
+#
+# s3.example.com {
+#     reverse_proxy s3:9000
+# }
+
+:80 {
+    @s3 host s3.puter.localhost
+    reverse_proxy @s3 s3:9000
+
+    request_body {
+        max_size 1024MB
+    }
+
+    reverse_proxy puter:4100 {
+        flush_interval -1
+    }
+}

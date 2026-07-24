@@ -270,24 +270,24 @@ services:
       retries: 3
       start_period: 30s
 
-  nginx:
-    image: nginx:1.27-alpine
-    container_name: puter-nginx
+  caddy:
+    image: caddy:2
+    container_name: puter-caddy
     restart: unless-stopped
+  
     depends_on:
       puter:
         condition: service_started
+  
     ports:
       - "${HTTP_PORT:-80}:80"
-      # Uncomment when you enable TLS in nginx/nginx.conf:
-      # - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443"
+  
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro,z
-      # TLS certs (fullchain.pem + privkey.pem). Read-only inside.
-      - ./puter/tls:/etc/nginx/tls:ro,z
-    healthcheck:
-      test: ["CMD-SHELL", "wget -qO- --tries=1 --timeout=2 http://localhost/ || exit 1"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 5s
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
