@@ -85,6 +85,8 @@
     --dashboard-shadow-light: rgba(0, 0, 0, 0.06);
     --dashboard-shadow-medium: rgba(0, 0, 0, 0.1);
     --dashboard-shadow-overlay: rgba(0, 0, 0, 0.5);
+    --dashboard-scrim: rgba(15, 18, 24, 0.42);
+    --dashboard-drawer-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04), 24px 0 64px rgba(0, 0, 0, 0.24);
 
     --dashboard-gradient-indigo: rgba(99, 102, 241, 0.08);
     --dashboard-gradient-purple: rgba(168, 85, 247, 0.06);
@@ -180,6 +182,8 @@ body {
         --dashboard-shadow-light: rgba(0, 0, 0, 0.3);
         --dashboard-shadow-medium: rgba(0, 0, 0, 0.4);
         --dashboard-shadow-overlay: rgba(0, 0, 0, 0.7);
+        --dashboard-scrim: rgba(0, 0, 0, 0.6);
+        --dashboard-drawer-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 24px 0 64px rgba(0, 0, 0, 0.55);
 
         --dashboard-gradient-indigo: rgba(99, 102, 241, 0.15);
         --dashboard-gradient-purple: rgba(168, 85, 247, 0.12);
@@ -365,10 +369,42 @@ body {
     opacity: 1;
 }
 
-/* Hide desktop collapse toggle on mobile */
+/* Mobile drawer close button — hidden on desktop, where the collapse toggle
+   occupies the same header slot */
+.dashboard-sidebar-close {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: none;
+    border-radius: 8px;
+    color: var(--dashboard-text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
+    transition: background-color 0.15s, color 0.15s;
+}
+
+.dashboard-sidebar-close svg {
+    width: 20px;
+    height: 20px;
+}
+
+.dashboard-sidebar-close:active {
+    background: var(--dashboard-hover);
+    color: var(--dashboard-text);
+}
+
+/* Hide desktop collapse toggle on mobile; show the drawer close button */
 @media (max-width: 768px) {
     .dashboard-sidebar-collapse-toggle {
         display: none;
+    }
+
+    .dashboard-sidebar-close {
+        display: inline-flex;
     }
 }
 
@@ -1364,6 +1400,12 @@ body.myapps-reordering .myapps-tile {
 
 @media (prefers-reduced-motion: reduce) {
     .myapps-drag-ghost {
+        transition: none;
+    }
+
+    .dashboard-sidebar,
+    .dashboard-sidebar-scrim,
+    .dashboard-sidebar-toggle {
         transition: none;
     }
 }
@@ -2518,76 +2560,157 @@ body.myapps-reordering .myapps-tile {
     margin: 4px 0;
 }
 
-/* Mobile sidebar toggle */
+/* Mobile sidebar toggle — frosted so scrolling content reads through it,
+   aligned to the 16px content gutter */
 .dashboard-sidebar-toggle {
     display: none;
     position: fixed;
-    top: 12px;
-    left: 12px;
+    top: max(12px, env(safe-area-inset-top));
+    left: max(16px, env(safe-area-inset-left));
     z-index: 100;
-    width: 35px;
-    height: 35px;
-    background: var(--dashboard-background);
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.8);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    backdrop-filter: blur(16px) saturate(180%);
     border: 1px solid var(--dashboard-border);
-    border-radius: 6px;
+    border-radius: 10px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 4px 16px rgba(0, 0, 0, 0.06);
     cursor: pointer;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 4px;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+/* Extend the tap target to ~52px without growing the button visually */
+.dashboard-sidebar-toggle::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: inherit;
+}
+
+.dashboard-sidebar-toggle:active {
+    transform: scale(0.94);
+}
+
+/* The open drawer covers the toggle; fade it so it can't peek out from
+   behind the drawer's rounded corner or catch stray taps */
+.dashboard-sidebar-toggle.open {
+    opacity: 0;
+    transform: scale(0.9);
+    pointer-events: none;
 }
 
 .dashboard-sidebar-toggle span {
     display: block;
-    width: 18px;
+    width: 16px;
     height: 2px;
     background: var(--dashboard-text);
     border-radius: 1px;
-    transition: transform 0.2s, opacity 0.2s;
 }
 
-.dashboard-sidebar-toggle.open span:nth-child(1) {
-    transform: rotate(45deg) translate(4px, 4px);
+@media (prefers-color-scheme: dark) {
+    .dashboard-sidebar-toggle {
+        background: rgba(37, 37, 37, 0.8);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.3);
+    }
 }
 
-.dashboard-sidebar-toggle.open span:nth-child(2) {
-    opacity: 0;
+/* Scrim behind the mobile drawer */
+.dashboard-sidebar-scrim {
+    display: none;
 }
 
-.dashboard-sidebar-toggle.open span:nth-child(3) {
-    transform: rotate(-45deg) translate(4px, -4px);
-}
-
-/* Responsive: tablet and below */
+/* Responsive: tablet and below — the sidebar becomes a modal drawer */
 @media (max-width: 768px) {
     .dashboard-sidebar-header {
-        padding-left: 45px;
-        border-bottom: 0;
-        margin-bottom: 2px;
-        margin-top: 3px;
-    }
-
-    .dashboard-sidebar-header .dashboard-sidebar-logo {
-        margin-left: auto;
+        padding: 2px 2px 12px 6px;
     }
 
     .dashboard-sidebar-toggle {
         display: flex;
     }
 
+    .dashboard-sidebar-scrim {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 98;
+        background: var(--dashboard-scrim);
+        opacity: 0;
+        pointer-events: none;
+        touch-action: none;
+        transition: opacity 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    .dashboard-sidebar-scrim.open {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
     .dashboard-sidebar {
         position: fixed;
         left: 0;
         top: 0;
-        height: 100%;
+        bottom: 0;
+        height: auto;
+        width: min(304px, calc(100vw - 56px));
+        min-width: 0;
         z-index: 99;
+        padding: max(16px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom)) calc(14px + env(safe-area-inset-left));
+        border-right: none;
+        border-radius: 0 16px 16px 0;
         transform: translateX(-110%);
-        transition: transform 0.2s ease;
-        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+        visibility: hidden;
+        box-shadow: var(--dashboard-drawer-shadow);
+        overscroll-behavior: contain;
+        /* visibility flips only after the slide-out finishes, keeping the
+           closed drawer out of the tab order */
+        transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s linear 0.32s;
     }
 
     .dashboard-sidebar.open {
         transform: translateX(0);
+        visibility: visible;
+        transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    /* Mid-swipe: the drawer follows the finger, so no transitions */
+    .dashboard-sidebar.dragging,
+    .dashboard-sidebar-scrim.dragging {
+        transition: none;
+    }
+
+    /* Roomier touch targets inside the drawer, with pressed-state feedback
+       in place of hover */
+    .dashboard-sidebar-item {
+        padding: 12px;
+        gap: 12px;
+        font-size: 15px;
+        margin-bottom: 2px;
+        border-radius: 10px;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .dashboard-sidebar-item svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    .dashboard-sidebar-item:active {
+        background: var(--dashboard-hover);
+    }
+
+    .dashboard-user-btn {
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .dashboard-user-btn:active {
+        background: var(--dashboard-hover);
     }
 
     .dashboard-content {
@@ -2600,7 +2723,7 @@ body.myapps-reordering .myapps-tile {
        the first folder row (the column is hidden below 480px, so this only
        affects the tablet range). */
     .dashboard-section-files .directories {
-        padding-top: 52px;
+        padding-top: 60px;
     }
 
     .myapps-search-wrap {

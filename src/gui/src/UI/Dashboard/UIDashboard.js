@@ -92,9 +92,12 @@ async function UIDashboard (options) {
     h += '<div class="dashboard">';
 
         // Mobile sidebar toggle
-        h += '<button class="dashboard-sidebar-toggle">';
+        h += '<button class="dashboard-sidebar-toggle" aria-label="Open menu" aria-expanded="false">';
             h += '<span></span><span></span><span></span>';
         h += '</button>';
+
+        // Scrim behind the mobile drawer; tap closes it
+        h += '<div class="dashboard-sidebar-scrim"></div>';
 
         // Sidebar
         h += '<div class="dashboard-sidebar hide-scrollbar">';
@@ -104,6 +107,10 @@ async function UIDashboard (options) {
                 h += '<button class="dashboard-sidebar-collapse-toggle">';
                     h += `<img class="sidebar-toggle-close" src="${window.icons['sidebar-close.svg']}">`;
                     h += `<img class="sidebar-toggle-open" src="${window.icons['sidebar-open.svg']}">`;
+                h += '</button>';
+                // Mobile-only close button (the collapse toggle is desktop-only)
+                h += '<button class="dashboard-sidebar-close" aria-label="Close menu">';
+                    h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>';
                 h += '</button>';
             h += '</div>';
             // Navigation items container
@@ -491,15 +498,99 @@ async function UIDashboard (options) {
         $el_window.find('.dashboard-content').scrollTop(0);
 
         // Close sidebar on mobile after selection
-        $el_window.find('.dashboard-sidebar').removeClass('open');
-        $el_window.find('.dashboard-sidebar-toggle').removeClass('open');
+        setMobileSidebar(false);
     });
 
-    // Mobile toggle handler
+    // =========================================================================
+    // Mobile drawer
+    // The sidebar becomes a modal drawer below 768px: scrim behind it, close
+    // button in its header, Escape and swipe-left dismiss it. One helper keeps
+    // the drawer, scrim, and toggle (incl. aria-expanded) in sync.
+    // =========================================================================
+    const $sidebar = $el_window.find('.dashboard-sidebar');
+    const $scrim = $el_window.find('.dashboard-sidebar-scrim');
+    const $sidebar_toggle = $el_window.find('.dashboard-sidebar-toggle');
+    const setMobileSidebar = (open) => {
+        $sidebar.toggleClass('open', open);
+        $scrim.toggleClass('open', open);
+        $sidebar_toggle.toggleClass('open', open).attr('aria-expanded', open ? 'true' : 'false');
+    };
+
     $el_window.on('click', '.dashboard-sidebar-toggle', function () {
-        $(this).toggleClass('open');
-        $el_window.find('.dashboard-sidebar').toggleClass('open');
+        setMobileSidebar(!$sidebar.hasClass('open'));
     });
+
+    $el_window.on('click', '.dashboard-sidebar-close, .dashboard-sidebar-scrim', function () {
+        setMobileSidebar(false);
+    });
+
+    $(document).on('keydown.dashboard-mobile-sidebar', function (e) {
+        if ( e.key === 'Escape' && $sidebar.hasClass('open') ) {
+            setMobileSidebar(false);
+        }
+    });
+
+    // Swipe-to-close: the drawer tracks a leftward drag 1:1 (scrim fading in
+    // step), then commits past 35% width or a quick flick, else snaps back.
+    // Transitions are suspended during the drag (.dragging) so releasing
+    // animates from the finger's last position, not from fully-open.
+    {
+        const sidebar = $sidebar[0];
+        const scrim = $scrim[0];
+        let startX = 0, startY = 0, dx = 0, lastX = 0, lastT = 0, velocity = 0;
+        let tracking = false, axis = null;
+
+        sidebar.addEventListener('touchstart', (e) => {
+            if ( ! sidebar.classList.contains('open') ) return;
+            const t = e.touches[0];
+            startX = lastX = t.clientX;
+            startY = t.clientY;
+            lastT = e.timeStamp;
+            dx = 0; velocity = 0; axis = null;
+            tracking = true;
+        }, { passive: true });
+
+        sidebar.addEventListener('touchmove', (e) => {
+            if ( ! tracking ) return;
+            const t = e.touches[0];
+            const moveX = t.clientX - startX;
+            const moveY = t.clientY - startY;
+            // Lock to an axis on the first meaningful movement so vertical
+            // scrolling inside the drawer never drags it sideways.
+            if ( axis === null && (Math.abs(moveX) > 8 || Math.abs(moveY) > 8) ) {
+                axis = Math.abs(moveX) > Math.abs(moveY) ? 'x' : 'y';
+                if ( axis === 'x' ) {
+                    sidebar.classList.add('dragging');
+                    scrim.classList.add('dragging');
+                }
+            }
+            if ( axis !== 'x' ) return;
+            dx = Math.min(0, moveX);
+            const dt = e.timeStamp - lastT;
+            if ( dt > 0 ) velocity = (t.clientX - lastX) / dt;
+            lastX = t.clientX;
+            lastT = e.timeStamp;
+            sidebar.style.transform = `translateX(${dx}px)`;
+            scrim.style.opacity = Math.max(0, 1 + dx / sidebar.offsetWidth);
+        }, { passive: true });
+
+        const endDrag = () => {
+            if ( ! tracking ) return;
+            tracking = false;
+            const shouldClose = axis === 'x'
+                && (dx < -sidebar.offsetWidth * 0.35 || velocity < -0.4);
+            // Re-enable transitions and drop inline styles in the same frame
+            // as the class change so the drawer animates from where it is.
+            sidebar.classList.remove('dragging');
+            scrim.classList.remove('dragging');
+            sidebar.style.transform = '';
+            scrim.style.opacity = '';
+            if ( shouldClose ) setMobileSidebar(false);
+            axis = null; dx = 0;
+        };
+        sidebar.addEventListener('touchend', endDrag);
+        sidebar.addEventListener('touchcancel', endDrag);
+    }
 
     // Desktop sidebar collapse toggle
     $el_window.on('click', '.dashboard-sidebar-collapse-toggle', function () {
@@ -528,9 +619,8 @@ async function UIDashboard (options) {
     $el_window.on('mousedown touchstart', function (e) {
         if ( !$(e.target).closest('.dashboard-sidebar').length
             && !$(e.target).closest('.dashboard-sidebar-toggle').length
-            && $el_window.find('.dashboard-sidebar').hasClass('open') ) {
-            $el_window.find('.dashboard-sidebar').removeClass('open');
-            $el_window.find('.dashboard-sidebar-toggle').removeClass('open');
+            && $sidebar.hasClass('open') ) {
+            setMobileSidebar(false);
         }
     });
 
