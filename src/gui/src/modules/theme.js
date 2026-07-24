@@ -18,7 +18,7 @@
  */
 
 import UIAlert from '../UI/UIAlert.js';
-import { Service } from '../definitions.js';
+import { broadcast_service } from './broadcast.js';
 
 const PUTER_THEME_DATA_FILENAME = '~/.__puter_gui.json';
 
@@ -32,12 +32,8 @@ const default_values = {
     light_text: false,
 };
 
-export class ThemeService extends Service {
-    #broadcastService;
-
-    async _init () {
-        this.#broadcastService = globalThis.services.get('broadcast');
-
+class ThemeService {
+    init () {
         this.state = {
             sat: 41.18,
             hue: 210,
@@ -129,7 +125,7 @@ export class ThemeService extends Service {
         this.root.style.setProperty('--primary-color-sidebar-item', s.light_text ? '#5a5d61aa' : '#fefeff');
 
         // TODO: Should we debounce this to reduce traffic?
-        this.#broadcastService.sendBroadcast('themeChanged', {
+        broadcast_service.sendBroadcast('themeChanged', {
             palette: {
                 primaryHue: s.hue,
                 primarySaturation: `${s.sat }%`,
@@ -154,3 +150,5 @@ export class ThemeService extends Service {
                         5));
     }
 }
+
+export const theme_service = new ThemeService();

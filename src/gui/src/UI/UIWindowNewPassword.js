@@ -19,6 +19,7 @@
 
 import UIWindow from './UIWindow.js';
 import UIAlert from './UIAlert.js';
+import { locale_service } from '../modules/locale.js';
 import UIWindowLogin from './UIWindowLogin.js';
 import check_password_strength from '../helpers/check_password_strength.js';
 
@@ -122,8 +123,7 @@ async function UIWindowNewPassword (options) {
                 return;
             }
 
-            const svc_locale = globalThis.services.get('locale');
-            const countdown = svc_locale.format_duration(time_remaining);
+            const countdown = locale_service.format_duration(time_remaining);
 
             $(el_window).find('.change-password-btn').html(`Set New Password (${countdown})`);
         }, 1000);

@@ -19,40 +19,7 @@
 
 import TeePromise from './util/TeePromise.js';
 import AdvancedBase from './util/AdvancedBase.js';
-
-const NOOP = async () => {
-};
-
-export class Service extends AdvancedBase {
-    // TODO: Service todo items
-    static TODO = [
-        'consolidate with BaseService from backend',
-    ];
-    async __on (id, args) {
-        const handler = this.__get_event_handler(id);
-
-        return await handler(id, ...args);
-    }
-    __get_event_handler (id) {
-        return this[`__on_${id}`]?.bind?.(this)
-            || this.constructor[`__on_${id}`]?.bind?.(this.constructor)
-            || NOOP;
-    }
-    construct (o) {
-        this.$puter = {};
-        for ( const k in o ) this.$puter[k] = o[k];
-        if ( ! this._construct ) return;
-        return this._construct();
-    }
-    init (...a) {
-        if ( ! this._init ) return;
-        this.services = a[0].services;
-        return this._init(...a);
-    }
-    get context () {
-        return { services: this.services };
-    }
-};
+import { process_service } from './modules/process.js';
 
 export const PROCESS_INITIALIZING = { i18n_key: 'initializing' };
 export const PROCESS_RUNNING = { i18n_key: 'running' };
@@ -137,8 +104,7 @@ export class InitProcess extends Process {
     }
 
     _signal (sig) {
-        const svc_process = globalThis.services.get('process');
-        for ( const process of svc_process.processes ) {
+        for ( const process of process_service.processes ) {
             if ( process === this ) continue;
             process.signal(sig);
         }

@@ -45,15 +45,11 @@ import update_last_touch_coordinates from './helpers/update_last_touch_coordinat
 import update_mouse_position from './helpers/update_mouse_position.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import path from './lib/path.js';
-import { AntiCSRFService } from './services/AntiCSRFService.js';
-import { BroadcastService } from './services/BroadcastService.js';
-import { DebugService } from './services/DebugService.js';
-import { ExecService } from './services/ExecService.js';
-import { IPCService } from './services/IPCService.js';
-import { LaunchOnInitService } from './services/LaunchOnInitService.js';
-import { LocaleService } from './services/LocaleService.js';
-import { ProcessService } from './services/ProcessService.js';
-import { ThemeService } from './services/ThemeService.js';
+import { exec_service } from './modules/exec.js';
+import { debug_service } from './modules/debug.js';
+import { theme_service } from './modules/theme.js';
+import { process_service } from './modules/process.js';
+import { launch_on_init } from './modules/launch-on-init.js';
 import { privacy_aware_path } from './util/desktop.js';
 
 const postAuthActions = async (action) => {
@@ -443,75 +439,21 @@ const postAuthActions = async (action) => {
 };
 
 const launch_services = async function (options) {
-    // === Services Data Structures ===
-    const services_l_ = [];
-    const services_m_ = {};
-    globalThis.services = {
-        get: (name) => services_m_[name],
-        emit: (id, args) => {
-            for (const [_, instance] of services_l_) {
-                instance.__on(id, args ?? []);
-            }
-        },
-    };
-    const register = (name, instance) => {
-        services_l_.push([name, instance]);
-        services_m_[name] = instance;
-    };
-
     globalThis.def(UIComponentWindow, 'ui.UIComponentWindow');
 
-    // === Hooks for Service Scripts from Backend ===
-    const service_script_deferred = { services: [], on_ready: [] };
-    const service_script_api = {
-        register: (...a) => service_script_deferred.services.push(a),
-        on_ready: (fn) => service_script_deferred.on_ready.push(fn),
-        // Some files can't be imported by service scripts,
-        // so this hack makes that possible.
-        def: globalThis.def,
-        use: globalThis.use,
-        // use: name => ({ UIWindow, UIComponentWindow })[name],
-    };
-    globalThis.service_script_api_promise.resolve(service_script_api);
+    // These modules are plain singletons wired by direct import; their
+    // constructors have already run, so init() just performs the one-time
+    // setup that needs the runtime (DOM, puter, window.ipc_handlers).
+    exec_service.init();
+    debug_service.init();
+    theme_service.init();
+    process_service.init();
 
-    // === Builtin Services ===
-    register('ipc', new IPCService());
-    register('exec', new ExecService());
-    register('debug', new DebugService());
-    register('broadcast', new BroadcastService());
-    register('theme', new ThemeService());
-    register('process', new ProcessService());
-    register('locale', new LocaleService());
-    register('anti-csrf', new AntiCSRFService());
-    register('__launch-on-init', new LaunchOnInitService());
-
-    // === Service-Script Services ===
-    for (const [name, script] of service_script_deferred.services) {
-        register(name, script);
-    }
-
-    for (const [_, instance] of services_l_) {
-        await instance.construct({
-            gui_params: options,
-        });
-    }
-
-    for (const [_, instance] of services_l_) {
-        await instance.init({
-            services: globalThis.services,
-        });
-    }
-
-    // === Service-Script Ready ===
-    for (const fn of service_script_deferred.on_ready) {
-        await fn();
-    }
+    // Run any commands the GUI was launched with.
+    launch_on_init(options);
 
     // Set init process status
-    {
-        const svc_process = globalThis.services.get('process');
-        svc_process.get_init().chstatus(PROCESS_RUNNING);
-    }
+    process_service.get_init().chstatus(PROCESS_RUNNING);
 };
 
 // This code snippet addresses the issue flagged by Lighthouse regarding the use of

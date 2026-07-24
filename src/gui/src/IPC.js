@@ -37,6 +37,8 @@ import UIWindowSignup from './UI/UIWindowSignup.js';
 import UINotification from './UI/UINotification.js';
 
 import { PROCESS_IPC_ATTACHED } from './definitions.js';
+import { process_service } from './modules/process.js';
+import { ipc_service } from './modules/ipc.js';
 import TeePromise from './util/TeePromise.js';
 
 window.ipc_handlers = {};
@@ -113,9 +115,6 @@ const ipc_listener = async (event, handled) => {
     // New IPC handlers should be registered here.
     // Do this by calling `register_ipc_handler` of IPCService.
     if ( window.ipc_handlers.hasOwnProperty(event.data.msg) ) {
-        const services = globalThis.services;
-        const svc_process = services.get('process');
-
         // Add version info to old puter.js messages
         // (and coerce them into the format of new ones)
         if ( event.data.$ === undefined ) {
@@ -130,7 +129,7 @@ const ipc_listener = async (event, handled) => {
 
         // The IPC context contains information about the call
         const iframe = window.iframe_for_app_instance(event.data.appInstanceID);
-        const process = svc_process.get_by_uuid(event.data.appInstanceID);
+        const process = process_service.get_by_uuid(event.data.appInstanceID);
         const ipc_context = {
             caller: {
                 process: process,
@@ -162,9 +161,7 @@ const ipc_listener = async (event, handled) => {
     // READY
     //-------------------------------------------------
     if ( event.data.msg === 'READY' ) {
-        const services = globalThis.services;
-        const svc_process = services.get('process');
-        const process = svc_process.get_by_uuid(event.data.appInstanceID);
+        const process = process_service.get_by_uuid(event.data.appInstanceID);
 
         process.ipc_status = PROCESS_IPC_ATTACHED;
     }
@@ -1901,10 +1898,7 @@ const ipc_listener = async (event, handled) => {
         const { appInstanceID, targetAppInstanceID, targetAppOrigin, contents } = event.data;
         // TODO: Determine if we should allow the message
         // TODO: Track message traffic between apps
-        const svc_ipc = globalThis.services.get('ipc');
-        // const svc_exec = globalThis.services()
-
-        const conn = svc_ipc.get_connection(targetAppInstanceID);
+        const conn = ipc_service.get_connection(targetAppInstanceID);
         if ( conn ) {
             conn.send(contents);
             return;

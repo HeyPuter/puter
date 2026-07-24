@@ -17,11 +17,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Service } from '../definitions.js';
+import { process_service } from './process.js';
 
 class InternalConnection {
-    constructor ({ source, target, uuid, reverse }, { services }) {
-        this.services = services;
+    constructor ({ source, target, uuid, reverse }) {
         this.source = source;
         this.target = target;
         this.uuid = uuid;
@@ -29,8 +28,7 @@ class InternalConnection {
     }
 
     send (data) {
-        const svc_process = this.services.get('process');
-        const process = svc_process.get_by_uuid(this.target);
+        const process = process_service.get_by_uuid(this.target);
         const channel = {
             returnAddress: this.reverse,
         };
@@ -38,12 +36,8 @@ class InternalConnection {
     }
 }
 
-export class IPCService extends Service {
-    static description = `
-        Allows other services to expose methods to apps.
-    `;
-
-    async _init () {
+class IPCService {
+    constructor () {
         this.connections_ = {};
     }
 
@@ -69,10 +63,12 @@ export class IPCService extends Service {
         const entry = this.connections_[uuid];
         if ( ! entry ) return;
         if ( entry.object ) return entry.object;
-        return entry.object = new InternalConnection(entry, this.context);
+        return entry.object = new InternalConnection(entry);
     }
 
     register_ipc_handler (name, spec) {
         window.ipc_handlers[name] = spec;
     }
 }
+
+export const ipc_service = new IPCService();

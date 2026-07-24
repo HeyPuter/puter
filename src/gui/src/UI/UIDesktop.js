@@ -18,6 +18,7 @@
  */
 
 import path from '../lib/path.js';
+import { process_service } from '../modules/process.js';
 
 import UIContextMenu from './UIContextMenu.js';
 import UIItem from './UIItem.js';
@@ -1266,7 +1267,7 @@ async function UIDesktop (options) {
     // GUI is ready to launch apps!
     //-----------------------------
     window.dispatchEvent(new CustomEvent('desktop:ready'));
-    globalThis.services.emit('gui:ready');
+    process_service.on_gui_ready();
 
     //--------------------------------------------------------
     // Open the AI app (best-effort — the `ai` app isn't seeded

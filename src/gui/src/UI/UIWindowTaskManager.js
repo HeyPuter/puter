@@ -17,12 +17,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 import { END_HARD, END_SOFT } from '../definitions.js';
+import { process_service } from '../modules/process.js';
 import UIAlert from './UIAlert.js';
 import UIContextMenu from './UIContextMenu.js';
 import UIWindow from './UIWindow.js';
 
 const end_process = async (uuid, force) => {
-    const svc_process = globalThis.services.get('process');
+    const svc_process = process_service;
     const process = svc_process.get_by_uuid(uuid);
     if ( ! process ) {
         console.warn(`Can't end process with uuid='${uuid}': does not exist`);
@@ -86,7 +87,7 @@ const calculate_indent_string = (indent_level, is_last_item_stack, is_last_item)
 };
 
 const generate_task_rows = (items, { indent_level, is_last_item_stack }) => {
-    const svc_process = globalThis.services.get('process');
+    const svc_process = process_service;
     let rows_html = '';
 
     for ( let i = 0; i < items.length; i++ ) {
@@ -141,7 +142,7 @@ const generate_task_rows = (items, { indent_level, is_last_item_stack }) => {
 };
 
 const UIWindowTaskManager = async function UIWindowTaskManager () {
-    const svc_process = globalThis.services.get('process');
+    const svc_process = process_service;
 
     let h = '';
 

@@ -17,15 +17,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { PROCESS_IPC_ATTACHED, Service } from '../definitions.js';
+import { PROCESS_IPC_ATTACHED } from '../definitions.js';
 import launch_app from '../helpers/launch_app.js';
+import { broadcast_service } from './broadcast.js';
+import { ipc_service } from './ipc.js';
+import { process_service } from './process.js';
 
-export class ExecService extends Service {
-    static description = `
-        Manages instances of apps on the Puter desktop.
-    `;
-
-    _construct () {
+class ExecService {
+    constructor () {
         this.param_providers = [];
     }
 
@@ -33,12 +32,11 @@ export class ExecService extends Service {
         this.param_providers.push(param_provider);
     }
 
-    async _init ({ services }) {
-        const svc_ipc = services.get('ipc');
-        svc_ipc.register_ipc_handler('launchApp', {
+    init () {
+        ipc_service.register_ipc_handler('launchApp', {
             handler: this.launchApp.bind(this),
         });
-        svc_ipc.register_ipc_handler('connectToInstance', {
+        ipc_service.register_ipc_handler('connectToInstance', {
             handler: this.connectToInstance.bind(this),
         });
 
@@ -55,8 +53,7 @@ export class ExecService extends Service {
         // This mechanism will be replated with xdrpc soon
         const child_instance_id = window.uuidv4();
 
-        const svc_ipc = this.services.get('ipc');
-        const connection = ipc_context ? svc_ipc.add_connection({
+        const connection = ipc_context ? ipc_service.add_connection({
             source: process.uuid,
             target: child_instance_id,
         }) : undefined;
@@ -199,7 +196,7 @@ export class ExecService extends Service {
             send_child_launched_msg({ uses_sdk: true });
 
             // Send any saved broadcasts to the new app
-            globalThis.services.get('broadcast').sendSavedBroadcastsTo(child_instance_id);
+            broadcast_service.sendSavedBroadcastsTo(child_instance_id);
 
             // If `window-active` is set (meanign the window is focused), focus the window one more time
             // this is to ensure that the iframe is `definitely` focused and can receive keyboard events (e.g. keydown)
@@ -245,16 +242,14 @@ export class ExecService extends Service {
             throw new Error('Connection not allowed.');
         }
 
-        const svc_process = this.services.get('process');
-        const options = svc_process.select_by_name(app_name);
+        const options = process_service.select_by_name(app_name);
         const process = options[0];
 
         if ( ! process ) {
             throw new Error(`No process found: ${app_name}`);
         }
 
-        const svc_ipc = this.services.get('ipc');
-        const connection = svc_ipc.add_connection({
+        const connection = ipc_service.add_connection({
             source: caller_process.uuid,
             target: process.uuid,
         });
@@ -268,3 +263,5 @@ export class ExecService extends Service {
         };
     }
 }
+
+export const exec_service = new ExecService();

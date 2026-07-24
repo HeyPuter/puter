@@ -17,9 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { Service } from '../definitions.js';
-
-export class AntiCSRFService extends Service {
+class AntiCSRFService {
     /**
      * Request an anti-csrf token from the server
      * @return anti_csrf: string
@@ -39,3 +37,5 @@ export class AntiCSRFService extends Service {
         return anti_csrf;
     }
 }
+
+export const anti_csrf_service = new AntiCSRFService();
