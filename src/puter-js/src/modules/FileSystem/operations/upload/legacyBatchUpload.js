@@ -5,7 +5,7 @@
 // Invoked with the FileSystem module as `this`.
 
 import { parseResponse } from '../../../../lib/networkUtils.js';
-import path from '../../../../lib/path.js';
+import path from 'path-browserify';
 import { normalizeThumbnailData } from './thumbnails.js';
 
 /**

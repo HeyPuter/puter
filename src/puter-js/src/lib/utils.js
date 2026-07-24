@@ -254,31 +254,8 @@ function makeDriverMethod (spec) {
     };
 }
 
-async function blob_to_url (blob) {
-    const reader = new (globalThis.FileReader || FileReaderPoly)();
-    return await new Promise((resolve, reject) => {
-        reader.onloadend = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-    });
-}
-
 function blobToDataUri (blob) {
     return new Promise((resolve, reject) => {
-        const reader = new (globalThis.FileReader || FileReaderPoly)();
-        reader.onload = function (event) {
-            resolve(event.target.result);
-        };
-        reader.onerror = function (error) {
-            reject(error);
-        };
-        reader.readAsDataURL(blob);
-    });
-}
-
-function arrayBufferToDataUri (arrayBuffer) {
-    return new Promise((resolve, reject) => {
-        const blob = new Blob([arrayBuffer]);
         const reader = new (globalThis.FileReader || FileReaderPoly)();
         reader.onload = function (event) {
             resolve(event.target.result);
@@ -300,5 +277,5 @@ const isVideoInput = (url) => {
 };
 
 export {
-    arrayBufferToDataUri, blob_to_url, blobToDataUri, handle_error, handle_resp, initXhr, isVideoInput, makeDriverMethod, setupXhrEventHandlers, uuidv4,
+    blobToDataUri, handle_error, initXhr, isVideoInput, makeDriverMethod, setupXhrEventHandlers, uuidv4,
 };

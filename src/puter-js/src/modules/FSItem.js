@@ -1,4 +1,4 @@
-import path from '../lib/path.js';
+import path from 'path-browserify';
 
 /** @typedef {import('../../types/modules/fs-item').FSItem} FSItemType */
 

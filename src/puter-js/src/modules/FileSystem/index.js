@@ -1,5 +1,5 @@
-import path from '../../lib/path.js';
-import io from '../../lib/socket.io/socket.io.esm.min.js';
+import path from 'path-browserify';
+import { io } from 'socket.io-client';
 import * as utils from '../../lib/utils.js';
 
 // Constants
@@ -9,7 +9,6 @@ const LAST_VALID_TS = 'last_valid_ts';
 
 // Operations
 import FSItem from '../FSItem.js';
-import Batch from './Batch.js';
 import copy from './operations/copy.js';
 import deleteFSEntry from './operations/deleteFSEntry.js';
 import getReadURL from './operations/getReadUrl.js';
@@ -56,23 +55,12 @@ export class PuterJSFileSystemModule {
      */
     constructor (puter) {
         this.puter = puter;
-        this.Batch = Batch(puter);
         this.authToken = puter.authToken;
         this.APIOrigin = puter.APIOrigin;
         this.appID = puter.appID;
         this.cacheUpdateTimer = null;
         // Connect socket.
         this.initializeSocket();
-
-        // We need to use `Object.defineProperty` instead of passing
-        // `authToken` and `APIOrigin` because they will change.
-        const api_info = {};
-        Object.defineProperty(api_info, 'authToken', {
-            get: () => this.authToken,
-        });
-        Object.defineProperty(api_info, 'APIOrigin', {
-            get: () => this.APIOrigin,
-        });
     }
 
     /**

@@ -1,4 +1,4 @@
-import path from '../../../lib/path.js';
+import path from 'path-browserify';
 
 const getAbsolutePathForApp = (relativePath, puter = globalThis.puter) => {
     // preserve previous behavior for falsy values when env is gui

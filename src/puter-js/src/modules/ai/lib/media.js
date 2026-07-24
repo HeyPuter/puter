@@ -13,14 +13,14 @@ const resultToUrl = async (result, error) => {
         return result;
     }
     if ( result instanceof Blob ) {
-        return await utils.blob_to_url(result);
+        return await utils.blobToDataUri(result);
     }
     if ( result instanceof ArrayBuffer ) {
-        return await utils.blob_to_url(new Blob([result]));
+        return await utils.blobToDataUri(new Blob([result]));
     }
     if ( result && typeof result === 'object' && typeof result.arrayBuffer === 'function' ) {
         const arrayBuffer = await result.arrayBuffer();
-        return await utils.blob_to_url(new Blob([arrayBuffer], { type: result.type || undefined }));
+        return await utils.blobToDataUri(new Blob([arrayBuffer], { type: result.type || undefined }));
     }
     throw error;
 };
@@ -66,7 +66,7 @@ export const toVideoElement = async (result) => {
     let sourceUrl = null;
     let mimeType = null;
     if ( result instanceof Blob ) {
-        sourceUrl = await utils.blob_to_url(result);
+        sourceUrl = await utils.blobToDataUri(result);
         mimeType = result.type || 'video/mp4';
     } else if ( typeof result === 'string' ) {
         sourceUrl = result;

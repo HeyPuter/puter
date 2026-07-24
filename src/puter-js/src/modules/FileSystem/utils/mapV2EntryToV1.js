@@ -1,4 +1,4 @@
-import path from '../../../lib/path.js';
+import path from 'path-browserify';
 
 /**
  * Convert a v2 (camelCase) fsentry from `/fs/readdir` into the v1 snake_case
