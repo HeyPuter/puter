@@ -8,10 +8,10 @@ import { suite, type TestContext } from '../harness/types.ts';
  */
 
 /**
- * The AI drivers reject bare session tokens (`noUserSession` driver meta):
- * programmatic AI callers must hold an app/worker token or a
- * dashboard-minted API token. Authenticate each AI test the way a real
- * caller would — with the full-access API token. The harness re-issues the
+ * The `/puterai/*` wire routes still require a delegated credential, so
+ * these tests authenticate the way a programmatic caller would — with the
+ * full-access API token. (The drivers themselves also take a plain session
+ * token; that path has its own test below.) The harness re-issues the
  * session token to shared SDK instances between tests, so no restore is
  * needed here.
  */
@@ -190,9 +190,10 @@ export default suite('ai', {
         }
     },
 
-    'a bare session token cannot call the AI driver': async (t) => {
-        // No useApiToken here — the point is that the account session
-        // ("root") token is rejected with guidance toward app/API tokens.
+    'a bare session token can call the AI driver': async (t) => {
+        // No useApiToken here — privileged ("godmode") apps run on the
+        // user's own account session token, so the driver has to accept
+        // it. The `/puterai/*` wire routes still don't (see below).
         const res = await fetch(`${t.env.apiOrigin}/drivers/call`, {
             method: 'POST',
             headers: {
@@ -209,22 +210,25 @@ export default suite('ai', {
                 },
             }),
         });
-        t.assert.equal(res.status, 403, 'session token should be rejected');
         const body = JSON.stringify(await res.json());
+        t.assert.equal(
+            res.status,
+            200,
+            `session token should reach the driver, got ${res.status}: ${body}`,
+        );
         t.assert.ok(
-            body.includes('app_or_api_token_required'),
-            `rejection should carry app_or_api_token_required, got ${body}`,
+            !body.includes('app_or_api_token_required'),
+            `session token must not be rejected by credential shape, got ${body}`,
         );
     },
 
-    'a worker token passes the AI credential gate': async (t) => {
+    'a worker token can call the AI driver': async (t) => {
         // Workers are never treated as root tokens. This uses a REAL
         // user-scoped worker session token (minted the same way an
         // app-less worker deployment mints one), so the whole middleware
         // path is exercised: JWT → session row (kind='worker') → actor →
-        // noUserSession gate. Calling the driver's `models` method keeps
-        // this free of any AI inference — the gate rejects by credential
-        // shape before the handler, so a 200 here proves admission.
+        // driver. Calling the driver's `models` method keeps this free of
+        // any AI inference.
         const res = await fetch(`${t.env.apiOrigin}/drivers/call`, {
             method: 'POST',
             headers: {

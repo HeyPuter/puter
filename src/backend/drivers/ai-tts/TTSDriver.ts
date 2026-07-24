@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { Context } from '../../core/context.js';
@@ -37,10 +38,9 @@ import type {
 /**
  * Driver implementing the `puter-tts` interface.
  *
- * Manages multiple upstream TTS providers (OpenAI, ElevenLabs, AWS Polly)
- * and handles provider routing, voice/engine aggregation, and speech
- * synthesis. Each provider is an `ITTSProvider` instantiated from config
- * on boot.
+ * Manages multiple upstream TTS providers (OpenAI, ElevenLabs, AWS Polly) and
+ * handles provider routing, voice/engine aggregation, and speech synthesis.
+ * Each provider is an `ITTSProvider` instantiated from config on boot.
  */
 // puter-js still routes TTS via legacy per-provider driver names rather
 // than passing `{ provider }` in args, so alias the unified driver under
@@ -64,7 +64,6 @@ const ALIAS_TO_PROVIDER: Record<TTSAlias, string> = {
 
 export class TTSDriver extends PuterDriver {
     readonly driverInterface = 'puter-tts';
-    readonly noUserSession = true;
     readonly driverName = 'ai-tts';
     readonly driverAliases = [...TTS_ALIASES];
     readonly isDefault = true;
@@ -88,9 +87,7 @@ export class TTSDriver extends PuterDriver {
 
     // -- Interface methods -------------------------------------------
 
-    /**
-     * List all available voices across all configured providers.
-     */
+    /** List all available voices across all configured providers. */
     async list_voices(args?: Record<string, unknown>): Promise<ITTSVoice[]> {
         const provider =
             (args?.provider as string | undefined) ?? this.#providerFromAlias();
@@ -109,9 +106,7 @@ export class TTSDriver extends PuterDriver {
         return allVoices;
     }
 
-    /**
-     * List all available engines/models across all configured providers.
-     */
+    /** List all available engines/models across all configured providers. */
     async list_engines(args?: Record<string, unknown>): Promise<ITTSEngine[]> {
         const provider =
             (args?.provider as string | undefined) ?? this.#providerFromAlias();
@@ -130,9 +125,7 @@ export class TTSDriver extends PuterDriver {
         return allEngines;
     }
 
-    /**
-     * List provider names that are currently configured.
-     */
+    /** List provider names that are currently configured. */
     async list(): Promise<string[]> {
         return Object.keys(this.#providers);
     }
@@ -158,9 +151,8 @@ export class TTSDriver extends PuterDriver {
     }
 
     /**
-     * Synthesize speech from text. Routes to the appropriate provider
-     * based on the `provider` argument, or falls back to the first
-     * available provider.
+     * Synthesize speech from text. Routes to the appropriate provider based on
+     * the `provider` argument, or falls back to the first available provider.
      */
     async synthesize(
         args: ISynthesizeArgs,

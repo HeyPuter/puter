@@ -319,10 +319,11 @@ describe('DriverController.#handleCall (via captured router)', () => {
         ).rejects.toMatchObject({ statusCode: 404 });
     });
 
-    it('rejects a bare session ("root" token) actor on a noUserSession driver with a helpful 403', async () => {
-        // The AI drivers all set `noUserSession` — a session token must
-        // not double as an AI credential. The message has to point the
-        // caller at the credentials that DO work.
+    it('admits a bare session ("root" token) actor on the AI drivers', async () => {
+        // Privileged ("godmode") apps call AI with the user's own session
+        // token, so the AI drivers no longer set `noUserSession`: the
+        // session actor reaches the permission scan (403 forbidden — no
+        // perms granted) instead of the credential-shape rejection.
         const actor = await makeUserActor();
         const req = makeReq(
             {
@@ -342,12 +343,11 @@ describe('DriverController.#handleCall (via captured router)', () => {
             ),
         ).rejects.toMatchObject({
             statusCode: 403,
-            legacyCode: 'app_or_api_token_required',
-            message: expect.stringMatching(/app or worker token|API token/i),
+            legacyCode: 'forbidden',
         });
     });
 
-    it('admits app and access-token actors past the noUserSession gate (they fail later on permission, not credential shape)', async () => {
+    it('admits app and access-token actors on the AI drivers (they fail later on permission, not credential shape)', async () => {
         const base = await makeUserActor();
         const delegatedActors: Actor[] = [
             { ...base, app: { uid: `app-${uuidv4()}` } },
@@ -387,7 +387,7 @@ describe('DriverController.#handleCall (via captured router)', () => {
         }
     });
 
-    it('admits a user-scoped worker session past the noUserSession gate', async () => {
+    it('admits a user-scoped worker session on the AI drivers', async () => {
         // Workers deployed without an app binding authenticate as a user
         // actor whose session row is kind='worker' — they must keep their
         // AI access (they fail later on permission here, not on

@@ -151,11 +151,11 @@ describe.each([
         expect(m.concurrent).toBe(AI_CONCURRENT);
     });
 
-    it('refuses bare account-session ("root") tokens', () => {
-        // AI calls need a delegated credential — an app/worker token or a
-        // dashboard-minted API token. `DriverController` enforces this off
-        // the meta flag; dropping it silently reopens session-token AI use.
-        expect(m.noUserSession).toBe(true);
+    it('accepts bare account-session ("root") tokens', () => {
+        // Privileged ("godmode") apps run on the user's own session token
+        // rather than an app token, so the AI drivers can't distinguish
+        // them from a browser session and have to admit both.
+        expect(m.noUserSession).toBe(false);
     });
 });
 

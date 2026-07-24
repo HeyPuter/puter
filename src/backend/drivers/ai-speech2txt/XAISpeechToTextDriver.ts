@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { Context } from '../../core/context.js';
@@ -26,10 +27,11 @@ import { loadFileInput } from '../util/fileInput.js';
 /**
  * Driver implementing `puter-speech2txt` for the xAI (Grok) STT API.
  *
- * Uses the xAI /v1/stt REST endpoint which accepts multipart/form-data
- * with an audio file and returns a JSON transcript with word-level timestamps.
+ * Uses the xAI /v1/stt REST endpoint which accepts multipart/form-data with an
+ * audio file and returns a JSON transcript with word-level timestamps.
  *
- * Pricing: $0.10/hr REST = 10 cents/hr = 10 * 1_000_000 / 3600 ≈ 2778 microcents/second
+ * Pricing: $0.10/hr REST = 10 cents/hr = 10 * 1_000_000 / 3600 ≈ 2778
+ * microcents/second
  */
 
 const API_BASE = 'https://api.x.ai/v1';
@@ -66,7 +68,6 @@ interface TranscribeArgs {
 
 export class XAISpeechToTextDriver extends PuterDriver {
     readonly driverInterface = 'puter-speech2txt';
-    readonly noUserSession = true;
     readonly driverName = 'xai-speech2txt';
 
     // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.

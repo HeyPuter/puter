@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import crypto from 'node:crypto';
@@ -72,13 +73,13 @@ type ProviderAttempt = {
 };
 
 /**
- * Capture what an upstream provider gave us so the classifier downstream
- * can decide a user-facing status code instead of always returning 500.
+ * Capture what an upstream provider gave us so the classifier downstream can
+ * decide a user-facing status code instead of always returning 500.
  *
- * OpenAI-SDK-based providers throw `APIError` with `.status` and a
- * structured `.error` body — pull both. For arbitrary errors we fall
- * back to the message and a status sniff so providers that throw plain
- * `Error("... 503 ...")` strings still classify correctly.
+ * OpenAI-SDK-based providers throw `APIError` with `.status` and a structured
+ * `.error` body — pull both. For arbitrary errors we fall back to the message
+ * and a status sniff so providers that throw plain `Error("... 503 ...")`
+ * strings still classify correctly.
  */
 const toAttempt = (
     modelId: string,
@@ -126,11 +127,12 @@ const isUpstream5xx = (a: ProviderAttempt) =>
  * Map an exhausted fallback chain to a single user-facing HttpError.
  *
  * Per-class rules (see also alarm gate in server.ts):
- *  - all rate-limited → 429 `upstream_rate_limited` (paged: forced alert)
- *  - all auth failures → 500 `upstream_auth_failed` (paged: our config)
- *  - all upstream 5xx → 400 `upstream_provider_unavailable` (no page)
- *  - all upstream 4xx (other) → 400 `upstream_bad_request` (no page)
- *  - mixed → 400 `upstream_failed` (no page)
+ *
+ * - All rate-limited → 429 `upstream_rate_limited` (paged: forced alert)
+ * - All auth failures → 500 `upstream_auth_failed` (paged: our config)
+ * - All upstream 5xx → 400 `upstream_provider_unavailable` (no page)
+ * - All upstream 4xx (other) → 400 `upstream_bad_request` (no page)
+ * - Mixed → 400 `upstream_failed` (no page)
  */
 const classifyAttempts = (attempts: ProviderAttempt[]): HttpError => {
     const fields = { attempts };
@@ -196,16 +198,15 @@ const classifyAttempts = (attempts: ProviderAttempt[]): HttpError => {
 /**
  * Driver implementing the `puter-chat-completion` interface.
  *
- * Manages multiple upstream providers (Claude, OpenAI, …) and handles
- * model resolution, provider routing, fallback on failure, and message
- * normalisation. Each provider is a plain `IChatProvider` — the driver
- * instantiates them from config on boot.
+ * Manages multiple upstream providers (Claude, OpenAI, …) and handles model
+ * resolution, provider routing, fallback on failure, and message normalisation.
+ * Each provider is a plain `IChatProvider` — the driver instantiates them from
+ * config on boot.
  *
  * Providers handle their own metering internally.
  */
 export class ChatCompletionDriver extends PuterDriver {
     readonly driverInterface = 'puter-chat-completion';
-    readonly noUserSession = true;
     readonly driverName = 'ai-chat';
     readonly isDefault = true;
 

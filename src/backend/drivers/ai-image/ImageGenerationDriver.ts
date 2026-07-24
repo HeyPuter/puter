@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import crypto from 'node:crypto';
@@ -37,17 +38,16 @@ import type { IGenerateParams, IImageModel, IImageProvider } from './types.js';
 /**
  * Driver implementing the `puter-image-generation` interface.
  *
- * Manages multiple upstream providers and routes `generate()` calls
- * based on the requested model. Mirrors ChatCompletionDriver's pattern:
- * providers are instantiated from config on boot, a model map is built
- * from each provider's declared models, and calls are dispatched.
+ * Manages multiple upstream providers and routes `generate()` calls based on
+ * the requested model. Mirrors ChatCompletionDriver's pattern: providers are
+ * instantiated from config on boot, a model map is built from each provider's
+ * declared models, and calls are dispatched.
  *
- * Output is a URL string (web URL or data URI) — no streaming, no
- * TypedValue wrapper.
+ * Output is a URL string (web URL or data URI) — no streaming, no TypedValue
+ * wrapper.
  */
 export class ImageGenerationDriver extends PuterDriver {
     readonly driverInterface = 'puter-image-generation';
-    readonly noUserSession = true;
     readonly driverName = 'ai-image';
     // puter-js's `txt2img` falls through `options.driver` into the
     // driver-name slot (e.g. `xai-image-generation`), so alias all provider

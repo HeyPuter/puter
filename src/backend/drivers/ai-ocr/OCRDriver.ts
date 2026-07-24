@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import {
@@ -33,9 +34,9 @@ import { loadFileInput, type LoadedFile } from '../util/fileInput.js';
 import { OCR_COSTS } from './costs.js';
 
 /**
- * Driver implementing `puter-ocr` — document OCR. Two providers:
- *   • `aws-textract`  — AWS Textract (region-aware clients; direct S3 source when available)
- *   • `mistral`       — Mistral OCR (URL/data-URL based)
+ * Driver implementing `puter-ocr` — document OCR. Two providers: •
+ * `aws-textract` — AWS Textract (region-aware clients; direct S3 source when
+ * available) • `mistral` — Mistral OCR (URL/data-URL based)
  */
 interface RecognizeArgs {
     source?: unknown;
@@ -79,7 +80,6 @@ interface MistralOcrClient {
 
 export class OCRDriver extends PuterDriver {
     readonly driverInterface = 'puter-ocr';
-    readonly noUserSession = true;
     readonly driverName = 'ai-ocr';
 
     // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.
@@ -117,9 +117,11 @@ export class OCRDriver extends PuterDriver {
         const providers = this.config.providers ?? {};
 
         const textract = providers['aws-textract'] as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
         const textractAws = (textract?.aws ?? textract) as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
         const textractAccessKey = textractAws?.access_key as string | undefined;
         const textractSecretKey = textractAws?.secret_key as string | undefined;
         const textractRegion =
