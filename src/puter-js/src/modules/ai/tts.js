@@ -231,6 +231,7 @@ export async function listEngines (options = {}) {
 
     return await utils.make_driver_method(['source'], 'puter-tts', ttsDriverName(provider), 'list_engines', {
         puter,
+        readonly: true,
         responseType: 'text',
     })(params);
 }
@@ -277,6 +278,7 @@ export async function listVoices (options) {
 
     return utils.make_driver_method(['source'], 'puter-tts', ttsDriverName(provider), 'list_voices', {
         puter,
+        readonly: true,
         responseType: 'text',
     })(params);
 }
