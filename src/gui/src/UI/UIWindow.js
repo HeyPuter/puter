@@ -1765,11 +1765,7 @@ async function UIWindow (options) {
     // Minimize button
     // --------------------------------------------------------
     $(`#window-${win_id} > .window-head > .window-minimize-btn`).click(function () {
-        // Dashboard mode: if this app owns the URL, consume its history
-        // entry instead — the popstate handler does the minimize, keeping
-        // the button and the browser's Back button one code path.
-        if ( pop_dashboard_app_url($(el_window).attr('data-app')) ) return;
-        $(el_window).hideWindow();
+        minimize_window(el_window);
     });
 
     // --------------------------------------------------------
@@ -2339,9 +2335,7 @@ async function UIWindow (options) {
             menu_items.push({
                 html: i18n('minimize'),
                 onClick: function () {
-                    // Same URL bookkeeping as the minimize button.
-                    if ( pop_dashboard_app_url($(el_window).attr('data-app')) ) return;
-                    $(el_window).hideWindow();
+                    minimize_window(el_window);
                 },
             });
             menu_items.push({
@@ -4189,12 +4183,14 @@ function push_dashboard_app_url (app_name, title) {
 
 /**
  * Consume an app's URL entry (history.back()) if it is the one the URL
- * currently shows; the popstate handler then does the actual minimize —
- * so a minimize button and the browser's Back button are one code path,
- * and Forward re-restores the window either way. Returns true if the
- * back() was issued (the caller must NOT also hide the window), false
- * when this app doesn't own the URL (caller falls back to hiding
- * directly, e.g. an app stacked under another app's entry).
+ * currently shows — pure bookkeeping so the address bar doesn't keep
+ * naming an app that was minimized or closed, and so Forward can restore
+ * it. The minimize controls hide their window BEFORE calling this
+ * (minimize_window below) rather than waiting on the traversal; the
+ * popstate handler and the watchdog skip windows already minimized.
+ * Returns true if the back() was issued (or one is already in flight),
+ * false when this app doesn't own the URL (e.g. an app stacked under
+ * another app's entry — there is no entry to consume).
  */
 // True while a pop's history.back() is in flight (issued but its
 // popstate not yet processed). The URL doesn't change until the popstate
@@ -4248,6 +4244,26 @@ function pop_dashboard_app_url (app_name) {
         }
     }, 400);
     return true;
+}
+
+/**
+ * Minimize a window AND do the dashboard URL bookkeeping — the shared
+ * body of every minimize control (head button, context menu, control
+ * drawer). The window hides FIRST: consuming the app's URL entry rides
+ * the session history (pop_dashboard_app_url), and when the app's iframe
+ * has stacked joint entries the pop only settles at the watchdog — the
+ * minimize morph must not wait ~400ms on that. The eager hide is safe
+ * against both ways the pop can settle: hideWindow marks
+ * data-is_minimized synchronously, and the popstate handler and the
+ * watchdog both skip already-minimized windows. (The browser's Back
+ * button still minimizes through the popstate handler as before.)
+ */
+function minimize_window (el_window) {
+    const minimized = $(el_window).attr('data-is_minimized');
+    if ( minimized !== '1' && minimized !== 'true' ) {
+        $(el_window).hideWindow();
+    }
+    pop_dashboard_app_url($(el_window).attr('data-app'));
 }
 
 window.addEventListener('popstate', () => {
@@ -4427,8 +4443,7 @@ function attach_dashboard_app_drawer (el_window, options) {
     $drawer.find('.dashboard-app-drawer-minimize').on('click', function (e) {
         e.stopPropagation();
         collapse();
-        if ( pop_dashboard_app_url(app_name) ) return;
-        $(el_window).hideWindow();
+        minimize_window(el_window);
     });
     $drawer.find('.dashboard-app-drawer-close').on('click', function (e) {
         e.stopPropagation();
