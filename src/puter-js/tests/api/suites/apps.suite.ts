@@ -185,4 +185,44 @@ export default suite('apps', {
             'developer profile should be an object',
         );
     },
+
+    'create validates client-side with a backward-compatible error shape': async (t) => {
+        let err: { code?: string; success?: boolean; error?: { code?: string; message?: string } } | undefined;
+        try {
+            await t.puter.apps.create({ indexURL: 'https://example.com/no-name' } as never);
+        } catch (e) {
+            err = e as typeof err;
+        }
+        // The backward-compatible data contract: top-level message/code plus
+        // the legacy nested shape. (`instanceof Error` is covered in the
+        // single-realm unit test — it isn't reliable across the prebuilt-bundle
+        // boundary the browser fixture loads the SDK through.)
+        t.assert.equal(typeof err?.message, 'string');
+        t.assert.equal(err?.code, 'invalid_request');
+        t.assert.equal(err?.success, false);
+        t.assert.equal(err?.error?.code, 'invalid_request');
+        t.assert.equal(err?.error?.message, 'Name is required');
+    },
+
+    'create rejects a missing index URL before any network call': async (t) => {
+        let err: { error?: { message?: string } } | undefined;
+        try {
+            await (t.puter.apps.create as (n: string) => Promise<unknown>)('apps-suite-name-only');
+        } catch (e) {
+            err = e as typeof err;
+        }
+        t.assert.equal(err?.error?.message, 'Index URL is required');
+    },
+
+    'create remaps camelCase options to the stored app fields': async (t) => {
+        await t.puter.apps.create({
+            name: 'apps-suite-remap',
+            indexURL: 'https://example.com/remap',
+            filetypeAssociations: ['.txt', 'image/png'],
+            maximizeOnStart: true,
+        });
+        const fetched = await t.puter.apps.get('apps-suite-remap');
+        t.assert.deepEqual(fetched.filetype_associations, ['.txt', 'image/png']);
+        t.assert.equal(Boolean(fetched.maximize_on_start), true);
+    },
 });

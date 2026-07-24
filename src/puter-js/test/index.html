@@ -8,6 +8,10 @@
     <script src="./txt2speech.test.js"></script>
     <script src="./txt2img.test.js"></script>
     <script src="./txt2vid.test.js"></script>
+    <script src="./hosting.test.js"></script>
+    <script src="./apps.test.js"></script>
+    <script src="./os.test.js"></script>
+    <script src="./perms.test.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -733,6 +737,49 @@
             </div>`);
         }
 
+        // Additional module suites, rendered data-driven so each new group
+        // reuses the same template + handlers instead of a copy-pasted section.
+        const extraGroups = [
+            { key: 'hosting', label: 'Hosting', tests: window.hostingTests || [] },
+            { key: 'apps', label: 'Apps', tests: window.appsTests || [] },
+            { key: 'os', label: 'OS', tests: window.osTests || [] },
+            { key: 'perms', label: 'Permissions', tests: window.permsTests || [] },
+        ];
+        window.extraGroups = extraGroups;
+
+        for (const group of extraGroups) {
+            $('#tests').append(`<h2><label><input type="checkbox" id="${group.key}Tests-group"> ${group.label}</label></h2>`);
+            for (let i = 0; i < group.tests.length; i++) {
+                const testInfo = getTestInfo(group.tests[i]);
+                $('#tests').append(`<div class="test-container" id="${group.key}Tests-container-${i}">
+                <div class="test-checkbox-container">
+                    <input type="checkbox" class="test-checkbox ${group.key}Tests-checkbox" id="${group.key}Tests${i}">
+                    <label for="${group.key}Tests${i}">
+                        <div class="test-name">${testInfo.name}</div>
+                        <div class="test-description">${testInfo.description}</div>
+                    </label><br>
+                    <button class="test-run-button" onclick="runSingleTest('${group.key}', ${i})">Run Test</button>
+                </div>
+            </div>`);
+            }
+
+            // Same group-toggle + indeterminate wiring as the built-in groups.
+            $(`#${group.key}Tests-group`).change(function() {
+                $(`.${group.key}Tests-checkbox`).prop('checked', $(this).prop('checked'));
+            });
+            $(document).on('change', `.${group.key}Tests-checkbox`, function() {
+                const total = $(`.${group.key}Tests-checkbox`).length;
+                const checked = $(`.${group.key}Tests-checkbox:checked`).length;
+                if (checked === 0) {
+                    $(`#${group.key}Tests-group`).prop('checked', false).prop('indeterminate', false);
+                } else if (checked === total) {
+                    $(`#${group.key}Tests-group`).prop('checked', true).prop('indeterminate', false);
+                } else {
+                    $(`#${group.key}Tests-group`).prop('checked', false).prop('indeterminate', true);
+                }
+            });
+        }
+
         // Add event listeners for group checkboxes
         $('#fsTests-group').change(function() {
             const isChecked = $(this).prop('checked');
@@ -858,7 +905,8 @@
                 'txt2img': txt2imgTests,
                 'txt2vid': txt2vidTests
             };
-            
+            for (const g of (window.extraGroups || [])) testSuites[g.key] = g.tests;
+
             const tests = testSuites[testType];
             const containerId = `${testType}Tests-container-${index}`;
             const buttonSelector = `#${containerId} .test-run-button`;
@@ -1088,6 +1136,37 @@
                     updateProgressPanel();
 
                     await delay(100);
+                }
+            }
+
+            // Additional module suites (hosting/apps/os/perms), same loop shape.
+            for (const group of (window.extraGroups || [])) {
+                for (let i = 0; i < group.tests.length; i++) {
+                    if (document.getElementById(`${group.key}Tests${i}`)?.checked) {
+                        const testInfo = getTestInfo(group.tests[i]);
+                        testProgress.currentTest = `${group.label}: ${testInfo.name}`;
+                        updateProgressPanel();
+
+                        try {
+                            await executeTest(group.tests[i]);
+                            $(`#${group.key}Tests-container-${i}`).css('background-color', '#85e085');
+                            testProgress.passed++;
+                        } catch (e) {
+                            console.error(`${group.label} Test failed:`, testInfo.name, e);
+                            $(`#${group.key}Tests-container-${i}`).css('background-color', '#ff8484');
+                            let errorMessage = e.message || e.toString();
+                            if (e.originalError) {
+                                errorMessage += '\n\nOriginal Error:\n' + JSON.stringify(e.originalError, null, 2);
+                            }
+                            $(`#${group.key}Tests-container-${i}`).append(`<pre style="color:red; white-space: pre-wrap; font-size: 12px; margin: 5px 0; padding: 10px; background-color: #f8f8f8; border-radius: 3px;">${errorMessage}</pre>`);
+                            testProgress.failed++;
+                        }
+
+                        testProgress.completed++;
+                        updateProgressPanel();
+
+                        await delay(100);
+                    }
                 }
             }
 
