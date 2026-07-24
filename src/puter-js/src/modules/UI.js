@@ -863,7 +863,7 @@ class UI extends EventListener {
         return new Promise((resolve) => {
             const opts = typeof options === 'string' ? { defaultFont: options } : (options ?? {});
             const el = document.createElement('puter-font-picker');
-            const defaultFont = opts.defaultFont || opts.default || 'System UI';
+            const defaultFont = opts.defaultValue || opts.defaultFont || opts.default || 'System UI';
             el.setAttribute('default-font', defaultFont);
             el.addEventListener('response', (e) => resolve(e.detail));
             document.body.appendChild(el);
