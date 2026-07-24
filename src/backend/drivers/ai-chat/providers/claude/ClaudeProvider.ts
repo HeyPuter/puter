@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -271,6 +272,7 @@ export class ClaudeProvider implements IChatProvider {
             'claude-sonnet-5',
             'claude-opus-4-7',
             'claude-opus-4-8',
+            'claude-opus-5',
         ].includes(modelUsed.id);
         const resolvedTemperature = omitsTemperature
             ? undefined
@@ -280,6 +282,7 @@ export class ClaudeProvider implements IChatProvider {
         const supportsEffort = [
             'claude-fable-5',
             'claude-sonnet-5',
+            'claude-opus-5',
             'claude-opus-4-8',
             'claude-opus-4-7',
             'claude-opus-4-6',
@@ -682,6 +685,7 @@ export class ClaudeProvider implements IChatProvider {
         // the stream.
         if (
             modelId === 'claude-fable-5' ||
+            modelId === 'claude-opus-5' ||
             modelId === 'claude-opus-4-8' ||
             modelId === 'claude-opus-4-7'
         ) {

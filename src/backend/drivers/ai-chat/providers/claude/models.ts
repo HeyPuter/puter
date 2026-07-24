@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import type { IChatModel } from '../../types.js';
@@ -80,6 +81,36 @@ export const CLAUDE_MODELS: IChatModel[] = [
         max_tokens: 64000,
     },
     {
+        puterId: 'anthropic:anthropic/claude-opus-5',
+        id: 'claude-opus-5',
+        modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        knowledge: '2026-05',
+        release_date: '2026-07-24',
+        aliases: [
+            'claude-opus',
+            'claude-opus-latest',
+            'claude-opus-5-latest',
+            'claude-opus-5',
+            'anthropic/claude-opus-5',
+        ],
+        name: 'Claude Opus 5',
+        costs_currency: 'usd-cents',
+        input_cost_key: 'input_tokens',
+        output_cost_key: 'output_tokens',
+        costs: {
+            tokens: 1_000_000,
+            input_tokens: 500,
+            ephemeral_5m_input_tokens: 500 * 1.25,
+            ephemeral_1h_input_tokens: 500 * 2,
+            cache_read_input_tokens: 500 * 0.1,
+            output_tokens: 2500,
+        },
+        context: 1000000,
+        max_tokens: 128000,
+    },
+    {
         puterId: 'anthropic:anthropic/claude-opus-4-8',
         id: 'claude-opus-4-8',
         modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
@@ -88,8 +119,6 @@ export const CLAUDE_MODELS: IChatModel[] = [
         knowledge: '2026-01',
         release_date: '2026-05-28',
         aliases: [
-            'claude-opus',
-            'claude-opus-latest',
             'claude-opus-4-8-latest',
             'claude-opus-4.8',
             'claude-opus-4-8',
