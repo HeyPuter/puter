@@ -293,10 +293,10 @@ describe('transient retry', () => {
         vi.useFakeTimers();
         const xhrs = installFakeXHR(netError()); // every attempt fails
         const p = fetchUrl('https://api.example/x').catch(e => e); // GET
-        await vi.advanceTimersByTimeAsync(60_000 * 6);
+        await vi.advanceTimersByTimeAsync(60_000); // clears the ~11.75s schedule
         const err = await p;
         expect(err).toBeInstanceOf(TypeError);
-        expect(xhrs.length).toBe(5); // MAX_ATTEMPTS
+        expect(xhrs.length).toBe(9); // 1 initial + 8 scheduled retries
         vi.useRealTimers();
     });
 
@@ -304,6 +304,28 @@ describe('transient retry', () => {
         const xhrs = installFakeXHR(netError());
         await expect(fetchUrl('https://api.example/x', { method: 'POST' })).rejects.toThrow(/failed/);
         expect(xhrs.length).toBe(1);
+    });
+
+    it('gives up on a 2s retry when the clock jumps (sleep/drift guard)', async () => {
+        // Fake only the timers, not Date — a manual `clock` drives Date.now so we
+        // can simulate the machine sleeping during a 2s ceiling wait.
+        vi.useFakeTimers({ toFake: [ 'setTimeout', 'clearTimeout' ] });
+        let clock = 0;
+        vi.spyOn(Date, 'now').mockImplementation(() => clock);
+        const xhrs = installFakeXHR(respond({ status: 503, body: {} })); // always retryable
+        const p = fetchUrl('https://api.example/x'); // GET → read-safe
+
+        // Ramp (250+500+1000) → 4 attempts, then paused in the first 2s wait.
+        // Sub-2s waits aren't drift-guarded, so the clock needn't move here.
+        await vi.advanceTimersByTimeAsync(1750);
+        // Simulate the laptop sleeping through the 2s wait: the clock leaps ahead.
+        clock += 2000 + 60_000;
+        await vi.advanceTimersByTimeAsync(2000);
+
+        const resp = await p;
+        expect(resp.status).toBe(503); // failed with the last outcome — no further retry
+        expect(xhrs.length).toBe(4);   // stopped after the drifted 2s wait, before attempt 5
+        vi.useRealTimers();
     });
 });
 

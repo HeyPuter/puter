@@ -248,9 +248,17 @@ async function bodyForLog (xhr) {
 // spec, so there are no hand-listed argument lists to get wrong.
 
 const RETRYABLE_STATUS = new Set([ 429, 502, 503, 504 ]);
-const MAX_ATTEMPTS = 5;         // transient attempts (network / retryable 5xx / 429)
-const BASE_DELAY_MS = 500;
-const MAX_DELAY_MS = 60_000;    // cap each backoff wait at 1 minute
+
+// Fixed retry backoff: a quick ramp to a 2s ceiling, then hold at 2s. Index i is
+// the wait (ms) after attempt i+1 fails. The array length caps the retries — 8
+// delays ⇒ 9 attempts total, the 2s ceiling used 5 times — after which the
+// request is failed.
+const RETRY_DELAYS_MS = [ 250, 500, 1000, 2000, 2000, 2000, 2000, 2000 ];
+const RETRY_CEILING_MS = 2000;
+// If a ceiling-length wait overruns real time by more than this, the clock
+// jumped (e.g. the laptop slept mid-wait); the request is stale, so give up
+// rather than fire a very old retry.
+const MAX_SLEEP_DRIFT_MS = 2000;
 
 // Kill-switch seam: puter.configure() (deferred) will drive this. Default on.
 const autoRetryEnabled = () => globalThis.puter?.config?.autoRetry ?? true;
@@ -264,8 +272,13 @@ const sleep = (ms, signal) => new Promise((resolve, reject) => {
     }, { once: true });
 });
 
-// Full-jitter exponential backoff, each wait capped at MAX_DELAY_MS.
-const backoffDelay = attempt => Math.random() * Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** (attempt - 1));
+const retryDelay = attempt => RETRY_DELAYS_MS[attempt - 1];
+
+const transientRetry = ctx => {
+    if ( ! (ctx.retrySafe && autoRetryEnabled()) ) return null;
+    const delayMs = retryDelay(ctx.attempt);
+    return delayMs === undefined ? null : { delayMs };
+};
 
 /**
  * Drive the env-specific permission prompt for a denied driver call.
@@ -369,10 +382,7 @@ function sendOnce (spec) {
 async function classifyRetry (outcome, ctx) {
     if ( outcome.streamed ) return null; // committed stream — never retried
 
-    if ( outcome.networkError ) {
-        return ( ctx.retrySafe && autoRetryEnabled() && ctx.attempt < MAX_ATTEMPTS )
-            ? { delayMs: backoffDelay(ctx.attempt) } : null;
-    }
+    if ( outcome.networkError ) return transientRetry(ctx);
 
     const { xhr, status } = outcome;
     if ( outcome.parsed === undefined ) {
@@ -399,11 +409,8 @@ async function classifyRetry (outcome, ctx) {
         return null;
     }
 
-    // transient status — read-safe only, honors kill switch, bounded + backed off.
-    if ( RETRYABLE_STATUS.has(status) ) {
-        return ( ctx.retrySafe && autoRetryEnabled() && ctx.attempt < MAX_ATTEMPTS )
-            ? { delayMs: backoffDelay(ctx.attempt) } : null;
-    }
+    // transient status — read-safe only, honors kill switch, fixed schedule.
+    if ( RETRYABLE_STATUS.has(status) ) return transientRetry(ctx);
 
     return null;
 }
@@ -427,7 +434,15 @@ async function sendWithRetry (spec, { retrySafe = false, permission = null, shap
         const outcome = await sendOnce(spec);
         if ( outcome.streamed ) return shapeStream(outcome.lineStream, outcome.xhr);
         const decision = await classifyRetry(outcome, ctx);
-        if ( decision ) { await sleep(decision.delayMs, spec.signal); continue; }
+        if ( decision ) {
+            const before = Date.now();
+            await sleep(decision.delayMs, spec.signal);
+            if ( decision.delayMs >= RETRY_CEILING_MS
+                && (Date.now() - before) - decision.delayMs > MAX_SLEEP_DRIFT_MS ) {
+                return shape(outcome);
+            }
+            continue;
+        }
         return shape(outcome);
     }
 }
