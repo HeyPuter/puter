@@ -84,7 +84,17 @@ curl -fsSL "$PUTER_URL/docker-compose.yml" -o docker-compose.yml \
 # nginx is mounted as `./nginx/nginx.conf:/etc/nginx/nginx.conf:ro` — if
 # the host file is missing, docker silently creates a directory at that
 # path and the mount fails with "not a directory" at container start.
+log "downloading Caddy templates from $PUTER_URL"
 
+mkdir -p caddy
+
+curl -fsSL "$PUTER_URL/caddy/Caddyfile.local" \
+    -o caddy/Caddyfile.local \
+    || die "could not fetch Caddyfile.local"
+
+curl -fsSL "$PUTER_URL/caddy/Caddyfile.domain" \
+    -o caddy/Caddyfile.domain \
+    || die "could not fetch Caddyfile.domain"
 
 if [ "$PUTER_DOMAIN" = "puter.localhost" ]; then
     cp caddy/Caddyfile.local caddy/Caddyfile
