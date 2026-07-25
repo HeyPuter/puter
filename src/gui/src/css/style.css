@@ -1277,7 +1277,11 @@ span.header-sort-icon img {
     padding: 0 !important;
 }
 
-.window-cover-page .window-body {
+/* Auth/dialog cover pages fill the viewport. File dialogs are excluded: their
+   body is an item-container sitting beside a floated sidebar, and because
+   `overflow: auto` makes it its own formatting context, a forced 100% width
+   can't shrink to fit and drops below the sidebar instead. */
+.window-cover-page:not(.window-filedialog) .window-body {
     height: 100% !important;
     width: 100% !important;
     padding: 0 !important;
