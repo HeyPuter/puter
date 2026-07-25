@@ -177,6 +177,17 @@ export default suite('hosting', {
         );
     },
 
+    'create accepts a full host and stores just the subdomain label': async (t) => {
+        const dir = await makeSiteDir(t, 'fullhost');
+        const created = await t.puter.hosting.create('hostingsuitefull.puter.site', dir);
+        t.assert.equal(created.subdomain, 'hostingsuitefull');
+        // Retrievable by the bare label and by the full host (both normalize).
+        const byLabel = await t.puter.hosting.get('hostingsuitefull');
+        t.assert.equal(byLabel.subdomain, 'hostingsuitefull');
+        const byHost = await t.puter.hosting.get('hostingsuitefull.puter.com');
+        t.assert.equal(byHost.subdomain, 'hostingsuitefull');
+    },
+
     'delete removes the subdomain': async (t) => {
         const dir = await makeSiteDir(t, 'delete');
         await t.puter.hosting.create('hosting-suite-delete', dir);
