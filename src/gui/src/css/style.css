@@ -6236,3 +6236,299 @@ html.dark-mode .usage-table-show-less:hover {
     height: 100%;
     width: 100%;
 }
+/* -------------------------------------------------------------------------
+   Permission Request Dialog (UIPermissionDialog)
+   Standalone top-layer <dialog>; follows the OS light/dark scheme.
+------------------------------------------------------------------------- */
+.perm-dialog {
+    border: 1px solid #e8e8e8;
+    border-radius: 12px;
+    padding: 0;
+    width: 380px;
+    max-width: calc(100vw - 32px);
+    background-color: #fff;
+    color: #575762;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.18), 0 2px 8px rgba(0, 0, 0, 0.08);
+    -webkit-font-smoothing: antialiased;
+    font-family: "Helvetica Neue", HelveticaNeue, Helvetica, Arial, sans-serif;
+}
+
+.perm-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+}
+
+.perm-dialog-body {
+    padding: 28px 24px 18px;
+    box-sizing: border-box;
+}
+
+.perm-dialog-identity {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.perm-dialog-entity-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 12px;
+    object-fit: contain;
+}
+
+.perm-dialog-letter-avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    font-weight: 500;
+    color: #fff;
+    background: linear-gradient(135deg, #34a5f8, #2210d7);
+    user-select: none;
+}
+
+.perm-dialog-entity-name {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1f1f2a;
+    margin: 14px 0 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.perm-dialog-entity-origin {
+    font-size: 13px;
+    color: #8a8a96;
+    margin-top: 4px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    direction: rtl;
+    unicode-bidi: plaintext;
+}
+
+.perm-dialog-lead {
+    text-align: center;
+    font-size: 14px;
+    color: #575762;
+    margin: 18px 0 10px;
+}
+
+.perm-dialog-permission {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background-color: #f2f5f9;
+    border: 1px solid #e6ebf2;
+    border-radius: 10px;
+    padding: 13px 14px;
+    margin: 0 0 6px;
+}
+
+.perm-dialog-perm-icon {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
+    background-color: #fff;
+    border: 1px solid #e6ebf2;
+    color: #088ef0;
+}
+
+.perm-dialog-perm-text {
+    font-size: 14px;
+    line-height: 1.45;
+    color: #33333d;
+    overflow-wrap: anywhere;
+}
+
+.perm-dialog-error {
+    text-align: center;
+    font-size: 13px;
+    color: #d0342c;
+    margin: 8px 0 0;
+}
+
+.perm-dialog-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 18px;
+}
+
+.perm-dialog-actions button {
+    appearance: none;
+    width: 100%;
+    height: 38px;
+    border-radius: 8px;
+    font-size: 15px;
+    font-family: inherit;
+    cursor: pointer;
+    box-sizing: border-box;
+    -webkit-font-smoothing: antialiased;
+    transition: filter 0.1s ease;
+}
+
+.perm-dialog-actions button:disabled {
+    cursor: default;
+    opacity: 0.6;
+}
+
+.perm-dialog-allow {
+    border: 1px solid #088ef0;
+    background: linear-gradient(#34a5f8, #088ef0);
+    color: #fff;
+    font-weight: 500;
+}
+
+.perm-dialog-allow:hover:not(:disabled),
+.perm-dialog-allow:focus-visible {
+    filter: brightness(1.05);
+}
+
+.perm-dialog-allow:active:not(:disabled) {
+    background: #2798eb;
+    border-color: #2798eb;
+    color: #bedef5;
+}
+
+.perm-dialog-allow.perm-dialog-busy {
+    color: transparent;
+    position: relative;
+}
+
+.perm-dialog-allow.perm-dialog-busy::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 16px;
+    height: 16px;
+    margin: -8px 0 0 -8px;
+    border: 2px solid rgba(255, 255, 255, 0.4);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: perm-dialog-spin 0.7s linear infinite;
+}
+
+@keyframes perm-dialog-spin {
+    to { transform: rotate(360deg); }
+}
+
+.perm-dialog-deny {
+    border: 1px solid #d4d4dc;
+    background: none;
+    background-color: transparent;
+    color: #575762;
+}
+
+.perm-dialog-deny:hover:not(:disabled),
+.perm-dialog-deny:focus-visible {
+    background-color: #f4f4f7;
+}
+
+.perm-dialog-actions button:focus-visible {
+    outline: 2px solid #088ef0;
+    outline-offset: 2px;
+}
+
+.perm-dialog-footnote {
+    text-align: center;
+    font-size: 12px;
+    color: #8a8a96;
+    margin: 14px 0 0;
+}
+
+/* Popup mode: the dialog is the whole page, so drop the floating-card look */
+.embedded-in-popup .perm-dialog {
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+    width: 100%;
+    max-width: 440px;
+}
+
+.embedded-in-popup .perm-dialog::backdrop {
+    background: #fff;
+}
+
+@media (max-width: 500px) {
+    .perm-dialog {
+        width: calc(100vw - 24px);
+    }
+
+    .perm-dialog-body {
+        padding: 24px 18px 16px;
+    }
+
+    .perm-dialog-actions button {
+        height: 42px;
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    .perm-dialog {
+        border-color: #2a2a2e;
+        background-color: #1e1e22;
+        color: #d6d6dc;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+    }
+
+    .perm-dialog::backdrop {
+        background: rgba(0, 0, 0, 0.55);
+    }
+
+    .perm-dialog-entity-name {
+        color: #e4e4ea;
+    }
+
+    .perm-dialog-entity-origin,
+    .perm-dialog-footnote {
+        color: #9a9aa0;
+    }
+
+    .perm-dialog-lead {
+        color: #b9b9c2;
+    }
+
+    .perm-dialog-permission {
+        background-color: #26262c;
+        border-color: #34343a;
+    }
+
+    .perm-dialog-perm-icon {
+        background-color: #1e1e22;
+        border-color: #34343a;
+        color: #4aa8f0;
+    }
+
+    .perm-dialog-perm-text {
+        color: #d6d6dc;
+    }
+
+    .perm-dialog-error {
+        color: #ff7466;
+    }
+
+    .perm-dialog-deny {
+        border-color: #4a4a50;
+        color: #d6d6dc;
+    }
+
+    .perm-dialog-deny:hover:not(:disabled),
+    .perm-dialog-deny:focus-visible {
+        background-color: #2a2a30;
+    }
+
+    .embedded-in-popup .perm-dialog::backdrop {
+        background: #1e1e22;
+    }
+}

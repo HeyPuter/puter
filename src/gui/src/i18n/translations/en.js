@@ -633,6 +633,9 @@ const en = {
         'perm_subdomains_write': 'manage your subdomains',
         'perm_app_root_dir_read': 'read the root directory of one of your apps',
         'perm_app_root_dir_write': 'read and write to the root directory of one of your apps',
+        'perm_dialog_wants_to': 'wants permission to',
+        'perm_dialog_footnote': 'You can change this anytime in Settings.',
+        'perm_dialog_error': 'Something went wrong. Please try again.',
 
         'error_user_or_path_not_found': 'User or path not found.',
         'error_invalid_username': 'Invalid username.',

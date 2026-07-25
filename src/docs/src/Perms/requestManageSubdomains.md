@@ -1,7 +1,7 @@
 ---
 title: puter.perms.requestManageSubdomains()
 description: Request write (manage) access to the user's subdomains.
-platforms: [apps]
+platforms: [websites, apps]
 ---
 
 Request write (manage) access to the user's subdomains. If the user has already granted this permission the user will not be prompted and `true` will be returned. If the user grants permission `true` will be returned. If the user does not allow access `false` will be returned.

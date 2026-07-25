@@ -1,7 +1,7 @@
 ---
 title: puter.perms.requestEmail()
 description: Request access to the user's email address.
-platforms: [apps]
+platforms: [websites, apps]
 ---
 
 Request to see a user's email. If the user has already granted this permission the user will not be prompted and their email address will be returned. If the user grants permission their email address will be returned. If the user does not allow access `undefined` will be returned. If the user does not have an email address, the value of their email address will be `null`.

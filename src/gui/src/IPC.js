@@ -31,7 +31,7 @@ import UIWindow from './UI/UIWindow.js';
 import UIWindowColorPicker from './UI/UIWindowColorPicker.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowFontPicker from './UI/UIWindowFontPicker.js';
-import UIWindowRequestPermission from './UI/UIWindowRequestPermission.js';
+import UIPermissionDialog from './UI/UIPermissionDialog.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
 import UINotification from './UI/UINotification.js';
@@ -1312,9 +1312,20 @@ const ipc_listener = async (event, handled) => {
     // requestPermission
     //--------------------------------------------------------
     else if ( event.data.msg === 'requestPermission' ) {
+        // Always respond, even on validation/auth failure, so the SDK's
+        // promise settles instead of hanging forever.
+        const respond = (granted) => {
+            target_iframe.contentWindow.postMessage({
+                msg: 'permissionGranted',
+                granted: granted,
+                original_msg_id: msg_id,
+            }, '*');
+        };
+
         // auth
         if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
         {
+            respond(false);
             return;
         }
 
@@ -1328,25 +1339,18 @@ const ipc_listener = async (event, handled) => {
         if ( !event.data.options.permission || typeof event.data.options.permission !== 'string' )
         {
             console.error('IPC requestPermission requires parameter { permission }', event.data);
+            respond(false);
             return;
         }
 
-        let granted = await UIWindowRequestPermission({
+        let granted = await UIPermissionDialog({
             permission: event.data.options.permission,
-            window_options: {
-                parent_uuid: event.data.appInstanceID,
-                disable_parent_window: true,
-            },
             app_uid: app_uuid,
             app_name: app_name,
         });
 
-        // send selected font to requester window
-        target_iframe.contentWindow.postMessage({
-            msg: 'permissionGranted',
-            granted: granted,
-            original_msg_id: msg_id,
-        }, '*');
+        // report the user's decision to the requester window
+        respond(granted === true);
         $(target_iframe).get(0).focus({ preventScroll: true });
     }
     //--------------------------------------------------------

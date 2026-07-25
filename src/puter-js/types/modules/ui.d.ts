@@ -302,6 +302,12 @@ export class UI {
     showColorPicker (defaultColor?: string): Promise<string>;
     showColorPicker (options?: ColorPickerOptions): Promise<string>;
     /**
+     * Asks the user to grant a permission to this app. Inside the Puter GUI the
+     * request is shown on the desktop; on the web it opens a popup on the Puter
+     * origin. Resolves to `true` only if the permission was granted.
+     */
+    requestPermission (options: { permission: string }): Promise<boolean>;
+    /**
      * Presents a directory picker for the user's Puter cloud storage. Resolves to
      * one `FSItem` or an array of `FSItem` objects depending on selection count.
      */

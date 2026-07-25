@@ -1,10 +1,12 @@
 ---
 title: puter.perms.request()
 description: Request a specific permission string to be granted.
-platforms: [apps]
+platforms: [websites, apps]
 ---
 
 Request a specific permission string to be granted. Note that some permission strings are not supported and will be denied silently.
+
+Inside the Puter desktop the permission prompt is shown as a dialog. On websites, it opens in a popup window on the Puter origin — call this from a user gesture (e.g. a click handler) so the browser doesn't block the popup; without a gesture, a consent dialog is shown first and the popup opens when the user clicks Continue.
 
 ## Syntax
 

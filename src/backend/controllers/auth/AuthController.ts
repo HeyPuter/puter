@@ -2677,7 +2677,11 @@ export class AuthController extends PuterController {
         requireUserActor: true,
     })
     async handleGrantUserApp(req: Request, res: Response): Promise<void> {
-        const { app_uid, permission, extra, meta } = req.body;
+        let { app_uid } = req.body;
+        const { origin, permission, extra, meta } = req.body;
+        if (origin && !app_uid) {
+            app_uid = await this.services.auth.appUidFromOrigin(origin);
+        }
         if (!app_uid || !permission) {
             throw new HttpError(400, 'Missing `app_uid` or `permission`', {
                 legacyCode: 'bad_request',
@@ -2748,7 +2752,11 @@ export class AuthController extends PuterController {
         requireUserActor: true,
     })
     async handleRevokeUserApp(req: Request, res: Response): Promise<void> {
-        const { app_uid, permission, meta } = req.body;
+        let { app_uid } = req.body;
+        const { origin, permission, meta } = req.body;
+        if (origin && !app_uid) {
+            app_uid = await this.services.auth.appUidFromOrigin(origin);
+        }
         if (!app_uid || !permission) {
             throw new HttpError(400, 'Missing `app_uid` or `permission`', {
                 legacyCode: 'bad_request',

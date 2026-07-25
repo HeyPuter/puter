@@ -187,7 +187,7 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
         if ( resp.success === false && resp.error?.code === 'permission_denied' ) {
             let perm = await puter.ui.requestPermission({ permission: 'driver:puter-image-generation:generate' });
             // try sending again if permission was granted
-            if ( perm.granted ) {
+            if ( perm === true ) {
                 // todo repeat request
             }
         }

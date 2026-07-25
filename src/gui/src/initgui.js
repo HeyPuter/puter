@@ -31,7 +31,7 @@ import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequi
 import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
 import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
-import UIWindowRequestPermission from './UI/UIWindowRequestPermission.js';
+import UIPermissionDialog from './UI/UIPermissionDialog.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSessionList from './UI/UIWindowSessionList.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
@@ -201,8 +201,10 @@ const postAuthActions = async (action) => {
                 // This is an implicit app and the app_uid is sent back from the server
                 // we cache it here so that we can use it later
                 window.host_app_uid = data.app_uid;
-                // send token to parent
-                window.opener.postMessage({
+                // send token to parent. The opener is unreachable when it is
+                // cross-origin isolated (COOP severs the relationship); those
+                // flows learn the outcome server-side instead.
+                window.opener?.postMessage({
                     msg: 'puter.token',
                     success: true,
                     token: data.token,
@@ -217,7 +219,7 @@ const postAuthActions = async (action) => {
                 }
             } catch ( err ) {
                 // send error to parent
-                window.opener.postMessage({
+                window.opener?.postMessage({
                     msg: 'puter.token',
                     success: false,
                     token: null,
@@ -438,6 +440,47 @@ const postAuthActions = async (action) => {
                     },
                 });
             });
+        }
+    }
+
+    // -------------------------------------------------------------------------------------
+    // Action: Request Permission — show the permission dialog and report the user's
+    // decision back to the opener (popup flow) or the parent frame (iframe embed).
+    // Runs post-auth so signed-out users go through sign-in/signup first.
+    // -------------------------------------------------------------------------------------
+    if ( action === 'request-permission' ) {
+        const permission = window.url_query_params.get('permission');
+        const msg_id = window.url_query_params.get('msg_id');
+        const origin = window.openerOrigin ?? window.url_query_params.get('origin');
+
+        // Identify the requesting app by its origin rather than trusting a
+        // caller-supplied uid, falling back to the query param otherwise.
+        let app_uid = window.url_query_params.get('app_uid') ?? undefined;
+        if ( origin ) {
+            try {
+                app_uid = window.host_app_uid ?? await window.getAppUIDFromOrigin(origin);
+            } catch (e) {
+                // Keep the query-param fallback.
+            }
+        }
+
+        const granted = await UIPermissionDialog({
+            permission: permission,
+            app_uid: app_uid,
+            origin: origin,
+        });
+
+        const messageTarget = window.embedded_in_popup ? window.opener : window.parent;
+        messageTarget?.postMessage({
+            msg: 'permissionGranted',
+            granted: granted === true,
+            original_msg_id: msg_id,
+        }, origin || '*');
+
+        // The popup exists only to host this dialog; close it once answered.
+        if ( window.embedded_in_popup ) {
+            window.close();
+            window.open('', '_self').close();
         }
     }
 };
@@ -1083,35 +1126,9 @@ window.initgui = async function (options) {
     }
 
     //--------------------------------------------------------------------------------------
-    // Action: Request Permission
-    //--------------------------------------------------------------------------------------
-    if (action === 'request-permission') {
-        let app_uid = window.url_query_params.get('app_uid');
-        let origin =
-            window.openerOrigin ?? window.url_query_params.get('origin');
-        let permission = window.url_query_params.get('permission');
-
-        let granted = await UIWindowRequestPermission({
-            app_uid: app_uid,
-            origin: origin,
-            permission: permission,
-        });
-
-        let messageTarget = window.embedded_in_popup
-            ? window.opener
-            : window.parent;
-        messageTarget.postMessage(
-            {
-                msg: 'permissionGranted',
-                granted: granted,
-            },
-            origin,
-        );
-    }
-    //--------------------------------------------------------------------------------------
     // Action: Password recovery
     //--------------------------------------------------------------------------------------
-    else if (action === 'set-new-password') {
+    if (action === 'set-new-password') {
         let user = window.url_query_params.get('user');
         let token = window.url_query_params.get('token');
 

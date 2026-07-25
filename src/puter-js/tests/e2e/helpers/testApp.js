@@ -20,7 +20,11 @@ export async function waitForPuterReady (page) {
     try {
         await page.waitForFunction(
             () => {
-                const ls = (typeof localStorage !== 'undefined') ? localStorage.getItem('auth_token') : null;
+                // The GUI persists the token under the v2 key since the
+                // v1→v2 cutover; tolerate the legacy key for old states.
+                const ls = (typeof localStorage !== 'undefined')
+                    ? (localStorage.getItem('auth_token_v2') || localStorage.getItem('auth_token'))
+                    : null;
                 const lsApi = (typeof localStorage !== 'undefined') ? localStorage.getItem('api_origin') : null;
                 return !!(
                     ls && lsApi &&
@@ -37,7 +41,7 @@ export async function waitForPuterReady (page) {
             puter: typeof window.puter,
             puterAuthToken: !!window.puter?.authToken,
             windowAuthToken: !!window.auth_token,
-            lsAuthToken: !!(typeof localStorage !== 'undefined' && localStorage.getItem('auth_token')),
+            lsAuthToken: !!(typeof localStorage !== 'undefined' && (localStorage.getItem('auth_token_v2') || localStorage.getItem('auth_token'))),
             firstVisitEver: window.first_visit_ever,
             isAuth: typeof window.is_auth === 'function' ? window.is_auth() : null,
             user: window.user ? { is_temp: window.user.is_temp, username: window.user.username } : null,

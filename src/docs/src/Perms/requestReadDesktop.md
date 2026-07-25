@@ -1,7 +1,7 @@
 ---
 title: puter.perms.requestReadDesktop()
 description: Request read access to the user's Desktop folder.
-platforms: [apps]
+platforms: [websites, apps]
 ---
 
 Request read access to the user's Desktop folder. If the user has already granted this permission the user will not be prompted and the path will be returned. If the user grants permission the path will be returned. If the user does not allow access `undefined` will be returned.

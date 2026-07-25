@@ -1,4 +1,5 @@
 import EventListener from '../lib/EventListener.js';
+import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
 
@@ -1104,14 +1105,139 @@ class UI extends EventListener {
         document.body.appendChild(el);
     };
 
+    /**
+     * Asks the user to grant a permission to this app. Inside the Puter GUI
+     * the request is relayed to the desktop; on the web the permission
+     * dialog is shown in a popup window on the Puter origin.
+     *
+     * @param {{ permission: string }} options
+     * @returns {Promise<boolean>} `true` only if the permission was granted.
+     */
     async requestPermission (options) {
         if ( this.env === 'app' ) {
             const result = await this.#postMessageAsync('requestPermission', { options });
-            return result.granted;
-        } else {
-            // TODO: Implement for web
+            return result.granted === true;
+        }
+
+        // Web environment: open the GUI's permission popup. Not available in
+        // workers (no window to open a popup from).
+        if ( ! globalThis.open || ! globalThis.document ) {
             return false;
         }
+        const permission = options?.permission;
+        if ( typeof permission !== 'string' || permission === '' ) {
+            return false;
+        }
+
+        return new Promise((resolve) => {
+            const msg_id = this.#messageID++;
+            const url = `${puter.defaultGUIOrigin}/action/request-permission?embedded_in_popup=true&msg_id=${msg_id}&permission=${encodeURIComponent(permission)}`;
+
+            // Guards against settling more than once across the message,
+            // popup-closed, and dialog-cancel code paths.
+            let settled = false;
+            // Interval id for polling whether the user closed the popup.
+            let checkClosed = null;
+            // The popup we opened; pinned as the expected `event.source`.
+            let popupWindow = null;
+
+            const cleanup = () => {
+                if ( checkClosed ) {
+                    clearInterval(checkClosed);
+                    checkClosed = null;
+                }
+                window.removeEventListener('message', messageHandler);
+            };
+
+            const settle = (granted) => {
+                if ( settled ) return;
+                settled = true;
+                cleanup();
+                resolve(granted);
+            };
+
+            const messageHandler = (e) => {
+                // Only accept the decision from the Puter GUI origin AND from
+                // the popup we opened. Origin alone is insufficient (any frame
+                // on the GUI domain could post), so also pin event.source.
+                // msg_id binds the message to this request.
+                if ( e.origin !== puter.defaultGUIOrigin ) return;
+                if ( popupWindow && e.source !== popupWindow ) return;
+                if ( e.data?.msg !== 'permissionGranted' ) return;
+                if ( e.data?.original_msg_id != msg_id ) return;
+                settle(e.data.granted === true);
+            };
+            window.addEventListener('message', messageHandler);
+
+            // Once the popup exists, watch for the user closing it without
+            // answering. `popup` is null if the browser blocked it.
+            const watchPopup = (popup) => {
+                if ( settled ) return;
+                if ( ! popup ) {
+                    settle(false);
+                    return;
+                }
+                if ( window.crossOriginIsolated ) {
+                    // COOP severs the opener relationship: the popup can't
+                    // postMessage back and `popup.closed` is meaningless.
+                    // Poll the permission check instead (mirrors signIn's
+                    // /login/wait fallback), giving up after a timeout.
+                    pollDecision();
+                    return;
+                }
+                popupWindow = popup;
+                checkClosed = setInterval(() => {
+                    if ( ! popup.closed ) return;
+                    settle(false);
+                }, 100);
+            };
+
+            const pollDecision = async () => {
+                const POLL_INTERVAL_MS = 2000;
+                const POLL_TIMEOUT_MS = 5 * 60 * 1000;
+                const started = Date.now();
+                while ( ! settled && Date.now() - started < POLL_TIMEOUT_MS ) {
+                    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+                    if ( settled ) return;
+                    if ( ! puter.authToken ) continue;
+                    try {
+                        const resp = await fetch(`${puter.APIOrigin}/auth/check-permissions`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${puter.authToken}`,
+                            },
+                            body: JSON.stringify({ permissions: [permission] }),
+                        });
+                        if ( ! resp.ok ) continue;
+                        const data = await resp.json();
+                        if ( data?.permissions?.[permission] === true ) {
+                            settle(true);
+                        }
+                    } catch (e) {
+                        // Transient network failure; keep polling.
+                    }
+                }
+                settle(false);
+            };
+
+            if ( hasUserActivation() ) {
+                // A user gesture is active — open the popup immediately.
+                watchPopup(openAuthPopup(url, 'Puter: Permission Request'));
+            } else {
+                // No user gesture: a popup opened now would be blocked by the
+                // browser. Show a consent dialog first; the popup is then
+                // opened from the user's click on that dialog, which provides
+                // the gesture the browser requires.
+                const dialog = new PuterDialog(() => {}, () => {}, {
+                    popupURL: url,
+                    onLaunch: (popup) => watchPopup(popup),
+                    onCancel: () => settle(false),
+                });
+                document.body.appendChild(dialog);
+                dialog.open();
+            }
+        });
     };
 
     disableMenuItem (item_id) {

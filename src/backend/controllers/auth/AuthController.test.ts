@@ -1529,6 +1529,43 @@ describe('AuthController grant flows', () => {
         ).toContain(permission);
     });
 
+    it('grant-user-app: resolves `origin` to the app when app_uid is omitted', async () => {
+        // The GUI permission dialog and puter.perms.grantOrigin() identify
+        // third-party sites by origin rather than app uid.
+        const appName = `tg-origin-${uuidv4()}`;
+        const origin = `https://${appName}.example.test`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestGrantOriginApp',
+                index_url: `${origin}/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const permission = `service:tg-origin-app:ii:read`;
+        const res = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { origin, permission, extra: {} },
+                    { actor: issuerActor },
+                ),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+
+        const rows = await server.clients.db.read(
+            'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                'JOIN `apps` a ON a.`id` = p.`app_id` ' +
+                'WHERE p.`user_id` = ? AND a.`uid` = ?',
+            [issuer.id, app.uid],
+        );
+        expect(
+            (rows as Array<{ permission: string }>).map((r) => r.permission),
+        ).toContain(permission);
+    });
+
     it('grant-user-group: 404 when the group does not exist', async () => {
         await expect(
             controller.handleGrantUserGroup(

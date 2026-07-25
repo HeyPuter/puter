@@ -1,7 +1,7 @@
 ---
 title: puter.perms.requestWritePictures()
 description: Request write access to the user's Pictures folder.
-platforms: [apps]
+platforms: [websites, apps]
 ---
 
 Request write access to the user's Pictures folder. If the user has already granted this permission the user will not be prompted and the path will be returned. If the user grants permission the path will be returned. If the user does not allow access `undefined` will be returned.
