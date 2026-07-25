@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { Readable } from 'node:stream';
@@ -27,8 +28,8 @@ import { loadFileInput } from '../util/fileInput.js';
 import { VOICE_CHANGER_COSTS } from './costs.js';
 
 /**
- * Driver implementing `puter-speech2speech` — voice changer. Currently a
- * single provider (ElevenLabs).
+ * Driver implementing `puter-speech2speech` — voice changer. Currently a single
+ * provider (ElevenLabs).
  */
 
 const DEFAULT_MODEL = 'eleven_multilingual_sts_v2';
@@ -57,7 +58,6 @@ interface ConvertArgs {
 
 export class VoiceChangerDriver extends PuterDriver {
     readonly driverInterface = 'puter-speech2speech';
-    readonly noUserSession = true;
     readonly driverName = 'elevenlabs-voice-changer';
     readonly isDefault = true;
 

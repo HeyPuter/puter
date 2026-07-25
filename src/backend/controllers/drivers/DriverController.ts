@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import type { Request, Response } from 'express';
@@ -116,17 +117,17 @@ const translateProviderError = (err: unknown): unknown => {
 
 @Controller('/drivers')
 export class DriverController extends PuterController {
-    /** iface → Map<driverName, driverInstance> */
+    /** Iface → Map<driverName, driverInstance> */
     #drivers = new Map<string, Map<string, DriverInstance>>();
-    /** iface → default driver name */
+    /** Iface → default driver name */
     #defaults = new Map<string, string>();
     /**
-     * driver instance → resolved meta. Cached so the per-call rate-limit
-     * lookup doesn't have to walk prototype chains on every request.
+     * Driver instance → resolved meta. Cached so the per-call rate-limit lookup
+     * doesn't have to walk prototype chains on every request.
      */
     #meta = new WeakMap<DriverInstance, DriverMeta>();
     /**
-     * driver instance → the set of method names callable via `/drivers/call`.
+     * Driver instance → the set of method names callable via `/drivers/call`.
      * Resolved once at registration (server startup) via
      * `resolveCallableMethods`; the request path only does a `Set.has` lookup.
      * This is what stops framework/lifecycle methods (`onServerStart`, etc.)
@@ -236,7 +237,7 @@ export class DriverController extends PuterController {
 
         const driverMeta = this.#meta.get(driver);
 
-        // Drivers flagged `noUserSession` (the AI drivers) refuse the bare
+        // Drivers flagged `noUserSession` refuse the bare
         // account-session ("root") token: callers must present an app or
         // worker token, or an API token minted from the dashboard. This is
         // the per-driver counterpart of the `noUserSession` route option —

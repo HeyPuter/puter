@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import OpenAI, { toFile } from 'openai';
@@ -26,8 +27,8 @@ import { loadFileInput } from '../util/fileInput.js';
 import { SPEECH_TO_TEXT_COSTS } from './costs.js';
 
 /**
- * Driver implementing `puter-speech2txt`. Wraps OpenAI's audio API
- * (Whisper + GPT-4o transcribe models) for transcription and translation.
+ * Driver implementing `puter-speech2txt`. Wraps OpenAI's audio API (Whisper +
+ * GPT-4o transcribe models) for transcription and translation.
  *
  * `file` may be a path, uid/uuid ref, or data URL.
  */
@@ -100,7 +101,6 @@ interface TranscribeArgs {
 
 export class SpeechToTextDriver extends PuterDriver {
     readonly driverInterface = 'puter-speech2txt';
-    readonly noUserSession = true;
     readonly driverName = 'openai-speech2txt';
     readonly isDefault = true;
 
