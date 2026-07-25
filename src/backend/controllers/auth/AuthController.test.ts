@@ -4058,25 +4058,88 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
         ]);
     });
 
-    it('list-permissions: handler runs and returns shape (the source SQL references `app_uid` and may throw on real installs — we catch and assert either branch)', async () => {
-        const { actor } = await makeUserAndActor();
+    it('list-permissions: returns the shape and includes a user→app grant with its app_uid', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const app = await server.stores.app.create(
+            {
+                name: `tl-${uuidv4()}`,
+                title: 'TestListPermsApp',
+                index_url: 'https://list-perms.example.test/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+        const permission = 'service:tl-app:ii:read';
+        await inCtx(actor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission, extra: {} },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        );
+
+        // A user→user grant must show up under `myself_to_user` for the
+        // issuer and `user_to_myself` for the holder. Grants gate on
+        // `manage:<permission>`, so bootstrap that flag first (mirrors the
+        // grant-user-user persistence test).
+        const { user: holder, actor: holderActor } = await makeUserAndActor();
+        const userPermission = 'service:tl-user:ii:read';
+        await server.stores.permission.setFlatUserPerm(
+            user.id,
+            `manage:${userPermission}`,
+            {
+                permission: `manage:${userPermission}`,
+                deleted: false,
+                issuer_user_id: user.id,
+            } as never,
+        );
+        await inCtx(actor, () =>
+            controller.handleGrantUserUser(
+                makeReq(
+                    {
+                        target_username: holder.username,
+                        permission: userPermission,
+                        extra: {},
+                    },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        );
+
         const res = makeRes();
-        try {
-            await controller.handleListPermissions(makeReq({}, { actor }), res);
-            const body = res.body as {
-                myself_to_app: unknown[];
-                myself_to_user: unknown[];
-                user_to_myself: unknown[];
-            };
-            expect(Array.isArray(body.myself_to_app)).toBe(true);
-            expect(Array.isArray(body.myself_to_user)).toBe(true);
-            expect(Array.isArray(body.user_to_myself)).toBe(true);
-        } catch (e) {
-            // The current schema uses `app_id` in user_to_app_permissions.
-            // If the SQL fails because of the schema mismatch, surface the
-            // error message clearly so future fixes flip this branch off.
-            expect((e as Error).message).toMatch(/app_uid|no such column/);
-        }
+        await controller.handleListPermissions(makeReq({}, { actor }), res);
+        const body = res.body as {
+            myself_to_app: Array<{ app_uid: string; permission: string }>;
+            myself_to_user: Array<{ user: string; permission: string }>;
+            user_to_myself: unknown[];
+        };
+        expect(Array.isArray(body.user_to_myself)).toBe(true);
+        expect(body.myself_to_app).toContainEqual(
+            expect.objectContaining({ app_uid: app.uid, permission }),
+        );
+        expect(body.myself_to_user).toContainEqual(
+            expect.objectContaining({
+                user: holder.username,
+                permission: userPermission,
+            }),
+        );
+
+        const holderRes = makeRes();
+        await controller.handleListPermissions(
+            makeReq({}, { actor: holderActor }),
+            holderRes,
+        );
+        expect(
+            (holderRes.body as { user_to_myself: Array<{ user: string; permission: string }> })
+                .user_to_myself,
+        ).toContainEqual(
+            expect.objectContaining({
+                user: user.username,
+                permission: userPermission,
+            }),
+        );
     });
 });
 

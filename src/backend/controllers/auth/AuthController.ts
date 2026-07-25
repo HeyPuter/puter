@@ -3001,17 +3001,22 @@ export class AuthController extends PuterController {
 
         const [appPerms, userPermsOut, userPermsIn] = await Promise.all([
             db.read(
-                'SELECT `app_uid`, `permission`, `extra` FROM `user_to_app_permissions` WHERE `user_id` = ?',
+                // The permissions table stores the numeric `app_id` FK; the
+                // public shape exposes the app's `uid`.
+                'SELECT a.`uid` AS app_uid, p.`permission`, p.`extra` ' +
+                    'FROM `user_to_app_permissions` p ' +
+                    'JOIN `apps` a ON a.`id` = p.`app_id` ' +
+                    'WHERE p.`user_id` = ?',
                 [userId],
             ),
             db.read(
                 'SELECT u.`username`, p.`permission`, p.`extra` FROM `user_to_user_permissions` p ' +
-                    'JOIN `user` u ON u.`id` = p.`target_user_id` WHERE p.`issuer_user_id` = ?',
+                    'JOIN `user` u ON u.`id` = p.`holder_user_id` WHERE p.`issuer_user_id` = ?',
                 [userId],
             ),
             db.read(
                 'SELECT u.`username`, p.`permission`, p.`extra` FROM `user_to_user_permissions` p ' +
-                    'JOIN `user` u ON u.`id` = p.`issuer_user_id` WHERE p.`target_user_id` = ?',
+                    'JOIN `user` u ON u.`id` = p.`issuer_user_id` WHERE p.`holder_user_id` = ?',
                 [userId],
             ),
         ]);
