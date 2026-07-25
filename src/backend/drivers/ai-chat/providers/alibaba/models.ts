@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import type { IChatModel } from '../../types.js';
@@ -645,50 +646,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
         },
     },
     {
-        puterId: 'alibaba:qwen/qwen-vl-ocr',
-        id: 'qwen-vl-ocr',
-        name: 'Qwen-VL OCR',
-        modalities: { input: ['text', 'image'], output: ['text'] },
-        open_weights: false,
-        tool_call: false,
-        knowledge: '2024-04',
-        release_date: '2024-10-28',
-        aliases: ['qwen/qwen-vl-ocr'],
-        context: 34_096,
-        max_tokens: 4_096,
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 72,
-            completion_tokens: 72,
-            cached_tokens: 0,
-        },
-    },
-    {
-        puterId: 'alibaba:qwen/qwen3-vl-235b-a22b',
-        id: 'qwen3-vl-235b-a22b',
-        name: 'Qwen3-VL 235B-A22B',
-        modalities: { input: ['text', 'image'], output: ['text'] },
-        open_weights: true,
-        tool_call: true,
-        knowledge: '2025-04',
-        release_date: '2025-04',
-        aliases: ['qwen/qwen3-vl-235b-a22b'],
-        context: 131_072,
-        max_tokens: 32_768,
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 70,
-            completion_tokens: 280,
-            cached_tokens: 0,
-        },
-    },
-    {
         puterId: 'alibaba:qwen/qwen3-vl-plus',
         id: 'qwen3-vl-plus',
         name: 'Qwen3-VL Plus',
@@ -754,141 +711,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             cached_tokens: 0,
         },
     },
-
-    // -- Legacy Qwen2.5 --------------------------------------------
-    {
-        puterId: 'alibaba:qwen/qwen2-5-72b-instruct',
-        id: 'qwen2-5-72b-instruct',
-        name: 'Qwen2.5 72B Instruct',
-        modalities: { input: ['text'], output: ['text'] },
-        open_weights: true,
-        tool_call: true,
-        knowledge: '2024-04',
-        release_date: '2024-09',
-        aliases: ['qwen/qwen2-5-72b-instruct'],
-        context: 131_072,
-        max_tokens: 8_192,
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 140,
-            completion_tokens: 560,
-            cached_tokens: 0,
-        },
-    },
-    {
-        puterId: 'alibaba:qwen/qwen2-5-32b-instruct',
-        id: 'qwen2-5-32b-instruct',
-        name: 'Qwen2.5 32B Instruct',
-        modalities: { input: ['text'], output: ['text'] },
-        open_weights: true,
-        tool_call: true,
-        knowledge: '2024-04',
-        release_date: '2024-09',
-        aliases: ['qwen/qwen2-5-32b-instruct'],
-        context: 131_072,
-        max_tokens: 8_192,
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 70,
-            completion_tokens: 280,
-            cached_tokens: 0,
-        },
-    },
-    {
-        puterId: 'alibaba:qwen/qwen2-5-14b-instruct',
-        id: 'qwen2-5-14b-instruct',
-        name: 'Qwen2.5 14B Instruct',
-        modalities: { input: ['text'], output: ['text'] },
-        open_weights: true,
-        tool_call: true,
-        knowledge: '2024-04',
-        release_date: '2024-09',
-        aliases: ['qwen/qwen2-5-14b-instruct'],
-        context: 131_072,
-        max_tokens: 8_192,
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 35,
-            completion_tokens: 140,
-            cached_tokens: 0,
-        },
-    },
-    {
-        puterId: 'alibaba:qwen/qwen2-5-7b-instruct',
-        id: 'qwen2-5-7b-instruct',
-        name: 'Qwen2.5 7B Instruct',
-        modalities: { input: ['text'], output: ['text'] },
-        open_weights: true,
-        tool_call: true,
-        knowledge: '2024-04',
-        release_date: '2024-09',
-        aliases: ['qwen/qwen2-5-7b-instruct'],
-        context: 131_072,
-        max_tokens: 8_192,
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 17.5,
-            completion_tokens: 70,
-            cached_tokens: 0,
-        },
-    },
-    {
-        puterId: 'alibaba:qwen/qwen2-5-vl-72b-instruct',
-        id: 'qwen2-5-vl-72b-instruct',
-        name: 'Qwen2.5-VL 72B Instruct',
-        modalities: { input: ['text', 'image'], output: ['text'] },
-        open_weights: true,
-        tool_call: true,
-        knowledge: '2024-04',
-        release_date: '2024-09',
-        aliases: ['qwen/qwen2-5-vl-72b-instruct'],
-        context: 131_072,
-        max_tokens: 8_192,
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 280,
-            completion_tokens: 840,
-            cached_tokens: 0,
-        },
-    },
-    {
-        puterId: 'alibaba:qwen/qwen2-5-vl-7b-instruct',
-        id: 'qwen2-5-vl-7b-instruct',
-        name: 'Qwen2.5-VL 7B Instruct',
-        modalities: { input: ['text', 'image'], output: ['text'] },
-        open_weights: true,
-        tool_call: true,
-        knowledge: '2024-04',
-        release_date: '2024-09',
-        aliases: ['qwen/qwen2-5-vl-7b-instruct'],
-        context: 131_072,
-        max_tokens: 8_192,
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 35,
-            completion_tokens: 105,
-            cached_tokens: 0,
-        },
-    },
-
     // -- Omni models (text interface, audio costs excluded) ---------
     {
         puterId: 'alibaba:qwen/qwen-omni-turbo',
@@ -940,32 +762,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
             cached_tokens: 0,
         },
     },
-    {
-        puterId: 'alibaba:qwen/qwen2-5-omni-7b',
-        id: 'qwen2-5-omni-7b',
-        name: 'Qwen2.5-Omni 7B',
-        modalities: {
-            input: ['text', 'image', 'audio', 'video'],
-            output: ['text'],
-        },
-        open_weights: true,
-        tool_call: true,
-        knowledge: '2024-04',
-        release_date: '2024-12',
-        aliases: ['qwen/qwen2-5-omni-7b'],
-        context: 32_768,
-        max_tokens: 2_048,
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 10,
-            completion_tokens: 40,
-            cached_tokens: 0,
-        },
-    },
-
     // -- Translation models -----------------------------------------
     {
         puterId: 'alibaba:qwen/qwen-mt-plus',

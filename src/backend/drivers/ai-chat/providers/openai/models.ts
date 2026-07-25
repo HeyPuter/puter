@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 // TODO DS: centralize somewhere
@@ -577,46 +578,6 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             prompt_tokens: 1500,
             cached_tokens: 750,
             completion_tokens: 6000,
-        },
-        context: 200_000,
-        max_tokens: 100000,
-    },
-    {
-        puterId: 'openai:openai/o1-mini',
-        id: 'o1-mini',
-        modalities: { input: ['text'], output: ['text'] },
-        open_weights: false,
-        tool_call: false,
-        knowledge: '2023-09',
-        release_date: '2024-09-12',
-        aliases: ['openai/o1-mini'],
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 110,
-            completion_tokens: 440,
-        },
-        context: 128_000,
-        max_tokens: 65536,
-    },
-    {
-        puterId: 'openai:openai/o1-pro',
-        id: 'o1-pro',
-        modalities: { input: ['text', 'image'], output: ['text'] },
-        open_weights: false,
-        tool_call: true,
-        knowledge: '2023-09',
-        release_date: '2025-03-19',
-        aliases: ['openai/o1-pro'],
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 15000,
-            completion_tokens: 60000,
         },
         context: 200_000,
         max_tokens: 100000,
