@@ -234,8 +234,15 @@ const postAuthActions = async (action) => {
         let app_uid;
 
         if ( window.openerOrigin ) {
-            app_uid = await window.getAppUIDFromOrigin(window.openerOrigin);
-            window.host_app_uid = app_uid;
+            try {
+                app_uid = await window.getAppUIDFromOrigin(window.openerOrigin);
+                window.host_app_uid = app_uid;
+            } catch (e) {
+                // Keep the host_app_uid set by the token exchange above; a
+                // throw here would wedge the popup with no way to answer.
+                console.error('getAppUIDFromOrigin failed', e);
+                app_uid = window.host_app_uid;
+            }
         }
 
         if ( action === 'show-open-file-picker' ) {
@@ -453,22 +460,30 @@ const postAuthActions = async (action) => {
         const msg_id = window.url_query_params.get('msg_id');
         const origin = window.openerOrigin ?? window.url_query_params.get('origin');
 
-        // Identify the requesting app by its origin rather than trusting a
-        // caller-supplied uid, falling back to the query param otherwise.
-        let app_uid = window.url_query_params.get('app_uid') ?? undefined;
-        if ( origin ) {
-            try {
-                app_uid = window.host_app_uid ?? await window.getAppUIDFromOrigin(origin);
-            } catch (e) {
-                // Keep the query-param fallback.
+        // Whatever happens, the requester must get an answer and the popup
+        // must close — otherwise the popup wedges open with the caller's
+        // promise pending until the user closes it by hand.
+        let granted = false;
+        try {
+            // Identify the requesting app by its origin rather than trusting a
+            // caller-supplied uid, falling back to the query param otherwise.
+            let app_uid = window.url_query_params.get('app_uid') ?? undefined;
+            if ( origin ) {
+                try {
+                    app_uid = window.host_app_uid ?? await window.getAppUIDFromOrigin(origin);
+                } catch (e) {
+                    // Keep the query-param fallback.
+                }
             }
-        }
 
-        const granted = await UIPermissionDialog({
-            permission: permission,
-            app_uid: app_uid,
-            origin: origin,
-        });
+            granted = await UIPermissionDialog({
+                permission: permission,
+                app_uid: app_uid,
+                origin: origin,
+            });
+        } catch (e) {
+            console.error('request-permission action failed', e);
+        }
 
         const messageTarget = window.embedded_in_popup ? window.opener : window.parent;
         messageTarget?.postMessage({

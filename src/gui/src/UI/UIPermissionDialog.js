@@ -25,6 +25,10 @@ const pending_dialogs = new Map();
 // the page underneath (or a clickjacking attempt) can't land on "Allow".
 const INPUT_PROTECTION_MS = 350;
 
+// How long the grant request may take before it is aborted and the dialog
+// re-enables its buttons for a retry.
+const GRANT_TIMEOUT_MS = 15000;
+
 /**
  * Shows a permission-request dialog and resolves with the user's decision.
  *
@@ -42,6 +46,12 @@ async function UIPermissionDialog (options) {
     options = options ?? {};
 
     if ( ! options.permission || typeof options.permission !== 'string' ) {
+        return false;
+    }
+
+    // Never prompt the user on behalf of an unidentifiable requester; the
+    // grant call would be rejected by the server anyway.
+    if ( ! options.app_uid && ! options.origin && ! options.app_name ) {
         return false;
     }
 
@@ -122,6 +132,13 @@ async function show_permission_dialog (options) {
                         permission: options.permission,
                     }),
                     method: 'POST',
+                    // A hung request would leave both buttons disabled
+                    // forever; time out into the retryable error path.
+                    // (Guarded: AbortSignal.timeout is missing from some
+                    // older engines that otherwise run the GUI fine.)
+                    ...(typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+                        ? { signal: AbortSignal.timeout(GRANT_TIMEOUT_MS) }
+                        : {}),
                 });
                 if ( ! res.ok ) {
                     throw new Error(`HTTP error! Status: ${res.status}`);
@@ -237,6 +254,9 @@ async function resolve_requesting_entity (options) {
     }
 
     let icon_html;
+    if ( icon_url && ! is_safe_icon_url(icon_url) ) {
+        icon_url = null;
+    }
     if ( icon_url ) {
         icon_html = `<img class="perm-dialog-entity-icon" src="${html_encode(icon_url)}" alt="" />`;
     } else {
@@ -245,6 +265,20 @@ async function resolve_requesting_entity (options) {
     }
 
     return { display_name, origin_host, icon_html };
+}
+
+/**
+ * App icons are author-controlled; only allow schemes that are inert as an
+ * image source on this security-sensitive dialog.
+ */
+function is_safe_icon_url (url) {
+    if ( url.startsWith('data:image/') ) return true;
+    try {
+        const parsed = new URL(url, window.location.origin);
+        return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+    } catch (e) {
+        return false;
+    }
 }
 
 /**

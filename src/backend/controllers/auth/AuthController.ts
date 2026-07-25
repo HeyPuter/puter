@@ -2672,6 +2672,29 @@ export class AuthController extends PuterController {
         res.json({});
     }
 
+    /**
+     * Shared input validation for the user-app grant/revoke handlers, which
+     * accept a caller-supplied `origin` as an alternative to `app_uid`. All
+     * three parameters are optional-but-typed: presence is enforced by the
+     * handlers' own `app_uid`/`permission` checks after origin resolution.
+     */
+    #validateAppPermissionParams(params: {
+        app_uid?: unknown;
+        origin?: unknown;
+        permission?: unknown;
+    }): void {
+        const MAX_LEN = 4096;
+        for (const key of ['app_uid', 'origin', 'permission'] as const) {
+            const value = params[key];
+            if (value === undefined || value === null) continue;
+            if (typeof value !== 'string' || value.length > MAX_LEN) {
+                throw new HttpError(400, `Invalid \`${key}\``, {
+                    legacyCode: 'bad_request',
+                });
+            }
+        }
+    }
+
     @Post('/auth/grant-user-app', {
         subdomain: 'api',
         requireUserActor: true,
@@ -2679,6 +2702,7 @@ export class AuthController extends PuterController {
     async handleGrantUserApp(req: Request, res: Response): Promise<void> {
         let { app_uid } = req.body;
         const { origin, permission, extra, meta } = req.body;
+        this.#validateAppPermissionParams({ app_uid, origin, permission });
         if (origin && !app_uid) {
             app_uid = await this.services.auth.appUidFromOrigin(origin);
         }
@@ -2754,6 +2778,7 @@ export class AuthController extends PuterController {
     async handleRevokeUserApp(req: Request, res: Response): Promise<void> {
         let { app_uid } = req.body;
         const { origin, permission, meta } = req.body;
+        this.#validateAppPermissionParams({ app_uid, origin, permission });
         if (origin && !app_uid) {
             app_uid = await this.services.auth.appUidFromOrigin(origin);
         }

@@ -1129,6 +1129,10 @@ class UI extends EventListener {
             return false;
         }
 
+        // How long to wait, after the popup is observed closed, for a
+        // decision message that may still be in flight.
+        const CLOSE_GRACE_MS = 1000;
+
         return new Promise((resolve) => {
             const msg_id = this.#messageID++;
             const url = `${puter.defaultGUIOrigin}/action/request-permission?embedded_in_popup=true&msg_id=${msg_id}&permission=${encodeURIComponent(permission)}`;
@@ -1188,7 +1192,14 @@ class UI extends EventListener {
                 popupWindow = popup;
                 checkClosed = setInterval(() => {
                     if ( ! popup.closed ) return;
-                    settle(false);
+                    // The GUI posts the decision and then closes the popup,
+                    // and cross-process postMessage delivery is not ordered
+                    // relative to `closed` becoming true. Give an in-flight
+                    // grant message a grace period before treating the close
+                    // as a denial.
+                    clearInterval(checkClosed);
+                    checkClosed = null;
+                    setTimeout(() => settle(false), CLOSE_GRACE_MS);
                 }, 100);
             };
 
@@ -1223,7 +1234,10 @@ class UI extends EventListener {
 
             if ( hasUserActivation() ) {
                 // A user gesture is active — open the popup immediately.
-                watchPopup(openAuthPopup(url, 'Puter: Permission Request'));
+                // Unique window name per request: window.open() reuses a
+                // window with the same name, which would hijack a popup an
+                // earlier, still-pending request is waiting on.
+                watchPopup(openAuthPopup(url, `puter-permission-${msg_id}`));
             } else {
                 // No user gesture: a popup opened now would be blocked by the
                 // browser. Show a consent dialog first; the popup is then

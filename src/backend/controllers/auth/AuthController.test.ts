@@ -1566,6 +1566,67 @@ describe('AuthController grant flows', () => {
         ).toContain(permission);
     });
 
+    it('revoke-user-app: resolves `origin` to the app when app_uid is omitted', async () => {
+        // Mirrors the grant-by-origin path: grant via origin, then revoke via
+        // origin, and assert the permission row is gone.
+        const appName = `tr-origin-${uuidv4()}`;
+        const origin = `https://${appName}.example.test`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestRevokeOriginApp',
+                index_url: `${origin}/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const permission = `service:tr-origin-app:ii:read`;
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { origin, permission, extra: {} },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            ),
+        );
+
+        const res = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq({ origin, permission }, { actor: issuerActor }),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+
+        const rows = await server.clients.db.read(
+            'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                'JOIN `apps` a ON a.`id` = p.`app_id` ' +
+                'WHERE p.`user_id` = ? AND a.`uid` = ?',
+            [issuer.id, app.uid],
+        );
+        expect(
+            (rows as Array<{ permission: string }>).map((r) => r.permission),
+        ).not.toContain(permission);
+    });
+
+    it('grant-user-app: 400 on non-string or oversized origin/app_uid/permission', async () => {
+        const cases = [
+            { origin: { host: 'evil' }, permission: 'service:x:ii:read' },
+            { origin: 'https://a.test', permission: ['service:x:ii:read'] },
+            { app_uid: 12345, permission: 'service:x:ii:read' },
+            { origin: `https://${'a'.repeat(5000)}.test`, permission: 'service:x:ii:read' },
+        ];
+        for (const body of cases) {
+            await expect(
+                controller.handleGrantUserApp(
+                    makeReq(body, { actor: issuerActor }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+    });
+
     it('grant-user-group: 404 when the group does not exist', async () => {
         await expect(
             controller.handleGrantUserGroup(
