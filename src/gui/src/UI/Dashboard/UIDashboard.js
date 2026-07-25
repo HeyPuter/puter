@@ -25,6 +25,7 @@ import UIAlert from '../UIAlert.js';
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import UIWindowLogin from '../UIWindowLogin.js';
 import UIWindowFeedback from '../UIWindowFeedback.js';
+import apply_item_added_to_containers from '../../helpers/apply_item_added_to_containers.js';
 /**
  * Creates and displays the Dashboard window.
  *
@@ -364,6 +365,11 @@ async function UIDashboard (options) {
         if ( window.UIDashboardFileItem ) {
             window.UIDashboardFileItem(item);
         }
+
+        // The Files tab above is the dashboard's own listing; file dialogs and
+        // explorer windows opened over the dashboard are plain UIWindow item
+        // containers and need the same update the desktop gives them.
+        await apply_item_added_to_containers(item);
     });
 
     // Apply initial route from URL - activate the correct tab

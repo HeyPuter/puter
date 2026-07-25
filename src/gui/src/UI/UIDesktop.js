@@ -41,6 +41,7 @@ import UINotification from './UINotification.js';
 import UIWindowWelcome from './UIWindowWelcome.js';
 import launch_app from '../helpers/launch_app.js';
 import item_icon from '../helpers/item_icon.js';
+import apply_item_added_to_containers from '../helpers/apply_item_added_to_containers.js';
 import UIWindowSearch from './UIWindowSearch.js';
 
 async function UIDesktop (options) {
@@ -627,48 +628,7 @@ async function UIDesktop (options) {
             return;
         }
 
-        // Update replaced items with matching uids
-        if ( item.overwritten_uid ) {
-            $(`.item[data-uid='${item.overwritten_uid}']`).attr({
-                'data-immutable': item.immutable,
-                'data-path': item.path,
-                'data-name': item.name,
-                'data-size': item.size,
-                'data-modified': item.modified,
-                'data-type': item.type,
-            });
-            // set new icon
-            const new_icon = (item.is_dir ? window.icons['folder.svg'] : (await item_icon(item)).image);
-            $(`.item[data-uid="${item.overwritten_uid}"]`).find('.item-icon > img').attr('src', new_icon);
-
-            //sort each window
-            $(`.item-container[data-path='${html_encode(item.dirpath)}' i]`).each(function () {
-                window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'));
-            });
-        }
-        else {
-            UIItem({
-                appendTo: $(`.item-container[data-path='${html_encode(item.dirpath)}' i]`),
-                uid: item.uid,
-                immutable: item.immutable || item.writable === false,
-                associated_app_name: item.associated_app?.name,
-                path: item.path,
-                icon: await item_icon(item),
-                name: item.name,
-                size: item.size,
-                type: item.type,
-                modified: item.modified,
-                is_dir: item.is_dir,
-                is_shortcut: item.is_shortcut,
-                shortcut_to: item.shortcut_to,
-                shortcut_to_path: item.shortcut_to_path,
-            });
-
-            //sort each window
-            $(`.item-container[data-path='${html_encode(item.dirpath)}' i]`).each(function () {
-                window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'));
-            });
-        }
+        await apply_item_added_to_containers(item);
     });
 
     // Hidden file dialog
