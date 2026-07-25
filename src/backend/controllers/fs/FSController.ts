@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import Busboy from 'busboy';
@@ -60,7 +61,13 @@ import type {
     ThumbnailUploadPrepareItem,
     ThumbnailUploadPreparePayload,
 } from './types.js';
-import { toLegacyEntry } from './legacyFsHelpers.js';
+import {
+    toLegacyEntry,
+    loadLegacyAssociatedApps,
+    fsEntryMimeType,
+    signEntryThumbnail,
+    assertAccess as assertLegacyAccess,
+} from './legacyFsHelpers.js';
 class UploadProgressTracker implements UploadProgressTrackerLike {
     total = 0;
     progress = 0;
@@ -89,6 +96,8 @@ class UploadProgressTracker implements UploadProgressTrackerLike {
 }
 
 const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
+// Hard cap on how many levels below the target a recursive readdir descends.
+const MAX_READDIR_DEPTH = 10;
 const DEFAULT_BATCH_ACL_CHECK_CONCURRENCY = 32;
 const DEFAULT_BATCH_WRITE_SIDE_EFFECT_CONCURRENCY = 8;
 
@@ -883,7 +892,18 @@ export class FSController extends PuterController {
             Object.prototype.hasOwnProperty.call(body, 'cursor') ||
             body.includeTotal === true;
 
+        // Undocumented: `recursive` lists descendants (prefix scan) up to
+        // `depth` levels below the target. Always paginated; sorts by path.
+        const recursive = this.#toBoolean(body.recursive) === true;
+
         if (this.#isRootPathRef(body)) {
+            if (recursive) {
+                throw new HttpError(
+                    400,
+                    'recursive listing is not supported at the root',
+                    { legacyCode: 'bad_request' },
+                );
+            }
             const { listRootEntries } =
                 await import('../../services/fs/rootListing.js');
             const rootChildren = await listRootEntries(
@@ -901,9 +921,7 @@ export class FSController extends PuterController {
                     child.suggestedApps = rootSuggestions[index] ?? [];
                 }
             }
-            const rootItems = rootChildren.map((child) =>
-                this.#toClientEntry(child),
-            );
+            const rootItems = await this.#toReaddirEntries(rootChildren);
             if (paginated) {
                 res.json({
                     items: rootItems,
@@ -920,10 +938,19 @@ export class FSController extends PuterController {
         const parent = await this.#resolveEntryForRequest(body);
         if (!parent.isDir) {
             throw new HttpError(400, 'Target is not a directory', {
-                legacyCode: 'bad_request',
+                legacyCode: 'dest_is_not_a_directory',
             });
         }
-        await this.#assertAccess(actor, parent.path, 'list');
+        // Use the legacy access assertion so this endpoint stays behaviorally
+        // identical to the `/readdir` route the SDK moved off of — same error
+        // codes and the same app-actor 404 masking on denial.
+        await assertLegacyAccess(
+            this.services.acl,
+            this.services.fs,
+            actor,
+            parent.path,
+            'list',
+        );
 
         const limit = this.#toNumberOrUndefined(body.limit);
         const offset = this.#toNumberOrUndefined(body.offset);
@@ -942,6 +969,41 @@ export class FSController extends PuterController {
         const sortOrder =
             (['asc', 'desc'] as const).find((v) => v === sortOrderRaw) ?? null;
 
+        if (recursive) {
+            const requestedDepth = this.#toNumberOrUndefined(body.depth);
+            const maxDepth = Math.min(
+                MAX_READDIR_DEPTH,
+                Math.max(1, Math.floor(requestedDepth ?? MAX_READDIR_DEPTH)),
+            );
+            const page = await this.services.fs.listDirectoryTreePage(
+                parent.userId,
+                parent.path,
+                {
+                    limit,
+                    cursor:
+                        typeof body.cursor === 'string'
+                            ? body.cursor
+                            : undefined,
+                    maxDepth,
+                },
+            );
+            await this.#attachSuggestedApps(page.entries);
+            const total =
+                body.includeTotal === true
+                    ? await this.services.fs.countDirectoryTree(
+                          parent.userId,
+                          parent.path,
+                          maxDepth,
+                      )
+                    : undefined;
+            res.json({
+                items: await this.#toReaddirEntries(page.entries),
+                ...(page.cursor ? { cursor: page.cursor } : {}),
+                ...(total !== undefined ? { total } : {}),
+            });
+            return;
+        }
+
         if (paginated) {
             const page = await this.services.fs.listDirectoryPage(parent.uuid, {
                 limit,
@@ -956,7 +1018,7 @@ export class FSController extends PuterController {
                     ? await this.services.fs.countDirectory(parent.uuid)
                     : undefined;
             res.json({
-                items: page.entries.map((child) => this.#toClientEntry(child)),
+                items: await this.#toReaddirEntries(page.entries),
                 ...(page.cursor ? { cursor: page.cursor } : {}),
                 ...(total !== undefined ? { total } : {}),
             });
@@ -970,7 +1032,37 @@ export class FSController extends PuterController {
             sortOrder,
         });
         await this.#attachSuggestedApps(children);
-        res.json(children.map((child) => this.#toClientEntry(child)));
+        res.json(await this.#toReaddirEntries(children));
+    }
+
+    /**
+     * Shape readdir entries in the v2 (camelCase) response shape, enriched with
+     * the three fields the SDK cannot reconstruct on its own so it can rebuild
+     * the v1 shape: `type` (MIME), a signed `thumbnail`, and `associatedApp`.
+     */
+    async #toReaddirEntries(
+        entries: FSEntry[],
+    ): Promise<Record<string, unknown>[]> {
+        const appsById = await loadLegacyAssociatedApps(
+            this.stores.app,
+            entries,
+        );
+        return Promise.all(
+            entries.map(async (entry) => {
+                const shaped = this.#toClientEntry(entry);
+                shaped.type = fsEntryMimeType(entry);
+                shaped.thumbnail = await signEntryThumbnail(
+                    this.clients.event,
+                    entry.uuid,
+                    entry.thumbnail,
+                );
+                shaped.associatedApp =
+                    entry.associatedAppId !== null
+                        ? (appsById.get(entry.associatedAppId) ?? null)
+                        : null;
+                return shaped;
+            }),
+        );
     }
 
     async #attachSuggestedApps(entries: FSEntry[]): Promise<void> {
@@ -1343,12 +1435,12 @@ export class FSController extends PuterController {
     }
 
     /**
-     * Authorize creation of a new entry at `targetPath`. The standard rule
-     * is write on the parent, but we also accept write on the target itself
-     * — this lets an app create its own `/<user>/AppData/<app_uid>` folder
-     * (parent `AppData` is off-limits, but the target is the app's own
-     * subtree per ACLService's short-circuit) and lets recipients of a
-     * direct share on a not-yet-existent path materialize it.
+     * Authorize creation of a new entry at `targetPath`. The standard rule is
+     * write on the parent, but we also accept write on the target itself — this
+     * lets an app create its own `/<user>/AppData/<app_uid>` folder (parent
+     * `AppData` is off-limits, but the target is the app's own subtree per
+     * ACLService's short-circuit) and lets recipients of a direct share on a
+     * not-yet-existent path materialize it.
      */
     async #assertCanCreate(actor: Actor, targetPath: string) {
         const parent = pathPosix.dirname(targetPath);
@@ -1826,13 +1918,13 @@ export class FSController extends PuterController {
 
     /**
      * Bind `associatedAppId` onto the write input only when the actor is
-     * entitled to reference that app. `associatedAppId` is client-supplied
-     * and never trusted for authz, but it's echoed back in legacy FS
-     * responses — so an attacker could plant another tenant's private app id
-     * to confirm the row exists (an enumeration oracle) and harvest its
-     * metadata. Allow binding to public apps (their existence isn't secret)
-     * or to apps the actor owns; drop the association otherwise so the file
-     * simply carries no associated app.
+     * entitled to reference that app. `associatedAppId` is client-supplied and
+     * never trusted for authz, but it's echoed back in legacy FS responses — so
+     * an attacker could plant another tenant's private app id to confirm the
+     * row exists (an enumeration oracle) and harvest its metadata. Allow
+     * binding to public apps (their existence isn't secret) or to apps the
+     * actor owns; drop the association otherwise so the file simply carries no
+     * associated app.
      *
      * `#resolveWriteFileMetadata` has already copied the raw client value onto
      * `fileMetadata`, so a dropped association must be actively stripped — not
@@ -1873,8 +1965,7 @@ export class FSController extends PuterController {
         // the ActorUser type. Access via the escape hatch until a proper
         // storage-quota mechanism is in place.
         const actorUser = req.actor?.user as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
 
         const candidates = [
             this.#toStorageCapacityCandidate(actorUser?.free_storage),

@@ -848,7 +848,11 @@ describe('FSController.readdirEntries', () => {
                     makeRes().res,
                 ),
             ),
-        ).rejects.toMatchObject({ statusCode: 400 });
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            // Matches the legacy `/readdir` code the SDK moved off of.
+            legacyCode: 'dest_is_not_a_directory',
+        });
     });
 });
 
@@ -1675,6 +1679,242 @@ describe('FSController.readdirEntries pagination', () => {
         expect(Array.isArray(page.items)).toBe(true);
         expect(page.total).toBe(page.items.length);
         expect(page.cursor).toBeUndefined();
+    });
+});
+
+// -- /readdir recursive (nested listing) --
+
+describe('FSController.readdirEntries recursive', () => {
+    // Seed a nested tree under Documents/tree and return its base path.
+    // Relative depths: l1a/l1b = 1, l2a = 2, l3a = 3, l4a = 4.
+    const makeTree = async () => {
+        const { actor, userId } = await makeUser();
+        const username = actor.user!.username!;
+        const base = `/${username}/Documents/tree`;
+        const dirs = [
+            base,
+            `${base}/l1a`,
+            `${base}/l1b`,
+            `${base}/l1a/l2a`,
+            `${base}/l1a/l2a/l3a`,
+            `${base}/l1a/l2a/l3a/l4a`,
+        ];
+        for (const path of dirs) {
+            await withActor(actor, () =>
+                controller.mkdirEntry(
+                    makeReq({ body: { path }, actor }),
+                    makeRes().res,
+                ),
+            );
+        }
+        return { actor, userId, base };
+    };
+
+    const readdir = async (
+        actor: Awaited<ReturnType<typeof makeUser>>['actor'],
+        body: Record<string, unknown>,
+    ) => {
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.readdirEntries(makeReq({ body, actor }), res),
+        );
+        return captured.body;
+    };
+
+    const rel = (base: string, items: Array<{ path: string }>) =>
+        items.map((e) => e.path.slice(base.length + 1)).sort();
+
+    it('depth 1 returns only direct children (like a normal readdir)', async () => {
+        const { actor, base } = await makeTree();
+        const page = (await readdir(actor, {
+            path: base,
+            recursive: true,
+            depth: 1,
+        })) as { items: Array<{ path: string }>; cursor?: string };
+        expect(rel(base, page.items)).toEqual(['l1a', 'l1b']);
+    });
+
+    it('deeper levels appear as depth grows', async () => {
+        const { actor, base } = await makeTree();
+        const d2 = (await readdir(actor, {
+            path: base,
+            recursive: true,
+            depth: 2,
+        })) as { items: Array<{ path: string }> };
+        expect(rel(base, d2.items)).toEqual(['l1a', 'l1a/l2a', 'l1b']);
+
+        const d3 = (await readdir(actor, {
+            path: base,
+            recursive: true,
+            depth: 3,
+        })) as { items: Array<{ path: string }> };
+        expect(rel(base, d3.items)).toEqual([
+            'l1a',
+            'l1a/l2a',
+            'l1a/l2a/l3a',
+            'l1b',
+        ]);
+    });
+
+    it('caps depth at 10 so a huge depth returns the whole subtree', async () => {
+        const { actor, base } = await makeTree();
+        const page = (await readdir(actor, {
+            path: base,
+            recursive: true,
+            depth: 9999,
+        })) as { items: Array<{ path: string }> };
+        expect(rel(base, page.items)).toEqual([
+            'l1a',
+            'l1a/l2a',
+            'l1a/l2a/l3a',
+            'l1a/l2a/l3a/l4a',
+            'l1b',
+        ]);
+    });
+
+    it('pages through the whole subtree with cursors, no dupes or gaps', async () => {
+        const { actor, base } = await makeTree();
+        const seen: string[] = [];
+        let cursor: string | null | undefined = null;
+        do {
+            const page = (await readdir(actor, {
+                path: base,
+                recursive: true,
+                depth: 10,
+                limit: 2,
+                cursor,
+            })) as { items: Array<{ path: string }>; cursor?: string };
+            expect(page.items.length).toBeLessThanOrEqual(2);
+            seen.push(...page.items.map((e) => e.path));
+            cursor = page.cursor;
+        } while (cursor);
+        expect(rel(base, seen.map((path) => ({ path })))).toEqual([
+            'l1a',
+            'l1a/l2a',
+            'l1a/l2a/l3a',
+            'l1a/l2a/l3a/l4a',
+            'l1b',
+        ]);
+    });
+
+    it('counts the subtree with includeTotal', async () => {
+        const { actor, base } = await makeTree();
+        const page = (await readdir(actor, {
+            path: base,
+            recursive: true,
+            depth: 2,
+            cursor: null,
+            includeTotal: true,
+        })) as { items: unknown[]; total?: number };
+        expect(page.total).toBe(3); // l1a, l1b, l2a
+    });
+
+    it('enriches entries with type, thumbnail and associatedApp', async () => {
+        const { actor, base } = await makeTree();
+        const page = (await readdir(actor, {
+            path: base,
+            recursive: true,
+            depth: 1,
+        })) as {
+            items: Array<{
+                type?: unknown;
+                thumbnail?: unknown;
+                associatedApp?: unknown;
+            }>;
+        };
+        for (const item of page.items) {
+            expect(item.type).toBe('folder');
+            expect(item.thumbnail ?? null).toBeNull();
+            expect('associatedApp' in item).toBe(true);
+        }
+    });
+
+    it('gives files a MIME type and an associatedApp field', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const dir = `/${username}/Documents/files`;
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({ body: { path: dir }, actor }),
+                makeRes().res,
+            ),
+        );
+        await withActor(actor, () =>
+            controller.touchEntry(
+                makeReq({ body: { path: `${dir}/pic.png` }, actor }),
+                makeRes().res,
+            ),
+        );
+        const page = (await readdir(actor, {
+            path: dir,
+            recursive: true,
+            depth: 1,
+        })) as {
+            items: Array<{
+                name: string;
+                type?: unknown;
+                associatedApp?: unknown;
+            }>;
+        };
+        const file = page.items.find((e) => e.name === 'pic.png')!;
+        expect(String(file.type)).toContain('image/png');
+        expect('associatedApp' in file).toBe(true);
+    });
+
+    it('masks denials for app-under-user actors as a 404 (legacy parity)', async () => {
+        const { actor: userActor } = await makeUser();
+        const username = userActor.user!.username!;
+        const appActor: Actor = {
+            ...userActor,
+            app: { uid: `app-readdir-${uuidv4()}` },
+        };
+        // The user's Documents is outside the app's AppData subtree, so the
+        // app can't list it. Legacy `/readdir` masks this as a 404
+        // subject_does_not_exist rather than leaking a 403.
+        await expect(
+            withActor(appActor, () =>
+                controller.readdirEntries(
+                    makeReq({
+                        body: { path: `/${username}/Documents` },
+                        actor: appActor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 404,
+            legacyCode: 'subject_does_not_exist',
+        });
+    });
+
+    it('rejects recursive listing at the root', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                controller.readdirEntries(
+                    makeReq({
+                        body: { path: '/', recursive: true },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('does not leak another users identically-named subtree', async () => {
+        const { actor, base } = await makeTree();
+        // A second user with the same relative tree must not appear.
+        await makeTree();
+        const page = (await readdir(actor, {
+            path: base,
+            recursive: true,
+            depth: 10,
+        })) as { items: Array<{ path: string }> };
+        for (const item of page.items) {
+            expect(item.path.startsWith(`${base}/`)).toBe(true);
+        }
+        expect(page.items).toHaveLength(5);
     });
 });
 
