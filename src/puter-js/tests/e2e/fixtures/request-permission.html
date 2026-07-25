@@ -22,7 +22,10 @@
     <script>
         // Point the SDK at the local Puter instance (env=web popup flow).
         window.PUTER_ORIGIN = 'http://puter.localhost:4100';
-        window.PUTER_API_ORIGIN = 'http://puter.localhost:4100';
+        // Must be the real api subdomain: the SDK sends credentialed CORS
+        // requests, and only the api host answers with
+        // Access-Control-Allow-Credentials — on the GUI host they all fail.
+        window.PUTER_API_ORIGIN = 'http://api.puter.localhost:4100';
     </script>
     <script src="/dist/puter.dev.js"></script>
     <script>
