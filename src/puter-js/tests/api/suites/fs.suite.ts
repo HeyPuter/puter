@@ -247,6 +247,44 @@ export default suite('fs', {
         );
     },
 
+    'readdir recursive lists a nested subtree in v1 shape': async (t) => {
+        const base = `${home(t)}/fs-suite-recursive`;
+        await t.puter.fs.write(`${base}/a/b/deep.txt`, 'x', {
+            createMissingParents: true,
+        });
+        await t.puter.fs.write(`${base}/top.txt`, 'y');
+
+        // depth 1: only direct children
+        const shallow = (await t.puter.fs.readdir({
+            path: base,
+            recursive: true,
+            depth: 1,
+            cursor: null,
+        })) as { items: Array<{ name: string; is_dir: unknown }> };
+        const shallowNames = shallow.items.map((e) => e.name).sort();
+        t.assert.deepEqual(shallowNames, ['a', 'top.txt']);
+
+        // deeper: descendants appear, and paging terminates
+        const seen: string[] = [];
+        let cursor: string | null | undefined = null;
+        do {
+            const page = (await t.puter.fs.readdir({
+                path: base,
+                recursive: true,
+                depth: 5,
+                limit: 2,
+                cursor,
+            })) as {
+                items: Array<{ path: string; is_dir: unknown }>;
+                cursor?: string;
+            };
+            seen.push(...page.items.map((e) => e.path));
+            cursor = page.cursor;
+        } while (cursor);
+        const rel = seen.map((p) => p.slice(base.length + 1)).sort();
+        t.assert.deepEqual(rel, ['a', 'a/b', 'a/b/deep.txt', 'top.txt']);
+    },
+
     'copy duplicates a file': async (t) => {
         const src = `${home(t)}/fs-suite-copy-src.txt`;
         const dstDir = `${home(t)}/fs-suite-copy-dst`;

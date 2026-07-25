@@ -1,6 +1,7 @@
 import * as utils from '../../../lib/utils.js';
 import { fetchAllPages, iteratePages } from '../../../lib/pagination.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
+import mapV2EntryToV1 from '../utils/mapV2EntryToV1.js';
 
 // Track in-flight requests to avoid duplicate backend calls
 // Each entry stores: { promise, timestamp }
@@ -27,17 +28,31 @@ const requestOnce = function (options, pageParams) {
             }
         }
 
-        // create xhr object
-        const xhr = utils.initXhr('/readdir', this.APIOrigin, undefined, 'post', 'text/plain;actually=json');
+        // create xhr object. Backend serves readdir on the v2 `/fs/readdir`
+        // route, which returns camelCase entries; we normalize them to the v1
+        // shape below so existing callers see an unchanged response.
+        const xhr = utils.initXhr('/fs/readdir', this.APIOrigin, undefined, 'post', 'text/plain;actually=json');
 
         // set up event handlers for load and error events
         utils.setupXhrEventHandlers(xhr, undefined, undefined, (result) => {
+            // Normalize each v2 entry to the v1 shape, in place, so the bare
+            // array and the `{items, cursor?, total?}` envelope both return the
+            // legacy shape and the cache is populated with it.
+            let normalized;
+            if ( Array.isArray(result) ) {
+                normalized = result.map(mapV2EntryToV1);
+            } else if ( result && Array.isArray(result.items) ) {
+                normalized = { ...result, items: result.items.map(mapV2EntryToV1) };
+            } else {
+                normalized = result;
+            }
+
             // set each individual item's cache
-            const entries = Array.isArray(result) ? result : (result?.items ?? []);
+            const entries = Array.isArray(normalized) ? normalized : (normalized?.items ?? []);
             for ( const item of entries ) {
                 puter._cache.set(`item:${ item.path}`, item);
             }
-            resolve(result);
+            resolve(normalized);
         }, reject);
 
         // Build request payload - support both path and uid parameters
@@ -51,6 +66,8 @@ const requestOnce = function (options, pageParams) {
         if ( options.offset !== undefined ) payload.offset = options.offset;
         if ( options.sortBy !== undefined ) payload.sortBy = options.sortBy;
         if ( options.sortOrder !== undefined ) payload.sortOrder = options.sortOrder;
+        if ( options.recursive !== undefined ) payload.recursive = options.recursive;
+        if ( options.depth !== undefined ) payload.depth = options.depth;
         if ( pageParams ) {
             payload.cursor = pageParams.cursor ?? null;
             if ( pageParams.includeTotal !== undefined ) {
@@ -125,9 +142,10 @@ const readdir = function (...args) {
             options.offset === undefined;
 
         // Generate cache key based on path. Only full listings are cached —
-        // pages and limit/offset-truncated results never are.
+        // pages and limit/offset-truncated results never are. Recursive
+        // listings are never cached (they'd collide with the direct listing).
         let cacheKey;
-        if ( options.path && unbound ) {
+        if ( options.path && unbound && ! options.recursive ) {
             cacheKey = `readdir:${ options.path}`;
         }
 
@@ -154,6 +172,8 @@ const readdir = function (...args) {
             includeTotal: options.includeTotal,
             sortBy: options.sortBy,
             sortOrder: options.sortOrder,
+            recursive: options.recursive,
+            depth: options.depth,
         });
 
         // Check if there's already an in-flight request for the same parameters

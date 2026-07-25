@@ -141,6 +141,27 @@ const isApiPuterComOrigin = () => {
     }
 };
 
+// Build a known directory tree under `base` for the recursive-readdir tests:
+//
+//   base/
+//     top.txt          (depth 1)
+//     a/               (depth 1)
+//       a1.txt         (depth 2)
+//       b/             (depth 2)
+//         deep.txt     (depth 3)
+//
+// 5 descendants total. Returns nothing — callers readdir `base` themselves.
+const setupRecursiveTree = async (base) => {
+    await puter.fs.mkdir(base);
+    await puter.fs.write(`${base}/top.txt`, 'x');
+    await puter.fs.write(`${base}/a/a1.txt`, 'x', { createMissingParents: true });
+    await puter.fs.write(`${base}/a/b/deep.txt`, 'x', { createMissingParents: true });
+};
+
+// Path relative to `base` for an entry whose absolute path contains `/base/…`.
+// `base` is a unique randName, so splitting on `/${base}/` is unambiguous.
+const relToBase = (base, absPath) => String(absPath).split(`/${base}/`)[1];
+
 window.fsTests = [
     {
         name: "testFSWrite",
@@ -950,6 +971,169 @@ window.fsTests = [
                     await puter.fs.delete(rootDir, { recursive: true });
                 } catch (cleanupError) {
                 }
+            }
+        }
+    },
+    {
+        name: "testFSReadDirRecursive",
+        description: "Test recursive readdir returns the whole subtree (descendants beyond direct children)",
+        test: async function() {
+            const base = puter.randName();
+            try {
+                await setupRecursiveTree(base);
+                const result = await puter.fs.readdir({ path: base, recursive: true });
+                assert(Array.isArray(result), "Recursive unbound readdir should return an array");
+                const rel = result.map((e) => relToBase(base, e.path)).sort();
+                assert(
+                    JSON.stringify(rel) === JSON.stringify(['a', 'a/a1.txt', 'a/b', 'a/b/deep.txt', 'top.txt']),
+                    "Recursive readdir returned the wrong subtree: " + JSON.stringify(rel),
+                );
+                pass("testFSReadDirRecursive passed");
+            } catch (error) {
+                fail("testFSReadDirRecursive failed:", error);
+            } finally {
+                try { await puter.fs.delete(base, { recursive: true }); } catch (e) {}
+            }
+        }
+    },
+    {
+        name: "testFSReadDirRecursiveDepth",
+        description: "Test the recursive readdir `depth` option controls how many levels below the target are returned",
+        test: async function() {
+            const base = puter.randName();
+            try {
+                await setupRecursiveTree(base);
+
+                const d1 = await puter.fs.readdir({ path: base, recursive: true, depth: 1 });
+                assert(d1.length === 2, "depth 1 should return only direct children, got " + d1.length);
+
+                const d2 = await puter.fs.readdir({ path: base, recursive: true, depth: 2 });
+                assert(d2.length === 4, "depth 2 should include grandchildren, got " + d2.length);
+
+                const d3 = await puter.fs.readdir({ path: base, recursive: true, depth: 3 });
+                assert(d3.length === 5, "depth 3 should include the whole tree, got " + d3.length);
+
+                pass("testFSReadDirRecursiveDepth passed");
+            } catch (error) {
+                fail("testFSReadDirRecursiveDepth failed:", error);
+            } finally {
+                try { await puter.fs.delete(base, { recursive: true }); } catch (e) {}
+            }
+        }
+    },
+    {
+        name: "testFSReadDirRecursiveDepthCap",
+        description: "Test a very large recursive `depth` is capped server-side and simply returns the whole subtree",
+        test: async function() {
+            const base = puter.randName();
+            try {
+                await setupRecursiveTree(base);
+                const result = await puter.fs.readdir({ path: base, recursive: true, depth: 9999 });
+                assert(result.length === 5, "capped-depth recursive readdir should return the whole subtree, got " + result.length);
+                pass("testFSReadDirRecursiveDepthCap passed");
+            } catch (error) {
+                fail("testFSReadDirRecursiveDepthCap failed:", error);
+            } finally {
+                try { await puter.fs.delete(base, { recursive: true }); } catch (e) {}
+            }
+        }
+    },
+    {
+        name: "testFSReadDirRecursivePagination",
+        description: "Test recursive readdir pages through the whole subtree with a cursor, no duplicates or gaps",
+        test: async function() {
+            const base = puter.randName();
+            try {
+                await setupRecursiveTree(base);
+                const seen = [];
+                let cursor = null;
+                let guard = 0;
+                do {
+                    const page = await puter.fs.readdir({ path: base, recursive: true, depth: 10, limit: 2, cursor });
+                    assert(page.items.length <= 2, "each page should respect the limit");
+                    seen.push(...page.items.map((e) => relToBase(base, e.path)));
+                    cursor = page.cursor;
+                    assert(++guard < 20, "pagination did not terminate");
+                } while (cursor);
+                assert(
+                    JSON.stringify(seen.sort()) === JSON.stringify(['a', 'a/a1.txt', 'a/b', 'a/b/deep.txt', 'top.txt']),
+                    "paged recursive readdir missed or duplicated entries: " + JSON.stringify(seen),
+                );
+                pass("testFSReadDirRecursivePagination passed");
+            } catch (error) {
+                fail("testFSReadDirRecursivePagination failed:", error);
+            } finally {
+                try { await puter.fs.delete(base, { recursive: true }); } catch (e) {}
+            }
+        }
+    },
+    {
+        name: "testFSReadDirRecursiveIncludeTotal",
+        description: "Test recursive readdir with includeTotal reports the size of the subtree at the requested depth",
+        test: async function() {
+            const base = puter.randName();
+            try {
+                await setupRecursiveTree(base);
+                const page = await puter.fs.readdir({ path: base, recursive: true, depth: 2, cursor: null, includeTotal: true });
+                assert(page.total === 4, "includeTotal should count the depth-2 subtree (4), got " + page.total);
+                pass("testFSReadDirRecursiveIncludeTotal passed");
+            } catch (error) {
+                fail("testFSReadDirRecursiveIncludeTotal failed:", error);
+            } finally {
+                try { await puter.fs.delete(base, { recursive: true }); } catch (e) {}
+            }
+        }
+    },
+    {
+        name: "testFSReadDirRecursiveStream",
+        description: "Test recursive readdir with stream:true iterates the whole subtree page by page via for-await",
+        test: async function() {
+            const base = puter.randName();
+            try {
+                await setupRecursiveTree(base);
+                const seen = [];
+                let pages = 0;
+                for await (const page of puter.fs.readdir({ path: base, recursive: true, depth: 10, limit: 2, stream: true })) {
+                    pages++;
+                    assert(page.items.length <= 2, "stream pages should respect the limit");
+                    seen.push(...page.items.map((e) => relToBase(base, e.path)));
+                }
+                assert(pages >= 2, "streaming a 5-entry tree with limit 2 should yield multiple pages");
+                assert(
+                    JSON.stringify(seen.sort()) === JSON.stringify(['a', 'a/a1.txt', 'a/b', 'a/b/deep.txt', 'top.txt']),
+                    "streamed recursive readdir missed or duplicated entries: " + JSON.stringify(seen),
+                );
+                pass("testFSReadDirRecursiveStream passed");
+            } catch (error) {
+                fail("testFSReadDirRecursiveStream failed:", error);
+            } finally {
+                try { await puter.fs.delete(base, { recursive: true }); } catch (e) {}
+            }
+        }
+    },
+    {
+        name: "testFSReadDirRecursiveV1Shape",
+        description: "Test recursive readdir entries keep the v1 shape (is_dir, path, name, MIME type) the GUI/apps expect",
+        test: async function() {
+            const base = puter.randName();
+            try {
+                await setupRecursiveTree(base);
+                const result = await puter.fs.readdir({ path: base, recursive: true, depth: 10 });
+                for (const entry of result) {
+                    assert(typeof entry.is_dir === 'boolean', "entry.is_dir should be a boolean");
+                    assert(typeof entry.path === 'string' && entry.path.length > 0, "entry.path should be a non-empty string");
+                    assert(typeof entry.name === 'string' && entry.name.length > 0, "entry.name should be a non-empty string");
+                    assert('associated_app' in entry, "entry should carry associated_app");
+                }
+                const dir = result.find((e) => e.name === 'a');
+                const file = result.find((e) => e.name === 'deep.txt');
+                assert(dir && dir.is_dir === true && dir.type === 'folder', "directory entry should have type 'folder'");
+                assert(file && file.is_dir === false && String(file.type).includes('text/plain'), "text file should have a text/plain MIME type, got " + (file && file.type));
+                pass("testFSReadDirRecursiveV1Shape passed");
+            } catch (error) {
+                fail("testFSReadDirRecursiveV1Shape failed:", error);
+            } finally {
+                try { await puter.fs.delete(base, { recursive: true }); } catch (e) {}
             }
         }
     },
