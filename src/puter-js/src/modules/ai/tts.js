@@ -11,7 +11,7 @@ import { normalizeTTSProvider, ttsDriverName } from './lib/ttsProviders.js';
 
 const MAX_INPUT_SIZE = 3000;
 const VALID_AWS_ENGINES = ['standard', 'neural', 'long-form', 'generative'];
-const NAMED_PROVIDERS = ['openai', 'elevenlabs', 'gemini', 'xai'];
+const NAMED_PROVIDERS = ['openai', 'elevenlabs', 'gemini', 'xai', 'speechify'];
 
 // Fill in each provider's defaults and rename options to what its driver
 // expects. Mutates `options`; returns the effective provider.
@@ -64,6 +64,20 @@ const applyProviderDefaults = (provider, options) => {
         }
         if ( ! options.language ) {
             options.language = 'en';
+        }
+        delete options.engine;
+    } else if ( provider === 'speechify' ) {
+        if ( !options.model && typeof options.engine === 'string' ) {
+            options.model = options.engine;
+        }
+        if ( ! options.voice ) {
+            options.voice = 'henry';
+        }
+        if ( ! options.model ) {
+            options.model = 'simba-3.2';
+        }
+        if ( !options.output_format && !options.response_format ) {
+            options.output_format = 'mp3';
         }
         delete options.engine;
     } else {

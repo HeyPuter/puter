@@ -32,7 +32,7 @@ Additional settings for the generation request. Available options depend on the 
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `provider` | `String` | TTS provider to use. `'aws-polly'` (default), `'openai'`, `'elevenlabs'`, `'gemini'`, `'xai'` |
+| `provider` | `String` | TTS provider to use. `'aws-polly'` (default), `'openai'`, `'elevenlabs'`, `'gemini'`, `'xai'`, `'speechify'` |
 | `model` | `String` | Model identifier (provider-specific) |
 | `voice` | `String` | Voice ID used for synthesis (provider-specific) |
 | `test_mode` | `Boolean` | When `true`, returns a sample audio without using credits |
@@ -99,6 +99,18 @@ Available when `provider: 'xai'`:
 Text supports inline speech tags like `[pause]`, `[laugh]` and wrapping tags like `<whisper>text</whisper>` for expressive delivery.
 
 For more details, see the [xAI TTS documentation](https://x.ai/news/grok-stt-and-tts-apis).
+
+#### Speechify Options
+
+Available when `provider: 'speechify'`:
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `model` | `String` | TTS model. Available: `'simba-3.2'` (default), `'simba-english'`, `'simba-multilingual'` |
+| `voice` | `String` | Voice ID. Available: `'henry'` (default), `'cliff'`, `'kristy'`, `'george'`, `'aria'` |
+| `output_format` | `String` | Output format. Available: `'mp3'` (default), `'wav'`, `'ogg'`, `'aac'` |
+
+For more details, see the [Speechify API documentation](https://docs.speechify.com/).
 
 ## Return value
 
@@ -237,6 +249,30 @@ A `Promise` that resolves to an `HTMLAudioElement`. The element’s `src` points
                     provider: "xai",
                     voice: "eve",
                     language: "en"
+                }
+            );
+            audio.play();
+        });
+    </script>
+</body>
+</html>
+```
+
+<strong class="example-title">Use Speechify voices</strong>
+
+```html;ai-txt2speech-speechify
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="play">Use Speechify voice</button>
+    <script>
+        document.getElementById('play').addEventListener('click', async ()=>{
+            const audio = await puter.ai.txt2speech(
+                "Hello! This sample uses the Speechify Henry voice.",
+                {
+                    provider: "speechify",
+                    model: "simba-3.2",
+                    voice: "henry"
                 }
             );
             audio.play();

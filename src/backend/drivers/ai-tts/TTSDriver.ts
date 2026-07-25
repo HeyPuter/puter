@@ -26,6 +26,7 @@ import { AWSPollyTTSProvider } from './providers/awsPolly/AWSPollyTTSProvider.js
 import { ElevenLabsTTSProvider } from './providers/elevenlabs/ElevenLabsTTSProvider.js';
 import { GeminiTTSProvider } from './providers/gemini/GeminiTTSProvider.js';
 import { OpenAITTSProvider } from './providers/openai/OpenAITTSProvider.js';
+import { SpeechifyTTSProvider } from './providers/speechify/SpeechifyTTSProvider.js';
 import { XAITTSProvider } from './providers/xai/XAITTSProvider.js';
 import type {
     ISynthesizeArgs,
@@ -52,6 +53,7 @@ const TTS_ALIASES = [
     'elevenlabs-tts',
     'gemini-tts',
     'xai-tts',
+    'speechify-tts',
 ] as const;
 type TTSAlias = (typeof TTS_ALIASES)[number];
 const ALIAS_TO_PROVIDER: Record<TTSAlias, string> = {
@@ -60,6 +62,7 @@ const ALIAS_TO_PROVIDER: Record<TTSAlias, string> = {
     'elevenlabs-tts': 'elevenlabs',
     'gemini-tts': 'gemini',
     'xai-tts': 'xai',
+    'speechify-tts': 'speechify',
 };
 
 export class TTSDriver extends PuterDriver {
@@ -272,6 +275,7 @@ export class TTSDriver extends PuterDriver {
 
         this.#registerGeminiProvider(providers);
         this.#registerXAIProvider(providers);
+        this.#registerSpeechifyProvider(providers);
     }
 
     #registerGeminiProvider(providers: Record<string, unknown>) {
@@ -314,6 +318,29 @@ export class TTSDriver extends PuterDriver {
             } catch (e) {
                 console.warn(
                     '[TTSDriver] Failed to init xAI TTS provider:',
+                    (e as Error).message,
+                );
+            }
+        }
+    }
+
+    #registerSpeechifyProvider(providers: Record<string, unknown>) {
+        const m = this.services.metering;
+        const speechify = (providers['speechify'] ?? providers['speechify-tts']) as
+            | Record<string, unknown>
+            | undefined;
+        const speechifyKey =
+            (speechify?.apiKey as string | undefined) ??
+            (speechify?.api_key as string | undefined) ??
+            (speechify?.key as string | undefined);
+        if (speechifyKey) {
+            try {
+                this.#providers['speechify'] = new SpeechifyTTSProvider(m, {
+                    apiKey: speechifyKey,
+                });
+            } catch (e) {
+                console.warn(
+                    '[TTSDriver] Failed to init Speechify TTS provider:',
                     (e as Error).message,
                 );
             }

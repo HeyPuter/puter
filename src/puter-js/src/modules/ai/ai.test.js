@@ -334,6 +334,20 @@ describe('ai.txt2speech driver payloads', () => {
         });
     });
 
+    it('txt2speech routes provider speechify with its defaults', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: 'data:audio/mpeg;base64,QUJD' });
+        await ai.txt2speech('hello', { provider: 'speechify' });
+        const body = lastBody();
+        expect(body.driver).toBe('speechify-tts');
+        expect(body.args).toEqual({
+            text: 'hello',
+            provider: 'speechify',
+            voice: 'henry',
+            model: 'simba-3.2',
+            output_format: 'mp3',
+        });
+    });
+
     it('txt2speech infers the provider from engine aliases', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: 'data:audio/mpeg;base64,QUJD' });
         await ai.txt2speech('hello', { engine: 'gemini' });
