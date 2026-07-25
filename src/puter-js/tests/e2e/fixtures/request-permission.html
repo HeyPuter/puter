@@ -49,9 +49,15 @@
         }
         waitForPuter();
 
-        // Requests to see the user's email; needs whoami (env=app only).
+        // Requests to see the user's email. Needs whoami, which needs an
+        // auth token: in env=app the GUI injects one, but in env=web the
+        // site must sign in first (the realistic third-party flow).
         document.getElementById('req-email-perm').addEventListener('click', async () => {
             try {
+                if (!puter.authToken) {
+                    log('perm:email:signing-in');
+                    await puter.auth.signIn();
+                }
                 const whoami = await puter.auth.whoami();
                 const granted = await puter.ui.requestPermission({
                     permission: `user:${whoami.uuid}:email:read`,
