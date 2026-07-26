@@ -167,8 +167,7 @@ export class LegacyFSController extends PuterController {
 
         router.get('/get-launch-apps', apiOptions, async (req, res) => {
             const recommendedSvc = this.services.recommendedApps as unknown as
-                | { getRecommendedApps?: () => Promise<unknown[]> }
-                | undefined;
+                { getRecommendedApps?: () => Promise<unknown[]> } | undefined;
             const recommended = recommendedSvc?.getRecommendedApps
                 ? await recommendedSvc.getRecommendedApps()
                 : [];
@@ -640,9 +639,7 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                | Record<string, unknown>
-                | null
-                | undefined,
+                Record<string, unknown> | null | undefined,
         });
         const oldPath = source.path;
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
@@ -1071,8 +1068,7 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            | (SignedFile & { path?: string })
-            | Record<string, never>;
+            (SignedFile & { path?: string }) | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1612,10 +1608,7 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            | 'see'
-            | 'list'
-            | 'read'
-            | 'write';
+            'see' | 'list' | 'read' | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',
@@ -2271,12 +2264,21 @@ export class LegacyFSController extends PuterController {
 
     #serializeBatchError(err: unknown): Record<string, unknown> {
         if (err instanceof HttpError) {
-            return {
+            const payload: Record<string, unknown> = {
                 error: true,
                 status: err.statusCode,
                 message: err.message,
                 code: err.legacyCode ?? err.code,
             };
+            // Same as the terminal errorHandler: extra fields (e.g.
+            // `entry_name` on item_with_same_name_exists) ride along
+            // without clobbering the canonical slots.
+            if (err.fields) {
+                for (const [k, v] of Object.entries(err.fields)) {
+                    if (!(k in payload)) payload[k] = v;
+                }
+            }
+            return payload;
         }
         if (err instanceof Error) {
             return { error: true, status: 500, message: err.message };
