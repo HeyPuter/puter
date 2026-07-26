@@ -1194,15 +1194,23 @@ class UI extends EventListener {
                     settle(false);
                     return;
                 }
-                if ( window.crossOriginIsolated ) {
-                    // COOP severs the opener relationship: the popup can't
-                    // postMessage back and `popup.closed` is meaningless.
-                    // Poll the permission check instead (mirrors signIn's
-                    // /login/wait fallback), giving up after a timeout.
+                // Pin the expected event.source before anything can return
+                // early: until this is set the message handler accepts a
+                // decision from any window on the GUI origin, and the wait for
+                // the consent dialog's Continue click is user-paced.
+                popupWindow = popup;
+                // A severed opener relationship means the popup can't
+                // postMessage back and `popup.closed` tells us nothing about
+                // the window the user is looking at — it reads `true` for a
+                // detached proxy. Poll the permission check instead (mirrors
+                // signIn's /login/wait fallback), giving up after a timeout.
+                // `crossOriginIsolated` alone misses this: COOP severs the
+                // relationship on its own, while being isolated also requires
+                // COEP.
+                if ( window.crossOriginIsolated || popup.closed ) {
                     pollDecision();
                     return;
                 }
-                popupWindow = popup;
                 checkClosed = setInterval(() => {
                     if ( ! popup.closed ) return;
                     // The GUI posts the decision and then closes the popup,
@@ -1264,8 +1272,16 @@ class UI extends EventListener {
                     onCancel: () => settle(false),
                 });
                 consentDialog = dialog;
-                document.body.appendChild(dialog);
-                dialog.open();
+                try {
+                    document.body.appendChild(dialog);
+                    dialog.open();
+                } catch (e) {
+                    // Nothing to show the user (e.g. called from a <head>
+                    // script, so there is no body yet). This resolves to a
+                    // boolean for every other caller, so deny rather than
+                    // reject — and let cleanup drop the message listener.
+                    settle(false);
+                }
             }
         });
     };
