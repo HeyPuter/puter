@@ -465,15 +465,17 @@ const postAuthActions = async (action) => {
         // promise pending until the user closes it by hand.
         let granted = false;
         try {
-            // Identify the requesting app by its origin rather than trusting a
-            // caller-supplied uid, falling back to the query param otherwise.
-            let app_uid = window.url_query_params.get('app_uid') ?? undefined;
+            // The requesting app is identified by its origin only. A uid from
+            // the query string is never trusted: it is chosen by whoever
+            // opened this page, so honouring it would let a link grant a
+            // permission to an app the dialog never named. When the origin
+            // can't be resolved here, the uid is left unset and the server
+            // resolves it from the same origin the dialog displayed.
+            let app_uid;
             if ( origin ) {
-                try {
-                    app_uid = window.host_app_uid ?? await window.getAppUIDFromOrigin(origin);
-                } catch (e) {
-                    // Keep the query-param fallback.
-                }
+                app_uid = window.host_app_uid
+                    ?? await window.getAppUIDFromOrigin(origin)
+                    ?? undefined;
             }
 
             granted = await UIPermissionDialog({

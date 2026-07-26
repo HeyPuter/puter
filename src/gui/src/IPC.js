@@ -1314,8 +1314,10 @@ const ipc_listener = async (event, handled) => {
     else if ( event.data.msg === 'requestPermission' ) {
         // Always respond, even on validation/auth failure, so the SDK's
         // promise settles instead of hanging forever.
+        // The app can close its own window while the dialog is up, which
+        // tears down the iframe — posting into it must not throw.
         const respond = (granted) => {
-            target_iframe.contentWindow.postMessage({
+            target_iframe?.contentWindow?.postMessage({
                 msg: 'permissionGranted',
                 granted: granted,
                 original_msg_id: msg_id,
@@ -1351,7 +1353,7 @@ const ipc_listener = async (event, handled) => {
 
         // report the user's decision to the requester window
         respond(granted === true);
-        $(target_iframe).get(0).focus({ preventScroll: true });
+        $(target_iframe).get(0)?.focus({ preventScroll: true });
     }
     //--------------------------------------------------------
     // showFontPicker

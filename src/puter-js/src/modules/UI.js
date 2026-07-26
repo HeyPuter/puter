@@ -1245,6 +1245,8 @@ class UI extends EventListener {
                 // the gesture the browser requires.
                 const dialog = new PuterDialog(() => {}, () => {}, {
                     popupURL: url,
+                    // Same unique-name reasoning as the direct path above.
+                    popupName: `puter-permission-${msg_id}`,
                     onLaunch: (popup) => watchPopup(popup),
                     onCancel: () => settle(false),
                 });

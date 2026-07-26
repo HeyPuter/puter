@@ -209,3 +209,20 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
         await expect(page.locator('#log [data-entry="perm:driver:false"]')).toBeVisible();
     });
 });
+
+test.describe('request-permission action hardening', () => {
+    test('an app_uid in the URL never produces a prompt on its own', async ({ page }) => {
+        // The uid identifies who receives the grant, so it must come from the
+        // requesting origin — never from the link. A link carrying only a uid
+        // would otherwise prompt for an unnamed requester and grant to an app
+        // the dialog never showed the user.
+        await page.goto(
+            '/action/request-permission?permission=driver%3Aputer-image-generation%3Agenerate' +
+                '&app_uid=app-00000000-0000-4000-8000-000000000000',
+        );
+        await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
+        // Give the post-auth action a chance to run before asserting absence.
+        await page.locator('.desktop').waitFor({ timeout: 60_000 });
+        await expect(page.locator('dialog.perm-dialog')).toHaveCount(0);
+    });
+});
