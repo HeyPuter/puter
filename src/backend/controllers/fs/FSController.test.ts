@@ -3,24 +3,25 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import type { Request, Response } from 'express';
 import type { Readable } from 'node:stream';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
@@ -28,9 +29,9 @@ import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { FSController } from './FSController.js';
 import type {
+    ClientSignedWriteResponse,
     CompleteWriteRequest,
     SignedWriteRequest,
-    SignedWriteResponse,
 } from './requestTypes.js';
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -91,11 +92,15 @@ const makeReq = <B>(init: {
     headers?: Record<string, string>;
     actor: Actor;
     user?: { id: number; username: string };
+    method?: string;
 }): Request => {
     return {
         body: init.body ?? ({} as B),
         query: init.query ?? {},
         headers: init.headers ?? {},
+        // Handlers that serve both verbs (readdir) read params from `query` on
+        // GET and `body` otherwise.
+        ...(init.method ? { method: init.method } : {}),
         actor: init.actor,
         // Some controller helpers fall back to `req.user` (set by the
         // session middleware) for id / username before reading `req.actor`.
@@ -165,13 +170,16 @@ describe('FSController.startBatchWrites', () => {
         const req = makeReq<SignedWriteRequest[]>({ body, actor });
         await withActor(actor, () => controller.startBatchWrites(req, res));
 
-        const responses = captured.body as SignedWriteResponse[];
+        const responses = captured.body as ClientSignedWriteResponse[];
         expect(responses).toHaveLength(2);
         for (const r of responses) {
             expect(r.sessionId).toEqual(expect.any(String));
-            expect(r.objectKey).toEqual(expect.any(String));
-            expect(r.bucket).toEqual(expect.any(String));
             expect(r.uploadMode).toBe('single');
+            // Storage internals stay server-side: the presigned `url` already
+            // encodes bucket and key.
+            for (const field of ['bucket', 'bucketRegion', 'objectKey']) {
+                expect(r).not.toHaveProperty(field);
+            }
             // In-memory mock S3 still returns a presigned-URL string for
             // single-mode uploads — verify it's there but don't assert
             // shape (varies by region/host config).
@@ -203,7 +211,7 @@ describe('FSController.startBatchWrites', () => {
         const { res, captured } = makeRes();
         const req = makeReq<SignedWriteRequest[]>({ body, actor });
         await withActor(actor, () => controller.startBatchWrites(req, res));
-        const [response] = captured.body as SignedWriteResponse[];
+        const [response] = captured.body as ClientSignedWriteResponse[];
         const session = await server.stores.fsEntry.getPendingEntryBySessionId(
             response!.sessionId,
         );
@@ -329,7 +337,8 @@ describe('FSController.completeBatchWrites', () => {
                 startRes.res,
             ),
         );
-        const startResponses = startRes.captured.body as SignedWriteResponse[];
+        const startResponses = startRes.captured
+            .body as ClientSignedWriteResponse[];
         expect(startResponses).toHaveLength(2);
 
         // 2) Complete via the controller. Single-mode completion only
@@ -352,16 +361,29 @@ describe('FSController.completeBatchWrites', () => {
         const responses = captured.body as Array<{
             sessionId: string;
             wasOverwrite: boolean;
-            fsEntry: { path: string; userId: number; isDir: boolean };
+            fsEntry: Record<string, unknown>;
         }>;
-        expect(responses.map((r) => r.fsEntry.path).sort()).toEqual([
+        expect(responses.map((r) => r.fsEntry.path as string).sort()).toEqual([
             `/${username}/Documents/c.txt`,
             `/${username}/Documents/d.txt`,
         ]);
         for (const response of responses) {
             expect(response.wasOverwrite).toBe(false);
-            expect(response.fsEntry.userId).toBe(userId);
             expect(response.fsEntry.isDir).toBe(false);
+            // Ownership is asserted against the store below — the response
+            // itself must not carry the owner, storage columns, or the
+            // capability tokens.
+            for (const field of [
+                'userId',
+                'id',
+                'parentId',
+                'bucket',
+                'bucketRegion',
+                'publicToken',
+                'fileRequestToken',
+            ]) {
+                expect(response.fsEntry).not.toHaveProperty(field);
+            }
         }
 
         // The real fsentries were committed and are now resolvable.
@@ -392,7 +414,7 @@ describe('FSController.completeBatchWrites', () => {
             ),
         );
         const [firstResponse] = firstStart.captured
-            .body as SignedWriteResponse[];
+            .body as ClientSignedWriteResponse[];
         const firstComplete = makeRes();
         await withActor(actor, () =>
             controller.completeBatchWrites(
@@ -424,7 +446,7 @@ describe('FSController.completeBatchWrites', () => {
             ),
         );
         const [secondResponse] = secondStart.captured
-            .body as SignedWriteResponse[];
+            .body as ClientSignedWriteResponse[];
 
         const secondComplete = makeRes();
         await withActor(actor, () =>
@@ -464,20 +486,25 @@ describe('FSController.completeBatchWrites', () => {
                 start.res,
             ),
         );
-        const [started] = start.captured.body as SignedWriteResponse[];
+        const [started] = start.captured.body as ClientSignedWriteResponse[];
 
         // Actually upload 4096 bytes to the session's object key (simulating
-        // a client that PUTs more than it declared via the signed URL).
+        // a client that PUTs more than it declared via the signed URL). The
+        // storage location isn't in the response any more, so read it off the
+        // upload session — a real client just PUTs to the presigned URL.
+        const session = await server.stores.fsEntry.getPendingEntryBySessionId(
+            started!.sessionId,
+        );
         const realBytes = Buffer.alloc(4096, 0x41);
         await server.stores.s3Object.uploadFromServer(
             {
-                bucket: started!.bucket,
-                objectKey: started!.objectKey,
+                bucket: session!.bucket!,
+                objectKey: session!.objectKey,
                 contentType: 'application/octet-stream',
                 body: realBytes,
                 contentLength: realBytes.byteLength,
             },
-            started!.bucketRegion,
+            session!.bucketRegion!,
         );
 
         const complete = makeRes();
@@ -518,7 +545,7 @@ describe('FSController.completeBatchWrites', () => {
             ),
         );
         const [firstResponse] = firstStart.captured
-            .body as SignedWriteResponse[];
+            .body as ClientSignedWriteResponse[];
         await withActor(actor, () =>
             controller.completeBatchWrites(
                 makeReq<CompleteWriteRequest[]>({
@@ -555,7 +582,7 @@ describe('FSController.completeBatchWrites', () => {
             ),
         );
         const [secondResponse] = secondStart.captured
-            .body as SignedWriteResponse[];
+            .body as ClientSignedWriteResponse[];
 
         const emitSpy = vi.spyOn(server.clients.event, 'emit');
         let updatedCall: (typeof emitSpy.mock.calls)[number] | undefined;
@@ -635,7 +662,7 @@ describe('FSController.completeBatchWrites', () => {
                 startA.res,
             ),
         );
-        const [aResponse] = startA.captured.body as SignedWriteResponse[];
+        const [aResponse] = startA.captured.body as ClientSignedWriteResponse[];
 
         const err = await withActor(b.actor, () =>
             controller
@@ -1788,13 +1815,12 @@ describe('FSController.readdirEntries recursive', () => {
             seen.push(...page.items.map((e) => e.path));
             cursor = page.cursor;
         } while (cursor);
-        expect(rel(base, seen.map((path) => ({ path })))).toEqual([
-            'l1a',
-            'l1a/l2a',
-            'l1a/l2a/l3a',
-            'l1a/l2a/l3a/l4a',
-            'l1b',
-        ]);
+        expect(
+            rel(
+                base,
+                seen.map((path) => ({ path })),
+            ),
+        ).toEqual(['l1a', 'l1a/l2a', 'l1a/l2a/l3a', 'l1a/l2a/l3a/l4a', 'l1b']);
     });
 
     it('counts the subtree with includeTotal', async () => {
@@ -1915,6 +1941,178 @@ describe('FSController.readdirEntries recursive', () => {
             expect(item.path.startsWith(`${base}/`)).toBe(true);
         }
         expect(page.items).toHaveLength(5);
+    });
+});
+
+// -- /readdir over GET (query params) --
+
+describe('FSController.readdirEntriesViaGet', () => {
+    const seed = async (names: string[]) => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const dir = `/${username}/Documents/get-readdir`;
+        await withActor(actor, () =>
+            controller.mkdirEntry(
+                makeReq({ body: { path: dir }, actor }),
+                makeRes().res,
+            ),
+        );
+        for (const name of names) {
+            await withActor(actor, () =>
+                controller.mkdirEntry(
+                    makeReq({ body: { path: `${dir}/${name}` }, actor }),
+                    makeRes().res,
+                ),
+            );
+        }
+        return { actor, dir };
+    };
+
+    // Query strings carry every value as a string — that is the whole risk
+    // surface of this route, so tests pass strings the way a real URL would.
+    const getReaddir = async (
+        actor: Awaited<ReturnType<typeof makeUser>>['actor'],
+        query: Record<string, unknown>,
+    ) => {
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.readdirEntriesViaGet(
+                makeReq({ query, actor, method: 'GET' }),
+                res,
+            ),
+        );
+        return captured.body;
+    };
+
+    it('lists a directory from query params', async () => {
+        const { actor, dir } = await seed(['a', 'b', 'c']);
+        const body = await getReaddir(actor, { path: dir });
+        expect(Array.isArray(body)).toBe(true);
+        expect((body as Array<{ name: string }>).map((e) => e.name)).toEqual([
+            'a',
+            'b',
+            'c',
+        ]);
+    });
+
+    it('honors string limit/offset like the POST form', async () => {
+        const { actor, dir } = await seed(['a', 'b', 'c']);
+        const body = (await getReaddir(actor, {
+            path: dir,
+            limit: '2',
+            offset: '1',
+        })) as Array<{ name: string }>;
+        expect(body.map((e) => e.name)).toEqual(['b', 'c']);
+    });
+
+    it('treats an empty cursor as the first page and returns the envelope', async () => {
+        const { actor, dir } = await seed(['a', 'b', 'c']);
+        const page = (await getReaddir(actor, { path: dir, cursor: '' })) as {
+            items: Array<{ name: string }>;
+            cursor?: string;
+        };
+        expect(page.items.map((e) => e.name)).toEqual(['a', 'b', 'c']);
+        expect(page.cursor).toBeUndefined();
+    });
+
+    it('pages through with a string cursor', async () => {
+        const { actor, dir } = await seed(['d1', 'd2', 'd3', 'd4', 'd5']);
+        const names: string[] = [];
+        let cursor: string | undefined = '';
+        do {
+            const page = (await getReaddir(actor, {
+                path: dir,
+                limit: '2',
+                cursor,
+            })) as { items: Array<{ name: string }>; cursor?: string };
+            names.push(...page.items.map((e) => e.name));
+            cursor = page.cursor;
+        } while (cursor);
+        expect(names).toEqual(['d1', 'd2', 'd3', 'd4', 'd5']);
+    });
+
+    it('coerces string includeTotal=true', async () => {
+        const { actor, dir } = await seed(['a', 'b', 'c']);
+        const page = (await getReaddir(actor, {
+            path: dir,
+            limit: '1',
+            cursor: '',
+            includeTotal: 'true',
+        })) as { items: unknown[]; total?: number };
+        expect(page.items.length).toBe(1);
+        expect(page.total).toBe(3);
+    });
+
+    it('coerces string recursive/depth and lists nested entries', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const base = `/${username}/Documents/get-tree`;
+        for (const path of [base, `${base}/a`, `${base}/a/b`]) {
+            await withActor(actor, () =>
+                controller.mkdirEntry(
+                    makeReq({ body: { path }, actor }),
+                    makeRes().res,
+                ),
+            );
+        }
+        const page = (await getReaddir(actor, {
+            path: base,
+            recursive: 'true',
+            depth: '2',
+        })) as { items: Array<{ path: string }> };
+        expect(
+            page.items.map((e) => e.path.slice(base.length + 1)).sort(),
+        ).toEqual(['a', 'a/b']);
+    });
+
+    it('rejects a non-directory target with the legacy code', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const file = `/${username}/Documents/get-file.txt`;
+        await withActor(actor, () =>
+            controller.touchEntry(
+                makeReq({ body: { path: file }, actor }),
+                makeRes().res,
+            ),
+        );
+        await expect(
+            withActor(actor, () =>
+                controller.readdirEntriesViaGet(
+                    makeReq({ query: { path: file }, actor, method: 'GET' }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'dest_is_not_a_directory',
+        });
+    });
+
+    it('does not expose internal ids, storage columns or tokens', async () => {
+        const { actor, dir } = await seed(['a']);
+        const body = (await getReaddir(actor, { path: dir })) as Array<
+            Record<string, unknown>
+        >;
+        const entry = body[0]!;
+        // Numeric primary keys and storage/token columns must never ship in a
+        // listing — entries are addressed by uuid.
+        for (const field of [
+            'id',
+            'parentId',
+            'userId',
+            'associatedAppId',
+            'bucket',
+            'bucketRegion',
+            'publicToken',
+            'fileRequestToken',
+        ]) {
+            expect(entry).not.toHaveProperty(field);
+        }
+        expect(entry.uuid).toEqual(expect.any(String));
+        // No user-identifying data anywhere in the serialized payload.
+        const serialized = JSON.stringify(body);
+        expect(serialized).not.toContain('@');
+        expect(serialized).not.toMatch(/"(email|owner|user_id|userId)"/);
     });
 });
 
@@ -2430,10 +2628,9 @@ describe('FSController associatedAppId entitlement gate', () => {
             ],
         );
         const row = (
-            await server.clients.db.read(
-                'SELECT id FROM apps WHERE uid = ?',
-                [uid],
-            )
+            await server.clients.db.read('SELECT id FROM apps WHERE uid = ?', [
+                uid,
+            ])
         )[0] as { id: number };
         return { id: row.id };
     };
@@ -2449,13 +2646,15 @@ describe('FSController associatedAppId entitlement gate', () => {
         await withActor(actor, () =>
             controller.startBatchWrites(
                 makeReq<SignedWriteRequest[]>({
-                    body: [{ fileMetadata: { path, size: 3, associatedAppId } }],
+                    body: [
+                        { fileMetadata: { path, size: 3, associatedAppId } },
+                    ],
                     actor,
                 }),
                 startRes.res,
             ),
         );
-        const [started] = startRes.captured.body as SignedWriteResponse[];
+        const [started] = startRes.captured.body as ClientSignedWriteResponse[];
         const completeRes = makeRes();
         await withActor(actor, () =>
             controller.completeBatchWrites(
