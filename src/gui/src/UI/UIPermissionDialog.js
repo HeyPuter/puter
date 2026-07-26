@@ -316,6 +316,10 @@ async function undo_uncertain_grant (options) {
                 permission: options.permission,
             }),
             method: 'POST',
+            // In the popup flow the answer is posted and the window closed
+            // right after `settle`, and a plain fetch is cancelled with its
+            // document — taking this reconciliation down with it.
+            keepalive: true,
         });
     } catch (e) {
         console.error('Failed to withdraw an uncertain permission grant', e);

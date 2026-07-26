@@ -708,6 +708,76 @@ test.describe('puter.ui.requestPermission (env=web, cross-origin-isolated)', () 
     });
 });
 
+test.describe('request-permission popup reconciliation', () => {
+    test('a denial after an uncertain grant is withdrawn even though the popup closes itself', async ({ page, context }) => {
+        // Same reconciliation the env=app suite covers, but in the popup flow,
+        // where answering is immediately followed by `window.close()`. The
+        // withdrawal request is fired from the closing document, so unless it
+        // is sent `keepalive` the browser cancels it with the popup — leaving
+        // the user told "denied" while the grant is live in their account.
+        const permission = 'driver:puter-image-generation:generate';
+        const fixtureOrigin = new URL(PERMISSION_FIXTURE_URL).origin;
+
+        // A GUI-origin page for server-side state checks: the fixture origin
+        // cannot fetch the API directly (Chrome blocks loopback-address
+        // requests from it), but the GUI origin can.
+        await page.goto('/');
+        await page.waitForFunction(() => !!window.getUserAppToken && !!window.auth_token,
+            null, { timeout: 60_000 });
+        const appUid = await page.evaluate(
+            async (origin) => (await window.getUserAppToken(origin))?.app_uid,
+            fixtureOrigin,
+        );
+        expect(typeof appUid).toBe('string');
+        const checker = await context.newPage();
+        await checker.goto('/');
+        await checker.waitForFunction(() => !!window.auth_token, null, { timeout: 60_000 });
+        const isGranted = () => checker.evaluate(async ({ perm, uid }) => {
+            const res = await fetch(`${window.api_origin}/auth/list-permissions`, {
+                headers: { 'Authorization': `Bearer ${window.auth_token}` },
+            });
+            const body = await res.json();
+            return body.myself_to_app.some(
+                r => r.permission === perm && r.app_uid === uid,
+            );
+        }, { perm: permission, uid: appUid });
+
+        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+
+        // Grant for real first, so there is a live row the withdrawal must
+        // remove.
+        let [popup] = await Promise.all([
+            page.waitForEvent('popup'),
+            page.locator('#req-driver-perm').click(),
+        ]);
+        await expect(popup.locator('dialog.perm-dialog')).toBeVisible({ timeout: 60_000 });
+        await popup.locator('dialog.perm-dialog .perm-dialog-allow').click();
+        await expect(page.locator('#log [data-entry="perm:driver:true"]')).toBeVisible();
+        expect(await isGranted()).toBe(true);
+
+        // Now make the next grant's outcome unknowable (a 5xx says nothing
+        // about whether the row was written — and here one already is).
+        await context.route('**/auth/grant-user-app', route =>
+            route.fulfill({ status: 502, body: '{}' }));
+
+        [popup] = await Promise.all([
+            page.waitForEvent('popup'),
+            page.locator('#req-driver-perm').click(),
+        ]);
+        const dialog = popup.locator('dialog.perm-dialog');
+        await expect(dialog).toBeVisible({ timeout: 60_000 });
+        await dialog.locator('.perm-dialog-allow').click();
+        await expect(dialog.locator('.perm-dialog-error')).toBeVisible({ timeout: 30_000 });
+        await dialog.locator('.perm-dialog-deny').click();
+
+        // The popup answers and closes itself; the withdrawal must survive it.
+        await expect(page.locator('#log [data-entry="perm:driver:false"]')).toBeVisible();
+        await expect.poll(() => popup.isClosed(), { timeout: 15_000 }).toBe(true);
+        await expect.poll(isGranted, { timeout: 20_000 }).toBe(false);
+    });
+});
+
 test.describe('request-permission action hardening', () => {
     test('an app_uid in the URL never produces a prompt on its own', async ({ page }) => {
         // The uid identifies who receives the grant, so it must come from the

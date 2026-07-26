@@ -273,14 +273,17 @@ const postAuthActions = async (action) => {
 
         if ( window.openerOrigin ) {
             try {
-                app_uid = await window.getAppUIDFromOrigin(window.openerOrigin);
-                window.host_app_uid = app_uid;
+                // `getAppUIDFromOrigin` reports failure by resolving to a
+                // null/undefined uid, not by throwing — so check the value,
+                // and on either failure mode keep the host_app_uid set by
+                // the token exchange above, which resolved the same origin.
+                const resolved_app_uid = await window.getAppUIDFromOrigin(window.openerOrigin);
+                app_uid = resolved_app_uid ?? window.host_app_uid;
             } catch (e) {
-                // Keep the host_app_uid set by the token exchange above; a
-                // throw here would wedge the popup with no way to answer.
                 console.error('getAppUIDFromOrigin failed', e);
                 app_uid = window.host_app_uid;
             }
+            window.host_app_uid = app_uid;
         }
 
         if ( action === 'show-open-file-picker' ) {
