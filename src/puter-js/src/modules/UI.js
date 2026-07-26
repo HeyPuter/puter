@@ -1153,6 +1153,9 @@ class UI extends EventListener {
             let popupWindow = null;
             // The consent dialog, when the no-gesture path had to create one.
             let consentDialog = null;
+            // Set when the popup announces itself, which it can only do while
+            // the opener relationship is intact. See the `closed` handler.
+            let promptReady = false;
 
             const cleanup = () => {
                 if ( checkClosed ) {
@@ -1180,8 +1183,15 @@ class UI extends EventListener {
                 // msg_id binds the message to this request.
                 if ( e.origin !== puter.defaultGUIOrigin ) return;
                 if ( popupWindow && e.source !== popupWindow ) return;
-                if ( e.data?.msg !== 'permissionGranted' ) return;
                 if ( e.data?.original_msg_id != msg_id ) return;
+                // The popup reporting that it is up and can reach us. Carries
+                // no decision — it only tells the `closed` handler below which
+                // kind of window it is looking at.
+                if ( e.data?.msg === 'permissionPromptReady' ) {
+                    promptReady = true;
+                    return;
+                }
+                if ( e.data?.msg !== 'permissionGranted' ) return;
                 settle(e.data.granted === true);
             };
             window.addEventListener('message', messageHandler);
@@ -1214,24 +1224,26 @@ class UI extends EventListener {
                 // `closed` read right after `window.open()` cannot see COOP
                 // severing yet: the popup is still the initial about:blank in
                 // this browsing-context group, and the group is only swapped
-                // when the navigation to the Puter origin *commits* — measured
-                // at ~200ms. So severing shows up here, in the poll, as
-                // `closed` flipping true moments after opening.
+                // when the navigation to the Puter origin *commits*. So
+                // severing shows up here, in the poll, as `closed` flipping
+                // true — indistinguishable, by itself, from the user closing
+                // the window.
                 //
-                // A real user close reads identically, which is why the two are
-                // told apart by *when* they happen: severing lands while the
-                // popup is still loading, whereas closing it by hand means
-                // finding the window and clicking it. Anything inside this
-                // window is therefore the channel going away, not an answer —
-                // reporting a denial for it would tell the site "denied" while
-                // the user goes on to click Allow and commit the grant.
-                const SEVERED_WINDOW_MS = 3000;
-                const opened_at = Date.now();
+                // The two are told apart by whether the popup ever announced
+                // itself: that message can only arrive while the opener
+                // relationship is intact, so having seen it proves a close is a
+                // real close and the answer is now. Never having seen it means
+                // the channel may be severed, with the prompt live in a window
+                // that cannot answer — reporting a denial there would tell the
+                // site "denied" while the user goes on to click Allow and commit
+                // the grant, so the decision is read back from the server
+                // instead. Elapsed time cannot stand in for this: a slow popup
+                // navigation commits the severing whenever it commits.
                 checkClosed = setInterval(() => {
                     if ( ! popup.closed ) return;
                     clearInterval(checkClosed);
                     checkClosed = null;
-                    const severed = Date.now() - opened_at < SEVERED_WINDOW_MS;
+                    const severed = ! promptReady;
                     // The GUI posts the decision and then closes the popup,
                     // and cross-process postMessage delivery is not ordered
                     // relative to `closed` becoming true. Give an in-flight

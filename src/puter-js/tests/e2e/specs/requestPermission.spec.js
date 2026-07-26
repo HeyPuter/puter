@@ -545,6 +545,49 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
         await expect(page.locator('#log [data-entry="perm:driver:false"]')).toBeVisible();
     });
 
+    test('a close moments after the popup opens is answered, not waited out', async ({ page }) => {
+        // The site is signed in, so the server-poll fallback has a token and
+        // will run if the close is mistaken for a severed opener — burning its
+        // whole 5-minute timeout before answering, because a denial writes
+        // nothing for it to observe. A close this early used to land inside the
+        // window that was read as severing, so dismissing the popup on sight
+        // left the caller's promise pending for minutes instead of answering.
+        await page.goto('/');
+        await page.waitForFunction(() => !!window.getUserAppToken && !!window.auth_token,
+            null, { timeout: 60_000 });
+        const fixtureOrigin = new URL(PERMISSION_FIXTURE_URL).origin;
+        const appToken = await page.evaluate(
+            async (origin) => (await window.getUserAppToken(origin))?.token,
+            fixtureOrigin,
+        );
+        await page.evaluate(async ({ origin, perm }) => {
+            await fetch(`${window.api_origin}/auth/revoke-user-app`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${window.auth_token}`,
+                },
+                body: JSON.stringify({ origin, permission: perm }),
+            });
+        }, { origin: fixtureOrigin, perm: 'driver:puter-image-generation:generate' });
+
+        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+        await page.evaluate((t) => puter.setAuthToken(t), appToken);
+
+        const [popup] = await Promise.all([
+            page.waitForEvent('popup'),
+            page.locator('#req-driver-perm').click(),
+        ]);
+        // Closed as soon as the popup has announced itself, which is the
+        // earliest point a real user could have seen the window — and far
+        // inside the old cutoff.
+        await popup.waitForFunction(() => !!window.openerOrigin, null, { timeout: 30_000 });
+        await popup.close();
+        await expect(page.locator('#log [data-entry="perm:driver:false"]'))
+            .toBeVisible({ timeout: 20_000 });
+    });
+
     test('Escape on the consent dialog settles the request', async ({ page }) => {
         // A modal `<dialog>` disappears on Escape whether or not anyone is
         // listening, so the dialog has to report that dismissal — otherwise the
@@ -697,8 +740,8 @@ test.describe('puter.ui.requestPermission (env=web, COOP-only opener)', () => {
         const dialog = popup.locator('dialog.perm-dialog');
         await expect(dialog).toBeVisible({ timeout: 60_000 });
 
-        // Long enough to cover the severing (~200ms), the close grace period
-        // (1s) and the window in which a close is read as severing (3s).
+        // Long enough to cover the severing (~200ms) and the close grace
+        // period (1s), with room to spare.
         await page.waitForTimeout(5000);
         expect(await page.locator('#log [data-entry="perm:driver:false"]').count()).toBe(0);
         expect(await page.locator('#log [data-entry="perm:driver:true"]').count()).toBe(0);
@@ -720,6 +763,75 @@ test.describe('puter.ui.requestPermission (env=web, COOP-only opener)', () => {
         // as soon as it has answered, which can happen before a listener
         // registered after the click is attached.
         await expect.poll(() => popup.isClosed(), { timeout: 30_000 }).toBe(true);
+    });
+
+    test('a slow popup navigation is still recognised as a severed opener', async ({ page, context }) => {
+        // Severing surfaces as `popup.closed` flipping true when the popup's
+        // navigation commits, so how long that takes decides nothing about
+        // whether the opener link survived. Classifying a close by elapsed time
+        // therefore broke as soon as the commit was slow: past the cutoff the
+        // severing read as a user close, and the site was told "denied" about a
+        // second later — while the prompt was still coming up, and before the
+        // user had decided anything. What separates the two is whether the popup
+        // ever announced itself, which only reaches an opener that is still
+        // attached.
+        const permission = 'driver:puter-image-generation:generate';
+
+        await page.goto('/');
+        await page.waitForFunction(() => !!window.getUserAppToken && !!window.auth_token,
+            null, { timeout: 60_000 });
+        const fixtureOrigin = new URL(PERMISSION_FIXTURE_URL).origin;
+        const appToken = await page.evaluate(
+            async (origin) => (await window.getUserAppToken(origin))?.token,
+            fixtureOrigin,
+        );
+        // Earlier tests leave this permission granted to the fixture origin's
+        // app; clear it so a poll that starts out true can't mask a premature
+        // denial.
+        await page.evaluate(async ({ origin, perm }) => {
+            await fetch(`${window.api_origin}/auth/revoke-user-app`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${window.auth_token}`,
+                },
+                body: JSON.stringify({ origin, permission: perm }),
+            });
+        }, { origin: fixtureOrigin, perm: permission });
+
+        await context.route(PERMISSION_FIXTURE_URL, async (route) => {
+            const resp = await route.fetch();
+            await route.fulfill({
+                response: resp,
+                headers: {
+                    ...resp.headers(),
+                    'cross-origin-opener-policy': 'same-origin',
+                },
+            });
+        });
+        // Hold the popup document back so its navigation — and with it the
+        // severing — commits well after the old 3s cutoff.
+        await context.route('**/action/request-permission*', async (route) => {
+            await new Promise(r => setTimeout(r, 4500));
+            await route.continue();
+        });
+
+        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+        expect(await page.evaluate(() => window.crossOriginIsolated)).toBe(false);
+        await page.evaluate((t) => puter.setAuthToken(t), appToken);
+
+        await Promise.all([
+            page.waitForEvent('popup'),
+            page.locator('#req-driver-perm').click(),
+        ]);
+
+        // Past the delayed commit and the grace period that follows it: the
+        // requester must still be waiting, not holding a denial it was handed
+        // while the user was reading the prompt.
+        await page.waitForTimeout(9000);
+        expect(await page.locator('#log [data-entry="perm:driver:false"]').count()).toBe(0);
+        expect(await page.locator('#log [data-entry="perm:driver:true"]').count()).toBe(0);
     });
 });
 

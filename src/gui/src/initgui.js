@@ -1076,6 +1076,35 @@ window.initgui = async function (options) {
         // this is the referrer in terms of user acquisition
         window.referrerStr = window.openerOrigin;
 
+        // Tell a request-permission opener that this popup can reach it. Sent
+        // here, before any sign-in gate, because the SDK reads its absence as
+        // "the opener link was severed by COOP" — where a close means the
+        // prompt is still live in a window that cannot answer, and the decision
+        // has to be read back from the server rather than reported as a denial.
+        // A gate that delayed this would make abandoning sign-in look severed.
+        // Carries no token: see util/popupAuth.js for what a permission popup
+        // may hand its opener.
+        if (action === 'request-permission') {
+            try {
+                window.opener?.postMessage(
+                    {
+                        msg: 'permissionPromptReady',
+                        original_msg_id:
+                            window.url_query_params.get('msg_id'),
+                    },
+                    new URL(window.openerOrigin).origin,
+                );
+            } catch (e) {
+                // An unparseable opener origin, or an opener that went away.
+                // The requester falls back to reading the decision from the
+                // server, so this must not take the popup down with it.
+                console.error(
+                    'request-permission: could not announce the popup',
+                    e,
+                );
+            }
+        }
+
         if (
             action === 'sign-in' &&
             !window.is_auth() &&
