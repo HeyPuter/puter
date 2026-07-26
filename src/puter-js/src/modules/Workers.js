@@ -39,7 +39,7 @@ export class WorkersHandler {
         }
         filePath = getAbsolutePathForApp(filePath);
 
-        const driverResult = await utils.make_driver_method(['authorization', 'filePath', 'workerName', 'appId'], 'workers', 'worker-service', 'create')(puter.authToken, filePath, workerName, appId);;
+        const driverResult = await utils.makeDriverMethod({ iface: 'workers', driver: 'worker-service', method: 'create', argNames: ['authorization', 'filePath', 'workerName', 'appId'] })(puter.authToken, filePath, workerName, appId);;
 
         if ( ! driverResult.success ) {
             throw new Error(driverResult?.errors || 'Driver failed to execute, do you have the necessary permissions?');
@@ -78,7 +78,7 @@ export class WorkersHandler {
     list (options) {
         const opts = (options && typeof options === 'object') ? options : {};
         const hasCursor = Object.prototype.hasOwnProperty.call(opts, 'cursor');
-        const getFilePaths = utils.make_driver_method([], 'workers', 'worker-service', 'getFilePaths');
+        const getFilePaths = utils.makeDriverMethod({ iface: 'workers', driver: 'worker-service', method: 'getFilePaths' });
 
         const base = {};
         if ( opts.limit !== undefined ) base.limit = opts.limit;
@@ -120,7 +120,7 @@ export class WorkersHandler {
         await this.#authenticateIfNeeded();
 
         workerName = workerName.toLocaleLowerCase(); // just incase
-        const driverCall = await utils.make_driver_method(['workerName'], 'workers', 'worker-service', 'getFilePaths')(workerName);
+        const driverCall = await utils.makeDriverMethod({ iface: 'workers', driver: 'worker-service', method: 'getFilePaths', argNames: ['workerName'] })(workerName);
         return driverCall[0];
     }
 
@@ -129,7 +129,7 @@ export class WorkersHandler {
 
         workerName = workerName.toLocaleLowerCase(); // just incase
         // const driverCall = await puter.drivers.call("workers", "worker-service", "destroy", { authorization: puter.authToken, workerName });
-        const driverResult = await utils.make_driver_method(['authorization', 'workerName'], 'workers', 'worker-service', 'destroy')(puter.authToken, workerName);
+        const driverResult = await utils.makeDriverMethod({ iface: 'workers', driver: 'worker-service', method: 'destroy', argNames: ['authorization', 'workerName'] })(puter.authToken, workerName);
 
         if ( ! driverResult.result ) {
             if ( ! driverResult.result ) {
@@ -150,7 +150,7 @@ export class WorkersHandler {
     }
 
     async getLoggingHandle (workerName) {
-        const loggingEndpoint = await utils.make_driver_method([], 'workers', 'worker-service', 'getLoggingUrl')(puter.authToken, workerName);
+        const loggingEndpoint = await utils.makeDriverMethod({ iface: 'workers', driver: 'worker-service', method: 'getLoggingUrl' })(puter.authToken, workerName);
         const socket = new WebSocket(`${loggingEndpoint}/${puter.authToken}/${workerName}`);
         const logStreamObject = new EventTarget();
         logStreamObject.onLog = (_data) => {

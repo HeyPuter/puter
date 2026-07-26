@@ -3,8 +3,15 @@
 // module is wire-compatible. Not part of the SDK bundle. Delete this file and
 // the equivalence test together once the baseline is no longer useful.
 /* eslint-disable */
-import * as utils from '../lib/utils.js';
+import { makeDriverMethod } from '../lib/utils.js';
 import { fetchUrl } from '../lib/networkUtils.js';
+
+// The frozen call sites below use the pre-unification helper signature; this
+// bridges them to the current one without editing them.
+const utils = {
+    make_driver_method: (argNames, iface, driver, method, settings = {}) =>
+        makeDriverMethod({ argNames, iface, driver, method, ...settings }),
+};
 
 const createDeferred = () => {
     let resolve;

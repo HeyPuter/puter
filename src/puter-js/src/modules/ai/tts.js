@@ -186,10 +186,14 @@ export async function txt2speech (text, optionsOrLanguage, voice, engine, testMo
         throw { message: `Input size cannot be larger than ${ MAX_INPUT_SIZE}`, code: 'input_too_large' };
     }
 
-    return await utils.make_driver_method(['source'], 'puter-tts', ttsDriverName(provider), 'synthesize', {
+    return await utils.makeDriverMethod({
+        iface: 'puter-tts',
+        driver: ttsDriverName(provider),
+        method: 'synthesize',
+        argNames: ['source'],
         puter,
         responseType: 'blob',
-        test_mode: hasTestModeFlag([optionsOrLanguage, voice, engine, testModeFlag]),
+        testMode: hasTestModeFlag([optionsOrLanguage, voice, engine, testModeFlag]),
         transform: toAudioElement,
     })(options);
 }
@@ -229,7 +233,11 @@ export async function listEngines (options = {}) {
         params.provider = provider;
     }
 
-    return await utils.make_driver_method(['source'], 'puter-tts', ttsDriverName(provider), 'list_engines', {
+    return await utils.makeDriverMethod({
+        iface: 'puter-tts',
+        driver: ttsDriverName(provider),
+        method: 'list_engines',
+        argNames: ['source'],
         puter,
         readonly: true,
         responseType: 'text',
@@ -276,7 +284,11 @@ export async function listVoices (options) {
         }
     }
 
-    return utils.make_driver_method(['source'], 'puter-tts', ttsDriverName(provider), 'list_voices', {
+    return utils.makeDriverMethod({
+        iface: 'puter-tts',
+        driver: ttsDriverName(provider),
+        method: 'list_voices',
+        argNames: ['source'],
         puter,
         readonly: true,
         responseType: 'text',

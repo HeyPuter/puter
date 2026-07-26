@@ -3490,6 +3490,17 @@ body.myapps-reordering .myapps-tile {
     border: 1px solid var(--dashboard-danger-border);
 }
 
+.dashboard .bento-plan-badge.trial {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--dashboard-warning-text);
+    background: var(--dashboard-warning-background);
+    border: 1px solid var(--dashboard-warning-border);
+}
+
 .dashboard .bento-plan-warning {
     margin-top: 10px;
     padding: 8px 10px;
@@ -3499,6 +3510,14 @@ body.myapps-reordering .myapps-tile {
     border: 1px solid var(--dashboard-danger-border);
     font-size: 12px;
     line-height: 1.4;
+}
+
+/* Time-boxed but not broken — a trial notice reads as advisory, not as the
+   red dunning banner. */
+.dashboard .bento-plan-warning.info {
+    color: var(--dashboard-warning-text);
+    background: var(--dashboard-warning-background);
+    border-color: var(--dashboard-warning-border);
 }
 
 .dashboard .bento-plan-upgrade {

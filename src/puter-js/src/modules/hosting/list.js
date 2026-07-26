@@ -40,7 +40,7 @@ const withoutWorkerRows = (items) =>
  */
 export function list (...args) {
     const { puter } = this;
-    const select = utils.make_driver_method([], 'puter-subdomains', undefined, 'select', { puter, readonly: true });
+    const select = utils.makeDriverMethod({ iface: 'puter-subdomains', method: 'select', puter, readonly: true });
 
     const opts = (typeof args[0] === 'object' && args[0] !== null) ? args[0] : {};
     const { limit, offset, cursor, includeTotal, stream, success, error, ...rest } = opts;

@@ -65,26 +65,23 @@ class Email {
         this.APIOrigin = APIOrigin;
     }
 
-    send = utils.make_driver_method(
-        ['to', 'subject', 'body'],
-        'puter-email',
-        undefined,
-        'send',
-        {
-            preprocess: (args) => {
-                // `body` is positional-call sugar for `text`.
-                if (
-                    args.body !== undefined &&
-                    args.text === undefined &&
-                    args.html === undefined
-                ) {
-                    args.text = args.body;
-                }
-                delete args.body;
-                return args;
-            },
+    send = utils.makeDriverMethod({
+        iface: 'puter-email',
+        method: 'send',
+        argNames: ['to', 'subject', 'body'],
+        preprocess: (args) => {
+            // `body` is positional-call sugar for `text`.
+            if (
+                args.body !== undefined &&
+                args.text === undefined &&
+                args.html === undefined
+            ) {
+                args.text = args.body;
+            }
+            delete args.body;
+            return args;
         },
-    );
+    });
 }
 
 export default Email;

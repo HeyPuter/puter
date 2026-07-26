@@ -8,7 +8,10 @@ import { assertKeyPresent, assertKeySize } from './lib/validate.js';
 /** @typedef {import('../../../types/modules/kv').KVValue} KVValue */
 
 const updateDriverCall = (puter, args) =>
-    utils.make_driver_method(['key', 'pathAndValueMap', 'ttl'], 'puter-kvstore', undefined, 'update', {
+    utils.makeDriverMethod({
+        iface: 'puter-kvstore',
+        method: 'update',
+        argNames: ['key', 'pathAndValueMap', 'ttl'],
         puter,
         preprocess: (driverArgs) => {
             assertKeyPresent(driverArgs.key);

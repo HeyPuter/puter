@@ -12,5 +12,5 @@ export async function del (name) {
     const { puter } = this;
 
     const options = typeof name === 'string' ? { id: { name } } : {};
-    return await utils.make_driver_method(['uid'], 'puter-apps', 'es:app', 'delete', { puter })(options);
+    return await utils.makeDriverMethod({ iface: 'puter-apps', driver: 'es:app', method: 'delete', argNames: ['uid'], puter })(options);
 }

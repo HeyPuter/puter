@@ -1,4 +1,4 @@
-import { fetchUrl } from '../../../lib/networkUtils.js';
+import { driverCallEnvelope } from '../../../lib/networkUtils.js';
 
 // Keys the Puter GUI reads at boot. The first `get()` of any of them triggers
 // a single batched driver call fetching all of them, so the desktop doesn't
@@ -50,26 +50,19 @@ export class GuiBootCache {
         (async () => {
             await this.init.promise;
             this.init = null;
-            const resp = await fetchUrl(`${puter.APIOrigin}/drivers/call`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'text/plain;actually=json',
-                },
-                body: JSON.stringify({
-                    interface: 'puter-kvstore',
-                    method: 'get',
-                    args: {
-                        key: GUI_CACHE_KEYS,
-                    },
-                    auth_token: puter.authToken,
-                }),
-            });
-            const values = await resp.json();
+            const values = await driverCallEnvelope({
+                puter,
+                iface: 'puter-kvstore',
+                method: 'get',
+                args: { key: GUI_CACHE_KEYS },
+            }).catch(() => null);
             const scheduleExpiry = () => {
                 setTimeout(() => {
                     this.batch = null;
                 }, BATCH_LIFETIME_MS);
             };
+            // A batch that failed or came back in an unexpected shape resolves
+            // empty, so boot-key reads see `undefined` until the window expires.
             if ( ! Array.isArray(values?.result) ) {
                 this.batch.resolve({});
                 scheduleExpiry();

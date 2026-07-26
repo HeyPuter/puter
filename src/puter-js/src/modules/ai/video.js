@@ -78,10 +78,14 @@ export async function txt2vid (promptOrOptions, optionsOrTestMode) {
         options.puter_output_path = getAbsolutePathForApp(options.puter_output_path, puter);
     }
 
-    return await utils.make_driver_method(['prompt'], 'puter-video-generation', videoService, 'generate', {
+    return await utils.makeDriverMethod({
+        iface: 'puter-video-generation',
+        driver: videoService,
+        method: 'generate',
+        argNames: ['prompt'],
         puter,
         responseType: 'blob',
-        test_mode: testMode ?? false,
+        testMode: testMode ?? false,
         transform: toVideoElement,
     })(options);
 }

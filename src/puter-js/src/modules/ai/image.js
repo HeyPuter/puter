@@ -75,10 +75,14 @@ export async function txt2img (promptOrOptions, optionsOrTestMode) {
         options.puter_output_path = getAbsolutePathForApp(options.puter_output_path, puter);
     }
 
-    return await utils.make_driver_method(['prompt'], 'puter-image-generation', imageService, 'generate', {
+    return await utils.makeDriverMethod({
+        iface: 'puter-image-generation',
+        driver: imageService,
+        method: 'generate',
+        argNames: ['prompt'],
         puter,
         responseType: 'blob',
-        test_mode: testMode ?? false,
+        testMode: testMode ?? false,
         transform: toImageElement,
     })(options);
 }
