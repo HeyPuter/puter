@@ -4,7 +4,7 @@ import { isObject, parseOptConfigThenCallbacks } from './lib/args.js';
 /** @typedef {import('../../../types/modules/kv').KVOptConfig} KVOptConfig */
 
 const flushDriverCall = (puter, args) =>
-    utils.make_driver_method([], 'puter-kvstore', undefined, 'flush', { puter })(args);
+    utils.makeDriverMethod({ iface: 'puter-kvstore', method: 'flush', puter })(args);
 
 /**
  * @overload

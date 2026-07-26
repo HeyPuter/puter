@@ -558,10 +558,20 @@ export class FSService extends PuterService {
                 );
             }
             if (existingEntry && !normalizedInput.overwrite) {
+                // v1 wire contract: clients (the GUI's save dialogs among
+                // them) key on `item_with_same_name_exists` + `entry_name`
+                // to offer an overwrite prompt.
                 throw new HttpError(
                     409,
                     'A file already exists at this path and overwrite was not requested',
-                    { legacyCode: 'conflict' },
+                    {
+                        legacyCode: 'item_with_same_name_exists',
+                        fields: {
+                            entry_name: pathPosix.basename(
+                                normalizedInput.path,
+                            ),
+                        },
+                    },
                 );
             }
 

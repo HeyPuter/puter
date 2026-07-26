@@ -23,5 +23,5 @@ import { assertKeySize } from './lib/validate.js';
  */
 export async function expire (key, ttl, optConfig) {
     assertKeySize(key);
-    return await utils.make_driver_method(['key', 'ttl'], 'puter-kvstore', undefined, 'expire', { puter: this.puter })({ key, ttl, optConfig });
+    return await utils.makeDriverMethod({ iface: 'puter-kvstore', method: 'expire', argNames: ['key', 'ttl'], puter: this.puter })({ key, ttl, optConfig });
 }

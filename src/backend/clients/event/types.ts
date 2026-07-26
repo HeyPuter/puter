@@ -3,15 +3,16 @@
  *
  * Domain objects (User, Actor, FSEntry, Socket, ...) are typed as `unknown`
  * here on purpose — pulling their real types in would couple this module to
- * most of the backend and risk import cycles. Refine at the listener if
- * you need narrowed access.
+ * most of the backend and risk import cycles. Refine at the listener if you
+ * need narrowed access.
  *
  * Conventions:
- * - `*.validate` events carry an `allow` flag listeners flip to reject;
- *   they tend to grow listener-specific fields, so they accept extras via
- *   an index signature.
- * - `outer.gui.*` events ride the `{ user_id_list, response }` envelope
- *   the SocketService fans out to user-scoped channels.
+ *
+ * - `*.validate` events carry an `allow` flag listeners flip to reject; they tend
+ *   to grow listener-specific fields, so they accept extras via an index
+ *   signature.
+ * - `outer.gui.*` events ride the `{ user_id_list, response }` envelope the
+ *   SocketService fans out to user-scoped channels.
  */
 
 import type {
@@ -148,13 +149,16 @@ export type EventMap = {
         trail?: Array<string>;
         /**
          * Set by the abuse harness for flagged signups — the id under which the
-         * decision trail is persisted to KV (`abuse:trail:<id>`), shared back on
-         * the request for log / support correlation.
+         * decision trail is persisted to KV (`abuse:trail:<id>`), shared back
+         * on the request for log / support correlation.
          */
         trail_id?: string;
         /** Device signal forwarded verbatim from the signup request body. */
         fingerprint?: string | null;
-        /** Set by the abuse harness — require SMS phone verification post-signup. */
+        /**
+         * Set by the abuse harness — require SMS phone verification
+         * post-signup.
+         */
         requires_phone_verification?: boolean;
         /** Set by the abuse harness — require card verification post-signup. */
         requires_card_verification?: boolean;
@@ -334,9 +338,13 @@ export type EventMap = {
     };
 
     // ---- Thumbnails ----
+    // The listener rewrites `thumbnail` in place (an s3:// key or legacy
+    // https:// URL becomes a signed URL) and falls back to `uuid`/`uid` to
+    // migrate inline data-URL thumbnails. Declared to match: the previous
+    // `uri` member was never emitted nor read.
     'thumbnail.read': {
-        uri: string;
-        size?: string;
+        uuid?: string;
+        uid?: string;
         thumbnail?: string | null;
     };
     'thumbnail.created': { url: string };
@@ -406,9 +414,9 @@ export type LifecyclePhase = 'before' | 'after' | 'error' | 'reject';
 /**
  * Payload for `driver.<iface>.<method>.<phase>` events.
  *
- * One shape across all phases; read `phase` (or the key suffix) to
- * branch. `allow`/`rejectReason` are only meaningful on the `before` phase
- * (emitted via `emitAndWait`).
+ * One shape across all phases; read `phase` (or the key suffix) to branch.
+ * `allow`/`rejectReason` are only meaningful on the `before` phase (emitted via
+ * `emitAndWait`).
  */
 export type DriverMethodLifecycleEvent = {
     phase: LifecyclePhase;
@@ -474,11 +482,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;

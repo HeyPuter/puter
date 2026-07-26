@@ -18,7 +18,10 @@ import { assertKeyPresent, assertKeySize, assertValueSize } from './lib/validate
  */
 
 const setSingle = (puter, args) =>
-    utils.make_driver_method(['key', 'value', 'expireAt'], 'puter-kvstore', undefined, 'set', {
+    utils.makeDriverMethod({
+        iface: 'puter-kvstore',
+        method: 'set',
+        argNames: ['key', 'value', 'expireAt'],
         puter,
         preprocess: (driverArgs) => {
             assertKeyPresent(driverArgs.key);
@@ -29,7 +32,10 @@ const setSingle = (puter, args) =>
     })(args);
 
 const setBatch = (puter, args) =>
-    utils.make_driver_method(['items'], 'puter-kvstore', undefined, 'batchPut', {
+    utils.makeDriverMethod({
+        iface: 'puter-kvstore',
+        method: 'batchPut',
+        argNames: ['items'],
         puter,
         preprocess: (driverArgs) => {
             if ( !Array.isArray(driverArgs.items) || driverArgs.items.length === 0 ) {

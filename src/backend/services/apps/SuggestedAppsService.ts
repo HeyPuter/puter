@@ -3,22 +3,24 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { posix as pathPosix } from 'node:path';
 import { getAppIconUrl } from '../../util/appIcon.js';
+import { hostedIndexUrlBackingIsUnavailable } from '../../util/hostedAppBacking.js';
 import { PuterService } from '../types.js';
 
 // -- Extension → suggested app names mapping -------------------------
@@ -176,13 +178,13 @@ function extractExtension(entry: { name?: string; path?: string }): string {
 }
 
 /**
- * Given a file entry (path, name, or extension), returns an ordered list
- * of apps that can open it. Built-in apps come from the hardcoded map
- * above; third-party apps come from the `app_filetype_association` table.
+ * Given a file entry (path, name, or extension), returns an ordered list of
+ * apps that can open it. Built-in apps come from the hardcoded map above;
+ * third-party apps come from the `app_filetype_association` table.
  *
- * Lookups cache per-extension (plus a separate per-app-name cache for the
- * small set of built-in opener apps), so a `readdir` with N children of
- * the same type pays the DB cost once.
+ * Lookups cache per-extension (plus a separate per-app-name cache for the small
+ * set of built-in opener apps), so a `readdir` with N children of the same type
+ * pays the DB cost once.
  */
 export class SuggestedAppsService extends PuterService {
     // Keyed by the normalized extension (lowercase, no leading dot). The
@@ -198,9 +200,9 @@ export class SuggestedAppsService extends PuterService {
     }
 
     /**
-     * Resolve suggestions for many entries in one pass. Entries that share
-     * an extension are deduped to a single underlying lookup; results are
-     * returned positionally so callers can `entries[i].suggestedApps = out[i]`.
+     * Resolve suggestions for many entries in one pass. Entries that share an
+     * extension are deduped to a single underlying lookup; results are returned
+     * positionally so callers can `entries[i].suggestedApps = out[i]`.
      */
     async getSuggestedAppsForEntries(
         entries: Array<{ name?: string; path?: string }>,
@@ -248,7 +250,7 @@ export class SuggestedAppsService extends PuterService {
         const builtinNames = suggestionsForExtension(ext);
 
         const seen = new Set<number>();
-        const results: Array<Record<string, unknown>> = [];
+        const candidates: Array<Record<string, unknown>> = [];
 
         const apiBaseUrl = this.config.api_base_url as string | undefined;
 
@@ -260,7 +262,7 @@ export class SuggestedAppsService extends PuterService {
         for (const app of builtinApps) {
             if (app && !seen.has(app.id)) {
                 seen.add(app.id);
-                results.push(toAppSummary(app, apiBaseUrl));
+                candidates.push(app);
             }
         }
 
@@ -270,12 +272,41 @@ export class SuggestedAppsService extends PuterService {
                 if (seen.has(app.id)) continue;
                 if (app.approved_for_opening_items) {
                     seen.add(app.id);
-                    results.push(toAppSummary(app, apiBaseUrl));
+                    candidates.push(app);
                 }
             }
         }
 
-        return results;
+        // Drop apps whose puter-hosted backing is gone or has been reclaimed
+        // by another user. These summaries feed the GUI's default-open path,
+        // which launches straight from `app_obj` without re-reading the app
+        // through AppDriver — so its hosted-backing guard never runs and the
+        // launcher would append `puter.auth.token` to a subdomain the app
+        // owner no longer controls. `/open_item` also mints a user-app token
+        // (and grants `fs:<uuid>:write`) for `suggested[0]`, so an
+        // unlaunchable app must not reach the head of this list either.
+        //
+        // Built-ins never hit the DB here: their index_urls aren't on a
+        // hosting domain, so the check short-circuits on the URL alone.
+        const availability = await Promise.all(
+            candidates.map((app) =>
+                hostedIndexUrlBackingIsUnavailable({
+                    app,
+                    subdomainStore: this.stores.subdomain,
+                    config: this.config,
+                }).catch(() => {
+                    // A subdomain lookup failure must not silently widen the
+                    // guard into "suggest nothing" — but it must not open it
+                    // either. Treat the backing as unavailable: the app is
+                    // unlaunchable for this window, not deleted.
+                    return true;
+                }),
+            ),
+        );
+
+        return candidates
+            .filter((_app, index) => !availability[index])
+            .map((app) => toAppSummary(app, apiBaseUrl));
     }
 }
 

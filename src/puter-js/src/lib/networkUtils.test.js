@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { dedupe, fetchUrl, sendWithRetry } from './networkUtils.js';
+import { dedupe, driverCall, driverCallEnvelope, fetchUrl, sendWithRetry } from './networkUtils.js';
 
 // -- Controllable fake XMLHttpRequest --
 // Drives fetchUrl's event handlers deterministically. Each instance plays the
@@ -398,5 +398,131 @@ describe('driver permission-grant replay (regression)', () => {
         expect(requestPermission).toHaveBeenCalledTimes(1); // one-shot
         expect(xhrs.length).toBe(2);
         expect(result.error.code).toBe('permission_denied');
+    });
+});
+
+describe('driverCall', () => {
+    const call = { iface: 'puter-kvstore', method: 'get', args: { key: 'k' } };
+
+    beforeEach(() => {
+        globalThis.puter = { authToken: 'tok', APIOrigin: 'https://api.example', env: 'nodejs' };
+    });
+
+    it('posts the driver envelope and resolves the unwrapped result', async () => {
+        const xhrs = installFakeXHR(respond({ body: { success: true, result: 'v' } }));
+        const result = await driverCall(call);
+        expect(result).toBe('v');
+        expect(xhrs[0].method).toBe('POST');
+        expect(xhrs[0].url).toBe('https://api.example/drivers/call');
+        expect(xhrs[0]._reqHeaders['content-type']).toBe('text/plain;actually=json');
+        expect(JSON.parse(xhrs[0].reqBody)).toEqual({
+            interface: 'puter-kvstore',
+            method: 'get',
+            args: { key: 'k' },
+            auth_token: 'tok',
+        });
+    });
+
+    it('sends driver and test_mode only when the caller sets them', async () => {
+        const xhrs = installFakeXHR(respond({ body: { success: true, result: {} } }));
+        await driverCall({ ...call, driver: 'ai-chat', testMode: false });
+        expect(JSON.parse(xhrs[0].reqBody)).toMatchObject({ driver: 'ai-chat', test_mode: false });
+    });
+
+    it('resolves the whole response when the driver returns no result field', async () => {
+        installFakeXHR(respond({ body: { success: true, models: [] } }));
+        expect(await driverCall(call)).toEqual({ success: true, models: [] });
+    });
+
+    it('applies transform to a successful result', async () => {
+        installFakeXHR(respond({ body: { success: true, result: 2 } }));
+        const result = await driverCall(call, { transform: async n => n * 21 });
+        expect(result).toBe(42);
+    });
+
+    it('rejects the driver error payload and notifies onError', async () => {
+        installFakeXHR(respond({ body: { success: false, error: { code: 'key_too_large' } } }));
+        const onError = vi.fn();
+        await expect(driverCall(call, { onError })).rejects.toEqual({
+            success: false, error: { code: 'key_too_large' },
+        });
+        expect(onError).toHaveBeenCalledWith({ success: false, error: { code: 'key_too_large' } });
+    });
+
+    it('rejects a leftover 401 as Unauthorized', async () => {
+        installFakeXHR(respond({ status: 401, body: {} }));
+        await expect(driverCall(call)).rejects.toEqual({ status: 401, message: 'Unauthorized' });
+    });
+
+    it('rejects auth_canceled when a signed-out visitor dismisses the prompt', async () => {
+        globalThis.puter = {
+            authToken: null,
+            APIOrigin: 'https://api.example',
+            env: 'web',
+            ui: { authenticateWithPuter: async () => { throw new Error('dismissed'); } },
+        };
+        const xhrs = installFakeXHR(respond({ body: { success: true, result: 'v' } }));
+        await expect(driverCall(call)).rejects.toEqual({
+            error: { code: 'auth_canceled', message: 'Authentication canceled' },
+        });
+        expect(xhrs.length).toBe(0); // no request without a token
+    });
+
+    it('resolves an NDJSON response as an iterator of lines that stringify to their text', async () => {
+        installFakeXHR(xhr => {
+            xhr._setHeaders(200, { 'content-type': 'application/x-ndjson' });
+            xhr._headersReceived();
+            xhr._progress('{"text":"he"}\n{"text":"llo"}\n');
+            xhr._done();
+        });
+        const parts = [];
+        for await ( const part of await driverCall(call) ) parts.push(`${part}`);
+        expect(parts).toEqual([ 'he', 'llo' ]);
+    });
+
+    it('retries a readonly method on a transient failure', async () => {
+        vi.useFakeTimers();
+        const xhrs = installFakeXHR(sequence(
+            respond({ status: 503, body: {} }),
+            respond({ body: { success: true, result: 'v' } }),
+        ));
+        const p = driverCall(call, { readonly: true });
+        await vi.advanceTimersByTimeAsync(60_000);
+        await expect(p).resolves.toBe('v');
+        expect(xhrs.length).toBe(2);
+        vi.useRealTimers();
+    });
+});
+
+describe('driverCallEnvelope', () => {
+    const call = { iface: 'ipgeo', method: 'ipgeo', args: { ip: '1.2.3.4' } };
+
+    beforeEach(() => {
+        globalThis.puter = { authToken: 'tok', APIOrigin: 'https://api.example', env: 'nodejs' };
+    });
+
+    it('resolves the envelope as the backend sent it', async () => {
+        installFakeXHR(respond({ body: { success: true, result: { country: 'US' } } }));
+        expect(await driverCallEnvelope(call)).toEqual({ success: true, result: { country: 'US' } });
+    });
+
+    it('resolves rather than rejects on a driver-level failure', async () => {
+        installFakeXHR(respond({ body: { success: false, error: { code: 'not_found' } } }));
+        expect(await driverCallEnvelope(call)).toEqual({ success: false, error: { code: 'not_found' } });
+    });
+
+    it('reads a response with no declared content type as JSON', async () => {
+        installFakeXHR(xhr => {
+            xhr._setHeaders(200);
+            xhr._headersReceived();
+            xhr.responseText = '{"success":true,"result":[1,2]}';
+            xhr._done();
+        });
+        expect(await driverCallEnvelope(call)).toEqual({ success: true, result: [ 1, 2 ] });
+    });
+
+    it('throws on a content type it cannot read', async () => {
+        installFakeXHR(respond({ contentType: 'text/html', body: '<html>' }));
+        await expect(driverCallEnvelope(call)).rejects.toThrow('unrecognized content type: text/html');
     });
 });

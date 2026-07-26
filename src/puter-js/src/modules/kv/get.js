@@ -5,7 +5,10 @@ import { assertKeySize } from './lib/validate.js';
 /** @typedef {import('../../../types/modules/kv').KVOptConfig} KVOptConfig */
 
 const getDriverCall = (puter, args) =>
-    utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'get', {
+    utils.makeDriverMethod({
+        iface: 'puter-kvstore',
+        method: 'get',
+        argNames: ['key'],
         puter,
         readonly: true,
         preprocess: (driverArgs) => {

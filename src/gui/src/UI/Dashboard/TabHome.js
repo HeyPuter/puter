@@ -125,6 +125,26 @@ function buildUsageHTML() {
     return h;
 }
 
+// Trial end date in two lengths: `short` for the badge, `long` for the
+// sentence under it. Returns null when the subscription carries no end date,
+// so callers fall back to unqualified "Free trial" wording.
+function formatTrialEnd(trialEndsAt) {
+    if (!Number.isFinite(trialEndsAt)) return null;
+    const date = new Date(trialEndsAt);
+    if (Number.isNaN(date.getTime())) return null;
+    return {
+        short: date.toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+        }),
+        long: date.toLocaleDateString(undefined, {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+        }),
+    };
+}
+
 const TabHome = {
     id: 'home',
     label: 'Home',
@@ -370,25 +390,31 @@ const TabHome = {
 
             const pastDue =
                 !!subscription && subscription.status === 'past_due';
+            const trialing =
+                !!subscription && subscription.status === 'trialing';
             // `past_due` keeps benefits during Stripe's dunning window, so
             // it still counts as having a plan — we just flag it.
             const hasSubscription =
                 !!subscription &&
                 (subscription.status === 'active' ||
-                    subscription.status === 'trialing' ||
+                    trialing ||
                     subscription.status === 'cancel_pending' ||
                     pastDue);
             const planName = subscription?.tier || 'free';
+            const trialEnds = trialing
+                ? formatTrialEnd(subscription.trialEndsAt)
+                : null;
 
             $el_window.find('.bento-plan-name').text(i18n(planName));
 
             // Reset state-dependent classes / warning each (re)render.
             const $badge = $el_window
                 .find('.bento-plan-badge')
-                .removeClass('active free past-due');
+                .removeClass('active free past-due trial');
             const $warning = $el_window
                 .find('.bento-plan-warning')
                 .hide()
+                .removeClass('info')
                 .text('');
 
             if (hasSubscription) {
@@ -398,6 +424,24 @@ const TabHome = {
                         .text(
                             'Your last payment failed. Update your payment method to keep your subscription — access will be revoked shortly.',
                         )
+                        .show();
+                } else if (trialing) {
+                    // A trial grants the full tier but lapses to Free unless a
+                    // payment method is added, so say when it ends.
+                    $badge
+                        .text(
+                            trialEnds
+                                ? `Free trial — ends ${trialEnds.short}`
+                                : 'Free trial',
+                        )
+                        .addClass('trial');
+                    $warning
+                        .text(
+                            trialEnds
+                                ? `Your free trial ends on ${trialEnds.long}. Add a payment method before then to keep this plan.`
+                                : 'You are on a free trial. Add a payment method to keep this plan when it ends.',
+                        )
+                        .addClass('info')
                         .show();
                 } else {
                     $badge.text('Current').addClass('active');

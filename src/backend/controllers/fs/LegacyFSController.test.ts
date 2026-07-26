@@ -23,6 +23,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
+import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { signFile } from '../../util/fileSigning.js';
@@ -2741,5 +2742,172 @@ describe('LegacyFSController.updateFsentryThumbnail', () => {
         );
         const body = captured.body as { thumbnail: string };
         expect(typeof body.thumbnail).toBe('string');
+    });
+});
+
+// ── GET /get-launch-apps ────────────────────────────────────────────
+//
+// `recent` is a launch-metadata producer: it returns `index_url` for
+// apps the user has opened before. The taskbar happens to launch these
+// by name (so AppDriver's hosted-backing guard applies), but the field
+// is served regardless, so the guard is applied here too.
+
+describe('LegacyFSController GET /get-launch-apps', () => {
+    const hostedUrl = (sub: string) => `https://${sub}.site.puter.localhost/`;
+
+    // The route is an inline lambda in `registerRoutes`, so pull it off a
+    // freshly-registered router rather than calling a named method.
+    const getLaunchAppsHandler = () => {
+        const router = new PuterRouter();
+        (
+            controller as unknown as {
+                registerRoutes: (r: PuterRouter) => void;
+            }
+        ).registerRoutes(router);
+        const route = router.routes.find(
+            (r) => r.method === 'get' && r.path === '/get-launch-apps',
+        );
+        if (!route) throw new Error('No GET /get-launch-apps route');
+        return route.handler;
+    };
+
+    const recordOpen = async (userId: number, appUid: string) => {
+        await server.clients.db.write(
+            'INSERT INTO `app_opens` (`app_uid`, `user_id`, `ts`) VALUES (?, ?, ?)',
+            [appUid, userId, Math.floor(Date.now() / 1000)],
+        );
+    };
+
+    const fetchRecent = async (
+        actor: Actor,
+    ): Promise<Array<Record<string, unknown>>> => {
+        const { res, captured } = makeRes();
+        await withActor(actor, async () => {
+            await getLaunchAppsHandler()(makeReq({ actor }), res, () => {
+                throw new Error('handler called next() unexpectedly');
+            });
+        });
+        return (captured.body as { recent: Array<Record<string, unknown>> })
+            .recent;
+    };
+
+    const makeHostedApp = async (userId: number, sub: string) => {
+        const name = `launch-${Math.random().toString(36).slice(2, 10)}`;
+        const app = await server.stores.app.create(
+            { name, title: 'Launchable', index_url: hostedUrl(sub) },
+            { ownerUserId: userId },
+        );
+        return app as { uid: string };
+    };
+
+    it('returns index_url while the hosted subdomain is owned', async () => {
+        const { actor, userId } = await makeUser();
+        const sub = `live-${Math.random().toString(36).slice(2, 10)}`;
+        await server.stores.subdomain.create({ userId, subdomain: sub });
+        const app = await makeHostedApp(userId, sub);
+        await recordOpen(userId, app.uid);
+
+        const entry = (await fetchRecent(actor)).find(
+            (a) => a.uuid === app.uid,
+        );
+        expect(entry).toBeDefined();
+        expect(String(entry?.index_url)).toContain(sub);
+        expect(entry?.privateAccess).toBeUndefined();
+    });
+
+    it('nulls index_url and denies launch once the subdomain is deleted', async () => {
+        const { actor, userId } = await makeUser();
+        const sub = `gone-${Math.random().toString(36).slice(2, 10)}`;
+        const row = await server.stores.subdomain.create({
+            userId,
+            subdomain: sub,
+        });
+        const app = await makeHostedApp(userId, sub);
+        await recordOpen(userId, app.uid);
+
+        await server.stores.subdomain.deleteByUuid(
+            String((row as { uuid: string }).uuid),
+            { userId },
+        );
+
+        const entry = (await fetchRecent(actor)).find(
+            (a) => a.uuid === app.uid,
+        );
+        expect(entry).toBeDefined();
+        expect(entry?.index_url).toBeNull();
+        expect(entry?.privateAccess).toMatchObject({
+            hasAccess: false,
+            reason: 'hosted_backing_unavailable',
+        });
+    });
+
+    it('nulls index_url once the subdomain is reclaimed by another user', async () => {
+        const owner = await makeUser();
+        const attacker = await makeUser();
+        const sub = `reclaim-${Math.random().toString(36).slice(2, 10)}`;
+        const row = await server.stores.subdomain.create({
+            userId: owner.userId,
+            subdomain: sub,
+        });
+        const app = await makeHostedApp(owner.userId, sub);
+        await recordOpen(owner.userId, app.uid);
+
+        await server.stores.subdomain.deleteByUuid(
+            String((row as { uuid: string }).uuid),
+            { userId: owner.userId },
+        );
+        await server.stores.subdomain.create({
+            userId: attacker.userId,
+            subdomain: sub,
+        });
+
+        const entry = (await fetchRecent(owner.actor)).find(
+            (a) => a.uuid === app.uid,
+        );
+        expect(entry?.index_url).toBeNull();
+        expect(entry?.privateAccess).toMatchObject({
+            hasAccess: false,
+            reason: 'hosted_backing_unavailable',
+        });
+    });
+
+    it('fails closed when the subdomain lookup errors', async () => {
+        const { actor, userId } = await makeUser();
+        const sub = `flaky-${Math.random().toString(36).slice(2, 10)}`;
+        await server.stores.subdomain.create({ userId, subdomain: sub });
+        const app = await makeHostedApp(userId, sub);
+        await recordOpen(userId, app.uid);
+
+        const spy = vi
+            .spyOn(server.stores.subdomain, 'getBySubdomain')
+            .mockRejectedValue(new Error('db down'));
+        try {
+            const entry = (await fetchRecent(actor)).find(
+                (a) => a.uuid === app.uid,
+            );
+            expect(entry?.index_url).toBeNull();
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
+    it('leaves non-hosted index_urls untouched', async () => {
+        const { actor, userId } = await makeUser();
+        const name = `ext-${Math.random().toString(36).slice(2, 10)}`;
+        const app = (await server.stores.app.create(
+            {
+                name,
+                title: 'External',
+                index_url: 'https://dev-owned-domain.example/',
+            },
+            { ownerUserId: userId },
+        )) as { uid: string };
+        await recordOpen(userId, app.uid);
+
+        const entry = (await fetchRecent(actor)).find(
+            (a) => a.uuid === app.uid,
+        );
+        expect(entry?.index_url).toBe('https://dev-owned-domain.example/');
+        expect(entry?.privateAccess).toBeUndefined();
     });
 });

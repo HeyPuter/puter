@@ -56,5 +56,5 @@ export async function add (keyOrOptions, valueOrMap, optConfig) {
     }
 
     assertKeySize(options.key);
-    return await utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'add', { puter: this.puter })(options);
+    return await utils.makeDriverMethod({ iface: 'puter-kvstore', method: 'add', argNames: ['key'], puter: this.puter })(options);
 }

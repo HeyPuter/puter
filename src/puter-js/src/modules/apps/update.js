@@ -21,6 +21,6 @@ export async function update (name, attributes) {
         options = { id: { name }, object: toAppObject(attributes ?? {}) };
     }
 
-    const updated = await utils.make_driver_method(['object'], 'puter-apps', 'es:app', 'update', { puter })(options);
+    const updated = await utils.makeDriverMethod({ iface: 'puter-apps', driver: 'es:app', method: 'update', argNames: ['object'], puter })(options);
     return addUserIteration(puter, updated);
 }

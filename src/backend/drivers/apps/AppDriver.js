@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { Context } from '../../core/context.js';
@@ -29,13 +30,18 @@ import {
     isRawBase64ImageString,
     normalizeRawBase64ImageString,
 } from '../../util/appIcon.js';
-import { resolvePrivateLaunchAccess } from '../../util/privateLaunchAccess.js';
+import {
+    buildHostedBackingDenial,
+    extractPuterHostedSubdomain,
+    hostedIndexUrlBackingIsUnavailable,
+} from '../../util/hostedAppBacking.js';
 import {
     decodeCursor,
     encodeCursor,
     normalizeLimit,
     normalizeOffset,
 } from '../../util/pagination.js';
+import { resolvePrivateLaunchAccess } from '../../util/privateLaunchAccess.js';
 import {
     validateArrayOfStrings,
     validateBool,
@@ -89,15 +95,16 @@ const hasIndexUrlUniquenessExemption = (candidates) => {
 /**
  * Driver exposing the `puter-apps` interface.
  *
- * Wraps AppStore with input validation + permission checks.
- * Methods follow the `crud-q` shape client SDKs expect:
- *   create, read, select, update, upsert, delete
+ * Wraps AppStore with input validation + permission checks. Methods follow the
+ * `crud-q` shape client SDKs expect: create, read, select, update, upsert,
+ * delete
  *
  * Permission model:
- *   - Owner (apps.owner_user_id === actor.user.id) has full access
- *   - App actor matching app_owner has full access
- *   - `system:es:write-all-owners` grants blanket write
- *   - `app:uid#<app_uid>:access` grants protected-app access
+ *
+ * - Owner (apps.owner_user_id === actor.user.id) has full access
+ * - App actor matching app_owner has full access
+ * - `system:es:write-all-owners` grants blanket write
+ * - `app:uid#<app_uid>:access` grants protected-app access
  */
 export class AppDriver extends PuterDriver {
     driverInterface = 'puter-apps';
@@ -648,13 +655,13 @@ export class AppDriver extends PuterDriver {
     }
 
     /**
-     * App iframes run with `allow-same-origin allow-scripts`, so an
-     * index_url loading from the GUI host would execute third-party code
-     * same-origin with the desktop — a full sandbox escape. The API host
-     * is reserved for the same reason, and the builtin sentinel host is
-     * rewritten by the GUI to `<gui origin>/builtin/…` (see
-     * BUILTIN_APPS_HOST above). Host comparison (rather than full origin)
-     * deliberately also catches scheme/port variants of these hosts.
+     * App iframes run with `allow-same-origin allow-scripts`, so an index_url
+     * loading from the GUI host would execute third-party code same-origin with
+     * the desktop — a full sandbox escape. The API host is reserved for the
+     * same reason, and the builtin sentinel host is rewritten by the GUI to
+     * `<gui origin>/builtin/…` (see BUILTIN_APPS_HOST above). Host comparison
+     * (rather than full origin) deliberately also catches scheme/port variants
+     * of these hosts.
      */
     #assertIndexUrlHostAllowed(indexUrl) {
         let hostname;
@@ -724,15 +731,15 @@ export class AppDriver extends PuterDriver {
     }
 
     /**
-     * uid lookup with canonical-uid alias fallback. When two app rows
-     * have been merged (see {@link #maybeJoinOwnedHostedIndexUrlApp}),
-     * the source uid is recorded as an alias to the canonical uid. A
-     * direct uid miss therefore re-queries with the canonical uid so
-     * any client still holding the old uid keeps resolving to the
-     * joined row. Mirrors v1 AppES's `#read` alias plumbing.
+     * Uid lookup with canonical-uid alias fallback. When two app rows have been
+     * merged (see {@link #maybeJoinOwnedHostedIndexUrlApp}), the source uid is
+     * recorded as an alias to the canonical uid. A direct uid miss therefore
+     * re-queries with the canonical uid so any client still holding the old uid
+     * keeps resolving to the joined row. Mirrors v1 AppES's `#read` alias
+     * plumbing.
      *
-     * The alias query is fired in parallel with the direct lookup so
-     * the common (no-alias) case pays only one round-trip.
+     * The alias query is fired in parallel with the direct lookup so the common
+     * (no-alias) case pays only one round-trip.
      */
     async #getByUidWithAlias(uid) {
         const aliasPromise = this.#readCanonicalAppUidAlias(uid);
@@ -799,23 +806,24 @@ export class AppDriver extends PuterDriver {
      * Resolve the canonical app row that backs `app.index_url`.
      *
      * Returns `{ origin, expectedUid, canonicalApp }`:
-     *   - `origin`    — the parsed origin string from `index_url`.
-     *   - `expectedUid` — the canonical app uid for that origin (oldest
-     *     `apps.index_url` match, or a deterministic UUIDv5 fallback for
-     *     unknown origins).
-     *   - `canonicalApp` — the actual `apps` row at `expectedUid`, or
-     *     `null` when the uid is a UUIDv5 fallback with no DB row.
+     *
+     * - `origin` — the parsed origin string from `index_url`.
+     * - `expectedUid` — the canonical app uid for that origin (oldest
+     *   `apps.index_url` match, or a deterministic UUIDv5 fallback for unknown
+     *   origins).
+     * - `canonicalApp` — the actual `apps` row at `expectedUid`, or `null` when
+     *   the uid is a UUIDv5 fallback with no DB row.
      *
      * Used in `#toClient` for two things:
-     *   1. `created_from_origin` derivation (only set when
-     *      `expectedUid === app.uid`, mirroring v1 AppES).
-     *   2. The canonical-private gate — when `expectedUid !== app.uid`
-     *      and `canonicalApp.is_private`, the row is squatting on
-     *      someone else's private hosted URL. We must run the
-     *      privateAccess gate against the *canonical* row, not the
-     *      possibly-public squatter row, otherwise pre-existing data
-     *      from before the `subdomain_not_owned` check leaks the
-     *      victim's index_url.
+     *
+     * 1. `created_from_origin` derivation (only set when `expectedUid ===
+     *    app.uid`, mirroring v1 AppES).
+     * 2. The canonical-private gate — when `expectedUid !== app.uid` and
+     *    `canonicalApp.is_private`, the row is squatting on someone else's
+     *    private hosted URL. We must run the privateAccess gate against the
+     *    _canonical_ row, not the possibly-public squatter row, otherwise
+     *    pre-existing data from before the `subdomain_not_owned` check leaks
+     *    the victim's index_url.
      *
      * Returns `null` when there's no `index_url` or it doesn't parse.
      */
@@ -846,61 +854,28 @@ export class AppDriver extends PuterDriver {
     }
 
     /**
-     * Launch-safety check for puter-hosted `index_url`s.
-     *
-     * A hosted subdomain (`*.<hosting-domain>`) can be deleted by its owner
-     * and then re-registered by anyone else, but the app row keeps the stale
-     * URL — nothing rewrites it on subdomain deletion. Without this check the
-     * desktop would build the app iframe on a now-reclaimable origin and
-     * append the launch token to it (the GUI launcher appends
-     * `puter.auth.token` to the index_url), handing a valid token to whoever
-     * controls that subdomain today.
-     *
-     * Returns true when the app's hosted subdomain is missing, or is
-     * currently owned by a different user than the app's owner. Non-hosted
-     * index_urls (a developer's own external domain, builtins) return false:
-     * we don't manage their DNS and can't reason about their ownership.
+     * Launch-safety check for puter-hosted `index_url`s. See
+     * `util/hostedAppBacking.ts` — the check lives there because every producer
+     * of launchable app metadata needs it, not just this driver.
      */
     async #hostedIndexUrlBackingIsUnavailable(app) {
-        const subdomain = this.#extractPuterHostedSubdomain(app.index_url);
-        if (!subdomain) return false;
-
-        let row = await this.stores.subdomain.getBySubdomain(subdomain);
-        if (!row) {
-            // A freshly-created subdomain may not have reached a replica or
-            // the local cache yet; confirm against the primary before
-            // treating the backing as gone (mirrors the create/update
-            // ownership check in `#ensurePuterSiteSubdomainIsOwned`).
-            row = await this.stores.subdomain.getBySubdomain(subdomain, {
-                primary: true,
-            });
-        }
-        if (!row) return true; // subdomain no longer exists → dangling
-
-        const appOwnerId = Number(app.owner_user_id);
-        const subdomainOwnerId = Number(row.user_id);
-        if (
-            !Number.isInteger(appOwnerId) ||
-            !Number.isInteger(subdomainOwnerId)
-        ) {
-            return true;
-        }
-        // Subdomain exists but belongs to someone other than the app owner —
-        // it was reclaimed; launching would leak the token to the new owner.
-        return subdomainOwnerId !== appOwnerId;
+        return hostedIndexUrlBackingIsUnavailable({
+            app,
+            subdomainStore: this.stores.subdomain,
+            config: this.config,
+        });
     }
 
     /**
-     * Public wrapper over the authoritative client serializer. Callers
-     * outside the driver (e.g. the homepage shell baking app metadata into
-     * the rendered GUI) must never embed a raw store row — it carries
-     * `owner_user_id`, admin flags, and the private `index_url`. This
-     * projects the safe field subset and applies the private-app
-     * `index_url` gate for `actor`, which may be null for an anonymous
-     * request.
+     * Public wrapper over the authoritative client serializer. Callers outside
+     * the driver (e.g. the homepage shell baking app metadata into the rendered
+     * GUI) must never embed a raw store row — it carries `owner_user_id`, admin
+     * flags, and the private `index_url`. This projects the safe field subset
+     * and applies the private-app `index_url` gate for `actor`, which may be
+     * null for an anonymous request.
      *
-     * @param {Record<string, unknown>} app - raw app store row
-     * @param {any} [actor] - request actor, or null when anonymous
+     * @param {Record<string, unknown>} app - Raw app store row
+     * @param {any} [actor] - Request actor, or null when anonymous
      * @param {Record<string, unknown>} [params]
      */
     async toClientView(app, actor = null, params = {}) {
@@ -1021,99 +996,21 @@ export class AppDriver extends PuterDriver {
         // Hosted-subdomain launch guard (independent of the private-app
         // gate): deny launch when the app's puter-hosted backing is gone or
         // has been reclaimed by another user, so the GUI never appends the
-        // launch token to an origin the app owner no longer controls. Empty
-        // `fallbackAppName` keeps the launcher from redirecting to
-        // app-center — this isn't an entitlement problem, the backing is
-        // simply unavailable. Only set when not already denied so a private
-        // app's existing decision is preserved.
+        // launch token to an origin the app owner no longer controls. Only
+        // set when not already denied so a private app's existing decision
+        // is preserved.
         if (
             hostedBackingUnavailable &&
             result.privateAccess?.hasAccess !== false
         ) {
-            result.privateAccess = {
-                hasAccess: false,
-                fallbackAppName: '',
-                reason: 'hosted_backing_unavailable',
-                checkedBy: 'core/hosted-subdomain-guard',
-            };
+            result.privateAccess = buildHostedBackingDenial();
         }
 
         return result;
     }
 
-    // -- Puter-hosted index_url merge logic ---------------------------
-    //
-    // Ported from v1 AppES (`#maybeJoinOwnedHostedIndexUrlAppOnCreate`,
-    // `#ensure_puter_site_subdomain_is_owned`, `#ensureIndexUrlNotAlreadyInUse`,
-    // and the `app:canonicalUidAlias:*` kvstore pair). When a user creates
-    // or repoints an app at a puter-hosted subdomain (`*.puter.site`,
-    // `*.puter.app`, …) — or at a custom host claimed by an
-    // `app_origin_aliases` group — we want exactly one app row to back
-    // that URL:
-    //   • If a no-owner row exists (origin-bootstrap stub auto-created
-    //     when an unknown origin first hit Puter) → claim it for the
-    //     user, merge the new fields into it.
-    //   • If the same user already has an origin-bootstrap row at that
-    //     URL → merge into it; otherwise reject as a duplicate.
-    //   • If a different user owns the row → reject with
-    //     `app_index_url_already_in_use`.
-    // Source uid (when called from `update`) is recorded in a kvstore
-    // alias so `#resolve` can redirect old uids to the canonical row.
-
-    #normalizeConfiguredHostedDomain(domainValue) {
-        if (typeof domainValue !== 'string') return null;
-        const normalizedDomain = domainValue
-            .trim()
-            .toLowerCase()
-            .replace(/^\./, '');
-        if (!normalizedDomain) return null;
-        return normalizedDomain.split(':')[0] || null;
-    }
-
-    #getPuterHostedDomains() {
-        const domains = new Set();
-        const config = this.config ?? {};
-        for (const configuredDomain of [
-            config.static_hosting_domain,
-            config.static_hosting_domain_alt,
-            config.private_app_hosting_domain,
-            config.private_app_hosting_domain_alt,
-        ]) {
-            const normalized =
-                this.#normalizeConfiguredHostedDomain(configuredDomain);
-            if (normalized) domains.add(normalized);
-        }
-        return [...domains];
-    }
-
     #extractPuterHostedSubdomain(indexUrl) {
-        if (typeof indexUrl !== 'string' || !indexUrl) return null;
-
-        let hostname;
-        try {
-            hostname = new URL(indexUrl).hostname.toLowerCase();
-        } catch {
-            return null;
-        }
-
-        // Sort longest-first so `foo.puter.app` matches `puter.app` (not
-        // a shorter `app` if it ever appeared in the configured list).
-        const hostedDomains = this.#getPuterHostedDomains().sort(
-            (a, b) => b.length - a.length,
-        );
-
-        for (const hostedDomain of hostedDomains) {
-            const suffix = `.${hostedDomain}`;
-            if (hostname.endsWith(suffix)) {
-                const subdomain = hostname.slice(
-                    0,
-                    hostname.length - suffix.length,
-                );
-                return subdomain || null;
-            }
-        }
-
-        return null;
+        return extractPuterHostedSubdomain(indexUrl, this.config);
     }
 
     #isPuterHostedIndexUrl(indexUrl) {
@@ -1147,8 +1044,8 @@ export class AppDriver extends PuterDriver {
     }
 
     /**
-     * Return the alias group containing this index_url's host, or null when
-     * the host isn't claimed by any group.
+     * Return the alias group containing this index_url's host, or null when the
+     * host isn't claimed by any group.
      */
     #findOriginAliasGroupForIndexUrl(indexUrl) {
         if (typeof indexUrl !== 'string' || !indexUrl) return null;
@@ -1165,11 +1062,10 @@ export class AppDriver extends PuterDriver {
     }
 
     /**
-     * Generate the set of equivalent index_url strings that should
-     * collide with a given input. We only collapse trailing-slash and
-     * `/index.html` variants — the underlying `apps.index_url` column
-     * is matched by exact string, so anything not in this list won't
-     * be deduped. Mirrors v1 AppES exactly.
+     * Generate the set of equivalent index_url strings that should collide with
+     * a given input. We only collapse trailing-slash and `/index.html` variants
+     * — the underlying `apps.index_url` column is matched by exact string, so
+     * anything not in this list won't be deduped. Mirrors v1 AppES exactly.
      */
     #buildEquivalentIndexUrlCandidates(indexUrl) {
         if (typeof indexUrl !== 'string' || !indexUrl.trim()) {
@@ -1270,12 +1166,11 @@ export class AppDriver extends PuterDriver {
     }
 
     /**
-     * Origin-bootstrap detection: rows auto-created when an unknown
-     * origin first needed an app row (no human-supplied metadata).
-     * Marker is `name === uid && title === uid` and a description
-     * starting with "App created from origin ". Only these rows are
-     * eligible for same-owner merging — refusing to merge arbitrary
-     * same-owner apps prevents accidental data loss.
+     * Origin-bootstrap detection: rows auto-created when an unknown origin
+     * first needed an app row (no human-supplied metadata). Marker is `name ===
+     * uid && title === uid` and a description starting with "App created from
+     * origin ". Only these rows are eligible for same-owner merging — refusing
+     * to merge arbitrary same-owner apps prevents accidental data loss.
      */
     #isOriginBootstrapApp(app) {
         if (!app || typeof app !== 'object') return false;
@@ -1363,16 +1258,15 @@ export class AppDriver extends PuterDriver {
     }
 
     /**
-     * Merge an incoming create/update into an existing app row that
-     * already owns the same puter-hosted or alias-group index_url.
-     * Returns the joined
-     * (client-shaped) app on success, or `null` when no merge applied.
-     * Throws `app_index_url_already_in_use` when a conflict exists but
-     * cannot be merged (different owner, or same-owner non-bootstrap).
+     * Merge an incoming create/update into an existing app row that already
+     * owns the same puter-hosted or alias-group index_url. Returns the joined
+     * (client-shaped) app on success, or `null` when no merge applied. Throws
+     * `app_index_url_already_in_use` when a conflict exists but cannot be
+     * merged (different owner, or same-owner non-bootstrap).
      *
      * `sourceAppUid` is set when called from update — when present and
-     * different from the conflict row's uid, the source row is deleted
-     * and an alias is recorded so old-uid clients keep resolving.
+     * different from the conflict row's uid, the source row is deleted and an
+     * alias is recorded so old-uid clients keep resolving.
      */
     async #maybeJoinOwnedHostedIndexUrlApp({
         object,

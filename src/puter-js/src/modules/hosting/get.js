@@ -17,5 +17,5 @@ export async function get (subdomain) {
         ? { id: { subdomain: normalizeSubdomain(subdomain) } }
         : {};
 
-    return await utils.make_driver_method(['uid'], 'puter-subdomains', undefined, 'read', { puter, readonly: true })(options);
+    return await utils.makeDriverMethod({ iface: 'puter-subdomains', method: 'read', argNames: ['uid'], puter, readonly: true })(options);
 }

@@ -17,5 +17,5 @@ export async function del (subdomain) {
         ? { id: { subdomain: normalizeSubdomain(subdomain) } }
         : {};
 
-    return await utils.make_driver_method(['uid'], 'puter-subdomains', undefined, 'delete', { puter })(options);
+    return await utils.makeDriverMethod({ iface: 'puter-subdomains', method: 'delete', argNames: ['uid'], puter })(options);
 }

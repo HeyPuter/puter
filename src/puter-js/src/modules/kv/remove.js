@@ -42,5 +42,5 @@ export async function remove (key, ...pathsAndOptConfig) {
         throw { message: 'All paths must be strings', code: 'paths_invalid' };
     }
 
-    return await utils.make_driver_method(['key', 'paths'], 'puter-kvstore', undefined, 'remove', { puter: this.puter })({ key, paths, optConfig });
+    return await utils.makeDriverMethod({ iface: 'puter-kvstore', method: 'remove', argNames: ['key', 'paths'], puter: this.puter })({ key, paths, optConfig });
 }

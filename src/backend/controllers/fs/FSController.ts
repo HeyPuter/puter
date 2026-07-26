@@ -41,13 +41,24 @@ import {
 import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
 import { PuterController } from '../types.js';
 import { FS_COSTS } from './costs.js';
+import {
+    assertAccess as assertLegacyAccess,
+    fsEntryMimeType,
+    loadLegacyAssociatedApps,
+    signEntryThumbnail,
+    toLegacyEntry,
+} from './legacyFsHelpers.js';
 import type {
+    ClientCompleteWriteResponse,
+    ClientFSEntry,
+    ClientReaddirEntry,
+    ClientSignedWriteResponse,
+    ClientSignMultipartPartsResponse,
+    ClientWriteResponse,
     CompleteWriteRequest,
-    CompleteWriteResponse,
     SignedWriteRequest,
     SignedWriteResponse,
     SignMultipartPartsRequest,
-    SignMultipartPartsResponse,
     WriteGuiMetadata,
     WriteRequest,
     WriteResponse,
@@ -61,13 +72,6 @@ import type {
     ThumbnailUploadPrepareItem,
     ThumbnailUploadPreparePayload,
 } from './types.js';
-import {
-    toLegacyEntry,
-    loadLegacyAssociatedApps,
-    fsEntryMimeType,
-    signEntryThumbnail,
-    assertAccess as assertLegacyAccess,
-} from './legacyFsHelpers.js';
 class UploadProgressTracker implements UploadProgressTrackerLike {
     total = 0;
     progress = 0;
@@ -115,7 +119,7 @@ export class FSController extends PuterController {
     @Post('/startWrite', { subdomain: 'api', requireVerified: true })
     async startWrite(
         req: Request<RouteParams, null, SignedWriteRequest>,
-        res: Response<SignedWriteResponse>,
+        res: Response<ClientSignedWriteResponse>,
     ) {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
@@ -165,13 +169,15 @@ export class FSController extends PuterController {
                 }
             }, 'emitStartWriteDirectoryEvents');
         }
-        res.json(response);
+        res.json(
+            this.#withoutStorageInternals(this.#withClientFsEntry(response)),
+        );
     }
 
     @Post('/startBatchWrite', { subdomain: 'api', requireVerified: true })
     async startBatchWrites(
         req: Request<RouteParams, null, SignedWriteRequest[]>,
-        res: Response<SignedWriteResponse[]>,
+        res: Response<ClientSignedWriteResponse[]>,
     ) {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
@@ -261,13 +267,17 @@ export class FSController extends PuterController {
                 }
             }, 'emitStartBatchWriteDirectoryEvents');
         }
-        res.json(responses);
+        res.json(
+            responses.map((r) =>
+                this.#withoutStorageInternals(this.#withClientFsEntry(r)),
+            ),
+        );
     }
 
     @Post('/completeWrite', { subdomain: 'api', requireVerified: true })
     async completeWrite(
         req: Request<RouteParams, null, CompleteWriteRequest>,
-        res: Response<CompleteWriteResponse>,
+        res: Response<ClientCompleteWriteResponse>,
     ) {
         const userId = this.#getActorUserId(req);
         const requestBody = this.#withGuiMetadata(req.body, req.body);
@@ -287,13 +297,18 @@ export class FSController extends PuterController {
             },
             requestBody.guiMetadata,
         );
-        res.json({ ...response, fsEntry: writeResponse.fsEntry });
+        res.json(
+            this.#withRequiredClientFsEntry({
+                ...response,
+                fsEntry: writeResponse.fsEntry,
+            }),
+        );
     }
 
     @Post('/completeBatchWrite', { subdomain: 'api', requireVerified: true })
     async completeBatchWrites(
         req: Request<RouteParams, null, CompleteWriteRequest[]>,
-        res: Response<CompleteWriteResponse[]>,
+        res: Response<ClientCompleteWriteResponse[]>,
     ) {
         const userId = this.#getActorUserId(req);
         const requests = Array.isArray(req.body)
@@ -328,7 +343,9 @@ export class FSController extends PuterController {
                 return { ...writeResponse, fsEntry: withSideEffects.fsEntry };
             },
         );
-        res.json(updatedResponse);
+        res.json(
+            updatedResponse.map((r) => this.#withRequiredClientFsEntry(r)),
+        );
     }
 
     @Post('/abortWrite', { subdomain: 'api', requireVerified: true })
@@ -350,20 +367,20 @@ export class FSController extends PuterController {
     @Post('/signMultipartParts', { subdomain: 'api', requireVerified: true })
     async signMultipartParts(
         req: Request<RouteParams, null, SignMultipartPartsRequest>,
-        res: Response<SignMultipartPartsResponse>,
+        res: Response<ClientSignMultipartPartsResponse>,
     ) {
         const userId = this.#getActorUserId(req);
         const response = await this.services.fs.signMultipartParts(
             userId,
             req.body,
         );
-        res.json(response);
+        res.json(this.#withoutStorageInternals(response));
     }
 
     @Post('/write', { subdomain: 'api', requireVerified: true })
     async write(
         req: Request<RouteParams, null, WriteRequest>,
-        res: Response<WriteResponse>,
+        res: Response<ClientWriteResponse>,
     ) {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
@@ -403,13 +420,13 @@ export class FSController extends PuterController {
             response,
             requestBody.guiMetadata,
         );
-        res.json(updatedResponse);
+        res.json(this.#withRequiredClientFsEntry(updatedResponse));
     }
 
     @Post('/batchWrite', { subdomain: 'api', requireVerified: true })
     async batchWrites(
         req: Request<RouteParams, null, WriteRequest[]>,
-        res: Response<WriteResponse[]>,
+        res: Response<ClientWriteResponse[]>,
     ) {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
@@ -711,7 +728,9 @@ export class FSController extends PuterController {
                     );
                 },
             );
-            res.json(updatedResponses);
+            res.json(
+                updatedResponses.map((r) => this.#withRequiredClientFsEntry(r)),
+            );
             return;
         }
 
@@ -831,7 +850,9 @@ export class FSController extends PuterController {
                 );
             },
         );
-        res.json(updatedResponses);
+        res.json(
+            updatedResponses.map((r) => this.#withRequiredClientFsEntry(r)),
+        );
     }
 
     // -- Read-side routes ------------------------------------------------
@@ -867,30 +888,109 @@ export class FSController extends PuterController {
      * (with public folders enabled) any authenticated user. The legacy read
      * path already curates its output; this does the same for the v2 routes.
      */
-    #toClientEntry(entry: object): Record<string, unknown> {
-        const clone: Record<string, unknown> = { ...entry };
-        for (const field of [
-            'bucket',
-            'bucketRegion',
-            'userId',
-            'publicToken',
-            'fileRequestToken',
-        ])
-            delete clone[field];
-        return clone;
+    #toClientEntry(entry: FSEntry): ClientFSEntry {
+        // Allowlist, not a denylist: a denylist silently ships every column
+        // added to `fsentries` later. Omits the numeric primary keys (`id`,
+        // `parentId`, `associatedAppId`), the storage columns, the owning
+        // `userId`, and the `publicToken`/`fileRequestToken` capability tokens.
+        //
+        // Tolerant of partially-hydrated entries: write/mkdir paths return a
+        // freshly-built entry that hasn't been through a subdomain join.
+        const subdomains = entry.subdomains ?? [];
+        return {
+            uuid: entry.uuid,
+            uid: entry.uid ?? entry.uuid,
+            parentUid: entry.parentUid ?? null,
+            path: entry.path,
+            name: entry.name,
+            isDir: entry.isDir,
+            isShortcut: entry.isShortcut,
+            shortcutTo: entry.shortcutTo ?? null,
+            isSymlink: entry.isSymlink,
+            symlinkPath: entry.symlinkPath ?? null,
+            isPublic: entry.isPublic ?? null,
+            immutable: entry.immutable,
+            metadata: entry.metadata ?? null,
+            modified: entry.modified,
+            created: entry.created ?? null,
+            accessed: entry.accessed ?? null,
+            size: entry.size ?? null,
+            layout: entry.layout ?? null,
+            subdomains,
+            workers: entry.workers ?? [],
+            hasWebsite: entry.hasWebsite ?? subdomains.length > 0,
+            suggestedApps: entry.suggestedApps ?? [],
+        };
+    }
+
+    /**
+     * Sanitize the `fsEntry` a write response carries, leaving the rest of the
+     * envelope (session id, presigned upload targets) untouched — those fields
+     * are the point of the response. Applied at every `res.json` on the write
+     * paths, which previously serialized the raw database row.
+     *
+     * The return type is the sanitized counterpart, so a caller cannot keep
+     * treating the result as though it still held a full `FSEntry`.
+     */
+    #withClientFsEntry<T extends { fsEntry?: FSEntry }>(
+        response: T,
+    ): Omit<T, 'fsEntry'> & { fsEntry?: ClientFSEntry } {
+        const { fsEntry, ...rest } = response;
+        return {
+            ...rest,
+            ...(fsEntry ? { fsEntry: this.#toClientEntry(fsEntry) } : {}),
+        };
+    }
+
+    /**
+     * Drop the storage internals from a presigned-upload envelope. The client
+     * uploads to the presigned URLs, which already encode bucket and key, so
+     * naming the physical location of a user's bytes buys the caller nothing.
+     */
+    #withoutStorageInternals<
+        T extends { bucket: string; bucketRegion: string; objectKey: string },
+    >(response: T): Omit<T, 'bucket' | 'bucketRegion' | 'objectKey'> {
+        const { bucket, bucketRegion, objectKey, ...rest } = response;
+        return rest;
+    }
+
+    /** Same, for the responses whose `fsEntry` is always present. */
+    #withRequiredClientFsEntry<T extends { fsEntry: FSEntry }>(
+        response: T,
+    ): Omit<T, 'fsEntry'> & { fsEntry: ClientFSEntry } {
+        return {
+            ...response,
+            fsEntry: this.#toClientEntry(response.fsEntry),
+        };
+    }
+
+    /**
+     * `GET /fs/readdir` — same contract as the POST form, with parameters in
+     * the query string instead of the body. A read as a GET is cacheable and
+     * can authenticate via `?auth_token=`, which lets callers fetch a listing
+     * without a JSON body. Every value arrives as a string, so parameter
+     * parsing goes through the same coercion helpers the POST path uses.
+     */
+    @Get('/readdir', { subdomain: 'api', requireVerified: true })
+    async readdirEntriesViaGet(req: Request, res: Response) {
+        return this.readdirEntries(req, res);
     }
 
     @Post('/readdir', { subdomain: 'api', requireVerified: true })
     async readdirEntries(req: Request, res: Response) {
         const actor = this.#requireActor(req);
-        const body = this.#toObjectRecord(req.body);
+        // GET carries its parameters in the query string; POST in the body.
+        const body = this.#toObjectRecord(
+            req.method === 'GET' ? req.query : req.body,
+        );
 
-        // Presence of `cursor` (null means "first page") or `includeTotal`
-        // opts into the paginated `{items, cursor?, total?}` envelope.
-        // Legacy limit/offset requests keep the bare-array response.
+        // Presence of `cursor` (null/empty means "first page") or
+        // `includeTotal` opts into the paginated `{items, cursor?, total?}`
+        // envelope. Legacy limit/offset requests keep the bare-array response.
+        const includeTotal = this.#toBoolean(body.includeTotal) === true;
         const paginated =
             Object.prototype.hasOwnProperty.call(body, 'cursor') ||
-            body.includeTotal === true;
+            includeTotal;
 
         // Undocumented: `recursive` lists descendants (prefix scan) up to
         // `depth` levels below the target. Always paginated; sorts by path.
@@ -925,9 +1025,7 @@ export class FSController extends PuterController {
             if (paginated) {
                 res.json({
                     items: rootItems,
-                    ...(body.includeTotal === true
-                        ? { total: rootItems.length }
-                        : {}),
+                    ...(includeTotal ? { total: rootItems.length } : {}),
                 });
                 return;
             }
@@ -988,14 +1086,13 @@ export class FSController extends PuterController {
                 },
             );
             await this.#attachSuggestedApps(page.entries);
-            const total =
-                body.includeTotal === true
-                    ? await this.services.fs.countDirectoryTree(
-                          parent.userId,
-                          parent.path,
-                          maxDepth,
-                      )
-                    : undefined;
+            const total = includeTotal
+                ? await this.services.fs.countDirectoryTree(
+                      parent.userId,
+                      parent.path,
+                      maxDepth,
+                  )
+                : undefined;
             res.json({
                 items: await this.#toReaddirEntries(page.entries),
                 ...(page.cursor ? { cursor: page.cursor } : {}),
@@ -1013,10 +1110,9 @@ export class FSController extends PuterController {
                 sortOrder,
             });
             await this.#attachSuggestedApps(page.entries);
-            const total =
-                body.includeTotal === true
-                    ? await this.services.fs.countDirectory(parent.uuid)
-                    : undefined;
+            const total = includeTotal
+                ? await this.services.fs.countDirectory(parent.uuid)
+                : undefined;
             res.json({
                 items: await this.#toReaddirEntries(page.entries),
                 ...(page.cursor ? { cursor: page.cursor } : {}),
@@ -1040,28 +1136,26 @@ export class FSController extends PuterController {
      * the three fields the SDK cannot reconstruct on its own so it can rebuild
      * the v1 shape: `type` (MIME), a signed `thumbnail`, and `associatedApp`.
      */
-    async #toReaddirEntries(
-        entries: FSEntry[],
-    ): Promise<Record<string, unknown>[]> {
+    async #toReaddirEntries(entries: FSEntry[]): Promise<ClientReaddirEntry[]> {
         const appsById = await loadLegacyAssociatedApps(
             this.stores.app,
             entries,
         );
         return Promise.all(
-            entries.map(async (entry) => {
-                const shaped = this.#toClientEntry(entry);
-                shaped.type = fsEntryMimeType(entry);
-                shaped.thumbnail = await signEntryThumbnail(
+            entries.map(async (entry) => ({
+                ...this.#toClientEntry(entry),
+                // Fields the client cannot derive on its own.
+                type: fsEntryMimeType(entry),
+                thumbnail: await signEntryThumbnail(
                     this.clients.event,
                     entry.uuid,
                     entry.thumbnail,
-                );
-                shaped.associatedApp =
+                ),
+                associatedApp:
                     entry.associatedAppId !== null
                         ? (appsById.get(entry.associatedAppId) ?? null)
-                        : null;
-                return shaped;
-            }),
+                        : null,
+            })),
         );
     }
 
@@ -1223,7 +1317,7 @@ export class FSController extends PuterController {
                 ) ?? false,
         });
         this.#emitGuiItemAdded(entry);
-        res.json(entry);
+        res.json(this.#toClientEntry(entry));
     }
 
     @Post('/touch', { subdomain: 'api', requireVerified: true })
@@ -1259,7 +1353,7 @@ export class FSController extends PuterController {
             createMissingParents:
                 this.#toBoolean(body.create_missing_parents) ?? false,
         });
-        res.json(entry);
+        res.json(this.#toClientEntry(entry));
     }
 
     @Post('/rename', { subdomain: 'api', requireVerified: true })
@@ -1277,7 +1371,7 @@ export class FSController extends PuterController {
 
         const renamed = await this.services.fs.rename(entry, newName);
         this.#emitGuiItemUpdated(renamed);
-        res.json(renamed);
+        res.json(this.#toClientEntry(renamed));
     }
 
     @Post('/delete', { subdomain: 'api', requireVerified: true })
@@ -1323,7 +1417,7 @@ export class FSController extends PuterController {
                 this.#toBoolean(body.dedupe_name ?? body.change_name) ?? false,
         });
         this.#emitGuiItemMoved(source, moved);
-        res.json(moved);
+        res.json(this.#toClientEntry(moved));
     }
 
     @Post('/copy', { subdomain: 'api', requireVerified: true })
@@ -1351,7 +1445,7 @@ export class FSController extends PuterController {
                 this.#toBoolean(body.dedupe_name ?? body.change_name) ?? true,
         });
         this.#emitGuiItemAdded(copy);
-        res.json(copy);
+        res.json(this.#toClientEntry(copy));
     }
 
     @Post('/mkshortcut', { subdomain: 'api', requireVerified: true })
@@ -1380,7 +1474,7 @@ export class FSController extends PuterController {
             dedupeName: this.#toBoolean(body.dedupe_name) ?? true,
         });
         this.#emitGuiItemAdded(shortcut);
-        res.json(shortcut);
+        res.json(this.#toClientEntry(shortcut));
     }
 
     // -- Read-side helpers -----------------------------------------------

@@ -135,9 +135,13 @@ export async function img2txt (sourceOrOptions, optionsOrTestMode, testModeOrOpt
         throw { message: `Input size cannot be larger than ${ MAX_INPUT_SIZE}`, code: 'input_too_large' };
     }
 
-    return await utils.make_driver_method(['source'], 'puter-ocr', provider, 'recognize', {
+    return await utils.makeDriverMethod({
+        iface: 'puter-ocr',
+        driver: provider,
+        method: 'recognize',
+        argNames: ['source'],
         puter,
-        test_mode: testMode ?? false,
+        testMode: testMode ?? false,
         transform: async (result) => toText(result),
     })(options);
 }

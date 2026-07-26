@@ -120,10 +120,14 @@ export async function speech2speech (audioOrOptions, optionsOrTestMode, testMode
     const driverArgs = normalizeOptions({ ...options });
     delete driverArgs.provider;
 
-    return await utils.make_driver_method(['audio'], 'puter-speech2speech', 'elevenlabs-voice-changer', 'convert', {
+    return await utils.makeDriverMethod({
+        iface: 'puter-speech2speech',
+        driver: 'elevenlabs-voice-changer',
+        method: 'convert',
+        argNames: ['audio'],
         puter,
         responseType: 'blob',
-        test_mode: testMode,
+        testMode: testMode,
         transform: toAudioElement,
     })(driverArgs);
 }

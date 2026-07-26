@@ -54,7 +54,10 @@ import { LaunchOnInitService } from './services/LaunchOnInitService.js';
 import { LocaleService } from './services/LocaleService.js';
 import { ProcessService } from './services/ProcessService.js';
 import { ThemeService } from './services/ThemeService.js';
-import { privacy_aware_path } from './util/desktop.js';
+// Curried: takes `{ window }` and returns the path mapper. Import under a
+// factory name so a bare `privacy_aware_path(path)` call in this module can't
+// silently resolve to the factory — use `window.privacy_aware_path` instead.
+import { privacy_aware_path as privacy_aware_path_factory } from './util/desktop.js';
 import { deliversTokenToOpener } from './util/popupAuth.js';
 
 const postAuthActions = async (action) => {
@@ -422,7 +425,7 @@ const postAuthActions = async (action) => {
                                         metadataURL: file_signature.metadata_url,
                                         type: file_signature.type,
                                         uid: file_signature.uid,
-                                        path: privacy_aware_path(res.path),
+                                        path: window.privacy_aware_path(res.path),
                                     },
                                 }, '*');
 
@@ -2221,7 +2224,7 @@ $(document).on('contextmenu', '.disable-context-menu', function (e) {
 });
 
 // util/desktop.js
-window.privacy_aware_path = privacy_aware_path({ window });
+window.privacy_aware_path = privacy_aware_path_factory({ window });
 
 $(window).on('system-logout-event', function () {
     // Clear cookie
