@@ -2678,9 +2678,11 @@ export class AuthController extends PuterController {
      * parameters are optional-but-typed: presence is enforced by the handlers'
      * own `app_uid`/`permission` checks after origin resolution.
      *
-     * `permission` is capped at the width of the column it lands in, so an
-     * oversized string is a 400 here rather than a driver error from the INSERT
-     * (MySQL/Postgres reject it; SQLite would store it).
+     * These are bounded only against absurd input. The width of the column a
+     * permission lands in is enforced by the permission service instead, on the
+     * _rewritten_ string: `fs:/path:mode` is rewritten to `fs:<uuid>:mode`
+     * before it is stored, so a deep path is a ~45-character row and must not
+     * be rejected for the length of the path the caller typed.
      */
     #validateAppPermissionParams(params: {
         app_uid?: unknown;
@@ -2690,12 +2692,10 @@ export class AuthController extends PuterController {
         meta?: unknown;
     }): void {
         const MAX_LEN = 4096;
-        const PERMISSION_MAX_LEN = 255;
         for (const key of ['app_uid', 'origin', 'permission'] as const) {
             const value = params[key];
             if (value === undefined || value === null) continue;
-            const maxLen = key === 'permission' ? PERMISSION_MAX_LEN : MAX_LEN;
-            if (typeof value !== 'string' || value.length > maxLen) {
+            if (typeof value !== 'string' || value.length > MAX_LEN) {
                 throw new HttpError(400, `Invalid \`${key}\``, {
                     legacyCode: 'bad_request',
                 });

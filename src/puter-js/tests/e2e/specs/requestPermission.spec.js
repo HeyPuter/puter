@@ -827,6 +827,66 @@ test.describe('request-permission popup reconciliation', () => {
     });
 });
 
+test.describe('grant-user-app permission length', () => {
+    test('a deep fs path is measured after the server rewrites it to a uid', async ({ page }) => {
+        // `fs:/path:mode` is rewritten to `fs:<uuid>:mode` before storage, so
+        // the row is ~44 chars however deep the path is. Measuring the
+        // caller's raw string instead rejected grants whose stored value was
+        // comfortably inside the column, and the permission dialog dead-ended
+        // on its retryable error for any deeply nested file. The oversized
+        // string that no rewriter shortens must still be refused.
+        await page.goto('/');
+        await page.waitForFunction(() => !!window.auth_token && !!window.getUserAppToken,
+            null, { timeout: 60_000 });
+
+        const out = await page.evaluate(async () => {
+            const api = window.api_origin;
+            const token = window.auth_token;
+            const post = (path, body) => fetch(`${api}${path}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
+                },
+                body: JSON.stringify(body),
+            }).then(r => r.status);
+
+            const appUid = (await window.getUserAppToken('https://longpath-e2e.example'))?.app_uid;
+            const segments = Array.from({ length: 34 },
+                (_, i) => `seg${String(i).padStart(6, '0')}`);
+            const deepDir = `/${window.user.username}/${segments.join('/')}`;
+            await puter.fs.mkdir(deepDir, { createMissingParents: true, overwrite: false })
+                .catch(() => {});
+            const entry = await puter.fs.stat({ path: deepDir });
+
+            const longPathStatus = await post('/auth/grant-user-app', {
+                app_uid: appUid, permission: `fs:${deepDir}:read`,
+            });
+            // Nothing rewrites this one, so it is genuinely too wide.
+            const oversizedStatus = await post('/auth/grant-user-app', {
+                app_uid: appUid, permission: `service:${'a'.repeat(300)}:ii:read`,
+            });
+
+            const body = await fetch(`${api}/auth/list-permissions`, {
+                headers: { 'Authorization': `Bearer ${token}` },
+            }).then(r => r.json());
+            return {
+                permissionLength: `fs:${deepDir}:read`.length,
+                longPathStatus,
+                oversizedStatus,
+                storedRewritten: body.myself_to_app.some(
+                    r => r.app_uid === appUid && r.permission === `fs:${entry.uid}:read`,
+                ),
+            };
+        });
+
+        expect(out.permissionLength).toBeGreaterThan(255);
+        expect(out.longPathStatus).toBe(200);
+        expect(out.storedRewritten).toBe(true);
+        expect(out.oversizedStatus).toBe(400);
+    });
+});
+
 test.describe('request-permission action hardening', () => {
     test('an app_uid in the URL never produces a prompt on its own', async ({ page }) => {
         // The uid identifies who receives the grant, so it must come from the

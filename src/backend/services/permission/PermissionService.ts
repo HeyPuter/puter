@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import type { Actor } from '../../core/actor';
@@ -46,6 +47,12 @@ import {
 } from '../../data/hardcoded-permissions.js';
 import { UserRow } from '../../stores/user/UserStore';
 
+/**
+ * Width of the `permission` column in the permission tables, which every
+ * dialect declares as `varchar(255)`.
+ */
+const PERMISSION_MAX_LEN = 255;
+
 // -- Types ------------------------------------------------------------
 
 export interface ScanOptions {
@@ -61,10 +68,13 @@ export interface GrantMeta {
 }
 
 /**
- * PermissionService owns the *semantics* side of permissions:
+ * PermissionService owns the _semantics_ side of permissions:
+ *
  * - The rule registries (rewriters, implicators, exploders)
- * - The `scan()` algorithm that traverses all the ways an actor might hold a permission
- * - grant/revoke orchestration (rewrite → canManage → store writes → cache invalidation)
+ * - The `scan()` algorithm that traverses all the ways an actor might hold a
+ *   permission
+ * - Grant/revoke orchestration (rewrite → canManage → store writes → cache
+ *   invalidation)
  *
  * All persistence is delegated to PermissionStore.
  */
@@ -102,8 +112,8 @@ export class PermissionService extends PuterService {
     }
 
     /**
-     * Grant a permission (as issued by `system`) to everyone — members of
-     * both the default user group and the default temp group.
+     * Grant a permission (as issued by `system`) to everyone — members of both
+     * the default user group and the default temp group.
      *
      * Call from an owning service's `onServerStart` (or later).
      */
@@ -143,7 +153,10 @@ export class PermissionService extends PuterService {
         return permission;
     }
 
-    /** Return the given permission plus all parents and their exploder expansions. */
+    /**
+     * Return the given permission plus all parents and their exploder
+     * expansions.
+     */
     async getHigherPermissions(permission: string): Promise<string[]> {
         const higher = new Set<string>();
         higher.add(permission);
@@ -187,10 +200,9 @@ export class PermissionService extends PuterService {
     }
 
     /**
-     * Batch sibling of `check`. Returns a `Map<permission, boolean>`
-     * answering "does `actor` hold each of these permissions?" with one
-     * Redis MGET for cached decisions and per-permission evaluation for
-     * misses.
+     * Batch sibling of `check`. Returns a `Map<permission, boolean>` answering
+     * "does `actor` hold each of these permissions?" with one Redis MGET for
+     * cached decisions and per-permission evaluation for misses.
      *
      * `scan(actor, string[])` is intentionally an OR-style API: callers ask
      * "does any option match?". That makes it unsafe to infer independent
@@ -520,7 +532,8 @@ export class PermissionService extends PuterService {
      * Resolve permissions that a persistent group's members inherit from an
      * issuer (typically `system`) via the hardcoded map in
      * `hardcoded-permissions.js`, merged with any runtime grants registered
-     * through `registerSystemGrantForEveryone` / `registerSystemGrantForUsers`.
+     * through `registerSystemGrantForEveryone` /
+     * `registerSystemGrantForUsers`.
      */
     async #scanHcUserGroupUser(
         actor: Actor,
@@ -749,8 +762,8 @@ export class PermissionService extends PuterService {
     /**
      * Resolves user-to-user permissions for an actor across the given
      * permission strings. Prefers the "flat" KV view when present; otherwise
-     * falls back to a SQL traversal of `user_to_user_permissions` and
-     * warms the flat KV cache as a side-effect.
+     * falls back to a SQL traversal of `user_to_user_permissions` and warms the
+     * flat KV cache as a side-effect.
      */
     async validateUserPerms({
         actor,
@@ -1027,6 +1040,16 @@ export class PermissionService extends PuterService {
             permission = await this.rewritePermission(permission);
         } finally {
             Context.set('is_grant_user_app_permission', false);
+        }
+        // Checked after the rewrite, because the rewrite is what decides how
+        // wide the row actually is: `fs:/deep/path:read` collapses to
+        // `fs:<uuid>:read`. Reject here rather than let an oversized string
+        // reach the INSERT, where MySQL/Postgres fault after the caller has
+        // been told nothing and SQLite silently stores an unmatchable row.
+        if (permission.length > PERMISSION_MAX_LEN) {
+            throw new HttpError(400, 'Invalid `permission`', {
+                legacyCode: 'bad_request',
+            });
         }
         const app = await this.stores.app.resolveApp(appIdentifier);
         if (!app)
@@ -1426,11 +1449,11 @@ export class PermissionService extends PuterService {
     // those remain bounded by the scan-cache TTL.
 
     /**
-     * Generation keys whose counters this actor's cached readings depend
-     * on. A derived actor (app-under-user, access-token) acts through its
-     * user — its readings embed that user's reading via the recursive
-     * issuer scan — so the user's counter is folded into its cache keys.
-     * A plain user actor depends only on its own counter.
+     * Generation keys whose counters this actor's cached readings depend on. A
+     * derived actor (app-under-user, access-token) acts through its user — its
+     * readings embed that user's reading via the recursive issuer scan — so the
+     * user's counter is folded into its cache keys. A plain user actor depends
+     * only on its own counter.
      */
     #cacheGenerationKeys(actor: Actor): string[] {
         const keys = [actorUid(actor)];
@@ -1448,11 +1471,11 @@ export class PermissionService extends PuterService {
     }
 
     /**
-     * Cache-generation tag for an actor: the single counter value for a
-     * plain user actor (key format unchanged: `g<n>`), or the dependent
-     * counters joined with '.' for derived actors (e.g. `g<own>.<user>`).
-     * Joined rather than summed so distinct counter states can never
-     * collide on the same tag.
+     * Cache-generation tag for an actor: the single counter value for a plain
+     * user actor (key format unchanged: `g<n>`), or the dependent counters
+     * joined with '.' for derived actors (e.g. `g<own>.<user>`). Joined rather
+     * than summed so distinct counter states can never collide on the same
+     * tag.
      */
     async #cacheGenerationTag(actor: Actor): Promise<number | string> {
         const keys = this.#cacheGenerationKeys(actor);
@@ -1481,9 +1504,9 @@ export class PermissionService extends PuterService {
     }
 
     /**
-     * Bump every current member of a group. Used when a group grant
-     * changes — each member's readings may have resolved through the group,
-     * so each member's `user:<uuid>` cache must be orphaned.
+     * Bump every current member of a group. Used when a group grant changes —
+     * each member's readings may have resolved through the group, so each
+     * member's `user:<uuid>` cache must be orphaned.
      */
     async #bumpGroupMembersCacheGeneration(groupUid: string): Promise<void> {
         const memberUuids =
@@ -1494,11 +1517,10 @@ export class PermissionService extends PuterService {
     }
 
     /**
-     * Public: bump the permission cache for a set of users by username.
-     * Used by group add/remove-users — membership changes a user's
-     * effective permissions, so their cached readings must be orphaned
-     * (a removed user must lose the group's grants on their next check,
-     * not after the TTL).
+     * Public: bump the permission cache for a set of users by username. Used by
+     * group add/remove-users — membership changes a user's effective
+     * permissions, so their cached readings must be orphaned (a removed user
+     * must lose the group's grants on their next check, not after the TTL).
      */
     async bumpPermissionCacheForUsernames(usernames: string[]): Promise<void> {
         const unique = Array.from(new Set(usernames.filter(Boolean)));

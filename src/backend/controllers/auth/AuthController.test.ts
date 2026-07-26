@@ -1814,20 +1814,76 @@ describe('AuthController grant flows', () => {
     });
 
     it('grant-user-app: 400 on a `permission` wider than the column it lands in', async () => {
-        // 300 chars is under the old 4096 cap but over `varchar(255)`, so it
-        // used to reach the INSERT and fault on MySQL/Postgres.
+        // 300 chars is under the 4096 input cap but over `varchar(255)`, so it
+        // used to reach the INSERT and fault on MySQL/Postgres. The check runs
+        // after the rewrite, so this has to be a permission no rewriter
+        // shortens — and it has to reject before the app is resolved, since
+        // this uid names no app.
         await expect(
-            controller.handleGrantUserApp(
-                makeReq(
-                    {
-                        app_uid: `app-${uuidv4()}`,
-                        permission: `service:${'a'.repeat(300)}:ii:read`,
-                    },
-                    { actor: issuerActor },
+            inCtx(issuerActor, () =>
+                controller.handleGrantUserApp(
+                    makeReq(
+                        {
+                            app_uid: `app-${uuidv4()}`,
+                            permission: `service:${'a'.repeat(300)}:ii:read`,
+                        },
+                        { actor: issuerActor },
+                    ),
+                    makeRes(),
                 ),
-                makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('grant-user-app: an oversized permission that a rewriter shortens is accepted', async () => {
+        // The width that matters is the rewritten string's, not the caller's.
+        // In production this is `fs:/deep/path:read` collapsing to
+        // `fs:<uuid>:read` — a ~45-char row however deep the path is. Measuring
+        // the raw input instead rejected grants whose stored value was
+        // comfortably inside the column, and the permission dialog dead-ended
+        // on "please try again" for any deeply nested file. Exercised here
+        // through a rewriter of our own, since the real fs rewriter resolves
+        // the path through the fsentry store and this suite has no entries.
+        const appName = `tlp-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestLongPathApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+
+        const prefix = `tlprw-${uuidv4()}`;
+        const longPermission = `${prefix}:${'a'.repeat(300)}:read`;
+        const shortPermission = `${prefix}:${uuidv4()}:read`;
+        expect(longPermission.length).toBeGreaterThan(255);
+        expect(shortPermission.length).toBeLessThanOrEqual(255);
+        server.services.permission.registerRewriter({
+            id: `test-shorten-${prefix}`,
+            matches: (permission: string) => permission === longPermission,
+            rewrite: async () => shortPermission,
+        });
+
+        const res = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: longPermission },
+                    { actor: issuerActor },
+                ),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+
+        const rows = (await server.clients.db.read(
+            'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                'WHERE p.`user_id` = ? AND p.`app_id` = ?',
+            [issuer.id, app.id],
+        )) as Array<{ permission: string }>;
+        // What landed in the column is the short, rewritten form.
+        expect(rows.map((r) => r.permission)).toContain(shortPermission);
     });
 
     it('grant-user-group: 404 when the group does not exist', async () => {
