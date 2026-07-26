@@ -67,7 +67,10 @@ async function UIPermissionDialog (options) {
         return false;
     }
 
-    const pending_key = `${options.app_uid ?? options.origin ?? ''}\n${options.permission}`;
+    // `||`, not `??`: the gate above treats an empty uid as absent, so the key
+    // has to fall through to the origin too — otherwise two different origins
+    // arriving with a blank uid would share one decision.
+    const pending_key = `${options.app_uid || options.origin || ''}\n${options.permission}`;
     if ( pending_dialogs.has(pending_key) ) {
         return pending_dialogs.get(pending_key);
     }
