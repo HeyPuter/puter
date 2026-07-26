@@ -1119,8 +1119,15 @@ class UI extends EventListener {
             return result.granted === true;
         }
 
-        // Web environment: open the GUI's permission popup. Not available in
-        // workers (no window to open a popup from).
+        // The popup flow is for third-party websites only. In every other
+        // environment it either can't work (workers and node have no window
+        // to open a popup from) or makes no sense — inside the Puter GUI
+        // itself ('gui') the popup would prompt the user to grant this
+        // permission to Puter's own origin. Those callers keep the previous
+        // behavior of resolving false.
+        if ( this.env !== 'web' ) {
+            return false;
+        }
         if ( ! globalThis.open || ! globalThis.document ) {
             return false;
         }
