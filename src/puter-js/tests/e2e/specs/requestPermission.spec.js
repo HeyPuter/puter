@@ -1004,17 +1004,46 @@ test.describe('request-permission action hardening', () => {
         const name = page.locator('dialog.perm-dialog .perm-dialog-entity-name');
         await expect(name).toBeVisible({ timeout: 60_000 });
 
-        const info = await name.evaluate((el) => ({
-            text: el.textContent,
-            overflowing: el.scrollWidth > el.clientWidth,
-            direction: getComputedStyle(el).direction,
-        }));
+        // Measured from what is actually on screen, not from the declared
+        // `direction`: `unicode-bidi: plaintext` leaves `direction: rtl`
+        // computing as `rtl` while taking the real base direction from the
+        // content's first strong character, which for any Latin host put the
+        // ellipsis back on the right. Asserting the property passed while the
+        // rendering did the opposite of what it claims.
+        const info = await name.evaluate((el) => {
+            const node = el.firstChild;
+            const box = el.getBoundingClientRect();
+            const rectOf = (i) => {
+                const r = document.createRange();
+                r.setStart(node, i);
+                r.setEnd(node, i + 1);
+                return r.getBoundingClientRect();
+            };
+            const text = node.textContent;
+            const visible = [];
+            for ( let i = 0; i < text.length; i++ ) {
+                const r = rectOf(i);
+                if ( r.left >= box.left - 1 && r.right <= box.right + 1 ) {
+                    visible.push({ ch: text[i], i, left: r.left });
+                }
+            }
+            return {
+                text,
+                overflowing: el.scrollWidth > el.clientWidth,
+                visibleText: visible.map((c) => c.ch).join(''),
+                // Still reads left-to-right, in source order: anchoring the box
+                // to its end must not reorder the host itself.
+                readsInOrder: visible.every((c, k) => k === 0
+                    || (c.i > visible[k - 1].i && c.left >= visible[k - 1].left)),
+            };
+        });
         // The host is genuinely too long for the dialog, so the elision this
         // asserts about is actually happening.
         expect(info.text).toBe(host);
         expect(info.overflowing).toBe(true);
-        // `direction: rtl` anchors the text to its end, so the ellipsis lands on
-        // the left and the registrable domain stays on screen.
-        expect(info.direction).toBe('rtl');
+        // What survives the ellipsis is the end of the host — the part that says
+        // who is really asking — not the trusted-looking prefix.
+        expect(info.visibleText.endsWith('attacker-run-domain.example')).toBe(true);
+        expect(info.readsInOrder).toBe(true);
     });
 });

@@ -6286,13 +6286,21 @@ html.dark-mode .usage-table-show-less:hover {
 /* A hostname must never lose its tail to the ellipsis: the registrable domain
    is the part that identifies who is asking. `direction: rtl` anchors the text
    to its end, so a too-long host is elided from the left instead — what
-   browsers do in their own origin chips. Latin hosts still read left-to-right
-   because the content's own direction is resolved from its first strong
-   character. */
+   browsers do in their own origin chips. Latin hosts still read
+   left-to-right: their characters are strongly LTR, so the bidi algorithm
+   keeps them in order inside the right-anchored box.
+
+   `isolate`, not `plaintext`: plaintext takes the base direction from the
+   content's own first strong character, which for any Latin host overrides the
+   `direction` above and puts the ellipsis back on the right — hiding exactly
+   the part that identifies the requester, so
+   `accounts.google.com.attacker.example` reads as `accounts.google.com…`.
+   Isolating still keeps a bidi control character in the host from reordering
+   anything outside it. */
 .perm-dialog-entity-host,
 .perm-dialog-entity-origin {
     direction: rtl;
-    unicode-bidi: plaintext;
+    unicode-bidi: isolate;
 }
 
 .perm-dialog-entity-origin {
