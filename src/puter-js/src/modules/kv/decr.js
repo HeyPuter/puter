@@ -34,5 +34,5 @@ import { assertKeySize } from './lib/validate.js';
 export async function decr (keyOrOptions, amountOrMap, optConfig) {
     const options = parseCounterArgs(keyOrOptions, amountOrMap, optConfig);
     assertKeySize(options.key);
-    return await utils.make_driver_method(['key'], 'puter-kvstore', undefined, 'decr', { puter: this.puter })(options);
+    return await utils.makeDriverMethod({ iface: 'puter-kvstore', method: 'decr', argNames: ['key'], puter: this.puter })(options);
 }

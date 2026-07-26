@@ -230,21 +230,19 @@ export async function chat (
         requestParams.provider = requestParams.provider || userParams.driver;
     }
 
-    return await utils.make_driver_method(
-        ['messages'],
-        'puter-chat-completion',
-        'ai-chat',
-        'complete',
-        {
-            puter,
-            test_mode: testMode ?? false,
-            transform: async (result) => {
-                // Both deliberately return the message content as-is, which may
-                // be a content-part array rather than a string.
-                result.toString = () => result.message?.content;
-                result.valueOf = () => result.message?.content;
-                return result;
-            },
+    return await utils.makeDriverMethod({
+        iface: 'puter-chat-completion',
+        driver: 'ai-chat',
+        method: 'complete',
+        argNames: ['messages'],
+        puter,
+        testMode: testMode ?? false,
+        transform: async (result) => {
+            // Both deliberately return the message content as-is, which may
+            // be a content-part array rather than a string.
+            result.toString = () => result.message?.content;
+            result.valueOf = () => result.message?.content;
+            return result;
         },
-    )(requestParams);
+    })(requestParams);
 }

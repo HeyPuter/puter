@@ -22,5 +22,5 @@ export async function update (subdomain, dirPath) {
         options = { id: { subdomain: normalizeSubdomain(subdomain) }, object: { root_dir: rootDir } };
     }
 
-    return await utils.make_driver_method(['object'], 'puter-subdomains', undefined, 'update', { puter })(options);
+    return await utils.makeDriverMethod({ iface: 'puter-subdomains', method: 'update', argNames: ['object'], puter })(options);
 }

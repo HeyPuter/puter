@@ -17,6 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { showEmailConfirmationDialog } from '../modules/EmailConfirmationDialog.js';
+import { showUsageLimitDialog } from '../modules/UsageLimitDialog.js';
+
 const createDeferred = () => {
     let resolve;
     let reject;
@@ -31,9 +34,7 @@ const createDeferred = () => {
  * Shared 401 reauth policy for a parsed response body. Drives the env-specific
  * reauth flow on the Puter class and tells the caller what to do next, so the
  * fetch replacement (`fetchUrl`) and the generic XHR path (`handle_resp` in
- * utils.js) apply the exact same policy. The driver-call handler (`driverCall_`)
- * keeps its own replay because it must preserve streaming/transform semantics
- * on retry.
+ * utils.js) apply the exact same policy.
  *
  * Recognised backend signals:
  *   - `reauth_required` (v2 `authProbe`): legacy v1 tokens, revoked sessions,
@@ -204,6 +205,39 @@ async function bodyJson (xhr) {
     return JSON.parse(await bodyText(xhr));
 }
 
+/**
+ * Read a completed XHR as a driver/API response: JSON when the body parses as
+ * JSON, the raw text when it doesn't, and — for `responseType: 'blob'` — the
+ * Blob itself (wrapped in a success envelope unless the response declares a
+ * type we can read directly).
+ *
+ * @param {XMLHttpRequest} xhr
+ * @returns {Promise<unknown>}
+ */
+async function parseResponse (xhr) {
+    if ( xhr.responseType !== 'blob' ) {
+        try {
+            return JSON.parse(xhr.responseText);
+        } catch ( e ) {
+            return xhr.responseText;
+        }
+    }
+
+    const contentType = xhr.getResponseHeader('content-type');
+    if ( contentType.startsWith('application/json') ) {
+        const text = await xhr.response.text();
+        try {
+            return JSON.parse(text);
+        } catch ( e ) {
+            return text;
+        }
+    }
+    if ( contentType.startsWith('application/octet-stream') ) {
+        return xhr.response;
+    }
+    return { success: true, result: xhr.response };
+}
+
 function makeResponse (xhr, stream) {
     const status = xhr.status;
     return {
@@ -298,8 +332,7 @@ async function resolvePermission (permission) {
  *   { streamed: true, xhr, lineStream } — NDJSON, resolved at HEADERS_RECEIVED
  *   { xhr, status }                     — buffered response (any HTTP status)
  *   { networkError: true, xhr }         — transport error
- * Rejects only on abort. The NDJSON line buffering matches the old inline
- * streaming in fetchUrl and driverCall_; per-line semantics (usage/email/etc.)
+ * Rejects only on abort. Per-line semantics (usage/email prompts, `toString`)
  * belong to the caller's `shapeStream`.
  */
 function sendOnce (spec) {
@@ -559,4 +592,240 @@ function fetchUrl (url, opts = {}) {
     return run();
 }
 
-export { buildXhr, dedupe, fetchUrl, resolveReauth, sendWithRetry };
+// -- Driver calls --
+// Every `POST /drivers/call` in the SDK goes through this section. Two result
+// shapes ship today and both are public behavior: `driverCall` resolves the
+// unwrapped `result` and rejects driver errors, `driverCallEnvelope` resolves
+// the response envelope as-is. Everything else — the wire body, the auth
+// prompt, the logging, the usage/email prompts — is shared.
+
+const DRIVER_CONTENT_TYPE = 'text/plain;actually=json';
+
+/**
+ * @typedef {{
+ *   iface: string,
+ *   method: string,
+ *   args?: unknown,
+ *   driver?: string,
+ *   testMode?: boolean,
+ *   puter?: unknown,
+ * }} DriverCall
+ * A driver method to invoke. `iface` is the interface name and `driver` the
+ * concrete implementation behind it, which the backend resolves to the
+ * interface's default when omitted. `puter` is the SDK instance the call runs
+ * against; it falls back to the global instance.
+ */
+
+const callInstance = call => call.puter ?? globalThis.puter;
+
+/** The wire body. Fields left `undefined` drop out of the JSON. */
+const callBody = (call, puter) => JSON.stringify({
+    interface: call.iface,
+    driver: call.driver,
+    test_mode: call.testMode,
+    method: call.method,
+    args: call.args,
+    auth_token: puter.authToken,
+});
+
+const logCall = (call, fields) => {
+    if ( ! globalThis.puter?.apiCallLogger?.isEnabled() ) return;
+    globalThis.puter.apiCallLogger.logRequest({
+        service: 'drivers',
+        operation: `${call.iface}::${call.method}`,
+        params: {
+            interface: call.iface,
+            driver: call.driver ?? call.iface,
+            method: call.method,
+            args: call.args,
+        },
+        ...fields,
+    });
+};
+
+/** Prompt for funding, or hand off to the app's upgrade flow. */
+async function promptUpgrade (puter, message) {
+    if ( puter.env === 'web' ) {
+        showUsageLimitDialog(message);
+    } else if ( puter.env === 'app' ) {
+        await puter.ui.requestUpgrade();
+    }
+}
+
+function promptEmailConfirmation (puter, error) {
+    if ( error?.code !== 'email_must_be_confirmed' || puter.env !== 'web' ) return;
+    showEmailConfirmationDialog(error.message
+        || 'Email confirmation required. Go to Puter.com to confirm your email address.');
+}
+
+/**
+ * Wrap the engine's parsed NDJSON lines in the driver stream contract: the
+ * per-line usage/email prompts, `toString()` on text parts, and the `start`
+ * adapter that lets the stream feed a `ReadableStream` controller.
+ */
+function driverLineStream (lineStream, puter) {
+    const stream = (async function* () {
+        for await ( const line of lineStream ) {
+            if ( line?.error?.code === 'insufficient_funds' || line?.metadata?.usage_limited === true ) {
+                await promptUpgrade(puter, 'You have reached your usage limit for this account.<br>Please upgrade to continue.');
+            }
+            promptEmailConfirmation(puter, line?.error);
+            if ( typeof line.text === 'string' ) {
+                Object.defineProperty(line, 'toString', {
+                    enumerable: false,
+                    value: () => line.text,
+                });
+            }
+            yield line;
+        }
+    })();
+
+    Object.defineProperty(stream, 'start', {
+        enumerable: false,
+        value: async (controller) => {
+            const encoder = new TextEncoder();
+            for await ( const part of stream ) {
+                controller.enqueue(encoder.encode(part));
+            }
+            controller.close();
+        },
+    });
+
+    return stream;
+}
+
+/**
+ * Driver call resolving the method's `result`, the shape `puter.ai.*`,
+ * `puter.kv.*`, `puter.apps.*` and friends expose. Rejects with the driver's
+ * error payload on failure, drives the env-specific auth / funding / email
+ * prompts, and resolves an async iterator of lines for a streaming response.
+ *
+ * @param {DriverCall} call
+ * @param {{
+ *   responseType?: '' | 'text' | 'blob',
+ *   readonly?: boolean,
+ *   transform?: (result: unknown) => unknown,
+ *   onError?: (error: unknown) => void,
+ * }} [opts] `readonly` marks the method retry-safe on transient failures,
+ *   `transform` post-processes a successful result, and `onError` is the
+ *   legacy error callback the module APIs accept alongside the promise.
+ * @returns {Promise<unknown>}
+ */
+async function driverCall (call, opts = {}) {
+    const { responseType = '', readonly = false, transform, onError } = opts;
+    const puter = callInstance(call);
+
+    const fail = (error) => {
+        if ( typeof onError === 'function' ) onError(error);
+        throw error;
+    };
+
+    // A signed-out visitor on a third-party page gets the sign-in flow first.
+    if ( ! puter.authToken && puter.env === 'web' ) {
+        try {
+            await puter.ui.authenticateWithPuter();
+        } catch ( e ) {
+            const canceled = { code: 'auth_canceled', message: 'Authentication canceled' };
+            logCall(call, { error: canceled });
+            throw { error: canceled };
+        }
+    }
+
+    const spec = {
+        url: `${puter.APIOrigin}/drivers/call`,
+        method: 'POST',
+        headers: { 'Content-Type': DRIVER_CONTENT_TYPE },
+        withCredentials: true,
+        responseType,
+        // Rebuilt per attempt, so a reauth replay carries the fresh token.
+        buildBody: () => callBody(call, puter),
+    };
+
+    return await sendWithRetry(spec, {
+        retrySafe: readonly,
+        permission: `driver:${call.iface}:${call.method}`,
+        shapeStream: lineStream => driverLineStream(lineStream, puter),
+        // Reauth, permission grants, and transient retries are already spent by
+        // the time the engine hands the outcome over, so this is terminal.
+        shape: async (outcome) => {
+            if ( outcome.networkError ) {
+                logCall(call, { error: { message: 'Network error occurred' } });
+                return fail(outcome.xhr);
+            }
+
+            const { status } = outcome.xhr;
+            const resp = await parseResponse(outcome.xhr);
+            const failed = status >= 400 || resp?.success === false;
+            logCall(call, { result: failed ? null : resp, error: failed ? resp : null });
+
+            if ( status === 402 || resp?.error?.code === 'insufficient_funds'
+                || resp?.error?.status === 402 || resp?.metadata?.usage_limited === true ) {
+                await promptUpgrade(puter, 'Your account has not enough funding to complete this request.<br>Please upgrade to continue.');
+            }
+            promptEmailConfirmation(puter, resp?.error);
+
+            if ( status === 401 || resp?.code === 'token_auth_failed' ) {
+                return fail({ status: 401, message: 'Unauthorized' });
+            }
+            if ( status && status !== 200 ) return fail(resp);
+            if ( resp.success === false ) return fail(resp);
+
+            const result = resp.result !== undefined ? resp.result : resp;
+            return transform ? await transform(result) : result;
+        },
+    });
+}
+
+/**
+ * Driver call resolving the response envelope (`{ success, result }`) as the
+ * backend sent it — the shape `puter.drivers.call()` has always returned. A
+ * driver-level failure resolves with the envelope instead of rejecting; only
+ * transport failures and unreadable responses throw.
+ *
+ * NDJSON resolves an async iterator of parsed lines and `octet-stream` a Blob,
+ * neither with the per-line prompts `driverCall` layers on.
+ *
+ * @param {DriverCall} call
+ * @returns {Promise<unknown>}
+ */
+async function driverCallEnvelope (call) {
+    const puter = callInstance(call);
+    try {
+        const resp = await fetchUrl(`${puter.APIOrigin}/drivers/call`, {
+            method: 'POST',
+            headers: { 'Content-Type': DRIVER_CONTENT_TYPE },
+            body: callBody(call, puter),
+        });
+
+        // TODO: parser for Content-Type
+        const contentType = (resp.headers.get('content-type') ?? '').split(';')[0].trim();
+        const result = await (() => {
+            switch ( contentType ) {
+            case 'application/x-ndjson': return resp.stream();
+            case 'application/octet-stream': return resp.blob();
+            // A response that declares no type at all is JSON, the API's default.
+            case 'application/json': case '': return resp.json();
+            default: throw new Error(`unrecognized content type: ${contentType}`);
+            }
+        })();
+
+        logCall(call, { result });
+        return result;
+    } catch ( error ) {
+        logCall(call, {
+            error: { message: error?.message ?? String(error), stack: error?.stack },
+        });
+        throw error;
+    }
+}
+
+export {
+    buildXhr,
+    dedupe,
+    driverCall,
+    driverCallEnvelope,
+    fetchUrl,
+    parseResponse,
+    resolveReauth,
+    sendWithRetry,
+};

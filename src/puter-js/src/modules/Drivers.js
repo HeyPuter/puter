@@ -1,161 +1,49 @@
-import { fetchUrl } from '../lib/networkUtils.js';
+import { driverCallEnvelope, fetchUrl } from '../lib/networkUtils.js';
 
-class FetchDriverCallBackend {
-    constructor ({ getAPIOrigin, getAuthToken }) {
-        this.getAPIOrigin = getAPIOrigin;
-        this.getAuthToken = getAuthToken;
-        this.response_handlers = this.constructor.response_handlers;
-    }
-
-    // Dispatched by response content type. The handlers consume the
-    // fetchUrl PuterResponse: stream() yields parsed NDJSON lines, json()/blob()
-    // read the buffered body.
-    static response_handlers = {
-        'application/x-ndjson': resp => resp.stream(),
-        'application/json': resp => resp.json(),
-        'application/octet-stream': resp => resp.blob(),
-    };
-
-    async call ({ driver, method_name, parameters }) {
-        try {
-            const resp = await fetchUrl(`${this.getAPIOrigin()}/drivers/call`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'text/plain;actually=json',
-                },
-                body: JSON.stringify({
-                    'interface': driver.iface_name,
-                    ...(driver.service_name
-                        ? { service: driver.service_name }
-                        : {}),
-                    method: method_name,
-                    args: parameters,
-                    auth_token: this.getAuthToken(),
-                }),
-            });
-
-            const content_type = resp.headers.get('content-type')
-                .split(';')[0].trim(); // TODO: parser for Content-Type
-            const handler = this.response_handlers[content_type];
-            if ( ! handler ) {
-                const msg = `unrecognized content type: ${content_type}`;
-                console.error(msg);
-                console.error('creating blob so dev tools shows response...');
-                await resp.blob();
-
-                // Log the error
-                if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                    globalThis.puter.apiCallLogger.logRequest({
-                        service: 'drivers',
-                        operation: `${driver.iface_name}::${method_name}`,
-                        params: { interface: driver.iface_name, driver: driver.service_name || driver.iface_name, method: method_name, args: parameters },
-                        error: { message: msg },
-                    });
-                }
-
-                throw new Error(msg);
-            }
-
-            const result = await handler(resp);
-
-            // Log the successful response
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'drivers',
-                    operation: `${driver.iface_name}::${method_name}`,
-                    params: { interface: driver.iface_name, driver: driver.service_name || driver.iface_name, method: method_name, args: parameters },
-                    result: result,
-                });
-            }
-
-            return result;
-        } catch ( error ) {
-            // Log unexpected errors
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'drivers',
-                    operation: `${driver.iface_name}::${method_name}`,
-                    params: { interface: driver.iface_name, driver: driver.service_name || driver.iface_name, method: method_name, args: parameters },
-                    error: {
-                        message: error.message || error.toString(),
-                        stack: error.stack,
-                    },
-                });
-            }
-            throw error;
-        }
-    }
-}
-
+/**
+ * A driver interface bound to an SDK instance, as returned by
+ * `puter.drivers.get()`. Calls resolve the response envelope rather than the
+ * unwrapped result — see `driverCallEnvelope`.
+ */
 class Driver {
-    constructor ({
-        iface,
-        iface_name,
-        service_name,
-        call_backend,
-    }) {
-        this.iface = iface;
-        this.iface_name = iface_name;
-        this.service_name = service_name;
-        this.call_backend = call_backend;
+    /**
+     * @param {import('../../types/puter').Puter} puter
+     * @param {string} ifaceName
+     */
+    constructor (puter, ifaceName) {
+        this.puter = puter;
+        this.iface_name = ifaceName;
     }
-    async call (method_name, parameters) {
-        return await this.call_backend.call({
-            driver: this,
-            method_name,
-            parameters,
+
+    /**
+     * @param {string} methodName
+     * @param {Record<string, unknown>} [parameters]
+     * @returns {Promise<unknown>}
+     */
+    async call (methodName, parameters) {
+        return await driverCallEnvelope({
+            puter: this.puter,
+            iface: this.iface_name,
+            method: methodName,
+            args: parameters,
         });
     }
 }
 
 class Drivers {
-    /**
-     * Creates a new instance with the given authentication token, API origin, and app ID,
-     *
-     * @class
-     * @param {string} authToken - Token used to authenticate the user.
-     * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
-     * @param {string} appID - ID of the app to use.
-     */
+    /** @param {import('../../types/puter').Puter} puter */
     constructor (puter) {
         this.puter = puter;
-        this.authToken = puter.authToken;
-        this.APIOrigin = puter.APIOrigin;
-        this.appID = puter.appID;
-
-        // Driver-specific
         this.drivers_ = {};
-
     }
 
     _init ({ puter }) {
         puter.call = this.call.bind(this);
     }
 
-    /**
-     * Sets a new authentication token and resets the socket connection with the updated token, if applicable.
-     *
-     * @param {string} authToken - The new authentication token.
-     * @memberof [AI]
-     * @returns {void}
-     */
-    setAuthToken (authToken) {
-        this.authToken = authToken;
-    }
-
-    /**
-     * Sets the API origin.
-     *
-     * @param {string} APIOrigin - The new API origin.
-     * @memberof [AI]
-     * @returns {void}
-     */
-    setAPIOrigin (APIOrigin) {
-        this.APIOrigin = APIOrigin;
-    }
-
+    /** @returns {Promise<Record<string, unknown>>} */
     async list () {
-        const resp = await fetchUrl(`${this.APIOrigin}/lsmod`, {
+        const resp = await fetchUrl(`${this.puter.APIOrigin}/lsmod`, {
             method: 'POST',
             includePuterAuth: true,
             logContext: { service: 'drivers', operation: 'list', params: {} },
@@ -164,66 +52,50 @@ class Drivers {
         return list.interfaces;
     }
 
-    async get (iface_name, service_name) {
-        if ( ! service_name ) service_name = iface_name;
-        const key = `${iface_name}:${service_name}`;
-        if ( this.drivers_[key] ) return this.drivers_[key];
-
-        // const interfaces = await this.list();
-        // if ( ! interfaces[iface_name] ) {
-        //     throw new Error(`Interface ${iface_name} not found`);
-        // }
-
-        return this.drivers_[key] = new Driver ({
-            call_backend: new FetchDriverCallBackend({
-                getAPIOrigin: () => this.APIOrigin,
-                getAuthToken: () => this.authToken,
-            }),
-            // iface: interfaces[iface_name],
-            iface_name,
-            service_name,
-        });
+    /**
+     * Returns a handle for an interface. Cached per interface, so repeated
+     * `get()` calls hand back the same object.
+     *
+     * @param {string} ifaceName
+     * @returns {Promise<Driver>}
+     */
+    async get (ifaceName) {
+        return this.drivers_[ifaceName] ??= new Driver(this.puter, ifaceName);
     }
 
-    async call (...a) {
-        let iface_name, service_name, method_name, parameters;
+    /**
+     * Calls a driver method. The interface resolves to its default
+     * implementation on the backend, and a method with the same name as its
+     * interface can be left out:
+     *
+     *   puter.drivers.call('ipgeo', { ip: '1.2.3.4' })
+     *
+     * is the same as:
+     *
+     *   puter.drivers.call('ipgeo', 'ipgeo', { ip: '1.2.3.4' })
+     *
+     * @param {...unknown} args `(iface, method, parameters)`, or `(iface,
+     *   parameters)` for the method named after its interface.
+     * @returns {Promise<unknown>}
+     */
+    async call (...args) {
+        let ifaceName, methodName, parameters;
 
-        // Services with the same name as an interface they implement
-        // are considered the default implementation for that interface.
-        //
-        // A method with the same name as the interface and service it is
-        // called on can be left unspecified in a driver call through puter.js.
-        //
-        // For example:
-        // puter.drivers.call('ipgeo', { ip: '1.2.3.4' });
-        //
-        // Is the same as:
-        // puter.drivers.call('ipgeo', 'ipgeo', 'ipgeo', { ip: '1.2.3.4' })
-        //
-        // This is commonly the case when an interface only exists to
-        // connect a particular service to the drivers API. In this case,
-        // the interface might not specify the structure of the response
-        // because it is only intended for that specific integration
-        // (and that integration alone is responsible for avoiding regressions)
-
-        // interface name, service name, method name, parameters
-        if ( a.length === 4 ) {
-            ([iface_name, service_name, method_name, parameters] = a);
-        }
-        // interface name, method name, parameters
-        else if ( a.length === 3 ) {
-            ([iface_name, method_name, parameters] = a);
-        }
-        // interface name, parameters
-        else if ( a.length === 2 ) {
-            ([iface_name, parameters] = a);
-            method_name = iface_name;
+        if ( args.length >= 4 ) {
+            // (iface, implementation, method, parameters) — the implementation
+            // slot predates interface-level defaults and is resolved by the
+            // backend, so it is accepted and ignored.
+            ([ifaceName, , methodName, parameters] = args);
+        } else if ( args.length === 3 ) {
+            ([ifaceName, methodName, parameters] = args);
+        } else {
+            ([ifaceName, parameters] = args);
+            methodName = ifaceName;
         }
 
-        const driver = await this.get(iface_name, service_name);
-        return await driver.call(method_name, parameters);
+        const driver = await this.get(ifaceName);
+        return await driver.call(methodName, parameters);
     }
-
 }
 
 export default Drivers;

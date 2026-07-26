@@ -55,6 +55,6 @@ export async function create (nameOrOptions, indexURL, title) {
     if ( ! options.object.name ) throw invalidRequest('Name is required');
     if ( ! options.object.index_url ) throw invalidRequest('Index URL is required');
 
-    const created = await utils.make_driver_method(['object'], 'puter-apps', 'es:app', 'create', { puter })(options);
+    const created = await utils.makeDriverMethod({ iface: 'puter-apps', driver: 'es:app', method: 'create', argNames: ['object'], puter })(options);
     return addUserIteration(puter, created);
 }

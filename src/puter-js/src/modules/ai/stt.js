@@ -116,9 +116,12 @@ export async function speech2txt (audioOrOptions, optionsOrTestMode, testModeFla
 
     const responseFormat = driverArgs.response_format;
 
-    return await utils.make_driver_method([], 'puter-speech2txt', sttDriverName, driverMethod, {
+    return await utils.makeDriverMethod({
+        iface: 'puter-speech2txt',
+        driver: sttDriverName,
+        method: driverMethod,
         puter,
-        test_mode: testMode,
+        testMode: testMode,
         transform: async (result) => {
             if ( responseFormat === 'text' && result && typeof result === 'object' && typeof result.text === 'string' ) {
                 return result.text;

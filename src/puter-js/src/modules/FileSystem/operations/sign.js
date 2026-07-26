@@ -1,4 +1,5 @@
 
+import { parseResponse } from '../../../lib/networkUtils.js';
 import * as utils from '../../../lib/utils.js';
 
 /**
@@ -49,7 +50,7 @@ const sign = function (...args) {
 
         // response
         xhr.addEventListener('load', async function (e) {
-            const resp = await utils.parseResponse(this);
+            const resp = await parseResponse(this);
             // error
             if ( this.status !== 200 ) {
                 // if error callback is provided, call it

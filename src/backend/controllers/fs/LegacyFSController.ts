@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import Busboy from 'busboy';
@@ -34,6 +35,10 @@ import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { ACLService } from '../../services/acl/ACLService.js';
 import type { SignedFile } from '../../util/fileSigning.js';
 import { verifySignature } from '../../util/fileSigning.js';
+import {
+    buildHostedBackingDenial,
+    hostedIndexUrlBackingIsUnavailable,
+} from '../../util/hostedAppBacking.js';
 import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
 import { PuterController } from '../types.js';
 import { FS_COSTS } from './costs.js';
@@ -162,7 +167,8 @@ export class LegacyFSController extends PuterController {
 
         router.get('/get-launch-apps', apiOptions, async (req, res) => {
             const recommendedSvc = this.services.recommendedApps as unknown as
-                { getRecommendedApps?: () => Promise<unknown[]> } | undefined;
+                | { getRecommendedApps?: () => Promise<unknown[]> }
+                | undefined;
             const recommended = recommendedSvc?.getRecommendedApps
                 ? await recommendedSvc.getRecommendedApps()
                 : [];
@@ -189,6 +195,18 @@ export class LegacyFSController extends PuterController {
                         }
                     ).getByUid(uid);
                     if (app) {
+                        // Don't hand out an index_url whose puter-hosted
+                        // backing is gone or reclaimed. The taskbar launches
+                        // recents by name (so AppDriver's guard applies), but
+                        // this list is a launch-metadata producer like any
+                        // other — a future consumer reading index_url
+                        // straight off it shouldn't inherit a stale origin.
+                        const backingGone =
+                            await hostedIndexUrlBackingIsUnavailable({
+                                app,
+                                subdomainStore: this.stores.subdomain,
+                                config: this.config,
+                            }).catch(() => true);
                         apps.push({
                             uuid: app.uid,
                             name: app.name,
@@ -196,7 +214,10 @@ export class LegacyFSController extends PuterController {
                             icon: app.icon ?? null,
                             godmode: Boolean(app.godmode),
                             maximize_on_start: Boolean(app.maximize_on_start),
-                            index_url: app.index_url,
+                            index_url: backingGone ? null : app.index_url,
+                            ...(backingGone
+                                ? { privateAccess: buildHostedBackingDenial() }
+                                : {}),
                             // An app with no owner isn't owned by a Puter user —
                             // it's an "external" (origin-bootstrapped) app.
                             external:
@@ -619,7 +640,9 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                Record<string, unknown> | null | undefined,
+                | Record<string, unknown>
+                | null
+                | undefined,
         });
         const oldPath = source.path;
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
@@ -1018,10 +1041,9 @@ export class LegacyFSController extends PuterController {
     // -- Signed-URL + meta routes ----------------------------------------
 
     /**
-     * POST /sign
-     * Body: `{ items: [{ uid?, path?, action }], app_uid? }`. Returns
-     * `{ signatures: [...], token? }`. Apps may only sign files under their
-     * own AppData subtree.
+     * POST /sign Body: `{ items: [{ uid?, path?, action }], app_uid? }`.
+     * Returns `{ signatures: [...], token? }`. Apps may only sign files under
+     * their own AppData subtree.
      */
     sign = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
@@ -1049,7 +1071,8 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            (SignedFile & { path?: string }) | Record<string, never>;
+            | (SignedFile & { path?: string })
+            | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1146,10 +1169,10 @@ export class LegacyFSController extends PuterController {
     };
 
     /**
-     * POST /writeFile?uid=<uid>&operation=<op>
-     * Signature-authenticated multipart upload. `operation` dispatches to one
-     * of write/copy/move/mkdir/delete/rename/trash. Signature must be valid
-     * for `write` action on `uid`.
+     * POST /writeFile?uid=<uid>&operation=<op> Signature-authenticated
+     * multipart upload. `operation` dispatches to one of
+     * write/copy/move/mkdir/delete/rename/trash. Signature must be valid for
+     * `write` action on `uid`.
      */
     writeFile = async (req: Request, res: Response): Promise<void> => {
         const query = asRecord(req.query);
@@ -1368,10 +1391,9 @@ export class LegacyFSController extends PuterController {
     };
 
     /**
-     * GET /file?uid=<uid>&signature=...&expires=...
-     * Signature-authenticated file read. Directories return a signed listing
-     * of children; files stream bytes (with Range support when `download`
-     * isn't requested).
+     * GET /file?uid=<uid>&signature=...&expires=... Signature-authenticated
+     * file read. Directories return a signed listing of children; files stream
+     * bytes (with Range support when `download` isn't requested).
      */
     file = async (req: Request, res: Response): Promise<void> => {
         const query = asRecord(req.query);
@@ -1466,9 +1488,9 @@ export class LegacyFSController extends PuterController {
     };
 
     /**
-     * POST /open_item — resolve an entry, grant the default suggested app
-     * write access to it, and return a signed URL + user-app token so the
-     * launched app can read/write the file via its app-under-user token.
+     * POST /open_item — resolve an entry, grant the default suggested app write
+     * access to it, and return a signed URL + user-app token so the launched
+     * app can read/write the file via its app-under-user token.
      *
      * Matches v1 semantics: permission is always granted as `write` — the
      * underlying user's permission check still caps the effective access
@@ -1542,8 +1564,8 @@ export class LegacyFSController extends PuterController {
     };
 
     /**
-     * POST /auth/request-app-root-dir — an app-under-user requests stat on
-     * its own app root directory. The app must own itself.
+     * POST /auth/request-app-root-dir — an app-under-user requests stat on its
+     * own app root directory. The app must own itself.
      */
     requestAppRootDir = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
@@ -1590,7 +1612,10 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            'see' | 'list' | 'read' | 'write';
+            | 'see'
+            | 'list'
+            | 'read'
+            | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',

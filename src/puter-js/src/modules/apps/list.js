@@ -40,7 +40,7 @@ export function list (options) {
     const { limit, offset, cursor, includeTotal, stream, ...params } = opts;
     const hasCursor = Object.prototype.hasOwnProperty.call(opts, 'cursor');
 
-    const select = utils.make_driver_method(['uid'], 'puter-apps', 'es:app', 'select', { puter, readonly: true });
+    const select = utils.makeDriverMethod({ iface: 'puter-apps', driver: 'es:app', method: 'select', argNames: ['uid'], puter, readonly: true });
     const base = { predicate: ['user-can-edit'] };
     if ( isObjectForm ) base.params = params;
     if ( limit !== undefined ) base.limit = limit;

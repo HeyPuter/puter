@@ -41,5 +41,5 @@ export async function create (subdomainOrObject, dirPath) {
         object = subdomainOrObject;
     }
 
-    return await utils.make_driver_method(['object'], 'puter-subdomains', undefined, 'create', { puter })({ object });
+    return await utils.makeDriverMethod({ iface: 'puter-subdomains', method: 'create', argNames: ['object'], puter })({ object });
 }

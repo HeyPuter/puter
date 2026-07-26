@@ -26,6 +26,6 @@ export async function get (nameOrOptions, options) {
         driverArgs.params = nameOrOptions;
     }
 
-    const app = await utils.make_driver_method(['uid'], 'puter-apps', 'es:app', 'read', { puter, readonly: true })(driverArgs);
+    const app = await utils.makeDriverMethod({ iface: 'puter-apps', driver: 'es:app', method: 'read', argNames: ['uid'], puter, readonly: true })(driverArgs);
     return addUserIteration(puter, app);
 }

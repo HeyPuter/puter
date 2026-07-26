@@ -4,8 +4,8 @@
 // batch writes are unavailable or unsupported in the current environment.
 // Invoked with the FileSystem module as `this`.
 
+import { parseResponse } from '../../../../lib/networkUtils.js';
 import path from '../../../../lib/path.js';
-import * as utils from '../../../../lib/utils.js';
 import { normalizeThumbnailData } from './thumbnails.js';
 
 /**
@@ -236,7 +236,7 @@ export function performLegacyBatchUpload (ctx) {
     // -----------------------------------------------
     xhr.onreadystatechange = async (e) => {
         if ( xhr.readyState === 4 ) {
-            const resp = await utils.parseResponse(xhr);
+            const resp = await parseResponse(xhr);
             // Error
             if ( (xhr.status >= 400 && xhr.status < 600) || (options.strict && xhr.status === 218) ) {
                 // stop the cloud upload progress tracker
