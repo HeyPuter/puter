@@ -6298,6 +6298,10 @@ html.dark-mode .usage-table-show-less:hover {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    /* An app's title is author-supplied and HTML-escaping leaves bidi control
+       characters intact, so isolate it: without this a RIGHT-TO-LEFT OVERRIDE
+       could reorder the name in the one slot that says who is asking. */
+    unicode-bidi: plaintext;
 }
 
 .perm-dialog-entity-origin {

@@ -105,6 +105,99 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
             await deleteTestApp(page, appName);
         }
     });
+
+    test('requests for different permissions are prompted one at a time', async ({ page }) => {
+        // A permission dialog is a modal `<dialog>`, so it makes the whole
+        // desktop inert — not just the requesting app's window. Several at once
+        // would wall the user in behind a pile of prompts.
+        const appName = await registerTestApp(page, { fixtureURL: PERMISSION_FIXTURE_URL });
+        try {
+            const appFrame = await gotoTestApp(page, appName);
+
+            await appFrame.locator('body').evaluate(() => {
+                window.__serialResults = Promise.all([
+                    puter.ui.requestPermission({ permission: 'driver:puter-image-generation:generate' }),
+                    puter.ui.requestPermission({ permission: 'driver:puter-chat-completion:complete' }),
+                ]);
+            });
+
+            const dialogs = page.locator('dialog.perm-dialog');
+            await expect(dialogs).toHaveCount(1);
+            await dialogs.first().locator('.perm-dialog-deny').click();
+            // The queued request gets its own prompt once the first is answered.
+            await expect(dialogs).toHaveCount(1);
+            await dialogs.first().locator('.perm-dialog-allow').click();
+
+            // Each caller still receives its own decision.
+            const results = await appFrame.locator('body').evaluate(() => window.__serialResults);
+            expect(results).toEqual([false, true]);
+        } finally {
+            await deleteTestApp(page, appName);
+        }
+    });
+
+    test('an app is identified by its unique name, not just its chosen title', async ({ page }) => {
+        // `title` is free-form text the app author picks and is not unique, so
+        // on its own it can impersonate another app. `name` is unique and
+        // format-restricted, so the dialog has to show it too.
+        const appName = await registerTestApp(page, { fixtureURL: PERMISSION_FIXTURE_URL });
+        try {
+            await page.goto('/');
+            await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
+            await page.evaluate(
+                (name) => puter.apps.update(name, { title: 'Puter Settings' }),
+                appName,
+            );
+
+            const appFrame = await gotoTestApp(page, appName);
+            await appFrame.locator('#req-driver-perm').click();
+            const dialog = page.locator('dialog.perm-dialog');
+            await expect(dialog).toBeVisible();
+
+            await expect(dialog.locator('.perm-dialog-entity-name')).toHaveText('Puter Settings');
+            await expect(dialog.locator('.perm-dialog-entity-origin')).toHaveText(appName);
+            await dialog.locator('.perm-dialog-deny').click();
+        } finally {
+            await deleteTestApp(page, appName);
+        }
+    });
+
+    test('dismissing while the grant is in flight cannot report a false denial', async ({ page, context }) => {
+        // The grant POST is committed server-side; answering "denied" over the
+        // top of it would leave the user believing they cancelled a permission
+        // that is now granted.
+        const appName = await registerTestApp(page, { fixtureURL: PERMISSION_FIXTURE_URL });
+        try {
+            await context.route('**/auth/grant-user-app', async (route) => {
+                await new Promise(r => setTimeout(r, 3000));
+                await route.continue();
+            });
+
+            const appFrame = await gotoTestApp(page, appName);
+            await appFrame.locator('#req-driver-perm').click();
+            const dialog = page.locator('dialog.perm-dialog');
+            await expect(dialog).toBeVisible();
+            await dialog.locator('.perm-dialog-allow').click();
+
+            // Try to dismiss while the request is outstanding. Escape is the
+            // real-world route, but with both buttons disabled focus has left
+            // the dialog and Chromium routes the key elsewhere — so also fire
+            // the `cancel` event the platform would fire, which is what the
+            // dialog actually has to defend against.
+            await expect(dialog.locator('.perm-dialog-allow.perm-dialog-busy')).toBeVisible();
+            await page.keyboard.press('Escape');
+            await page.evaluate(() => {
+                document.querySelector('dialog.perm-dialog')
+                    ?.dispatchEvent(new Event('cancel', { cancelable: true }));
+            });
+
+            // The grant's own outcome is the answer, not the dismissal.
+            await expect(appFrame.locator('#log [data-entry="perm:driver:true"]')).toBeVisible();
+            expect(await appFrame.locator('#log [data-entry="perm:driver:false"]').count()).toBe(0);
+        } finally {
+            await deleteTestApp(page, appName);
+        }
+    });
 });
 
 test.describe('puter.ui.requestPermission (env=web popup)', () => {
@@ -207,6 +300,57 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
         await expect(popup.locator('dialog.perm-dialog')).toBeVisible({ timeout: 60_000 });
         await popup.close();
         await expect(page.locator('#log [data-entry="perm:driver:false"]')).toBeVisible();
+    });
+
+    test('Escape on the consent dialog settles the request', async ({ page }) => {
+        // A modal `<dialog>` disappears on Escape whether or not anyone is
+        // listening, so the dialog has to report that dismissal — otherwise the
+        // prompt vanishes and the site waits on a promise that never settles.
+        await page.goto('/');
+        await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
+
+        await stubNoUserActivation(page);
+        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+
+        await page.evaluate(() => {
+            window.__permSettled = 'pending';
+            window.__permPromise = puter.ui.requestPermission({
+                permission: 'driver:puter-image-generation:generate',
+            }).then((v) => { window.__permSettled = `resolved:${v}`; return v; });
+        });
+        await expect(page.locator('puter-dialog #launch-auth-popup')).toBeVisible();
+
+        await page.keyboard.press('Escape');
+        await expect
+            .poll(() => page.evaluate(() => window.__permSettled), { timeout: 15_000 })
+            .toBe('resolved:false');
+    });
+
+    test('the permission popup does not sign the site in', async ({ page }) => {
+        // Answering a permission prompt is not consent to hand the site this
+        // user's credentials, and a failure inside the popup must not clobber a
+        // token the site already holds.
+        await page.goto('/');
+        await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
+
+        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+        await page.evaluate(() => localStorage.clear());
+        await page.reload();
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+        expect(await page.evaluate(() => !!puter.authToken)).toBe(false);
+
+        const [popup] = await Promise.all([
+            page.waitForEvent('popup'),
+            page.locator('#req-driver-perm').click(),
+        ]);
+        await expect(popup.locator('dialog.perm-dialog')).toBeVisible({ timeout: 60_000 });
+        await popup.locator('dialog.perm-dialog .perm-dialog-deny').click();
+        await expect(page.locator('#log [data-entry="perm:driver:false"]')).toBeVisible();
+
+        expect(await page.evaluate(() => !!puter.authToken)).toBe(false);
+        expect(await page.evaluate(() => localStorage.getItem('puter.auth.token.v2'))).toBeNull();
     });
 });
 

@@ -1144,6 +1144,8 @@ class UI extends EventListener {
             let checkClosed = null;
             // The popup we opened; pinned as the expected `event.source`.
             let popupWindow = null;
+            // The consent dialog, when the no-gesture path had to create one.
+            let consentDialog = null;
 
             const cleanup = () => {
                 if ( checkClosed ) {
@@ -1151,6 +1153,10 @@ class UI extends EventListener {
                     checkClosed = null;
                 }
                 window.removeEventListener('message', messageHandler);
+                // Once answered the dialog is inert; leaving it appended would
+                // stack one dead element per request for the page's lifetime.
+                consentDialog?.remove();
+                consentDialog = null;
             };
 
             const settle = (granted) => {
@@ -1250,6 +1256,7 @@ class UI extends EventListener {
                     onLaunch: (popup) => watchPopup(popup),
                     onCancel: () => settle(false),
                 });
+                consentDialog = dialog;
                 document.body.appendChild(dialog);
                 dialog.open();
             }

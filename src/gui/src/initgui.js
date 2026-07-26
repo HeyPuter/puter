@@ -196,6 +196,15 @@ const postAuthActions = async (action) => {
             }
             return;
         } else {
+            // A permission prompt is not a sign-in: the user is deciding about
+            // one permission, so the opener must not walk away holding this
+            // user's credentials. The exchange below still runs (it bootstraps
+            // the app row the grant needs and caches `host_app_uid`), but the
+            // token stays in this window. Handing it over would also let a
+            // failed exchange sign the opener out, because the SDK feeds the
+            // `token: null` of the failure message straight into
+            // setAuthToken().
+            const deliver_token_to_opener = action !== 'request-permission';
             try {
                 let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
                 // This is an implicit app and the app_uid is sent back from the server
@@ -204,14 +213,16 @@ const postAuthActions = async (action) => {
                 // send token to parent. The opener is unreachable when it is
                 // cross-origin isolated (COOP severs the relationship); those
                 // flows learn the outcome server-side instead.
-                window.opener?.postMessage({
-                    msg: 'puter.token',
-                    success: true,
-                    token: data.token,
-                    app_uid: data.app_uid,
-                    username: window.user.username,
-                    msg_id: msg_id,
-                }, window.openerOrigin);
+                if ( deliver_token_to_opener ) {
+                    window.opener?.postMessage({
+                        msg: 'puter.token',
+                        success: true,
+                        token: data.token,
+                        app_uid: data.app_uid,
+                        username: window.user.username,
+                        msg_id: msg_id,
+                    }, window.openerOrigin);
+                }
                 // close popup
                 if ( !action || action === 'sign-in' ) {
                     window.close();
@@ -219,12 +230,16 @@ const postAuthActions = async (action) => {
                 }
             } catch ( err ) {
                 // send error to parent
-                window.opener?.postMessage({
-                    msg: 'puter.token',
-                    success: false,
-                    token: null,
-                    msg_id: msg_id,
-                }, window.openerOrigin);
+                if ( deliver_token_to_opener ) {
+                    window.opener?.postMessage({
+                        msg: 'puter.token',
+                        success: false,
+                        token: null,
+                        msg_id: msg_id,
+                    }, window.openerOrigin);
+                } else {
+                    console.error('token exchange failed before permission prompt', err);
+                }
                 // close popup
                 window.close();
                 window.open('', '_self').close();

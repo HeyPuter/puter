@@ -21,6 +21,12 @@
 // duplicate dialog; both callers await the same user decision.
 const pending_dialogs = new Map();
 
+// Serializes the dialogs. `showModal()` makes the whole document inert, not
+// just the requesting app's window, so several at once would bury the desktop
+// under a pile of prompts the user has to clear before touching anything —
+// including the app that asked. One at a time, in arrival order.
+let dialog_queue = Promise.resolve();
+
 // Buttons stay disabled briefly after the dialog opens so a click aimed at
 // the page underneath (or a clickjacking attempt) can't land on "Allow".
 const INPUT_PROTECTION_MS = 350;
@@ -35,10 +41,14 @@ const GRANT_TIMEOUT_MS = 15000;
  * Rendered as a standalone top-layer `<dialog>` (not a UIWindow) so it works
  * identically on the desktop, in popups, and on mobile.
  *
+ * Requires `app_uid` or `origin`: those are the identities a grant can be
+ * written against, so without one there is nothing to prompt about.
+ *
  * @param {Object} options
  * @param {string} options.permission - The permission string being requested.
  * @param {string} [options.app_uid] - UID of the requesting app, if known.
- * @param {string} [options.app_name] - Name of the requesting app, if known.
+ * @param {string} [options.app_name] - Registered name of the requesting app;
+ *   used for display, never as the grant target.
  * @param {string} [options.origin] - Origin of the requesting site (popup flow).
  * @returns {Promise<boolean>} `true` only if the permission was granted.
  */
@@ -49,18 +59,40 @@ async function UIPermissionDialog (options) {
         return false;
     }
 
-    // Never prompt the user on behalf of an unidentifiable requester; the
-    // grant call would be rejected by the server anyway.
-    if ( ! options.app_uid && ! options.origin && ! options.app_name ) {
+    // Never prompt the user on behalf of a requester the grant can't name.
+    // Only `app_uid` and `origin` are sent to /auth/grant-user-app, so an
+    // `app_name` on its own would buy a prompt whose "Allow" is guaranteed to
+    // fail on the server.
+    if ( ! options.app_uid && ! options.origin ) {
         return false;
     }
 
-    const pending_key = `${options.app_uid ?? options.origin ?? options.app_name ?? ''}\n${options.permission}`;
+    const pending_key = `${options.app_uid ?? options.origin ?? ''}\n${options.permission}`;
     if ( pending_dialogs.has(pending_key) ) {
         return pending_dialogs.get(pending_key);
     }
 
-    const promise = show_permission_dialog(options);
+    // Claim the next slot in the queue. Reading and replacing `dialog_queue`
+    // happens before the first await, so slots are handed out in call order.
+    const wait_for_turn = dialog_queue;
+    let release_turn;
+    dialog_queue = new Promise((r) => { release_turn = r; });
+
+    const promise = (async () => {
+        try {
+            // A failed predecessor must not stall the queue behind it.
+            await wait_for_turn.catch(() => {});
+            return await show_permission_dialog(options);
+        } catch (e) {
+            // Callers treat this as the user's decision and some of them (the
+            // IPC bridge) have no way to answer a rejection, which would leave
+            // the requesting app waiting forever. Fail closed instead.
+            console.error('Permission dialog failed', options.permission, e);
+            return false;
+        } finally {
+            release_turn();
+        }
+    })();
     pending_dialogs.set(pending_key, promise);
     try {
         return await promise;
@@ -115,10 +147,45 @@ async function show_permission_dialog (options) {
             $deny.get(0)?.focus();
         }, INPUT_PROTECTION_MS);
 
+        // True while the grant POST is outstanding. Dismissing the dialog then
+        // would answer "denied" for a permission the server may be in the
+        // middle of committing, leaving the user believing they cancelled
+        // something that is now granted.
+        let granting = false;
+
+        // Hands the dialog back to the user after a failed attempt: re-enables
+        // the buttons, restores dismissability, and shows a retryable error.
+        const fail_grant = () => {
+            if ( settled ) return;
+            granting = false;
+            // `.text()` escapes for display, so hand it the unencoded string —
+            // the default encoding would surface entities like `&#39;`
+            // verbatim in translations that contain an apostrophe.
+            $error.text(i18n('perm_dialog_error', [], false)).show();
+            $allow.prop('disabled', false).removeClass('perm-dialog-busy');
+            $deny.prop('disabled', false);
+        };
+
         $allow.on('click', async () => {
+            if ( granting ) return;
+            granting = true;
             $allow.prop('disabled', true).addClass('perm-dialog-busy');
             $deny.prop('disabled', true);
             $error.hide();
+
+            // Time-box the request: while it is outstanding the dialog can't
+            // be dismissed, so a hung network must not strand the user in
+            // front of a modal with both buttons disabled. AbortController is
+            // available wherever the GUI runs; AbortSignal.timeout is not.
+            const controller = typeof AbortController !== 'undefined'
+                ? new AbortController()
+                : null;
+            const grant_timer = setTimeout(() => {
+                controller?.abort();
+                // Also recover on engines with no AbortController, where the
+                // fetch above may never settle on its own.
+                fail_grant();
+            }, GRANT_TIMEOUT_MS);
 
             try {
                 const res = await fetch(`${window.api_origin}/auth/grant-user-app`, {
@@ -132,13 +199,7 @@ async function show_permission_dialog (options) {
                         permission: options.permission,
                     }),
                     method: 'POST',
-                    // A hung request would leave both buttons disabled
-                    // forever; time out into the retryable error path.
-                    // (Guarded: AbortSignal.timeout is missing from some
-                    // older engines that otherwise run the GUI fine.)
-                    ...(typeof AbortSignal !== 'undefined' && AbortSignal.timeout
-                        ? { signal: AbortSignal.timeout(GRANT_TIMEOUT_MS) }
-                        : {}),
+                    ...(controller ? { signal: controller.signal } : {}),
                 });
                 if ( ! res.ok ) {
                     throw new Error(`HTTP error! Status: ${res.status}`);
@@ -146,23 +207,39 @@ async function show_permission_dialog (options) {
                 settle(true);
             } catch (err) {
                 console.error(err);
-                $error.text(i18n('perm_dialog_error')).show();
-                $allow.prop('disabled', false).removeClass('perm-dialog-busy');
-                $deny.prop('disabled', false);
+                fail_grant();
+            } finally {
+                clearTimeout(grant_timer);
             }
         });
 
         $deny.on('click', () => settle(false));
 
         // Esc key (native 'cancel'), or anything else that closes the dialog,
-        // counts as a denial.
+        // counts as a denial — unless a grant is mid-flight, in which case the
+        // request's own outcome is the answer.
         el_dialog.addEventListener('cancel', (e) => {
             e.preventDefault();
+            if ( granting ) return;
             settle(false);
         });
-        el_dialog.addEventListener('close', () => settle(false));
+        el_dialog.addEventListener('close', () => {
+            if ( granting ) return;
+            settle(false);
+        });
 
-        el_dialog.showModal();
+        try {
+            el_dialog.showModal();
+        } catch (e) {
+            // `showModal()` throws when modals are blocked for the document,
+            // e.g. the GUI embedded in an `<iframe sandbox>` without
+            // `allow-modals`. Deny rather than leave an invisible dialog
+            // behind and the caller waiting on it.
+            console.error('Permission dialog could not be shown', e);
+            el_dialog.remove();
+            settle(false);
+            return;
+        }
         // Focus the safe action by default; Enter must not grant by accident.
         $deny.get(0)?.focus();
     });
@@ -180,8 +257,8 @@ function create_dialog_element (entity, permission_description) {
     h += '<div class="perm-dialog-identity">';
     h += entity.icon_html;
     h += `<h1 class="perm-dialog-entity-name">${html_encode(entity.display_name)}</h1>`;
-    if ( entity.origin_host ) {
-        h += `<span class="perm-dialog-entity-origin">${html_encode(entity.origin_host)}</span>`;
+    if ( entity.subtitle ) {
+        h += `<span class="perm-dialog-entity-origin">${html_encode(entity.subtitle)}</span>`;
     }
     h += '</div>';
 
@@ -214,19 +291,20 @@ function create_dialog_element (entity, permission_description) {
 }
 
 /**
- * Resolves how the requesting app or site is presented: display name,
- * origin host (popup flow), and an icon (app icon or letter avatar).
+ * Resolves how the requesting app or site is presented: display name, a
+ * subtitle carrying the identity that is actually unique (the app's registered
+ * name, or the site's host), and an icon (app icon or letter avatar).
  */
 async function resolve_requesting_entity (options) {
     let display_name = options.app_name ?? options.origin ?? '';
-    let origin_host = null;
+    let subtitle = null;
     let icon_url = null;
 
     if ( options.origin ) {
         try {
-            origin_host = new URL(options.origin).host;
+            subtitle = new URL(options.origin).host;
         } catch (e) {
-            origin_host = options.origin;
+            subtitle = options.origin;
         }
     }
 
@@ -241,16 +319,21 @@ async function resolve_requesting_entity (options) {
         } catch (e) {
             // Fall back to the app name / letter avatar.
         }
+        // An app's title is free-form text its author chooses and two apps can
+        // share one, so the title alone can impersonate another app on this
+        // dialog. Name the app underneath it: `name` is unique per app and
+        // format-restricted, which the title is not.
+        subtitle = options.app_name;
     }
 
     // Sites are identified by their host rather than a full origin URL.
-    if ( ! options.app_name && origin_host ) {
-        display_name = origin_host;
+    if ( ! options.app_name && subtitle ) {
+        display_name = subtitle;
     }
 
-    // Don't repeat the origin as a subtitle when it is already the title.
-    if ( origin_host === display_name ) {
-        origin_host = null;
+    // Don't repeat the same string twice.
+    if ( subtitle === display_name ) {
+        subtitle = null;
     }
 
     let icon_html;
@@ -264,7 +347,7 @@ async function resolve_requesting_entity (options) {
         icon_html = `<div class="perm-dialog-entity-icon perm-dialog-letter-avatar">${html_encode(initial)}</div>`;
     }
 
-    return { display_name, origin_host, icon_html };
+    return { display_name, subtitle, icon_html };
 }
 
 /**

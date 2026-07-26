@@ -555,6 +555,17 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
         // Add event listeners for cancel and close buttons
         this.shadowRoot.querySelector('#launch-auth-popup-cancel')?.addEventListener('click', this.cancelListener);
         this.shadowRoot.querySelector('.close-btn')?.addEventListener('click', this.cancelListener);
+
+        // Escape dismisses a modal <dialog> natively, which would otherwise
+        // remove the dialog from view without telling the caller — leaving the
+        // promise behind it pending forever. `cancel` fires only for that
+        // user-initiated dismissal; a programmatic `close()` (how launching the
+        // popup dismisses this dialog) fires `close` alone, so the launch path
+        // is unaffected.
+        this.shadowRoot.querySelector('dialog')?.addEventListener('cancel', (e) => {
+            e.preventDefault();
+            this.cancelListener();
+        });
     }
 
     /**
