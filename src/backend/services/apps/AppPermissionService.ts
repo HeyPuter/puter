@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { Context } from '../../core/context.js';
@@ -34,8 +35,8 @@ import { PuterService } from '../types.js';
  * `subdomains-of-user:*`, and `app-root-dir:*` namespaces.
  *
  * Ports three v1 services (ProtectedAppService, AppPermissionService, the
- * app-root-dir arm of AppService) into one domain-scoped service. Nothing
- * here needs to live beyond init — the registrations are stateless.
+ * app-root-dir arm of AppService) into one domain-scoped service. Nothing here
+ * needs to live beyond init — the registrations are stateless.
  */
 export class AppPermissionService extends PuterService {
     declare protected stores: LayerInstances<typeof puterStores>;
@@ -119,8 +120,10 @@ export class AppPermissionService extends PuterService {
         });
 
         // -- app-root-dir:<app_uid>:<mode> → fs:<root_uid>:<mode> -------
-        // Only rewrites during an explicit `grantUserAppPermission` (see
-        // PermissionService for the context flag). During scans we return
+        // Only rewrites while a user-app permission row is being written or
+        // removed — `grantUserAppPermission` / `revokeUserAppPermission`, which
+        // both set the context flag (see PermissionService) precisely so the
+        // revoke names the row the grant wrote. During scans we return
         // PERMISSION_FOR_NOTHING_IN_PARTICULAR so `check(actor, 'app-root-dir:…')`
         // never accidentally matches through the fs-permission path.
         permissions.registerRewriter({
@@ -207,11 +210,11 @@ export class AppPermissionService extends PuterService {
      * subdomain out of `app.index_url` and looking up the matching subdomain
      * row.
      *
-     * v1 first consulted `subdomains.associated_app_id` for a direct
-     * binding — that column was user-writable without an ownership check,
-     * so trusting it let any user point an arbitrary app's "root dir" at
-     * their own subdomain. The column is no longer authoritative; the
-     * `index_url`-derived lookup below is the only path.
+     * V1 first consulted `subdomains.associated_app_id` for a direct binding —
+     * that column was user-writable without an ownership check, so trusting it
+     * let any user point an arbitrary app's "root dir" at their own subdomain.
+     * The column is no longer authoritative; the `index_url`-derived lookup
+     * below is the only path.
      */
     async #resolveAppRootDirId(app: {
         id: number;

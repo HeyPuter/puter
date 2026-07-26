@@ -35,7 +35,7 @@ import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { EventClient } from '../../clients/event/EventClient.js';
 import type { Actor } from '../../core/actor.js';
-import { runWithContext } from '../../core/context.js';
+import { Context, runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { requireUserActorGate } from '../../core/http/middleware/gates.js';
 import { PuterServer } from '../../server.js';
@@ -1902,6 +1902,83 @@ describe('AuthController grant flows', () => {
         );
         expect(revokeRes.body).toEqual({});
         expect(await storedPermissions()).not.toContain(shortPermission);
+    });
+
+    it('revoke-user-app: undoes a grant whose rewrite only resolves while granting', async () => {
+        // `app-root-dir:<uid>:<mode>` is a pseudo-permission: its rewriter
+        // resolves it to a real `fs:<root_uid>:<mode>` only while a user-app
+        // grant is being written, and deliberately resolves to a match-nothing
+        // sentinel at every other time so a scan can't match through the fs
+        // path. Revoke shares that rewrite, so it used to aim the DELETE at the
+        // sentinel and silently remove nothing — leaving the fs permission live
+        // while the caller was told the revoke succeeded. The permission
+        // dialog's withdrawal of an uncertain grant runs through exactly this
+        // path, so a user who answered "Don't Allow" kept the grant.
+        //
+        // Modelled with a rewriter of our own, shaped like the real one: the
+        // production rewriter resolves an app's root dir through the subdomain
+        // and fsentry stores, and this suite has neither.
+        const appName = `tard-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestAppRootDirApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+
+        const prefix = `tardrw-${uuidv4()}`;
+        const pseudoPermission = `${prefix}:${app.uid}:write`;
+        const resolvedPermission = `fs:${uuidv4()}:write`;
+        const NOTHING = 'nothing-in-particular';
+        server.services.permission.registerRewriter({
+            id: `test-grant-only-${prefix}`,
+            matches: (permission: string) => permission.startsWith(`${prefix}:`),
+            // The real rewriter's condition, verbatim.
+            rewrite: async (permission: string) =>
+                Context.get('is_grant_user_app_permission')
+                    ? resolvedPermission
+                    : NOTHING,
+        });
+
+        const storedPermissions = async () =>
+            (
+                (await server.clients.db.read(
+                    'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                        'WHERE p.`user_id` = ? AND p.`app_id` = ?',
+                    [issuer.id, app.id],
+                )) as Array<{ permission: string }>
+            ).map((r) => r.permission);
+
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: pseudoPermission },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            ),
+        );
+        // The grant stored the *resolved* permission, not the pseudo one.
+        expect(await storedPermissions()).toContain(resolvedPermission);
+
+        const revokeRes = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: pseudoPermission },
+                    { actor: issuerActor },
+                ),
+                revokeRes,
+            ),
+        );
+        expect(revokeRes.body).toEqual({});
+        // Revoking by the same string the caller granted has to remove the row
+        // that grant actually wrote.
+        expect(await storedPermissions()).not.toContain(resolvedPermission);
+        // And it must not have written the sentinel as a row of its own.
+        expect(await storedPermissions()).not.toContain(NOTHING);
     });
 
     it('grant-user-group: 404 when the group does not exist', async () => {

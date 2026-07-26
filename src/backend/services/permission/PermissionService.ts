@@ -20,7 +20,7 @@
 
 import type { Actor } from '../../core/actor';
 import { actorUid, isSystemActor, userRelatedActor } from '../../core/actor';
-import { Context } from '../../core/context';
+import { Context, runWithContext } from '../../core/context';
 import { HttpError } from '../../core/http/HttpError.js';
 import { Span } from '../../util/span.js';
 import { PuterService } from '../types';
@@ -1023,6 +1023,42 @@ export class PermissionService extends PuterService {
         if (user.uuid) await this.#bumpUserCacheGeneration(user.uuid);
     }
 
+    /**
+     * Rewrite a permission on its way into (or out of) a user-app row.
+     *
+     * Flags the context so the app-root-dir rewriter knows it's safe to resolve
+     * the pseudo-permission to a real `fs:<uid>:<mode>`. During scans
+     * (ACL.check) that rewriter returns PERMISSION_FOR_NOTHING_IN_PARTICULAR so
+     * `scan(actor, 'app-root-dir:…')` never accidentally matches through the fs
+     * path.
+     *
+     * Revoke goes through here too, and must: it has to name the same string
+     * the grant stored. Rewriting without the flag resolved the sentinel
+     * instead, so the DELETE matched nothing and reported success while the fs
+     * permission stayed live — including when the permission dialog withdraws a
+     * grant whose outcome it couldn't confirm, so a user who answered "Don't
+     * Allow" kept it. (The flag's name predates that; it now covers both
+     * writes.)
+     */
+    async #rewriteForUserAppWrite(permission: string): Promise<string> {
+        // A caller outside a request scope (an internal job, a direct unit
+        // test) still needs the flag set, or its write resolves differently
+        // from the paired one — and `Context.set` has nothing to set it on.
+        // An empty scope reads the same as no scope, every other lookup still
+        // missing, so this only makes the flag settable.
+        if (!Context.current()) {
+            return runWithContext({}, () =>
+                this.#rewriteForUserAppWrite(permission),
+            );
+        }
+        Context.set('is_grant_user_app_permission', true);
+        try {
+            return await this.rewritePermission(permission);
+        } finally {
+            Context.set('is_grant_user_app_permission', false);
+        }
+    }
+
     async grantUserAppPermission(
         actor: Actor,
         appIdentifier: string,
@@ -1030,17 +1066,7 @@ export class PermissionService extends PuterService {
         extra: Record<string, unknown> = {},
         meta: GrantMeta = {},
     ): Promise<void> {
-        // Flag the context so the app-root-dir rewriter knows it's safe to
-        // resolve the pseudo-permission to a real `fs:<uid>:<mode>`. During
-        // scans (ACL.check) the rewriter returns PERMISSION_FOR_NOTHING_IN_PARTICULAR
-        // so `scan(actor, 'app-root-dir:…')` never accidentally matches
-        // through the fs path.
-        Context.set('is_grant_user_app_permission', true);
-        try {
-            permission = await this.rewritePermission(permission);
-        } finally {
-            Context.set('is_grant_user_app_permission', false);
-        }
+        permission = await this.#rewriteForUserAppWrite(permission);
         // Checked after the rewrite, because the rewrite is what decides how
         // wide the row actually is: `fs:/deep/path:read` collapses to
         // `fs:<uuid>:read`. Reject here rather than let an oversized string
@@ -1098,11 +1124,14 @@ export class PermissionService extends PuterService {
         permission: string,
         meta: GrantMeta = {},
     ): Promise<void> {
-        permission = await this.rewritePermission(permission);
+        // Before the rewrite: the pseudo-permission resolvers it runs refuse an
+        // app actor themselves, and this says why in the caller's own terms.
         if (actor.app)
             throw new HttpError(403, 'actor must be a user', {
                 legacyCode: 'forbidden',
             });
+        // The same rewrite the grant used, so this names the row it wrote.
+        permission = await this.#rewriteForUserAppWrite(permission);
         const app = await this.stores.app.resolveApp(appIdentifier);
         if (!app)
             throw new HttpError(404, `entity_not_found: app:${appIdentifier}`, {
