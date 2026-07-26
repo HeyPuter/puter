@@ -3001,7 +3001,15 @@ export class AuthController extends PuterController {
         let { app_uid } = req.body;
         const { origin, permission, extra, meta } = req.body;
         if (origin && !app_uid) {
-            app_uid = await this.services.auth.appUidFromOrigin(origin);
+            // Registered apps only, for the same reason the user-app handlers
+            // insist on it: a synthesised `app-<uuidv5(origin)>` is resolved
+            // downstream as uid-*or-name*, so it would land on whoever
+            // registered an app under that literal name. A dev-app grant is
+            // scanned with the issuer's authority for anyone running as that
+            // app, so that hands this user's permission to the squatter.
+            // Without a squatter the synthetic uid resolves to nothing and
+            // this 404s regardless, so nothing legitimate changes.
+            app_uid = await this.#registeredAppUidFromOrigin(origin);
         }
         if (!app_uid || !permission) {
             throw new HttpError(400, 'Missing `app_uid` or `permission`', {
@@ -3026,7 +3034,8 @@ export class AuthController extends PuterController {
         let { app_uid } = req.body;
         const { origin, permission, meta } = req.body;
         if (origin && !app_uid) {
-            app_uid = await this.services.auth.appUidFromOrigin(origin);
+            // Registered apps only — see handleGrantDevApp.
+            app_uid = await this.#registeredAppUidFromOrigin(origin);
         }
         if (!app_uid || !permission) {
             throw new HttpError(400, 'Missing `app_uid` or `permission`', {

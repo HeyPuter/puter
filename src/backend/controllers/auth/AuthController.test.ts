@@ -1877,13 +1877,31 @@ describe('AuthController grant flows', () => {
         );
         expect(res.body).toEqual({});
 
-        const rows = (await server.clients.db.read(
-            'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
-                'WHERE p.`user_id` = ? AND p.`app_id` = ?',
-            [issuer.id, app.id],
-        )) as Array<{ permission: string }>;
+        const storedPermissions = async () =>
+            (
+                (await server.clients.db.read(
+                    'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                        'WHERE p.`user_id` = ? AND p.`app_id` = ?',
+                    [issuer.id, app.id],
+                )) as Array<{ permission: string }>
+            ).map((r) => r.permission);
         // What landed in the column is the short, rewritten form.
-        expect(rows.map((r) => r.permission)).toContain(shortPermission);
+        expect(await storedPermissions()).toContain(shortPermission);
+
+        // Revoke has to accept the same string grant did, or the dialog's
+        // withdrawal of an uncertain grant can never undo one of these.
+        const revokeRes = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: longPermission },
+                    { actor: issuerActor },
+                ),
+                revokeRes,
+            ),
+        );
+        expect(revokeRes.body).toEqual({});
+        expect(await storedPermissions()).not.toContain(shortPermission);
     });
 
     it('grant-user-group: 404 when the group does not exist', async () => {
@@ -4567,6 +4585,104 @@ describe('AuthController dev-app permission flows', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('grant/revoke-dev-app: an unregistered `origin` cannot be redirected onto an app squatting its synthetic uid', async () => {
+        // Same hole the user-app handlers close: `appUidFromOrigin`
+        // synthesises `app-<uuidv5(origin)>` for an origin with no app row,
+        // and the permission services resolve their identifier as
+        // uid-*or-name*. A dev-app grant is scanned with the *issuer's*
+        // authority for anyone running as that app, so landing one on a
+        // squatter hands over this user's permission. Without a squatter the
+        // origin 404s anyway, so requiring a registered app costs nothing.
+        const { user, actor } = await makeUserAndActor();
+        const origin = `https://unregistered-dev-${uuidv4()}.example`;
+        const syntheticUid = `app-${uuidv5(origin, APP_ORIGIN_UUID_NAMESPACE)}`;
+        const squatter = await server.stores.app.create(
+            {
+                name: syntheticUid,
+                title: 'DevSquatter',
+                index_url: 'https://dev-squatter.example/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+
+        const permission = 'service:dev-squat:ii:read';
+        // Let the grant past `canManagePermission`, so a failure here can only
+        // be the app-resolution guard rather than a missing manage right.
+        await server.stores.permission.setFlatUserPerm(
+            user.id,
+            `manage:${permission}`,
+            {
+                permission: `manage:${permission}`,
+                deleted: false,
+                issuer_user_id: user.id,
+            } as never,
+        );
+
+        for (const handler of [
+            'handleGrantDevApp',
+            'handleRevokeDevApp',
+        ] as const) {
+            await expect(
+                inCtx(actor, () =>
+                    controller[handler](
+                        makeReq({ origin, permission }, { actor }),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        }
+
+        const rows = await server.clients.db.read(
+            'SELECT `permission` FROM `dev_to_app_permissions` ' +
+                'WHERE `user_id` = ? AND `app_id` = ?',
+            [user.id, squatter.id],
+        );
+        expect(rows).toEqual([]);
+    });
+
+    it('grant-dev-app: a registered `origin` still resolves to its app', async () => {
+        // The guard above must not cost the legitimate case: an origin that
+        // really does name an app still grants to it.
+        const { user, actor } = await makeUserAndActor();
+        const appName = `dev-origin-${uuidv4()}`;
+        const origin = `https://${appName}.example.test`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'DevOriginApp',
+                index_url: `${origin}/index.html`,
+            },
+            { ownerUserId: user.id },
+        );
+
+        const permission = 'service:dev-origin:ii:read';
+        await server.stores.permission.setFlatUserPerm(
+            user.id,
+            `manage:${permission}`,
+            {
+                permission: `manage:${permission}`,
+                deleted: false,
+                issuer_user_id: user.id,
+            } as never,
+        );
+
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleGrantDevApp(
+                makeReq({ origin, permission }, { actor }),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+
+        const rows = (await server.clients.db.read(
+            'SELECT `permission` FROM `dev_to_app_permissions` ' +
+                'WHERE `user_id` = ? AND `app_id` = ?',
+            [user.id, app.id],
+        )) as Array<{ permission: string }>;
+        expect(rows.map((r) => r.permission)).toContain(permission);
     });
 });
 
