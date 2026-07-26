@@ -1331,8 +1331,10 @@ const ipc_listener = async (event, handled) => {
             return;
         }
 
-        // options must be an object
-        if ( event.data.options === undefined || typeof event.data.options !== 'object' )
+        // options must be an object. `typeof null === 'object'`, so null has to
+        // be caught here too — reading `.permission` off it throws, and the
+        // throw escapes before any reply, hanging the caller's promise forever.
+        if ( ! event.data.options || typeof event.data.options !== 'object' )
         {
             event.data.options = {};
         }

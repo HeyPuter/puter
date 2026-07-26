@@ -90,6 +90,31 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
         }
     });
 
+    test('a malformed options argument is denied rather than left hanging', async ({ page }) => {
+        // `typeof null === 'object'`, so a null `options` slipped past the
+        // "must be an object" guard and faulted on the `.permission` read —
+        // before any reply had been posted, leaving the caller's promise
+        // pending forever. env=web already answered false for the same input.
+        const appName = await registerTestApp(page, { fixtureURL: PERMISSION_FIXTURE_URL });
+        try {
+            const appFrame = await gotoTestApp(page, appName);
+            const outcome = await appFrame.locator('body').evaluate(async () => {
+                const settled = puter.ui.requestPermission(null).then(
+                    v => `resolved:${v}`,
+                    e => `rejected:${e?.message ?? e}`,
+                );
+                return Promise.race([
+                    settled,
+                    new Promise(r => setTimeout(() => r('never settled'), 10_000)),
+                ]);
+            });
+            expect(outcome).toBe('resolved:false');
+            await expect(page.locator('dialog.perm-dialog')).toHaveCount(0);
+        } finally {
+            await deleteTestApp(page, appName);
+        }
+    });
+
     test('Escape dismisses the dialog as a denial', async ({ page }) => {
         const appName = await registerTestApp(page, { fixtureURL: PERMISSION_FIXTURE_URL });
         try {
@@ -478,6 +503,30 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
         await cancelButton.click();
 
         expect(await page.evaluate(() => window.__permPromise)).toBe(false);
+    });
+
+    test('a refused window.open denies instead of rejecting', async ({ page }) => {
+        // requestPermission is documented `Promise<boolean>` and every handled
+        // path resolves false. `window.open` refused outright — by a policy or
+        // an override that throws rather than returning null — used to escape
+        // the launch branch and reject, since only the consent-dialog path was
+        // wrapped.
+        await page.goto('/');
+        await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
+        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+
+        const outcome = await page.evaluate(async () => {
+            window.open = () => { throw new Error('blocked by policy'); };
+            const settled = puter.ui.requestPermission({
+                permission: 'driver:puter-image-generation:generate',
+            }).then(v => `resolved:${v}`, e => `rejected:${e?.message ?? e}`);
+            return Promise.race([
+                settled,
+                new Promise(r => setTimeout(() => r('never settled'), 10_000)),
+            ]);
+        });
+        expect(outcome).toBe('resolved:false');
     });
 
     test('closing the popup without answering resolves false', async ({ page }) => {

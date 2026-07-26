@@ -6,6 +6,12 @@ platforms: [websites, apps]
 
 Request to see a user's email. If the user has already granted this permission the user will not be prompted and their email address will be returned. If the user grants permission their email address will be returned. If the user does not allow access `undefined` will be returned. If the user does not have an email address, the value of their email address will be `null`.
 
+On a website, sign the user in to your site first with [`puter.auth.signIn()`](/Auth/signIn/). This method reads the signed-in user's identity before it can prompt, so for a signed-out visitor it rejects with `Unauthorized` and no prompt is shown. Answering a permission prompt does not by itself sign the user in to your site, so guard the call:
+
+```js
+if (!puter.authToken) await puter.auth.signIn();
+```
+
 ## Syntax
 
 ```js

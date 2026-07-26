@@ -1291,35 +1291,37 @@ class UI extends EventListener {
                 settle(false);
             };
 
-            if ( hasUserActivation() ) {
-                // A user gesture is active — open the popup immediately.
-                // Unique window name per request: window.open() reuses a
-                // window with the same name, which would hijack a popup an
-                // earlier, still-pending request is waiting on.
-                watchPopup(openAuthPopup(url, `puter-permission-${msg_id}`));
-            } else {
-                // No user gesture: a popup opened now would be blocked by the
-                // browser. Show a consent dialog first; the popup is then
-                // opened from the user's click on that dialog, which provides
-                // the gesture the browser requires.
-                const dialog = new PuterDialog(() => {}, () => {}, {
-                    popupURL: url,
-                    // Same unique-name reasoning as the direct path above.
-                    popupName: `puter-permission-${msg_id}`,
-                    onLaunch: (popup) => watchPopup(popup),
-                    onCancel: () => settle(false),
-                });
-                consentDialog = dialog;
-                try {
+            // Every path out of here resolves a boolean, so anything that
+            // throws while launching — `window.open` refused outright by a
+            // policy or an override rather than returning null, a dialog that
+            // won't construct, no `document.body` yet because this was called
+            // from a <head> script — has to deny rather than reject.
+            try {
+                if ( hasUserActivation() ) {
+                    // A user gesture is active — open the popup immediately.
+                    // Unique window name per request: window.open() reuses a
+                    // window with the same name, which would hijack a popup an
+                    // earlier, still-pending request is waiting on.
+                    watchPopup(openAuthPopup(url, `puter-permission-${msg_id}`));
+                } else {
+                    // No user gesture: a popup opened now would be blocked by
+                    // the browser. Show a consent dialog first; the popup is
+                    // then opened from the user's click on that dialog, which
+                    // provides the gesture the browser requires.
+                    const dialog = new PuterDialog(() => {}, () => {}, {
+                        popupURL: url,
+                        // Same unique-name reasoning as the direct path above.
+                        popupName: `puter-permission-${msg_id}`,
+                        onLaunch: (popup) => watchPopup(popup),
+                        onCancel: () => settle(false),
+                    });
+                    consentDialog = dialog;
                     document.body.appendChild(dialog);
                     dialog.open();
-                } catch (e) {
-                    // Nothing to show the user (e.g. called from a <head>
-                    // script, so there is no body yet). This resolves to a
-                    // boolean for every other caller, so deny rather than
-                    // reject — and let cleanup drop the message listener.
-                    settle(false);
                 }
+            } catch (e) {
+                // `settle` runs cleanup, so the message listener is dropped too.
+                settle(false);
             }
         });
     };
