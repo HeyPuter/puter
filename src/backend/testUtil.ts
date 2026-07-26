@@ -153,6 +153,9 @@ export const setupTestServer = async (
             no_devwatch: true,
             no_browser_launch: true,
             import_ts_extensions: true,
+            // No local-Ollama auto-discovery: every test server would
+            // otherwise fire a doomed model-list fetch at localhost.
+            providers: { ollama: { enabled: false } },
         }),
         configOverrides ?? {},
     ) as IConfig;

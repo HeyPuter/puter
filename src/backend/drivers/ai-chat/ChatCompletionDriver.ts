@@ -216,10 +216,22 @@ export class ChatCompletionDriver extends PuterDriver {
 
     #providers: Record<string, IChatProvider> = {};
     #modelIdMap: Record<string, IChatModel[]> = {};
+    #modelMapReady: Promise<void> = Promise.resolve();
 
     override onServerStart() {
         this.#registerProviders();
-        this.#buildModelMap();
+        // Not awaited — providers fetch model lists over the network and
+        // boot must not block on their latency. Shutdown awaits the
+        // tracked promise so provider I/O (and its error logging) never
+        // outlives the server; a rejection here must not become an
+        // unhandled one.
+        this.#modelMapReady = this.#buildModelMap().catch((e) => {
+            console.error('Failed to build ai-chat model map:', e);
+        });
+    }
+
+    override async onServerShutdown() {
+        await this.#modelMapReady;
     }
 
     // -- Interface methods -------------------------------------------
