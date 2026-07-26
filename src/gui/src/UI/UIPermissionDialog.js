@@ -35,6 +35,10 @@ const INPUT_PROTECTION_MS = 350;
 // re-enables its buttons for a retry.
 const GRANT_TIMEOUT_MS = 15000;
 
+// How long the lookups that run before the dialog appears may take. They hold
+// the serialization slot, so a stall here would block every later request.
+const LOOKUP_TIMEOUT_MS = 10000;
+
 /**
  * Shows a permission-request dialog and resolves with the user's decision.
  *
@@ -107,7 +111,11 @@ async function UIPermissionDialog (options) {
 async function show_permission_dialog (options) {
     let permission_description;
     try {
-        permission_description = await get_permission_description(options.permission);
+        permission_description = await with_timeout(
+            get_permission_description(options.permission),
+            LOOKUP_TIMEOUT_MS,
+            null,
+        );
     } catch (e) {
         // Description lookup needs auth/whoami; treat failures as unsupported.
         console.error('Failed to describe permission', options.permission, e);
@@ -115,6 +123,8 @@ async function show_permission_dialog (options) {
     }
 
     // Unsupported permission strings are denied silently (existing contract).
+    // A lookup that timed out lands here too: nothing to describe, so nothing
+    // to prompt about.
     if ( ! permission_description ) {
         return false;
     }
@@ -125,10 +135,22 @@ async function show_permission_dialog (options) {
         const el_dialog = create_dialog_element(entity, permission_description);
         document.body.appendChild(el_dialog);
 
+        // Set once a grant request has been sent without the server definitively
+        // refusing it. A client-side timeout or a dropped response says nothing
+        // about whether the row was written, so a later denial has to undo it —
+        // otherwise the user is told "denied" while the grant is live in their
+        // account. Declared before `settle`, which reads it.
+        let grant_may_have_committed = false;
+
         let settled = false;
         const settle = (granted) => {
             if ( settled ) return;
             settled = true;
+            if ( ! granted && grant_may_have_committed ) {
+                // Not awaited: the requester gets its answer now, and the
+                // account is reconciled in the background.
+                undo_uncertain_grant(options);
+            }
             // `close()` fires the 'close' event; the handler below resolves
             // false, so resolve first.
             resolve(granted);
@@ -199,6 +221,8 @@ async function show_permission_dialog (options) {
                 fail_grant();
             }, GRANT_TIMEOUT_MS);
 
+            // True once we have an answer that proves nothing was written.
+            let refused_outright = false;
             try {
                 const res = await fetch(`${window.api_origin}/auth/grant-user-app`, {
                     headers: {
@@ -214,10 +238,18 @@ async function show_permission_dialog (options) {
                     ...(controller ? { signal: controller.signal } : {}),
                 });
                 if ( ! res.ok ) {
+                    // A 4xx is the server refusing outright, so nothing was
+                    // written. Anything else leaves the outcome unknown.
+                    refused_outright = res.status >= 400 && res.status < 500;
                     throw new Error(`HTTP error! Status: ${res.status}`);
                 }
                 settle(true);
             } catch (err) {
+                // An abort or a dropped response says nothing about whether the
+                // server committed the request that already left this browser.
+                if ( ! refused_outright ) {
+                    grant_may_have_committed = true;
+                }
                 console.error(err);
                 fail_grant();
             } finally {
@@ -258,6 +290,48 @@ async function show_permission_dialog (options) {
 }
 
 /**
+ * Withdraws a grant whose POST may have committed even though the dialog never
+ * saw a success response, so a "Don't Allow" can't leave a live permission the
+ * user believes they refused. Addressed by the same identifiers the grant used.
+ */
+async function undo_uncertain_grant (options) {
+    try {
+        await fetch(`${window.api_origin}/auth/revoke-user-app`, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${window.auth_token}`,
+            },
+            body: JSON.stringify({
+                app_uid: options.app_uid,
+                origin: options.origin,
+                permission: options.permission,
+            }),
+            method: 'POST',
+        });
+    } catch (e) {
+        console.error('Failed to withdraw an uncertain permission grant', e);
+    }
+}
+
+/**
+ * Resolves `promise`, or `fallback` if it hasn't settled within `ms`.
+ *
+ * The lookups before the dialog appears run while this request holds the
+ * serialization slot, and none of them (`whoami`, `fs.stat`, `get_apps`) has a
+ * timeout of its own. One stalled request would hold the slot forever and every
+ * later permission request in the page would wait behind it.
+ */
+function with_timeout (promise, ms, fallback) {
+    let timer;
+    return Promise.race([
+        promise,
+        new Promise((resolve) => {
+            timer = setTimeout(() => resolve(fallback), ms);
+        }),
+    ]).finally(() => clearTimeout(timer));
+}
+
+/**
  * Builds the dialog DOM from the requesting entity and the permission
  * description. Returns a detached <dialog> element.
  */
@@ -268,7 +342,13 @@ function create_dialog_element (entity, permission_description) {
     // requesting entity identity
     h += '<div class="perm-dialog-identity">';
     h += entity.icon_html;
-    h += `<h1 class="perm-dialog-entity-name">${html_encode(entity.display_name)}</h1>`;
+    // A host is elided from the left, keeping the registrable domain visible —
+    // the part that says who is actually asking. Truncating the other end would
+    // let `accounts.google.com.attacker.example` read as `accounts.google.com…`.
+    const name_class = entity.is_host
+        ? 'perm-dialog-entity-name perm-dialog-entity-host'
+        : 'perm-dialog-entity-name';
+    h += `<h1 class="${name_class}">${html_encode(entity.display_name)}</h1>`;
     if ( entity.subtitle ) {
         h += `<span class="perm-dialog-entity-origin">${html_encode(entity.subtitle)}</span>`;
     }
@@ -323,7 +403,11 @@ async function resolve_requesting_entity (options) {
     // Prefer the app's human-readable title and icon when we can get them.
     if ( options.app_name ) {
         try {
-            const app_info = await window.get_apps(options.app_name);
+            const app_info = await with_timeout(
+                window.get_apps(options.app_name),
+                LOOKUP_TIMEOUT_MS,
+                null,
+            );
             if ( app_info && ! Array.isArray(app_info) ) {
                 display_name = app_info.title || display_name;
                 icon_url = app_info.icon || null;
@@ -339,8 +423,10 @@ async function resolve_requesting_entity (options) {
     }
 
     // Sites are identified by their host rather than a full origin URL.
+    let is_host = false;
     if ( ! options.app_name && subtitle ) {
         display_name = subtitle;
+        is_host = true;
     }
 
     // Don't repeat the same string twice.
@@ -359,7 +445,7 @@ async function resolve_requesting_entity (options) {
         icon_html = `<div class="perm-dialog-entity-icon perm-dialog-letter-avatar">${html_encode(initial)}</div>`;
     }
 
-    return { display_name, subtitle, icon_html };
+    return { display_name, subtitle, icon_html, is_host };
 }
 
 /**

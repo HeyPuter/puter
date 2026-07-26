@@ -1227,6 +1227,14 @@ class UI extends EventListener {
             const pollDecision = async () => {
                 const POLL_INTERVAL_MS = 2000;
                 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
+                // The check needs this site's own token, and a permission popup
+                // deliberately never hands one over. Without it every iteration
+                // would skip the request and the loop would just burn its whole
+                // timeout before answering — so answer now.
+                if ( ! puter.authToken ) {
+                    settle(false);
+                    return;
+                }
                 const started = Date.now();
                 while ( ! settled && Date.now() - started < POLL_TIMEOUT_MS ) {
                     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));

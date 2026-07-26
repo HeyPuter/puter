@@ -3594,27 +3594,6 @@ fieldset[name=number-code] {
     margin: 20px 0;
 }
 
-.perm-title {
-    text-align: center;
-    margin-top: 0;
-    padding-bottom: 15px;
-    font-size: 20px;
-    font-weight: 400;
-    margin-bottom: 10px;
-    color: #4b586a;
-    text-shadow: 1px 1px #ffffff1c;
-}
-
-.perm-description {
-    text-align: center;
-    font-size: 15px;
-    -webkit-font-smoothing: antialiased;
-    padding: 0 10px;
-    color: #2d3847;
-    margin-top: 5px;
-    margin-bottom: 5px;
-}
-
 @-webkit-keyframes pulse-white {
     0% {
         -webkit-box-shadow: 0 0 0 0 rgb(255, 255, 255);
@@ -6304,6 +6283,18 @@ html.dark-mode .usage-table-show-less:hover {
     unicode-bidi: plaintext;
 }
 
+/* A hostname must never lose its tail to the ellipsis: the registrable domain
+   is the part that identifies who is asking. `direction: rtl` anchors the text
+   to its end, so a too-long host is elided from the left instead — what
+   browsers do in their own origin chips. Latin hosts still read left-to-right
+   because the content's own direction is resolved from its first strong
+   character. */
+.perm-dialog-entity-host,
+.perm-dialog-entity-origin {
+    direction: rtl;
+    unicode-bidi: plaintext;
+}
+
 .perm-dialog-entity-origin {
     font-size: 13px;
     color: #8a8a96;
@@ -6312,8 +6303,6 @@ html.dark-mode .usage-table-show-less:hover {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    direction: rtl;
-    unicode-bidi: plaintext;
 }
 
 .perm-dialog-lead {

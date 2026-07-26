@@ -58,6 +58,10 @@ import { privacy_aware_path } from './util/desktop.js';
 import { deliversTokenToOpener } from './util/popupAuth.js';
 
 const postAuthActions = async (action) => {
+    // Set when a popup's user-app token exchange fails. The exchange is what
+    // bootstraps the app row a permission grant is written against, so an
+    // action that depends on it has to report failure rather than prompt.
+    let token_exchange_failed = false;
     // -------------------------------------------------------------------------------------
     // Action: AuthMe — redirect to a third-party URL with the user's auth token
     // -------------------------------------------------------------------------------------
@@ -169,7 +173,14 @@ const postAuthActions = async (action) => {
     // -------------------------------------------------------------------------------------
     else {
         let msg_id = window.url_query_params.get('msg_id');
-        let isolated = window.url_query_params.get("cross_origin_isolated") === 'true';
+        // `cross_origin_isolated` routes the token to the opener through
+        // `/login/set`, which `/login/wait` then hands to anyone holding the
+        // session id. That is a sign-in mechanism, so it is gated by the same
+        // rule as the postMessage hand-off below — otherwise adding one query
+        // parameter to a `request-permission` URL turns the permission prompt
+        // into a token grant, and skips the prompt entirely.
+        let isolated = window.url_query_params.get("cross_origin_isolated") === 'true'
+            && deliversTokenToOpener(action);
         let session = window.url_query_params.get('signin_session');
         if (isolated) {
             try {
@@ -200,6 +211,12 @@ const postAuthActions = async (action) => {
             const deliver_token_to_opener = deliversTokenToOpener(action);
             try {
                 let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
+                // `getUserAppToken` reports a network failure by returning
+                // null, so say what went wrong instead of faulting on the
+                // property read below.
+                if ( ! data ) {
+                    throw new Error('user-app token exchange returned no data');
+                }
                 // This is an implicit app and the app_uid is sent back from the server
                 // we cache it here so that we can use it later
                 window.host_app_uid = data.app_uid;
@@ -230,12 +247,18 @@ const postAuthActions = async (action) => {
                         token: null,
                         msg_id: msg_id,
                     }, window.openerOrigin);
+                    // close popup
+                    window.close();
+                    window.open('', '_self').close();
                 } else {
+                    // The requester is waiting on a decision, not a token, so
+                    // closing here would leave it with no answer at all. Record
+                    // the failure and let the action below report a denial and
+                    // close — the exchange is what bootstraps the app row a
+                    // grant needs, so there is nothing to prompt about.
                     console.error('token exchange failed before permission prompt', err);
+                    token_exchange_failed = true;
                 }
-                // close popup
-                window.close();
-                window.open('', '_self').close();
             }
         }
 
@@ -473,6 +496,11 @@ const postAuthActions = async (action) => {
         // promise pending until the user closes it by hand.
         let granted = false;
         try {
+            // Prompting is pointless when the app row a grant needs was never
+            // bootstrapped — "Allow" could only fail. Report the denial.
+            if ( token_exchange_failed ) {
+                throw new Error('token exchange failed; not prompting');
+            }
             // The requesting app is identified by its origin only. A uid from
             // the query string is never trusted: it is chosen by whoever
             // opened this page, so honouring it would let a link grant a
@@ -495,12 +523,25 @@ const postAuthActions = async (action) => {
             console.error('request-permission action failed', e);
         }
 
+        // `postMessage` throws a SyntaxError on a targetOrigin that isn't a
+        // parseable URL, and `origin` is caller-supplied — an unparseable one
+        // would take out the answer *and* the close below.
+        let target_origin = '*';
+        try {
+            target_origin = origin ? new URL(origin).origin : '*';
+        } catch (e) {
+            console.error('request-permission: unusable origin', origin);
+        }
         const messageTarget = window.embedded_in_popup ? window.opener : window.parent;
-        messageTarget?.postMessage({
-            msg: 'permissionGranted',
-            granted: granted === true,
-            original_msg_id: msg_id,
-        }, origin || '*');
+        try {
+            messageTarget?.postMessage({
+                msg: 'permissionGranted',
+                granted: granted === true,
+                original_msg_id: msg_id,
+            }, target_origin);
+        } catch (e) {
+            console.error('request-permission: could not answer the requester', e);
+        }
 
         // The popup exists only to host this dialog; close it once answered.
         if ( window.embedded_in_popup ) {
@@ -1714,38 +1755,58 @@ window.initgui = async function (options) {
                             let spinner_duration = Date.now() - spinner_init_ts;
 
                             (async () => {
-                                let msg_id =
-                                    window.url_query_params.get('msg_id');
-                                let data = await window.getUserAppToken(
-                                    new URL(window.openerOrigin).origin,
-                                );
-                                // This is an implicit app and the app_uid is sent back from the server
-                                // we cache it here so that we can use it later
-                                window.host_app_uid = data.app_uid;
-                                // send token to parent
-                                if (deliversTokenToOpener(action)) {
-                                    window.opener?.postMessage(
-                                        {
-                                            msg: 'puter.token',
-                                            success: true,
-                                            msg_id: msg_id,
-                                            token: data.token,
-                                            username: window.user.username,
-                                            app_uid: data.app_uid,
-                                        },
-                                        window.openerOrigin,
+                                let closing = false;
+                                try {
+                                    let msg_id =
+                                        window.url_query_params.get('msg_id');
+                                    let data = await window.getUserAppToken(
+                                        new URL(window.openerOrigin).origin,
                                     );
-                                }
-                                // close popup
-                                if (!action || action === 'sign-in') {
-                                    window.close();
-                                    window.open('', '_self').close();
-                                } else {
+                                    // A network failure here returns null, not
+                                    // a throw; the reads below would fault.
+                                    if (!data) {
+                                        throw new Error(
+                                            'user-app token exchange returned no data',
+                                        );
+                                    }
+                                    // This is an implicit app and the app_uid is sent back from the server
+                                    // we cache it here so that we can use it later
+                                    window.host_app_uid = data.app_uid;
+                                    // send token to parent
+                                    if (deliversTokenToOpener(action)) {
+                                        window.opener?.postMessage(
+                                            {
+                                                msg: 'puter.token',
+                                                success: true,
+                                                msg_id: msg_id,
+                                                token: data.token,
+                                                username: window.user.username,
+                                                app_uid: data.app_uid,
+                                            },
+                                            window.openerOrigin,
+                                        );
+                                    }
+                                    // close popup
+                                    if (!action || action === 'sign-in') {
+                                        closing = true;
+                                        window.close();
+                                        window.open('', '_self').close();
+                                    }
+                                } catch (err) {
+                                    console.error(
+                                        'popup token exchange failed',
+                                        err,
+                                    );
+                                } finally {
                                     // Actions that keep the popup open still
-                                    // have work to do after this wait; the
-                                    // sleep below only ends it when the
-                                    // spinner was up for under 2s.
-                                    resolve();
+                                    // have work to do after this wait, and the
+                                    // sleep below only ends it when the spinner
+                                    // was up for under 2s — so this has to run
+                                    // on the failure paths too, or the popup
+                                    // wedges on the spinner forever.
+                                    if (!closing) {
+                                        resolve();
+                                    }
                                 }
                             })();
                             if (spinner_duration < 2000) {
@@ -1779,34 +1840,61 @@ window.initgui = async function (options) {
                             },
                         });
 
-                        (async () => {
-                            let msg_id = window.url_query_params.get('msg_id');
-                            let data = await window.getUserAppToken(
-                                new URL(window.openerOrigin).origin,
-                            );
-                            // This is an implicit app and the app_uid is sent back from the server
-                            // we cache it here so that we can use it later
-                            window.host_app_uid = data.app_uid;
-                            // send token to parent
-                            if (deliversTokenToOpener(action)) {
-                                window.opener?.postMessage(
-                                    {
-                                        msg: 'puter.token',
-                                        success: true,
-                                        msg_id: msg_id,
-                                        token: data.token,
-                                        username: window.user.username,
-                                        app_uid: data.app_uid,
-                                    },
-                                    window.openerOrigin,
+                        // Popup-only: it posts to `window.opener` and closes the
+                        // window. On a normal page `window.openerOrigin` is
+                        // undefined and `new URL(undefined)` would throw into
+                        // nothing.
+                        if (window.embedded_in_popup)
+                            (async () => {
+                                try {
+                                    let msg_id =
+                                        window.url_query_params.get('msg_id');
+                                    let data = await window.getUserAppToken(
+                                        new URL(window.openerOrigin).origin,
+                                    );
+                                    if (!data) {
+                                        throw new Error(
+                                            'user-app token exchange returned no data',
+                                        );
+                                    }
+                                    // This is an implicit app and the app_uid is sent back from the server
+                                    // we cache it here so that we can use it later
+                                    window.host_app_uid = data.app_uid;
+                                    // send token to parent
+                                    if (deliversTokenToOpener(action)) {
+                                        window.opener?.postMessage(
+                                            {
+                                                msg: 'puter.token',
+                                                success: true,
+                                                msg_id: msg_id,
+                                                token: data.token,
+                                                username: window.user.username,
+                                                app_uid: data.app_uid,
+                                            },
+                                            window.openerOrigin,
+                                        );
+                                    }
+                                } catch (err) {
+                                    console.error(
+                                        'popup token exchange failed after manual signup',
+                                        err,
+                                    );
+                                }
+                                // close popup
+                                if (!action || action === 'sign-in') {
+                                    window.close();
+                                    window.open('', '_self').close();
+                                    return;
+                                }
+                                // Every other action is handled by
+                                // `postAuthActions`, which only runs off the
+                                // `login` event on this path — without it the
+                                // popup sits blank and the requester is never
+                                // answered.
+                                document.dispatchEvent(
+                                    new Event('login', { bubbles: true }),
                                 );
-                            }
-                            // close popup
-                            if (!action || action === 'sign-in') {
-                                window.close();
-                                window.open('', '_self').close();
-                            }
-                        })();
+                            })();
                     } else if (err_obj.code === 'signup_blocked') {
                         // Hide any captcha modal
                         $('.captcha-modal').hide();

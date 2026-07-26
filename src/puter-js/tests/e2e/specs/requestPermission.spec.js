@@ -231,6 +231,66 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
             await deleteTestApp(page, appName);
         }
     });
+
+    test('a grant whose response is lost is withdrawn when the user then denies', async ({ page, context }) => {
+        // The dialog aborts a grant that takes too long, but the request may
+        // already have committed server-side. Answering "Don't Allow" after that
+        // has to undo it — otherwise the app is told "denied" while the
+        // permission is live in the user's account.
+        const appName = await registerTestApp(page, { fixtureURL: PERMISSION_FIXTURE_URL });
+        const permission = 'driver:puter-image-generation:generate';
+        // Scoped to this app's uid: other tests grant the same permission to
+        // the fixture origin's app, whose row outlives them.
+        const isGrantedTo = (appUid) => page.evaluate(async ({ perm, uid }) => {
+            const res = await fetch(`${puter.APIOrigin}/auth/list-permissions`, {
+                headers: { 'Authorization': `Bearer ${puter.authToken}` },
+            });
+            const body = await res.json();
+            return body.myself_to_app.some(
+                r => r.permission === perm && r.app_uid === uid,
+            );
+        }, { perm: permission, uid: appUid });
+
+        try {
+            const appFrame = await gotoTestApp(page, appName);
+            const appUid = await page.evaluate(
+                async (name) => (await puter.apps.get(name)).uid,
+                appName,
+            );
+            const dialog = page.locator('dialog.perm-dialog');
+
+            // First, grant it for real so there is a row to withdraw.
+            await appFrame.locator('#req-driver-perm').click();
+            await expect(dialog).toBeVisible();
+            await dialog.locator('.perm-dialog-allow').click();
+            await expect(appFrame.locator('#log [data-entry="perm:driver:true"]')).toBeVisible();
+            expect(await isGrantedTo(appUid)).toBe(true);
+
+            // Now stand in for a grant whose outcome the dialog can't know: a
+            // 5xx (or a dropped response) says nothing about whether the row was
+            // written — and here one already is.
+            let revoked = false;
+            await context.route('**/auth/grant-user-app', route =>
+                route.fulfill({ status: 502, body: '{}' }));
+            await context.route('**/auth/revoke-user-app', async (route) => {
+                revoked = true;
+                await route.continue();
+            });
+
+            await appFrame.locator('#req-driver-perm').click();
+            await expect(dialog).toBeVisible();
+            await dialog.locator('.perm-dialog-allow').click();
+            // The dialog hands itself back with a retryable error.
+            await expect(dialog.locator('.perm-dialog-error')).toBeVisible({ timeout: 30_000 });
+            await dialog.locator('.perm-dialog-deny').click();
+
+            await expect.poll(() => revoked, { timeout: 15_000 }).toBe(true);
+            // "Don't Allow" has to mean the permission is not granted.
+            await expect.poll(() => isGrantedTo(appUid), { timeout: 15_000 }).toBe(false);
+        } finally {
+            await deleteTestApp(page, appName);
+        }
+    });
 });
 
 test.describe('puter.ui.requestPermission (env=gui)', () => {
@@ -448,6 +508,40 @@ test.describe('puter.ui.requestPermission (env=web popup, first visit)', () => {
     });
 });
 
+test.describe('puter.ui.requestPermission (env=web, cross-origin-isolated)', () => {
+    test('a signed-out isolated site is answered promptly instead of waiting out the poll', async ({ page, context }) => {
+        // A cross-origin-isolated opener can't be reached by postMessage, so the
+        // SDK falls back to polling /auth/check-permissions. That needs the
+        // site's own token, and a permission popup deliberately never hands one
+        // over — so with no token the poll can never succeed and used to burn
+        // its full 5-minute timeout before resolving.
+        await context.route(PERMISSION_FIXTURE_URL, async (route) => {
+            const resp = await route.fetch();
+            await route.fulfill({
+                response: resp,
+                headers: {
+                    ...resp.headers(),
+                    'cross-origin-opener-policy': 'same-origin',
+                    'cross-origin-embedder-policy': 'credentialless',
+                },
+            });
+        });
+
+        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+        await page.evaluate(() => localStorage.clear());
+        await page.reload();
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+        // Both preconditions the fallback depends on.
+        expect(await page.evaluate(() => window.crossOriginIsolated)).toBe(true);
+        expect(await page.evaluate(() => !!puter.authToken)).toBe(false);
+
+        await page.locator('#req-driver-perm').click();
+        await expect(page.locator('#log [data-entry="perm:driver:false"]'))
+            .toBeVisible({ timeout: 30_000 });
+    });
+});
+
 test.describe('request-permission action hardening', () => {
     test('an app_uid in the URL never produces a prompt on its own', async ({ page }) => {
         // The uid identifies who receives the grant, so it must come from the
@@ -462,5 +556,83 @@ test.describe('request-permission action hardening', () => {
         // Give the post-auth action a chance to run before asserting absence.
         await page.locator('.desktop').waitFor({ timeout: 60_000 });
         await expect(page.locator('dialog.perm-dialog')).toHaveCount(0);
+    });
+
+    test('`cross_origin_isolated` cannot turn a permission prompt into a token grant', async ({ page }) => {
+        // That flag routes the user-app token to the opener via /login/set,
+        // which the unauthenticated /login/wait then hands to whoever knows the
+        // session id. It is a sign-in mechanism, so a permission popup must not
+        // honour it — otherwise one extra query parameter both skips the prompt
+        // and signs the site in.
+        await page.goto('/');
+        await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
+        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+
+        const session = '11111111-2222-4333-8444-555555555555';
+        const [popup] = await Promise.all([
+            page.waitForEvent('popup'),
+            page.evaluate(({ s }) => {
+                // `/login/wait` is a long poll: it holds the request open until
+                // a token is published for the session. So absence of a leak is
+                // "still waiting", and a leak flips this flag within seconds.
+                window.__leaked = 'waiting';
+                (async () => {
+                    for ( let i = 0; i < 10; i++ ) {
+                        try {
+                            const r = await fetch(`${puter.APIOrigin}/login/wait`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ session: s }),
+                            });
+                            if ( r.ok && (await r.json())?.auth_token ) {
+                                window.__leaked = 'leaked';
+                                return;
+                            }
+                        } catch (e) { /* keep waiting */ }
+                    }
+                })();
+                window.open(
+                    `${puter.defaultGUIOrigin}/action/request-permission?embedded_in_popup=true`
+                        + `&cross_origin_isolated=true&signin_session=${s}`
+                        + '&permission=driver%3Aputer-image-generation%3Agenerate&msg_id=77',
+                    'perm-isolated-probe',
+                    'width=600,height=700',
+                );
+            }, { s: session }),
+        ]);
+
+        // The prompt still has to be shown, and no token may reach the opener.
+        await expect(popup.locator('dialog.perm-dialog')).toBeVisible({ timeout: 60_000 });
+        await popup.locator('dialog.perm-dialog .perm-dialog-deny').click();
+        await page.waitForTimeout(5000);
+        expect(await page.evaluate(() => window.__leaked)).toBe('waiting');
+    });
+
+    test('a long hostname keeps its registrable domain visible', async ({ page }) => {
+        // The identity line is the only thing naming the requester, so it must
+        // not elide the end of the host: `accounts.google.com.attacker.example`
+        // truncated on the right reads as `accounts.google.com…`.
+        const host = 'accounts.google.com.attacker-run-domain.example';
+        await page.goto(
+            '/action/request-permission?permission=driver%3Aputer-image-generation%3Agenerate' +
+                `&origin=${encodeURIComponent(`https://${host}/`)}`,
+        );
+        await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
+        const name = page.locator('dialog.perm-dialog .perm-dialog-entity-name');
+        await expect(name).toBeVisible({ timeout: 60_000 });
+
+        const info = await name.evaluate((el) => ({
+            text: el.textContent,
+            overflowing: el.scrollWidth > el.clientWidth,
+            direction: getComputedStyle(el).direction,
+        }));
+        // The host is genuinely too long for the dialog, so the elision this
+        // asserts about is actually happening.
+        expect(info.text).toBe(host);
+        expect(info.overflowing).toBe(true);
+        // `direction: rtl` anchors the text to its end, so the ellipsis lands on
+        // the left and the registrable domain stays on screen.
+        expect(info.direction).toBe('rtl');
     });
 });

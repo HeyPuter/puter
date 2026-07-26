@@ -31,7 +31,7 @@
 
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { EventClient } from '../../clients/event/EventClient.js';
 import type { Actor } from '../../core/actor.js';
@@ -1385,6 +1385,10 @@ describe('AuthController account-lifecycle route gating', () => {
 
 // ── Token grants: user → user / app / group ─────────────────────────
 
+// Mirrors AuthService's namespace for origin-derived app uids, so a test can
+// compute the uid an origin would synthesise without an app row.
+const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
+
 describe('AuthController grant flows', () => {
     let issuer: { id: number; uuid: string; username: string; email: string };
     let target: { id: number; uuid: string; username: string; email: string };
@@ -1625,6 +1629,111 @@ describe('AuthController grant flows', () => {
                 ),
             ).rejects.toMatchObject({ statusCode: 400 });
         }
+    });
+
+    it('grant/revoke-user-app: an unregistered `origin` cannot be redirected onto an app squatting its synthetic uid', async () => {
+        // `appUidFromOrigin` synthesises `app-<uuidv5(origin)>` when no app row
+        // matches the origin, and the permission services resolve their
+        // identifier as uid-*or-name*. The namespace is a source constant, so
+        // the synthetic uid is computable offline — if it were passed straight
+        // through, registering an app under that literal *name* would collect
+        // grants the user made to the origin.
+        const origin = `https://unregistered-${uuidv4()}.example`;
+        const syntheticUid = `app-${uuidv5(origin, APP_ORIGIN_UUID_NAMESPACE)}`;
+        const squatter = await server.stores.app.create(
+            {
+                name: syntheticUid,
+                title: 'Squatter',
+                index_url: 'https://squatter.example/index.html',
+            },
+            { ownerUserId: target.id },
+        );
+
+        const permission = 'service:squat:ii:read';
+        for (const handler of [
+            'handleGrantUserApp',
+            'handleRevokeUserApp',
+        ] as const) {
+            await expect(
+                inCtx(issuerActor, () =>
+                    controller[handler](
+                        makeReq(
+                            { origin, permission, extra: {} },
+                            { actor: issuerActor },
+                        ),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        }
+
+        const rows = await server.clients.db.read(
+            'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                'WHERE p.`user_id` = ? AND p.`app_id` = ?',
+            [issuer.id, squatter.id],
+        );
+        expect(rows).toEqual([]);
+    });
+
+    it('grant-user-app: 400 on a non-object `extra`/`meta` instead of committing then faulting', async () => {
+        // These are forwarded into the audit row and read as objects
+        // downstream, so a bad value used to surface as a 500 *after* the
+        // grant row was already written.
+        const appName = `tm-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestMetaApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const permission = 'service:tm-app:ii:read';
+        for (const body of [
+            { app_uid: app.uid, permission, meta: 'nope' },
+            { app_uid: app.uid, permission, meta: [1, 2] },
+            { app_uid: app.uid, permission, extra: 'nope' },
+        ]) {
+            await expect(
+                inCtx(issuerActor, () =>
+                    controller.handleGrantUserApp(
+                        makeReq(body, { actor: issuerActor }),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+
+        // `null` means "absent", matching how the string params are treated,
+        // and must succeed rather than fault after the write.
+        const res = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission, extra: null, meta: null },
+                    { actor: issuerActor },
+                ),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+    });
+
+    it('grant-user-app: 400 on a `permission` wider than the column it lands in', async () => {
+        // 300 chars is under the old 4096 cap but over `varchar(255)`, so it
+        // used to reach the INSERT and fault on MySQL/Postgres.
+        await expect(
+            controller.handleGrantUserApp(
+                makeReq(
+                    {
+                        app_uid: `app-${uuidv4()}`,
+                        permission: `service:${'a'.repeat(300)}:ii:read`,
+                    },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it('grant-user-group: 404 when the group does not exist', async () => {
