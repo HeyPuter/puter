@@ -4761,6 +4761,76 @@ describe('AuthController dev-app permission flows', () => {
         )) as Array<{ permission: string }>;
         expect(rows.map((r) => r.permission)).toContain(permission);
     });
+
+    it('revoke-dev-app: `*` revokes everything exactly once', async () => {
+        // The `*` arm used to fall through: after `revokeDevAppAll` the
+        // handler also ran `revokeDevAppPermission(…, '*')` — a no-op DELETE
+        // for a row named literally `*` plus a second `revoke` audit entry.
+        // The user-app twin if/elses the two arms; this pins the parity.
+        const { user, actor } = await makeUserAndActor();
+        const appName = `dev-star-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'DevStarApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: user.id },
+        );
+
+        const permission = 'service:dev-star:ii:read';
+        await server.stores.permission.setFlatUserPerm(
+            user.id,
+            `manage:${permission}`,
+            {
+                permission: `manage:${permission}`,
+                deleted: false,
+                issuer_user_id: user.id,
+            } as never,
+        );
+        await inCtx(actor, () =>
+            controller.handleGrantDevApp(
+                makeReq({ app_uid: app.uid, permission }, { actor }),
+                makeRes(),
+            ),
+        );
+
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleRevokeDevApp(
+                makeReq({ app_uid: app.uid, permission: '*' }, { actor }),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+
+        const rows = await server.clients.db.read(
+            'SELECT `permission` FROM `dev_to_app_permissions` ' +
+                'WHERE `user_id` = ? AND `app_id` = ?',
+            [user.id, app.id],
+        );
+        expect(rows).toEqual([]);
+
+        // The audit write is fire-and-forget, so wait for it to land — and
+        // then a beat longer, since the defect here is a *second* row.
+        let audits: Array<{ permission: string; action: string }> = [];
+        const readAudits = async () =>
+            (await server.clients.db.read(
+                'SELECT `permission`, `action` ' +
+                    'FROM `audit_dev_to_app_permissions` ' +
+                    'WHERE `user_id_keep` = ? AND `app_id_keep` = ? ' +
+                    "AND `action` = 'revoke'",
+                [user.id, app.id],
+            )) as Array<{ permission: string; action: string }>;
+        for (let i = 0; i < 100 && audits.length === 0; i++) {
+            audits = await readAudits();
+            if (audits.length === 0)
+                await new Promise((r) => setTimeout(r, 10));
+        }
+        await new Promise((r) => setTimeout(r, 50));
+        audits = await readAudits();
+        expect(audits).toEqual([{ permission: '*', action: 'revoke' }]);
+    });
 });
 
 // ── App origin resolution ──────────────────────────────────────────

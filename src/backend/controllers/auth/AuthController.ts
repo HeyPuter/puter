@@ -3048,13 +3048,14 @@ export class AuthController extends PuterController {
                 app_uid,
                 meta,
             );
+        } else {
+            await this.services.permission.revokeDevAppPermission(
+                req.actor!,
+                app_uid,
+                permission,
+                meta,
+            );
         }
-        await this.services.permission.revokeDevAppPermission(
-            req.actor!,
-            app_uid,
-            permission,
-            meta,
-        );
         res.json({});
     }
 
