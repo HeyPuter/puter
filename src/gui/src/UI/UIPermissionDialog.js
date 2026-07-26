@@ -158,6 +158,15 @@ async function show_permission_dialog (options) {
         const fail_grant = () => {
             if ( settled ) return;
             granting = false;
+            // The browser can force-close the dialog past the `cancel`
+            // handler (repeated close requests can't be suppressed forever),
+            // and the `close` handler defers to the in-flight grant. If that
+            // grant then fails there is no visible retry UI to hand back —
+            // settle as a denial or the requester waits forever.
+            if ( ! el_dialog.open ) {
+                settle(false);
+                return;
+            }
             // `.text()` escapes for display, so hand it the unencoded string —
             // the default encoding would surface entities like `&#39;`
             // verbatim in translations that contain an apostrophe.

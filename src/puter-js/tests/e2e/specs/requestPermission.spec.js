@@ -198,6 +198,70 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
             await deleteTestApp(page, appName);
         }
     });
+
+    test('a force-closed dialog with a failing in-flight grant still settles', async ({ page, context }) => {
+        // The `cancel` handler is preventDefault'd, but close requests can't
+        // be suppressed forever: Chrome's close watcher lets a repeated Esc
+        // skip `cancel` and close the dialog outright while the grant POST is
+        // still in flight. If that grant then fails, there is no retry UI to
+        // hand back — the dialog must settle (as a denial) rather than leave
+        // the requesting app waiting on a promise forever.
+        const appName = await registerTestApp(page, { fixtureURL: PERMISSION_FIXTURE_URL });
+        try {
+            await context.route('**/auth/grant-user-app', async (route) => {
+                await new Promise(r => setTimeout(r, 2000));
+                await route.fulfill({ status: 500, body: '{}' });
+            });
+
+            const appFrame = await gotoTestApp(page, appName);
+            await appFrame.locator('#req-driver-perm').click();
+            const dialog = page.locator('dialog.perm-dialog');
+            await expect(dialog).toBeVisible();
+            await dialog.locator('.perm-dialog-allow').click();
+            await expect(dialog.locator('.perm-dialog-allow.perm-dialog-busy')).toBeVisible();
+
+            // What the close watcher does on the second Esc: close without
+            // firing a cancelable `cancel`.
+            await page.evaluate(() => {
+                document.querySelector('dialog.perm-dialog')?.close();
+            });
+
+            await expect(appFrame.locator('#log [data-entry="perm:driver:false"]')).toBeVisible({ timeout: 20_000 });
+        } finally {
+            await deleteTestApp(page, appName);
+        }
+    });
+});
+
+test.describe('puter.ui.requestPermission (env=gui)', () => {
+    test('inside the Puter GUI it resolves false without opening anything', async ({ page, context }) => {
+        // The popup flow is for third-party websites. The GUI's own SDK runs
+        // with env='gui'; a permission-denied driver retry there must not pop
+        // a window to the Puter origin from the Puter desktop itself.
+        // The prod-built GUI loads its SDK from the js.puter.com CDN, so route
+        // that to the local build — otherwise this exercises the shipped SDK
+        // rather than the code under test.
+        await context.route('https://js.puter.com/v2/**', route => route.fulfill({
+            path: new URL('../../../dist/puter.dev.js', import.meta.url).pathname,
+            contentType: 'application/javascript',
+        }));
+
+        await page.goto('/');
+        await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
+        expect(await page.evaluate(() => puter.env)).toBe('gui');
+
+        let popupOpened = false;
+        page.on('popup', () => { popupOpened = true; });
+
+        const granted = await page.evaluate(() =>
+            puter.ui.requestPermission({ permission: 'driver:puter-image-generation:generate' }),
+        );
+        expect(granted).toBe(false);
+        expect(popupOpened).toBe(false);
+        // Neither the consent dialog nor the permission dialog may appear.
+        await expect(page.locator('puter-dialog')).toHaveCount(0);
+        await expect(page.locator('dialog.perm-dialog')).toHaveCount(0);
+    });
 });
 
 test.describe('puter.ui.requestPermission (env=web popup)', () => {
