@@ -1675,6 +1675,100 @@ describe('AuthController grant flows', () => {
         expect(rows).toEqual([]);
     });
 
+    it('grant/revoke-user-app: an `app_uid` sent beside an `origin` cannot redirect the grant away from that origin', async () => {
+        // The origin is what a consent prompt shows the user, so it has to
+        // decide who receives the grant. Resolving `origin` only when
+        // `app_uid` was absent left the squatter guard bypassable by simply
+        // sending both: the uid won, and it is resolved as uid-*or-name*, so
+        // the synthetic `app-<uuidv5(origin)>` of an unregistered origin landed
+        // on whoever registered an app under that literal name.
+        const origin = `https://unregistered-${uuidv4()}.example`;
+        const syntheticUid = `app-${uuidv5(origin, APP_ORIGIN_UUID_NAMESPACE)}`;
+        const squatter = await server.stores.app.create(
+            {
+                name: syntheticUid,
+                title: 'SquatterBesideOrigin',
+                index_url: 'https://squatter-beside-origin.example/index.html',
+            },
+            { ownerUserId: target.id },
+        );
+
+        const permission = 'service:squat-beside:ii:read';
+        for (const handler of [
+            'handleGrantUserApp',
+            'handleRevokeUserApp',
+        ] as const) {
+            await expect(
+                inCtx(issuerActor, () =>
+                    controller[handler](
+                        makeReq(
+                            {
+                                app_uid: syntheticUid,
+                                origin,
+                                permission,
+                                extra: {},
+                            },
+                            { actor: issuerActor },
+                        ),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        }
+
+        const rows = await server.clients.db.read(
+            'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                'WHERE p.`user_id` = ? AND p.`app_id` = ?',
+            [issuer.id, squatter.id],
+        );
+        expect(rows).toEqual([]);
+    });
+
+    it('grant-user-app: a registered `origin` beside an unrelated `app_uid` grants to the origin, not the uid', async () => {
+        // Same precedence rule, on the path where the origin does resolve: the
+        // uid travelling beside it must not steer the grant somewhere else.
+        const appName = `tp-origin-${uuidv4()}`;
+        const origin = `https://${appName}.example.test`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestPrecedenceOriginApp',
+                index_url: `${origin}/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const other = await server.stores.app.create(
+            {
+                name: `tp-other-${uuidv4()}`,
+                title: 'TestPrecedenceOtherApp',
+                index_url: `https://tp-other-${uuidv4()}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+
+        const permission = 'service:tp-origin:ii:read';
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: other.uid, origin, permission, extra: {} },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            ),
+        );
+
+        const granted = async (appId: number) =>
+            (
+                (await server.clients.db.read(
+                    'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                        'WHERE p.`user_id` = ? AND p.`app_id` = ?',
+                    [issuer.id, appId],
+                )) as Array<{ permission: string }>
+            ).map((r) => r.permission);
+        expect(await granted(app.id)).toContain(permission);
+        expect(await granted(other.id)).not.toContain(permission);
+    });
+
     it('grant-user-app: 400 on a non-object `extra`/`meta` instead of committing then faulting', async () => {
         // These are forwarded into the audit row and read as objects
         // downstream, so a bad value used to surface as a 500 *after* the

@@ -2726,6 +2726,12 @@ export class AuthController extends PuterController {
      * collect a grant the user made to the origin — the uid is derived from a
      * published namespace constant, so it can be computed and squatted offline.
      * Only a uid that names an existing app row is accepted.
+     *
+     * An `origin` supplied alongside an `app_uid` takes precedence over it (see
+     * the grant/revoke handlers). The origin is what a consent prompt shows the
+     * user, so it — not a uid travelling beside it — has to decide who receives
+     * the grant; otherwise a caller could name one app on screen and grant to
+     * another. No caller sends both with different intent.
      */
     async #registeredAppUidFromOrigin(origin: string): Promise<string> {
         const uid = await this.services.auth.appUidFromOrigin(origin);
@@ -2752,7 +2758,7 @@ export class AuthController extends PuterController {
             extra,
             meta,
         });
-        if (origin && !app_uid) {
+        if (origin) {
             app_uid = await this.#registeredAppUidFromOrigin(origin);
         }
         if (!app_uid || !permission) {
@@ -2833,7 +2839,7 @@ export class AuthController extends PuterController {
             permission,
             meta,
         });
-        if (origin && !app_uid) {
+        if (origin) {
             app_uid = await this.#registeredAppUidFromOrigin(origin);
         }
         if (!app_uid || !permission) {

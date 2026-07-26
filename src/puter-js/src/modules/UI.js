@@ -1211,16 +1211,46 @@ class UI extends EventListener {
                     pollDecision();
                     return;
                 }
+                // `closed` read right after `window.open()` cannot see COOP
+                // severing yet: the popup is still the initial about:blank in
+                // this browsing-context group, and the group is only swapped
+                // when the navigation to the Puter origin *commits* — measured
+                // at ~200ms. So severing shows up here, in the poll, as
+                // `closed` flipping true moments after opening.
+                //
+                // A real user close reads identically, which is why the two are
+                // told apart by *when* they happen: severing lands while the
+                // popup is still loading, whereas closing it by hand means
+                // finding the window and clicking it. Anything inside this
+                // window is therefore the channel going away, not an answer —
+                // reporting a denial for it would tell the site "denied" while
+                // the user goes on to click Allow and commit the grant.
+                const SEVERED_WINDOW_MS = 3000;
+                const opened_at = Date.now();
                 checkClosed = setInterval(() => {
                     if ( ! popup.closed ) return;
+                    clearInterval(checkClosed);
+                    checkClosed = null;
+                    const severed = Date.now() - opened_at < SEVERED_WINDOW_MS;
                     // The GUI posts the decision and then closes the popup,
                     // and cross-process postMessage delivery is not ordered
                     // relative to `closed` becoming true. Give an in-flight
-                    // grant message a grace period before treating the close
-                    // as a denial.
-                    clearInterval(checkClosed);
-                    checkClosed = null;
-                    setTimeout(() => settle(false), CLOSE_GRACE_MS);
+                    // decision message its grace period before acting on the
+                    // close — on either branch, since a real answer already on
+                    // its way outranks whatever the close is taken to mean.
+                    setTimeout(() => {
+                        if ( settled ) return;
+                        if ( severed ) {
+                            // The decision can still be read back from the
+                            // server. A denial can't (nothing is written for
+                            // it), so this only ends early on a grant —
+                            // otherwise it waits out the poll timeout before
+                            // answering false.
+                            pollDecision();
+                            return;
+                        }
+                        settle(false);
+                    }, CLOSE_GRACE_MS);
                 }, 100);
             };
 

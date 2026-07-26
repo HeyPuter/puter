@@ -212,10 +212,14 @@ const postAuthActions = async (action) => {
             try {
                 let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
                 // `getUserAppToken` reports a network failure by returning
-                // null, so say what went wrong instead of faulting on the
-                // property read below.
-                if ( ! data ) {
-                    throw new Error('user-app token exchange returned no data');
+                // null, and an HTTP failure (a blocked origin, a 5xx) by
+                // returning the parsed *error* body — which is truthy but
+                // carries no token. Both mean the exchange did not happen, so
+                // say what went wrong instead of handing the opener an
+                // `undefined` token and, for actions that depend on the app row
+                // this bootstraps, prompting for a grant that could only fail.
+                if ( ! data?.token ) {
+                    throw new Error('user-app token exchange returned no token');
                 }
                 // This is an implicit app and the app_uid is sent back from the server
                 // we cache it here so that we can use it later
@@ -501,22 +505,20 @@ const postAuthActions = async (action) => {
             if ( token_exchange_failed ) {
                 throw new Error('token exchange failed; not prompting');
             }
-            // The requesting app is identified by its origin only. A uid from
-            // the query string is never trusted: it is chosen by whoever
-            // opened this page, so honouring it would let a link grant a
-            // permission to an app the dialog never named. When the origin
-            // can't be resolved here, the uid is left unset and the server
-            // resolves it from the same origin the dialog displayed.
-            let app_uid;
-            if ( origin ) {
-                app_uid = window.host_app_uid
-                    ?? await window.getAppUIDFromOrigin(origin)
-                    ?? undefined;
-            }
-
+            // The requesting app is identified by its origin, and only the
+            // server turns that origin into a grant target. No uid is sent
+            // from here: a uid from the query string is chosen by whoever
+            // opened this page, and even a uid resolved through
+            // `getAppUIDFromOrigin` is unsafe to forward, because an origin
+            // with no app row of its own resolves to a *synthetic*
+            // `app-<uuidv5(origin)>`. The grant endpoint resolves `app_uid`
+            // as uid-or-name, so forwarding that synthetic uid would hand
+            // the grant to whoever registered an app under that literal
+            // name. Passing the origin instead makes the server resolve the
+            // same origin the dialog displayed, and reject it outright
+            // unless it names an app that really exists.
             granted = await UIPermissionDialog({
                 permission: permission,
-                app_uid: app_uid,
                 origin: origin,
             });
         } catch (e) {
@@ -1762,11 +1764,14 @@ window.initgui = async function (options) {
                                     let data = await window.getUserAppToken(
                                         new URL(window.openerOrigin).origin,
                                     );
-                                    // A network failure here returns null, not
-                                    // a throw; the reads below would fault.
-                                    if (!data) {
+                                    // A network failure here returns null and
+                                    // an HTTP failure returns the parsed error
+                                    // body, neither of which carries a token;
+                                    // the reads below would fault or hand the
+                                    // opener an `undefined` token.
+                                    if (!data?.token) {
                                         throw new Error(
-                                            'user-app token exchange returned no data',
+                                            'user-app token exchange returned no token',
                                         );
                                     }
                                     // This is an implicit app and the app_uid is sent back from the server
@@ -1852,9 +1857,9 @@ window.initgui = async function (options) {
                                     let data = await window.getUserAppToken(
                                         new URL(window.openerOrigin).origin,
                                     );
-                                    if (!data) {
+                                    if (!data?.token) {
                                         throw new Error(
-                                            'user-app token exchange returned no data',
+                                            'user-app token exchange returned no token',
                                         );
                                     }
                                     // This is an implicit app and the app_uid is sent back from the server

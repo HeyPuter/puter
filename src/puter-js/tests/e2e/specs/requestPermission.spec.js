@@ -291,6 +291,76 @@ test.describe('puter.ui.requestPermission (env=app)', () => {
             await deleteTestApp(page, appName);
         }
     });
+
+    test('a grant that is still hanging when the dialog is force-closed is withdrawn too', async ({ page, context }) => {
+        // Same reconciliation, reached through the timeout instead of an error
+        // response. The timeout aborts the request, and the abort's rejection is
+        // only delivered as a microtask — it cannot run until the timer callback
+        // returns. So when the dialog has already been force-closed (the close
+        // watcher can bypass the `cancel` handler), the timer settles the dialog
+        // as a denial *before* the outcome is recorded as unknown, and the
+        // permission the request may have committed is left behind, granted,
+        // with the app told it was refused.
+        const appName = await registerTestApp(page, { fixtureURL: PERMISSION_FIXTURE_URL });
+        const permission = 'driver:puter-image-generation:generate';
+        const isGrantedTo = (appUid) => page.evaluate(async ({ perm, uid }) => {
+            const res = await fetch(`${puter.APIOrigin}/auth/list-permissions`, {
+                headers: { 'Authorization': `Bearer ${puter.authToken}` },
+            });
+            const body = await res.json();
+            return body.myself_to_app.some(
+                r => r.permission === perm && r.app_uid === uid,
+            );
+        }, { perm: permission, uid: appUid });
+
+        try {
+            const appFrame = await gotoTestApp(page, appName);
+            const appUid = await page.evaluate(
+                async (name) => (await puter.apps.get(name)).uid,
+                appName,
+            );
+            const dialog = page.locator('dialog.perm-dialog');
+
+            // Grant it for real first, so there is a live row the withdrawal
+            // has to remove.
+            await appFrame.locator('#req-driver-perm').click();
+            await expect(dialog).toBeVisible();
+            await dialog.locator('.perm-dialog-allow').click();
+            await expect(appFrame.locator('#log [data-entry="perm:driver:true"]')).toBeVisible();
+            expect(await isGrantedTo(appUid)).toBe(true);
+
+            // Hang the next grant past the dialog's 15s time-box.
+            let revoked = false;
+            await context.route('**/auth/grant-user-app', async () => {
+                await new Promise(r => setTimeout(r, 60_000));
+            });
+            await context.route('**/auth/revoke-user-app', async (route) => {
+                revoked = true;
+                await route.continue();
+            });
+
+            await appFrame.locator('#req-driver-perm').click();
+            await expect(dialog).toBeVisible();
+            await dialog.locator('.perm-dialog-allow').click();
+            await expect(dialog.locator('.perm-dialog-allow.perm-dialog-busy')).toBeVisible();
+
+            // What the close watcher does on a repeated close request: close
+            // without firing a cancelable `cancel`, while the grant is still in
+            // flight. There is then no retry UI left, so the timeout has to
+            // settle it — as a denial it must reconcile.
+            await page.evaluate(() => {
+                document.querySelector('dialog.perm-dialog')?.close();
+            });
+
+            await expect(appFrame.locator('#log [data-entry="perm:driver:false"]'))
+                .toBeVisible({ timeout: 30_000 });
+            await expect.poll(() => revoked, { timeout: 20_000 }).toBe(true);
+            await expect.poll(() => isGrantedTo(appUid), { timeout: 20_000 }).toBe(false);
+        } finally {
+            await context.unroute('**/auth/grant-user-app');
+            await deleteTestApp(page, appName);
+        }
+    });
 });
 
 test.describe('puter.ui.requestPermission (env=gui)', () => {
@@ -508,6 +578,102 @@ test.describe('puter.ui.requestPermission (env=web popup, first visit)', () => {
     });
 });
 
+test.describe('puter.ui.requestPermission (env=web, COOP-only opener)', () => {
+    test('a site that only sets COOP is not answered before the user has decided', async ({ page, context }) => {
+        // `Cross-Origin-Opener-Policy: same-origin` without COEP severs the
+        // opener relationship — but only when the popup's navigation *commits*,
+        // a couple of hundred milliseconds after `window.open()` returns. So the
+        // severed-opener check that runs synchronously after opening cannot see
+        // it, and the severing instead surfaces as `popup.closed` flipping true
+        // while the popup is still loading. Treating that as a close reported a
+        // denial about a second after the click — before the user had even seen
+        // the dialog — and then the Allow they went on to click committed a
+        // grant the site had been told it did not get.
+        const permission = 'driver:puter-image-generation:generate';
+
+        // Hand the site a token for its *own* app, the way a signed-in
+        // third-party site holds one. Without it the poll fallback has nothing
+        // to authenticate with and answers false immediately (covered above),
+        // and `/auth/check-permissions` has to run as this app-under-user actor
+        // for a user→app grant to be visible at all.
+        // `window.api_origin` / `window.auth_token`, not the SDK's: the
+        // prod-built GUI bundles an SDK pointed at api.puter.com, so
+        // `puter.APIOrigin` on this page is production.
+        await page.goto('/');
+        await page.waitForFunction(() => !!window.getUserAppToken && !!window.auth_token,
+            null, { timeout: 60_000 });
+        const fixtureOrigin = new URL(PERMISSION_FIXTURE_URL).origin;
+        const appToken = await page.evaluate(
+            async (origin) => (await window.getUserAppToken(origin))?.token,
+            fixtureOrigin,
+        );
+        expect(typeof appToken).toBe('string');
+
+        // Earlier tests grant this same permission to the fixture origin's app,
+        // and the row outlives them — clear it so the poll starting out true
+        // can't pass this test on its own.
+        await page.evaluate(async ({ origin, perm }) => {
+            await fetch(`${window.api_origin}/auth/revoke-user-app`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${window.auth_token}`,
+                },
+                body: JSON.stringify({ origin, permission: perm }),
+            });
+        }, { origin: fixtureOrigin, perm: permission });
+
+        await context.route(PERMISSION_FIXTURE_URL, async (route) => {
+            const resp = await route.fetch();
+            await route.fulfill({
+                response: resp,
+                headers: {
+                    ...resp.headers(),
+                    'cross-origin-opener-policy': 'same-origin',
+                },
+            });
+        });
+
+        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+        // COOP-only: severed, but *not* cross-origin-isolated (that needs COEP
+        // too), so the isolation check above does not catch this case.
+        expect(await page.evaluate(() => window.crossOriginIsolated)).toBe(false);
+        await page.evaluate((t) => puter.setAuthToken(t), appToken);
+
+        const [popup] = await Promise.all([
+            page.waitForEvent('popup'),
+            page.locator('#req-driver-perm').click(),
+        ]);
+        const dialog = popup.locator('dialog.perm-dialog');
+        await expect(dialog).toBeVisible({ timeout: 60_000 });
+
+        // Long enough to cover the severing (~200ms), the close grace period
+        // (1s) and the window in which a close is read as severing (3s).
+        await page.waitForTimeout(5000);
+        expect(await page.locator('#log [data-entry="perm:driver:false"]').count()).toBe(0);
+        expect(await page.locator('#log [data-entry="perm:driver:true"]').count()).toBe(0);
+
+        // The answer itself has to come from the server poll, since the popup
+        // cannot reach a severed opener. That leg is not asserted here: the poll
+        // is a direct site→API request, and Chrome refuses it from this
+        // loopback fixture origin ("Permission was denied for this request to
+        // access the `loopback` address space"), which does not apply to the
+        // https origins this runs on in production. The grant still has to
+        // succeed, which is what the popup is left to do.
+        const granted = popup.waitForResponse(
+            (r) => r.url().includes('/auth/grant-user-app') && r.status() === 200,
+            { timeout: 30_000 },
+        );
+        await dialog.locator('.perm-dialog-allow').click();
+        await granted;
+        // Polled rather than awaiting the `close` event: the popup closes itself
+        // as soon as it has answered, which can happen before a listener
+        // registered after the click is attached.
+        await expect.poll(() => popup.isClosed(), { timeout: 30_000 }).toBe(true);
+    });
+});
+
 test.describe('puter.ui.requestPermission (env=web, cross-origin-isolated)', () => {
     test('a signed-out isolated site is answered promptly instead of waiting out the poll', async ({ page, context }) => {
         // A cross-origin-isolated opener can't be reached by postMessage, so the
@@ -556,6 +722,43 @@ test.describe('request-permission action hardening', () => {
         // Give the post-auth action a chance to run before asserting absence.
         await page.locator('.desktop').waitFor({ timeout: 60_000 });
         await expect(page.locator('dialog.perm-dialog')).toHaveCount(0);
+    });
+
+    test('the grant names the requester by origin only, never by a browser-computed uid', async ({ page, context }) => {
+        // A uid computed in the browser is unsafe to forward even when it came
+        // from the server: an origin with no app row of its own resolves to a
+        // *synthetic* `app-<uuidv5(origin)>`, and the grant endpoint resolves
+        // `app_uid` as uid-*or-name*. Forwarding it would hand the grant to
+        // whoever registered an app under that literal name — a name derived
+        // from a published namespace constant, so it can be squatted offline —
+        // while the dialog named the origin. Sending the origin alone is what
+        // makes the server resolve the same requester the user was shown, and
+        // reject it outright unless it names an app that really exists.
+        await page.goto('/');
+        await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
+        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+
+        const grantBodies = [];
+        await context.route('**/auth/grant-user-app', async (route) => {
+            grantBodies.push(route.request().postDataJSON());
+            await route.continue();
+        });
+
+        const [popup] = await Promise.all([
+            page.waitForEvent('popup'),
+            page.locator('#req-driver-perm').click(),
+        ]);
+        const dialog = popup.locator('dialog.perm-dialog');
+        await expect(dialog).toBeVisible({ timeout: 60_000 });
+        await dialog.locator('.perm-dialog-allow').click();
+        await expect(page.locator('#log [data-entry="perm:driver:true"]')).toBeVisible();
+
+        expect(grantBodies.length).toBeGreaterThan(0);
+        for ( const body of grantBodies ) {
+            expect(body.app_uid).toBeUndefined();
+            expect(typeof body.origin).toBe('string');
+        }
     });
 
     test('`cross_origin_isolated` cannot turn a permission prompt into a token grant', async ({ page }) => {

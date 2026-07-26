@@ -215,6 +215,15 @@ async function show_permission_dialog (options) {
                 ? new AbortController()
                 : null;
             const grant_timer = setTimeout(() => {
+                // A request still outstanding after the timeout has left this
+                // browser with an unknown outcome, so record that before
+                // anything can settle. The `catch` below sets the same flag,
+                // but only from a microtask that cannot run until this timer
+                // callback returns — by which time `fail_grant` may already
+                // have settled the dialog as a denial (it does exactly that
+                // when the dialog was force-closed mid-grant), leaving a
+                // committed grant with no revoke behind it.
+                grant_may_have_committed = true;
                 controller?.abort();
                 // Also recover on engines with no AbortController, where the
                 // fetch above may never settle on its own.
