@@ -418,6 +418,36 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
     });
 });
 
+test.describe('puter.ui.requestPermission (env=web popup, first visit)', () => {
+    // No Puter session at all: the popup takes the first-visit branch, which
+    // creates a temp user. That path mints its own user-app token, so it has to
+    // withhold it from the opener for the same reason the plain token exchange
+    // does — otherwise a site that only ever asked about one permission walks
+    // away signed in as a brand-new account.
+    test.use({ storageState: { cookies: [], origins: [] } });
+
+    test('creating a user to answer the prompt does not sign the site in', async ({ page }) => {
+        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+        expect(await page.evaluate(() => !!puter.authToken)).toBe(false);
+
+        const [popup] = await Promise.all([
+            page.waitForEvent('popup'),
+            page.locator('#req-driver-perm').click(),
+        ]);
+
+        // The prompt still has to arrive: the first-visit path waits on the
+        // spinner before handing back control, and that wait has to end for
+        // any action that keeps the popup open.
+        await expect(popup.locator('dialog.perm-dialog')).toBeVisible({ timeout: 60_000 });
+        await popup.locator('dialog.perm-dialog .perm-dialog-deny').click();
+        await expect(page.locator('#log [data-entry="perm:driver:false"]')).toBeVisible();
+
+        expect(await page.evaluate(() => !!puter.authToken)).toBe(false);
+        expect(await page.evaluate(() => localStorage.getItem('puter.auth.token.v2'))).toBeNull();
+    });
+});
+
 test.describe('request-permission action hardening', () => {
     test('an app_uid in the URL never produces a prompt on its own', async ({ page }) => {
         // The uid identifies who receives the grant, so it must come from the

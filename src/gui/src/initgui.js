@@ -55,6 +55,7 @@ import { LocaleService } from './services/LocaleService.js';
 import { ProcessService } from './services/ProcessService.js';
 import { ThemeService } from './services/ThemeService.js';
 import { privacy_aware_path } from './util/desktop.js';
+import { deliversTokenToOpener } from './util/popupAuth.js';
 
 const postAuthActions = async (action) => {
     // -------------------------------------------------------------------------------------
@@ -196,15 +197,7 @@ const postAuthActions = async (action) => {
             }
             return;
         } else {
-            // A permission prompt is not a sign-in: the user is deciding about
-            // one permission, so the opener must not walk away holding this
-            // user's credentials. The exchange below still runs (it bootstraps
-            // the app row the grant needs and caches `host_app_uid`), but the
-            // token stays in this window. Handing it over would also let a
-            // failed exchange sign the opener out, because the SDK feeds the
-            // `token: null` of the failure message straight into
-            // setAuthToken().
-            const deliver_token_to_opener = action !== 'request-permission';
+            const deliver_token_to_opener = deliversTokenToOpener(action);
             try {
                 let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
                 // This is an implicit app and the app_uid is sent back from the server
@@ -1730,21 +1723,29 @@ window.initgui = async function (options) {
                                 // we cache it here so that we can use it later
                                 window.host_app_uid = data.app_uid;
                                 // send token to parent
-                                window.opener.postMessage(
-                                    {
-                                        msg: 'puter.token',
-                                        success: true,
-                                        msg_id: msg_id,
-                                        token: data.token,
-                                        username: window.user.username,
-                                        app_uid: data.app_uid,
-                                    },
-                                    window.openerOrigin,
-                                );
+                                if (deliversTokenToOpener(action)) {
+                                    window.opener?.postMessage(
+                                        {
+                                            msg: 'puter.token',
+                                            success: true,
+                                            msg_id: msg_id,
+                                            token: data.token,
+                                            username: window.user.username,
+                                            app_uid: data.app_uid,
+                                        },
+                                        window.openerOrigin,
+                                    );
+                                }
                                 // close popup
                                 if (!action || action === 'sign-in') {
                                     window.close();
                                     window.open('', '_self').close();
+                                } else {
+                                    // Actions that keep the popup open still
+                                    // have work to do after this wait; the
+                                    // sleep below only ends it when the
+                                    // spinner was up for under 2s.
+                                    resolve();
                                 }
                             })();
                             if (spinner_duration < 2000) {
@@ -1787,17 +1788,19 @@ window.initgui = async function (options) {
                             // we cache it here so that we can use it later
                             window.host_app_uid = data.app_uid;
                             // send token to parent
-                            window.opener.postMessage(
-                                {
-                                    msg: 'puter.token',
-                                    success: true,
-                                    msg_id: msg_id,
-                                    token: data.token,
-                                    username: window.user.username,
-                                    app_uid: data.app_uid,
-                                },
-                                window.openerOrigin,
-                            );
+                            if (deliversTokenToOpener(action)) {
+                                window.opener?.postMessage(
+                                    {
+                                        msg: 'puter.token',
+                                        success: true,
+                                        msg_id: msg_id,
+                                        token: data.token,
+                                        username: window.user.username,
+                                        app_uid: data.app_uid,
+                                    },
+                                    window.openerOrigin,
+                                );
+                            }
                             // close popup
                             if (!action || action === 'sign-in') {
                                 window.close();
