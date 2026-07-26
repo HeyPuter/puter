@@ -1140,9 +1140,25 @@ class UI extends EventListener {
         // decision message that may still be in flight.
         const CLOSE_GRACE_MS = 1000;
 
+        // The popup's messages arrive tagged with the browser's canonical
+        // serialization of its origin, while `defaultGUIOrigin` is
+        // configuration-supplied text — a trailing slash, an explicit default
+        // port, or a stray path would fail a raw comparison. A dropped message
+        // here doesn't just hang: an unseen `permissionPromptReady` makes the
+        // popup's close read as a severed opener, and an unseen decision then
+        // reports a permission the user granted as denied. Parse once and
+        // compare canonical-to-canonical. A configured origin that can't parse
+        // can't host the prompt at all, so deny up front.
+        let gui_origin;
+        try {
+            gui_origin = new URL(puter.defaultGUIOrigin).origin;
+        } catch (e) {
+            return false;
+        }
+
         return new Promise((resolve) => {
             const msg_id = this.#messageID++;
-            const url = `${puter.defaultGUIOrigin}/action/request-permission?embedded_in_popup=true&msg_id=${msg_id}&permission=${encodeURIComponent(permission)}`;
+            const url = `${gui_origin}/action/request-permission?embedded_in_popup=true&msg_id=${msg_id}&permission=${encodeURIComponent(permission)}`;
 
             // Guards against settling more than once across the message,
             // popup-closed, and dialog-cancel code paths.
@@ -1181,7 +1197,7 @@ class UI extends EventListener {
                 // the popup we opened. Origin alone is insufficient (any frame
                 // on the GUI domain could post), so also pin event.source.
                 // msg_id binds the message to this request.
-                if ( e.origin !== puter.defaultGUIOrigin ) return;
+                if ( e.origin !== gui_origin ) return;
                 if ( popupWindow && e.source !== popupWindow ) return;
                 if ( e.data?.original_msg_id != msg_id ) return;
                 // The popup reporting that it is up and can reach us. Carries

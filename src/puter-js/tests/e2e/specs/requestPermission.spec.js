@@ -453,6 +453,35 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
         await expect(page.locator('#log [data-entry="perm:driver:true"]')).toBeVisible();
     });
 
+    test('a non-canonical configured origin still hears the decision', async ({ page }) => {
+        // `defaultGUIOrigin` is configuration-supplied text, while the popup's
+        // messages arrive tagged with the browser's canonical origin
+        // serialization. A trailing slash used to fail the raw comparison and
+        // drop both messages — and a dropped `permissionPromptReady` makes the
+        // popup's close read as a severed opener, reporting the grant the user
+        // just made as a denial. The SDK compares canonical-to-canonical now.
+        await page.goto('/');
+        await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
+
+        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+        // Re-point the SDK at the same GUI through a non-canonical string.
+        // The getter reads `globalThis.PUTER_ORIGIN` on every access, so this
+        // takes effect for the request below.
+        await page.evaluate(() => {
+            globalThis.PUTER_ORIGIN = `${window.PUTER_ORIGIN}/`;
+        });
+
+        const [popup] = await Promise.all([
+            page.waitForEvent('popup'),
+            page.locator('#req-driver-perm').click(),
+        ]);
+        const dialog = popup.locator('dialog.perm-dialog');
+        await expect(dialog).toBeVisible({ timeout: 60_000 });
+        await dialog.locator('.perm-dialog-allow').click();
+        await expect(page.locator('#log [data-entry="perm:driver:true"]')).toBeVisible();
+    });
+
     test('without a user gesture, a consent dialog collects the click that opens the popup', async ({ page }) => {
         await page.goto('/');
         await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
