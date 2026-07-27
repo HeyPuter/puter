@@ -50,3 +50,64 @@ const NON_AUTH_POPUP_ACTIONS = new Set(['request-permission']);
  */
 export const deliversTokenToOpener = (action) =>
     !NON_AUTH_POPUP_ACTIONS.has(action);
+
+/**
+ * Popup actions where the opener's origin *is* the requester's identity, rather
+ * than just the address an answer is sent back to.
+ */
+const OPENER_IS_THE_REQUESTER_ACTIONS = new Set(['request-permission']);
+
+/**
+ * Whether a popup running `action` may take its opener's origin from the
+ * `opener_origin` URL parameter.
+ *
+ * That parameter exists so a sign-in popup can carry the opener's origin across
+ * an OIDC redirect, which drops the rest of the query. It is chosen by whoever
+ * built the link, though, and for a permission prompt the opener's origin is the
+ * requester's identity twice over: it is the name the dialog attributes the
+ * request to, and it is what the server resolves into the app the grant is
+ * written against. Honouring a link-supplied one would let any site prompt in
+ * another app's name and commit the user's grant to it — the same hole that
+ * `app_uid` was removed from this URL to close.
+ *
+ * So a permission popup takes only a browser-attested origin: `document.referrer`
+ * or the opener's own reply to the `requestOrigin` handshake. Nothing is lost —
+ * the SDK never sends this parameter, and the OIDC redirect it exists for drops
+ * `action` too, so no permission flow can reach here through one.
+ *
+ * @param {string|null|undefined} action - The popup's `action`, as parsed from
+ *   the URL (`/action/<name>` or `?action=<name>`); undefined for a plain
+ *   sign-in popup.
+ * @returns {boolean} `true` if `opener_origin` may be believed.
+ */
+export const trustsOpenerOriginParam = (action) =>
+    !OPENER_IS_THE_REQUESTER_ACTIONS.has(action);
+
+/**
+ * Whether a popup running `action` may offer federated (OIDC) sign-in.
+ *
+ * An OIDC hop navigates the popup away and the provider sends it back to a
+ * redirect URI the server builds, which is hard-coded to `/action/sign-in`
+ * (OIDCController's popup branch). The popup therefore comes back believing it
+ * is a plain sign-in popup: it posts `puter.token` to the opener — which the
+ * SDK's global listener feeds straight into `setAuthToken()` — and never runs
+ * the action it was opened for. For a permission prompt that is the exact
+ * outcome `deliversTokenToOpener` exists to prevent: the site is signed in
+ * without asking, and the user is never shown the permission they were meant to
+ * decide on (the request resolves as a denial).
+ *
+ * Nothing in the returned URL says what the popup was originally for, so the
+ * popup cannot re-establish it. Restoring the action through the redirect is
+ * also not enough on its own: the returning navigation's referrer is the
+ * provider, not the opener, so `trustsOpenerOriginParam`'s browser-attested
+ * origin would have to come from the `requestOrigin` handshake instead. Until
+ * that exists, a popup whose purpose cannot survive the round trip does not
+ * offer the round trip. Email sign-in stays in the window and works normally.
+ *
+ * @param {string|null|undefined} action - The popup's `action`, as parsed from
+ *   the URL (`/action/<name>` or `?action=<name>`); undefined for a plain
+ *   sign-in popup.
+ * @returns {boolean} `true` if OIDC buttons may be shown in this popup.
+ */
+export const offersFederatedSignInInPopup = (action) =>
+    !NON_AUTH_POPUP_ACTIONS.has(action);

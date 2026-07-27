@@ -58,7 +58,10 @@ import { ThemeService } from './services/ThemeService.js';
 // factory name so a bare `privacy_aware_path(path)` call in this module can't
 // silently resolve to the factory — use `window.privacy_aware_path` instead.
 import { privacy_aware_path as privacy_aware_path_factory } from './util/desktop.js';
-import { deliversTokenToOpener } from './util/popupAuth.js';
+import {
+    deliversTokenToOpener,
+    trustsOpenerOriginParam,
+} from './util/popupAuth.js';
 
 const postAuthActions = async (action) => {
     // Set when a popup's user-app token exchange fails. The exchange is what
@@ -499,7 +502,15 @@ const postAuthActions = async (action) => {
     if ( action === 'request-permission' ) {
         const permission = window.url_query_params.get('permission');
         const msg_id = window.url_query_params.get('msg_id');
-        const origin = window.openerOrigin ?? window.url_query_params.get('origin');
+        // Browser-attested only: `openerOrigin` is the referrer, or the opener's
+        // own reply to the `requestOrigin` handshake. There is deliberately no
+        // query-string fallback — the origin is the requester's identity, naming
+        // who the dialog attributes the request to and picking the app the grant
+        // is written against, so a link must not get to state it. That is the
+        // same rule that keeps `app_uid` out of this URL, and the SDK never sends
+        // an origin either. Without one there is nothing to prompt about and the
+        // denial below is reported as usual.
+        const origin = window.openerOrigin;
 
         // Whatever happens, the requester must get an answer and the popup
         // must close — otherwise the popup wedges open with the caller's
@@ -967,6 +978,11 @@ window.initgui = async function (options) {
     } else if (window.url_query_params.has('action')) {
         action = window.url_query_params.get('action').toLowerCase();
     }
+    // Published for the windows that open mid-flow and have to know what this
+    // page is for — the login/signup windows consult it before offering a
+    // federated sign-in hop that would navigate the popup away and lose the
+    // action. See util/popupAuth.js.
+    window.gui_action = action;
 
     //--------------------------------------------------------------------------------------
     // Determine if we are in full-page mode
@@ -1058,8 +1074,13 @@ window.initgui = async function (options) {
         $('body').addClass('embedded-in-popup');
 
         // determine the origin of the opener (preserved across OIDC redirect via URL param, else referrer or messaging)
-        const openerOriginFromUrl =
-            window.url_query_params.get('opener_origin');
+        // A permission prompt is the exception: there the opener's origin names
+        // the requester on the dialog and picks the app the grant is written to,
+        // so it may only come from a source the browser vouches for. See
+        // util/popupAuth.js.
+        const openerOriginFromUrl = trustsOpenerOriginParam(action)
+            ? window.url_query_params.get('opener_origin')
+            : null;
         if (openerOriginFromUrl) {
             window.openerOrigin = openerOriginFromUrl;
         } else {

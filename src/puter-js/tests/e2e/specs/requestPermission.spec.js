@@ -439,6 +439,11 @@ test.describe('puter.ui.requestPermission (env=web popup)', () => {
         await expect(dialog).toBeVisible({ timeout: 60_000 });
         // Sites are identified by their origin host.
         await expect(dialog.locator('.perm-dialog-entity-name')).toContainText('localhost');
+        // And marked as a host, which is what buys the left-elision asserted on
+        // further down. Without this class a long host truncates on the wrong
+        // end, so the real flow has to be the thing that applies it.
+        await expect(dialog.locator('.perm-dialog-entity-name'))
+            .toHaveClass(/perm-dialog-entity-host/);
         await dialog.locator('.perm-dialog-deny').click();
         await expect(page.locator('#log [data-entry="perm:driver:false"]')).toBeVisible();
 
@@ -1132,16 +1137,80 @@ test.describe('request-permission action hardening', () => {
         expect(await page.evaluate(() => window.__leaked)).toBe('waiting');
     });
 
+    test('`opener_origin` cannot rename the requester on the prompt', async ({ page }) => {
+        // That parameter exists so a sign-in popup can carry its opener's origin
+        // across an OIDC redirect. On a permission prompt the opener's origin is
+        // the requester's identity, so honouring a link-supplied one would let any
+        // site raise a prompt in another app's name — and land the grant on that
+        // app. The popup must name the origin the browser attests to instead.
+        await page.goto('/');
+        await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
+        await page.goto(PERMISSION_FIXTURE_URL);
+        await page.locator('body.ready').waitFor({ timeout: 60_000 });
+
+        const spoofed = 'https://not-the-requester.example';
+        const [popup] = await Promise.all([
+            page.waitForEvent('popup'),
+            page.evaluate((o) => {
+                window.open(
+                    `${puter.defaultGUIOrigin}/action/request-permission?embedded_in_popup=true`
+                        + `&opener_origin=${encodeURIComponent(o)}`
+                        + '&permission=driver%3Aputer-image-generation%3Agenerate&msg_id=88',
+                    'perm-opener-origin-probe',
+                    'width=600,height=700',
+                );
+            }, spoofed),
+        ]);
+
+        const name = popup.locator('dialog.perm-dialog .perm-dialog-entity-name');
+        await expect(name).toBeVisible({ timeout: 60_000 });
+        await expect(name).toContainText('localhost');
+        await expect(name).not.toContainText('not-the-requester.example');
+    });
+
+    test('a URL-supplied origin never produces a prompt either', async ({ page }) => {
+        // Same rule as the `app_uid` case above, for the other identifier a link
+        // can carry. The origin is the requester's identity — the name the dialog
+        // shows *and* what the server resolves into the app the grant is written
+        // against — so it may only come from a source the browser vouches for
+        // (the referrer, or the opener's reply to the `requestOrigin`
+        // handshake). Believing the query string would let a bare link raise a
+        // consent prompt in any app's name and commit the user's grant to it.
+        await page.goto(
+            '/action/request-permission?permission=driver%3Aputer-image-generation%3Agenerate' +
+                `&origin=${encodeURIComponent('https://not-the-requester.example/')}`,
+        );
+        await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
+        await page.locator('.desktop').waitFor({ timeout: 60_000 });
+        await expect(page.locator('dialog.perm-dialog')).toHaveCount(0);
+    });
+
     test('a long hostname keeps its registrable domain visible', async ({ page }) => {
         // The identity line is the only thing naming the requester, so it must
         // not elide the end of the host: `accounts.google.com.attacker.example`
         // truncated on the right reads as `accounts.google.com…`.
+        //
+        // Driven against the dialog's own markup rather than through a request,
+        // because there is no longer any way to hand the flow an arbitrary host:
+        // the origin has to be browser-attested, and the fixture's opener is
+        // whatever host the test server runs on. What is asserted here is the CSS
+        // contract that produces the elision; that the real flow marks a site's
+        // identity line with `perm-dialog-entity-host` — the class the contract
+        // keys on — is asserted in the popup test above.
         const host = 'accounts.google.com.attacker-run-domain.example';
-        await page.goto(
-            '/action/request-permission?permission=driver%3Aputer-image-generation%3Agenerate' +
-                `&origin=${encodeURIComponent(`https://${host}/`)}`,
-        );
+        await page.goto('/');
         await page.waitForFunction(() => !!window.puter?.authToken, null, { timeout: 60_000 });
+        await page.evaluate((h) => {
+            const el = document.createElement('dialog');
+            el.className = 'perm-dialog';
+            el.innerHTML = '<div class="perm-dialog-body">'
+                + '<div class="perm-dialog-identity">'
+                + '<h1 class="perm-dialog-entity-name perm-dialog-entity-host"></h1>'
+                + '</div></div>';
+            el.querySelector('h1').textContent = h;
+            document.body.appendChild(el);
+            el.showModal();
+        }, host);
         const name = page.locator('dialog.perm-dialog .perm-dialog-entity-name');
         await expect(name).toBeVisible({ timeout: 60_000 });
 
