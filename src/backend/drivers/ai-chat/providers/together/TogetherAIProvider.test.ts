@@ -262,6 +262,24 @@ describe('TogetherAIProvider.complete request shape', () => {
         expect('max_tokens' in createMock.mock.calls[0]![0]).toBe(false);
     });
 
+    it('forwards temperature 0 and max_tokens 0 instead of dropping them', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo',
+                messages: [{ role: 'user', content: 'hi' }],
+                max_tokens: 0,
+                temperature: 0,
+            }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.max_tokens).toBe(0);
+        expect(args.temperature).toBe(0);
+    });
+
     it('passes tools through unchanged when supplied; omits the key when not', async () => {
         const { provider } = makeProvider();
 

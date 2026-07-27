@@ -206,6 +206,24 @@ describe('GeminiChatProvider.complete request shape', () => {
         expect(args.temperature).toBe(0.4);
     });
 
+    it('forwards temperature 0 and max_tokens 0 instead of dropping them', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gemini-2.5-flash',
+                messages: [{ role: 'user', content: 'hello' }],
+                max_tokens: 0,
+                temperature: 0,
+            }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.max_completion_tokens).toBe(0);
+        expect(args.temperature).toBe(0);
+    });
+
     it('omits max_completion_tokens and temperature when caller did not supply them', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
