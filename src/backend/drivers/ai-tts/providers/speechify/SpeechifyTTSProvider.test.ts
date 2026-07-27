@@ -102,7 +102,7 @@ describe('SpeechifyTTSProvider catalog', () => {
         const voices = await provider.listVoices();
         const ids = voices.map((v) => v.id);
         expect(ids).toEqual(
-            expect.arrayContaining(['henry', 'cliff', 'kristy', 'george', 'aria']),
+            expect.arrayContaining(['geffen_32', 'dominic_32', 'harper_32', 'hugh_32', 'imogen_32']),
         );
         for (const voice of voices) {
             expect(voice.provider).toBe('speechify');
@@ -216,7 +216,7 @@ describe('SpeechifyTTSProvider.synthesize request shape', () => {
         const body = JSON.parse(initObj.body as string);
         expect(body).toEqual({
             input: '<speak>hello</speak>',
-            voice_id: 'henry', // DEFAULT_VOICE
+            voice_id: 'geffen_32', // DEFAULT_VOICE
             model: 'simba-3.2', // DEFAULT_MODEL
             audio_format: 'mp3',
         });
@@ -227,13 +227,13 @@ describe('SpeechifyTTSProvider.synthesize request shape', () => {
         fetchSpy.mockResolvedValueOnce(audioResponse());
 
         await withTestActor(() =>
-            provider.synthesize({ text: 'hi', voice: 'cliff', model: 'simba-english' }),
+            provider.synthesize({ text: 'hi', voice: 'alec', model: 'simba-english' }),
         );
 
         const body = JSON.parse(
             (fetchSpy.mock.calls[0]![1] as RequestInit).body as string,
         );
-        expect(body.voice_id).toBe('cliff');
+        expect(body.voice_id).toBe('alec');
         expect(body.model).toBe('simba-english');
     });
 

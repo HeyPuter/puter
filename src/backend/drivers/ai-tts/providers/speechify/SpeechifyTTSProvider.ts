@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { Readable } from 'node:stream';
@@ -33,7 +34,7 @@ const CALLER_VALUE = 'puter';
 const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
 
 const DEFAULT_MODEL = 'simba-3.2';
-const DEFAULT_VOICE = 'henry';
+const DEFAULT_VOICE = 'geffen_32';
 
 const SPEECHIFY_TTS_MODELS = [
     { id: 'simba-3.2', name: 'Simba 3.2' },
@@ -44,11 +45,11 @@ const SPEECHIFY_TTS_MODELS = [
 // Representative starter catalog — verify against Speechify's live
 // voices endpoint before this ships upstream.
 const SPEECHIFY_TTS_VOICES = [
-    { id: 'henry', name: 'Henry', description: 'Warm, conversational' },
-    { id: 'cliff', name: 'Cliff', description: 'Deep, narrator' },
-    { id: 'kristy', name: 'Kristy', description: 'Bright, upbeat' },
-    { id: 'george', name: 'George', description: 'Calm, professional' },
-    { id: 'aria', name: 'Aria', description: 'Clear, neutral' },
+    { id: 'geffen_32', name: 'Geffen', description: 'Warm, conversational' },
+    { id: 'dominic_32', name: 'Dominic', description: 'Deep, narrator' },
+    { id: 'harper_32', name: 'Harper', description: 'Bright, upbeat' },
+    { id: 'hugh_32', name: 'Hugh', description: 'Calm, professional' },
+    { id: 'imogen_32', name: 'Imogen', description: 'Clear, neutral' },
 ];
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -59,9 +60,9 @@ const CONTENT_TYPES: Record<string, string> = {
 };
 
 /**
- * Speechify TTS provider. Calls the Speechify `/v1/audio/speech` REST
- * endpoint and returns audio as a DriverStreamResult. Every outbound
- * request carries `Speechify-Caller: puter` for integration attribution.
+ * Speechify TTS provider. Calls the Speechify `/v1/audio/speech` REST endpoint
+ * and returns audio as a DriverStreamResult. Every outbound request carries
+ * `Speechify-Caller: puter` for integration attribution.
  */
 export class SpeechifyTTSProvider extends TTSProvider {
     readonly providerName = 'speechify';
@@ -166,7 +167,9 @@ export class SpeechifyTTSProvider extends TTSProvider {
 
         // Speechify's synthesis endpoint expects SSML; wrap plain text so
         // callers can keep passing bare strings like every other provider.
-        const input = /<speak[\s>]/i.test(text) ? text : `<speak>${text}</speak>`;
+        const input = /<speak[\s>]/i.test(text)
+            ? text
+            : `<speak>${text}</speak>`;
 
         const response = await fetch(`${API_BASE}/v1/audio/speech`, {
             method: 'POST',
@@ -223,10 +226,14 @@ export class SpeechifyTTSProvider extends TTSProvider {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const data: any = await response.json();
         if (!data?.audio_data) {
-            throw new HttpError(400, 'Speechify TTS did not return audio data', {
-                legacyCode: 'upstream_bad_request',
-                fields: { provider: 'speechify' },
-            });
+            throw new HttpError(
+                400,
+                'Speechify TTS did not return audio data',
+                {
+                    legacyCode: 'upstream_bad_request',
+                    fields: { provider: 'speechify' },
+                },
+            );
         }
 
         const buffer = Buffer.from(data.audio_data, 'base64');
