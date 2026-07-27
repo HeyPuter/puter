@@ -3,7 +3,7 @@
 // URLs (single-shot or multipart), then finalized (`/fs/completeBatchWrite`).
 // Invoked with the FileSystem module as `this`.
 
-import path from '../../../../lib/path.js';
+import path from 'path-browserify';
 import {
     MAX_THUMBNAIL_BYTES,
     SIGNED_BATCH_WRITE_CAPABILITY_KEY,

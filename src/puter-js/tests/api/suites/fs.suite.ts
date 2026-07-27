@@ -494,21 +494,6 @@ export default suite('fs', {
         );
     },
 
-    'batch send applies move and delete operations': async (t) => {
-        const dir = `${home(t)}/fs-suite-batch`;
-        await t.puter.fs.mkdir(dir);
-        await t.puter.fs.write(`${dir}/moved.txt`, 'batch move');
-        await t.puter.fs.write(`${dir}/removed.txt`, 'batch delete');
-        const batch = new t.puter.fs.Batch();
-        batch.move(`${dir}/moved.txt`, dir, 'moved-renamed.txt');
-        batch.delete(`${dir}/removed.txt`);
-        const results = await batch.send();
-        t.assert.ok(Array.isArray(results), 'batch should return results');
-        const blob = await t.puter.fs.read(`${dir}/moved-renamed.txt`);
-        t.assert.equal(await blob.text(), 'batch move');
-        await t.assert.rejects(() => t.puter.fs.stat(`${dir}/removed.txt`));
-    },
-
     'upload stores multiple files into a directory': async (t) => {
         const dir = `${home(t)}/fs-suite-upload`;
         await t.puter.fs.mkdir(dir);

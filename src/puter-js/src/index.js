@@ -2,7 +2,7 @@ import kvjs from '@heyputer/kv.js';
 import APICallLogger from './lib/APICallLogger.js';
 import { fetchUrl } from './lib/networkUtils.js';
 import { isStoredTokenUsableForOrigin } from './lib/authTokenOrigin.js';
-import path from './lib/path.js';
+import path from 'path-browserify';
 import localStorageMemory from './lib/polyfills/localStorage.js';
 import xhrshim from './lib/polyfills/xhrshim.js';
 import * as utils from './lib/utils.js';
@@ -1673,7 +1673,6 @@ globalThis.addEventListener &&
                 '*',
             );
         } else if (event.data.msg === 'puter.token') {
-            // puterDialog.close();
             // Set the authToken property
             puter.setAuthToken(event.data.token);
             // update appID only when token does not include app identity
@@ -1686,12 +1685,8 @@ globalThis.addEventListener &&
                     puter.setAppID(fallbackAppID);
                 }
             }
-            // Remove the event listener to avoid memory leaks
-            // window.removeEventListener('message', messageListener);
 
             puter.puterAuthState.authGranted = true;
-            // Resolve the promise
-            // resolve();
 
             // Call onAuth callback
             if (puter.onAuth && typeof puter.onAuth === 'function') {

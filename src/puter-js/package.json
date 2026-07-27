@@ -51,6 +51,8 @@
     },
     "dependencies": {
         "@heyputer/kv.js": "^0.2.1",
-        "open": "^10.2.0"
+        "open": "^10.2.0",
+        "path-browserify": "1.0.1",
+        "socket.io-client": "4.7.2"
     }
 }

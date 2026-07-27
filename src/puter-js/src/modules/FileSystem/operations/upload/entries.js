@@ -1,7 +1,7 @@
 // Normalize the many accepted `upload()` input shapes into a flat list of
 // entries, then split that list into the directories and files to create.
 
-import path from '../../../../lib/path.js';
+import path from 'path-browserify';
 
 /**
  * Split an array into fixed-size chunks. Returns an empty array for empty or

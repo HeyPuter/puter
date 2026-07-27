@@ -1,4 +1,4 @@
-import path from '../../../lib/path.js';
+import path from 'path-browserify';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 import { defineOperation, firstDefined } from './scaffold.js';
 

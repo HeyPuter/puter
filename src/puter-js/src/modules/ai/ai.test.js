@@ -70,7 +70,7 @@ const makeFakePuter = () => ({
     },
 });
 
-// Minimal FileReader for node: only what blobToDataUri / blob_to_url use.
+// Minimal FileReader for node: only what blobToDataUri uses.
 class FakeFileReader {
     readAsDataURL (blob) {
         blob.arrayBuffer().then((buf) => {
