@@ -1157,8 +1157,19 @@ class UI extends EventListener {
         }
 
         return new Promise((resolve) => {
-            const msg_id = this.#messageID++;
-            const url = `${gui_origin}/action/request-permission?embedded_in_popup=true&msg_id=${msg_id}&permission=${encodeURIComponent(permission)}`;
+            // Unique per request, and not reused across page loads. The counter
+            // alone is a small integer that restarts at 1 on every load, and there
+            // is a window — the whole time the no-gesture consent dialog waits for
+            // its Continue click — where no popup exists yet, so `event.source` is
+            // not pinned and any window on the GUI origin is accepted. A permission
+            // popup left open from before a reload posts exactly this message shape
+            // to its opener on the way out, and its counter value would collide
+            // with a fresh request's, settling it with a decision the user made
+            // about a different permission. The random suffix is what makes the
+            // two impossible to confuse. The GUI echoes the value back verbatim as
+            // a string, which the loose `!=` below compares correctly.
+            const msg_id = `${this.#messageID++}-${Math.random().toString(36).slice(2, 10)}`;
+            const url = `${gui_origin}/action/request-permission?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}&permission=${encodeURIComponent(permission)}`;
 
             // Guards against settling more than once across the message,
             // popup-closed, and dialog-cancel code paths.
@@ -1285,6 +1296,10 @@ class UI extends EventListener {
             const pollDecision = async () => {
                 const POLL_INTERVAL_MS = 2000;
                 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
+                // Per-attempt budget, generous enough that a slow-but-working
+                // connection still gets an answer, short enough that the deadline
+                // below stays meaningful.
+                const POLL_REQUEST_TIMEOUT_MS = 10000;
                 // The check needs this site's own token, and a permission popup
                 // deliberately never hands one over. Without it every iteration
                 // would skip the request and the loop would just burn its whole
@@ -1298,6 +1313,21 @@ class UI extends EventListener {
                     await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
                     if ( settled ) return;
                     if ( ! puter.authToken ) continue;
+                    // Time-box each attempt. The loop only re-reads the clock
+                    // between iterations, so a request that never settles — a
+                    // stalled connection, a proxy that accepts and never replies
+                    // — parks this `await` forever: POLL_TIMEOUT_MS is never
+                    // reached, `settle` is never called, and the caller's promise
+                    // stays pending for the life of the page with the listener
+                    // still attached. The popup is already closed on this branch,
+                    // so nothing the user does can recover it.
+                    const controller = typeof AbortController !== 'undefined'
+                        ? new AbortController()
+                        : null;
+                    const attempt_timer = setTimeout(
+                        () => controller?.abort(),
+                        POLL_REQUEST_TIMEOUT_MS,
+                    );
                     try {
                         const resp = await fetch(`${puter.APIOrigin}/auth/check-permissions`, {
                             method: 'POST',
@@ -1306,6 +1336,7 @@ class UI extends EventListener {
                                 'Authorization': `Bearer ${puter.authToken}`,
                             },
                             body: JSON.stringify({ permissions: [permission] }),
+                            ...(controller ? { signal: controller.signal } : {}),
                         });
                         if ( ! resp.ok ) continue;
                         const data = await resp.json();
@@ -1313,7 +1344,11 @@ class UI extends EventListener {
                             settle(true);
                         }
                     } catch (e) {
-                        // Transient network failure; keep polling.
+                        // Transient network failure, or this attempt's abort; keep
+                        // polling until the deadline above is reached.
+                    } finally {
+                        // Runs on the `continue` paths too.
+                        clearTimeout(attempt_timer);
                     }
                 }
                 settle(false);
