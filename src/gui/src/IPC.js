@@ -1325,8 +1325,17 @@ const ipc_listener = async (event, handled) => {
         };
 
         // auth
-        if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
-        {
+        try {
+            if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+            {
+                respond(false);
+                return;
+            }
+        } catch ( e ) {
+            // `ipc_listener` has no outer catch, so a throw from the signup
+            // window escapes before any reply is sent and leaves the app waiting
+            // forever — the exact hang `respond` was added to rule out.
+            console.error('IPC requestPermission: auth gate failed', e);
             respond(false);
             return;
         }
