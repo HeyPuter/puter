@@ -71,7 +71,7 @@ const applyProviderDefaults = (provider, options) => {
             options.model = options.engine;
         }
         if ( ! options.voice ) {
-            options.voice = 'henry';
+            options.voice = 'geffen_32';
         }
         if ( ! options.model ) {
             options.model = 'simba-3.2';

@@ -107,10 +107,10 @@ Available when `provider: 'speechify'`:
 | Option | Type | Description |
 |--------|------|-------------|
 | `model` | `String` | TTS model. Available: `'simba-3.2'` (default), `'simba-english'`, `'simba-multilingual'` |
-| `voice` | `String` | Voice ID. Available: `'henry'` (default), `'cliff'`, `'kristy'`, `'george'`, `'aria'` |
+| `voice` | `String` | Voice ID. Available: `'geffen_32'` (default), `'dominic_32'`, `'harper_32'`, `'hugh_32'`, `'imogen_32'` |
 | `output_format` | `String` | Output format. Available: `'mp3'` (default), `'wav'`, `'ogg'`, `'aac'` |
 
-For more details, see the [Speechify API documentation](https://docs.speechify.com/).
+For more details, see the [Speechify API documentation](https://docs.speechify.ai/).
 
 ## Return value
 
@@ -268,11 +268,11 @@ A `Promise` that resolves to an `HTMLAudioElement`. The element’s `src` points
     <script>
         document.getElementById('play').addEventListener('click', async ()=>{
             const audio = await puter.ai.txt2speech(
-                "Hello! This sample uses the Speechify Henry voice.",
+                "Hello! This sample uses the Speechify Geffen voice.",
                 {
                     provider: "speechify",
                     model: "simba-3.2",
-                    voice: "henry"
+                    voice: "geffen_32"
                 }
             );
             audio.play();

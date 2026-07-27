@@ -266,7 +266,7 @@ export interface Txt2SpeechOptions {
     text?: string;
     /** Language code. For AWS Polly defaults to `'en-US'`; for xAI a BCP-47 code defaulting to `'en'` (supports `'auto'`). */
     language?: string;
-    /** Voice ID used for synthesis (provider-specific). Defaults to `'Joanna'` (aws-polly), `'alloy'` (openai), `'21m00Tcm4TlvDq8ikWAM'` (elevenlabs), `'Kore'` (gemini), `'eve'` (xai), `'henry'` (speechify). */
+    /** Voice ID used for synthesis (provider-specific). Defaults to `'Joanna'` (aws-polly), `'alloy'` (openai), `'21m00Tcm4TlvDq8ikWAM'` (elevenlabs), `'Kore'` (gemini), `'eve'` (xai), `'geffen_32'` (speechify). */
     voice?: string;
     /** AWS Polly synthesis engine: `'standard'` (default), `'neural'`, `'long-form'`, or `'generative'`. */
     engine?: string;

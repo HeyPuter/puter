@@ -342,7 +342,7 @@ describe('ai.txt2speech driver payloads', () => {
         expect(body.args).toEqual({
             text: 'hello',
             provider: 'speechify',
-            voice: 'henry',
+            voice: 'geffen_32',
             model: 'simba-3.2',
             output_format: 'mp3',
         });
