@@ -63,16 +63,6 @@ export class PuterJSFileSystemModule {
         this.cacheUpdateTimer = null;
         // Connect socket.
         this.initializeSocket();
-
-        // We need to use `Object.defineProperty` instead of passing
-        // `authToken` and `APIOrigin` because they will change.
-        const api_info = {};
-        Object.defineProperty(api_info, 'authToken', {
-            get: () => this.authToken,
-        });
-        Object.defineProperty(api_info, 'APIOrigin', {
-            get: () => this.APIOrigin,
-        });
     }
 
     /**
@@ -309,10 +299,11 @@ export class PuterJSFileSystemModule {
             return;
         }
 
-        // Clear any existing timer
-        // this.stopCacheUpdateTimer();
+        // The auth token is set more than once over a session, and each call
+        // lands here; without clearing first, every call would leave another
+        // interval running.
+        this.stopCacheUpdateTimer();
 
-        // Start new timer
         this.cacheUpdateTimer = setInterval(() => {
             localStorage.setItem(LAST_VALID_TS, Date.now().toString());
         }, 1000);

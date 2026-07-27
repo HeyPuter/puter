@@ -100,14 +100,22 @@ const upload = async function (items, dirPath, options = {}) {
         }
 
         // Separate files from directories and tally the upload size.
-        const { dirs, files, totalSize } = separateFilesAndDirs(entries, dirPath, options);
+        // This executor is async, so anything that throws here would settle
+        // the executor's own promise and leave the upload's hanging; every
+        // step has to route its failure through `error` instead.
+        let dirs, files, totalSize, thumbnails;
+        try {
+            ({ dirs, files, totalSize } = separateFilesAndDirs(entries, dirPath, options));
 
-        // Continue only if there are actually any files/directories to upload
-        if ( dirs.length === 0 && files.length === 0 ) {
-            return error({ code: 'EMPTY_UPLOAD', message: 'No files or directories to upload.' });
+            // Continue only if there are actually any files/directories to upload
+            if ( dirs.length === 0 && files.length === 0 ) {
+                return error({ code: 'EMPTY_UPLOAD', message: 'No files or directories to upload.' });
+            }
+
+            thumbnails = await generateThumbnails(files, options);
+        } catch (e) {
+            return error(e);
         }
-
-        const thumbnails = await generateThumbnails(files, options);
 
         // Check storage capacity.
         // We need to check the storage capacity before the upload starts because
@@ -156,16 +164,21 @@ const upload = async function (items, dirPath, options = {}) {
             error,
         };
 
-        // Try the signed batch-write path first. It returns `false` when the
-        // backend doesn't support signed writes, signalling a legacy fallback.
-        if ( shouldAttemptSignedBatchWrite ) {
-            const settled = await performSignedBatchUpload.call(this, ctx);
-            if ( settled ) {
-                return;
+        try {
+            // Try the signed batch-write path first. It returns `false` when
+            // the backend doesn't support signed writes, signalling a legacy
+            // fallback.
+            if ( shouldAttemptSignedBatchWrite ) {
+                const settled = await performSignedBatchUpload.call(this, ctx);
+                if ( settled ) {
+                    return;
+                }
             }
-        }
 
-        performLegacyBatchUpload.call(this, ctx);
+            performLegacyBatchUpload.call(this, ctx);
+        } catch (e) {
+            return error(e);
+        }
     });
 };
 
