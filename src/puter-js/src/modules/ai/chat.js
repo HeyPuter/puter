@@ -201,14 +201,16 @@ export async function chat (
     /** @type {ChatOptions & { stream?: boolean }} */
     const userParams = extras.find(isPlainObject) ?? {};
 
-    // Copy relevant parameters from userParams to requestParams
-    if (userParams.model) {
+    // Copy relevant parameters from userParams to requestParams.
+    // Use `!== undefined` so legitimate zeros (temperature: 0, max_tokens: 0)
+    // are forwarded — truthy checks silently drop them.
+    if (userParams.model !== undefined) {
         requestParams.model = userParams.model;
     }
-    if (userParams.temperature) {
+    if (userParams.temperature !== undefined) {
         requestParams.temperature = userParams.temperature;
     }
-    if (userParams.max_tokens) {
+    if (userParams.max_tokens !== undefined) {
         requestParams.max_tokens = userParams.max_tokens;
     }
 
@@ -220,7 +222,7 @@ export async function chat (
     }
 
     for (const name of PARAMS_TO_PASS) {
-        if (userParams[name]) {
+        if (userParams[name] !== undefined) {
             requestParams[name] = userParams[name];
         }
     }
