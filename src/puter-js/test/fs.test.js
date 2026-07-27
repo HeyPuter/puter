@@ -1137,4 +1137,155 @@ window.fsTests = [
             }
         }
     },
+    {
+        name: "testFSDeleteArrayOfPaths",
+        description: "Test deleting several files by passing an array as the first argument",
+        test: async function() {
+            const a = puter.randName();
+            const b = puter.randName();
+            try {
+                await puter.fs.write(a, 'a');
+                await puter.fs.write(b, 'b');
+                await puter.fs.delete([a, b]);
+                let stillThere = false;
+                try { await puter.fs.stat(a); stillThere = true; } catch (e) {}
+                try { await puter.fs.stat(b); stillThere = true; } catch (e) {}
+                assert(!stillThere, "delete([a, b]) should remove both files");
+                pass("testFSDeleteArrayOfPaths passed");
+            } catch (error) {
+                fail("testFSDeleteArrayOfPaths failed:", error);
+            } finally {
+                try { await puter.fs.delete([a, b]); } catch (e) {}
+            }
+        }
+    },
+    {
+        name: "testFSReadDirWithPositionalOptions",
+        description: "Test readdir(path, options) applies limit and sort options instead of dropping them",
+        test: async function() {
+            const base = puter.randName();
+            try {
+                await puter.fs.mkdir(base);
+                for (const name of ['a.txt', 'b.txt', 'c.txt']) {
+                    await puter.fs.write(`${base}/${name}`, 'x');
+                }
+                const entries = await puter.fs.readdir(base, { limit: 2, sortBy: 'name', sortOrder: 'desc' });
+                assert(entries.length === 2, "readdir should honour limit, got " + entries.length + " entries");
+                assert(
+                    JSON.stringify(entries.map((e) => e.name)) === JSON.stringify(['c.txt', 'b.txt']),
+                    "readdir should honour sortOrder: " + JSON.stringify(entries.map((e) => e.name)),
+                );
+                pass("testFSReadDirWithPositionalOptions passed");
+            } catch (error) {
+                fail("testFSReadDirWithPositionalOptions failed:", error);
+            } finally {
+                try { await puter.fs.delete(base, { recursive: true }); } catch (e) {}
+            }
+        }
+    },
+    {
+        name: "testFSCopyWithTrailingCallback",
+        description: "Test copy(source, destination, options, success) calls the trailing success callback",
+        test: async function() {
+            const file = puter.randName();
+            const dir = puter.randName();
+            try {
+                await puter.fs.write(file, 'copy with callback');
+                await puter.fs.mkdir(dir);
+                let callbackArg;
+                const result = await puter.fs.copy(file, dir, { newName: 'renamed.txt' }, (value) => {
+                    callbackArg = value;
+                });
+                assert(callbackArg !== undefined, "success callback should have been called");
+                assert(JSON.stringify(callbackArg) === JSON.stringify(result), "callback and promise should agree");
+                const copied = await (await puter.fs.read(`${dir}/renamed.txt`)).text();
+                assert(copied === 'copy with callback', "copy should have honoured newName");
+                pass("testFSCopyWithTrailingCallback passed");
+            } catch (error) {
+                fail("testFSCopyWithTrailingCallback failed:", error);
+            } finally {
+                try { await puter.fs.delete([file, dir], { recursive: true }); } catch (e) {}
+            }
+        }
+    },
+    {
+        name: "testFSRenameByUid",
+        description: "Test rename({ uid, newName }) renames an item addressed by its uid",
+        test: async function() {
+            const name = puter.randName();
+            try {
+                const written = await puter.fs.write(name, 'rename by uid');
+                const renamed = await puter.fs.rename({ uid: written.uid, newName: `${name}-renamed` });
+                assert(renamed.name === `${name}-renamed`, "rename by uid should change the name, got " + renamed.name);
+                const contents = await (await puter.fs.read(`${name}-renamed`)).text();
+                assert(contents === 'rename by uid', "renamed file should keep its contents");
+                pass("testFSRenameByUid passed");
+            } catch (error) {
+                fail("testFSRenameByUid failed:", error);
+            } finally {
+                try { await puter.fs.delete([name, `${name}-renamed`]); } catch (e) {}
+            }
+        }
+    },
+    {
+        name: "testFSItemMethodsForwardOptions",
+        description: "Test FSItem's write/copy/mkdir/rename methods forward their arguments to the underlying operations",
+        test: async function() {
+            const base = puter.randName();
+            try {
+                await puter.fs.mkdir(base);
+                await puter.fs.write(`${base}/file.txt`, 'original');
+
+                const file = new puter.fs.FSItem(await puter.fs.stat(`${base}/file.txt`));
+                await file.write('rewritten');
+                assert(await (await file.read()).text() === 'rewritten', "FSItem.write should replace the contents");
+
+                const dir = new puter.fs.FSItem(await puter.fs.stat(base));
+                assert(dir.isDir === true && dir.isDirectory === true, "a directory FSItem should report isDir");
+
+                // autoRename should reach mkdir as dedupeName, so the second
+                // call creates a sibling rather than failing.
+                await dir.mkdir('sub');
+                const deduped = await dir.mkdir('sub', true);
+                assert(deduped.name !== 'sub', "FSItem.mkdir autoRename should pick a free name, got " + deduped.name);
+
+                // autoRename should reach copy as dedupeName.
+                const copied = await file.copy(base, true);
+                assert(copied, "FSItem.copy should resolve");
+
+                await file.rename('renamed.txt');
+                const listed = (await dir.readdir()).map((e) => e.name);
+                assert(listed.includes('renamed.txt'), "FSItem.rename should rename in place: " + JSON.stringify(listed));
+
+                pass("testFSItemMethodsForwardOptions passed");
+            } catch (error) {
+                fail("testFSItemMethodsForwardOptions failed:", error);
+            } finally {
+                try { await puter.fs.delete(base, { recursive: true }); } catch (e) {}
+            }
+        }
+    },
+    {
+        name: "testFSItemMoveWithOptions",
+        description: "Test FSItem.move(destination, overwrite, newName) forwards overwrite and newName",
+        test: async function() {
+            const base = puter.randName();
+            try {
+                await puter.fs.mkdir(`${base}/dest`, { createMissingParents: true });
+                await puter.fs.write(`${base}/moved.txt`, 'move me');
+                await puter.fs.write(`${base}/dest/taken.txt`, 'in the way');
+
+                const item = new puter.fs.FSItem(await puter.fs.stat(`${base}/moved.txt`));
+                await item.move(`${base}/dest`, true, 'taken.txt');
+
+                const contents = await (await puter.fs.read(`${base}/dest/taken.txt`)).text();
+                assert(contents === 'move me', "move should have overwritten the destination with the new name");
+                pass("testFSItemMoveWithOptions passed");
+            } catch (error) {
+                fail("testFSItemMoveWithOptions failed:", error);
+            } finally {
+                try { await puter.fs.delete(base, { recursive: true }); } catch (e) {}
+            }
+        }
+    },
 ];

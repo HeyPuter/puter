@@ -1,57 +1,39 @@
-import * as utils from '../../../lib/utils.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
+import { defineOperation, firstDefined } from './scaffold.js';
 
-const rename = function (...args) {
-    let options;
+/** @typedef {import('../../../../types/modules/filesystem').RenameOptions} RenameOptions */
+/** @typedef {import('../../../../types/modules/fs-item').FSItem} FSItem */
 
-    // If first argument is an object, it's the options
-    if ( typeof args[0] === 'object' && args[0] !== null ) {
-        options = args[0];
-    } else {
-        // Otherwise, we assume separate arguments are provided
-        options = {
-            path: args[0],
-            new_name: args[1],
-            success: args[2],
-            error: args[3],
-            // Add more if needed...
-        };
-    }
-
-    return new Promise(async (resolve, reject) => {
-        // If auth token is not provided and we are in the web environment,
-        // try to authenticate with Puter
-        if ( !puter.authToken && puter.env === 'web' ) {
-            try {
-                await puter.ui.authenticateWithPuter();
-            } catch (e) {
-                // if authentication fails, throw an error
-                reject('Authentication failed.');
-            }
-        }
-
-        // create xhr object
-        const xhr = utils.initXhr('/rename', this.APIOrigin, this.authToken);
-
-        // set up event handlers for load and error events
-        utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
-
-        let dataToSend = {
-            original_client_socket_id: options.excludeSocketID || options.original_client_socket_id,
-            new_name: options.new_name || options.newName,
+/**
+ * Renames a file or directory. The item can be addressed by `path` (relative
+ * paths resolve against the app's root directory) or by `uid`.
+ *
+ * @type {{
+ *   (options: RenameOptions): Promise<FSItem>,
+ *   (
+ *     path: string,
+ *     newName: string,
+ *     success?: (value: FSItem) => void,
+ *     error?: (reason: unknown) => void,
+ *   ): Promise<FSItem>,
+ * }}
+ */
+const rename = defineOperation({
+    positional: ['path', 'newName'],
+    request (options) {
+        const body = {
+            original_client_socket_id: firstDefined(options, 'excludeSocketID', 'original_client_socket_id'),
+            new_name: firstDefined(options, 'newName', 'new_name'),
         };
 
         if ( options.uid !== undefined ) {
-            dataToSend.uid = options.uid;
+            body.uid = options.uid;
         } else if ( options.path !== undefined ) {
-            // If dirPath is not provided or it's not starting with a slash, it means it's a relative path
-            // in that case, we need to prepend the app's root directory to it
-            dataToSend.path = getAbsolutePathForApp(options.path);
+            body.path = getAbsolutePathForApp(options.path);
         }
 
-        xhr.send(JSON.stringify(dataToSend));
-
-    });
-};
+        return { endpoint: '/rename', body };
+    },
+});
 
 export default rename;

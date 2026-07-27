@@ -2,12 +2,47 @@ import getAbsolutePathForApp from './FileSystem/utils/getAbsolutePathForApp.js';
 import * as utils from '../lib/utils.js';
 import { fetchAllPages, iteratePages } from '../lib/pagination.js';
 
+/** @typedef {import('../../types/modules/workers').WorkerDeployment} WorkerDeployment */
+/** @typedef {import('../../types/modules/workers').WorkerInfo} WorkerInfo */
+/** @typedef {import('../../types/shared').ListPage<WorkerInfo>} WorkerPage */
+/** @typedef {import('../../types/shared').ListPaginationOptions} ListPaginationOptions */
+/** @typedef {import('../../types/shared').ListStreamOptions} ListStreamOptions */
+
+/**
+ * The `puter.workers` module: deploy and call serverless workers.
+ */
 export class WorkersHandler {
 
     constructor (authToken) {
         this.authToken = authToken;
     }
 
+    /**
+     * @overload
+     * @param {string} workerName
+     * @param {string} filePath
+     * @param {string} [appName] an existing app to bind the worker to
+     * @returns {Promise<WorkerDeployment>}
+     */
+    /**
+     * @overload
+     * @param {string} workerName
+     * @param {string} filePath
+     * @param {{ sandbox?: boolean }} [options] pass `{ sandbox: false }` to opt
+     *   out of the dedicated `sandbox-<workerName>` app that owns the worker
+     * @returns {Promise<WorkerDeployment>}
+     */
+    /**
+     * Deploys a worker from a JavaScript file in the user's Puter storage that
+     * exports router code. A worker is tied to its name: create it once, then
+     * ship changes by overwriting its source file rather than creating it
+     * again. Requires a verified account, and the file must be under 10MB.
+     *
+     * @param {string} workerName
+     * @param {string} filePath
+     * @param {string | { sandbox?: boolean }} [appName]
+     * @returns {Promise<WorkerDeployment>}
+     */
     async create (workerName, filePath, appName) {
         await this.#authenticateIfNeeded();
 
@@ -50,6 +85,15 @@ export class WorkersHandler {
         return driverResult;
     }
 
+    /**
+     * Calls a worker endpoint, attaching the user's session so the worker gets
+     * user context (`user.puter`) for the User-Pays model. Takes the same
+     * arguments as `fetch` and resolves to its `Response`. Set the
+     * `x-puter-no-auth` header to send the request without the session.
+     *
+     * @param {...unknown} args a `fetch`-compatible `(input, init?)` pair
+     * @returns {Promise<Response>}
+     */
     async exec (...args) {
         await this.#authenticateIfNeeded();
 
@@ -75,6 +119,29 @@ export class WorkersHandler {
         }
     }
 
+    /**
+     * @overload
+     * @param {ListStreamOptions} options
+     * @returns {AsyncIterableIterator<WorkerPage>}
+     */
+    /**
+     * @overload
+     * @param {ListPaginationOptions} options
+     * @returns {Promise<WorkerPage>}
+     */
+    /**
+     * @overload
+     * @returns {Promise<WorkerInfo[]>}
+     */
+    /**
+     * Lists the account's workers. By default every page is fetched under the
+     * hood and returned as one array; any pagination option returns a single
+     * `{items, cursor?, total?}` page instead, and `stream: true` returns an
+     * async iterator over those pages.
+     *
+     * @param {ListStreamOptions | ListPaginationOptions} [options]
+     * @returns {Promise<WorkerInfo[] | WorkerPage> | AsyncIterableIterator<WorkerPage>}
+     */
     list (options) {
         const opts = (options && typeof options === 'object') ? options : {};
         const hasCursor = Object.prototype.hasOwnProperty.call(opts, 'cursor');
@@ -116,6 +183,13 @@ export class WorkersHandler {
         })();
     }
 
+    /**
+     * Returns the named worker, or `undefined` if the account has no worker by
+     * that name. Worker names are case-insensitive.
+     *
+     * @param {string} workerName
+     * @returns {Promise<WorkerInfo | undefined>}
+     */
     async get (workerName) {
         await this.#authenticateIfNeeded();
 
@@ -124,6 +198,12 @@ export class WorkersHandler {
         return driverCall[0];
     }
 
+    /**
+     * Deletes a worker and stops it serving. Resolves to `true` on success.
+     *
+     * @param {string} workerName
+     * @returns {Promise<boolean>}
+     */
     async delete (workerName) {
         await this.#authenticateIfNeeded();
 
@@ -149,6 +229,15 @@ export class WorkersHandler {
         }
     }
 
+    /**
+     * Opens a live log stream for a worker. The resolved handle is an
+     * `EventTarget` that emits `log` events (and calls `onLog`) as the worker
+     * logs; `close()` ends the stream. It also carries `start`/`cancel`, so it
+     * can be handed to a `ReadableStream`.
+     *
+     * @param {string} workerName
+     * @returns {Promise<EventTarget & { close: () => void, onLog: (event: MessageEvent) => void }>}
+     */
     async getLoggingHandle (workerName) {
         const loggingEndpoint = await utils.makeDriverMethod({ iface: 'workers', driver: 'worker-service', method: 'getLoggingUrl' })(puter.authToken, workerName);
         const socket = new WebSocket(`${loggingEndpoint}/${puter.authToken}/${workerName}`);

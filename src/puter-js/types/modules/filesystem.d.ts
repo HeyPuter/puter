@@ -249,6 +249,7 @@ export class FS {
     readdir (options: ReaddirOptions & ListStreamOptions): AsyncIterableIterator<ListPage<FSItem>>;
     readdir (options: ReaddirOptions & { includeTotal?: boolean } & ({ cursor: string | null } | { includeTotal: true })): Promise<ListPage<FSItem>>;
     readdir (options: ReaddirOptions): Promise<FSItem[]>;
+    readdir (path: string, options: ReaddirOptions, success?: (value: FSItem[]) => void, error?: (reason: unknown) => void): Promise<FSItem[]>;
     readdir (path: string, success?: (value: FSItem[]) => void, error?: (reason: unknown) => void): Promise<FSItem[]>;
 
     /**
@@ -294,4 +295,10 @@ export class FS {
      * Defaults to `'24h'`.
      */
     getReadURL (path: string, expiresIn?: string | number): Promise<string>;
+
+    /**
+     * Revokes a URL produced by `getReadURL`, or the access token / token UUID
+     * behind it. Resolves once the URL no longer grants read access.
+     */
+    revokeReadURL (urlOrTokenOrUuid: string): Promise<void>;
 }

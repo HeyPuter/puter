@@ -483,8 +483,8 @@ async function sendWithRetry (spec, { retrySafe = false, permission = null, shap
 // -- In-flight request dedup --
 // Coalesce concurrent identical requests: a second caller within `windowMs`
 // gets the first request's promise (shared resolved value). The entry is
-// deleted when the request settles. Generalized from the copy-pasted logic in
-// FileSystem readdir/stat (which keep their own bespoke cache and are untouched).
+// deleted when the request settles. Keys are global, so namespace them
+// (`fs:stat:…`) rather than passing a bare request signature.
 const inflightRequests = new Map();
 
 /**

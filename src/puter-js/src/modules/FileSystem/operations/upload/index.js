@@ -12,6 +12,22 @@ import { generateThumbnails } from './thumbnails.js';
 import { performSignedBatchUpload } from './signedBatchUpload.js';
 import { performLegacyBatchUpload } from './legacyBatchUpload.js';
 
+/** @typedef {import('../../../../../types/modules/filesystem').UploadItems} UploadItems */
+/** @typedef {import('../../../../../types/modules/filesystem').UploadOptions} UploadOptions */
+/** @typedef {import('../../../../../types/modules/fs-item').FSItem} FSItem */
+
+/**
+ * Uploads local items — files, blobs, strings, directory entries, or a
+ * `DataTransferItemList` from a drop — into `dirPath`, which defaults to the
+ * app's root directory. Resolves to a single `FSItem` when one item was
+ * uploaded and an array when several were.
+ *
+ * @this {import('../../index.js').PuterJSFileSystemModule}
+ * @param {UploadItems} items
+ * @param {string} [dirPath]
+ * @param {UploadOptions} [options]
+ * @returns {Promise<FSItem | FSItem[]>}
+ */
 const upload = async function (items, dirPath, options = {}) {
     return new Promise(async (resolve, reject) => {
         // If auth token is not provided and we are in the web environment,
@@ -20,8 +36,8 @@ const upload = async function (items, dirPath, options = {}) {
             try {
                 await puter.ui.authenticateWithPuter();
             } catch (e) {
-                // if authentication fails, throw an error
-                reject(e);
+                // if authentication fails, don't go on to attempt the upload
+                return reject(e);
             }
         }
 

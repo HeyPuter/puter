@@ -116,6 +116,8 @@ export class Auth {
     isSignedIn (): boolean;
     /** Returns the user's basic information. */
     getUser (options?: RequestCallbacks<User>): Promise<User>;
+    getUser (success: (value: User) => void, error?: (reason: unknown) => void): Promise<User>;
+    /** Returns the user's basic information, without the callback forms. */
     whoami (): Promise<User>;
     /** Gets the user's current monthly resource usage. Usage data is scoped to the calling app only. */
     getMonthlyUsage (): Promise<MonthlyUsage>;

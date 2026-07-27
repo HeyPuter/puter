@@ -1,5 +1,8 @@
 import * as utils from '../lib/utils.js';
 
+/** @typedef {import('../../types/modules/email').EmailSendOptions} EmailSendOptions */
+/** @typedef {import('../../types/modules/email').EmailSendResult} EmailSendResult */
+
 /**
  * Restricted outbound email (the `puter-email` driver interface).
  *
@@ -35,8 +38,7 @@ import * as utils from '../lib/utils.js';
  */
 class Email {
     /**
-     * @class
-     * @param {object} puter - The parent puter instance.
+     * @param {import('../../types/puter').Puter} puter
      */
     constructor(puter) {
         this.puter = puter;
@@ -65,6 +67,16 @@ class Email {
         this.APIOrigin = APIOrigin;
     }
 
+    /**
+     * Sends one email. The positional form is shorthand for a plain-text body;
+     * everything else (html, cc/bcc, attachments, `emailAccessToken`) goes
+     * through the options form.
+     *
+     * @type {{
+     *   (to: string | string[], subject: string, body: string): Promise<EmailSendResult>,
+     *   (options: EmailSendOptions): Promise<EmailSendResult>,
+     * }}
+     */
     send = utils.makeDriverMethod({
         iface: 'puter-email',
         method: 'send',
