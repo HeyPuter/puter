@@ -1,7 +1,6 @@
 import * as utils from '../../lib/utils.js';
 import { hasTestModeFlag } from './lib/args.js';
 import { toAudioElement } from './lib/media.js';
-import { normalizeTTSProvider, ttsDriverName } from './lib/ttsProviders.js';
 
 /** @typedef {import('../../../types/modules/ai').ListTTSEnginesOptions} ListTTSEnginesOptions */
 /** @typedef {import('../../../types/modules/ai').ListTTSVoicesOptions} ListTTSVoicesOptions */
@@ -10,95 +9,10 @@ import { normalizeTTSProvider, ttsDriverName } from './lib/ttsProviders.js';
 /** @typedef {import('../../../types/modules/ai').Txt2SpeechOptions} Txt2SpeechOptions */
 
 const MAX_INPUT_SIZE = 3000;
-const VALID_AWS_ENGINES = ['standard', 'neural', 'long-form', 'generative'];
-const NAMED_PROVIDERS = ['openai', 'elevenlabs', 'gemini', 'xai', 'speechify'];
 
-// Fill in each provider's defaults and rename options to what its driver
-// expects. Mutates `options`; returns the effective provider.
-const applyProviderDefaults = (provider, options) => {
-    if ( provider === 'openai' ) {
-        if ( !options.model && typeof options.engine === 'string' ) {
-            options.model = options.engine;
-        }
-        if ( ! options.voice ) {
-            options.voice = 'alloy';
-        }
-        if ( ! options.model ) {
-            options.model = 'gpt-4o-mini-tts';
-        }
-        if ( ! options.response_format ) {
-            options.response_format = 'mp3';
-        }
-        delete options.engine;
-    } else if ( provider === 'elevenlabs' ) {
-        if ( ! options.voice ) {
-            options.voice = '21m00Tcm4TlvDq8ikWAM';
-        }
-        if ( !options.model && typeof options.engine === 'string' ) {
-            options.model = options.engine;
-        }
-        if ( ! options.model ) {
-            options.model = 'eleven_multilingual_v2';
-        }
-        if ( !options.output_format && !options.response_format ) {
-            options.output_format = 'mp3_44100_128';
-        }
-        if ( options.response_format && !options.output_format ) {
-            options.output_format = options.response_format;
-        }
-        delete options.engine;
-    } else if ( provider === 'gemini' ) {
-        if ( !options.model && typeof options.engine === 'string' ) {
-            options.model = options.engine;
-        }
-        if ( ! options.voice ) {
-            options.voice = 'Kore';
-        }
-        if ( ! options.model ) {
-            options.model = 'gemini-2.5-flash-preview-tts';
-        }
-        delete options.engine;
-    } else if ( provider === 'xai' ) {
-        if ( ! options.voice ) {
-            options.voice = 'eve';
-        }
-        if ( ! options.language ) {
-            options.language = 'en';
-        }
-        delete options.engine;
-    } else if ( provider === 'speechify' ) {
-        if ( !options.model && typeof options.engine === 'string' ) {
-            options.model = options.engine;
-        }
-        if ( ! options.voice ) {
-            options.voice = 'geffen_32';
-        }
-        if ( ! options.model ) {
-            options.model = 'simba-3.2';
-        }
-        if ( !options.output_format && !options.response_format ) {
-            options.output_format = 'mp3';
-        }
-        delete options.engine;
-    } else {
-        provider = 'aws-polly';
-
-        if ( options.engine && !VALID_AWS_ENGINES.includes(options.engine) ) {
-            throw { message: `Invalid engine. Must be one of: ${ VALID_AWS_ENGINES.join(', ')}`, code: 'invalid_engine' };
-        }
-
-        if ( ! options.voice ) {
-            options.voice = 'Joanna';
-        }
-        if ( ! options.engine ) {
-            options.engine = 'standard';
-        }
-        if ( ! options.language ) {
-            options.language = 'en-US';
-        }
-    }
-    return provider;
-};
+// The unified TTS driver picks the provider from `options.provider` (or from
+// an `engine` that names one) and applies that provider's defaults.
+const TTS_DRIVER = 'ai-tts';
 
 /**
  * @overload
@@ -183,26 +97,13 @@ export async function txt2speech (text, optionsOrLanguage, voice, engine, testMo
         throw { message: 'Text parameter is required', code: 'text_required' };
     }
 
-    let provider = normalizeTTSProvider(options.provider);
-
-    // An engine that names a provider (e.g. engine: 'openai') selects that
-    // provider when none was given explicitly.
-    if ( !options.provider && options.engine ) {
-        const engineProvider = normalizeTTSProvider(options.engine);
-        if ( NAMED_PROVIDERS.includes(engineProvider) ) {
-            provider = engineProvider;
-        }
-    }
-
-    provider = applyProviderDefaults(provider, options);
-
     if ( options.text.length > MAX_INPUT_SIZE ) {
         throw { message: `Input size cannot be larger than ${ MAX_INPUT_SIZE}`, code: 'input_too_large' };
     }
 
     return await utils.makeDriverMethod({
         iface: 'puter-tts',
-        driver: ttsDriverName(provider),
+        driver: TTS_DRIVER,
         method: 'synthesize',
         argNames: ['source'],
         puter,
@@ -231,25 +132,12 @@ export async function txt2speech (text, optionsOrLanguage, voice, engine, testMo
  */
 export async function listEngines (options = {}) {
     const { puter } = this;
-    let provider = 'aws-polly';
     /** @type {{ provider?: string }} */
-    let params = {};
-
-    if ( typeof options === 'string' ) {
-        provider = normalizeTTSProvider(options);
-    } else if ( options && typeof options === 'object' ) {
-        provider = normalizeTTSProvider(options.provider) || provider;
-        params = { ...options };
-        delete params.provider;
-    }
-
-    if ( NAMED_PROVIDERS.includes(provider) ) {
-        params.provider = provider;
-    }
+    const params = typeof options === 'string' ? { provider: options } : { ...options };
 
     return await utils.makeDriverMethod({
         iface: 'puter-tts',
-        driver: ttsDriverName(provider),
+        driver: TTS_DRIVER,
         method: 'list_engines',
         argNames: ['source'],
         puter,
@@ -277,30 +165,12 @@ export async function listEngines (options = {}) {
  */
 export async function listVoices (options) {
     const { puter } = this;
-    let provider = 'aws-polly';
     /** @type {{ provider?: string, engine?: string }} */
-    let params = {};
-
-    if ( typeof options === 'string' ) {
-        params.engine = options;
-    } else if ( options && typeof options === 'object' ) {
-        provider = normalizeTTSProvider(options.provider) || provider;
-        params = { ...options };
-        delete params.provider;
-    }
-
-    if ( NAMED_PROVIDERS.includes(provider) ) {
-        params.provider = provider;
-        // Of the named providers only the elevenlabs driver accepts an
-        // engine filter; aws-polly (the default) accepts one too.
-        if ( provider !== 'elevenlabs' ) {
-            delete params.engine;
-        }
-    }
+    const params = typeof options === 'string' ? { engine: options } : { ...options };
 
     return utils.makeDriverMethod({
         iface: 'puter-tts',
-        driver: ttsDriverName(provider),
+        driver: TTS_DRIVER,
         method: 'list_voices',
         argNames: ['source'],
         puter,

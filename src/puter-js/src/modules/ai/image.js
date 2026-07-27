@@ -4,12 +4,6 @@ import { toImageElement } from './lib/media.js';
 
 /** @typedef {import('../../../types/modules/ai').Txt2ImgOptions} Txt2ImgOptions */
 
-// Friendly model aliases expanded to the models the drivers know.
-const MODEL_ALIASES = {
-    'nano-banana': 'gemini-2.5-flash-image-preview',
-    'nano-banana-pro': 'gemini-3-pro-image-preview',
-};
-
 /**
  * @overload
  * @param {string} prompt
@@ -62,10 +56,6 @@ export async function txt2img (promptOrOptions, optionsOrTestMode) {
 
     if ( typeof promptOrOptions === 'object' ) {
         options = promptOrOptions;
-    }
-
-    if ( options.model && MODEL_ALIASES[options.model] ) {
-        options.model = MODEL_ALIASES[options.model];
     }
 
     const driverHint = typeof options.driver === 'string' ? options.driver : undefined;

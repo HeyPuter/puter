@@ -19,16 +19,18 @@ puter.ai.txt2speech.listVoices(options)
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `provider` | `String` | TTS provider to query. Defaults to `'aws-polly'`. Accepted: `'aws-polly'`, `'openai'`, `'elevenlabs'`, `'gemini'`, `'xai'` |
+| `provider` | `String` | TTS provider to query. Defaults to `'aws-polly'`. Accepted: `'aws-polly'`, `'openai'`, `'elevenlabs'`, `'gemini'`, `'xai'`, or `'all'` to list every provider at once. Common aliases are also accepted (e.g. `'eleven'`, `'google'`, `'grok'`). |
 | `engine` | `String` | Engine/model filter (provider-specific, ignored by some providers) |
 
 When `options` is a plain string it is treated as an `engine` filter for the default (AWS Polly) provider.
+
+An unrecognized `provider` is rejected with a `bad_request` error.
 
 ## Return value
 
 A `Promise` that resolves to an array of [`TTSVoice`](/Objects/ttsvoice) objects.
 
-Example response:
+Example response (with `provider: 'all'`):
 
 ```json
 [

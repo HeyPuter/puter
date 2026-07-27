@@ -533,10 +533,10 @@ export class DriverController extends PuterController {
         // the live instance, so lifecycle hooks / inherited framework
         // methods can never be dispatched.
         this.#callableMethods.set(instance, resolveCallableMethods(instance));
-        // Register each alias pointing at the same instance. Legacy puter-js
-        // calls that pass a provider id in the `driver` slot (e.g. the TTS
-        // module sends `aws-polly` / `openai-tts` / `elevenlabs-tts` instead
-        // of the unified `ai-tts`) resolve here; the handler sets
+        // Register each alias pointing at the same instance. Calls that pass
+        // a provider id in the `driver` slot (e.g. `aws-polly` or
+        // `openai-tts` instead of the unified `ai-tts`, as SDK bundles
+        // predating the unified drivers do) resolve here; the handler sets
         // Context.driverName to the alias so the method can route to the
         // right internal provider.
         for (const alias of meta.aliases) {

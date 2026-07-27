@@ -78,6 +78,23 @@ interface MistralOcrClient {
     };
 }
 
+const OCR_PROVIDERS = ['aws-textract', 'mistral'] as const;
+
+// Aliases callers may use in place of a canonical provider id. Resolved here
+// rather than in the SDK so a new alias reaches every caller at once.
+const PROVIDER_BY_ALIAS: Record<string, string> = {
+    aws: 'aws-textract',
+    'aws-textract': 'aws-textract',
+    textract: 'aws-textract',
+    mistral: 'mistral',
+    'mistral-ocr': 'mistral',
+};
+
+const normalizeOcrProvider = (value: unknown): string | undefined =>
+    typeof value === 'string'
+        ? PROVIDER_BY_ALIAS[value.trim().toLowerCase()]
+        : undefined;
+
 export class OCRDriver extends PuterDriver {
     readonly driverInterface = 'puter-ocr';
     readonly driverName = 'ai-ocr';
@@ -95,11 +112,10 @@ export class OCRDriver extends PuterDriver {
         }));
     }
 
-    // puter-js's `img2txt` routes by passing the provider id in the `driver`
-    // slot. Alias them so the unified driver resolves; `recognize` falls
-    // back to the alias via Context.driverName when `args.provider` isn't
-    // set.
-    readonly driverAliases = ['aws-textract', 'mistral'];
+    // Older SDK bundles name the provider in the driver slot instead of
+    // passing `{ provider }`; `#resolveProvider` reads the requested alias
+    // back off the Context.
+    readonly driverAliases = [...OCR_PROVIDERS];
     readonly isDefault = true;
 
     // Textract state — one client per region.
@@ -156,10 +172,7 @@ export class OCRDriver extends PuterDriver {
     async recognize(args: RecognizeArgs) {
         if (args.test_mode) return sampleResponse();
 
-        const provider =
-            args.provider ??
-            (Context.get('driverName') as string | undefined) ??
-            this.#defaultProvider();
+        const provider = this.#resolveProvider(args);
         if (!provider)
             throw new HttpError(500, 'No OCR provider configured', {
                 legacyCode: 'internal_error',
@@ -202,6 +215,29 @@ export class OCRDriver extends PuterDriver {
         throw new HttpError(400, `Unknown OCR provider: ${provider}`, {
             legacyCode: 'bad_request',
         });
+    }
+
+    /**
+     * Decide which provider handles a call: an explicit `provider` wins, then
+     * the legacy driver alias the caller dispatched through, then whichever
+     * provider is configured.
+     */
+    #resolveProvider(args: RecognizeArgs): string | null {
+        if (args.provider) {
+            const named = normalizeOcrProvider(args.provider);
+            if (!named) {
+                throw new HttpError(
+                    400,
+                    `Unknown OCR provider: ${args.provider}. Available: ${OCR_PROVIDERS.join(', ')}`,
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            return named;
+        }
+        return (
+            normalizeOcrProvider(Context.get('driverName')) ??
+            this.#defaultProvider()
+        );
     }
 
     #defaultProvider(): 'aws-textract' | 'mistral' | null {

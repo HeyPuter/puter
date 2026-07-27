@@ -7,11 +7,8 @@ import { dataUriByteLength, isPlainObject, toDataUriIfBlob } from './lib/args.js
 
 const MAX_INPUT_SIZE = 25 * 1024 * 1024;
 
-const STT_DRIVER_NAMES = {
-    'xai': 'xai-speech2txt',
-    'grok': 'xai-speech2txt',
-    'x-ai': 'xai-speech2txt',
-};
+// The unified speech-to-text driver picks the provider from `options.provider`.
+const STT_DRIVER = 'ai-speech2txt';
 
 /**
  * @overload
@@ -109,16 +106,11 @@ export async function speech2txt (audioOrOptions, optionsOrTestMode, testModeFla
     const driverArgs = { ...options };
     delete driverArgs.translate;
 
-    const sttProvider = driverArgs.provider;
-    delete driverArgs.provider;
-
-    const sttDriverName = (sttProvider && STT_DRIVER_NAMES[sttProvider.toLowerCase()]) || 'openai-speech2txt';
-
     const responseFormat = driverArgs.response_format;
 
     return await utils.makeDriverMethod({
         iface: 'puter-speech2txt',
-        driver: sttDriverName,
+        driver: STT_DRIVER,
         method: driverMethod,
         puter,
         testMode: testMode,

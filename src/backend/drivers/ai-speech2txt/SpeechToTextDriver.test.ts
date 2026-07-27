@@ -194,7 +194,11 @@ describe('SpeechToTextDriver.getReportedCosts', () => {
     it('mirrors every entry in costs.ts as a per-second line item', () => {
         const reported = driver.getReportedCosts();
 
-        expect(reported).toHaveLength(Object.keys(SPEECH_TO_TEXT_COSTS).length);
+        // One extra line item comes from the xAI provider, which the
+        // driver aggregates alongside OpenAI's catalogue.
+        expect(reported).toHaveLength(
+            Object.keys(SPEECH_TO_TEXT_COSTS).length + 1,
+        );
         for (const [usageType, ucentsPerUnit] of Object.entries(
             SPEECH_TO_TEXT_COSTS,
         )) {
@@ -782,5 +786,77 @@ describe('SpeechToTextDriver error paths', () => {
             ),
         ).rejects.toBe(sdkError);
         expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+});
+
+// ── Provider routing ────────────────────────────────────────────────
+
+describe('SpeechToTextDriver provider routing', () => {
+    it('defaults to openai when no provider is named', async () => {
+        const { actor } = await makeUser();
+        transcriptionsCreateMock.mockResolvedValueOnce({ text: 'hi' });
+
+        await withActor(actor, () =>
+            driver.transcribe({ file: dataUrl(Buffer.from('a'), 'audio/mp3') }),
+        );
+
+        expect(transcriptionsCreateMock).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['xai', 'grok', 'x-ai'])(
+        'routes provider %s away from openai',
+        async (provider) => {
+            const { actor } = await makeUser();
+
+            // This server carries no xAI key, so the provider's own
+            // "not configured" rejection is the proof the call was routed
+            // there rather than to OpenAI.
+            await expect(
+                withActor(actor, () =>
+                    driver.transcribe({
+                        file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                        provider,
+                    }),
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 500,
+                message: 'xAI API key not configured',
+            });
+            expect(transcriptionsCreateMock).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each(['openai', 'whisper'])(
+        'routes provider %s to the OpenAI backend',
+        async (provider) => {
+            const { actor } = await makeUser();
+            transcriptionsCreateMock.mockResolvedValueOnce({ text: 'hi' });
+
+            await withActor(actor, () =>
+                driver.transcribe({
+                    file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                    provider,
+                }),
+            );
+
+            expect(transcriptionsCreateMock).toHaveBeenCalledTimes(1);
+            // `provider` is the driver's business, never forwarded upstream.
+            expect(
+                transcriptionsCreateMock.mock.calls[0]![0],
+            ).not.toHaveProperty('provider');
+        },
+    );
+
+    it('throws 400 when the named provider is unknown', async () => {
+        const { actor } = await makeUser();
+        await expect(
+            withActor(actor, () =>
+                driver.transcribe({
+                    file: dataUrl(Buffer.from('a'), 'audio/mp3'),
+                    provider: 'totally-not-real',
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(transcriptionsCreateMock).not.toHaveBeenCalled();
     });
 });

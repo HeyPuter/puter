@@ -53,6 +53,7 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IGeminiImageModel[] = [
             'google/gemini-2.5-flash-image-preview',
             'google/gemini-2.5-flash-image',
             'google:google/gemini-2.5-flash-image-preview',
+            'nano-banana',
         ],
 
         name: 'Gemini 2.5 Flash Image',
@@ -94,6 +95,7 @@ export const GEMINI_IMAGE_GENERATION_MODELS: IGeminiImageModel[] = [
             'google/gemini-3-pro-image-preview',
             'google/gemini-3-pro-image',
             'google:google/gemini-3-pro-image-preview',
+            'nano-banana-pro',
         ],
         allowedQualityLevels: ['1K', '2K', '4K'],
         allowedRatios: [

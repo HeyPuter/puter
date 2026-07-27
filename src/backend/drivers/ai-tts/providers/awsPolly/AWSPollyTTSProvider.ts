@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import {
@@ -37,14 +38,23 @@ const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
 
 const VALID_ENGINES = ['standard', 'neural', 'long-form', 'generative'];
 
+// Voices tried, in order, when the caller names none. The head of each list
+// is the provider's advertised default.
+const PREFERRED_VOICES: Record<string, string[]> = {
+    standard: ['Joanna', 'Salli', 'Matthew'],
+    neural: ['Joanna', 'Matthew', 'Salli'],
+    'long-form': ['Joanna', 'Matthew'],
+    generative: ['Joanna', 'Matthew', 'Salli'],
+};
+
 interface PollyVoicesResponse {
     Voices: any[];
 }
 
 /**
- * AWS Polly TTS provider. Wraps the AWS Polly speech synthesis API and
- * returns audio as a DriverStreamResult. Includes voice caching and
- * engine-aware voice selection.
+ * AWS Polly TTS provider. Wraps the AWS Polly speech synthesis API and returns
+ * audio as a DriverStreamResult. Includes voice caching and engine-aware voice
+ * selection.
  */
 export class AWSPollyTTSProvider extends TTSProvider {
     readonly providerName = 'aws-polly';
@@ -111,25 +121,29 @@ export class AWSPollyTTSProvider extends TTSProvider {
     ): Promise<string | null> {
         const voices = await this.describeVoices();
 
-        const voice = voices.Voices.find(
+        const candidates = voices.Voices.filter(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (v: any) =>
                 v.LanguageCode === language &&
                 v.SupportedEngines?.includes(engine),
         );
-        return voice ? voice.Id : null;
+        if (candidates.length === 0) return null;
+
+        // Keep the engine's default voice when it speaks the requested
+        // language, so naming a language doesn't silently change the voice
+        // for callers who only wanted the default.
+        for (const voiceName of PREFERRED_VOICES[engine] ?? []) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const match = candidates.find((v: any) => v.Id === voiceName);
+            if (match) return match.Id;
+        }
+        return candidates[0].Id;
     }
 
     private async getDefaultVoiceForEngine(engine: string): Promise<string> {
         const voices = await this.describeVoices();
 
-        const defaultVoices: Record<string, string[]> = {
-            standard: ['Salli', 'Joanna', 'Matthew'],
-            neural: ['Joanna', 'Matthew', 'Salli'],
-            'long-form': ['Joanna', 'Matthew'],
-            generative: ['Joanna', 'Matthew', 'Salli'],
-        };
-
-        const preferred = defaultVoices[engine] || ['Salli'];
+        const preferred = PREFERRED_VOICES[engine] ?? ['Salli'];
 
         for (const voiceName of preferred) {
             const voice = voices.Voices.find(
@@ -164,7 +178,7 @@ export class AWSPollyTTSProvider extends TTSProvider {
                     400,
                     `Invalid engine: ${engine}. Valid engines: ${VALID_ENGINES.join(', ')}`,
                     {
-                        legacyCode: 'bad_request',
+                        legacyCode: 'invalid_engine',
                         fields: { engine, valid_engines: VALID_ENGINES },
                     },
                 );
@@ -225,7 +239,7 @@ export class AWSPollyTTSProvider extends TTSProvider {
                 400,
                 `Invalid engine: ${engine}. Valid engines: ${VALID_ENGINES.join(', ')}`,
                 {
-                    legacyCode: 'bad_request',
+                    legacyCode: 'invalid_engine',
                     fields: { engine, valid_engines: VALID_ENGINES },
                 },
             );

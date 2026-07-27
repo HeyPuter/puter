@@ -66,6 +66,7 @@
     "build": "npm run setupExtensions && npm run build:ts && cd src/gui && node ./build.js && cd ../puter-js && npm run build",
     "build:workerLib": "cd src/puter-js && npm run build && cd ../worker && npm run build",
     "check-translations": "node tools/check-translations.js",
+    "audit:sdkTypes": "node ./tools/auditSdkTypes.mjs",
     "prepare": "husky",
     "build:ts": "tsc -p tsconfig.build.json && node ./tools/write-dist-package-json.mjs",
     "setupExtensions": "node ./tools/extensionSetup.mjs"
