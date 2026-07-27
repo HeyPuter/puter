@@ -13,7 +13,7 @@ import type { Networking, PSocket, PTLSSocket } from './types/modules/networking
 import type { OS } from './types/modules/os.d.ts';
 import type { Perms } from './types/modules/perms.d.ts';
 import type Peer, { PuterPeerConnection, PuterPeerServer } from './types/modules/peer.d.ts';
-import type { AlertButton, AppConnection, AppConnectionCloseEvent, CancelAwarePromise, ContextMenuItem, ContextMenuOptions, DirectoryPickerOptions, FilePickerOptions, LaunchAppOptions, MenuItem, MenubarOptions, ThemeData, UI, WindowOptions } from './types/modules/ui.d.ts';
+import type { AlertButton, AppConnection, AppConnectionCloseEvent, CancelAwarePromise, ContextMenuItem, ContextMenuOptions, DirectoryPickerOptions, FilePickerOptions, LaunchAppOptions, MenuItem, MenubarOptions, SetURLParamsFailureReason, SetURLParamsInput, SetURLParamsResult, ThemeData, UI, WindowOptions } from './types/modules/ui.d.ts';
 import type Util, { UtilRPC } from './types/modules/util.d.ts';
 import type { WorkerDeployment, WorkerInfo, WorkersHandler } from './types/modules/workers.d.ts';
 import type { APICallLogger, APILoggingConfig, PaginationOptions, PaginatedResult, PuterEnvironment, RequestCallbacks, ToolSchema } from './types/shared.d.ts';
@@ -94,6 +94,9 @@ export type {
     ReadOptions,
     ReaddirOptions,
     RequestCallbacks,
+    SetURLParamsFailureReason,
+    SetURLParamsInput,
+    SetURLParamsResult,
     SignResult,
     SpaceInfo,
     Speech2SpeechOptions,

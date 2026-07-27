@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>puter-js test fixture: setURLParams</title>
+    <style>
+        body { font-family: system-ui, sans-serif; padding: 16px; }
+        button { padding: 8px 12px; margin-right: 8px; font-size: 14px; }
+        #log { margin-top: 16px; padding: 8px; background: #f5f5f5; border: 1px solid #ddd; min-height: 60px; font-family: monospace; white-space: pre-wrap; }
+        .ready #status { color: green; }
+    </style>
+</head>
+<body>
+    <h1>puter-js test fixture: setURLParams</h1>
+    <p id="status">Loading puter.js…</p>
+
+    <button id="set-params-btn" disabled>Set params</button>
+    <button id="set-other-params-btn" disabled>Set other params</button>
+    <button id="clear-params-btn" disabled>Clear params</button>
+    <button id="set-reserved-btn" disabled>Set reserved param</button>
+    <button id="set-escaping-btn" disabled>Set escaping param</button>
+
+    <!-- The query string this app was launched with, so the spec can assert
+         that a deep link reaches the app itself and not just the address bar. -->
+    <div id="launch-search" data-testid="launch-search"></div>
+    <div id="log" data-testid="log"></div>
+
+    <script src="/dist/puter.dev.js"></script>
+    <script>
+        const logEl = document.getElementById('log');
+        const statusEl = document.getElementById('status');
+
+        function log(entry) {
+            const line = document.createElement('div');
+            line.textContent = entry;
+            line.dataset.entry = entry;
+            logEl.appendChild(line);
+        }
+
+        // Record the outcome in a form the spec can assert on: `applied:<url>`
+        // for a success, `reason:<reason>` for a refusal, `error:<code>` for a
+        // rejection.
+        async function record(label, promise) {
+            try {
+                const result = await promise;
+                log(result.applied
+                    ? `${label}:applied:${result.url}`
+                    : `${label}:reason:${result.reason}`);
+            } catch (e) {
+                log(`${label}:error:${e?.code || 'no_code'}`);
+            }
+        }
+
+        function ready() {
+            document.getElementById('launch-search').textContent = location.search;
+            document.body.classList.add('ready');
+            statusEl.textContent = `Ready (env=${puter.env})`;
+            for (const btn of document.querySelectorAll('button')) btn.disabled = false;
+        }
+
+        document.getElementById('set-params-btn').addEventListener('click', () => {
+            record('set', puter.ui.setURLParams({ doc: 'readme', line: 10 }));
+        });
+
+        document.getElementById('set-other-params-btn').addEventListener('click', () => {
+            record('other', puter.ui.setURLParams({ doc: 'changelog' }));
+        });
+
+        document.getElementById('clear-params-btn').addEventListener('click', () => {
+            record('clear', puter.ui.setURLParams());
+        });
+
+        document.getElementById('set-reserved-btn').addEventListener('click', () => {
+            // Must be refused: `auth_token` is interpreted by Puter on load,
+            // so an app that could set it would mint session-fixation links.
+            record('reserved', puter.ui.setURLParams({ auth_token: 'attacker-token' }));
+        });
+
+        document.getElementById('set-escaping-btn').addEventListener('click', () => {
+            // Must stay inside one query value — no new path, no fragment,
+            // no smuggled second parameter.
+            record('escaping', puter.ui.setURLParams({ evil: 'x&auth_token=stolen#/app/bank' }));
+        });
+
+        if (window.puter) {
+            ready();
+        } else {
+            window.addEventListener('load', ready);
+        }
+    </script>
+</body>
+</html>

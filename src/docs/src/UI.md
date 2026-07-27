@@ -18,6 +18,7 @@ The UI API provides a comprehensive set of tools for creating rich user interfac
 ### Window Management
 - **[`puter.ui.createWindow()`](/UI/createWindow/)** - Create new windows
 - **[`puter.ui.setWindowTitle()`](/UI/setWindowTitle/)** - Set window title
+- **[`puter.ui.setURLParams()`](/UI/setURLParams/)** - Set the browser URL's query string for deep linking
 - **[`puter.ui.setWindowSize()`](/UI/setWindowSize/)** - Set window dimensions
 - **[`puter.ui.setWindowPosition()`](/UI/setWindowPosition/)** - Set window position
 - **[`puter.ui.setWindowWidth()`](/UI/setWindowWidth/)** - Set window width

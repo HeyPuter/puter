@@ -49,6 +49,42 @@ export interface WindowHandle {
 /** Identifies a window: either a window id string or a window handle returned by `createWindow()`. */
 export type WindowIdentifier = string | WindowHandle;
 
+/**
+ * Params accepted by `setURLParams()`. `null` and `undefined` values are
+ * dropped so optional state can be spread in without pruning it first.
+ */
+export type SetURLParamsInput =
+    | Record<string, string | number | boolean | null | undefined>
+    | string
+    | URLSearchParams;
+
+/**
+ * Why the browser URL was not updated.
+ * - `desktop_mode` — Puter is running as a desktop; the URL never reflects apps there.
+ * - `not_url_owner` — the address bar doesn't currently name this app (minimized, or another app owns it).
+ * - `superseded` — a newer `setURLParams()` call replaced this one before it was applied.
+ * - `window_closed` — the app's window is gone.
+ * - `browser_throttled` — the browser refused the write (history rate limit).
+ * - `not_in_puter` — the app isn't running inside Puter.
+ * - `unsupported` — this version of Puter doesn't implement `setURLParams()`.
+ * - `unknown` — unrecognized response.
+ */
+export type SetURLParamsFailureReason =
+    | 'desktop_mode'
+    | 'not_url_owner'
+    | 'superseded'
+    | 'window_closed'
+    | 'browser_throttled'
+    | 'not_in_puter'
+    | 'unsupported'
+    | 'unknown';
+
+/** The outcome of a `setURLParams()` call. */
+export type SetURLParamsResult =
+    /** `url` is the full URL now shown in the address bar. */
+    | { applied: true; url: string }
+    | { applied: false; reason: SetURLParamsFailureReason };
+
 /** Options that configure a context menu. */
 export interface ContextMenuOptions {
     /** Menu items and separators. Use the string `'-'` to insert a separator. */
@@ -338,6 +374,17 @@ export class UI {
     setMenuItemIcon (itemId: string, icon: string): void;
     setMenuItemIconActive (itemId: string, icon: string): void;
     setMenuItemChecked (itemId: string, checked: boolean): void;
+    /**
+     * Replaces the query string of the browser URL while the app owns the URL
+     * (dashboard mode, `/app/<name>?<params>`), making the app's state a
+     * shareable deep link. The path never changes and no history entry is
+     * added. Accepts a plain object (`null`/`undefined` values are dropped), a
+     * query string, or `URLSearchParams`; calling with no argument or `{}`
+     * clears the query string. Params prefixed `puter.` and a set of names
+     * Puter itself interprets (e.g. `auth_token`, `action`) are rejected.
+     * Rejects with `{ message, code }` if the params are invalid.
+     */
+    setURLParams (params?: SetURLParamsInput): Promise<SetURLParamsResult>;
     /**
      * Dynamically sets the window height. Minimum is `200`; smaller values are clamped to `200`.
      * @param window_id Targets a specific window; accepts a window id string or a handle from `createWindow()`. Defaults to the app's main window.

@@ -1,6 +1,14 @@
 import EventListener from '../lib/EventListener.js';
+import { normalizeURLParams } from '../lib/urlParams.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
+
+/** @typedef {import('../../types/modules/ui').SetURLParamsInput} SetURLParamsInput */
+/** @typedef {import('../../types/modules/ui').SetURLParamsResult} SetURLParamsResult */
+
+// How long to wait for the host environment to answer a setURLParams
+// message before assuming this Puter is too old to implement it.
+const SET_URL_PARAMS_TIMEOUT = 5000;
 
 const createDeferred = () => {
     let resolve;
@@ -994,6 +1002,64 @@ class UI extends EventListener {
 
         return new Promise((resolve) => {
             this.#postMessageWithCallback('setWindowTitle', resolve, { new_title: title, window_id: window_id });
+        });
+    };
+
+    /**
+     * Replaces the query string of the browser URL while this app owns the
+     * URL (dashboard mode, `/app/<name>?<params>`), so the app's state
+     * becomes a shareable deep link. The path itself never changes — an app
+     * can decorate its own URL, not claim another route — and no history
+     * entry is added, so the browser's Back button keeps meaning "leave the
+     * app".
+     * @param {SetURLParamsInput} [params] Params to show, replacing any set
+     * before. Omit (or pass `{}`) to clear the query string.
+     * @returns {Promise<SetURLParamsResult>} `{ applied: true, url }`, or
+     * `{ applied: false, reason }` when the app doesn't currently own the
+     * URL. Rejects with `{ message, code }` if the params are invalid.
+     */
+    setURLParams (params) {
+        return new Promise((resolve, reject) => {
+            const normalized = normalizeURLParams(params);
+            if ( normalized.code ) {
+                return reject({ message: normalized.message, code: normalized.code });
+            }
+
+            // Outside Puter there is no browser URL to own — report that
+            // instead of leaving the promise hanging on a parent that
+            // will never answer.
+            if ( this.env !== 'app' || ! this.messageTarget ) {
+                return resolve({ applied: false, reason: 'not_in_puter' });
+            }
+
+            // A Puter older than this method leaves the message
+            // unanswered — resolve rather than hanging the caller's
+            // promise forever (js.puter.com is served to GUIs it isn't
+            // version-matched with, and self-hosted instances lag).
+            let settled = false;
+            const timeout = setTimeout(() => {
+                if ( settled ) return;
+                settled = true;
+                resolve({ applied: false, reason: 'unsupported' });
+            }, SET_URL_PARAMS_TIMEOUT);
+
+            this.#postMessageWithCallback('setURLParams', (response) => {
+                if ( settled ) return;
+                settled = true;
+                clearTimeout(timeout);
+                if ( response?.applied ) {
+                    return resolve({ applied: true, url: response.url });
+                }
+                // Programmer errors are loud; environmental outcomes
+                // (wrong mode, minimized, superseded) are data.
+                if ( response?.reason === 'invalid_params' ) {
+                    return reject({
+                        message: response.message || 'invalid params',
+                        code: response.code || 'params_invalid',
+                    });
+                }
+                resolve({ applied: false, reason: response?.reason || 'unknown' });
+            }, { params: normalized.params });
         });
     };
 

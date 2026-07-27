@@ -863,6 +863,14 @@ let sidebar = [
                 path: '/UI/setMenubar',
             },
             {
+                title: '<code>setURLParams()</code>',
+                page_title: '<code>puter.ui.setURLParams()</code>',
+                title_tag: 'puter.ui.setURLParams()',
+                icon: '/assets/img/function.svg',
+                source: '/UI/setURLParams.md',
+                path: '/UI/setURLParams',
+            },
+            {
                 title: '<code>setWindowHeight()</code>',
                 page_title: '<code>puter.ui.setWindowHeight()</code>',
                 title_tag: 'puter.ui.setWindowHeight()',

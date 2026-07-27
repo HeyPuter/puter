@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { serializeAppURLParams } from './helpers/appURLParams.js';
 import download from './helpers/download.js';
 import item_icon from './helpers/item_icon.js';
 import socialLink from './helpers/socialLink.js';
@@ -27,7 +28,7 @@ import UIContextMenu from './UI/UIContextMenu.js';
 import UIItem from './UI/UIItem.js';
 import UIPopover from './UI/UIPopover.js';
 import UIPrompt from './UI/UIPrompt.js';
-import UIWindow from './UI/UIWindow.js';
+import UIWindow, { set_dashboard_app_url_params } from './UI/UIWindow.js';
 import UIWindowColorPicker from './UI/UIWindowColorPicker.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowFontPicker from './UI/UIWindowFontPicker.js';
@@ -40,6 +41,29 @@ import { PROCESS_IPC_ATTACHED } from './definitions.js';
 import TeePromise from './util/TeePromise.js';
 
 window.ipc_handlers = {};
+
+// ---------------------------------------------------------------------
+// puter.ui.setURLParams() — pacing
+// ---------------------------------------------------------------------
+// (Validation of the params themselves lives in helpers/appURLParams.js.)
+//
+// URL writes are paced with trailing-edge coalescing (newest queued write
+// wins, applied at most every MIN_INTERVAL): browsers rate-limit the
+// history API per origin — WebKit's documented budget is 100 calls per
+// 30s and it THROWS past it — and a spamming app must not be able to
+// spend the budget the GUI itself needs for pushing and popping app
+// entries. 500ms is deliberately slower than that cap (60/30s) so app
+// traffic can never consume more than ~60% of it.
+//
+// Keyed by app NAME, not by window: ownership is per-app-name
+// (set_dashboard_app_url_params authorizes on data-app) and an app may
+// have several instances open, which keyed-by-window would let it use as
+// N independent buckets to multiply its write rate.
+const app_url_params_pacing = new Map();
+const APP_URL_PARAMS_MIN_INTERVAL = 500;
+// Monotonic: a wall-clock adjustment between two calls must not compute a
+// huge delay and strand a caller's promise.
+const app_url_now = () => (globalThis.performance?.now ? performance.now() : Date.now());
 /**
  * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI), and each other, using the postMessage API.
  * The following sets up an Inter-Process Messaging System between apps and the GUI that enables communication
@@ -633,6 +657,76 @@ const ipc_listener = async (event, handled) => {
         target_iframe.contentWindow.postMessage({
             original_msg_id: msg_id,
         }, '*');
+    }
+    //--------------------------------------------------------
+    // setURLParams
+    //--------------------------------------------------------
+    else if ( event.data.msg === 'setURLParams' ) {
+        const el_window = window.window_for_app_instance(event.data.appInstanceID);
+        const respond = (result) => {
+            target_iframe.contentWindow?.postMessage({
+                original_msg_id: msg_id,
+                msg: 'urlParamsSet',
+                ...result,
+            }, '*');
+        };
+        const serialized = serializeAppURLParams(event.data.params ?? {});
+        if ( serialized.code ) {
+            respond({
+                applied: false,
+                reason: 'invalid_params',
+                code: serialized.code,
+                message: serialized.message,
+            });
+            return;
+        }
+        if ( ! el_window ) {
+            respond({ applied: false, reason: 'window_closed' });
+            return;
+        }
+        const pacing_key = $(el_window).attr('data-app');
+        if ( ! pacing_key ) {
+            respond({ applied: false, reason: 'not_url_owner' });
+            return;
+        }
+        let pacing = app_url_params_pacing.get(pacing_key);
+        if ( ! pacing ) {
+            pacing = { last: -Infinity, timer: null, pending: null };
+            app_url_params_pacing.set(pacing_key, pacing);
+        }
+        // A newer request supersedes a queued one — last write wins, and
+        // the superseded caller is told so rather than being lied to.
+        if ( pacing.pending ) {
+            pacing.pending.respond({ applied: false, reason: 'superseded' });
+            pacing.pending = null;
+        }
+        const now = app_url_now();
+        if ( ! pacing.timer && now - pacing.last >= APP_URL_PARAMS_MIN_INTERVAL ) {
+            pacing.last = now;
+            respond(set_dashboard_app_url_params(el_window, serialized.query));
+        } else {
+            // The queued write belongs to whichever instance asked last,
+            // so carry its window too — not just its query.
+            pacing.pending = { query: serialized.query, respond, el_window };
+            if ( ! pacing.timer ) {
+                pacing.timer = setTimeout(() => {
+                    pacing.timer = null;
+                    const pending = pacing.pending;
+                    pacing.pending = null;
+                    // Defensive: a timer is only ever scheduled with a
+                    // pending write, so this shouldn't happen — drop the
+                    // entry rather than leave stale pacing state behind.
+                    if ( ! pending ) {
+                        app_url_params_pacing.delete(pacing_key);
+                        return;
+                    }
+                    pacing.last = app_url_now();
+                    // Ownership is re-checked at apply time — the window
+                    // may have minimized or closed while this was queued.
+                    pending.respond(set_dashboard_app_url_params(pending.el_window, pending.query));
+                }, Math.max(0, pacing.last + APP_URL_PARAMS_MIN_INTERVAL - now));
+            }
+        }
     }
     //--------------------------------------------------------
     // showWindow

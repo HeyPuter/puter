@@ -3960,7 +3960,8 @@ $.fn.showWindow = async function (options) {
                 if ( ! options?.no_history
                     && $(el_window).attr('data-update_window_url') === 'true'
                     && $(el_window).attr('data-app') !== 'explorer' ) {
-                    push_dashboard_app_url($(el_window).attr('data-app'), $(el_window).attr('data-name'));
+                    push_dashboard_app_url($(el_window).attr('data-app'), $(el_window).attr('data-name'),
+                        $(el_window).attr('data-app_url_params'));
                 }
                 setTimeout(() => {
                     $(this).focusWindow();
@@ -4158,13 +4159,33 @@ function dashboard_app_url_current () {
     }
 }
 
-function push_dashboard_app_url (app_name, title) {
+function push_dashboard_app_url (app_name, title, query) {
     if ( ! window.is_dashboard_mode || ! app_name ) return;
     if ( dashboard_app_url_current() === app_name ) {
         // Already current (e.g. the popstate handler relaunching a closed
         // app's entry): claim it without stacking a duplicate.
         dashboard_url_app = app_name;
+        // Re-claiming settles any pop still in flight, exactly as a real
+        // push does. Without this, restoring an app within the watchdog's
+        // window after a minimize whose back() went astray leaves the
+        // latch set, and the watchdog then re-minimizes the window the
+        // user just brought back.
+        dashboard_url_pop_pending = false;
         if ( title ) document.title = title;
+        // A restore may still need to re-assert the app's own query params
+        // (query === undefined means the caller has no say — keep whatever
+        // the entry already carries, e.g. a deep link being relaunched).
+        if ( query !== undefined && window.location.search.replace(/^\?/, '') !== query ) {
+            // Browsers rate-limit the history API and some throw past the
+            // budget; URL bookkeeping must never take down the caller
+            // (this runs mid-launch and mid-restore).
+            try {
+                window.history.replaceState(window.history.state, '',
+                    `/app/${encodeURIComponent(app_name)}${query ? `?${query}` : ''}`);
+            } catch (e) {
+                console.warn('Could not update the app URL:', e);
+            }
+        }
         return;
     }
     // The title to come back to when the last app entry is popped.
@@ -4175,7 +4196,17 @@ function push_dashboard_app_url (app_name, title) {
     if ( dashboard_app_url_current() === null ) {
         dashboard_url_base = window.location.pathname + window.location.search + window.location.hash;
     }
-    window.history.pushState({ dashboard_app: app_name }, '', `/app/${encodeURIComponent(app_name)}`);
+    try {
+        window.history.pushState({ dashboard_app: app_name }, '',
+            `/app/${encodeURIComponent(app_name)}${query ? `?${query}` : ''}`);
+    } catch (e) {
+        // A throw here used to abort UIWindow() mid-build — before the
+        // control drawer was attached — leaving a headless app window
+        // with no minimize or close control. The URL is bookkeeping; the
+        // window matters more.
+        console.warn('Could not claim the app URL:', e);
+        return;
+    }
     dashboard_url_app = app_name;
     dashboard_url_pop_pending = false;
     if ( title ) document.title = title;
@@ -4228,7 +4259,11 @@ function pop_dashboard_app_url (app_name) {
         if ( ! dashboard_url_pop_pending ) return;
         dashboard_url_pop_pending = false;
         if ( dashboard_app_url_current() !== app_name ) return;
-        window.history.replaceState(null, '', dashboard_url_base || '/');
+        try {
+            window.history.replaceState(null, '', dashboard_url_base || '/');
+        } catch (e) {
+            console.warn('Could not restore the dashboard URL:', e);
+        }
         dashboard_url_app = null;
         if ( window.dashboard_base_title !== undefined ) {
             document.title = window.dashboard_base_title;
@@ -4244,6 +4279,78 @@ function pop_dashboard_app_url (app_name) {
         }
     }, 400);
     return true;
+}
+
+/**
+ * Re-claim the URL for an app window the user has explicitly brought to
+ * the front while it was already visible (a dashboard tile click on a
+ * non-minimized app). Restores go through showWindow, which pushes for
+ * itself; plain focusWindow deliberately doesn't touch the URL. Without
+ * this, switching between two open apps leaves the address bar naming
+ * the app the user just left — which also means the app now on screen
+ * cannot update its own URL params (it isn't the owner) while the hidden
+ * one still can.
+ */
+export function reclaim_dashboard_app_url (el_window) {
+    if ( ! window.is_dashboard_mode ) return;
+    const $win = $(el_window);
+    if ( $win.attr('data-update_window_url') !== 'true' ) return;
+    const app_name = $win.attr('data-app');
+    if ( ! app_name || app_name === 'explorer' ) return;
+    if ( dashboard_app_url_current() === app_name ) return;
+    push_dashboard_app_url(app_name, $win.attr('data-name'), $win.attr('data-app_url_params'));
+}
+
+/**
+ * App-initiated edit of the query string on its own /app/<name> entry
+ * (puter.ui.setURLParams(), routed through IPC.js — which owns the
+ * validation of `query` itself; here it is a pre-serialized
+ * URLSearchParams string). The path segment is never derived from app
+ * input, so an app can decorate its own URL but not claim another
+ * app's or a GUI route, and the write is replaceState so apps cannot
+ * mint history entries — Back must keep meaning "leave the app".
+ * Returns { applied: true, url } or { applied: false, reason } for the
+ * app's promise.
+ */
+export function set_dashboard_app_url_params (el_window, query) {
+    // On the desktop the URL never reflects apps (it stays /desktop) —
+    // same rule as push_dashboard_app_url.
+    if ( ! window.is_dashboard_mode ) {
+        return { applied: false, reason: 'desktop_mode' };
+    }
+    const $win = $(el_window);
+    if ( ! $win.length || ! $win.closest('body').length ) {
+        return { applied: false, reason: 'window_closed' };
+    }
+    const app_name = $win.attr('data-app');
+    const minimized = $win.attr('data-is_minimized');
+    // Same ownership rule as the pushes: only windows that claim the URL
+    // may edit it (dialogs and child windows have update_window_url
+    // false), never explorer, and only while the address bar actually
+    // names this app — not minimized, not stacked under another app.
+    if ( ! app_name || app_name === 'explorer'
+        || $win.attr('data-update_window_url') !== 'true'
+        || minimized === '1' || minimized === 'true'
+        || dashboard_app_url_current() !== app_name ) {
+        return { applied: false, reason: 'not_url_owner' };
+    }
+    const url = `/app/${encodeURIComponent(app_name)}${query ? `?${query}` : ''}`;
+    try {
+        // Preserve the entry's state object — pushes stamp app entries
+        // with { dashboard_app }, and a query edit must not erase that
+        // marker.
+        window.history.replaceState(window.history.state, '', url);
+    } catch (e) {
+        // Browsers rate-limit the history API per origin and some
+        // (Safari, Firefox) throw when the budget is exceeded. IPC.js's
+        // pacing keeps normal apps far from those limits, but an
+        // exception here must not escape into the message handler.
+        return { applied: false, reason: 'browser_throttled' };
+    }
+    // What a minimize→restore re-push re-applies ('' = explicitly
+    // cleared; attribute absent = the app never set params).
+    $win.attr('data-app_url_params', query);
+    return { applied: true, url: window.location.href };
 }
 
 /**
@@ -4308,9 +4415,33 @@ window.addEventListener('popstate', () => {
             }
             document.title = $win.attr('data-name') || document.title;
         } else {
+            // The entry is a live deep link: relaunch with the query
+            // params it carries, the same way a direct /app/<name>
+            // landing forwards them (non-`puter.` params only; `posargs`
+            // additionally feeds command-line args).
+            const relaunch_params = {};
+            for ( const [key, value] of new URLSearchParams(window.location.search) ) {
+                if ( ! key.startsWith('puter.') ) {
+                    relaunch_params[key] = value;
+                }
+            }
+            let posargs;
+            if ( relaunch_params.posargs ) {
+                try {
+                    posargs = JSON.parse(relaunch_params.posargs);
+                } catch (e) {
+                    // malformed posargs: launch without them
+                }
+            }
             launch_app({
                 name: new_app,
                 maximized: true,
+                params: relaunch_params,
+                ...(posargs ? {
+                    args: {
+                        command_line: { args: posargs },
+                    },
+                } : {}),
                 window_options: { morph_from_dashboard_tile: true },
             }).catch((err) => {
                 console.error(`Failed to launch ${new_app}:`, err);

@@ -1307,7 +1307,12 @@ async function UIDesktop (options) {
         if ( ! window.url_query_params.has('c') ) {
             let posargs = undefined;
             if ( window.app_query_params && window.app_query_params.posargs ) {
-                posargs = JSON.parse(window.app_query_params.posargs);
+                try {
+                    posargs = JSON.parse(window.app_query_params.posargs);
+                } catch (e) {
+                    // malformed posargs (it comes straight from the URL):
+                    // launch without them rather than aborting desktop init
+                }
             }
             launch_app({
                 app: window.app_launched_from_url.name,

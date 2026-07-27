@@ -1,7 +1,7 @@
 import UIContextMenu from '../UIContextMenu.js';
 import UIAlert from '../UIAlert.js';
 import launch_app from '../../helpers/launch_app.js';
-import { begin_dashboard_tile_launch, settle_dashboard_tile_launch } from '../UIWindow.js';
+import { begin_dashboard_tile_launch, reclaim_dashboard_app_url, settle_dashboard_tile_launch } from '../UIWindow.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 
@@ -395,6 +395,10 @@ const TabApps = {
                         $win.showWindow();
                     } else {
                         $win.focusWindow();
+                        // Bringing an already-open app to the front makes
+                        // it the app the URL should name (showWindow does
+                        // this itself on the restore path).
+                        reclaim_dashboard_app_url($win.get(0));
                     }
                     return;
                 }
