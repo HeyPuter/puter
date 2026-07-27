@@ -3872,6 +3872,11 @@ const TabFiles = {
             // Disable pointer events on selection actions bar during drag
             _this.$el_window.find('.files-selection-actions').addClass('rubberband-active');
 
+            // The marquee is clamped to the files container but the cursor
+            // isn't — while the drag is active, the chrome around the list
+            // (sidebars, path bar) must not show hover feedback under it.
+            _this.$el_window.find('.dashboard').addClass('rubberband-selecting');
+
             // Create selection area element only when drag actually starts (after threshold)
             selection_area = document.createElement('div');
             $(filesContainer).append(selection_area);
@@ -3938,6 +3943,7 @@ const TabFiles = {
             }
             // Re-enable pointer events on selection actions bar
             _this.$el_window.find('.files-selection-actions').removeClass('rubberband-active');
+            _this.$el_window.find('.dashboard').removeClass('rubberband-selecting');
             _this.updateFooterStats();
         });
     },

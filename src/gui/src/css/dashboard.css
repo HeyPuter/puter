@@ -2067,6 +2067,15 @@ body.myapps-reordering .myapps-tile {
     pointer-events: none;
 }
 
+/* The marquee is clamped to the files container but the cursor isn't;
+   while a rubber-band drag is active, the chrome around the list must
+   not react to the cursor passing over it (hover highlights, tooltips). */
+.dashboard.rubberband-selecting .dashboard-sidebar,
+.dashboard.rubberband-selecting .dashboard-section-files .directories,
+.dashboard.rubberband-selecting .dashboard-section-files .directory-contents .header {
+    pointer-events: none;
+}
+
 .dashboard-section-files .selection-action-btn {
     display: flex;
     align-items: center;
