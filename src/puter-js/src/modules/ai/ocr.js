@@ -1,5 +1,5 @@
 import * as utils from '../../lib/utils.js';
-import { isBlobLike, isPlainObject } from './lib/args.js';
+import { dataUriByteLength, isBlobLike, isPlainObject } from './lib/args.js';
 
 /** @typedef {import('../../../types/modules/ai').Img2TxtOptions} Img2TxtOptions */
 
@@ -131,7 +131,7 @@ export async function img2txt (sourceOrOptions, optionsOrTestMode, testModeOrOpt
 
     if ( typeof options.source === 'string' &&
         options.source.startsWith('data:') &&
-        options.source.length > MAX_INPUT_SIZE ) {
+        dataUriByteLength(options.source) > MAX_INPUT_SIZE ) {
         throw { message: `Input size cannot be larger than ${ MAX_INPUT_SIZE}`, code: 'input_too_large' };
     }
 
