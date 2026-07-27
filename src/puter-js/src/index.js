@@ -666,7 +666,15 @@ const puterInit = function () {
             // Flag that indicates if a request to `/rao` has been made
             this.rao_requested_ = false;
 
+            /** @type {import('../types/modules/networking').Networking} */
             this.net = {
+                /**
+                 * Mints a relay URL (server + single-use token) for speaking
+                 * the Wisp v1 protocol directly, which is what the sockets
+                 * below do for you.
+                 *
+                 * @returns {Promise<string>}
+                 */
                 generateWispV1URL: async () => {
                     const { token: wispToken, server: wispServer } = await (
                         await fetchUrl(

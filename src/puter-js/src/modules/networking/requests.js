@@ -32,6 +32,13 @@ function parseHTTPHead (head) {
 // Trivial stream based HTTP 1.1 client
 // TODO optional redirect handling
 
+/**
+ * `puter.net.fetch`: fetches an http/https resource over a raw socket rather
+ * than the browser's HTTP stack, so it is not subject to CORS. Takes the same
+ * arguments as `fetch` and resolves to a `Response`.
+ *
+ * @type {(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>}
+ */
 export function pFetch (...args) {
     return new Promise(async (res, rej) => {
         try {

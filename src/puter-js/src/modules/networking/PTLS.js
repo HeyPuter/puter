@@ -6,7 +6,13 @@ import { PSocket } from './PSocket.js';
 
 let rustls = undefined;
 
+/**
+ * A TLS-protected TCP socket in the browser. Same interface as `PSocket`, but
+ * the connection is encrypted and its events are `'tls'`-prefixed. Construct
+ * it with `puter.net.tls.TLSSocket(hostname, port)`.
+ */
 export class PTLSSocket extends PSocket {
+    /** @param {...unknown} args a `(host, port)` pair, as `PSocket` takes */
     constructor (...args) {
         super(...args);
         super.on('open', (async () => {
@@ -89,6 +95,15 @@ export class PTLSSocket extends PSocket {
 
         }));
     }
+    /**
+     * Registers a handler for a socket event. `'data'`, `'open'` and
+     * `'close'` are accepted as aliases of the `tls`-prefixed events, so the
+     * same handler code works against either socket type.
+     *
+     * @param {string} event
+     * @param {(...args: unknown[]) => void} callback
+     * @returns {void}
+     */
     on (event, callback) {
         if ( event === 'data' || event === 'open' || event === 'close' ) {
             return super.on(`tls${ event}`, callback);
@@ -96,6 +111,16 @@ export class PTLSSocket extends PSocket {
             return super.on(event, callback);
         }
     }
+
+    /**
+     * Writes data through the TLS session, invoking `callback` once it has
+     * been flushed. Throws if `data` is not a string, `ArrayBuffer`, or typed
+     * array.
+     *
+     * @param {ArrayBuffer | ArrayBufferView | string} data
+     * @param {() => void} [callback]
+     * @returns {void}
+     */
     write (data, callback) {
         if ( data.buffer ) { // TypedArray
             this.writer.write(data.slice(0).buffer).then(callback);

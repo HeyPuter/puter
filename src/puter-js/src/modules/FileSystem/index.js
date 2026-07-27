@@ -49,13 +49,10 @@ export class PuterJSFileSystemModule {
     FSItem = FSItem;
 
     /**
-     * Creates a new instance with the given authentication token, API origin, and app ID,
-     * and connects to the socket.
+     * Reads its auth state from the owning Puter instance, then connects the
+     * socket it uses for cache invalidation and upload progress.
      *
-     * @class
-     * @param {string} authToken - Token used to authenticate the user.
-     * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
-     * @param {string} appID - ID of the app to use.
+     * @param {import('../../../types/puter').Puter} puter
      */
     constructor (puter) {
         this.puter = puter;

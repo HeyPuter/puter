@@ -162,6 +162,23 @@ export default suite('fs', {
         t.assert.equal(entries.length, 2);
     },
 
+    'readdir(path, options) applies the options': async (t) => {
+        const dir = `${home(t)}/fs-suite-readdir-positional-options`;
+        await t.puter.fs.mkdir(dir);
+        for (const n of ['a.txt', 'b.txt', 'c.txt']) {
+            await t.puter.fs.write(`${dir}/${n}`, 'x');
+        }
+        const entries = await t.puter.fs.readdir(dir, {
+            limit: 2,
+            sortBy: 'name',
+            sortOrder: 'desc',
+        });
+        t.assert.deepEqual(
+            entries.map((e: { name: string }) => e.name),
+            ['c.txt', 'b.txt'],
+        );
+    },
+
     'readdir with a cursor pages through a directory': async (t) => {
         const dir = `${home(t)}/fs-suite-page-cursor`;
         await t.puter.fs.mkdir(dir);
@@ -307,6 +324,39 @@ export default suite('fs', {
         t.assert.equal(await blob.text(), 'renamed copy');
     },
 
+    'copy conflicts by default and renames with dedupeName': async (t) => {
+        const src = `${home(t)}/fs-suite-copy-conflict.txt`;
+        const dstDir = `${home(t)}/fs-suite-copy-conflict-dst`;
+        await t.puter.fs.write(src, 'original');
+        await t.puter.fs.mkdir(dstDir);
+        await t.puter.fs.copy(src, dstDir);
+        await t.assert.rejects(
+            () => t.puter.fs.copy(src, dstDir),
+            'a second copy under the same name should conflict',
+        );
+        const deduped = await t.puter.fs.copy(src, dstDir, { dedupeName: true });
+        const copied = Array.isArray(deduped) ? deduped[0].copied : deduped;
+        t.assert.ok(
+            copied.name !== 'fs-suite-copy-conflict.txt',
+            `dedupeName should pick a free name, got ${copied.name}`,
+        );
+    },
+
+    'copy calls the success callback that follows its options': async (t) => {
+        const src = `${home(t)}/fs-suite-copy-cb-src.txt`;
+        const dstDir = `${home(t)}/fs-suite-copy-cb-dst`;
+        await t.puter.fs.write(src, 'copy with callback');
+        await t.puter.fs.mkdir(dstDir);
+        let callbackArg: unknown;
+        const result = await t.puter.fs.copy(src, dstDir, { newName: 'via-callback.txt' }, (value: unknown) => {
+            callbackArg = value;
+        });
+        t.assert.ok(callbackArg, 'success callback should fire');
+        t.assert.deepEqual(callbackArg, result);
+        const blob = await t.puter.fs.read(`${dstDir}/via-callback.txt`);
+        t.assert.equal(await blob.text(), 'copy with callback');
+    },
+
     'move relocates a file': async (t) => {
         const src = `${home(t)}/fs-suite-move-src.txt`;
         const dstDir = `${home(t)}/fs-suite-move-dst`;
@@ -328,6 +378,18 @@ export default suite('fs', {
         await t.puter.fs.move(src, dst);
         const blob = await t.puter.fs.read(dst);
         t.assert.equal(await blob.text(), 'move+rename');
+    },
+
+    'rename addresses the item by uid': async (t) => {
+        const path = `${home(t)}/fs-suite-rename-uid.txt`;
+        const written = await t.puter.fs.write(path, 'rename by uid');
+        const renamed = await t.puter.fs.rename({
+            uid: written.uid,
+            newName: 'fs-suite-renamed-by-uid.txt',
+        });
+        t.assert.equal(renamed.name, 'fs-suite-renamed-by-uid.txt');
+        const blob = await t.puter.fs.read(`${home(t)}/fs-suite-renamed-by-uid.txt`);
+        t.assert.equal(await blob.text(), 'rename by uid');
     },
 
     'rename changes the file name in place': async (t) => {
@@ -378,9 +440,17 @@ export default suite('fs', {
         const b = `${home(t)}/fs-suite-multi-b.txt`;
         await t.puter.fs.write(a, 'a');
         await t.puter.fs.write(b, 'b');
-        // Object form: delete's positional form treats a leading array as
-        // the options object, so `delete([a, b])` never reaches the server.
         await t.puter.fs.delete({ paths: [a, b] });
+        await t.assert.rejects(() => t.puter.fs.stat(a));
+        await t.assert.rejects(() => t.puter.fs.stat(b));
+    },
+
+    'delete accepts an array as its first argument': async (t) => {
+        const a = `${home(t)}/fs-suite-array-a.txt`;
+        const b = `${home(t)}/fs-suite-array-b.txt`;
+        await t.puter.fs.write(a, 'a');
+        await t.puter.fs.write(b, 'b');
+        await t.puter.fs.delete([a, b]);
         await t.assert.rejects(() => t.puter.fs.stat(a));
         await t.assert.rejects(() => t.puter.fs.stat(b));
     },

@@ -64,8 +64,14 @@ export class PuterPeerServer extends EventTarget {
     /** Map of all connected clients, keyed by id. */
     connections: Map<string, PuterPeerConnection>;
 
-    start (): Promise<string>;
-    message (data: ArrayBuffer | string): Promise<void>;
+    /**
+     * Opens the signalling connection and registers the server. Resolves to
+     * the invite code, which is also kept on `inviteCode`. `serve()` calls
+     * this for you.
+     */
+    start (options?: PuterPeerOptions): Promise<string>;
+    /** Closes every client connection and the signalling connection. */
+    close (): void;
 
     addEventListener(type: string, callback: EventListenerOrEventListenerObject | null, options?: boolean | AddEventListenerOptions): void;
     addEventListener<K extends keyof PuterPeerServerEventMap>(
@@ -92,13 +98,14 @@ export class PuterPeerConnection extends EventTarget {
     connected: boolean;
     closed: boolean;
 
-    connect (invitecode: string): Promise<void>;
+    /** Connect to the server that issued `invitecode`. `puter.peer.connect()` calls this for you. */
+    connect (invitecode: string, options?: PuterPeerOptions): Promise<void>;
     /** Close the connection, optionally providing a reason. */
     close (reason?: string): void;
     createOffer (): Promise<RTCSessionDescriptionInit>;
     createAnswer (): Promise<RTCSessionDescriptionInit>;
-    setRemoteDescription (description: PuterPeerDescription): void;
-    addIceCandidate (candidate: PuterPeerIceCandidate): void;
+    setRemoteDescription (description: PuterPeerDescription): Promise<void>;
+    addIceCandidate (candidate: PuterPeerIceCandidate): Promise<void>;
     /** Send a message to the peer. Supports `string`, `Blob`, `ArrayBuffer`, or `ArrayBufferView`. */
     send (message: PuterPeerMessage): void;
 

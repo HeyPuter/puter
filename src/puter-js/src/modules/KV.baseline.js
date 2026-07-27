@@ -49,12 +49,9 @@ class KV {
     MAX_VALUE_SIZE = 399 * 1024;
 
     /**
-     * Creates a new instance with the given authentication token, API origin, and app ID,
+     * Reads its auth state from the owning Puter instance.
      *
-     * @class
-     * @param {string} authToken - Token used to authenticate the user.
-     * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
-     * @param {string} appID - ID of the app to use.
+     * @param {import("../../types/puter").Puter} puter
      */
     constructor (puter) {
         this.puter = puter;

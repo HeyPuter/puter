@@ -2,6 +2,15 @@ import EventListener from '../lib/EventListener.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
 
+/** @typedef {import('../../types/modules/ui').AlertButton} AlertButton */
+/** @typedef {import('../../types/modules/ui').AlertOptions} AlertOptions */
+/** @typedef {import('../../types/modules/ui').AppConnection} AppConnection */
+/** @typedef {import('../../types/modules/ui').ContextMenuOptions} ContextMenuOptions */
+/** @typedef {import('../../types/modules/ui').MenubarOptions} MenubarOptions */
+/** @typedef {import('../../types/modules/ui').NotificationOptions} NotificationOptions */
+/** @typedef {import('../../types/modules/ui').WindowHandle} WindowHandle */
+/** @typedef {import('../../types/modules/ui').WindowOptions} WindowOptions */
+
 const createDeferred = () => {
     let resolve;
     let reject;
@@ -98,12 +107,24 @@ class AppConnection extends EventListener {
         });
     }
 
-    // Does the target app use the Puter SDK? If not, certain features will be unavailable.
+    /**
+     * Whether the target app uses the Puter SDK. If it doesn't, messaging is
+     * unavailable.
+     *
+     * @returns {boolean}
+     */
     get usesSDK () {
         return this.#usesSDK;
     }
 
-    // Send a message to the target app. Requires the target to use the Puter SDK.
+    /**
+     * Sends a message to the target app. Does nothing — beyond a console
+     * warning — if the target isn't using the SDK, or the connection has
+     * already closed.
+     *
+     * @param {unknown} message
+     * @returns {void}
+     */
     postMessage (message) {
         if ( ! this.#isOpen ) {
             console.warn('Trying to post message on a closed AppConnection');
@@ -127,7 +148,13 @@ class AppConnection extends EventListener {
         }, this.#puterOrigin);
     }
 
-    // Attempt to close the target application
+    /**
+     * Attempts to close the target app. An app may close apps it launched
+     * itself; without that permission, or once already closed, this does
+     * nothing beyond a console warning.
+     *
+     * @returns {void}
+     */
     close () {
         if ( ! this.#isOpen ) {
             console.warn('Trying to close an app on a closed AppConnection');
@@ -606,10 +633,25 @@ class UI extends EventListener {
         });
     }
 
+    /**
+     * Registers a function to run when the window is about to close. Not
+     * called when the app exits through `puter.exit()`.
+     *
+     * @param {() => void} callback
+     * @returns {void}
+     */
     onWindowClose (callback) {
         this.#onWindowClose = callback;
     };
 
+    /**
+     * Registers a handler for items this app was launched with.
+     *
+     * @deprecated Also fires when items are dropped on the app; handle the
+     * `drop` event instead.
+     * @param {(items: FSItem[]) => void} callback
+     * @returns {void}
+     */
     onItemsOpened (callback) {
         // DEPRECATED - this is also called when items are dropped on the app, which in new versions should be handled
         // with the 'drop' event.
@@ -648,6 +690,12 @@ class UI extends EventListener {
 
     // Check if the app was launched with items
     // This is useful for apps that are launched with items (e.g. when a file is opened with the app)
+    /**
+     * Whether the app was launched to open one or more items — by
+     * double-clicking a file, the 'Open With…' menu, and so on.
+     *
+     * @returns {boolean}
+     */
     wasLaunchedWithItems () {
         const URLParams = new URLSearchParams(globalThis.location.search);
         return URLParams.has('puter.item.name') &&
@@ -655,6 +703,13 @@ class UI extends EventListener {
             URLParams.has('puter.item.read_url');
     };
 
+    /**
+     * Registers a handler called with the items the app was launched with,
+     * each a file or a directory.
+     *
+     * @param {(items: FSItem[]) => void} callback
+     * @returns {void}
+     */
     onLaunchedWithItems (callback) {
         // Check if a file was opened with this app, i.e. check URL parameters of window/iframe
         // Even though the file has been opened when the app is launched, we need to wait for the onLaunchedWithItems callback to be set
@@ -689,12 +744,29 @@ class UI extends EventListener {
         this.#onLaunchedWithItems = callback;
     };
 
+    /**
+     * Asks the desktop to walk the user through confirming their email.
+     * Resolves once the dialog closes.
+     *
+     * @returns {Promise<unknown>}
+     */
     requestEmailConfirmation () {
         return new Promise((resolve, reject) => {
             this.#postMessageWithCallback('requestEmailConfirmation', resolve, { });
         });
     };
 
+    /**
+     * Shows an alert dialog, blocking the parent window until the user picks a
+     * button. Resolves to that button's `value`, or its `label` when no value
+     * is set. `callback` is vestigial and never invoked.
+     *
+     * @param {string} [message]
+     * @param {AlertButton[]} [buttons]
+     * @param {AlertOptions} [options]
+     * @param {unknown} [callback] ignored
+     * @returns {Promise<string>}
+     */
     alert (message, buttons, options, callback) {
         if ( this.messageTarget ) {
             return new Promise((resolve) => {
@@ -713,24 +785,58 @@ class UI extends EventListener {
         });
     };
 
+    /**
+     * Opens the developer payments account page. Resolves once the desktop
+     * acknowledges the request.
+     *
+     * @returns {Promise<unknown>}
+     */
     openDevPaymentsAccount () {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('openDevPaymentsAccount', resolve, { });
         });
     }
 
+    /**
+     * Resolves to the instances of this app that are currently open.
+     * `callback` is vestigial and never invoked.
+     *
+     * @param {unknown} [callback] ignored
+     * @returns {Promise<unknown>}
+     */
     instancesOpen (callback) {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('getInstancesOpen', resolve, { });
         });
     };
 
+    /**
+     * Shows a dialog for sharing a link to social platforms. `callback` is
+     * vestigial and never invoked.
+     *
+     * @param {string} url
+     * @param {string} [message] prefilled post text, where the platform supports it
+     * @param {{ left?: number, top?: number }} [options] dialog position; both default to 0
+     * @param {unknown} [callback] ignored
+     * @returns {Promise<unknown>}
+     */
     socialShare (url, message, options, callback) {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('socialShare', resolve, { url, message, options });
         });
     };
 
+    /**
+     * Shows a prompt dialog, blocking the parent window until the user
+     * responds. Resolves to the entered value, or `false` if they cancel.
+     * `callback` is vestigial and never invoked.
+     *
+     * @param {string} [message]
+     * @param {string} [placeholder]
+     * @param {{ defaultValue?: string }} [options]
+     * @param {unknown} [callback] ignored
+     * @returns {Promise<string | false>}
+     */
     prompt (message, placeholder, options, callback) {
         if ( this.messageTarget ) {
             return new Promise((resolve) => {
@@ -750,6 +856,12 @@ class UI extends EventListener {
         });
     };
 
+    /**
+     * Shows a desktop notification. Resolves to its uid.
+     *
+     * @param {NotificationOptions} [options]
+     * @returns {Promise<string>}
+     */
     notify (options) {
         if ( this.messageTarget ) {
             return new Promise((resolve) => {
@@ -776,6 +888,14 @@ class UI extends EventListener {
         });
     };
 
+    /**
+     * Shows a directory picker over the user's Puter storage. Resolves to one
+     * `FSItem`, or an array of them when multiple selection is allowed.
+     *
+     * @param {{ multiple?: boolean }} [options]
+     * @param {(value: FSItem | FSItem[]) => void} [callback]
+     * @returns {Promise<FSItem | FSItem[]>}
+     */
     showDirectoryPicker (options, callback) {
         return new Promise((resolve, reject) => {
             if ( ! globalThis.open ) {
@@ -809,6 +929,16 @@ class UI extends EventListener {
         });
     };
 
+    /**
+     * Shows a file picker over the user's Puter storage. Resolves to one
+     * `FSItem`, or an array of them when multiple selection is allowed. The
+     * returned promise also carries `undefinedOnCancel`, which resolves to
+     * `undefined` instead of staying pending when the user cancels.
+     *
+     * @param {{ multiple?: boolean, accept?: string }} [options]
+     * @param {(value: FSItem | FSItem[]) => void} [callback]
+     * @returns {Promise<FSItem | FSItem[]>}
+     */
     showOpenFilePicker (options, callback) {
         const undefinedOnCancel = createDeferred();
         const resolveOnlyPromise = new Promise((resolve, reject) => {
@@ -853,6 +983,13 @@ class UI extends EventListener {
         return resolveOnlyPromise;
     };
 
+    /**
+     * Shows a font picker. Resolves to the chosen font. Accepts either a
+     * default font name or an options object.
+     *
+     * @param {string | { default?: string }} [options]
+     * @returns {Promise<{ fontFamily: string }>}
+     */
     showFontPicker (options) {
         if ( this.messageTarget ) {
             return new Promise((resolve) => {
@@ -871,6 +1008,13 @@ class UI extends EventListener {
         });
     };
 
+    /**
+     * Shows a color picker. Resolves to the chosen color. Accepts either a
+     * default color or an options object.
+     *
+     * @param {string | { default?: string }} [options]
+     * @returns {Promise<string>}
+     */
     showColorPicker (options) {
         if ( this.messageTarget ) {
             return new Promise((resolve) => {
@@ -889,12 +1033,28 @@ class UI extends EventListener {
         });
     };
 
+    /**
+     * Asks the desktop to show its upgrade flow.
+     *
+     * @returns {Promise<unknown>}
+     */
     requestUpgrade () {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('requestUpgrade', resolve, { });
         });
     };
 
+    /**
+     * Shows a picker for choosing where to save a file, and saves `content`
+     * there. Resolves to the saved `FSItem`; if the user cancels, the promise
+     * stays pending (use `undefinedOnCancel` on it to resolve instead).
+     *
+     * @param {unknown} [content] the data to write; a URL to fetch when `type` is 'url',
+     *   or the path of an existing file when 'move' or 'copy'
+     * @param {string} [suggestedName] name to prefill in the dialog
+     * @param {'url' | 'move' | 'copy'} [type] how `content` is read; inferred as 'url' for a URL
+     * @returns {Promise<FSItem>}
+     */
     showSaveFilePicker (content, suggestedName, type) {
         const undefinedOnCancel = createDeferred();
         const resolveOnlyPromise = new Promise((resolve, reject) => {
@@ -984,6 +1144,14 @@ class UI extends EventListener {
         return resolveOnlyPromise;
     };
 
+    /**
+     * Sets a window title. `callback` is vestigial and never invoked.
+     *
+     * @param {string} title
+     * @param {string | WindowHandle} [window_id] the window to target; defaults to the app's main window
+     * @param {unknown} [callback] ignored
+     * @returns {Promise<unknown>}
+     */
     setWindowTitle (title, window_id, callback) {
         if ( typeof window_id === 'function' ) {
             callback = window_id;
@@ -997,6 +1165,14 @@ class UI extends EventListener {
         });
     };
 
+    /**
+     * Sets a window's width. Values below 200 are clamped to 200. `callback` is vestigial and never invoked.
+     *
+     * @param {number} width
+     * @param {string | WindowHandle} [window_id] the window to target; defaults to the app's main window
+     * @param {unknown} [callback] ignored
+     * @returns {Promise<unknown>}
+     */
     setWindowWidth (width, window_id, callback) {
         if ( typeof window_id === 'function' ) {
             callback = window_id;
@@ -1010,6 +1186,14 @@ class UI extends EventListener {
         });
     };
 
+    /**
+     * Sets a window's height. Values below 200 are clamped to 200. `callback` is vestigial and never invoked.
+     *
+     * @param {number} height
+     * @param {string | WindowHandle} [window_id] the window to target; defaults to the app's main window
+     * @param {unknown} [callback] ignored
+     * @returns {Promise<unknown>}
+     */
     setWindowHeight (height, window_id, callback) {
         if ( typeof window_id === 'function' ) {
             callback = window_id;
@@ -1023,6 +1207,15 @@ class UI extends EventListener {
         });
     };
 
+    /**
+     * Sets a window's width and height. Values below 200 are clamped to 200. `callback` is vestigial and never invoked.
+     *
+     * @param {number} width
+     * @param {number} height
+     * @param {string | WindowHandle} [window_id] the window to target; defaults to the app's main window
+     * @param {unknown} [callback] ignored
+     * @returns {Promise<unknown>}
+     */
     setWindowSize (width, height, window_id, callback) {
         if ( typeof window_id === 'function' ) {
             callback = window_id;
@@ -1036,6 +1229,15 @@ class UI extends EventListener {
         });
     };
 
+    /**
+     * Moves a window to a position on screen. `callback` is vestigial and never invoked.
+     *
+     * @param {number} x
+     * @param {number} y
+     * @param {string | WindowHandle} [window_id] the window to target; defaults to the app's main window
+     * @param {unknown} [callback] ignored
+     * @returns {Promise<unknown>}
+     */
     setWindowPosition (x, y, window_id, callback) {
         if ( typeof window_id === 'function' ) {
             callback = window_id;
@@ -1049,6 +1251,14 @@ class UI extends EventListener {
         });
     };
 
+    /**
+     * Sets a window's vertical position. `callback` is vestigial and never invoked.
+     *
+     * @param {number} y
+     * @param {string | WindowHandle} [window_id] the window to target; defaults to the app's main window
+     * @param {unknown} [callback] ignored
+     * @returns {Promise<unknown>}
+     */
     setWindowY (y, window_id, callback) {
         if ( typeof window_id === 'function' ) {
             callback = window_id;
@@ -1062,6 +1272,14 @@ class UI extends EventListener {
         });
     };
 
+    /**
+     * Sets a window's horizontal position. `callback` is vestigial and never invoked.
+     *
+     * @param {number} x
+     * @param {string | WindowHandle} [window_id] the window to target; defaults to the app's main window
+     * @param {unknown} [callback] ignored
+     * @returns {Promise<unknown>}
+     */
     setWindowX (x, window_id, callback) {
         if ( typeof window_id === 'function' ) {
             callback = window_id;
@@ -1075,18 +1293,39 @@ class UI extends EventListener {
         });
     };
 
+    /**
+     * Shows the app's window.
+     *
+     * @returns {void}
+     */
     showWindow () {
         this.#postMessageWithObject('showWindow');
     };
 
+    /**
+     * Hides the app's window.
+     *
+     * @returns {void}
+     */
     hideWindow () {
         this.#postMessageWithObject('hideWindow');
     };
 
+    /**
+     * Toggles the app's window between shown and hidden.
+     *
+     * @returns {void}
+     */
     toggleWindow () {
         this.#postMessageWithObject('toggleWindow');
     };
 
+    /**
+     * Installs a menubar along the top of the window.
+     *
+     * @param {MenubarOptions} spec
+     * @returns {void}
+     */
     setMenubar (spec) {
         if ( this.messageTarget ) {
             this.#postMessageWithObject('setMenubar', spec);
@@ -1114,26 +1353,66 @@ class UI extends EventListener {
         }
     };
 
+    /**
+     * Greys out a menubar item so it cannot be clicked.
+     *
+     * @param {string} item_id
+     * @returns {void}
+     */
     disableMenuItem (item_id) {
         this.#postMessageWithObject('disableMenuItem', { id: item_id });
     };
 
+    /**
+     * Re-enables a menubar item disabled with `disableMenuItem`.
+     *
+     * @param {string} item_id
+     * @returns {void}
+     */
     enableMenuItem (item_id) {
         this.#postMessageWithObject('enableMenuItem', { id: item_id });
     };
 
+    /**
+     * Sets a menubar item's icon. Must be a `data:image` URI.
+     *
+     * @param {string} item_id
+     * @param {string} icon
+     * @returns {void}
+     */
     setMenuItemIcon (item_id, icon) {
         this.#postMessageWithObject('setMenuItemIcon', { id: item_id, icon: icon });
     };
 
+    /**
+     * Sets the icon a menubar item shows while hovered or active. Must be a
+     * `data:image` URI.
+     *
+     * @param {string} item_id
+     * @param {string} icon
+     * @returns {void}
+     */
     setMenuItemIconActive (item_id, icon) {
         this.#postMessageWithObject('setMenuItemIconActive', { id: item_id, icon: icon });
     };
 
+    /**
+     * Shows or clears the check mark on a menubar item.
+     *
+     * @param {string} item_id
+     * @param {boolean} checked
+     * @returns {void}
+     */
     setMenuItemChecked (item_id, checked) {
         this.#postMessageWithObject('setMenuItemChecked', { id: item_id, checked: checked });
     };
 
+    /**
+     * Opens a context menu at the pointer. Item actions run on click.
+     *
+     * @param {ContextMenuOptions} spec
+     * @returns {void}
+     */
     contextMenu (spec) {
         if ( this.messageTarget ) {
             this.#postMessageWithObject('contextMenu', spec);
@@ -1254,6 +1533,12 @@ class UI extends EventListener {
         return files;
     };
 
+    /**
+     * Asks the user to authenticate with their Puter account. Resolves once
+     * they have; rejects if they cancel. Most APIs call this for you.
+     *
+     * @returns {Promise<void>}
+     */
     authenticateWithPuter () {
         if ( this.env !== 'web' ) {
             return;
@@ -1361,10 +1646,24 @@ class UI extends EventListener {
         });
     };
 
+    /**
+     * The connection to the app that launched this one, or `null` when there
+     * is no parent app.
+     *
+     * @returns {AppConnection | null}
+     */
     parentApp () {
         return this.#parentAppConnection;
     }
 
+    /**
+     * Creates and shows a window. Resolves to a handle whose `id` the
+     * `setWindow*` methods accept. `callback` is vestigial and never invoked.
+     *
+     * @param {WindowOptions} [options]
+     * @param {unknown} [callback] ignored
+     * @returns {Promise<WindowHandle>}
+     */
     createWindow (options, callback) {
         return new Promise((resolve) => {
             this.#postMessageWithCallback('createWindow', (res) => {
@@ -1601,6 +1900,18 @@ class UI extends EventListener {
         }));
     };
 
+    /**
+     * Listens for a broadcast from Puter. A broadcast that already happened is
+     * replayed to the handler immediately with its most recent value.
+     *
+     * - `localeChanged` — on startup and when the user's locale changes.
+     * - `themeChanged` — on startup and when the desktop theme changes.
+     * - `connection` — when another app asks to connect to this one.
+     *
+     * @param {string} eventName
+     * @param {(data: unknown) => void} callback
+     * @returns {void}
+     */
     on (eventName, callback) {
         super.on(eventName, callback);
         // If we already received a broadcast for this event, run the callback immediately
@@ -1612,6 +1923,13 @@ class UI extends EventListener {
     #showTime = null;
     #hideTimeout = null;
 
+    /**
+     * Covers the screen with a spinner overlay. Nested calls share one
+     * spinner, which goes away once every caller has hidden it.
+     *
+     * @param {string} [html] message under the spinner; defaults to "Working..."
+     * @returns {void}
+     */
     showSpinner (html) {
         if ( this.#overlayActive ) return;
 
@@ -1697,6 +2015,11 @@ class UI extends EventListener {
         }, 1000);
     }
 
+    /**
+     * Hides the spinner shown by `showSpinner`.
+     *
+     * @returns {void}
+     */
     hideSpinner () {
         if ( ! this.#overlayActive ) return;
 

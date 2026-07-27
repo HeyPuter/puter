@@ -150,6 +150,90 @@ __Example__
 </html>
 ```
 
+### `move()`
+
+Moves the item to another location.
+
+__Syntax__
+
+```js
+fsitem.move(destination)
+fsitem.move(destination, overwrite)
+fsitem.move(destination, overwrite, newName)
+```
+
+__Parameters__
+
+- `destination` (String) (required): The directory to move the item into, or the item's new path.
+- `overwrite` (Boolean) (optional): Whether to overwrite an item that already exists at the destination. Defaults to `false`.
+- `newName` (String) (optional): The name to give the item at its new location. Defaults to its current name.
+
+__Return value__
+
+A `Promise` that resolves once the item has been moved.
+
+__Example__
+
+```html
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const dirname = puter.randName();
+            await puter.fs.mkdir(dirname);
+            await puter.fs.write('hello.txt', 'Hello, world!');
+            const item = await puter.fs.stat('hello.txt');
+            await item.move(dirname);
+            puter.print(`Moved hello.txt into ${dirname}`);
+        })();
+    </script>
+</body>
+</html>
+```
+
+### `copy()`
+
+Copies the item into another directory.
+
+__Syntax__
+
+```js
+fsitem.copy(destinationDirectory)
+fsitem.copy(destinationDirectory, autoRename)
+fsitem.copy(destinationDirectory, autoRename, overwrite)
+```
+
+__Parameters__
+
+- `destinationDirectory` (String) (required): The directory to copy the item into.
+- `autoRename` (Boolean) (optional): Whether to pick a free name when an item with the same name already exists at the destination. Defaults to `false`, which makes the copy fail on a conflict.
+- `overwrite` (Boolean) (optional): Whether to overwrite an item that already exists at the destination. Defaults to `false`.
+
+__Return value__
+
+A `Promise` that resolves once the item has been copied.
+
+__Example__
+
+```html
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const dirname = puter.randName();
+            await puter.fs.mkdir(dirname);
+            await puter.fs.write('hello.txt', 'Hello, world!');
+            const item = await puter.fs.stat('hello.txt');
+            await item.copy(dirname);
+            puter.print(`Copied hello.txt into ${dirname}`);
+        })();
+    </script>
+</body>
+</html>
+```
+
 ### `delete()`
 
 Deletes the item.
@@ -194,11 +278,13 @@ __Syntax__
 
 ```js
 fsitem.mkdir(name)
+fsitem.mkdir(name, autoRename)
 ```
 
 __Parameters__
 
 - `name` (String) (required): The name of the subdirectory to create.
+- `autoRename` (Boolean) (optional): Whether to pick a free name when a directory with that name already exists. Defaults to `false`.
 
 __Return value__
 

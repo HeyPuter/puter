@@ -1,5 +1,8 @@
 import { fetchUrl } from '../lib/networkUtils.js';
 
+/** @typedef {import('../../types/modules/peer').PuterPeerMessage} PuterPeerMessage */
+/** @typedef {import('../../types/modules/peer').PuterPeerOptions} PuterPeerOptions */
+
 class PuterPeerServerConnectionEvent extends Event {
     conn;
     user;
@@ -54,6 +57,14 @@ class PuterPeerServer extends EventTarget {
         this.#wsconn = new WebSocket(peerConfig.signallerUrl);
     }
 
+    /**
+     * Opens the signalling connection and registers this server, resolving to
+     * the invite code other clients connect with (also kept on `inviteCode`).
+     * `puter.peer.serve()` calls this.
+     *
+     * @param {PuterPeerOptions} [options]
+     * @returns {Promise<string>}
+     */
     async start(options = {}) {
         await new Promise((resolve, reject) => {
             this.#wsconn.onopen = resolve;
@@ -170,6 +181,11 @@ class PuterPeerServer extends EventTarget {
         }
     }
 
+    /**
+     * Closes every client connection, then the signalling connection.
+     *
+     * @returns {void}
+     */
     close () {
         for ( const [uuid, connection] of this.connections ) {
             connection.close();
@@ -224,6 +240,14 @@ class PuterPeerConnection extends EventTarget {
         }
     }
 
+    /**
+     * Connects to the server that issued `invitecode`, resolving once the
+     * offer has been exchanged. `puter.peer.connect()` calls this.
+     *
+     * @param {string} invitecode
+     * @param {PuterPeerOptions} [options]
+     * @returns {Promise<void>}
+     */
     async connect(invitecode, options = {}) {
         this.#wsconn = new WebSocket(this.#peerConfig.signallerUrl);
         await new Promise((resolve, reject) => {
@@ -312,30 +336,65 @@ class PuterPeerConnection extends EventTarget {
         this.dispatchEvent(new PuterPeerConnectionCloseEvent(reason));
     }
 
+    /**
+     * Closes the connection, optionally telling the peer why.
+     *
+     * @param {string} [reason]
+     * @returns {void}
+     */
     close (reason) {
         this.#doclose(reason, undefined);
     }
 
+    /**
+     * Creates an SDP offer and applies it as the local description.
+     *
+     * @returns {Promise<RTCSessionDescriptionInit>}
+     */
     async createOffer () {
         const offer = await this.peerconnection.createOffer();
         await this.peerconnection.setLocalDescription(offer);
         return offer;
     }
 
+    /**
+     * Creates an SDP answer and applies it as the local description.
+     *
+     * @returns {Promise<RTCSessionDescriptionInit>}
+     */
     async createAnswer () {
         const answer = await this.peerconnection.createAnswer();
         await this.peerconnection.setLocalDescription(answer);
         return answer;
     }
 
+    /**
+     * Applies the peer's SDP description.
+     *
+     * @param {RTCSessionDescriptionInit} description
+     * @returns {Promise<void>}
+     */
     async setRemoteDescription (description) {
         await this.peerconnection.setRemoteDescription(description);
     }
 
+    /**
+     * Adds an ICE candidate received from the peer.
+     *
+     * @param {RTCIceCandidateInit} candidate
+     * @returns {Promise<void>}
+     */
     async addIceCandidate (candidate) {
         await this.peerconnection.addIceCandidate(candidate);
     }
 
+    /**
+     * Sends a message over the data channel. Messages sent before the channel
+     * opens are buffered and flushed on open.
+     *
+     * @param {PuterPeerMessage} message
+     * @returns {void}
+     */
     send ( message ) {
         if ( ! this.connected ) {
             this.#bufferedMessages.push(message);
@@ -353,12 +412,9 @@ class Peer {
     #turnStartedAt;
     #turnFailed;
     /**
-     * Creates a new instance with the given authentication token, API origin, and app ID,
+     * Reads its auth state from the owning Puter instance.
      *
-     * @class
-     * @param {string} authToken - Token used to authenticate the user.
-     * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
-     * @param {string} appID - ID of the app to use.
+     * @param {import("../../types/puter").Puter} puter
      */
     constructor (puter) {
         this.puter = puter;
@@ -389,6 +445,14 @@ class Peer {
         this.APIOrigin = APIOrigin;
     }
 
+    /**
+     * Fetches TURN relay credentials ahead of time so connections start
+     * faster. Optional — `serve()` and `connect()` call it when needed — and
+     * it resolves either way: if relays can't be loaded, connecting falls back
+     * to the default ICE servers.
+     *
+     * @returns {Promise<void>}
+     */
     async ensureTurnRelays () {
         if ( this.#turnFailed ) return;
         if ( this.#turnServers && Date.now() - this.#turnStartedAt < this.#turnTTL * 1000 ) return;
@@ -454,6 +518,13 @@ class Peer {
             forceRelay: options?.forceRelay
         };
     }
+    /**
+     * Creates a peer server and starts it, resolving to the server once it has
+     * an invite code. Requires authentication.
+     *
+     * @param {PuterPeerOptions} [options]
+     * @returns {Promise<PuterPeerServer>}
+     */
     async serve (options) {
         await this.#authenticateForPeerAction('create a server');
         const peerConfig = await this.#resolvePeerConfig(options);
@@ -462,6 +533,14 @@ class Peer {
         return server;
     }
 
+    /**
+     * Connects to a peer server using an invite code from `serve()`, resolving
+     * once the offer has been exchanged. Requires authentication.
+     *
+     * @param {string} invitecode
+     * @param {PuterPeerOptions} [options]
+     * @returns {Promise<PuterPeerConnection>}
+     */
     async connect (invitecode, options) {
         await this.#authenticateForPeerAction('connect to a server');
         const peerConfig = await this.#resolvePeerConfig(options);

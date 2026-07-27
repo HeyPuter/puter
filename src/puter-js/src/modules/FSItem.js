@@ -1,6 +1,13 @@
 import path from '../lib/path.js';
 
+/** @typedef {import('../../types/modules/fs-item').FSItem} FSItemType */
+
+/**
+ * A file or a directory in the Puter file system. Accepts an entry in any of
+ * the shapes the API returns it in (`is_dir`, `fsentry_is_dir`, …).
+ */
 class FSItem {
+    /** @param {Record<string, unknown>} options */
     constructor (options) {
         this.readURL = options.readURL ?? options.read_url;
         this.writeURL = options.writeURL ?? options.write_url;
@@ -14,7 +21,9 @@ class FSItem {
         this.accessed = options.accessed ?? options.fsentry_accessed;
         this.modified = options.modified ?? options.fsentry_modified;
         this.created = options.created ?? options.fsentry_created;
-        this.isDirectory = (options.isDirectory || options.is_dir || options.fsentry_is_dir) ? true : false;
+        this.isDirectory = (options.isDirectory || options.isDir || options.is_dir || options.fsentry_is_dir) ? true : false;
+        // `isDir` is the documented name; `isDirectory` predates it and stays.
+        this.isDir = this.isDirectory;
 
         // We add some properties to '_internalProperties' to make it clear
         // that they are not meant to be accessed outside of puter.js;
@@ -28,11 +37,11 @@ class FSItem {
         // Currently 'signature' and 'expires' are not provided in 'options',
         // but they can be inferred by writeURL or readURL.
         internalProperties.signature = options.signature ?? (() => {
-            const url = new URL(this.writeURL ?? this.readURL);
+            const url = new URL(/** @type {string} */ (this.writeURL ?? this.readURL));
             return url.searchParams.get('signature');
         })();
         internalProperties.expires = options.expires ?? (() => {
-            const url = new URL(this.writeURL ?? this.readURL);
+            const url = new URL(/** @type {string} */ (this.writeURL ?? this.readURL));
             return url.searchParams.get('expires');
         })();
 
@@ -58,70 +67,154 @@ class FSItem {
         });
     }
 
+    /**
+     * Writes data to the file, replacing its contents.
+     *
+     * @param {string | File | Blob | ArrayBuffer | ArrayBufferView} data
+     * @returns {Promise<FSItemType>}
+     */
     write = async function (data) {
-        return puter.fs.write(this.path,
-                        new File([data], this.name),
-                        {
-                            overwrite: true,
-                            dedupeName: false,
-                        });
+        return puter.fs.write(this.path, data, {
+            overwrite: true,
+            dedupeName: false,
+        });
     };
 
-    // Watches for changes to the item, and calls the callback function
-    // with the new data when a change is detected.
+    // -- Not implemented yet --
+    // These are part of the published surface but are still stubs: they accept
+    // their arguments and do nothing. Declared in types/modules/fs-item.d.ts
+    // as placeholders too.
+
+    /**
+     * Would call `callback` with the item whenever it changes.
+     *
+     * @type {(callback: (item: FSItemType) => void) => void}
+     */
     watch = function (callback) {
         // todo - implement
     };
 
+    /**
+     * Would open the item in its associated app.
+     *
+     * @type {(callback: (item: FSItemType) => void) => void}
+     */
     open = function (callback) {
         // todo - implement
     };
 
-    // Set wallpaper
+    /**
+     * Would set the item as the desktop wallpaper.
+     *
+     * @type {(options?: Record<string, unknown>, callback?: () => void) => void}
+     */
     setAsWallpaper = function (options, callback) {
         // todo - implement
     };
 
-    rename = function (new_name) {
-        return puter.fs.rename(this.uid, new_name);
+    /**
+     * Renames the item.
+     *
+     * @param {string} newName
+     * @returns {Promise<FSItemType>}
+     */
+    rename = function (newName) {
+        // Address by uid when we have one: the item may have been moved since
+        // this object was handed out, but its uid never changes.
+        return puter.fs.rename(this.uid !== undefined
+            ? { uid: this.uid, newName }
+            : { path: this.path, newName });
     };
 
-    move = function (dest_path, overwrite = false, new_name) {
-        return puter.fs.move(this.path, dest_path, overwrite, new_name);
+    /**
+     * Moves the item to `destination`, which is either the directory to move
+     * it into or the item's new path.
+     *
+     * @param {string} destination
+     * @param {boolean} [overwrite]
+     * @param {string} [newName]
+     * @returns {Promise<FSItemType>}
+     */
+    move = function (destination, overwrite = false, newName) {
+        return puter.fs.move(this.path, destination, { overwrite, newName });
     };
 
-    copy = function (destination_directory, auto_rename = false, overwrite = false) {
-        return puter.fs.copy(this.path, destination_directory, auto_rename, overwrite);
+    /**
+     * Copies the item into `destinationDirectory`.
+     *
+     * @param {string} destinationDirectory
+     * @param {boolean} [autoRename] pick a free name instead of conflicting
+     * @param {boolean} [overwrite]
+     * @returns {Promise<FSItemType>}
+     */
+    copy = function (destinationDirectory, autoRename, overwrite = false) {
+        return puter.fs.copy(this.path, destinationDirectory, {
+            // Only sent when the caller asked for it, so the default copy
+            // keeps sending the payload it always has.
+            dedupeName: autoRename,
+            overwrite,
+        });
     };
 
+    /**
+     * Deletes the item.
+     *
+     * @returns {Promise<void>}
+     */
     delete = function () {
         return puter.fs.delete(this.path);
     };
 
+    /**
+     * Would list the item's previous versions. Not implemented yet.
+     *
+     * @type {() => Promise<unknown>}
+     */
     versions = async function () {
         // todo - implement
     };
 
+    /**
+     * Would move the item to the trash. Not implemented yet.
+     *
+     * @type {() => void}
+     */
     trash = function () {
         // todo make sure puter allows for moving to trash by default
         // todo implement trashing
     };
 
-    mkdir = async function (name, auto_rename = false) {
+    /**
+     * Creates a subdirectory inside this directory.
+     *
+     * @param {string} name
+     * @param {boolean} [autoRename] pick a free name instead of conflicting
+     * @returns {Promise<FSItemType>}
+     */
+    mkdir = async function (name, autoRename = false) {
         // Don't proceed if this is not a directory, throw error
         if ( ! this.isDirectory )
         {
             throw new Error('mkdir() can only be called on a directory');
         }
 
-        // mkdir
-        return puter.fs.mkdir(path.join(this.path, name));
+        return puter.fs.mkdir(path.join(this.path, name), { dedupeName: autoRename });
     };
 
+    /**
+     * Would return the item's metadata. Not implemented yet.
+     *
+     * @type {() => Promise<unknown>}
+     */
     metadata = async function () {
         // todo - implement
     };
 
+    /**
+     * Lists the contents of this directory.
+     *
+     * @returns {Promise<FSItemType[]>}
+     */
     readdir = async function () {
         // Don't proceed if this is not a directory, throw error
         if ( ! this.isDirectory )
@@ -129,10 +222,14 @@ class FSItem {
             throw new Error('readdir() can only be called on a directory');
         }
 
-        // readdir
         return puter.fs.readdir(this.path);
     };
 
+    /**
+     * Reads the contents of the file.
+     *
+     * @returns {Promise<Blob>}
+     */
     read = async function () {
         return puter.fs.read(this.path);
     };
