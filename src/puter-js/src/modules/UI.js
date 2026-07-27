@@ -1,4 +1,5 @@
 import EventListener from '../lib/EventListener.js';
+import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
 
@@ -1343,14 +1344,288 @@ class UI extends EventListener {
         document.body.appendChild(el);
     };
 
+    /**
+     * Asks the user to grant a permission to this app. Inside the Puter GUI
+     * the request is relayed to the desktop; on the web the permission
+     * dialog is shown in a popup window on the Puter origin.
+     *
+     * @param {{ permission: string }} options
+     * @returns {Promise<boolean>} `true` only if the permission was granted.
+     */
     async requestPermission (options) {
         if ( this.env === 'app' ) {
             const result = await this.#postMessageAsync('requestPermission', { options });
-            return result.granted;
-        } else {
-            // TODO: Implement for web
+            return result.granted === true;
+        }
+
+        // The popup flow is for third-party websites only. In every other
+        // environment it either can't work (workers and node have no window
+        // to open a popup from) or makes no sense — inside the Puter GUI
+        // itself ('gui') the popup would prompt the user to grant this
+        // permission to Puter's own origin. Those callers keep the previous
+        // behavior of resolving false.
+        if ( this.env !== 'web' ) {
             return false;
         }
+        if ( ! globalThis.open || ! globalThis.document ) {
+            return false;
+        }
+        const permission = options?.permission;
+        if ( typeof permission !== 'string' || permission === '' ) {
+            return false;
+        }
+
+        // How long to wait, after the popup is observed closed, for a
+        // decision message that may still be in flight.
+        const CLOSE_GRACE_MS = 1000;
+
+        // The popup's messages arrive tagged with the browser's canonical
+        // serialization of its origin, while `defaultGUIOrigin` is
+        // configuration-supplied text — a trailing slash, an explicit default
+        // port, or a stray path would fail a raw comparison. A dropped message
+        // here doesn't just hang: an unseen `permissionPromptReady` makes the
+        // popup's close read as a severed opener, and an unseen decision then
+        // reports a permission the user granted as denied. Parse once and
+        // compare canonical-to-canonical. A configured origin that can't parse
+        // can't host the prompt at all, so deny up front.
+        let gui_origin;
+        try {
+            gui_origin = new URL(puter.defaultGUIOrigin).origin;
+        } catch (e) {
+            return false;
+        }
+
+        return new Promise((resolve) => {
+            // Unique per request, and not reused across page loads. The counter
+            // alone is a small integer that restarts at 1 on every load, and there
+            // is a window — the whole time the no-gesture consent dialog waits for
+            // its Continue click — where no popup exists yet, so `event.source` is
+            // not pinned and any window on the GUI origin is accepted. A permission
+            // popup left open from before a reload posts exactly this message shape
+            // to its opener on the way out, and its counter value would collide
+            // with a fresh request's, settling it with a decision the user made
+            // about a different permission. The random suffix is what makes the
+            // two impossible to confuse. The GUI echoes the value back verbatim as
+            // a string, which the loose `!=` below compares correctly.
+            const msg_id = `${this.#messageID++}-${Math.random().toString(36).slice(2, 10)}`;
+            const url = `${gui_origin}/action/request-permission?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}&permission=${encodeURIComponent(permission)}`;
+
+            // Guards against settling more than once across the message,
+            // popup-closed, and dialog-cancel code paths.
+            let settled = false;
+            // Interval id for polling whether the user closed the popup.
+            let checkClosed = null;
+            // The popup we opened; pinned as the expected `event.source`.
+            let popupWindow = null;
+            // The consent dialog, when the no-gesture path had to create one.
+            let consentDialog = null;
+            // Set when the popup announces itself, which it can only do while
+            // the opener relationship is intact. See the `closed` handler.
+            let promptReady = false;
+
+            const cleanup = () => {
+                if ( checkClosed ) {
+                    clearInterval(checkClosed);
+                    checkClosed = null;
+                }
+                window.removeEventListener('message', messageHandler);
+                // Once answered the dialog is inert; leaving it appended would
+                // stack one dead element per request for the page's lifetime.
+                consentDialog?.remove();
+                consentDialog = null;
+            };
+
+            const settle = (granted) => {
+                if ( settled ) return;
+                settled = true;
+                cleanup();
+                resolve(granted);
+            };
+
+            const messageHandler = (e) => {
+                // Only accept the decision from the Puter GUI origin AND from
+                // the popup we opened. Origin alone is insufficient (any frame
+                // on the GUI domain could post), so also pin event.source.
+                // msg_id binds the message to this request.
+                if ( e.origin !== gui_origin ) return;
+                if ( popupWindow && e.source !== popupWindow ) return;
+                if ( e.data?.original_msg_id != msg_id ) return;
+                // The popup reporting that it is up and can reach us. Carries
+                // no decision — it only tells the `closed` handler below which
+                // kind of window it is looking at.
+                if ( e.data?.msg === 'permissionPromptReady' ) {
+                    promptReady = true;
+                    return;
+                }
+                if ( e.data?.msg !== 'permissionGranted' ) return;
+                settle(e.data.granted === true);
+            };
+            window.addEventListener('message', messageHandler);
+
+            // Once the popup exists, watch for the user closing it without
+            // answering. `popup` is null if the browser blocked it.
+            const watchPopup = (popup) => {
+                if ( settled ) return;
+                if ( ! popup ) {
+                    settle(false);
+                    return;
+                }
+                // Pin the expected event.source before anything can return
+                // early: until this is set the message handler accepts a
+                // decision from any window on the GUI origin, and the wait for
+                // the consent dialog's Continue click is user-paced.
+                popupWindow = popup;
+                // A severed opener relationship means the popup can't
+                // postMessage back and `popup.closed` tells us nothing about
+                // the window the user is looking at — it reads `true` for a
+                // detached proxy. Poll the permission check instead (mirrors
+                // signIn's /login/wait fallback), giving up after a timeout.
+                // `crossOriginIsolated` alone misses this: COOP severs the
+                // relationship on its own, while being isolated also requires
+                // COEP.
+                if ( window.crossOriginIsolated || popup.closed ) {
+                    pollDecision();
+                    return;
+                }
+                // `closed` read right after `window.open()` cannot see COOP
+                // severing yet: the popup is still the initial about:blank in
+                // this browsing-context group, and the group is only swapped
+                // when the navigation to the Puter origin *commits*. So
+                // severing shows up here, in the poll, as `closed` flipping
+                // true — indistinguishable, by itself, from the user closing
+                // the window.
+                //
+                // The two are told apart by whether the popup ever announced
+                // itself: that message can only arrive while the opener
+                // relationship is intact, so having seen it proves a close is a
+                // real close and the answer is now. Never having seen it means
+                // the channel may be severed, with the prompt live in a window
+                // that cannot answer — reporting a denial there would tell the
+                // site "denied" while the user goes on to click Allow and commit
+                // the grant, so the decision is read back from the server
+                // instead. Elapsed time cannot stand in for this: a slow popup
+                // navigation commits the severing whenever it commits.
+                checkClosed = setInterval(() => {
+                    if ( ! popup.closed ) return;
+                    clearInterval(checkClosed);
+                    checkClosed = null;
+                    const severed = ! promptReady;
+                    // The GUI posts the decision and then closes the popup,
+                    // and cross-process postMessage delivery is not ordered
+                    // relative to `closed` becoming true. Give an in-flight
+                    // decision message its grace period before acting on the
+                    // close — on either branch, since a real answer already on
+                    // its way outranks whatever the close is taken to mean.
+                    setTimeout(() => {
+                        if ( settled ) return;
+                        if ( severed ) {
+                            // The decision can still be read back from the
+                            // server. A denial can't (nothing is written for
+                            // it), so this only ends early on a grant —
+                            // otherwise it waits out the poll timeout before
+                            // answering false.
+                            pollDecision();
+                            return;
+                        }
+                        settle(false);
+                    }, CLOSE_GRACE_MS);
+                }, 100);
+            };
+
+            const pollDecision = async () => {
+                const POLL_INTERVAL_MS = 2000;
+                const POLL_TIMEOUT_MS = 5 * 60 * 1000;
+                // Per-attempt budget, generous enough that a slow-but-working
+                // connection still gets an answer, short enough that the deadline
+                // below stays meaningful.
+                const POLL_REQUEST_TIMEOUT_MS = 10000;
+                // The check needs this site's own token, and a permission popup
+                // deliberately never hands one over. Without it every iteration
+                // would skip the request and the loop would just burn its whole
+                // timeout before answering — so answer now.
+                if ( ! puter.authToken ) {
+                    settle(false);
+                    return;
+                }
+                const started = Date.now();
+                while ( ! settled && Date.now() - started < POLL_TIMEOUT_MS ) {
+                    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+                    if ( settled ) return;
+                    if ( ! puter.authToken ) continue;
+                    // Time-box each attempt. The loop only re-reads the clock
+                    // between iterations, so a request that never settles — a
+                    // stalled connection, a proxy that accepts and never replies
+                    // — parks this `await` forever: POLL_TIMEOUT_MS is never
+                    // reached, `settle` is never called, and the caller's promise
+                    // stays pending for the life of the page with the listener
+                    // still attached. The popup is already closed on this branch,
+                    // so nothing the user does can recover it.
+                    const controller = typeof AbortController !== 'undefined'
+                        ? new AbortController()
+                        : null;
+                    const attempt_timer = setTimeout(
+                        () => controller?.abort(),
+                        POLL_REQUEST_TIMEOUT_MS,
+                    );
+                    try {
+                        const resp = await fetch(`${puter.APIOrigin}/auth/check-permissions`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${puter.authToken}`,
+                            },
+                            body: JSON.stringify({ permissions: [permission] }),
+                            ...(controller ? { signal: controller.signal } : {}),
+                        });
+                        if ( ! resp.ok ) continue;
+                        const data = await resp.json();
+                        if ( data?.permissions?.[permission] === true ) {
+                            settle(true);
+                        }
+                    } catch (e) {
+                        // Transient network failure, or this attempt's abort; keep
+                        // polling until the deadline above is reached.
+                    } finally {
+                        // Runs on the `continue` paths too.
+                        clearTimeout(attempt_timer);
+                    }
+                }
+                settle(false);
+            };
+
+            // Every path out of here resolves a boolean, so anything that
+            // throws while launching — `window.open` refused outright by a
+            // policy or an override rather than returning null, a dialog that
+            // won't construct, no `document.body` yet because this was called
+            // from a <head> script — has to deny rather than reject.
+            try {
+                if ( hasUserActivation() ) {
+                    // A user gesture is active — open the popup immediately.
+                    // Unique window name per request: window.open() reuses a
+                    // window with the same name, which would hijack a popup an
+                    // earlier, still-pending request is waiting on.
+                    watchPopup(openAuthPopup(url, `puter-permission-${msg_id}`));
+                } else {
+                    // No user gesture: a popup opened now would be blocked by
+                    // the browser. Show a consent dialog first; the popup is
+                    // then opened from the user's click on that dialog, which
+                    // provides the gesture the browser requires.
+                    const dialog = new PuterDialog(() => {}, () => {}, {
+                        popupURL: url,
+                        // Same unique-name reasoning as the direct path above.
+                        popupName: `puter-permission-${msg_id}`,
+                        onLaunch: (popup) => watchPopup(popup),
+                        onCancel: () => settle(false),
+                    });
+                    consentDialog = dialog;
+                    document.body.appendChild(dialog);
+                    dialog.open();
+                }
+            } catch (e) {
+                // `settle` runs cleanup, so the message listener is dropped too.
+                settle(false);
+            }
+        });
     };
 
     /**

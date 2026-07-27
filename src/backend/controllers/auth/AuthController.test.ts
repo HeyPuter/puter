@@ -31,11 +31,11 @@
 
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { EventClient } from '../../clients/event/EventClient.js';
 import type { Actor } from '../../core/actor.js';
-import { runWithContext } from '../../core/context.js';
+import { Context, runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { requireUserActorGate } from '../../core/http/middleware/gates.js';
 import { PuterServer } from '../../server.js';
@@ -1385,6 +1385,10 @@ describe('AuthController account-lifecycle route gating', () => {
 
 // ── Token grants: user → user / app / group ─────────────────────────
 
+// Mirrors AuthService's namespace for origin-derived app uids, so a test can
+// compute the uid an origin would synthesise without an app row.
+const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
+
 describe('AuthController grant flows', () => {
     let issuer: { id: number; uuid: string; username: string; email: string };
     let target: { id: number; uuid: string; username: string; email: string };
@@ -1527,6 +1531,454 @@ describe('AuthController grant flows', () => {
         expect(
             (rows as Array<{ permission: string }>).map((r) => r.permission),
         ).toContain(permission);
+    });
+
+    it('grant-user-app: resolves `origin` to the app when app_uid is omitted', async () => {
+        // The GUI permission dialog and puter.perms.grantOrigin() identify
+        // third-party sites by origin rather than app uid.
+        const appName = `tg-origin-${uuidv4()}`;
+        const origin = `https://${appName}.example.test`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestGrantOriginApp',
+                index_url: `${origin}/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const permission = `service:tg-origin-app:ii:read`;
+        const res = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { origin, permission, extra: {} },
+                    { actor: issuerActor },
+                ),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+
+        const rows = await server.clients.db.read(
+            'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                'JOIN `apps` a ON a.`id` = p.`app_id` ' +
+                'WHERE p.`user_id` = ? AND a.`uid` = ?',
+            [issuer.id, app.uid],
+        );
+        expect(
+            (rows as Array<{ permission: string }>).map((r) => r.permission),
+        ).toContain(permission);
+    });
+
+    it('revoke-user-app: resolves `origin` to the app when app_uid is omitted', async () => {
+        // Mirrors the grant-by-origin path: grant via origin, then revoke via
+        // origin, and assert the permission row is gone.
+        const appName = `tr-origin-${uuidv4()}`;
+        const origin = `https://${appName}.example.test`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestRevokeOriginApp',
+                index_url: `${origin}/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const permission = `service:tr-origin-app:ii:read`;
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { origin, permission, extra: {} },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            ),
+        );
+
+        const res = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq({ origin, permission }, { actor: issuerActor }),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+
+        const rows = await server.clients.db.read(
+            'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                'JOIN `apps` a ON a.`id` = p.`app_id` ' +
+                'WHERE p.`user_id` = ? AND a.`uid` = ?',
+            [issuer.id, app.uid],
+        );
+        expect(
+            (rows as Array<{ permission: string }>).map((r) => r.permission),
+        ).not.toContain(permission);
+    });
+
+    it('grant-user-app: 400 on non-string or oversized origin/app_uid/permission', async () => {
+        const cases = [
+            { origin: { host: 'evil' }, permission: 'service:x:ii:read' },
+            { origin: 'https://a.test', permission: ['service:x:ii:read'] },
+            { app_uid: 12345, permission: 'service:x:ii:read' },
+            { origin: `https://${'a'.repeat(5000)}.test`, permission: 'service:x:ii:read' },
+        ];
+        for (const body of cases) {
+            await expect(
+                controller.handleGrantUserApp(
+                    makeReq(body, { actor: issuerActor }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+    });
+
+    it('grant/revoke-user-app: an unregistered `origin` cannot be redirected onto an app squatting its synthetic uid', async () => {
+        // `appUidFromOrigin` synthesises `app-<uuidv5(origin)>` when no app row
+        // matches the origin, and the permission services resolve their
+        // identifier as uid-*or-name*. The namespace is a source constant, so
+        // the synthetic uid is computable offline — if it were passed straight
+        // through, registering an app under that literal *name* would collect
+        // grants the user made to the origin.
+        const origin = `https://unregistered-${uuidv4()}.example`;
+        const syntheticUid = `app-${uuidv5(origin, APP_ORIGIN_UUID_NAMESPACE)}`;
+        const squatter = await server.stores.app.create(
+            {
+                name: syntheticUid,
+                title: 'Squatter',
+                index_url: 'https://squatter.example/index.html',
+            },
+            { ownerUserId: target.id },
+        );
+
+        const permission = 'service:squat:ii:read';
+        for (const handler of [
+            'handleGrantUserApp',
+            'handleRevokeUserApp',
+        ] as const) {
+            await expect(
+                inCtx(issuerActor, () =>
+                    controller[handler](
+                        makeReq(
+                            { origin, permission, extra: {} },
+                            { actor: issuerActor },
+                        ),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        }
+
+        const rows = await server.clients.db.read(
+            'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                'WHERE p.`user_id` = ? AND p.`app_id` = ?',
+            [issuer.id, squatter.id],
+        );
+        expect(rows).toEqual([]);
+    });
+
+    it('grant/revoke-user-app: an `app_uid` sent beside an `origin` cannot redirect the grant away from that origin', async () => {
+        // The origin is what a consent prompt shows the user, so it has to
+        // decide who receives the grant. Resolving `origin` only when
+        // `app_uid` was absent left the squatter guard bypassable by simply
+        // sending both: the uid won, and it is resolved as uid-*or-name*, so
+        // the synthetic `app-<uuidv5(origin)>` of an unregistered origin landed
+        // on whoever registered an app under that literal name.
+        const origin = `https://unregistered-${uuidv4()}.example`;
+        const syntheticUid = `app-${uuidv5(origin, APP_ORIGIN_UUID_NAMESPACE)}`;
+        const squatter = await server.stores.app.create(
+            {
+                name: syntheticUid,
+                title: 'SquatterBesideOrigin',
+                index_url: 'https://squatter-beside-origin.example/index.html',
+            },
+            { ownerUserId: target.id },
+        );
+
+        const permission = 'service:squat-beside:ii:read';
+        for (const handler of [
+            'handleGrantUserApp',
+            'handleRevokeUserApp',
+        ] as const) {
+            await expect(
+                inCtx(issuerActor, () =>
+                    controller[handler](
+                        makeReq(
+                            {
+                                app_uid: syntheticUid,
+                                origin,
+                                permission,
+                                extra: {},
+                            },
+                            { actor: issuerActor },
+                        ),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        }
+
+        const rows = await server.clients.db.read(
+            'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                'WHERE p.`user_id` = ? AND p.`app_id` = ?',
+            [issuer.id, squatter.id],
+        );
+        expect(rows).toEqual([]);
+    });
+
+    it('grant-user-app: a registered `origin` beside an unrelated `app_uid` grants to the origin, not the uid', async () => {
+        // Same precedence rule, on the path where the origin does resolve: the
+        // uid travelling beside it must not steer the grant somewhere else.
+        const appName = `tp-origin-${uuidv4()}`;
+        const origin = `https://${appName}.example.test`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestPrecedenceOriginApp',
+                index_url: `${origin}/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const other = await server.stores.app.create(
+            {
+                name: `tp-other-${uuidv4()}`,
+                title: 'TestPrecedenceOtherApp',
+                index_url: `https://tp-other-${uuidv4()}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+
+        const permission = 'service:tp-origin:ii:read';
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: other.uid, origin, permission, extra: {} },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            ),
+        );
+
+        const granted = async (appId: number) =>
+            (
+                (await server.clients.db.read(
+                    'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                        'WHERE p.`user_id` = ? AND p.`app_id` = ?',
+                    [issuer.id, appId],
+                )) as Array<{ permission: string }>
+            ).map((r) => r.permission);
+        expect(await granted(app.id)).toContain(permission);
+        expect(await granted(other.id)).not.toContain(permission);
+    });
+
+    it('grant-user-app: 400 on a non-object `extra`/`meta` instead of committing then faulting', async () => {
+        // These are forwarded into the audit row and read as objects
+        // downstream, so a bad value used to surface as a 500 *after* the
+        // grant row was already written.
+        const appName = `tm-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestMetaApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const permission = 'service:tm-app:ii:read';
+        for (const body of [
+            { app_uid: app.uid, permission, meta: 'nope' },
+            { app_uid: app.uid, permission, meta: [1, 2] },
+            { app_uid: app.uid, permission, extra: 'nope' },
+        ]) {
+            await expect(
+                inCtx(issuerActor, () =>
+                    controller.handleGrantUserApp(
+                        makeReq(body, { actor: issuerActor }),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+
+        // `null` means "absent", matching how the string params are treated,
+        // and must succeed rather than fault after the write.
+        const res = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission, extra: null, meta: null },
+                    { actor: issuerActor },
+                ),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+    });
+
+    it('grant-user-app: 400 on a `permission` wider than the column it lands in', async () => {
+        // 300 chars is under the 4096 input cap but over `varchar(255)`, so it
+        // used to reach the INSERT and fault on MySQL/Postgres. The check runs
+        // after the rewrite, so this has to be a permission no rewriter
+        // shortens — and it has to reject before the app is resolved, since
+        // this uid names no app.
+        await expect(
+            inCtx(issuerActor, () =>
+                controller.handleGrantUserApp(
+                    makeReq(
+                        {
+                            app_uid: `app-${uuidv4()}`,
+                            permission: `service:${'a'.repeat(300)}:ii:read`,
+                        },
+                        { actor: issuerActor },
+                    ),
+                    makeRes(),
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('grant-user-app: an oversized permission that a rewriter shortens is accepted', async () => {
+        // The width that matters is the rewritten string's, not the caller's.
+        // In production this is `fs:/deep/path:read` collapsing to
+        // `fs:<uuid>:read` — a ~45-char row however deep the path is. Measuring
+        // the raw input instead rejected grants whose stored value was
+        // comfortably inside the column, and the permission dialog dead-ended
+        // on "please try again" for any deeply nested file. Exercised here
+        // through a rewriter of our own, since the real fs rewriter resolves
+        // the path through the fsentry store and this suite has no entries.
+        const appName = `tlp-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestLongPathApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+
+        const prefix = `tlprw-${uuidv4()}`;
+        const longPermission = `${prefix}:${'a'.repeat(300)}:read`;
+        const shortPermission = `${prefix}:${uuidv4()}:read`;
+        expect(longPermission.length).toBeGreaterThan(255);
+        expect(shortPermission.length).toBeLessThanOrEqual(255);
+        server.services.permission.registerRewriter({
+            id: `test-shorten-${prefix}`,
+            matches: (permission: string) => permission === longPermission,
+            rewrite: async () => shortPermission,
+        });
+
+        const res = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: longPermission },
+                    { actor: issuerActor },
+                ),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+
+        const storedPermissions = async () =>
+            (
+                (await server.clients.db.read(
+                    'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                        'WHERE p.`user_id` = ? AND p.`app_id` = ?',
+                    [issuer.id, app.id],
+                )) as Array<{ permission: string }>
+            ).map((r) => r.permission);
+        // What landed in the column is the short, rewritten form.
+        expect(await storedPermissions()).toContain(shortPermission);
+
+        // Revoke has to accept the same string grant did, or the dialog's
+        // withdrawal of an uncertain grant can never undo one of these.
+        const revokeRes = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: longPermission },
+                    { actor: issuerActor },
+                ),
+                revokeRes,
+            ),
+        );
+        expect(revokeRes.body).toEqual({});
+        expect(await storedPermissions()).not.toContain(shortPermission);
+    });
+
+    it('revoke-user-app: undoes a grant whose rewrite only resolves while granting', async () => {
+        // `app-root-dir:<uid>:<mode>` is a pseudo-permission: its rewriter
+        // resolves it to a real `fs:<root_uid>:<mode>` only while a user-app
+        // grant is being written, and deliberately resolves to a match-nothing
+        // sentinel at every other time so a scan can't match through the fs
+        // path. Revoke shares that rewrite, so it used to aim the DELETE at the
+        // sentinel and silently remove nothing — leaving the fs permission live
+        // while the caller was told the revoke succeeded. The permission
+        // dialog's withdrawal of an uncertain grant runs through exactly this
+        // path, so a user who answered "Don't Allow" kept the grant.
+        //
+        // Modelled with a rewriter of our own, shaped like the real one: the
+        // production rewriter resolves an app's root dir through the subdomain
+        // and fsentry stores, and this suite has neither.
+        const appName = `tard-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestAppRootDirApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+
+        const prefix = `tardrw-${uuidv4()}`;
+        const pseudoPermission = `${prefix}:${app.uid}:write`;
+        const resolvedPermission = `fs:${uuidv4()}:write`;
+        const NOTHING = 'nothing-in-particular';
+        server.services.permission.registerRewriter({
+            id: `test-grant-only-${prefix}`,
+            matches: (permission: string) => permission.startsWith(`${prefix}:`),
+            // The real rewriter's condition, verbatim.
+            rewrite: async (permission: string) =>
+                Context.get('is_grant_user_app_permission')
+                    ? resolvedPermission
+                    : NOTHING,
+        });
+
+        const storedPermissions = async () =>
+            (
+                (await server.clients.db.read(
+                    'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                        'WHERE p.`user_id` = ? AND p.`app_id` = ?',
+                    [issuer.id, app.id],
+                )) as Array<{ permission: string }>
+            ).map((r) => r.permission);
+
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: pseudoPermission },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            ),
+        );
+        // The grant stored the *resolved* permission, not the pseudo one.
+        expect(await storedPermissions()).toContain(resolvedPermission);
+
+        const revokeRes = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: pseudoPermission },
+                    { actor: issuerActor },
+                ),
+                revokeRes,
+            ),
+        );
+        expect(revokeRes.body).toEqual({});
+        // Revoking by the same string the caller granted has to remove the row
+        // that grant actually wrote.
+        expect(await storedPermissions()).not.toContain(resolvedPermission);
+        // And it must not have written the sentinel as a row of its own.
+        expect(await storedPermissions()).not.toContain(NOTHING);
     });
 
     it('grant-user-group: 404 when the group does not exist', async () => {
@@ -3960,25 +4412,88 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
         ]);
     });
 
-    it('list-permissions: handler runs and returns shape (the source SQL references `app_uid` and may throw on real installs — we catch and assert either branch)', async () => {
-        const { actor } = await makeUserAndActor();
+    it('list-permissions: returns the shape and includes a user→app grant with its app_uid', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const app = await server.stores.app.create(
+            {
+                name: `tl-${uuidv4()}`,
+                title: 'TestListPermsApp',
+                index_url: 'https://list-perms.example.test/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+        const permission = 'service:tl-app:ii:read';
+        await inCtx(actor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission, extra: {} },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        );
+
+        // A user→user grant must show up under `myself_to_user` for the
+        // issuer and `user_to_myself` for the holder. Grants gate on
+        // `manage:<permission>`, so bootstrap that flag first (mirrors the
+        // grant-user-user persistence test).
+        const { user: holder, actor: holderActor } = await makeUserAndActor();
+        const userPermission = 'service:tl-user:ii:read';
+        await server.stores.permission.setFlatUserPerm(
+            user.id,
+            `manage:${userPermission}`,
+            {
+                permission: `manage:${userPermission}`,
+                deleted: false,
+                issuer_user_id: user.id,
+            } as never,
+        );
+        await inCtx(actor, () =>
+            controller.handleGrantUserUser(
+                makeReq(
+                    {
+                        target_username: holder.username,
+                        permission: userPermission,
+                        extra: {},
+                    },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        );
+
         const res = makeRes();
-        try {
-            await controller.handleListPermissions(makeReq({}, { actor }), res);
-            const body = res.body as {
-                myself_to_app: unknown[];
-                myself_to_user: unknown[];
-                user_to_myself: unknown[];
-            };
-            expect(Array.isArray(body.myself_to_app)).toBe(true);
-            expect(Array.isArray(body.myself_to_user)).toBe(true);
-            expect(Array.isArray(body.user_to_myself)).toBe(true);
-        } catch (e) {
-            // The current schema uses `app_id` in user_to_app_permissions.
-            // If the SQL fails because of the schema mismatch, surface the
-            // error message clearly so future fixes flip this branch off.
-            expect((e as Error).message).toMatch(/app_uid|no such column/);
-        }
+        await controller.handleListPermissions(makeReq({}, { actor }), res);
+        const body = res.body as {
+            myself_to_app: Array<{ app_uid: string; permission: string }>;
+            myself_to_user: Array<{ user: string; permission: string }>;
+            user_to_myself: unknown[];
+        };
+        expect(Array.isArray(body.user_to_myself)).toBe(true);
+        expect(body.myself_to_app).toContainEqual(
+            expect.objectContaining({ app_uid: app.uid, permission }),
+        );
+        expect(body.myself_to_user).toContainEqual(
+            expect.objectContaining({
+                user: holder.username,
+                permission: userPermission,
+            }),
+        );
+
+        const holderRes = makeRes();
+        await controller.handleListPermissions(
+            makeReq({}, { actor: holderActor }),
+            holderRes,
+        );
+        expect(
+            (holderRes.body as { user_to_myself: Array<{ user: string; permission: string }> })
+                .user_to_myself,
+        ).toContainEqual(
+            expect.objectContaining({
+                user: user.username,
+                permission: userPermission,
+            }),
+        );
     });
 });
 
@@ -4147,6 +4662,174 @@ describe('AuthController dev-app permission flows', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('grant/revoke-dev-app: an unregistered `origin` cannot be redirected onto an app squatting its synthetic uid', async () => {
+        // Same hole the user-app handlers close: `appUidFromOrigin`
+        // synthesises `app-<uuidv5(origin)>` for an origin with no app row,
+        // and the permission services resolve their identifier as
+        // uid-*or-name*. A dev-app grant is scanned with the *issuer's*
+        // authority for anyone running as that app, so landing one on a
+        // squatter hands over this user's permission. Without a squatter the
+        // origin 404s anyway, so requiring a registered app costs nothing.
+        const { user, actor } = await makeUserAndActor();
+        const origin = `https://unregistered-dev-${uuidv4()}.example`;
+        const syntheticUid = `app-${uuidv5(origin, APP_ORIGIN_UUID_NAMESPACE)}`;
+        const squatter = await server.stores.app.create(
+            {
+                name: syntheticUid,
+                title: 'DevSquatter',
+                index_url: 'https://dev-squatter.example/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+
+        const permission = 'service:dev-squat:ii:read';
+        // Let the grant past `canManagePermission`, so a failure here can only
+        // be the app-resolution guard rather than a missing manage right.
+        await server.stores.permission.setFlatUserPerm(
+            user.id,
+            `manage:${permission}`,
+            {
+                permission: `manage:${permission}`,
+                deleted: false,
+                issuer_user_id: user.id,
+            } as never,
+        );
+
+        for (const handler of [
+            'handleGrantDevApp',
+            'handleRevokeDevApp',
+        ] as const) {
+            await expect(
+                inCtx(actor, () =>
+                    controller[handler](
+                        makeReq({ origin, permission }, { actor }),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        }
+
+        const rows = await server.clients.db.read(
+            'SELECT `permission` FROM `dev_to_app_permissions` ' +
+                'WHERE `user_id` = ? AND `app_id` = ?',
+            [user.id, squatter.id],
+        );
+        expect(rows).toEqual([]);
+    });
+
+    it('grant-dev-app: a registered `origin` still resolves to its app', async () => {
+        // The guard above must not cost the legitimate case: an origin that
+        // really does name an app still grants to it.
+        const { user, actor } = await makeUserAndActor();
+        const appName = `dev-origin-${uuidv4()}`;
+        const origin = `https://${appName}.example.test`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'DevOriginApp',
+                index_url: `${origin}/index.html`,
+            },
+            { ownerUserId: user.id },
+        );
+
+        const permission = 'service:dev-origin:ii:read';
+        await server.stores.permission.setFlatUserPerm(
+            user.id,
+            `manage:${permission}`,
+            {
+                permission: `manage:${permission}`,
+                deleted: false,
+                issuer_user_id: user.id,
+            } as never,
+        );
+
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleGrantDevApp(
+                makeReq({ origin, permission }, { actor }),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+
+        const rows = (await server.clients.db.read(
+            'SELECT `permission` FROM `dev_to_app_permissions` ' +
+                'WHERE `user_id` = ? AND `app_id` = ?',
+            [user.id, app.id],
+        )) as Array<{ permission: string }>;
+        expect(rows.map((r) => r.permission)).toContain(permission);
+    });
+
+    it('revoke-dev-app: `*` revokes everything exactly once', async () => {
+        // The `*` arm used to fall through: after `revokeDevAppAll` the
+        // handler also ran `revokeDevAppPermission(…, '*')` — a no-op DELETE
+        // for a row named literally `*` plus a second `revoke` audit entry.
+        // The user-app twin if/elses the two arms; this pins the parity.
+        const { user, actor } = await makeUserAndActor();
+        const appName = `dev-star-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'DevStarApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: user.id },
+        );
+
+        const permission = 'service:dev-star:ii:read';
+        await server.stores.permission.setFlatUserPerm(
+            user.id,
+            `manage:${permission}`,
+            {
+                permission: `manage:${permission}`,
+                deleted: false,
+                issuer_user_id: user.id,
+            } as never,
+        );
+        await inCtx(actor, () =>
+            controller.handleGrantDevApp(
+                makeReq({ app_uid: app.uid, permission }, { actor }),
+                makeRes(),
+            ),
+        );
+
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleRevokeDevApp(
+                makeReq({ app_uid: app.uid, permission: '*' }, { actor }),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+
+        const rows = await server.clients.db.read(
+            'SELECT `permission` FROM `dev_to_app_permissions` ' +
+                'WHERE `user_id` = ? AND `app_id` = ?',
+            [user.id, app.id],
+        );
+        expect(rows).toEqual([]);
+
+        // The audit write is fire-and-forget, so wait for it to land — and
+        // then a beat longer, since the defect here is a *second* row.
+        let audits: Array<{ permission: string; action: string }> = [];
+        const readAudits = async () =>
+            (await server.clients.db.read(
+                'SELECT `permission`, `action` ' +
+                    'FROM `audit_dev_to_app_permissions` ' +
+                    'WHERE `user_id_keep` = ? AND `app_id_keep` = ? ' +
+                    "AND `action` = 'revoke'",
+                [user.id, app.id],
+            )) as Array<{ permission: string; action: string }>;
+        for (let i = 0; i < 100 && audits.length === 0; i++) {
+            audits = await readAudits();
+            if (audits.length === 0)
+                await new Promise((r) => setTimeout(r, 10));
+        }
+        await new Promise((r) => setTimeout(r, 50));
+        audits = await readAudits();
+        expect(audits).toEqual([{ permission: '*', action: 'revoke' }]);
     });
 });
 

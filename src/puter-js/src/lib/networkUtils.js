@@ -320,8 +320,10 @@ const transientRetry = ctx => {
  */
 async function resolvePermission (permission) {
     try {
+        // requestPermission resolves to a boolean; the legacy `{granted}`
+        // object shape is also tolerated for safety.
         const perm = await puter.ui.requestPermission({ permission });
-        return { granted: !! perm?.granted };
+        return { granted: perm === true || perm?.granted === true };
     } catch ( e ) {
         return { granted: false };
     }

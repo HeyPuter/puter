@@ -358,7 +358,8 @@ describe('driver permission-grant replay (regression)', () => {
     it('replays exactly once after a grant, preserving the rebuilt request', async () => {
         // Before the fix, the driver permission replay dropped arguments; here we
         // assert one prompt, one replay, and the same body on the retry.
-        const requestPermission = vi.fn(async () => ({ granted: true }));
+        // requestPermission resolves to a boolean (its real contract).
+        const requestPermission = vi.fn(async () => true);
         globalThis.puter = { ui: { requestPermission } };
         const xhrs = installFakeXHR(sequence(
             respond({ status: 200, body: { success: false, error: { code: 'permission_denied' } } }),
@@ -383,6 +384,7 @@ describe('driver permission-grant replay (regression)', () => {
     });
 
     it('does not loop when the grant still yields permission_denied', async () => {
+        // Legacy `{granted}` object shape is still tolerated.
         const requestPermission = vi.fn(async () => ({ granted: true }));
         globalThis.puter = { ui: { requestPermission } };
         const denied = respond({ status: 200, body: { success: false, error: { code: 'permission_denied' } } });

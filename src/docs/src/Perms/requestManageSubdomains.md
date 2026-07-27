@@ -1,10 +1,16 @@
 ---
 title: puter.perms.requestManageSubdomains()
 description: Request write (manage) access to the user's subdomains.
-platforms: [apps]
+platforms: [websites, apps]
 ---
 
 Request write (manage) access to the user's subdomains. If the user has already granted this permission the user will not be prompted and `true` will be returned. If the user grants permission `true` will be returned. If the user does not allow access `false` will be returned.
+
+On a website, sign the user in to your site first with [`puter.auth.signIn()`](/Auth/signIn/). This method reads the signed-in user's identity before it can prompt, so for a signed-out visitor it rejects with `Unauthorized` and no prompt is shown. Answering a permission prompt does not by itself sign the user in to your site, so guard the call:
+
+```js
+if (!puter.authToken) await puter.auth.signIn();
+```
 
 ## Syntax
 

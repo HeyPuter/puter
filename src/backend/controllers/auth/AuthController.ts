@@ -2672,12 +2672,95 @@ export class AuthController extends PuterController {
         res.json({});
     }
 
+    /**
+     * Shared input validation for the user-app grant/revoke handlers, which
+     * accept a caller-supplied `origin` as an alternative to `app_uid`. All
+     * parameters are optional-but-typed: presence is enforced by the handlers'
+     * own `app_uid`/`permission` checks after origin resolution.
+     *
+     * These are bounded only against absurd input. The width of the column a
+     * permission lands in is enforced by the permission service instead, on the
+     * _rewritten_ string: `fs:/path:mode` is rewritten to `fs:<uuid>:mode`
+     * before it is stored, so a deep path is a ~45-character row and must not
+     * be rejected for the length of the path the caller typed.
+     */
+    #validateAppPermissionParams(params: {
+        app_uid?: unknown;
+        origin?: unknown;
+        permission?: unknown;
+        extra?: unknown;
+        meta?: unknown;
+    }): void {
+        const MAX_LEN = 4096;
+        for (const key of ['app_uid', 'origin', 'permission'] as const) {
+            const value = params[key];
+            if (value === undefined || value === null) continue;
+            if (typeof value !== 'string' || value.length > MAX_LEN) {
+                throw new HttpError(400, `Invalid \`${key}\``, {
+                    legacyCode: 'bad_request',
+                });
+            }
+        }
+        // `extra` and `meta` are forwarded into the audit row and read as
+        // objects downstream. A non-object would fault *after* the grant is
+        // committed, so reject it up front. `null` is treated as absent, the
+        // same as the string parameters above.
+        for (const key of ['extra', 'meta'] as const) {
+            const value = params[key];
+            if (value === undefined || value === null) continue;
+            if (typeof value !== 'object' || Array.isArray(value)) {
+                throw new HttpError(400, `Invalid \`${key}\``, {
+                    legacyCode: 'bad_request',
+                });
+            }
+        }
+    }
+
+    /**
+     * Resolves a caller-supplied `origin` to the uid of a _registered_ app.
+     *
+     * `appUidFromOrigin` synthesises a deterministic `app-<uuidv5>` uid for an
+     * origin that has no app row yet, and the permission services resolve their
+     * identifier as uid-_or-name_. Passing a synthetic uid straight through
+     * would therefore let whoever registered an app under that literal name
+     * collect a grant the user made to the origin — the uid is derived from a
+     * published namespace constant, so it can be computed and squatted offline.
+     * Only a uid that names an existing app row is accepted.
+     *
+     * An `origin` supplied alongside an `app_uid` takes precedence over it (see
+     * the grant/revoke handlers). The origin is what a consent prompt shows the
+     * user, so it — not a uid travelling beside it — has to decide who receives
+     * the grant; otherwise a caller could name one app on screen and grant to
+     * another. No caller sends both with different intent.
+     */
+    async #registeredAppUidFromOrigin(origin: string): Promise<string> {
+        const uid = await this.services.auth.appUidFromOrigin(origin);
+        const app = await this.stores.app.getByUid(uid);
+        if (!app) {
+            throw new HttpError(404, `entity_not_found: app:${uid}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
+        }
+        return app.uid;
+    }
+
     @Post('/auth/grant-user-app', {
         subdomain: 'api',
         requireUserActor: true,
     })
     async handleGrantUserApp(req: Request, res: Response): Promise<void> {
-        const { app_uid, permission, extra, meta } = req.body;
+        let { app_uid } = req.body;
+        const { origin, permission, extra, meta } = req.body;
+        this.#validateAppPermissionParams({
+            app_uid,
+            origin,
+            permission,
+            extra,
+            meta,
+        });
+        if (origin) {
+            app_uid = await this.#registeredAppUidFromOrigin(origin);
+        }
         if (!app_uid || !permission) {
             throw new HttpError(400, 'Missing `app_uid` or `permission`', {
                 legacyCode: 'bad_request',
@@ -2687,8 +2770,8 @@ export class AuthController extends PuterController {
             req.actor!,
             app_uid,
             permission,
-            extra,
-            meta,
+            extra ?? undefined,
+            meta ?? undefined,
         );
         res.json({});
     }
@@ -2748,7 +2831,17 @@ export class AuthController extends PuterController {
         requireUserActor: true,
     })
     async handleRevokeUserApp(req: Request, res: Response): Promise<void> {
-        const { app_uid, permission, meta } = req.body;
+        let { app_uid } = req.body;
+        const { origin, permission, meta } = req.body;
+        this.#validateAppPermissionParams({
+            app_uid,
+            origin,
+            permission,
+            meta,
+        });
+        if (origin) {
+            app_uid = await this.#registeredAppUidFromOrigin(origin);
+        }
         if (!app_uid || !permission) {
             throw new HttpError(400, 'Missing `app_uid` or `permission`', {
                 legacyCode: 'bad_request',
@@ -2758,14 +2851,14 @@ export class AuthController extends PuterController {
             await this.services.permission.revokeUserAppAll(
                 req.actor!,
                 app_uid,
-                meta,
+                meta ?? undefined,
             );
         } else {
             await this.services.permission.revokeUserAppPermission(
                 req.actor!,
                 app_uid,
                 permission,
-                meta,
+                meta ?? undefined,
             );
         }
         res.json({});
@@ -2908,7 +3001,15 @@ export class AuthController extends PuterController {
         let { app_uid } = req.body;
         const { origin, permission, extra, meta } = req.body;
         if (origin && !app_uid) {
-            app_uid = await this.services.auth.appUidFromOrigin(origin);
+            // Registered apps only, for the same reason the user-app handlers
+            // insist on it: a synthesised `app-<uuidv5(origin)>` is resolved
+            // downstream as uid-*or-name*, so it would land on whoever
+            // registered an app under that literal name. A dev-app grant is
+            // scanned with the issuer's authority for anyone running as that
+            // app, so that hands this user's permission to the squatter.
+            // Without a squatter the synthetic uid resolves to nothing and
+            // this 404s regardless, so nothing legitimate changes.
+            app_uid = await this.#registeredAppUidFromOrigin(origin);
         }
         if (!app_uid || !permission) {
             throw new HttpError(400, 'Missing `app_uid` or `permission`', {
@@ -2933,7 +3034,8 @@ export class AuthController extends PuterController {
         let { app_uid } = req.body;
         const { origin, permission, meta } = req.body;
         if (origin && !app_uid) {
-            app_uid = await this.services.auth.appUidFromOrigin(origin);
+            // Registered apps only — see handleGrantDevApp.
+            app_uid = await this.#registeredAppUidFromOrigin(origin);
         }
         if (!app_uid || !permission) {
             throw new HttpError(400, 'Missing `app_uid` or `permission`', {
@@ -2946,13 +3048,14 @@ export class AuthController extends PuterController {
                 app_uid,
                 meta,
             );
+        } else {
+            await this.services.permission.revokeDevAppPermission(
+                req.actor!,
+                app_uid,
+                permission,
+                meta,
+            );
         }
-        await this.services.permission.revokeDevAppPermission(
-            req.actor!,
-            app_uid,
-            permission,
-            meta,
-        );
         res.json({});
     }
 
@@ -2968,17 +3071,22 @@ export class AuthController extends PuterController {
 
         const [appPerms, userPermsOut, userPermsIn] = await Promise.all([
             db.read(
-                'SELECT `app_uid`, `permission`, `extra` FROM `user_to_app_permissions` WHERE `user_id` = ?',
+                // The permissions table stores the numeric `app_id` FK; the
+                // public shape exposes the app's `uid`.
+                'SELECT a.`uid` AS app_uid, p.`permission`, p.`extra` ' +
+                    'FROM `user_to_app_permissions` p ' +
+                    'JOIN `apps` a ON a.`id` = p.`app_id` ' +
+                    'WHERE p.`user_id` = ?',
                 [userId],
             ),
             db.read(
                 'SELECT u.`username`, p.`permission`, p.`extra` FROM `user_to_user_permissions` p ' +
-                    'JOIN `user` u ON u.`id` = p.`target_user_id` WHERE p.`issuer_user_id` = ?',
+                    'JOIN `user` u ON u.`id` = p.`holder_user_id` WHERE p.`issuer_user_id` = ?',
                 [userId],
             ),
             db.read(
                 'SELECT u.`username`, p.`permission`, p.`extra` FROM `user_to_user_permissions` p ' +
-                    'JOIN `user` u ON u.`id` = p.`issuer_user_id` WHERE p.`target_user_id` = ?',
+                    'JOIN `user` u ON u.`id` = p.`issuer_user_id` WHERE p.`holder_user_id` = ?',
                 [userId],
             ),
         ]);

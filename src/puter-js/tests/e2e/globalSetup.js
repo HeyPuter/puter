@@ -116,7 +116,8 @@ export default async function globalSetup () {
     await page.waitForFunction(() => !!window.puter, null, { timeout: 60_000 });
     await page.waitForFunction(
         () => {
-            const ls = (typeof localStorage !== 'undefined') ? localStorage.getItem('auth_token') : null;
+            // v2 key since the v1→v2 cutover; legacy key tolerated.
+            const ls = (typeof localStorage !== 'undefined') ? (localStorage.getItem('auth_token_v2') || localStorage.getItem('auth_token')) : null;
             const lsApi = (typeof localStorage !== 'undefined') ? localStorage.getItem('api_origin') : null;
             return !!(ls && lsApi && window.auth_token && window.puter?.authToken && window.puter?.APIOrigin === lsApi);
         },
