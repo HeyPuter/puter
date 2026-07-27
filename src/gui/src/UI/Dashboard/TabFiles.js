@@ -2622,13 +2622,20 @@ const TabFiles = {
             revertDuration: 100,
 
             start: function (_event, ui) {
+                // Returning false from here aborts the drag but skips the
+                // "stop" plugins, so the cursor plugin never restores the
+                // body cursor it already set to 'grabbing' — reset it on
+                // every abort path or the hand cursor sticks.
+
                 // Don't start drag if item wasn't already selected before mousedown;
                 // rubberband selection should handle this case instead.
                 if ( ! itemWasSelectedOnMousedown ) {
+                    $('body').css('cursor', '');
                     return false;
                 }
 
                 if ( $(el_item).attr('data-immutable') !== '0' ) {
+                    $('body').css('cursor', '');
                     return false;
                 }
 
