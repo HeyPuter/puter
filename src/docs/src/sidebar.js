@@ -194,6 +194,14 @@ let sidebar = [
                 source: '/Apps/get.md',
                 path: '/Apps/get',
             },
+            {
+                title: '<code>checkName()</code>',
+                page_title: '<code>puter.apps.checkName()</code>',
+                title_tag: 'puter.apps.checkName()',
+                icon: '/assets/img/function.svg',
+                source: '/Apps/checkName.md',
+                path: '/Apps/checkName',
+            },
         ],
     },
     {

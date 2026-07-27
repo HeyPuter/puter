@@ -6,11 +6,13 @@ import mkdir from './mkdir.js';
 import move from './move.js';
 import read from './read.js';
 import readdir from './readdir.js';
+import readdirSubdomains from './readdirSubdomains.js';
 import rename from './rename.js';
 import revokeReadURL from './revokeReadUrl.js';
 import sign from './sign.js';
 import space from './space.js';
 import stat from './stat.js';
+import write from './write.js';
 
 /**
  * Pins the request every `puter.fs.*` call style produces, by faking the
@@ -77,8 +79,10 @@ const makeFS = () => ({
     APIOrigin: 'https://api.test',
     authToken: 'test-token',
     socket: { id: 'socket-1' },
+    // write delegates to upload, which has its own tests.
+    upload: vi.fn(async () => ({ uid: 'written' })),
     copy, delete: deleteFSEntry, getReadURL, mkdir, move, read, readdir,
-    rename, revokeReadURL, sign, space, stat,
+    readdirSubdomains, rename, revokeReadURL, sign, space, stat, write,
 });
 
 const makeCache = () => {
@@ -445,6 +449,61 @@ describe('getReadURL / revokeReadURL', () => {
     });
 });
 
+describe('write', () => {
+    it('turns a string into a File under the target name', async () => {
+        await fs.write('/a/notes.txt', 'hello');
+        const [ file, parent, options ] = fs.upload.mock.calls[0];
+        expect(file).toBeInstanceOf(File);
+        expect(file.name).toBe('notes.txt');
+        expect(await file.text()).toBe('hello');
+        expect(parent).toBe('/a');
+        expect(options).toMatchObject({ overwrite: true, dedupeName: false, strict: true });
+    });
+
+    it('names the file after itself, in the app root, when only a File is given', async () => {
+        await fs.write(new File(['x'], 'photo.png'));
+        const [ file, parent ] = fs.upload.mock.calls[0];
+        expect(file.name).toBe('photo.png');
+        expect(parent).toBe('~');
+    });
+
+    it('creates an empty file when no data is given', async () => {
+        await fs.write('/a/empty.txt');
+        const [ file ] = fs.upload.mock.calls[0];
+        expect(await file.text()).toBe('');
+    });
+
+    it('leaves dedupeName unset when the caller opts out of overwriting', async () => {
+        await fs.write('/a/notes.txt', 'hello', { overwrite: false });
+        expect(fs.upload.mock.calls[0][2]).toMatchObject({ overwrite: false, dedupeName: undefined });
+    });
+
+    // These used to be built with `new Error(...)` around the object, which
+    // reduced every one of them to the message "[object Object]".
+    it('reports a readable message when no target path is given', async () => {
+        await expect(fs.write()).rejects.toMatchObject({
+            code: 'NO_TARGET_PATH',
+            message: 'No target path provided.',
+        });
+        expect(fs.upload).not.toHaveBeenCalled();
+    });
+
+    it('reports a readable message when the data is an unsupported type', async () => {
+        await expect(fs.write('/a/notes.txt', 42)).rejects.toMatchObject({
+            code: 'field_invalid',
+            message: 'write() data parameter is an invalid type',
+        });
+        expect(fs.upload).not.toHaveBeenCalled();
+    });
+
+    it('reports a readable message when readdir has nothing to address', async () => {
+        await expect(fs.readdir({})).rejects.toMatchObject({
+            code: 'NO_PATH_OR_UID',
+            message: 'Either path or uid must be provided.',
+        });
+    });
+});
+
 describe('authentication gate', () => {
     beforeEach(() => {
         globalThis.puter.authToken = undefined;
@@ -456,9 +515,12 @@ describe('authentication gate', () => {
     const operations = {
         copy: () => fs.copy('/a', '/b'),
         delete: () => fs.delete('/a'),
+        getReadURL: () => fs.getReadURL('/a/file.txt'),
         mkdir: () => fs.mkdir('/a'),
+        move: () => fs.move('/a', '/b'),
         read: () => fs.read('/a'),
         readdir: () => fs.readdir('/a'),
+        readdirSubdomains: () => fs.readdirSubdomains({ directory_ids: [1] }),
         rename: () => fs.rename('/a', 'b'),
         sign: () => fs.sign('app-1', { uid: 'one' }),
         space: () => fs.space(),

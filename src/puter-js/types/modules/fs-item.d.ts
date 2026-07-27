@@ -71,6 +71,6 @@ export class FSItem {
     open (callback: (item: FSItem) => void): void;
     setAsWallpaper (options?: Record<string, unknown>, callback?: () => void): void;
     versions (): Promise<unknown>;
-    trash (): Promise<unknown>;
+    trash (): void;
     metadata (): Promise<unknown>;
 }

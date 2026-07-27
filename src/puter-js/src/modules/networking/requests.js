@@ -25,7 +25,6 @@ function parseHTTPHead (head) {
         const value = splitHeaders.slice(1).join(': ');
         headersArray.push([key, value]);
     }
-    new Headers(headersArray);
     return { headers: new Headers(headersArray), statusText, status };
 }
 
@@ -41,8 +40,11 @@ function parseHTTPHead (head) {
  */
 export function pFetch (...args) {
     return new Promise(async (res, rej) => {
+        // Declared out here so the catch below can still describe the request
+        // when `new Request(...)` is what threw.
+        let reqObj;
         try {
-            const reqObj = new Request(...args);
+            reqObj = new Request(...args);
             const parsedURL = new URL(reqObj.url);
             let headers = new Headers(reqObj.headers); // Make a headers object we can modify
 
@@ -268,8 +270,8 @@ export function pFetch (...args) {
                 globalThis.puter.apiCallLogger.logRequest({
                     service: 'network',
                     operation: 'pFetch',
-                    params: { url: reqObj.url, method: reqObj.method },
-                    error: { message: e.message || e.toString(), stack: e.stack },
+                    params: { url: reqObj?.url, method: reqObj?.method },
+                    error: { message: e?.message || String(e), stack: e?.stack },
                 });
             }
             rej(e);

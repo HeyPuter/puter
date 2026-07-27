@@ -170,7 +170,7 @@ __Parameters__
 
 __Return value__
 
-A `Promise` that resolves once the item has been moved.
+A `Promise` that resolves to the [`FSItem`](/Objects/fsitem) object of the moved item.
 
 __Example__
 
@@ -212,7 +212,7 @@ __Parameters__
 
 __Return value__
 
-A `Promise` that resolves once the item has been copied.
+A `Promise` that resolves to the [`FSItem`](/Objects/fsitem) object of the copied item.
 
 __Example__
 
