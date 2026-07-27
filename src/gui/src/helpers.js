@@ -23,6 +23,7 @@ import item_icon from './helpers/item_icon.js';
 import truncate_filename from './helpers/truncate_filename.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import update_username_in_gui from './helpers/update_username_in_gui.js';
+import { select_uploaded_items } from './helpers/upload_selection.js';
 import mime from './lib/mime.js';
 import path from './lib/path.js';
 import UIAlert from './UI/UIAlert.js';
@@ -2300,6 +2301,10 @@ window.upload_items = async function (items, dest_path) {
                     operation: 'upload',
                     data: files,
                 });
+
+                // highlight the uploaded items in the destination
+                select_uploaded_items(dest_path, files);
+
                 // close progress window after a bit of delay for a better UX
                 setTimeout(() => {
                     setTimeout(() => {

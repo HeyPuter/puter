@@ -19,6 +19,7 @@
 
 import UIItem from '../UI/UIItem.js';
 import item_icon from './item_icon.js';
+import { select_added_item_if_pending } from './upload_selection.js';
 
 /**
  * Reflect an `item.added` socket event in every open UIWindow item container
@@ -75,6 +76,10 @@ const apply_item_added_to_containers = async function (item) {
     $containers.each(function () {
         window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'));
     });
+
+    // If this item was just uploaded from this client, its upload `success`
+    // handler may have run before this element existed — land it selected.
+    select_added_item_if_pending(item, $containers);
 };
 
 export default apply_item_added_to_containers;

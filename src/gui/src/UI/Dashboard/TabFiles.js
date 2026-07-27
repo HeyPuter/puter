@@ -1243,7 +1243,7 @@ const TabFiles = {
                     }
                 },
                 // success
-                success: function (items) {
+                success: async function (items) {
                     // Add action to actions_history for undo ability
                     const files = [];
                     if ( typeof items[Symbol.iterator] === 'function' ) {
@@ -1263,11 +1263,12 @@ const TabFiles = {
                     window.show_save_account_notice_if_needed();
                     // remove from active_uploads
                     delete window.active_uploads[opid];
-                    // refresh
-                    _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
                     // Clear the input value to allow uploading the same file again
                     fileInput.value = '';
                     document.querySelector('form').reset();
+                    // refresh, then highlight the uploaded items
+                    await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
+                    _this.selectUploadedRows(files);
                 },
                 // error
                 error: async function (err) {
@@ -4062,7 +4063,7 @@ const TabFiles = {
                     update_title_based_on_uploads();
                 }
             },
-            success: function (items) {
+            success: async function (items) {
                 const files = [];
                 if ( typeof items[Symbol.iterator] === 'function' ) {
                     for ( const item of items ) {
@@ -4080,8 +4081,11 @@ const TabFiles = {
                 }, 1000);
                 window.show_save_account_notice_if_needed();
                 delete window.active_uploads[opid];
-                // Refresh directory to show uploaded files
-                _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
+                // Refresh directory to show uploaded files, then highlight
+                // them (a drop on a sidebar folder/breadcrumb uploads to a
+                // directory that isn't rendered — no rows match, no-op).
+                await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
+                _this.selectUploadedRows(files);
             },
             error: async function (err) {
                 const failedItems = Array.isArray(err?.failedItems) ? err.failedItems : [];
@@ -4103,6 +4107,29 @@ const TabFiles = {
                 delete window.active_uploads[opid];
             },
         });
+    },
+
+    /**
+     * Selects the rows matching the given absolute paths, replacing the
+     * current selection. Used after uploads so the just-uploaded items land
+     * highlighted. Paths outside the rendered directory match no rows and
+     * leave the selection untouched.
+     *
+     * @param {string[]} paths - Absolute paths of the items to select
+     * @returns {void}
+     */
+    selectUploadedRows (paths) {
+        const wanted = new Set(paths.map(p => String(p).toLowerCase()));
+        const matches = this.$el_window.find('.files-tab .files .row').filter(function () {
+            const rowPath = String($(this).attr('data-path') ?? '').toLowerCase();
+            return wanted.has(rowPath);
+        });
+        if ( matches.length === 0 ) return;
+
+        this.$el_window.find('.files-tab .files .row.selected').removeClass('selected');
+        matches.addClass('selected');
+        this.updateFooterStats();
+        matches[0].scrollIntoView({ block: 'nearest' });
     },
 
     /**
