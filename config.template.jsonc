@@ -287,6 +287,10 @@
             "apiKey": "",
             "apiBaseUrl": "https://openrouter.ai/api/v1"
         },
+        "infron": {
+            "apiKey": "",
+            "apiBaseUrl": "https://llm.onerouter.pro/v1"
+        },
         "together-ai": { "apiKey": "" },
         // Local Ollama. `enabled: false` skips the auto-probe at startup
         // (otherwise Puter logs ECONNREFUSED on every boot when no Ollama
