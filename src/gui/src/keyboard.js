@@ -542,16 +542,7 @@ $(document).bind('keydown', async function (e) {
                     const element = $selected_items[index];
                     await window.delete_item(element);
                 }
-                const trash = await puter.fs.stat({ path: window.trash_path, consistency: 'eventual' });
-                if ( window.socket ) {
-                    window.socket.emit('trash.is_empty', { is_empty: trash.is_empty });
-                }
-
-                if ( trash.is_empty ) {
-                    $('[data-app="trash"]').find('.taskbar-icon > img').attr('src', window.icons['trash.svg']);
-                    $(`.item[data-path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
-                    $(`.window[data-path="${html_encode(window.trash_path)}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
-                }
+                await window.refresh_trash_state();
             }
         }
         // regular delete?

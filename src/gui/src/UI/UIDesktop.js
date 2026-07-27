@@ -195,8 +195,7 @@ async function UIDesktop (options) {
     });
 
     window.socket.on('trash.is_empty', async (msg) => {
-        $(`.item[data-path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', msg.is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg']);
-        $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.window-head-icon').attr('src', msg.is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg']);
+        window.update_trash_icons(msg.is_empty);
         // empty trash windows if needed
         if ( msg.is_empty )
         {

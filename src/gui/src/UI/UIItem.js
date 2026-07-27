@@ -1083,17 +1083,7 @@ async function UIItem (options) {
                                 const element = $selected_items[index];
                                 await window.delete_item(element);
                             }
-                            const trash = await puter.fs.stat({ path: window.trash_path, consistency: 'eventual' });
-
-                            // update other clients
-                            if ( window.socket ) {
-                                window.socket.emit('trash.is_empty', { is_empty: trash.is_empty });
-                            }
-
-                            if ( trash.is_empty ) {
-                                $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${window.trash_path}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
-                                $(`.window[data-path="${html_encode(window.trash_path)}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
-                            }
+                            await window.refresh_trash_state();
                         }
                     },
                 });
@@ -1613,17 +1603,7 @@ async function UIItem (options) {
 
                         if ( (alert_resp) === 'Delete' ) {
                             await window.delete_item(el_item);
-                            // check if trash is empty
-                            const trash = await puter.fs.stat({ path: window.trash_path, consistency: 'eventual' });
-                            // update other clients
-                            if ( window.socket ) {
-                                window.socket.emit('trash.is_empty', { is_empty: trash.is_empty });
-                            }
-                            // update this client
-                            if ( trash.is_empty ) {
-                                $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
-                                $(`.window[data-path="${window.trash_path}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
-                            }
+                            await window.refresh_trash_state();
                         }
                     },
                 });

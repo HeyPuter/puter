@@ -2689,7 +2689,7 @@ async function UIWindow (options) {
                                     window.socket.emit('trash.is_empty', { is_empty: true });
                                 }
                                 // use the 'empty trash' icon
-                                $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
+                                window.update_trash_icons(true);
                             },
                         },
                     ],

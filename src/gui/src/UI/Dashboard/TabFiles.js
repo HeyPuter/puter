@@ -160,6 +160,10 @@ const TabFiles = {
         const _this = this;
         window.dashboard_object = _this;
 
+        // The sidebar Trash icon renders in its empty state; sync it with
+        // the actual trash contents once known.
+        window.refresh_trash_state();
+
         // Refresh an existing row in place from an fs entry. Shared with
         // UIDashboard's item.updated socket handler so the two paths can't
         // drift — e.g. trashed items must show metadata.original_name, not
@@ -713,6 +717,7 @@ const TabFiles = {
                             for ( const row of trashedItems.toArray() ) {
                                 await window.delete_item(row);
                             }
+                            await window.refresh_trash_state();
                         }
                     } else {
                         // Move to trash
@@ -1357,6 +1362,7 @@ const TabFiles = {
                 }
             }
             _this.updateFooterStats();
+            await window.refresh_trash_state();
         });
 
         // Download button
@@ -1412,6 +1418,7 @@ const TabFiles = {
                     for ( const row of selectedRows ) {
                         await window.delete_item(row);
                     }
+                    await window.refresh_trash_state();
                 }
             } else {
                 window.move_items(Array.from(selectedRows), window.trash_path);
@@ -3434,6 +3441,7 @@ const TabFiles = {
                     $(this).remove();
                 });
                 _this.updateFooterStats();
+                await window.refresh_trash_state();
             },
             onOpen: (el, fsentry) => {
                 // Custom open handler for Dashboard (avoids window_nav_history issues)
@@ -3491,6 +3499,7 @@ const TabFiles = {
                         }
                     }
                     _this.updateFooterStats();
+                    await window.refresh_trash_state();
                 },
             });
             items.push('-');
@@ -3553,6 +3562,7 @@ const TabFiles = {
                         for ( const row of selectedRows ) {
                             await window.delete_item(row);
                         }
+                        await window.refresh_trash_state();
                     }
                 },
             });

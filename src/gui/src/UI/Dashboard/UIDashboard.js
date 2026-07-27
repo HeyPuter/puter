@@ -263,8 +263,7 @@ async function UIDashboard (options) {
     // Trash status updates
     window.socket.on('trash.is_empty', async (msg) => {
         // Update sidebar Trash icon
-        const trashIcon = msg.is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg'];
-        $('.directories [data-folder=\'Trash\'] img').attr('src', trashIcon);
+        window.update_trash_icons(msg.is_empty);
 
         // If currently viewing trash and it's empty, clear the file list
         const dashboard = window.dashboard_object;

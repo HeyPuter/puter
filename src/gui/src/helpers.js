@@ -1624,6 +1624,40 @@ window.trigger_download = (paths) => {
 };
 
 /**
+ * Updates every Trash icon in the UI to reflect whether the trash is empty:
+ * the taskbar item, desktop items (and shortcuts to Trash), open explorer
+ * window head icons, and the Dashboard's Files-tab sidebar.
+ *
+ * @param {boolean} is_empty - Whether the trash is empty
+ */
+window.update_trash_icons = function (is_empty) {
+    const icon = is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg'];
+    $('[data-app="trash"]').find('.taskbar-icon > img').attr('src', icon);
+    $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', icon);
+    $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.window-head-icon').attr('src', icon);
+    $('.directories [data-folder="Trash"] img').attr('src', icon);
+};
+
+/**
+ * Checks whether the trash is empty, updates every Trash icon accordingly,
+ * and notifies the user's other open tabs. Call after operations that change
+ * trash contents without going through window.move_items or
+ * window.empty_trash (e.g. permanent delete, direct restore).
+ *
+ * @returns {Promise<void>}
+ */
+window.refresh_trash_state = async function () {
+    // 'strong' consistency: an 'eventual' stat can be served from the SDK
+    // cache, which is stale right after a trash mutation and — when seeded
+    // by readdir — lacks the `is_empty` field entirely.
+    const trash = await puter.fs.stat({ path: window.trash_path, consistency: 'eventual' });
+    if ( window.socket ) {
+        window.socket.emit('trash.is_empty', { is_empty: trash.is_empty });
+    }
+    window.update_trash_icons(trash.is_empty);
+};
+
+/**
  * Moves the given items to the destination path.
  *
  * @param {HTMLElement[]} el_items - jQuery elements representing the items to move
@@ -1761,9 +1795,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     }
 
                     // change trash icons to 'trash-full.svg'
-                    $('[data-app="trash"]').find('.taskbar-icon > img').attr('src', window.icons['trash-full.svg']);
-                    $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash-full.svg']);
-                    $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.window-head-icon').attr('src', window.icons['trash-full.svg']);
+                    window.update_trash_icons(false);
                 }
 
                 // moving an item into a trashed directory? deny.
@@ -1979,15 +2011,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
 
         // check if trash is empty
         if ( untrashed_at_least_one_item ) {
-            const trash = await puter.fs.stat({ path: window.trash_path, consistency: 'eventual' });
-            if ( window.socket ) {
-                window.socket.emit('trash.is_empty', { is_empty: trash.is_empty });
-            }
-            if ( trash.is_empty ) {
-                $('[data-app="trash"]').find('.taskbar-icon > img').attr('src', window.icons['trash.svg']);
-                $(`.item[data-path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
-                $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
-            }
+            await window.refresh_trash_state();
         }
     }
 
@@ -2369,9 +2393,7 @@ window.empty_trash = async function () {
                 window.socket.emit('trash.is_empty', { is_empty: true });
             }
             // use the 'empty trash' icon for Trash
-            $('[data-app="trash"]').find('.taskbar-icon > img').attr('src', window.icons['trash.svg']);
-            $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
-            $(`.window[data-path="${window.trash_path}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
+            window.update_trash_icons(true);
             // remove all items with trash paths
             // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
             $(`.item[data-path^="${window.trash_path}/"]`).removeItems();
