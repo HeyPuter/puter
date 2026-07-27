@@ -222,6 +222,10 @@ const TabFiles = {
             const parentDir = path.dirname(file.path);
             if ( _this.currentPath !== parentDir ) return;
 
+            // Trash is never listed in the explorer (sidebar has its own entry),
+            // so a socket event must not re-add it either.
+            if ( file.path === window.trash_path ) return;
+
             // If item already exists in view, update in-place.
             const $existingRow = $(`.files-tab .files .item[data-uid='${file.uid}']`);
             if ( $existingRow.length > 0 ) {
@@ -1965,10 +1969,12 @@ const TabFiles = {
 
         this.updateSidebarSelection();
 
-        // Filter out hidden files/folders and AppData in home directory
+        // Filter out hidden files/folders and AppData in home directory.
+        // Trash is reachable from the sidebar; don't list it as a row too.
         directoryContents = directoryContents.filter(file => {
             if ( file.name.startsWith('.') ) return false;
             if ( file.name === 'AppData' && this.currentPath === window.home_path ) return false;
+            if ( file.path === window.trash_path ) return false;
             return true;
         });
 
