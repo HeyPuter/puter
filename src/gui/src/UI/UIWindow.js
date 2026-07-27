@@ -358,6 +358,10 @@ async function UIWindow (options) {
             h += `<div draggable="false" title="${i18n('videos')}" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-videos.svg'])}">${i18n('videos')}</div>`;
         } else {
             let items = JSON.parse(window.sidebar_items);
+            // Saved sidebar orders may predate the Home entry — make sure it's always present
+            if ( ! items.some(item => item.path === window.home_path) ) {
+                items.unshift({ path: window.home_path, name: i18n('home') });
+            }
             for ( let item of items ) {
                 let icon;
                 if ( item.path === window.home_path )

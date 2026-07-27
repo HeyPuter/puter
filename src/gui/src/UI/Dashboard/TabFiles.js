@@ -89,7 +89,7 @@ const TabFiles = {
                 </form>
                 <div class="directories">
                     <ul>
-                        <li data-folder="Home" style="display: none !important;" data-path="${html_encode(window.home_path)}"><img src="${html_encode(window.icons['folder-home.svg'])}"/> <span>Home</span></li>
+                        <li data-folder="Home" data-path="${html_encode(window.home_path)}"><img src="${html_encode(window.icons['folder-home.svg'])}"/> <span>Home</span></li>
                         <li data-folder="Desktop" data-path="${html_encode(window.desktop_path)}"><img src="${html_encode(window.icons['folder-desktop.svg'])}"/> <span>Desktop</span></li>
                         <li data-folder="Documents" data-path="${html_encode(window.documents_path)}"><img src="${html_encode(window.icons['folder-documents.svg'])}"/> <span>Documents</span></li>
                         <li data-folder="Pictures" data-path="${html_encode(window.pictures_path)}"><img src="${html_encode(window.icons['folder-pictures.svg'])}"/> <span>Pictures</span></li>
@@ -550,10 +550,10 @@ const TabFiles = {
             this.pushNavHistory(initialPath);
             this.renderDirectory(initialPath, { skipUrlUpdate: true });
         } else {
-            // Auto-select Desktop folder on initialization
-            const desktopFolder = $el_window.find('[data-folder="Desktop"]');
-            if ( desktopFolder.length ) {
-                desktopFolder.trigger('click');
+            // Auto-select Home folder on initialization
+            const homeFolder = $el_window.find('[data-folder="Home"]');
+            if ( homeFolder.length ) {
+                homeFolder.trigger('click');
             }
         }
 
