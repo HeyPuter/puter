@@ -71,6 +71,18 @@ async function UIPermissionDialog (options) {
         return false;
     }
 
+    // An origin the server would refuse to parse can't name a grant target
+    // either, so there is nothing to prompt about — and showing it anyway would
+    // put a string that is not a host into the identity line, which is styled to
+    // elide *hosts* from the left (`direction: rtl`). Arbitrary text there can
+    // render in an order it wasn't written in, on the one line of this dialog
+    // whose whole job is saying who is asking. Mirrors the server's own check in
+    // AuthService#originFromUrl: parseable, and http(s).
+    if ( options.origin && ! is_web_origin(options.origin) ) {
+        console.error('Permission dialog: unusable origin', options.origin);
+        return false;
+    }
+
     // `||`, not `??`: the gate above treats an empty uid as absent, so the key
     // has to fall through to the origin too — otherwise two different origins
     // arriving with a blank uid would share one decision.
@@ -323,6 +335,23 @@ async function undo_uncertain_grant (options) {
         });
     } catch (e) {
         console.error('Failed to withdraw an uncertain permission grant', e);
+    }
+}
+
+/**
+ * Whether `origin` is a real web origin: something `new URL()` accepts, on a
+ * scheme the platform actually serves apps over. `new URL()` alone is far too
+ * permissive here — it happily parses `javascript:`, `data:` and `file:`.
+ *
+ * @param {string} origin
+ * @returns {boolean}
+ */
+function is_web_origin (origin) {
+    try {
+        const { protocol } = new URL(origin);
+        return protocol === 'https:' || protocol === 'http:';
+    } catch (e) {
+        return false;
     }
 }
 
