@@ -222,17 +222,17 @@ describe('GeminiVideoProvider.generate parameter mapping', () => {
         await withTestActor(() =>
             provider.generate({
                 prompt: 'hi',
-                model: 'veo-2.0-generate-001',
+                model: 'veo-3.1-generate-preview',
             }),
         );
 
         const sent = generateVideosMock.mock.calls[0]![0];
-        expect(sent.model).toBe('veo-2.0-generate-001');
+        expect(sent.model).toBe('veo-3.1-generate-preview');
         expect(sent.prompt).toBe('hi');
         expect(sent.config.numberOfVideos).toBe(1);
-        // veo-2.0 default aspectRatio is 16:9; durationSeconds[0] = 5.
+        // veo-3.1 default aspectRatio is 16:9; durationSeconds[0] = 4.
         expect(sent.config.aspectRatio).toBe('16:9');
-        expect(sent.config.durationSeconds).toBe(5);
+        expect(sent.config.durationSeconds).toBe(4);
     });
 
     it('maps size=1080x1920 → aspectRatio 9:16 + resolution 1080p (forcing 8s)', async () => {
@@ -242,7 +242,7 @@ describe('GeminiVideoProvider.generate parameter mapping', () => {
         await withTestActor(() =>
             provider.generate({
                 prompt: 'hi',
-                model: 'veo-3.0-generate-001',
+                model: 'veo-3.1-fast-generate-preview',
                 size: '1080x1920',
                 seconds: 4, // overridden by isHighRes
             }),
@@ -261,7 +261,7 @@ describe('GeminiVideoProvider.generate parameter mapping', () => {
         await withTestActor(() =>
             provider.generate({
                 prompt: 'hi',
-                model: 'veo-2.0-generate-001',
+                model: 'veo-3.1-generate-preview',
                 negative_prompt: 'no rain',
             }),
         );
@@ -278,7 +278,7 @@ describe('GeminiVideoProvider.generate parameter mapping', () => {
         await withTestActor(() =>
             provider.generate({
                 prompt: 'hi',
-                model: 'veo-2.0-generate-001',
+                model: 'veo-3.1-generate-preview',
                 input_reference: dataUrl,
             }),
         );
@@ -294,7 +294,7 @@ describe('GeminiVideoProvider.generate parameter mapping', () => {
         await withTestActor(() =>
             provider.generate({
                 prompt: 'hi',
-                model: 'veo-2.0-generate-001',
+                model: 'veo-3.1-generate-preview',
                 last_frame: `data:image/jpeg;base64,XYZ`,
             }),
         );
@@ -345,7 +345,7 @@ describe('GeminiVideoProvider.generate polling', () => {
         const result = await withTestActor(() =>
             provider.generate({
                 prompt: 'hi',
-                model: 'veo-2.0-generate-001',
+                model: 'veo-3.1-generate-preview',
             }),
         );
         expect(result).toBe('https://gemini/out.mp4');
@@ -363,7 +363,7 @@ describe('GeminiVideoProvider.generate polling', () => {
             const promise = withTestActor(() =>
                 provider.generate({
                     prompt: 'hi',
-                    model: 'veo-2.0-generate-001',
+                    model: 'veo-3.1-generate-preview',
                 }),
             );
 
@@ -391,7 +391,7 @@ describe('GeminiVideoProvider.generate polling', () => {
             withTestActor(() =>
                 provider.generate({
                     prompt: 'hi',
-                    model: 'veo-2.0-generate-001',
+                    model: 'veo-3.1-generate-preview',
                 }),
             ),
         ).rejects.toThrow(/rate limit/);
@@ -412,7 +412,7 @@ describe('GeminiVideoProvider.generate polling', () => {
             withTestActor(() =>
                 provider.generate({
                     prompt: 'hi',
-                    model: 'veo-2.0-generate-001',
+                    model: 'veo-3.1-generate-preview',
                 }),
             ),
         ).rejects.toMatchObject({
@@ -432,7 +432,7 @@ describe('GeminiVideoProvider.generate polling', () => {
             withTestActor(() =>
                 provider.generate({
                     prompt: 'hi',
-                    model: 'veo-2.0-generate-001',
+                    model: 'veo-3.1-generate-preview',
                 }),
             ),
         ).rejects.toThrow(/did not include a video/);
@@ -457,7 +457,7 @@ describe('GeminiVideoProvider.generate polling', () => {
         const result = await withTestActor(() =>
             provider.generate({
                 prompt: 'hi',
-                model: 'veo-2.0-generate-001',
+                model: 'veo-3.1-generate-preview',
             }),
         );
         expect(result).toBe('data:video/mp4;base64,ZZZ');
@@ -474,21 +474,21 @@ describe('GeminiVideoProvider.generate metering', () => {
         await withTestActor(() =>
             provider.generate({
                 prompt: 'hi',
-                model: 'veo-2.0-generate-001',
+                model: 'veo-3.1-generate-preview',
                 seconds: 6,
             }),
         );
 
-        const veo2 = GEMINI_VIDEO_GENERATION_MODELS.find(
-            (m) => m.id === 'veo-2.0-generate-001',
+        const veo31 = GEMINI_VIDEO_GENERATION_MODELS.find(
+            (m) => m.id === 'veo-3.1-generate-preview',
         )!;
-        const perSec = veo2.costs!['per-second'];
+        const perSec = veo31.costs!['per-second'];
         // ceil(perSec * 6 * 1e6) — perSec is an integer cents value so
         // no rounding occurs in practice.
         const expectedCost = Math.ceil(perSec * 6 * 1_000_000);
 
         const [, usageType, count, cost] = incrementUsageSpy.mock.calls[0]!;
-        expect(usageType).toBe('gemini:veo-2.0-generate-001');
+        expect(usageType).toBe('gemini:veo-3.1-generate-preview');
         expect(count).toBe(6);
         expect(cost).toBe(expectedCost);
     });
@@ -539,7 +539,7 @@ describe('GeminiVideoProvider.generate metering', () => {
             withTestActor(() =>
                 provider.generate({
                     prompt: 'hi',
-                    model: 'veo-2.0-generate-001',
+                    model: 'veo-3.1-generate-preview',
                 }),
             ),
         ).rejects.toThrow();
@@ -559,7 +559,7 @@ describe('GeminiVideoProvider.generate error paths', () => {
             withTestActor(() =>
                 provider.generate({
                     prompt: 'hi',
-                    model: 'veo-2.0-generate-001',
+                    model: 'veo-3.1-generate-preview',
                 }),
             ),
         ).rejects.toBe(apiError);
