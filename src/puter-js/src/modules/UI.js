@@ -46,6 +46,14 @@ class AppConnection extends EventListener {
     // (Closing and close events will still function.)
     #usesSDK;
 
+    /**
+     * Extra information the target app supplied when the connection was
+     * established. Declared here because `from()` sets it on the instance.
+     *
+     * @type {(Record<string, unknown> & { launchResult?: import('../../types/modules/ui').LaunchAppResult }) | undefined}
+     */
+    response;
+
     static from (values, puter, { messageTarget, appInstanceID }) {
         const connection = new AppConnection(puter, {
             target: values.appInstanceID,

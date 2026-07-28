@@ -48,6 +48,12 @@ class PuterPeerServer extends EventTarget {
     #oncreateresolve;
 
     connections = new Map();
+
+    /**
+     * The invite code to share with other clients so they can connect.
+     *
+     * @type {string | undefined}
+     */
     inviteCode;
     #peerConfig;
 
@@ -198,6 +204,12 @@ class PuterPeerServer extends EventTarget {
 class PuterPeerConnection extends EventTarget {
     #wsconn;
     peerconnection;
+
+    /**
+     * Information about the user who created the server.
+     *
+     * @type {import('../../types/modules/peer').PuterPeerUser | undefined}
+     */
     owner;
     #peerConfig;
     #datachannel;

@@ -1,3 +1,7 @@
+/**
+ * Minimal named-event emitter. Subclasses declare the event names they
+ * support; listening for anything else is reported and ignored.
+ */
 export default class EventListener {
     // Array of all supported event names.
     #eventNames;
@@ -5,6 +9,7 @@ export default class EventListener {
     // Map of eventName -> array of listeners
     #eventListeners;
 
+    /** @param {string[]} eventNames */
     constructor (eventNames) {
         this.#eventNames = eventNames;
 
@@ -17,6 +22,11 @@ export default class EventListener {
         })();
     }
 
+    /**
+     * @param {string} eventName
+     * @param {unknown} [data]
+     * @returns {void}
+     */
     emit (eventName, data) {
         if ( ! this.#eventNames.includes(eventName) ) {
             console.error(`Event name '${eventName}' not supported`);
@@ -27,6 +37,11 @@ export default class EventListener {
         });
     }
 
+    /**
+     * @param {string} eventName
+     * @param {(data: never) => void} callback
+     * @returns {this | undefined}
+     */
     on (eventName, callback) {
         if ( ! this.#eventNames.includes(eventName) ) {
             console.error(`Event name '${eventName}' not supported`);
@@ -36,6 +51,11 @@ export default class EventListener {
         return this;
     }
 
+    /**
+     * @param {string} eventName
+     * @param {(data: never) => void} callback
+     * @returns {this | undefined}
+     */
     off (eventName, callback) {
         if ( ! this.#eventNames.includes(eventName) ) {
             console.error(`Event name '${eventName}' not supported`);
