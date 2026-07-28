@@ -77,6 +77,13 @@ export class Puter {
     setAPIOrigin(APIOrigin: string): void;
     setAppID(appID: string): void;
 
+    /**
+     * Subscribes to token / API origin changes. Modules read both live off
+     * the instance, so this is only for the ones holding a connection open
+     * that has to be rebuilt. Returns an unsubscribe function.
+     */
+    onAuthStateChanged(listener: () => void): () => void;
+
     get defaultAPIOrigin(): string;
     set defaultAPIOrigin(value: string);
     get defaultGUIOrigin(): string;

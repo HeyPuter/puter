@@ -3,23 +3,25 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import express from 'express';
 import path from 'node:path';
 import { PuterController } from '../types.js';
+import { toAppShellView } from '../../util/appShellView.js';
 import type { PuterRouter } from '../../core/http/PuterRouter';
 import type {
     PuterHomepageService,
@@ -32,8 +34,8 @@ import type {
  * under `<gui_assets_root>/src` for non-dist/src paths (images, fonts, lib
  * files referenced from the shell).
  *
- * All root-subdomain-only. Registered last in the controller list so the
- * static catch-all doesn't shadow specific API routes.
+ * All root-subdomain-only. Registered last in the controller list so the static
+ * catch-all doesn't shadow specific API routes.
  */
 export class HomepageController extends PuterController {
     registerRoutes(router: PuterRouter) {
@@ -102,17 +104,11 @@ export class HomepageController extends PuterController {
                         : (app.metadata as Record<string, unknown> | null)) ??
                     {};
                 // Never bake the raw store row into the shell — it exposes
-                // `index_url`, `owner_user_id`, and admin flags. Run it
-                // through the authoritative serializer, which redacts to a
-                // safe field subset and drops `index_url` for a private app
-                // this actor (possibly anonymous) isn't entitled to.
-                const actor =
-                    (req as express.Request & { actor?: unknown }).actor ??
-                    null;
-                const clientApp = await this.drivers.apps.toClientView(
-                    app,
-                    actor,
-                );
+                // `index_url`, `owner_user_id`, and moderation flags. The
+                // shell only needs a preview; the GUI re-reads the app
+                // through the apps driver before launching, and that read is
+                // where the entitlement gate and hosted-backing guard run.
+                const clientApp = toAppShellView(app);
                 await sendShell(req, res, {
                     title: String(app.title ?? name),
                     description: String(app.description ?? ''),

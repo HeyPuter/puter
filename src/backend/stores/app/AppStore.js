@@ -109,6 +109,8 @@ const READ_ONLY_COLUMNS = new Set([
     'protected',
     'is_private',
 ]);
+// Unique-key columns `#getManyByProperty` may build an IN-list against.
+const BATCH_LOOKUP_COLUMNS = new Set(['id', 'uid']);
 const APP_BOOLEAN_COLUMNS = new Set([
     'godmode',
     'maximize_on_start',
@@ -134,66 +136,90 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Batched lookup by id. Dedupes input ids, reads cache via a pipelined
-     * MGET, and resolves remaining misses with a single `SELECT … WHERE id IN
-     * (…)` per chunk. Use this in place of `Promise.all(ids.map(getById))` to
-     * avoid one connection per row on large id sets.
+     * Batched lookup by id. Use this in place of `Promise.all(ids.map(
+     * getById))` to avoid one connection per row on large id sets.
      *
      * Missing ids (no DB row) are simply absent from the returned map.
      */
     async getByIds(ids) {
+        return this.#getManyByProperty('id', ids);
+    }
+
+    /**
+     * Batched lookup by uid — the uid-keyed twin of `getByIds`, for callers
+     * that hold uids (recent-opens lists, launch metadata).
+     *
+     * Missing uids (no DB row) are simply absent from the returned map.
+     */
+    async getByUids(uids) {
+        return this.#getManyByProperty('uid', uids);
+    }
+
+    /**
+     * Shared engine behind `getByIds` / `getByUids`. Dedupes input values,
+     * reads cache via a pipelined MGET, and resolves remaining misses with a
+     * single `SELECT … WHERE <prop> IN (…)` per chunk. The returned map is
+     * keyed by `prop`'s value.
+     */
+    async #getManyByProperty(prop, values) {
+        // `prop` is interpolated into SQL, so it may only ever be one of the
+        // unique-key columns this store owns — never caller-supplied.
+        if (!BATCH_LOOKUP_COLUMNS.has(prop)) {
+            throw new Error(`AppStore: unsupported batch lookup key ${prop}`);
+        }
+
         const result = new Map();
-        const uniqueIds = [
+        const uniqueValues = [
             ...new Set(
-                (Array.isArray(ids) ? ids : []).filter(
-                    (id) => id !== null && id !== undefined,
+                (Array.isArray(values) ? values : []).filter(
+                    (value) => value !== null && value !== undefined,
                 ),
             ),
         ];
-        if (uniqueIds.length === 0) return result;
+        if (uniqueValues.length === 0) return result;
 
-        const missingIds = [];
+        const missingValues = [];
         try {
             const pipeline = this.clients.redis.pipeline();
-            for (const id of uniqueIds) {
-                pipeline.get(this.#cacheKey('id', id));
+            for (const value of uniqueValues) {
+                pipeline.get(this.#cacheKey(prop, value));
             }
             const cacheResults = (await pipeline.exec()) ?? [];
-            for (let i = 0; i < uniqueIds.length; i++) {
-                const id = uniqueIds[i];
+            for (let i = 0; i < uniqueValues.length; i++) {
+                const value = uniqueValues[i];
                 const raw = cacheResults[i]?.[1];
                 if (typeof raw === 'string') {
                     try {
-                        result.set(id, JSON.parse(raw));
+                        result.set(value, JSON.parse(raw));
                         continue;
                     } catch {
                         // Fall through to DB on any parse failure.
                     }
                 }
-                missingIds.push(id);
+                missingValues.push(value);
             }
         } catch {
-            missingIds.push(...uniqueIds);
+            missingValues.push(...uniqueValues);
         }
 
         for (
             let offset = 0;
-            offset < missingIds.length;
+            offset < missingValues.length;
             offset += BULK_QUERY_CHUNK_SIZE
         ) {
-            const chunk = missingIds.slice(
+            const chunk = missingValues.slice(
                 offset,
                 offset + BULK_QUERY_CHUNK_SIZE,
             );
             const placeholders = chunk.map(() => '?').join(', ');
             const rows = await this.clients.db.read(
-                `SELECT * FROM \`apps\` WHERE \`id\` IN (${placeholders})`,
+                `SELECT * FROM \`apps\` WHERE \`${prop}\` IN (${placeholders})`,
                 chunk,
             );
             for (const row of rows) {
                 const app = this.#normalizeRow(row);
                 if (!app) continue;
-                result.set(app.id, app);
+                result.set(app[prop], app);
                 this.#writeCache(app).catch(() => {});
             }
         }

@@ -2910,4 +2910,24 @@ describe('LegacyFSController GET /get-launch-apps', () => {
         expect(entry?.index_url).toBe('https://dev-owned-domain.example/');
         expect(entry?.privateAccess).toBeUndefined();
     });
+
+    // The rows are fetched in one batched lookup, which returns a map — the
+    // handler has to re-impose the recency order the uid list carries.
+    it('preserves the most-recent-first order of the underlying uid list', async () => {
+        const { actor, userId } = await makeUser();
+        const first = await makeHostedApp(userId, 'unregistered-a');
+        const second = await makeHostedApp(userId, 'unregistered-b');
+        const third = await makeHostedApp(userId, 'unregistered-c');
+
+        await recordOpen(userId, first.uid);
+        await recordOpen(userId, second.uid);
+        await recordOpen(userId, third.uid);
+
+        const recentUids = await server.stores.app.getRecentAppOpens(userId, {
+            limit: 10,
+        });
+        const returned = (await fetchRecent(actor)).map((a) => a.uuid);
+
+        expect(returned).toEqual(recentUids);
+    });
 });

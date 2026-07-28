@@ -162,3 +162,63 @@ describe('AppStore app stats (cache-on-read)', () => {
         }
     });
 });
+
+describe('AppStore batched lookups', () => {
+    let server;
+    let appStore;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+        appStore = server.stores.app;
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    const createApp = async (title) => {
+        const name = `batch-${Math.random().toString(36).slice(2, 10)}`;
+        return appStore.create(
+            { name, title, index_url: `https://${name}.example.com/` },
+            { ownerUserId: 1 },
+        );
+    };
+
+    it('getByUids resolves every known uid in one map', async () => {
+        const a = await createApp('Alpha');
+        const b = await createApp('Beta');
+
+        const found = await appStore.getByUids([a.uid, b.uid]);
+
+        expect(found.get(a.uid)?.title).toBe('Alpha');
+        expect(found.get(b.uid)?.title).toBe('Beta');
+    });
+
+    it('getByUids omits unknown uids rather than returning holes', async () => {
+        const a = await createApp('Alpha');
+
+        const found = await appStore.getByUids([a.uid, 'app-does-not-exist']);
+
+        expect(found.has(a.uid)).toBe(true);
+        expect(found.has('app-does-not-exist')).toBe(false);
+        expect(found.size).toBe(1);
+    });
+
+    it('getByUids dedupes repeats and tolerates empty/nullish input', async () => {
+        const a = await createApp('Alpha');
+
+        const found = await appStore.getByUids([a.uid, a.uid, null, undefined]);
+        expect(found.size).toBe(1);
+
+        expect((await appStore.getByUids([])).size).toBe(0);
+        expect((await appStore.getByUids(null)).size).toBe(0);
+    });
+
+    it('getByIds still resolves id-keyed lookups off the shared engine', async () => {
+        const a = await createApp('Alpha');
+
+        const found = await appStore.getByIds([a.id]);
+
+        expect(found.get(a.id)?.title).toBe('Alpha');
+    });
+});

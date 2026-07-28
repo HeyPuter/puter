@@ -167,7 +167,8 @@ export class LegacyFSController extends PuterController {
 
         router.get('/get-launch-apps', apiOptions, async (req, res) => {
             const recommendedSvc = this.services.recommendedApps as unknown as
-                { getRecommendedApps?: () => Promise<unknown[]> } | undefined;
+                | { getRecommendedApps?: () => Promise<unknown[]> }
+                | undefined;
             const recommended = recommendedSvc?.getRecommendedApps
                 ? await recommendedSvc.getRecommendedApps()
                 : [];
@@ -184,48 +185,60 @@ export class LegacyFSController extends PuterController {
                             ) => Promise<string[]>;
                         }
                     ).getRecentAppOpens?.(userId, { limit: 10 })) ?? [];
-                const apps: unknown[] = [];
-                for (const uid of recentUids) {
-                    const app = await (
-                        this.stores.app as unknown as {
-                            getByUid: (
-                                uid: string,
-                            ) => Promise<Record<string, unknown> | null>;
-                        }
-                    ).getByUid(uid);
-                    if (app) {
-                        // Don't hand out an index_url whose puter-hosted
-                        // backing is gone or reclaimed. The taskbar launches
-                        // recents by name (so AppDriver's guard applies), but
-                        // this list is a launch-metadata producer like any
-                        // other — a future consumer reading index_url
-                        // straight off it shouldn't inherit a stale origin.
-                        const backingGone =
-                            await hostedIndexUrlBackingIsUnavailable({
-                                app,
-                                subdomainStore: this.stores.subdomain,
-                                config: this.config,
-                            }).catch(() => true);
-                        apps.push({
-                            uuid: app.uid,
-                            name: app.name,
-                            title: app.title,
-                            icon: app.icon ?? null,
-                            godmode: Boolean(app.godmode),
-                            maximize_on_start: Boolean(app.maximize_on_start),
-                            index_url: backingGone ? null : app.index_url,
-                            ...(backingGone
-                                ? { privateAccess: buildHostedBackingDenial() }
-                                : {}),
-                            // An app with no owner isn't owned by a Puter user —
-                            // it's an "external" (origin-bootstrapped) app.
-                            external:
-                                app.owner_user_id == null ||
-                                app.owner_user_id === '',
-                        });
+                // One batched read for the rows, then the backing checks
+                // concurrently. Serially awaiting a lookup per uid put ~2
+                // round trips of latency on every desktop boot.
+                const appsByUid = await (
+                    this.stores.app as unknown as {
+                        getByUids: (
+                            uids: string[],
+                        ) => Promise<Map<string, Record<string, unknown>>>;
                     }
-                }
-                recent = apps;
+                ).getByUids(recentUids);
+
+                // `recentUids` is ordered most-recent-first; preserve it.
+                const orderedApps = recentUids
+                    .map((uid) => appsByUid.get(uid))
+                    .filter((app): app is Record<string, unknown> =>
+                        Boolean(app),
+                    );
+
+                // Don't hand out an index_url whose puter-hosted backing is
+                // gone or reclaimed. The taskbar launches recents by name (so
+                // AppDriver's guard applies), but this list is a
+                // launch-metadata producer like any other — a future consumer
+                // reading index_url straight off it shouldn't inherit a stale
+                // origin.
+                const backingGoneFlags = await Promise.all(
+                    orderedApps.map((app) =>
+                        hostedIndexUrlBackingIsUnavailable({
+                            app,
+                            subdomainStore: this.stores.subdomain,
+                            config: this.config,
+                        }).catch(() => true),
+                    ),
+                );
+
+                recent = orderedApps.map((app, index) => {
+                    const backingGone = backingGoneFlags[index];
+                    return {
+                        uuid: app.uid,
+                        name: app.name,
+                        title: app.title,
+                        icon: app.icon ?? null,
+                        godmode: Boolean(app.godmode),
+                        maximize_on_start: Boolean(app.maximize_on_start),
+                        index_url: backingGone ? null : app.index_url,
+                        ...(backingGone
+                            ? { privateAccess: buildHostedBackingDenial() }
+                            : {}),
+                        // An app with no owner isn't owned by a Puter user —
+                        // it's an "external" (origin-bootstrapped) app.
+                        external:
+                            app.owner_user_id == null ||
+                            app.owner_user_id === '',
+                    };
+                });
             }
 
             res.json({ recommended, recent });
@@ -639,7 +652,9 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                Record<string, unknown> | null | undefined,
+                | Record<string, unknown>
+                | null
+                | undefined,
         });
         const oldPath = source.path;
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
@@ -1068,7 +1083,8 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            (SignedFile & { path?: string }) | Record<string, never>;
+            | (SignedFile & { path?: string })
+            | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1608,7 +1624,10 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            'see' | 'list' | 'read' | 'write';
+            | 'see'
+            | 'list'
+            | 'read'
+            | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',

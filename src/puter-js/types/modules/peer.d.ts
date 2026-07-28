@@ -129,12 +129,10 @@ export class PuterPeerConnection extends EventTarget {
  * server. Peer connections require authentication.
  */
 export default class Peer {
-    authToken?: string | null;
-    APIOrigin: string;
-    appID?: string;
+    readonly authToken?: string | null;
+    readonly APIOrigin: string;
+    readonly appID?: string;
 
-    setAuthToken (authToken: string): void;
-    setAPIOrigin (APIOrigin: string): void;
     /**
      * Fetches TURN relay credentials ahead of time so peer connections start
      * faster. Optional, since `serve()` and `connect()` call it automatically

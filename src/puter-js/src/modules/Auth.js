@@ -1,5 +1,6 @@
 import * as utils from '../lib/utils.js';
 import { fetchUrl } from '../lib/networkUtils.js';
+import { PuterModule } from '../lib/PuterModule.js';
 import PuterDialog from './PuterDialog.js';
 import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
 
@@ -12,44 +13,10 @@ import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
  * The `puter.auth` module. Most Puter methods authenticate on their own; these
  * are for apps that drive the sign-in flow themselves.
  */
-class Auth {
+class Auth extends PuterModule {
     // Used to generate a unique message id for each message sent to the host environment
     // we start from 1 because 0 is falsy and we want to avoid that for the message id
     #messageID = 1;
-
-    /**
-     * Reads its auth state from the owning Puter instance.
-     *
-     * @param {import("../../types/puter").Puter} puter
-     */
-    constructor (puter) {
-        this.puter = puter;
-        this.authToken = puter.authToken;
-        this.APIOrigin = puter.APIOrigin;
-        this.appID = puter.appID;
-    }
-
-    /**
-     * Sets a new authentication token.
-     *
-     * @param {string} authToken - The new authentication token.
-     * @memberof [Auth]
-     * @returns {void}
-     */
-    setAuthToken (authToken) {
-        this.authToken = authToken;
-    }
-
-    /**
-     * Sets the API origin.
-     *
-     * @param {string} APIOrigin - The new API origin.
-     * @memberof [Auth]
-     * @returns {void}
-     */
-    setAPIOrigin (APIOrigin) {
-        this.APIOrigin = APIOrigin;
-    }
 
     /**
      * Signs the user in, opening a popup with the appropriate authentication

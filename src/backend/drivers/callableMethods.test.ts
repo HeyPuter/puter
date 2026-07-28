@@ -50,14 +50,13 @@ const EXPECTED: Record<string, string[]> = {
     aiOcr: ['recognize'],
     // AppDriver is the legacy `.js` driver: its non-RPC helpers are plain
     // public methods (not `#`-private), so `isNameAvailable` (an AppController
-    // helper) and `toClientView` (a safe-field projection used by the homepage
-    // shell) sit on the callable surface. Both are (and always were, under the
+    // helper) sits on the callable surface. It is (and always was, under the
     // old reflection dispatch) remotely callable — pinned here rather than
-    // silently exposed. See the follow-up note: lock these down by making them
-    // `#`-private with dedicated call sites if the exposure is unwanted.
+    // silently exposed. See the follow-up note: lock it down by making it
+    // `#`-private with a dedicated call site if the exposure is unwanted.
     apps: [
         'create', 'delete', 'isNameAvailable', 'read', 'select',
-        'toClientView', 'update', 'upsert',
+        'update', 'upsert',
     ],
     subdomains: ['create', 'delete', 'read', 'select', 'update', 'upsert'],
     notifications: ['create', 'mark_acknowledged', 'mark_shown', 'read', 'select'],
