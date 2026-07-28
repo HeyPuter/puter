@@ -666,6 +666,25 @@ describe('AppController GET /app-icon/:app_uid', () => {
         expect((captured.body as Buffer).equals(png)).toBe(true);
     });
 
+    // Icons are fetched on every app launch, over a connection the launch is
+    // already competing for. The inline path must not be cached more briefly
+    // than the redirect path that serves the same resource.
+    it('caches an inline data-URL icon as long as the redirect path', async () => {
+        const owner = await makeUser();
+        const dataUrl = `data:image/png;base64,${Buffer.from('x').toString('base64')}`;
+        const app = await createApp(owner.actor, { icon: dataUrl });
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app-icon/:app_uid',
+            makeReq({ params: { app_uid: app.uid } }),
+            res,
+        );
+
+        expect(captured.headers['cache-control']).toBe('public, max-age=900');
+    });
+
     it('falls back to the default icon when the data-URL MIME is not allowlisted', async () => {
         const owner = await makeUser();
         // text/html is NOT in the icon allowlist — must NOT be echoed back.

@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { isAccessTokenActor, isAppActor } from '../../core/actor.js';
@@ -31,9 +32,9 @@ import DEFAULT_APP_ICON from './default-app-icon.js';
 /**
  * REST endpoints for app management.
  *
- * Delegates to AppDriver for the actual CRUD + permission logic —
- * these routes are just thin shape adapters that translate REST
- * conventions into driver calls.
+ * Delegates to AppDriver for the actual CRUD + permission logic — these routes
+ * are just thin shape adapters that translate REST conventions into driver
+ * calls.
  */
 export class AppController extends PuterController {
     get appStore() {
@@ -437,7 +438,11 @@ export class AppController extends PuterController {
                 }
                 setIconSecurityHeaders(res);
                 res.set('Content-Type', mime);
-                res.set('Cache-Control', 'public, max-age=60');
+                // Same freshness as the redirect path above — this is the
+                // same resource, just served inline because no CDN file
+                // exists yet. A 60s TTL made every app launch re-fetch the
+                // icon over a connection the launch itself is competing for.
+                res.set('Cache-Control', 'public, max-age=900');
                 res.send(Buffer.from(icon.slice(commaIdx + 1), 'base64'));
 
                 // Trigger background generation so next request hits the CDN

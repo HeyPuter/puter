@@ -3,21 +3,27 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
+
+// How long a completed usage load stays fresh enough to skip a repeat. Long
+// enough to absorb the init/onActivate/routing burst on a single dashboard
+// open, short enough that a user watching the panel still sees movement.
+const USAGE_REFRESH_DEBOUNCE_MS = 5_000;
 
 function buildRecentAppsHTML() {
     let h = '';
@@ -73,7 +79,8 @@ function buildUsageHTML() {
     // Your Plan section
     h +=
         '<div class="bento-usage-section bento-usage-card bento-plan-section">';
-    h += '<a href="#" class="bento-usage-card-header bento-plan-header" data-target-tab="usage">';
+    h +=
+        '<a href="#" class="bento-usage-card-header bento-plan-header" data-target-tab="usage">';
     h += `<h3>${i18n('your_plan')}</h3>`;
     h += '<span class="bento-usage-card-arrow">›</span>';
     h += '</a>';
@@ -224,8 +231,10 @@ const TabHome = {
         h += '</div>';
 
         // Open Desktop card (spans full width, links to the desktop interface)
-        h += '<a href="/desktop" target="_blank" rel="noopener" class="bento-card bento-desktop allow-native-ctxmenu">';
-        h += '<div class="bento-card-fancy-icon bento-card-fancy-icon-desktop">';
+        h +=
+            '<a href="/desktop" target="_blank" rel="noopener" class="bento-card bento-desktop allow-native-ctxmenu">';
+        h +=
+            '<div class="bento-card-fancy-icon bento-card-fancy-icon-desktop">';
         h +=
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
         h += '</div>';
@@ -253,7 +262,10 @@ const TabHome = {
         //   2. Visibility / focus — user returning to puter (e.g. from
         //      Stripe Customer Portal in another tab). Portal mutations
         //      bypass our dispatch, so we re-pull state + broadcast.
-        const refresh = () => this.loadUsageData($el_window);
+        // Deliberate refreshes (subscription changed, returning from the
+        // billing portal) must bypass the freshness window — they exist to
+        // replace state we already know is stale.
+        const refresh = () => this.loadUsageData($el_window, { force: true });
         const refreshAndBroadcast = async () => {
             // Pull fresh whoami, then broadcast. The dispatched event is handled
             // by the `refresh` listener below, so we don't call refresh() here —
@@ -264,7 +276,7 @@ const TabHome = {
             try {
                 await Promise.race([
                     window.refresh_user_data?.(puter.authToken),
-                    new Promise(resolve => setTimeout(resolve, 8000)),
+                    new Promise((resolve) => setTimeout(resolve, 8000)),
                 ]);
             } catch {}
             try {
@@ -286,7 +298,8 @@ const TabHome = {
             refreshAndBroadcast();
         };
         const onVisibility = () => {
-            if (document.visibilityState === 'visible') scheduleRefreshAndBroadcast();
+            if (document.visibilityState === 'visible')
+                scheduleRefreshAndBroadcast();
         };
         document.addEventListener('visibilitychange', onVisibility);
         window.addEventListener('focus', scheduleRefreshAndBroadcast);
@@ -366,7 +379,36 @@ const TabHome = {
             .html(buildRecentAppsHTML());
     },
 
-    async loadUsageData($el_window) {
+    // `init()` runs for every tab and `onActivate()` fires again for the
+    // active one (and again on back/forward routing), so a single dashboard
+    // open lands here several times in quick succession — each pass costing
+    // three API calls that compete for connections with whatever app is
+    // launching. Concurrent callers share one in-flight load, and repeats
+    // arriving while the data is still fresh are dropped.
+    //
+    // `force` bypasses the freshness window for the callers that exist
+    // precisely to pull new state (subscription change, returning from the
+    // billing portal) — those must never be served a cached decision.
+    async loadUsageData($el_window, { force = false } = {}) {
+        if (this._usageLoadInFlight) return this._usageLoadInFlight;
+        if (
+            !force &&
+            this._usageLoadedAt &&
+            Date.now() - this._usageLoadedAt < USAGE_REFRESH_DEBOUNCE_MS
+        ) {
+            return;
+        }
+
+        this._usageLoadInFlight = this._loadUsageDataUncached($el_window);
+        try {
+            return await this._usageLoadInFlight;
+        } finally {
+            this._usageLoadInFlight = null;
+            this._usageLoadedAt = Date.now();
+        }
+    },
+
+    async _loadUsageDataUncached($el_window) {
         // Load plan data — fetch live from /marketplace/subscriptions/current
         // rather than reading `window.user.subscription` (which is set once
         // from whoami at page-load and goes stale after subscribe / portal
@@ -471,7 +513,9 @@ const TabHome = {
         try {
             const res = await puter.fs.space();
             // Guard capacity 0 — 0/0 would render literally as "NaN%".
-            let usage_percentage = res.capacity ? ((res.used / res.capacity) * 100).toFixed(0) : '0';
+            let usage_percentage = res.capacity
+                ? ((res.used / res.capacity) * 100).toFixed(0)
+                : '0';
             usage_percentage = usage_percentage > 100 ? 100 : usage_percentage;
 
             let general_used = res.used;
@@ -499,7 +543,8 @@ const TabHome = {
         // Load monthly usage data
         try {
             const res = await puter.auth.getMonthlyUsage();
-            const monthlyAllowance = res.allowanceInfo?.monthUsageAllowance || 0;
+            const monthlyAllowance =
+                res.allowanceInfo?.monthUsageAllowance || 0;
             // Actual month-to-date spend.
             const totalUsage = res.usage?.total ?? 0;
             // Purchased credits extend the monthly allowance. `remaining` is the
@@ -530,14 +575,12 @@ const TabHome = {
                 .text(
                     `${window.number_format(totalUsage / 100_000_000, { decimals: 2, prefix: '$' })} Used`,
                 );
-            $el_window
-                .find('.bento-resources-capacity')
-                .text(
-                    window.number_format(capacity / 100_000_000, {
-                        decimals: 2,
-                        prefix: '$',
-                    }),
-                );
+            $el_window.find('.bento-resources-capacity').text(
+                window.number_format(capacity / 100_000_000, {
+                    decimals: 2,
+                    prefix: '$',
+                }),
+            );
             $el_window
                 .find('.bento-resources-percent')
                 .text(`${displayPercentage}%`);
