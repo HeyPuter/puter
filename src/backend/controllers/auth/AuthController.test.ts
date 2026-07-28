@@ -2068,6 +2068,59 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
         expect(decoded.app_uid).toBe(app.uid);
     });
 
+    // This handler sits in the app-launch critical path. The permission
+    // grant, the token mint, and the AppData mkdir are mutually independent,
+    // so they must overlap rather than run as three serial round trips —
+    // awaiting any one of them before starting the others silently triples
+    // the latency with every test still passing.
+    it('runs the permission grant, token mint and AppData mkdir concurrently', async () => {
+        const order: string[] = [];
+        const defer = <T,>(label: string, value: T) => {
+            order.push(`${label}:start`);
+            return new Promise<T>((resolve) =>
+                setTimeout(() => {
+                    order.push(`${label}:end`);
+                    resolve(value);
+                }, 20),
+            );
+        };
+
+        const permSpy = vi
+            .spyOn(server.services.permission, 'grantUserAppPermission')
+            .mockImplementation(() => defer('grant', undefined as never));
+        const tokenSpy = vi
+            .spyOn(server.services.auth, 'getUserAppToken')
+            .mockImplementation(() => defer('token', 'signed.jwt.value'));
+        const mkdirSpy = vi
+            .spyOn(server.services.fs, 'mkdir')
+            .mockImplementation(() => defer('mkdir', undefined as never));
+
+        try {
+            await inCtx(actor, () =>
+                controller.handleGetUserAppToken(
+                    makeReq({ app_uid: app.uid }, { actor }),
+                    makeRes(),
+                ),
+            );
+        } finally {
+            permSpy.mockRestore();
+            tokenSpy.mockRestore();
+            mkdirSpy.mockRestore();
+        }
+
+        // All three must be in flight before any of them settles.
+        const firstEnd = order.findIndex((e) => e.endsWith(':end'));
+        const starts = order.slice(0, firstEnd);
+        expect(starts).toHaveLength(3);
+        expect(starts).toEqual(
+            expect.arrayContaining([
+                'grant:start',
+                'token:start',
+                'mkdir:start',
+            ]),
+        );
+    });
+
     it('after get-user-app-token, check-app reports authenticated:true and returns a token', async () => {
         // Ensure the flag is granted (re-run is idempotent).
         await inCtx(actor, () =>

@@ -3174,9 +3174,9 @@ export class AuthController extends PuterController {
                 legacyCode: 'not_found',
             });
         }
-        // Grant the app-is-authenticated flag
+
         const userPermGrantPromise =
-            await this.services.permission.grantUserAppPermission(
+            this.services.permission.grantUserAppPermission(
                 req.actor!,
                 app_uid,
                 'flag:app-is-authenticated',
@@ -3184,7 +3184,7 @@ export class AuthController extends PuterController {
                 {},
             );
 
-        const token = await this.services.auth.getUserAppToken(
+        const tokenPromise = this.services.auth.getUserAppToken(
             req.actor!,
             app_uid,
         );
@@ -3211,7 +3211,11 @@ export class AuthController extends PuterController {
             }
         })();
 
-        await Promise.all([userPermGrantPromise, missingFSPathPromise]);
+        const [, token] = await Promise.all([
+            userPermGrantPromise,
+            tokenPromise,
+            missingFSPathPromise,
+        ]);
 
         try {
             const a = app as {

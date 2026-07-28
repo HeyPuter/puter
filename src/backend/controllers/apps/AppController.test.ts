@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import type { Request, RequestHandler, Response } from 'express';
@@ -285,12 +286,7 @@ describe('AppController POST /rao', () => {
         const { res } = makeRes();
         await expect(
             withActor(actor, () =>
-                callRoute(
-                    'post',
-                    '/rao',
-                    makeReq({ body: {}, actor }),
-                    res,
-                ),
+                callRoute('post', '/rao', makeReq({ body: {}, actor }), res),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
@@ -328,11 +324,82 @@ describe('AppController POST /rao', () => {
         );
         expect(captured.body).toEqual({});
 
+        // The stats write is deliberately not awaited by the request.
+        await server.controllers.apps.drainPendingAppOpens();
+
         const rows = (await server.clients.db.read(
             'SELECT `app_uid`, `user_id` FROM `app_opens` WHERE `app_uid` = ? AND `user_id` = ?',
             [app.uid, owner.userId],
         )) as Array<{ app_uid: string; user_id: number }>;
         expect(rows).toHaveLength(1);
+    });
+
+    // `app_opens` is analytics: the response carries nothing derived from it
+    // and the client never awaits the post. Holding the response open for a
+    // primary write put that write's latency inside the app launch it was
+    // measuring, on a connection the launch was competing for.
+    it('responds without waiting for the stats write', async () => {
+        const owner = await makeUser();
+        const app = await createApp(owner.actor);
+
+        let releaseWrite = () => {};
+        const writeSpy = vi
+            .spyOn(server.clients.db, 'write')
+            .mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        releaseWrite = () => resolve(undefined as never);
+                    }),
+            );
+
+        try {
+            const { res, captured } = makeRes();
+            await withActor(owner.actor, () =>
+                callRoute(
+                    'post',
+                    '/rao',
+                    makeReq({ body: { app_uid: app.uid }, actor: owner.actor }),
+                    res,
+                ),
+            );
+
+            // The handler returned while the INSERT is still outstanding.
+            expect(captured.body).toEqual({});
+            expect(writeSpy).toHaveBeenCalled();
+        } finally {
+            releaseWrite();
+            await server.controllers.apps.drainPendingAppOpens();
+            writeSpy.mockRestore();
+        }
+    });
+
+    // A stats failure must never turn into a failed app open — and since the
+    // write is now unawaited, it must not surface as an unhandled rejection.
+    it('swallows a failing stats write without rejecting the request', async () => {
+        const owner = await makeUser();
+        const app = await createApp(owner.actor);
+
+        const writeSpy = vi
+            .spyOn(server.clients.db, 'write')
+            .mockRejectedValue(new Error('primary is down'));
+
+        try {
+            const { res, captured } = makeRes();
+            await withActor(owner.actor, () =>
+                callRoute(
+                    'post',
+                    '/rao',
+                    makeReq({ body: { app_uid: app.uid }, actor: owner.actor }),
+                    res,
+                ),
+            );
+            expect(captured.body).toEqual({});
+            await expect(
+                server.controllers.apps.drainPendingAppOpens(),
+            ).resolves.toBeUndefined();
+        } finally {
+            writeSpy.mockRestore();
+        }
     });
 
     it('falls back to actor.app.uid when the body omits app_uid', async () => {
@@ -353,6 +420,8 @@ describe('AppController POST /rao', () => {
             ),
         );
         expect(captured.body).toEqual({});
+
+        await server.controllers.apps.drainPendingAppOpens();
 
         const rows = (await server.clients.db.read(
             'SELECT `app_uid` FROM `app_opens` WHERE `app_uid` = ? AND `user_id` = ?',
@@ -664,6 +733,25 @@ describe('AppController GET /app-icon/:app_uid', () => {
         expect(captured.headers['content-type']).toBe('image/png');
         expect(Buffer.isBuffer(captured.body)).toBe(true);
         expect((captured.body as Buffer).equals(png)).toBe(true);
+    });
+
+    // Icons are fetched on every app launch, over a connection the launch is
+    // already competing for. The inline path must not be cached more briefly
+    // than the redirect path that serves the same resource.
+    it('caches an inline data-URL icon as long as the redirect path', async () => {
+        const owner = await makeUser();
+        const dataUrl = `data:image/png;base64,${Buffer.from('x').toString('base64')}`;
+        const app = await createApp(owner.actor, { icon: dataUrl });
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app-icon/:app_uid',
+            makeReq({ params: { app_uid: app.uid } }),
+            res,
+        );
+
+        expect(captured.headers['cache-control']).toBe('public, max-age=900');
     });
 
     it('falls back to the default icon when the data-URL MIME is not allowlisted', async () => {

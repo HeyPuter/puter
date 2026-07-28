@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { isAccessTokenActor, isAppActor } from '../../core/actor.js';
@@ -31,13 +32,64 @@ import DEFAULT_APP_ICON from './default-app-icon.js';
 /**
  * REST endpoints for app management.
  *
- * Delegates to AppDriver for the actual CRUD + permission logic —
- * these routes are just thin shape adapters that translate REST
- * conventions into driver calls.
+ * Delegates to AppDriver for the actual CRUD + permission logic — these routes
+ * are just thin shape adapters that translate REST conventions into driver
+ * calls.
  */
 export class AppController extends PuterController {
     get appStore() {
         return this.stores.app;
+    }
+
+    // In-flight background app-open writes. Tracked only so tests and
+    // shutdown can wait for them — the request path never does.
+    #pendingOpenWrites = new Set();
+
+    /**
+     * Record an app open. `app_opens` is analytics: it backs the recent-apps
+     * list and the open counters, and no response field is derived from it. The
+     * client posts this without awaiting and updates its own recent list
+     * optimistically, so holding a response open for a primary write only added
+     * latency to the launch that write is measuring.
+     *
+     * Failures are logged, never surfaced — a dropped stat must not turn into a
+     * failed app open.
+     *
+     * @param {string} appUid
+     * @param {number} userId
+     * @returns {Promise<void>} Settles when the write and event emit finish
+     */
+    #recordAppOpen(appUid, userId) {
+        const ts = Math.floor(Date.now() / 1000);
+        const work = (async () => {
+            try {
+                await this.clients.db.write(
+                    'INSERT INTO `app_opens` (`app_uid`, `user_id`, `ts`) VALUES (?, ?, ?)',
+                    [appUid, userId, ts],
+                );
+            } catch (e) {
+                console.warn('[rao] insert failed:', e);
+            }
+
+            try {
+                this.clients.event?.emitAndWait(
+                    'app.opened',
+                    { app_uid: appUid, user_id: userId, ts },
+                    {},
+                );
+            } catch {
+                // event emission best-effort
+            }
+        })();
+
+        this.#pendingOpenWrites.add(work);
+        work.finally(() => this.#pendingOpenWrites.delete(work));
+        return work;
+    }
+
+    /** Await every in-flight app-open write. */
+    async drainPendingAppOpens() {
+        await Promise.allSettled([...this.#pendingOpenWrites]);
     }
 
     get appDriver() {
@@ -148,33 +200,10 @@ export class AppController extends PuterController {
                         legacyCode: 'not_found',
                     });
 
-                // Persist open record
-                try {
-                    await this.clients.db.write(
-                        'INSERT INTO `app_opens` (`app_uid`, `user_id`, `ts`) VALUES (?, ?, ?)',
-                        [
-                            app_uid,
-                            req.actor.user.id,
-                            Math.floor(Date.now() / 1000),
-                        ],
-                    );
-                } catch (e) {
-                    console.warn('[rao] insert failed:', e);
-                }
-
-                try {
-                    this.clients.event?.emitAndWait(
-                        'app.opened',
-                        {
-                            app_uid,
-                            user_id: req.actor.user.id,
-                            ts: Math.floor(Date.now() / 1000),
-                        },
-                        {},
-                    );
-                } catch {
-                    // event emission best-effort
-                }
+                // Validation and authorization are settled by this point, so
+                // the caller learns the outcome now and the stats write lands
+                // on its own. See `#recordAppOpen`.
+                this.#recordAppOpen(app_uid, req.actor.user.id);
 
                 res.json({});
             },
@@ -437,7 +466,11 @@ export class AppController extends PuterController {
                 }
                 setIconSecurityHeaders(res);
                 res.set('Content-Type', mime);
-                res.set('Cache-Control', 'public, max-age=60');
+                // Same freshness as the redirect path above — this is the
+                // same resource, just served inline because no CDN file
+                // exists yet. A 60s TTL made every app launch re-fetch the
+                // icon over a connection the launch itself is competing for.
+                res.set('Cache-Control', 'public, max-age=900');
                 res.send(Buffer.from(icon.slice(commaIdx + 1), 'base64'));
 
                 // Trigger background generation so next request hits the CDN
@@ -468,6 +501,14 @@ export class AppController extends PuterController {
     }
 
     onServerStart() {}
-    onServerPrepareShutdown() {}
+    /**
+     * Let outstanding stats writes finish before the process goes away —
+     * otherwise a deploy silently drops every open recorded in the seconds
+     * before it.
+     */
+    async onServerPrepareShutdown() {
+        await this.drainPendingAppOpens();
+    }
+
     onServerShutdown() {}
 }
