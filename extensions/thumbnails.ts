@@ -13,6 +13,54 @@ const clients = extension.import('client');
 const MAX_THUMBNAIL_BYTES = 2 * 1024 * 1024;
 const MAX_THUMBNAIL_PIXELS = 64e6;
 
+// Namespace every object this extension writes. An fs object's key is its
+// bare fsentry uuid and the default config points `thumbnailStore.name` at
+// the same bucket as `s3_bucket`, so without a prefix of our own there is no
+// way to tell a thumbnail we minted from any other object in the deployment.
+const THUMBNAIL_KEY_PREFIX = 'thumbnails/';
+const UUID_PATTERN =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const mintThumbnailKey = (): string =>
+    `${THUMBNAIL_KEY_PREFIX}${crypto.randomUUID()}`;
+
+/**
+ * Extract the object key from a stored thumbnail pointer, or null when the
+ * pointer isn't one this extension minted.
+ *
+ * `fsentries.thumbnail` is writable through the FS API, so neither half of the
+ * stored string is trusted: the bucket is discarded (callers always pass their
+ * own) and the key must sit under {@link THUMBNAIL_KEY_PREFIX} with a random
+ * uuid. Honouring an arbitrary key would lend this extension's storage
+ * credentials to whatever object the caller named — in the shared-bucket layout
+ * that is every user's file, since an fs object's key is its fsentry uuid.
+ * Legacy bare-uuid thumbnails fail the check and are treated as absent; they
+ * are indistinguishable from a planted pointer, so there is nothing safer to do
+ * with them than stop signing them.
+ */
+const resolveThumbnailKey = (pointer: string): string | null => {
+    let key: string;
+    if (pointer.startsWith('s3://')) {
+        const rest = pointer.slice('s3://'.length);
+        const slash = rest.indexOf('/');
+        if (slash === -1) return null;
+        key = rest.slice(slash + 1);
+    } else {
+        let pathname: string;
+        try {
+            pathname = new URL(pointer).pathname;
+        } catch {
+            return null;
+        }
+        const segments = pathname.replace(/^\/+/, '').split('/');
+        segments.shift(); // bucket
+        key = segments.join('/');
+    }
+    if (!key.startsWith(THUMBNAIL_KEY_PREFIX)) return null;
+    const id = key.slice(THUMBNAIL_KEY_PREFIX.length);
+    return UUID_PATTERN.test(id) ? key : null;
+};
+
 // S3 client + bucket config — lazily resolved after boot from config.
 let s3Client: S3Client | null = null;
 let s3PresignClient: S3Client | null = null;
@@ -112,7 +160,7 @@ export async function handleThumbnailCreated(
         return;
     }
 
-    const key = crypto.randomUUID();
+    const key = mintThumbnailKey();
     event.url = `s3://${deps.bucketName}/${key}`;
 
     await deps.s3.send(
@@ -151,7 +199,7 @@ export const handleThumbnailUploadPrepare = async (
                 continue;
         }
 
-        const key = crypto.randomUUID();
+        const key = mintThumbnailKey();
         const command = new PutObjectCommand({
             Bucket: deps.bucketName,
             Key: key,
@@ -178,27 +226,27 @@ export const handleThumbnailRead = async (
     if (typeof thumb !== 'string' || !thumb) return;
     const presignClient = deps.s3Presign;
 
-    if (thumb.startsWith('s3://')) {
-        const [bucket, key] = thumb.slice(5).split('/');
-        entry.thumbnail = await getSignedUrl(
-            presignClient,
-            new GetObjectCommand({ Bucket: bucket, Key: key }),
-            { expiresIn: 604800 },
-        );
-    } else if (
-        thumb.startsWith('https') &&
-        thumb.includes(new URL(deps.bucketEndpoint).hostname)
-    ) {
+    if (
+        thumb.startsWith('s3://') ||
         // Legacy format — remove after full migration
-        const [bucket, key] = new URL(thumb).pathname.slice(1).split('/');
+        (thumb.startsWith('https') &&
+            thumb.includes(new URL(deps.bucketEndpoint).hostname))
+    ) {
+        const key = resolveThumbnailKey(thumb);
+        if (!key) {
+            // Not a pointer we minted — refuse to sign it rather than hand
+            // out a presigned read of whatever object it names.
+            entry.thumbnail = null;
+            return;
+        }
         entry.thumbnail = await getSignedUrl(
             presignClient,
-            new GetObjectCommand({ Bucket: bucket, Key: key }),
+            new GetObjectCommand({ Bucket: deps.bucketName, Key: key }),
             { expiresIn: 604800 },
         );
     } else if (thumb.startsWith('data')) {
         // Inline data-URL migration: upload to S3 and update the DB entry.
-        const key = crypto.randomUUID();
+        const key = mintThumbnailKey();
         const { mimeType, data } = base64ParseDataUrl(thumb);
         const newUrl = `s3://${deps.bucketName}/${key}`;
 
@@ -233,14 +281,22 @@ export const handleThumbnailRead = async (
 };
 
 export const handleFsRemoveNodeThumbnail = async (
-    payload: { target: Record<string, unknown> },
-    deps: { s3: S3Client },
+    payload: { target: { thumbnail?: string | null } },
+    deps: { s3: S3Client; bucketName: string },
 ): Promise<void> => {
-    const thumbnailUrl = payload.target.thumbnail as string | undefined;
-    if (!thumbnailUrl || !thumbnailUrl.startsWith('s3://')) return;
+    const thumbnailUrl = payload.target.thumbnail;
+    if (!thumbnailUrl) return;
 
-    const [bucket, key] = thumbnailUrl.slice(5).split('/');
-    await deps.s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: key }));
+    // Same trust rule as the read path, and load-bearing for the same reason:
+    // the pointer decides which object gets deleted, so a key we didn't mint
+    // would let the owner of one file destroy an object belonging to someone
+    // else just by naming it here.
+    const key = resolveThumbnailKey(thumbnailUrl);
+    if (!key) return;
+
+    await deps.s3.send(
+        new DeleteObjectCommand({ Bucket: deps.bucketName, Key: key }),
+    );
 };
 
 extension.on(
@@ -282,9 +338,9 @@ extension.on('thumbnail.read', async (_key, entry: Record<string, unknown>) => {
 // -- fs.remove.node --------------------------------------------------
 // Delete S3 thumbnail when the file is removed.
 
-extension.on(
-    'fs.remove.node',
-    async (_key, payload: { target: Record<string, unknown> }) => {
-        await handleFsRemoveNodeThumbnail(payload, { s3: getClient() });
-    },
-);
+extension.on('fs.remove.node', async (_key, payload) => {
+    await handleFsRemoveNodeThumbnail(payload, {
+        s3: getClient(),
+        bucketName: thumbnailBucketName,
+    });
+});

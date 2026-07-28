@@ -863,6 +863,14 @@ export class LegacyFSController extends PuterController {
             throw new HttpError(400, 'Missing `thumbnail`', {
                 legacyCode: 'bad_request',
             });
+        // Only inline image data. Clients generate the thumbnail themselves
+        // and the thumbnails extension is what turns it into a storage
+        // pointer; accepting a pointer here would let a caller name an object
+        // the server would then sign reads of, and delete, on their behalf.
+        if (!thumbnail.startsWith('data:'))
+            throw new HttpError(400, '`thumbnail` must be a data: URL', {
+                legacyCode: 'bad_request',
+            });
 
         const entry = await this.stores.fsEntry.getEntryByUuid(uid);
         if (!entry || !entry.path)

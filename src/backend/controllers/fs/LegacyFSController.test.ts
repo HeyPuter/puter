@@ -2743,6 +2743,48 @@ describe('LegacyFSController.updateFsentryThumbnail', () => {
         const body = captured.body as { thumbnail: string };
         expect(typeof body.thumbnail).toBe('string');
     });
+
+    // The write ACL here covers the entry being annotated, not whatever the
+    // thumbnail string points at. A storage pointer stored verbatim is later
+    // presigned (and deleted) by the thumbnails extension using the server's
+    // own credentials, so the owner of one file could name another user's
+    // object — an fs object's key is its fsentry uuid — and have the server
+    // read or destroy it. Only inline image data is accepted.
+    it.each([
+        ['an s3:// pointer', 's3://puter-local/00000000-0000-4000-8000-000000000000'],
+        ['an https URL', 'https://cdn.example.com/x.png'],
+        ['a bare object key', 'thumbnails/whatever'],
+    ])('rejects %s instead of storing it verbatim', async (_label, thumbnail) => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const target = `/${username}/Documents/thumbme3-${uuidv4()}.txt`;
+        await withActor(actor, () =>
+            controller.touch(
+                makeReq({
+                    body: { path: target, set_modified_to_now: true },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(target);
+
+        const { res } = makeRes();
+        await expect(
+            withActor(actor, () =>
+                controller.updateFsentryThumbnail(
+                    makeReq({
+                        body: { uid: entry!.uuid, thumbnail },
+                        actor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        const after = await server.stores.fsEntry.getEntryByUuid(entry!.uuid);
+        expect(after?.thumbnail ?? null).toBeNull();
+    });
 });
 
 // ── GET /get-launch-apps ────────────────────────────────────────────
