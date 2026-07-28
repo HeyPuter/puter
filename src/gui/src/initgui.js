@@ -59,8 +59,10 @@ import { ThemeService } from './services/ThemeService.js';
 // silently resolve to the factory — use `window.privacy_aware_path` instead.
 import { privacy_aware_path as privacy_aware_path_factory } from './util/desktop.js';
 import { resolveAPIOrigin } from './util/apiOrigin.js';
-import { deliversTokenToOpener } from './util/popupAuth.js';
-import { readOidcPopupHandoff } from './util/popupOidcHandoff.js';
+import {
+    deliversTokenToOpener,
+    trustsOpenerOriginParam,
+} from './util/popupAuth.js';
 
 const postAuthActions = async (action) => {
     // Set when a popup's user-app token exchange fails. The exchange is what
@@ -1124,22 +1126,18 @@ window.initgui = async function (options) {
     if (window.embedded_in_popup) {
         $('body').addClass('embedded-in-popup');
 
-        // Determine the origin of the opener. Every source here is one the
-        // browser vouches for: the handoff this popup itself stashed before
-        // the OIDC hop (sessionStorage is origin-partitioned, so no other
-        // site can write it), `document.referrer`, or the opener's own reply
-        // to the `requestOrigin` handshake.
-        //
-        // Notably *not* a source: the `opener_origin` query parameter. It is
-        // written by whoever built the link, and this origin is the app
-        // identity a token gets minted for — so honouring it let any site
-        // have a token minted in another app's name. See
-        // util/popupOidcHandoff.js for what replaced it.
-        window.oidcPopupHandoff = readOidcPopupHandoff(
-            window.url_query_params.get('msg_id'),
-        );
-        window.openerOrigin =
-            window.oidcPopupHandoff?.opener_origin || document.referrer;
+        // determine the origin of the opener (preserved across OIDC redirect via URL param, else referrer or messaging)
+        // The parameter is only believed for the actions an OIDC return leg
+        // actually produces — it exists to survive that redirect and nothing
+        // else. See util/popupAuth.js.
+        const openerOriginFromUrl = trustsOpenerOriginParam(action)
+            ? window.url_query_params.get('opener_origin')
+            : null;
+        if (openerOriginFromUrl) {
+            window.openerOrigin = openerOriginFromUrl;
+        } else {
+            window.openerOrigin = document.referrer;
+        }
         if (!window.openerOrigin) {
             try {
                 window.openerOrigin = await requestOpenerOrigin();
@@ -1228,19 +1226,8 @@ window.initgui = async function (options) {
                 console.error("error in 'sign-in' flow", e);
             }
 
-            // An OIDC login that just completed in this popup may skip the
-            // account picker — the user picked their account at the provider
-            // moments ago. Both halves have to hold: the backend says a login
-            // completed (`oidc_login`, which it appends on the return leg) and
-            // *this popup* is the one that started the round trip. The query
-            // parameter alone is written by whoever built the link, so on its
-            // own it let any site suppress the picker; the handoff is
-            // sessionStorage on the GUI origin, which only this popup could
-            // have written. See util/popupOidcHandoff.js.
-            if (
-                window.url_query_params.get('oidc_login') === 'true' &&
-                window.oidcPopupHandoff
-            ) {
+            if (window.url_query_params.get('oidc_login') === 'true') {
+                // OIDC login just completed in popup — skip session list and finish the flow
                 picked_a_user_for_sdk_login = true;
                 await window.getUserAppToken(window.openerOrigin);
             } else {

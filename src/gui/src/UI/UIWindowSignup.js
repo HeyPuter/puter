@@ -25,7 +25,6 @@ import UIWindowCardVerificationRequired from './UIWindowCardVerificationRequired
 import UIWindowLogin from './UIWindowLogin.js';
 import { KNOWN_OIDC_PROVIDERS, OIDC_GENERIC_PROVIDER_ICON, humanizeOidcProviderId } from '../util/openid.js';
 import { offersFederatedSignInInPopup } from '../util/popupAuth.js';
-import { stashOidcPopupHandoff } from '../util/popupOidcHandoff.js';
 import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/auth_redirect.js';
 
 function UIWindowSignup(options) {
@@ -262,17 +261,10 @@ function UIWindowSignup(options) {
                                         window.embedded_in_popup &&
                                         window.url_query_params?.get('msg_id')
                                     ) {
-                                        const msg_id =
-                                            window.url_query_params.get(
-                                                'msg_id',
-                                            );
-                                        url += `&embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}`;
-                                        // Carried out of band, not in the URL —
-                                        // see util/popupOidcHandoff.js.
-                                        stashOidcPopupHandoff({
-                                            openerOrigin: window.openerOrigin,
-                                            msgId: msg_id,
-                                        });
+                                        url += `&embedded_in_popup=true&msg_id=${encodeURIComponent(window.url_query_params.get('msg_id'))}`;
+                                        if (window.openerOrigin) {
+                                            url += `&opener_origin=${encodeURIComponent(window.openerOrigin)}`;
+                                        }
                                     }
                                     window.location.href = url;
                                 });

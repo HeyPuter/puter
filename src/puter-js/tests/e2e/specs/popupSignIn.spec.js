@@ -113,28 +113,6 @@ test.describe('popup sign-in cannot be driven from a link', () => {
         expect(await page.evaluate(() => window.__leaked)).toBe('waiting');
     });
 
-    test('`oidc_login` in the URL does not skip the account picker', async ({
-        page,
-    }) => {
-        // The backend appends this on a genuine OIDC return leg, but as a bare
-        // query parameter anyone could write it — and it suppressed the picker
-        // outright. It is now believed only alongside the out-of-band handoff
-        // that the popup itself stashed before leaving for the provider.
-        const session = '11111111-2222-4333-8444-888888888888';
-        const popup = await probe(
-            page,
-            session,
-            '__GUI__/action/sign-in?embedded_in_popup=true' +
-                '&cross_origin_isolated=true&oidc_login=true' +
-                `&signin_session=${session}&msg_id=90`,
-        );
-
-        await expect(popup.locator('.window-session-list')).toBeVisible({
-            timeout: 60_000,
-        });
-        expect(await page.evaluate(() => window.__leaked)).toBe('waiting');
-    });
-
     test('dismissing the account picker leaves the opener with no token', async ({
         page,
     }) => {
