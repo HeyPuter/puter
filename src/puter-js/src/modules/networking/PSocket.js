@@ -50,9 +50,17 @@ export class PSocket extends EventListener {
 
                 wispInfo.handler = new PWispHandler(wispServer, wispToken);
                 // Wait for websocket to fully open
-                await new Promise((res, req) => {
-                    wispInfo.handler.onReady = res;
-                });
+                try {
+                    await new Promise((res, rej) => {
+                        wispInfo.handler.onReady = res;
+                        wispInfo.handler.onError = rej;
+                    });
+                } catch (e) {
+                    // Drop the dead handler so the next socket redials instead
+                    // of registering streams on a relay that never opened.
+                    wispInfo.handler = undefined;
+                    throw e;
+                }
             }
 
             const callbacks = {
@@ -74,7 +82,12 @@ export class PSocket extends EventListener {
                 this.emit('open', undefined);
             }, 0);
 
-        })();
+        })().catch((e) => {
+            // Nothing awaits this body, so a failure to connect has to reach
+            // the caller as an 'error' event rather than an unhandled rejection.
+            this.emit('error', e instanceof Error ? e : new Error(String(e)));
+            this.emit('close', true);
+        });
     }
     /**
      * Registers a handler for a socket event, the same as `on`.
@@ -100,7 +113,7 @@ export class PSocket extends EventListener {
             wispInfo.handler.write(this._streamID, data);
             if ( callback ) callback();
         } else if ( data.resize ) { // ArrayBuffer
-            data.write(this._streamID, new Uint8Array(data));
+            wispInfo.handler.write(this._streamID, new Uint8Array(data));
             if ( callback ) callback();
         } else if ( typeof (data) === 'string' ) {
             wispInfo.handler.write(this._streamID, texten.encode(data));

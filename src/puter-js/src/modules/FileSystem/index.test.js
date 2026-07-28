@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The module opens a socket in its constructor; nothing here exercises it.
-vi.mock('../../lib/socket.io/socket.io.esm.min.js', () => ({
-    default: () => ({ on: vi.fn(), disconnect: vi.fn() }),
+vi.mock('socket.io-client', () => ({
+    io: () => ({ on: vi.fn(), disconnect: vi.fn() }),
 }));
 
 const { PuterJSFileSystemModule } = await import('./index.js');

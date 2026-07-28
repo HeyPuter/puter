@@ -4,12 +4,29 @@ export class PWispHandler {
     _ws;
     _nextStreamID = 1;
     _bufferMax;
+    // Set once the relay answers the handshake with CONTINUE on stream 0.
+    // Decides whether a close is a dropped connection (reconnect) or a
+    // handshake that never completed (report failure).
+    _ready = false;
     onReady = undefined;
+    onError = undefined;
     streamMap = new Map();
     constructor (wispURL, puterAuth) {
         const setup = () => {
             this._ws = new WebSocket(wispURL);
             this._ws.binaryType = 'arraybuffer';
+            this._ws.onerror = () => {
+                this._fail(new Error(`Wisp relay connection failed: ${wispURL}`));
+            };
+            this._ws.onclose = () => {
+                if ( this._ready ) {
+                    // Pass the function itself: `setTimeout(setup(), 1000)`
+                    // would reconnect immediately and schedule nothing.
+                    setTimeout(setup, 1000);
+                    return;
+                }
+                this._fail(new Error('Wisp relay closed before the handshake completed'));
+            };
             this._ws.onmessage = (event) => {
                 const parsed = parseIncomingPacket(new Uint8Array(event.data));
                 switch ( parsed.packetType ) {
@@ -19,16 +36,14 @@ export class PWispHandler {
                 case CONTINUE:
                     if ( parsed.streamID === 0 ) {
                         this._bufferMax = parsed.remainingBuffer;
-                        this._ws.onclose = () => {
-                            setTimeout(setup(), 1000);
-                        };
+                        this._ready = true;
                         if ( this.onReady ) {
                             this.onReady();
                         }
                         return;
                     }
                     this.streamMap.get(parsed.streamID).buffer = parsed.remainingBuffer;
-                    this._continue();
+                    this._continue(parsed.streamID);
                     break;
                 case CLOSE:
                     if ( parsed.streamID !== 0 )
@@ -47,6 +62,13 @@ export class PWispHandler {
             };
         };
         setup();
+    }
+    // Reports a connection-level failure once, so a caller waiting on the
+    // handshake is rejected rather than left hanging.
+    _fail (error) {
+        const onError = this.onError;
+        this.onError = undefined;
+        if ( onError ) onError(error);
     }
     _continue (streamID) {
         const queue = this.streamMap.get(streamID).queue;

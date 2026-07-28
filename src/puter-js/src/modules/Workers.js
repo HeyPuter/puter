@@ -207,9 +207,6 @@ export class WorkersHandler extends PuterModule {
         const driverResult = await utils.makeDriverMethod({ iface: 'workers', driver: 'worker-service', method: 'destroy', argNames: ['authorization', 'workerName'] })(this.puter.authToken, workerName);
 
         if ( ! driverResult.result ) {
-            if ( ! driverResult.result ) {
-                new Error("Worker doesn't exist");
-            }
             throw new Error(driverResult?.errors || 'Driver failed to execute, do you have the necessary permissions?');
         } else {
             let currentWorkers = await this.puter.kv.get('user-workers');

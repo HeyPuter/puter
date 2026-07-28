@@ -201,10 +201,15 @@ function setupXhrEventHandlers (xhr, success_cb, error_cb, resolve_func, reject_
 }
 
 /**
- * Makes the hybrid promise/callback function for one driver method: the
- * returned function takes either a named-parameters object or the positional
- * arguments listed in `argNames`, optionally followed by success/error
- * callbacks, and resolves the driver's `result`.
+ * Makes the function for one driver method: the returned function takes either
+ * a named-parameters object or the positional arguments listed in `argNames`,
+ * optionally followed by legacy success/error callbacks, and resolves the
+ * driver's `result`.
+ *
+ * `error` is forwarded to `driverCall` as `onError`; `success` is consumed so
+ * it stays off the wire but is never invoked — these methods are promise-only.
+ * That is deliberate: it has never fired, so invoking it now would double-run
+ * handlers in apps that pass one and also await the promise.
  *
  * @param {{
  *   iface: string,
@@ -240,6 +245,8 @@ function makeDriverMethod (spec) {
             argNames.forEach((argName, index) => {
                 driverArgs[argName] = args[index];
             });
+            // `argNames.length` is the legacy success slot, deliberately
+            // skipped; the error callback follows it.
             onError = args[argNames.length + 1];
         }
 

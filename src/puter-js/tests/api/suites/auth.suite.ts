@@ -33,6 +33,30 @@ export default suite('auth', {
         },
     },
 
+    // Both worker environments must refuse signOut. No platform here reports
+    // 'web-worker' (workerd reports 'service-worker'), so the env is forced to
+    // reach the guard for each value it is meant to cover.
+    'signOut is refused in every worker environment': async (t) => {
+        const realEnv = t.puter.env;
+        try {
+            for (const env of ['web-worker', 'service-worker'] as const) {
+                t.puter.env = env;
+                await t.assert.rejects(
+                    async () => t.puter.auth.signOut(),
+                    `signOut should be refused when env is ${env}`,
+                );
+                t.assert.equal(
+                    t.puter.auth.isSignedIn(),
+                    true,
+                    `a refused signOut must leave the token intact (env ${env})`,
+                );
+            }
+        } finally {
+            t.puter.env = realEnv;
+            t.puter.setAuthToken(t.env.users.user.token);
+        }
+    },
+
     'a bogus token is rejected by the API': async (t) => {
         const res = await fetch(`${t.env.apiOrigin}/whoami`, {
             headers: {

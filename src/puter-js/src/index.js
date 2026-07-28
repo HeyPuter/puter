@@ -988,7 +988,7 @@ const puterInit = function () {
         };
 
         resetAuthToken = function () {
-            if (this.env === 'worker' || this.env === 'service-worker') {
+            if (this.env === 'web-worker' || this.env === 'service-worker') {
                 throw new Error(
                     'Sign out is not permitted from WebWorkers or ServiceWorkers',
                 );
