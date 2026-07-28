@@ -73,6 +73,7 @@ const en = {
         confirm_code_2fa_instruction: 'Enter the 6-digit code from your authenticator app.',
         confirm_code_2fa_submit_btn: 'Submit',
         confirm_code_2fa_title: 'Enter 2FA Code',
+        confirm_continue_as: 'Continue as <strong>{{username}}</strong>?<p>This link signs you in to that account. Anything you create — files, uploads, chats — will be saved there and visible to whoever owns it. Only continue if the account is yours.</p>',
         confirm_delete_multiple_items: 'Are you sure you want to permanently delete these items?',
         confirm_delete_single_item: 'Do you want to permanently delete this item?',
         confirm_open_apps_log_out: 'You have open apps. Are you sure you want to log out?',

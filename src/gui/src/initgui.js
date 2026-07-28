@@ -1341,6 +1341,9 @@ window.initgui = async function (options) {
             puter.setAPIOrigin(api_origin);
         }
 
+        const previous_auth_token = window.auth_token;
+        const previous_api_origin = window.api_origin;
+
         puter.setAuthToken(query_param_auth_token);
 
         try {
@@ -1349,6 +1352,32 @@ window.initgui = async function (options) {
             if (e.status === 401) {
                 window.logout();
                 return;
+            }
+        }
+
+        // Confirm the identity before adopting a token that came from the
+        // URL. Every other path into `update_auth_data` is an account the
+        // user picked in the UI, so those don't ask.
+        if (whoami && window.user?.uuid !== whoami.uuid) {
+            const proceed = await UIAlert({
+                type: 'confirm',
+                // `false` — UIAlert encodes the message itself.
+                message: i18n(
+                    'confirm_continue_as',
+                    { username: whoami.username },
+                    false,
+                ),
+                buttons: [
+                    { label: i18n('continue'), value: true, type: 'primary' },
+                    { label: i18n('cancel'), value: false, type: 'secondary' },
+                ],
+            });
+            if (!proceed) {
+                // Back to whatever session was already here; normal boot
+                // picks up below.
+                puter.setAuthToken(previous_auth_token);
+                if (api_origin) puter.setAPIOrigin(previous_api_origin);
+                whoami = null;
             }
         }
 
