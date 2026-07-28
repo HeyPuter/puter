@@ -11,7 +11,7 @@
 # What this does, in order:
 #   1. Checks that docker (with the compose plugin) exists.
 #   2. Creates ./puter-selfhosted/ (override with $env:PUTER_DIR).
-#   3. Downloads docker-compose.yml + Caddy from the OSS repo.
+#   3. Downloads docker-compose.yml + caddy/Caddyfile from the OSS repo.
 #   4. Generates fresh secrets and writes .env + puter/config/config.json.
 #   5. Runs `docker compose up -d` and prints how to find the admin password.
 #
@@ -77,10 +77,10 @@ if ($LASTEXITCODE -ne 0) {
 # ── Step 2: install dir ─────────────────────────────────────────────
 $null = New-Item -ItemType Directory -Force -Path $PuterDir
 Set-Location $PuterDir
-$null = New-Item -ItemType Directory -Force -Path 'puter/config', 'puter/data', 'puter/tls'
+$null = New-Item -ItemType Directory -Force -Path 'puter/config', 'puter/data', 'puter/data/caddy', 'puter/tls'
 Write-Log "install dir: $((Get-Location).Path)"
 
-# ── Step 3: docker-compose.yml + Caddy templates ───────────────────
+# ── Step 3: docker-compose.yml + Caddy config ──────────────────────
 Write-Log "downloading docker-compose.yml from $PuterUrl"
 try {
     Invoke-WebRequest -Uri "$PuterUrl/docker-compose.yml" -OutFile 'docker-compose.yml' -UseBasicParsing
@@ -88,27 +88,19 @@ try {
     Die "could not fetch $PuterUrl/docker-compose.yml — $_"
 }
 
-Write-Log "downloading Caddy templates from $PuterUrl"
+# The Caddyfile is domain-agnostic — it answers on every Host and leaves
+# the subdomain routing to Puter — so there's nothing to template in.
+Write-Log "downloading caddy/Caddyfile from $PuterUrl"
 $null = New-Item -ItemType Directory -Force -Path 'caddy'
-
-try {
-    Invoke-WebRequest -Uri "$PuterUrl/caddy/Caddyfile.local" -OutFile 'caddy/Caddyfile.local' -UseBasicParsing
-} catch {
-    Die "could not fetch $PuterUrl/caddy/Caddyfile.local — $_"
+# If the path was previously auto-created as a directory by a failed
+# `compose up`, remove it so we can write the file there.
+if (Test-Path 'caddy/Caddyfile' -PathType Container) {
+    Remove-Item 'caddy/Caddyfile' -Recurse -Force
 }
-
 try {
-    Invoke-WebRequest -Uri "$PuterUrl/caddy/Caddyfile.domain" -OutFile 'caddy/Caddyfile.domain' -UseBasicParsing
+    Invoke-WebRequest -Uri "$PuterUrl/caddy/Caddyfile" -OutFile 'caddy/Caddyfile' -UseBasicParsing
 } catch {
-    Die "could not fetch $PuterUrl/caddy/Caddyfile.domain — $_"
-}
-
-if ($PuterDomain -eq "puter.localhost") {
-    Copy-Item 'caddy/Caddyfile.local' 'caddy/Caddyfile' -Force
-} else {
-    (Get-Content 'caddy/Caddyfile.domain' -Raw) `
-        -replace '\{\{DOMAIN\}\}', $PuterDomain |
-        Set-Content 'caddy/Caddyfile'
+    Die "could not fetch $PuterUrl/caddy/Caddyfile — $_"
 }
 
 # ── Step 4: secrets, .env, config.json ──────────────────────────────
@@ -131,7 +123,8 @@ if ($writeConfig) {
 
     $envContent = @"
 HTTP_PORT=$PuterPort
-# HTTPS_PORT=443     # uncomment after enabling TLS (see doc/selfhosting/full-stack.md)
+# HTTPS_PORT=443     # uncomment after enabling TLS in caddy/Caddyfile
+#                    # (see "Step 3 — TLS" in doc/self-hosting.md)
 
 MARIADB_ROOT_PASSWORD=$mariadbRootPw
 MARIADB_DATABASE=puter

@@ -2,7 +2,7 @@
 # Self-hosted Puter — full stack.
 #
 # Brings up Puter + every external service it needs:
-#   - nginx    : reverse proxy (mirrors prod ALB; handles TLS + Host fan-out)
+#   - caddy    : reverse proxy (mirrors prod ALB; handles TLS + Host fan-out)
 #   - valkey   : redis-compatible cache / rate-limiter backend
 #   - mariadb  : SQL database (Puter applies its schema on first boot)
 #   - dynamo   : DynamoDB-local (KV store; Puter creates the table itself)
@@ -23,7 +23,8 @@
 #
 # Production:
 #   - Always replace the default passwords / S3 keys / Puter secrets.
-#   - Front Puter with TLS-terminating reverse proxy (Caddy / nginx).
+#   - Enable TLS on the bundled Caddy (see caddy/Caddyfile) or front the
+#     stack with your own TLS-terminating proxy.
 #   - Move state-bearing volumes to a backed-up location.
 
 services:
@@ -118,7 +119,7 @@ services:
       RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:-puter-secret-change-me}
     volumes:
       - ./puter/data/s3:/data:z
-    # Internal-only — browsers reach RustFS via nginx (`s3.<domain>`),
+    # Internal-only — browsers reach RustFS via Caddy (`s3.<domain>`),
     # which preserves the Host header for S3 signature validation and
     # rides the same TLS termination as Puter. Uncomment to also expose
     # 9000 directly on the host for `aws-cli` / debugging.
@@ -249,7 +250,7 @@ services:
         condition: service_started
       s3-init:
         condition: service_completed_successfully
-    # Internal-only: nginx reaches it on the compose network. Uncomment
+    # Internal-only: Caddy reaches it on the compose network. Uncomment
     # to also expose port 4100 directly on the host (useful for debugging).
     # ports:
     #   - "4100:4100"
@@ -271,23 +272,32 @@ services:
       start_period: 30s
 
   caddy:
-    image: caddy:2
+    image: caddy:2.11-alpine
     container_name: puter-caddy
     restart: unless-stopped
-  
     depends_on:
       puter:
         condition: service_started
-  
     ports:
       - "${HTTP_PORT:-80}:80"
-      - "${HTTPS_PORT:-443}:443"
-  
+      # Uncomment when you enable TLS in caddy/Caddyfile:
+      # - "${HTTPS_PORT:-443}:443"
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-
-volumes:
-  caddy_data:
-  caddy_config:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro,z
+      # TLS certs (wildcard fullchain.pem + privkey.pem). Read-only inside.
+      - ./puter/tls:/etc/caddy/tls:ro,z
+      # Caddy's own state — the cert store it would use if you swap this
+      # config over to ACME. Kept under ./puter/data with everything else
+      # so one directory is the whole backup.
+      - ./puter/data/caddy:/data:z
+    healthcheck:
+      # Hits Caddy's local-only admin API rather than proxying through to
+      # Puter: this reports whether the proxy itself is up and configured,
+      # and keeps working once the `:80` block becomes an HTTPS redirect.
+      # 127.0.0.1, not localhost — the admin endpoint is IPv4-only and
+      # busybox wget tries ::1 first.
+      test: ["CMD-SHELL", "wget -qO- --tries=1 --timeout=2 http://127.0.0.1:2019/config/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s

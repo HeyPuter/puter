@@ -7,7 +7,8 @@
 # What this does, in order:
 #   1. Checks that docker (with the compose plugin), curl, and openssl exist.
 #   2. Creates ./puter-selfhosted/ (override with PUTER_DIR=...).
-#   3. Downloads docker-compose.yml from the OSS repo (raw.githubusercontent.com).
+#   3. Downloads docker-compose.yml + caddy/Caddyfile from the OSS repo
+#      (raw.githubusercontent.com).
 #   4. Generates fresh secrets and writes .env + puter/config/config.json.
 #   5. Runs `docker compose up -d` and prints the first-boot admin password.
 #
@@ -21,11 +22,12 @@
 #   PUTER_DOMAIN      domain Puter will serve on           (default: puter.localhost)
 #   PUTER_PORT        HTTP port for Caddy                  (default: 80)
 #   PUTER_PROTOCOL    public scheme: http | https          (default: http)
-#                     When PUTER_DOMAIN is set to a real domain, Caddy can
-#                     automatically provision HTTPS. Set https so Puter builds
-#                     https:// origins, S3 URLs, and redirects.
-#                     See "Running behind your own reverse proxy" in
-#                     doc/self-hosting.md.
+#                     Set https once TLS is terminating in front of Puter —
+#                     either the bundled Caddy with your certs (see "Step 3 —
+#                     TLS" in doc/self-hosting.md) or your own proxy (Traefik,
+#                     a cloud LB). Puter then builds https:// origins, S3
+#                     URLs, and redirects. Leave it http and the installer
+#                     serves plain HTTP on PUTER_PORT.
 #   PUTER_TRUST_PROXY number of reverse-proxy hops in front (default: 1)
 #                     1 = the bundled Caddy (or a single external proxy);
 #                     2 = two hops (e.g. Cloudflare → Caddy → Puter).
@@ -73,8 +75,8 @@ mkdir -p puter/config puter/data puter/tls
 # bind-mount roots sidesteps the mismatch without guessing each image's
 # internal UID. (Docker Desktop on macOS/Windows papers over this with
 # its VM layer; native Linux docker on Debian/Alpine doesn't.)
-mkdir -p puter/data/valkey puter/data/mariadb puter/data/dynamo puter/data/s3 puter/data/puter
-chmod 0777 puter/data/valkey puter/data/mariadb puter/data/dynamo puter/data/s3 puter/data/puter
+mkdir -p puter/data/valkey puter/data/mariadb puter/data/dynamo puter/data/s3 puter/data/puter puter/data/caddy
+chmod 0777 puter/data/valkey puter/data/mariadb puter/data/dynamo puter/data/s3 puter/data/puter puter/data/caddy
 log "install dir: $(pwd)"
 
 # ── Step 3: docker-compose.yml + Caddy config ──────────────────────
@@ -82,28 +84,18 @@ log "downloading docker-compose.yml from $PUTER_URL"
 curl -fsSL "$PUTER_URL/docker-compose.yml" -o docker-compose.yml \
     || die "could not fetch $PUTER_URL/docker-compose.yml"
 
-# Caddy is mounted as `./caddy/Caddyfile:/etc/caddy/Caddyfile:ro` — ensure
-# the Caddyfile exists before `docker compose up`, otherwise Docker creates
-# a directory at that path and the bind mount fails.
-log "downloading Caddy templates from $PUTER_URL"
-
+# Caddy is mounted as `./caddy/Caddyfile:/etc/caddy/Caddyfile:ro,z` — if
+# the host file is missing, docker silently creates a directory at that
+# path and the mount fails with "not a directory" at container start.
+# The Caddyfile is domain-agnostic — it answers on every Host and leaves
+# the subdomain routing to Puter — so there's nothing to template in.
+log "downloading caddy/Caddyfile from $PUTER_URL"
 mkdir -p caddy
-
-curl -fsSL "$PUTER_URL/caddy/Caddyfile.local" \
-    -o caddy/Caddyfile.local \
-    || die "could not fetch $PUTER_URL/caddy/Caddyfile.local"
-
-curl -fsSL "$PUTER_URL/caddy/Caddyfile.domain" \
-    -o caddy/Caddyfile.domain \
-    || die "could not fetch $PUTER_URL/caddy/Caddyfile.domain"
-
-if [ "$PUTER_DOMAIN" = "puter.localhost" ]; then
-    cp caddy/Caddyfile.local caddy/Caddyfile
-else
-    sed "s/{{DOMAIN}}/$PUTER_DOMAIN/g" \
-        caddy/Caddyfile.domain > caddy/Caddyfile
-fi
-
+# If the path was previously auto-created as a dir by a failed `compose up`,
+# remove it so curl can write the file.
+[ -d caddy/Caddyfile ] && rmdir caddy/Caddyfile 2>/dev/null || true
+curl -fsSL "$PUTER_URL/caddy/Caddyfile" -o caddy/Caddyfile \
+    || die "could not fetch $PUTER_URL/caddy/Caddyfile"
 
 # ── Step 4: secrets, .env, config.json ──────────────────────────────
 write_config=1
@@ -126,7 +118,8 @@ if [ "$write_config" = "1" ]; then
 
     cat > .env <<EOF
 HTTP_PORT=$PUTER_PORT
-# HTTPS_PORT=443     # uncomment after enabling TLS (see doc/selfhosting/full-stack.md)
+# HTTPS_PORT=443     # uncomment after enabling TLS in caddy/Caddyfile
+#                    # (see "Step 3 — TLS" in doc/self-hosting.md)
 
 MARIADB_ROOT_PASSWORD=$MARIADB_ROOT_PASSWORD
 MARIADB_DATABASE=puter
@@ -201,6 +194,18 @@ EOF
     "trust_proxy": $PUTER_TRUST_PROXY
 }
 EOF
+fi
+
+# `https` only works if something in front is actually terminating it. The
+# bundled Caddy does that from ./puter/tls once you enable its `:443` block
+# (see "Step 3 — TLS" in doc/self-hosting.md); your own edge proxy is fine
+# too. Neither in place means Puter hands out https:// URLs for an endpoint
+# that only speaks HTTP — broken logins and mixed content.
+if [ "$PUTER_PROTOCOL" = "https" ] && [ ! -f puter/tls/fullchain.pem ]; then
+    warn "PUTER_PROTOCOL=https but ./puter/tls/fullchain.pem is missing."
+    warn "The bundled Caddy is still serving plain HTTP on port $PUTER_PORT."
+    warn "Either drop a wildcard cert into ./puter/tls and uncomment the :443"
+    warn "block in caddy/Caddyfile, or terminate TLS in your own proxy."
 fi
 
 # ── Step 5: bring it up ─────────────────────────────────────────────
