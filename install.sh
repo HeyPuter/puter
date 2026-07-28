@@ -19,15 +19,16 @@
 #   PUTER_DIR         install directory                   (default: ./puter-selfhosted)
 #   PUTER_URL         base URL to fetch docker-compose.yml (default: GitHub raw, main branch)
 #   PUTER_DOMAIN      domain Puter will serve on           (default: puter.localhost)
-#   PUTER_PORT        HTTP port for nginx                  (default: 80)
+#   PUTER_PORT        HTTP port for Caddy                  (default: 80)
 #   PUTER_PROTOCOL    public scheme: http | https          (default: http)
-#                     Set https when a TLS-terminating reverse proxy (Caddy,
-#                     Traefik, nginx, a cloud LB) sits in front — Puter then
-#                     builds https:// origins, S3 URLs, and redirects. See
-#                     "Running behind your own reverse proxy" in doc/self-hosting.md.
+#                     When PUTER_DOMAIN is set to a real domain, Caddy can
+#                     automatically provision HTTPS. Set https so Puter builds
+#                     https:// origins, S3 URLs, and redirects.
+#                     See "Running behind your own reverse proxy" in
+#                     doc/self-hosting.md.
 #   PUTER_TRUST_PROXY number of reverse-proxy hops in front (default: 1)
-#                     1 = the bundled nginx (or a single external proxy);
-#                     2 = two hops (e.g. Cloudflare → your proxy → Puter).
+#                     1 = the bundled Caddy (or a single external proxy);
+#                     2 = two hops (e.g. Cloudflare → Caddy → Puter).
 #   PUTER_ENV         prod | dev                            (default: prod)
 #   PUTER_FORCE       set to 1 to overwrite existing .env / config.json
 
@@ -76,25 +77,25 @@ mkdir -p puter/data/valkey puter/data/mariadb puter/data/dynamo puter/data/s3 pu
 chmod 0777 puter/data/valkey puter/data/mariadb puter/data/dynamo puter/data/s3 puter/data/puter
 log "install dir: $(pwd)"
 
-# ── Step 3: docker-compose.yml + nginx config ──────────────────────
+# ── Step 3: docker-compose.yml + Caddy config ──────────────────────
 log "downloading docker-compose.yml from $PUTER_URL"
 curl -fsSL "$PUTER_URL/docker-compose.yml" -o docker-compose.yml \
     || die "could not fetch $PUTER_URL/docker-compose.yml"
 
-# nginx is mounted as `./nginx/nginx.conf:/etc/nginx/nginx.conf:ro` — if
-# the host file is missing, docker silently creates a directory at that
-# path and the mount fails with "not a directory" at container start.
+# Caddy is mounted as `./caddy/Caddyfile:/etc/caddy/Caddyfile:ro` — ensure
+# the Caddyfile exists before `docker compose up`, otherwise Docker creates
+# a directory at that path and the bind mount fails.
 log "downloading Caddy templates from $PUTER_URL"
 
 mkdir -p caddy
 
 curl -fsSL "$PUTER_URL/caddy/Caddyfile.local" \
     -o caddy/Caddyfile.local \
-    || die "could not fetch Caddyfile.local"
+    || die "could not fetch $PUTER_URL/caddy/Caddyfile.local"
 
 curl -fsSL "$PUTER_URL/caddy/Caddyfile.domain" \
     -o caddy/Caddyfile.domain \
-    || die "could not fetch Caddyfile.domain"
+    || die "could not fetch $PUTER_URL/caddy/Caddyfile.domain"
 
 if [ "$PUTER_DOMAIN" = "puter.localhost" ]; then
     cp caddy/Caddyfile.local caddy/Caddyfile
