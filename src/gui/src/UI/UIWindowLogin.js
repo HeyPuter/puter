@@ -24,6 +24,7 @@ import UIWindowSignup from './UIWindowSignup.js';
 import { KNOWN_OIDC_PROVIDERS, OIDC_GENERIC_PROVIDER_ICON, humanizeOidcProviderId } from '../util/openid.js';
 import { offersFederatedSignInInPopup } from '../util/popupAuth.js';
 import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/auth_redirect.js';
+import { stashOidcPopupHandoff } from '../util/popupOidcHandoff.js';
 
 // ── 2FA Login CSS (injected once) ───────────────────────────────────────────
 const LOGIN_2FA_CSS = `
@@ -426,10 +427,17 @@ async function UIWindowLogin (options) {
                             url += `&referrer=${encodeURIComponent(referrer)}`;
                         }
                         if ( window.embedded_in_popup && window.url_query_params?.get('msg_id') ) {
-                            url += `&embedded_in_popup=true&msg_id=${encodeURIComponent(window.url_query_params.get('msg_id'))}`;
-                            if ( window.openerOrigin ) {
-                                url += `&opener_origin=${encodeURIComponent(window.openerOrigin)}`;
-                            }
+                            const msg_id = window.url_query_params.get('msg_id');
+                            url += `&embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}`;
+                            // The opener's origin has to survive the hop, but
+                            // not through the URL — see util/popupOidcHandoff.js.
+                            // `openerOrigin` is attested here (referrer or the
+                            // `requestOrigin` handshake); the returning
+                            // navigation's referrer is the provider.
+                            stashOidcPopupHandoff({
+                                openerOrigin: window.openerOrigin,
+                                msgId: msg_id,
+                            });
                         }
                         window.location.href = url;
                     });

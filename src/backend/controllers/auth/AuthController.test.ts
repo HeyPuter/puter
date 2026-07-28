@@ -6921,3 +6921,162 @@ describe('AuthController auth_id preservation on reauth', () => {
         ).rejects.toMatchObject({ statusCode: 429 });
     });
 });
+
+// ── Popup sign-in relay (/login/wait + /login/set) ──────────────────
+
+/**
+ * The relay stands in for the popup's `postMessage` hand-off on
+ * cross-origin-isolated openers, where COOP has severed `window.opener`.
+ * postMessage is audience-bound for free (it posts with `targetOrigin`);
+ * these tests pin the equivalent binding on the server-side path, since the
+ * session id is a link-borne value and not a secret.
+ */
+describe('AuthController.loginWait audience binding', () => {
+    const OPENER = 'https://opener.test';
+
+    /** Mint a real app-under-user token for `origin`, as the popup would. */
+    const mintAppToken = async (actor: Actor, origin: string) => {
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleGetUserAppToken(makeReq({ origin }, { actor }), res),
+        );
+        return (res.body as { token: string }).token;
+    };
+
+    /**
+     * Start a wait, then relay `token` into it. The handler resolves the
+     * origin (async, DB-backed) before subscribing, so the emit is retried
+     * until the wait settles rather than fired after a fixed sleep.
+     */
+    const waitWithRelay = async (
+        session: string,
+        headers: Record<string, unknown>,
+        token: string | null,
+    ) => {
+        const res = makeRes();
+        const waiting = controller.loginWait(makeReq({ session }, { headers }), res);
+        const settled = waiting.then(
+            () => 'ok' as const,
+            (e: unknown) => e,
+        );
+
+        if (token !== null) {
+            let done = false;
+            settled.then(() => {
+                done = true;
+            });
+            for (let i = 0; i < 100 && !done; i++) {
+                await controller.loginSet(
+                    makeReq({ session, auth_token: token }),
+                    makeRes(),
+                );
+                await new Promise((r) => setTimeout(r, 10));
+            }
+        }
+        return { res, outcome: await settled };
+    };
+
+    it('returns the token when the caller Origin matches the app it was minted for', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+
+        const { res, outcome } = await waitWithRelay(
+            uuidv4(),
+            { origin: OPENER },
+            token,
+        );
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('withholds a token minted for a different app from a mismatched Origin', async () => {
+        const { actor } = await makeUserAndActor();
+        // The attack: the popup was talked into minting for OPENER, but the
+        // party holding the session id is somewhere else entirely.
+        const token = await mintAppToken(actor, OPENER);
+
+        const { res, outcome } = await waitWithRelay(
+            uuidv4(),
+            { origin: 'https://evil.test' },
+            token,
+        );
+        // Same 408 the empty path returns — a mismatched caller must not be
+        // able to tell "nothing arrived" from "something arrived for someone
+        // else".
+        expect(outcome).toMatchObject({ statusCode: 408 });
+        expect(res.body).toBeUndefined();
+    });
+
+    it('rejects a caller that sends no Origin header', async () => {
+        // curl and any server-side fetch land here. Without this the session
+        // id alone — which travels in a link — would be enough to collect.
+        await expect(
+            controller.loginWait(makeReq({ session: uuidv4() }, {}), makeRes()),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('rejects the opaque "null" origin', async () => {
+        // Sandboxed iframes and file:// documents both serialise to "null",
+        // so honouring it would make two unrelated opaque origins equal.
+        await expect(
+            controller.loginWait(
+                makeReq({ session: uuidv4() }, { headers: { origin: 'null' } }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('still rejects a malformed session id before looking at Origin', async () => {
+        await expect(
+            controller.loginWait(
+                makeReq(
+                    { session: 'not-a-uuid' },
+                    { headers: { origin: OPENER } },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('withholds a token that is not an app-under-user token', async () => {
+        // A session/GUI token relayed through here would sign the opener in
+        // as the user outright, not as the app.
+        const username = `relay_${uniq()}`;
+        const loginRes = makeRes();
+        await controller.handleSignup(
+            makeReq({
+                username,
+                email: `${username}@test.local`,
+                password: 'correct-horse-battery',
+            }),
+            loginRes,
+        );
+        const guiToken = (loginRes.body as { token: string }).token;
+
+        const { res, outcome } = await waitWithRelay(
+            uuidv4(),
+            { origin: OPENER },
+            guiToken,
+        );
+        expect(outcome).toMatchObject({ statusCode: 408 });
+        expect(res.body).toBeUndefined();
+    });
+
+    it('withholds a token with a valid shape but a forged signature', async () => {
+        const { actor } = await makeUserAndActor();
+        const real = await mintAppToken(actor, OPENER);
+        const forged = jwt.sign(
+            jwt.decode(real) as object,
+            'not-the-server-secret',
+            { keyid: 'v2' },
+        );
+
+        const { res, outcome } = await waitWithRelay(
+            uuidv4(),
+            { origin: OPENER },
+            forged,
+        );
+        expect(outcome).toMatchObject({ statusCode: 408 });
+        expect(res.body).toBeUndefined();
+    });
+});
