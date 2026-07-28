@@ -314,6 +314,33 @@ describe('HomepageController GET /app/:name', () => {
         expect(html).not.toContain(secretUrl);
         expect(html).not.toContain('owner_user_id');
     });
+
+    it('omits index_url even for a public app — the shell is not the launch authority', async () => {
+        const { userId } = await makeUser();
+        const name = `pub-${Math.random().toString(36).slice(2, 10)}`;
+        const indexUrl = `https://public-${name}.example.com/`;
+        await server.stores.app.create(
+            { name, title: 'Public App', index_url: indexUrl },
+            { ownerUserId: userId },
+        );
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app/:name',
+            makeReq({ params: { name }, path: `/app/${name}` }),
+            res,
+        );
+
+        expect(captured.statusCode).toBe(200);
+        const html = String(captured.body);
+        expect(html).toContain('Public App');
+        // The GUI re-reads the app through the driver before launching, which
+        // is where the entitlement gate and hosted-backing guard run. Baking
+        // a launch URL into server-rendered HTML buys nothing and costs the
+        // lookups those guards require.
+        expect(html).not.toContain(indexUrl);
+    });
 });
 
 // ── /show/* ─────────────────────────────────────────────────────────
