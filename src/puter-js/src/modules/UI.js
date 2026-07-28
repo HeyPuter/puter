@@ -284,6 +284,13 @@ class UI extends EventListener {
         return ret;
     };
 
+    // Read live off the owning instance rather than copied, so it reflects a
+    // sign-in that happens after the module was constructed. UI can't extend
+    // PuterModule because it already extends EventListener.
+    get authToken () {
+        return this.puter.authToken;
+    }
+
     constructor (puter, { appInstanceID, parentInstanceID }) {
         const eventNames = [
             'localeChanged',

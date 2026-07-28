@@ -35,6 +35,7 @@ const makeModule = (env = 'gui') => {
         authToken: 'token',
         APIOrigin: 'https://api.test',
         appID: undefined,
+        onAuthStateChanged: vi.fn(),
         _cache: { flushall: vi.fn(), del: vi.fn(), get: vi.fn(), set: vi.fn() },
     };
     globalThis.puter = puter;
@@ -55,17 +56,17 @@ afterEach(() => {
 });
 
 describe('cache update timer', () => {
-    it('keeps a single interval across repeated setAuthToken calls', () => {
+    it('keeps a single interval across repeated auth-state changes', () => {
         const fs = makeModule();
         // `vi.getTimerCount()` is global and constructing the module schedules
         // a timer of its own, so the cache interval is counted as a delta from
         // construction rather than as an absolute.
         const baseline = vi.getTimerCount();
 
-        fs.setAuthToken('one');
+        fs.onAuthStateChanged();
         const timer = fs.cacheUpdateTimer;
-        fs.setAuthToken('two');
-        fs.setAuthToken('three');
+        fs.onAuthStateChanged();
+        fs.onAuthStateChanged();
 
         expect(vi.getTimerCount()).toBe(baseline + 1);
         expect(fs.cacheUpdateTimer).not.toBe(timer);
@@ -98,11 +99,34 @@ describe('cache update timer', () => {
         const fs = makeModule('web');
         const baseline = vi.getTimerCount();
 
-        fs.setAuthToken('one');
+        fs.onAuthStateChanged();
         fs.startCacheUpdateTimer();
 
         // No cache interval on top of what construction already scheduled.
         expect(vi.getTimerCount()).toBe(baseline);
         expect(fs.cacheUpdateTimer).toBeNull();
+    });
+});
+
+describe('auth state', () => {
+    it('reads the token and API origin live from the Puter instance', () => {
+        const fs = makeModule('web');
+
+        fs.puter.authToken = 'rotated-token';
+        fs.puter.APIOrigin = 'https://api.rotated';
+
+        expect(fs.authToken).toBe('rotated-token');
+        expect(fs.APIOrigin).toBe('https://api.rotated');
+    });
+
+    it('subscribes so the socket is rebuilt when auth state changes', () => {
+        const fs = makeModule('web');
+
+        expect(fs.puter.onAuthStateChanged).toHaveBeenCalledTimes(1);
+        const notify = fs.puter.onAuthStateChanged.mock.calls[0][0];
+
+        const previousSocket = fs.socket;
+        notify();
+        expect(fs.socket).not.toBe(previousSocket);
     });
 });

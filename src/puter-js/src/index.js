@@ -184,6 +184,8 @@ const puterInit = function () {
         debug;
         /** @type {InstanceType<typeof Peer>} */
         peer;
+        /** @type {InstanceType<typeof WorkersHandler>} */
+        workers;
         /** @type {typeof path} */
         path;
 
@@ -250,6 +252,11 @@ const puterInit = function () {
         // else replays after it resolves.
         _reauthInflight = null;
 
+        // Subscribers to token / API origin changes. Modules read both live
+        // off this instance, so this is only for the few that hold an open
+        // connection and have to rebuild it.
+        _authStateListeners = new Set();
+
         // debug flag
         debugMode = false;
 
@@ -287,6 +294,7 @@ const puterInit = function () {
             this.drivers = this.registerModule('drivers', Drivers);
             this.debug = this.registerModule('debug', Debug);
             this.peer = this.registerModule('peer', Peer);
+            this.workers = this.registerModule('workers', WorkersHandler);
 
             // Path
             this.path = path;
@@ -428,9 +436,6 @@ const puterInit = function () {
             // Initialize the cache using kv.js
             this._cache = new kvjs({ dbName: 'puter_cache' });
             this._opscache = new kvjs();
-
-            // "modules" in puter.js are external interfaces for the developer
-            this.modules_ = [];
 
             // Holds the query parameters found in the current URL
             let URLParams = new URLSearchParams(globalThis.location?.search);
@@ -774,8 +779,6 @@ const puterInit = function () {
                 fetch: pFetch,
             };
 
-            this.workers = new WorkersHandler(this.authToken);
-
             // Initialize network connectivity monitoring and cache purging
             this.initNetworkMonitoring();
         }
@@ -841,18 +844,33 @@ const puterInit = function () {
         registerModule(name, cls, parameters = {}) {
             const instance = new cls(this, parameters);
             instance.puter = this;
-            this.modules_.push(name);
             this[name] = instance;
             if (instance._init) instance._init({ puter: this });
             return instance;
         }
 
-        updateSubmodules() {
-            // Update submodules with new auth token and API origin
-            for (const name of this.modules_) {
-                if (!this[name]) continue;
-                this[name]?.setAuthToken?.(this.authToken);
-                this[name]?.setAPIOrigin?.(this.APIOrigin);
+        /**
+         * Subscribes to auth token / API origin changes. Modules read both
+         * live off this instance, so this is only needed by the ones holding
+         * a connection that has to be rebuilt.
+         *
+         * @param {() => void} listener
+         * @returns {() => void} Unsubscribes the listener.
+         */
+        onAuthStateChanged(listener) {
+            this._authStateListeners.add(listener);
+            return () => this._authStateListeners.delete(listener);
+        }
+
+        _emitAuthStateChanged() {
+            for (const listener of this._authStateListeners) {
+                try {
+                    listener();
+                } catch (error) {
+                    if (this.debugMode) {
+                        console.error('Auth state listener failed', error);
+                    }
+                }
             }
         }
 
@@ -913,8 +931,7 @@ const puterInit = function () {
                 // check and update gui fs cache regularly
                 setInterval(puter.checkAndUpdateGUIFScache, 10000);
             }
-            // reinitialize submodules
-            this.updateSubmodules();
+            this._emitAuthStateChanged();
 
             // rao
             this.request_rao_();
@@ -945,8 +962,7 @@ const puterInit = function () {
         /** @param {string} APIOrigin */
         setAPIOrigin = function (APIOrigin) {
             this.APIOrigin = APIOrigin;
-            // reinitialize submodules
-            this.updateSubmodules();
+            this._emitAuthStateChanged();
         };
 
         runWhenPuterHappensCallbacks = function () {
@@ -989,8 +1005,7 @@ const puterInit = function () {
                     console.error('Error accessing localStorage:', error);
                 }
             }
-            // reinitialize submodules
-            this.updateSubmodules();
+            this._emitAuthStateChanged();
         };
 
         /**
@@ -1033,7 +1048,7 @@ const puterInit = function () {
                     console.error('Error accessing localStorage:', e);
                 }
             }
-            this.updateSubmodules();
+            this._emitAuthStateChanged();
 
             this._reauthInflight = (async () => {
                 if (this.env === 'gui') {

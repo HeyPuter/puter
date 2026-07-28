@@ -1,3 +1,4 @@
+import { PuterModule } from '../../lib/PuterModule.js';
 import { requestReadAppRootDir, requestWriteAppRootDir } from './appRootDir.js';
 import {
     requestFolder_,
@@ -37,18 +38,13 @@ const METHODS = [
 ];
 
 /**
- * The `puter.perms` module. Holds a reference to the owning Puter instance and
- * reads auth state from it live — nothing is copied out, so token and origin
- * changes on the instance apply to in-flight modules immediately.
+ * The `puter.perms` module.
  *
  * Method implementations live in the sibling files as `this`-context
  * functions whose JSDoc is the source of truth for the public signatures;
  * types/modules/perms.d.ts mirrors them for TypeScript consumers of the SDK.
  */
-export class PermsModule {
-    /** @type {Puter} */
-    puter;
-
+export class PermsModule extends PuterModule {
     // Grant / revoke
     grantUser = grantUser;
     grantGroup = grantGroup;
@@ -93,7 +89,7 @@ export class PermsModule {
 
     /** @param {Puter} puter */
     constructor (puter) {
-        this.puter = puter;
+        super(puter);
 
         const methods = /** @type {Record<string, (...args: unknown[]) => unknown>} */ (
             /** @type {unknown} */ (this)
@@ -115,22 +111,6 @@ export class PermsModule {
     req_ (route, body) {
         return req(this.puter, route, body);
     }
-
-    // Kept for backward compatibility: these used to be copied fields kept in
-    // sync by set{AuthToken,APIOrigin}; they now read through live.
-    get authToken () {
-        return this.puter.authToken;
-    }
-
-    get APIOrigin () {
-        return this.puter.APIOrigin;
-    }
-
-    // No-ops: auth state is read from the Puter instance at call time. The
-    // module registry still invokes these on token/origin changes.
-    setAuthToken () {}
-
-    setAPIOrigin () {}
 }
 
 /**

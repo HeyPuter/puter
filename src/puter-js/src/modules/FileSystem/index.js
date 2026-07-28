@@ -1,5 +1,6 @@
 import path from 'path-browserify';
 import { io } from 'socket.io-client';
+import { PuterModule } from '../../lib/PuterModule.js';
 import * as utils from '../../lib/utils.js';
 
 // Constants
@@ -25,7 +26,7 @@ import stat from './operations/stat.js';
 import upload from './operations/upload/index.js';
 import write from './operations/write.js';
 
-export class PuterJSFileSystemModule {
+export class PuterJSFileSystemModule extends PuterModule {
 
     space = space;
     mkdir = mkdir;
@@ -48,19 +49,18 @@ export class PuterJSFileSystemModule {
     FSItem = FSItem;
 
     /**
-     * Reads its auth state from the owning Puter instance, then connects the
-     * socket it uses for cache invalidation and upload progress.
+     * Connects the socket used for cache invalidation and upload progress.
+     * Unlike the request-based modules, the socket carries the token from the
+     * moment it connects, so it has to be rebuilt whenever auth state changes.
      *
      * @param {import('../../../types/puter').Puter} puter
      */
     constructor (puter) {
-        this.puter = puter;
-        this.authToken = puter.authToken;
-        this.APIOrigin = puter.APIOrigin;
-        this.appID = puter.appID;
+        super(puter);
         this.cacheUpdateTimer = null;
         // Connect socket.
         this.initializeSocket();
+        puter.onAuthStateChanged(() => this.onAuthStateChanged());
     }
 
     /**
@@ -191,15 +191,13 @@ export class PuterJSFileSystemModule {
     }
 
     /**
-     * Sets a new authentication token and resets the socket connection with the updated token.
+     * Reconnects the socket against the current token and API origin. Called
+     * by the SDK whenever either changes.
      *
-     * @param {string} authToken - The new authentication token.
      * @memberof [FileSystem]
      * @returns {void}
      */
-    setAuthToken (authToken) {
-        this.authToken = authToken;
-
+    onAuthStateChanged () {
         // Check cache timestamp and purge if needed (only in GUI environment)
         if ( this.puter.env === 'gui' ) {
             this.checkCacheAndPurge();
@@ -207,20 +205,6 @@ export class PuterJSFileSystemModule {
             this.startCacheUpdateTimer();
         }
 
-        // reset socket
-        this.initializeSocket();
-    }
-
-    /**
-     * Sets the API origin and resets the socket connection with the updated API origin.
-     *
-     * @param {string} APIOrigin - The new API origin.
-     * @memberof [Apps]
-     * @returns {void}
-     */
-    setAPIOrigin (APIOrigin) {
-        this.APIOrigin = APIOrigin;
-        // reset socket
         this.initializeSocket();
     }
 

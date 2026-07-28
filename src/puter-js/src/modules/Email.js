@@ -1,3 +1,4 @@
+import { PuterModule } from '../lib/PuterModule.js';
 import * as utils from '../lib/utils.js';
 
 /** @typedef {import('../../types/modules/email').EmailSendOptions} EmailSendOptions */
@@ -36,37 +37,7 @@ import * as utils from '../lib/utils.js';
  * their copy — retry with just those addresses); the call only rejects
  * when no recipient could be delivered.
  */
-class Email {
-    /**
-     * @param {import('../../types/puter').Puter} puter
-     */
-    constructor(puter) {
-        this.puter = puter;
-        this.authToken = puter.authToken;
-        this.APIOrigin = puter.APIOrigin;
-        this.appID = puter.appID;
-    }
-
-    /**
-     * Sets a new authentication token.
-     *
-     * @param {string} authToken - The new authentication token.
-     * @returns {void}
-     */
-    setAuthToken(authToken) {
-        this.authToken = authToken;
-    }
-
-    /**
-     * Sets the API origin.
-     *
-     * @param {string} APIOrigin - The new API origin.
-     * @returns {void}
-     */
-    setAPIOrigin(APIOrigin) {
-        this.APIOrigin = APIOrigin;
-    }
-
+class Email extends PuterModule {
     /**
      * Sends one email. The positional form is shorthand for a plain-text body;
      * everything else (html, cc/bcc, attachments, `emailAccessToken`) goes

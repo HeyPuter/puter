@@ -1,4 +1,5 @@
 import { fetchUrl } from '../lib/networkUtils.js';
+import { PuterModule } from '../lib/PuterModule.js';
 
 /** @typedef {import('../../types/modules/peer').PuterPeerMessage} PuterPeerMessage */
 /** @typedef {import('../../types/modules/peer').PuterPeerOptions} PuterPeerOptions */
@@ -416,46 +417,13 @@ class PuterPeerConnection extends EventTarget {
     }
 }
 
-class Peer {
+class Peer extends PuterModule {
     #signallerUrl;
     #turnServers;
     #fallbackIceServers;
     #turnTTL;
     #turnStartedAt;
     #turnFailed;
-    /**
-     * Reads its auth state from the owning Puter instance.
-     *
-     * @param {import("../../types/puter").Puter} puter
-     */
-    constructor (puter) {
-        this.puter = puter;
-        this.authToken = puter.authToken;
-        this.APIOrigin = puter.APIOrigin;
-        this.appID = puter.appID;
-    }
-
-    /**
-     * Sets a new authentication token.
-     *
-     * @param {string} authToken - The new authentication token.
-     * @memberof [OS]
-     * @returns {void}
-     */
-    setAuthToken (authToken) {
-        this.authToken = authToken;
-    }
-
-    /**
-     * Sets the API origin.
-     *
-     * @param {string} APIOrigin - The new API origin.
-     * @memberof [Apps]
-     * @returns {void}
-     */
-    setAPIOrigin (APIOrigin) {
-        this.APIOrigin = APIOrigin;
-    }
 
     /**
      * Fetches TURN relay credentials ahead of time so connections start

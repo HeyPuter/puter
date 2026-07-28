@@ -1,4 +1,5 @@
 import getAbsolutePathForApp from './FileSystem/utils/getAbsolutePathForApp.js';
+import { PuterModule } from '../lib/PuterModule.js';
 import * as utils from '../lib/utils.js';
 import { fetchAllPages, iteratePages } from '../lib/pagination.js';
 
@@ -11,12 +12,7 @@ import { fetchAllPages, iteratePages } from '../lib/pagination.js';
 /**
  * The `puter.workers` module: deploy and call serverless workers.
  */
-export class WorkersHandler {
-
-    constructor (authToken) {
-        this.authToken = authToken;
-    }
-
+export class WorkersHandler extends PuterModule {
     /**
      * @overload
      * @param {string} workerName
@@ -48,14 +44,14 @@ export class WorkersHandler {
 
         let appId;
         if ( typeof (appName) === 'object' || typeof (appName) === 'undefined' ) {
-            const user = (puter.whoami || await puter.getUser());
+            const user = (this.puter.whoami || await this.puter.getUser());
 
             if ( user.is_user_token && (appName === undefined || appName?.sandbox !== false) ) {
                 let sandboxApp;
                 try {
-                    sandboxApp = await puter.apps.get(`sandbox-${ workerName }`);
+                    sandboxApp = await this.puter.apps.get(`sandbox-${ workerName }`);
                 } catch ( e ) {
-                    sandboxApp = await puter.apps.create(`sandbox-${ workerName }`, 'https://worker-sandbox.puter.com/');
+                    sandboxApp = await this.puter.apps.create(`sandbox-${ workerName }`, 'https://worker-sandbox.puter.com/');
                 }
                 if ( sandboxApp.owner.uuid !== user.uuid ) {
                     throw new Error(`Sandbox context is not owned by you! This worker's sandbox is currently owned by: ${ sandboxApp.owner.username }`);
@@ -64,23 +60,23 @@ export class WorkersHandler {
             }
         }
         if ( typeof (appName) === 'string' ) {
-            appId = ((await puter.apps.list()).find(el => el.name === appName)).uid;
+            appId = ((await this.puter.apps.list()).find(el => el.name === appName)).uid;
         }
 
         workerName = workerName.toLocaleLowerCase(); // just incase
-        let currentWorkers = await puter.kv.get('user-workers');
+        let currentWorkers = await this.puter.kv.get('user-workers');
         if ( ! currentWorkers ) {
             currentWorkers = {};
         }
         filePath = getAbsolutePathForApp(filePath);
 
-        const driverResult = await utils.makeDriverMethod({ iface: 'workers', driver: 'worker-service', method: 'create', argNames: ['authorization', 'filePath', 'workerName', 'appId'] })(puter.authToken, filePath, workerName, appId);;
+        const driverResult = await utils.makeDriverMethod({ iface: 'workers', driver: 'worker-service', method: 'create', argNames: ['authorization', 'filePath', 'workerName', 'appId'] })(this.puter.authToken, filePath, workerName, appId);;
 
         if ( ! driverResult.success ) {
             throw new Error(driverResult?.errors || 'Driver failed to execute, do you have the necessary permissions?');
         }
         currentWorkers[workerName] = { filePath, url: driverResult['url'], deployTime: Date.now(), createTime: Date.now() };
-        await puter.kv.set('user-workers', currentWorkers);
+        await this.puter.kv.set('user-workers', currentWorkers);
 
         return driverResult;
     }
@@ -99,7 +95,7 @@ export class WorkersHandler {
 
         const req = new Request(...args);
         if ( ! req.headers.get('puter-auth') && !req.headers.get('x-puter-no-auth')) {
-            req.headers.set('puter-auth', puter.authToken);
+            req.headers.set('puter-auth', this.puter.authToken);
         }
         req.headers.delete('x-puter-no-auth');
         // Passthrough to a user worker URL: takes the fetch Request interface and
@@ -109,9 +105,9 @@ export class WorkersHandler {
     }
 
     async #authenticateIfNeeded () {
-        if ( !puter.authToken && puter.env === 'web' ) {
+        if ( !this.puter.authToken && this.puter.env === 'web' ) {
             try {
-                await puter.ui.authenticateWithPuter();
+                await this.puter.ui.authenticateWithPuter();
             } catch (e) {
                 // if authentication fails, throw an error
                 throw 'Authentication failed.';
@@ -208,8 +204,7 @@ export class WorkersHandler {
         await this.#authenticateIfNeeded();
 
         workerName = workerName.toLocaleLowerCase(); // just incase
-        // const driverCall = await puter.drivers.call("workers", "worker-service", "destroy", { authorization: puter.authToken, workerName });
-        const driverResult = await utils.makeDriverMethod({ iface: 'workers', driver: 'worker-service', method: 'destroy', argNames: ['authorization', 'workerName'] })(puter.authToken, workerName);
+        const driverResult = await utils.makeDriverMethod({ iface: 'workers', driver: 'worker-service', method: 'destroy', argNames: ['authorization', 'workerName'] })(this.puter.authToken, workerName);
 
         if ( ! driverResult.result ) {
             if ( ! driverResult.result ) {
@@ -217,14 +212,14 @@ export class WorkersHandler {
             }
             throw new Error(driverResult?.errors || 'Driver failed to execute, do you have the necessary permissions?');
         } else {
-            let currentWorkers = await puter.kv.get('user-workers');
+            let currentWorkers = await this.puter.kv.get('user-workers');
 
             if ( ! currentWorkers ) {
                 currentWorkers = {};
             }
             delete currentWorkers[workerName];
 
-            await puter.kv.set('user-workers', currentWorkers);
+            await this.puter.kv.set('user-workers', currentWorkers);
             return true;
         }
     }
@@ -239,8 +234,8 @@ export class WorkersHandler {
      * @returns {Promise<EventTarget & { close: () => void, onLog: (event: MessageEvent) => void }>}
      */
     async getLoggingHandle (workerName) {
-        const loggingEndpoint = await utils.makeDriverMethod({ iface: 'workers', driver: 'worker-service', method: 'getLoggingUrl' })(puter.authToken, workerName);
-        const socket = new WebSocket(`${loggingEndpoint}/${puter.authToken}/${workerName}`);
+        const loggingEndpoint = await utils.makeDriverMethod({ iface: 'workers', driver: 'worker-service', method: 'getLoggingUrl' })(this.puter.authToken, workerName);
+        const socket = new WebSocket(`${loggingEndpoint}/${this.puter.authToken}/${workerName}`);
         const logStreamObject = new EventTarget();
         logStreamObject.onLog = (_data) => {
 
