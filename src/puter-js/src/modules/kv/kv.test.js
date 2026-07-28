@@ -124,6 +124,37 @@ describe('kv.set driver payloads', () => {
         expect(lastBody().args).toEqual({ key: 'k', value: 'v' });
     });
 
+    // kv routes through `makeDriverMethod`, which is promise-only: it honors a
+    // legacy `error` callback but never invokes `success`. Wiring `success` up
+    // would start double-running handlers in apps that pass one and also await
+    // the promise, so the drop is pinned here deliberately.
+    it('does not invoke a trailing success callback', async () => {
+        const success = vi.fn();
+        await expect(kv.set('k', 'v', success)).resolves.toBe(true);
+        expect(success).not.toHaveBeenCalled();
+    });
+
+    it('does not invoke a success callback passed in the object form', async () => {
+        const success = vi.fn();
+        await expect(kv.set({ key: 'k', value: 'v', success })).resolves.toBe(true);
+        expect(success).not.toHaveBeenCalled();
+        expect(lastBody().args).toEqual({ key: 'k', value: 'v' });
+    });
+
+    it('still invokes a trailing error callback on a driver error', async () => {
+        FakeXHR.respondWith = () => ({ success: false, error: { code: 'key_too_large' } });
+        const success = vi.fn();
+        const error = vi.fn();
+
+        await expect(kv.set('k', 'v', success, error)).rejects.toEqual({
+            success: false, error: { code: 'key_too_large' },
+        });
+        expect(error).toHaveBeenCalledWith({
+            success: false, error: { code: 'key_too_large' },
+        });
+        expect(success).not.toHaveBeenCalled();
+    });
+
     it('set([items]) becomes a batchPut with normalized items', async () => {
         await kv.set([
             { key: 'a', value: 1 },
