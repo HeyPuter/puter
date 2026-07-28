@@ -1,6 +1,6 @@
 {
   "name": "puter.com",
-  "version": "2.5.1",
+  "version": "26.07",
   "author": "Puter Technologies Inc.",
   "license": "AGPL-3.0-only",
   "description": "Desktop environment in the browser!",
@@ -67,6 +67,7 @@
     "build:workerLib": "cd src/puter-js && npm run build && cd ../worker && npm run build",
     "check-translations": "node tools/check-translations.js",
     "audit:sdkTypes": "node ./tools/auditSdkTypes.mjs",
+    "audit:sdkTypes:check": "node ./tools/auditSdkTypes.mjs --check-baseline",
     "prepare": "husky",
     "build:ts": "tsc -p tsconfig.build.json && node ./tools/write-dist-package-json.mjs",
     "setupExtensions": "node ./tools/extensionSetup.mjs"

@@ -15,6 +15,11 @@ import { defineOperation } from './scaffold.js';
  *     success?: (value: Blob) => void,
  *     error?: (reason: unknown) => void,
  *   ): Promise<Blob>,
+ *   (
+ *     filePath: string,
+ *     success: (value: Blob) => void,
+ *     error?: (reason: unknown) => void,
+ *   ): Promise<Blob>,
  * }}
  */
 const read = defineOperation({

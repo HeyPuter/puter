@@ -3,13 +3,26 @@ import { parseCallbackOptions } from './lib/args.js';
 
 /** @typedef {import('../../../types/modules/auth').User} User */
 
+/** @typedef {import('../../../types/shared').RequestCallbacks<User>} UserCallbacks */
+
+/**
+ * @overload
+ * @param {UserCallbacks & { query?: Record<string, string> }} [options]
+ * @returns {Promise<User>}
+ */
+/**
+ * @overload
+ * @param {(value: User) => void} success
+ * @param {(reason: unknown) => void} [error]
+ * @returns {Promise<User>}
+ */
 /**
  * Returns the currently authenticated user. Accepts an options object with an
  * optional `query` (forwarded as query-string params to `/whoami`) and
  * `success`/`error` callbacks, or trailing positional callbacks.
  *
  * @this {import('./index.js').OSModule}
- * @param {...(((value: User) => void) | { success?: Function, error?: Function, query?: Record<string, string> })} args
+ * @param {...unknown} args
  * @returns {Promise<User>}
  */
 export function user (...args) {

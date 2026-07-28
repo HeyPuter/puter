@@ -1,13 +1,27 @@
 import * as utils from '../../lib/utils.js';
 
+/** @typedef {Record<string, unknown>} DeveloperProfile */
+/** @typedef {import('../../../types/shared').RequestCallbacks<DeveloperProfile>} ProfileCallbacks */
+
+/**
+ * @overload
+ * @param {ProfileCallbacks} [options]
+ * @returns {Promise<DeveloperProfile>}
+ */
+/**
+ * @overload
+ * @param {(value: DeveloperProfile) => void} success
+ * @param {(reason: unknown) => void} [error]
+ * @returns {Promise<DeveloperProfile>}
+ */
 /**
  * Fetches the caller's developer profile. Accepts either an options object
  * (`{ success, error }`) or trailing positional `success`/`error` callbacks;
  * either way the returned promise settles with the profile.
  *
  * @this {import('./index.js').AppsModule}
- * @param {...(((value: Record<string, unknown>) => void) | { success?: Function, error?: Function })} args
- * @returns {Promise<Record<string, unknown>>}
+ * @param {...unknown} args
+ * @returns {Promise<DeveloperProfile>}
  */
 export function getDeveloperProfile (...args) {
     const { puter } = this;

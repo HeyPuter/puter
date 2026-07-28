@@ -20,10 +20,18 @@
 //   OK            JSDoc and declaration agree
 //
 //   node ./tools/auditSdkTypes.mjs [--module <key>] [--json] [--strict]
+//                                  [--check-baseline] [--update-baseline]
 //
-// --module limits the run to one module, --json prints machine-readable
-// output, and --strict exits non-zero when any gap remains (for CI).
+// --module limits the run to one module and --json prints machine-readable
+// output. --strict exits non-zero when any gap remains, which is how a module
+// that has finished migrating stays finished.
 //
+// --check-baseline is the gate for the modules still in flight: it compares
+// against the recorded gaps and fails on anything new, so an out-of-date .d.ts
+// cannot sit undetected next to the code it no longer describes.
+// --update-baseline re-records the current gaps after closing some.
+//
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
@@ -77,9 +85,16 @@ const ROOT_ENTRY = 'src/index.js';
 const ROOT_DECL_FILE = 'types/puter.d.ts';
 const ROOT_DECL_TYPE = 'Puter';
 
+const BASELINE_FILE = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    'auditSdkTypes.baseline.json',
+);
+
 const args = process.argv.slice(2);
 const asJson = args.includes('--json');
 const strict = args.includes('--strict');
+const checkBaseline = args.includes('--check-baseline');
+const updateBaseline = args.includes('--update-baseline');
 const onlyModule = args.includes('--module')
     ? args[args.indexOf('--module') + 1]
     : null;
@@ -225,7 +240,74 @@ function anyParameters(signature) {
         .map((p) => p.getName());
 }
 
-function compareMember(declaredType, implType) {
+function parameterType(symbol) {
+    const decl = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+    return decl ? checker.getTypeOfSymbolAtLocation(symbol, decl) : null;
+}
+
+const isRestParameter = (symbol) => !!symbol?.valueDeclaration?.dotDotDotToken;
+
+// Whether a call shaped like `declaredSig` lands on `implSig`: every argument
+// the declaration promises is acceptable there, and what comes back is at
+// least as specific as the declaration says.
+function signatureAccepts(implSig, declaredSig) {
+    const declaredParams = declaredSig.parameters;
+    const implParams = implSig.parameters;
+    const rest = implParams[implParams.length - 1];
+    const hasRest = isRestParameter(rest);
+
+    if (!hasRest && declaredParams.length > implParams.length) return false;
+    if (
+        assignable(implSig.getReturnType(), declaredSig.getReturnType()) !==
+        true
+    ) {
+        return false;
+    }
+
+    for (let i = 0; i < declaredParams.length; i++) {
+        const from = parameterType(declaredParams[i]);
+        let to;
+        if (hasRest && i >= implParams.length - 1) {
+            const restType = parameterType(rest);
+            to = restType
+                ? (checker.getIndexTypeOfType(restType, ts.IndexKind.Number) ??
+                  restType)
+                : null;
+        } else {
+            to = parameterType(implParams[i]);
+        }
+        if (!from || !to) continue;
+        if (isAny(to)) continue;
+        if (assignable(from, to) !== true) return false;
+    }
+    return true;
+}
+
+// Which of a declared member's overloads the JSDoc cannot satisfy.
+//
+// Counting signatures is the wrong test: one JSDoc signature with an optional
+// parameter legitimately covers several declared overloads. So each declared
+// overload is checked against every signature the JSDoc offers, and only the
+// ones nothing can serve are reported.
+function uncoveredOverloads(declaredProp, implSigs) {
+    const overloads = (declaredProp.declarations ?? []).filter(
+        (d) => ts.isMethodSignature(d) || ts.isMethodDeclaration(d),
+    );
+    if (overloads.length < 2) return [];
+
+    return overloads
+        .map((d) => checker.getSignatureFromDeclaration(d))
+        .filter(Boolean)
+        .filter(
+            (declaredSig) =>
+                !implSigs.some((implSig) =>
+                    signatureAccepts(implSig, declaredSig),
+                ),
+        )
+        .map((declaredSig) => checker.signatureToString(declaredSig));
+}
+
+function compareMember(declaredProp, declaredType, implType) {
     const declaredSigs = declaredType.getCallSignatures();
     const implSigs = implType.getCallSignatures();
 
@@ -236,13 +318,6 @@ function compareMember(declaredType, implType) {
         return {
             status: 'NOT_CALLABLE',
             detail: 'declared as a method, inferred as a property',
-        };
-    }
-
-    if (declaredSigs.length > 1 && implSigs.length < declaredSigs.length) {
-        return {
-            status: 'OVERLOADS',
-            detail: `declaration has ${declaredSigs.length} overloads, JSDoc expresses ${implSigs.length}`,
         };
     }
 
@@ -257,6 +332,9 @@ function compareMember(declaredType, implType) {
         }
     }
 
+    // The checker's own verdict decides; `uncoveredOverloads` only explains it.
+    // That split matters because the per-signature walk does not instantiate
+    // type parameters, so it under-reports coverage on generic members.
     const satisfies = assignable(implType, declaredType);
     if (satisfies === null) {
         return {
@@ -265,6 +343,15 @@ function compareMember(declaredType, implType) {
         };
     }
     if (satisfies === false) {
+        if (declaredSigs.length > 1) {
+            const uncovered = uncoveredOverloads(declaredProp, implSigs);
+            return {
+                status: 'OVERLOADS',
+                detail: uncovered.length
+                    ? `${uncovered.length} of ${declaredSigs.length} declared overload(s) look uncovered: ${uncovered.join(' | ')}`
+                    : `JSDoc does not satisfy all ${declaredSigs.length} declared overloads`,
+            };
+        }
         const [impl, declared] = describePair(implType, declaredType);
         return {
             status: 'MISMATCH',
@@ -304,6 +391,7 @@ function auditSurface(key, declared, impl) {
         }
 
         const { status, detail } = compareMember(
+            declaredProp,
             declaredType,
             typeOfMember(implProp, impl.node),
         );
@@ -433,3 +521,79 @@ if (asJson) {
 
 if (errors.length > 0) process.exit(2);
 if (strict && gaps.length > 0) process.exit(1);
+
+// -- Baseline ratchet --
+//
+// The gaps below are the ones we already know about. Recording them lets the
+// gate fail on anything new, so a declaration and its implementation cannot
+// drift apart unnoticed: edit either side incompatibly and a gap appears that
+// is not in the baseline. Closing a gap fails too, until the baseline is
+// updated -- that is what keeps this list shrinking rather than going stale.
+if (!checkBaseline && !updateBaseline) process.exit(0);
+if (onlyModule) {
+    console.error(
+        '--check-baseline and --update-baseline cover every module; drop --module.',
+    );
+    process.exit(2);
+}
+
+const current = Object.fromEntries(
+    gaps.map((m) => [`${m.module}.${m.name}`, m.status]),
+);
+
+if (updateBaseline) {
+    fs.writeFileSync(BASELINE_FILE, `${JSON.stringify(current, null, 2)}\n`);
+    console.log(
+        `\nWrote ${Object.keys(current).length} known gap(s) to ${path.relative(repoRoot, BASELINE_FILE)}.`,
+    );
+    process.exit(0);
+}
+
+if (!fs.existsSync(BASELINE_FILE)) {
+    console.error(
+        `\nNo baseline at ${path.relative(repoRoot, BASELINE_FILE)}. Create it with --update-baseline.`,
+    );
+    process.exit(2);
+}
+
+const baseline = JSON.parse(fs.readFileSync(BASELINE_FILE, 'utf8'));
+const severity = (status) => ORDER.indexOf(status);
+const appeared = [];
+const worsened = [];
+const fixed = [];
+
+for (const [member, status] of Object.entries(current)) {
+    if (!(member in baseline)) {
+        appeared.push(`${member} (${status})`);
+    } else if (severity(status) < severity(baseline[member])) {
+        worsened.push(`${member} (${baseline[member]} -> ${status})`);
+    }
+}
+for (const member of Object.keys(baseline)) {
+    if (!(member in current)) fixed.push(member);
+}
+
+if (appeared.length === 0 && worsened.length === 0 && fixed.length === 0) {
+    console.log(
+        '\nBaseline matches: no new drift between JSDoc and declarations.',
+    );
+    process.exit(0);
+}
+
+if (appeared.length > 0) {
+    console.error(
+        `\nNew gap(s) -- JSDoc and declaration disagree where they did not before:`,
+    );
+    for (const m of appeared) console.error(`  ${m}`);
+}
+if (worsened.length > 0) {
+    console.error('\nGap(s) got worse:');
+    for (const m of worsened) console.error(`  ${m}`);
+}
+if (fixed.length > 0) {
+    console.error(
+        `\n${fixed.length} gap(s) no longer present -- refresh the baseline with --update-baseline:`,
+    );
+    for (const m of fixed) console.error(`  ${m}`);
+}
+process.exit(1);

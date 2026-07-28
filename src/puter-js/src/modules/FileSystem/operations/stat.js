@@ -23,6 +23,11 @@ const MAX_CACHE_SIZE = 20 * 1024 * 1024;
  *     success?: (value: FSItem) => void,
  *     error?: (reason: unknown) => void,
  *   ): Promise<FSItem>,
+ *   (
+ *     path: string,
+ *     success: (value: FSItem) => void,
+ *     error?: (reason: unknown) => void,
+ *   ): Promise<FSItem>,
  * }}
  */
 const stat = async function (...args) {

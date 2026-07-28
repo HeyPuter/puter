@@ -1,13 +1,27 @@
 import * as utils from '../../lib/utils.js';
 import { parseCallbackOptions } from './lib/args.js';
 
+/** @typedef {Record<string, unknown>} VersionInfo */
+/** @typedef {import('../../../types/shared').RequestCallbacks<VersionInfo>} VersionCallbacks */
+
+/**
+ * @overload
+ * @param {VersionCallbacks} [options]
+ * @returns {Promise<VersionInfo>}
+ */
+/**
+ * @overload
+ * @param {(value: VersionInfo) => void} success
+ * @param {(reason: unknown) => void} [error]
+ * @returns {Promise<VersionInfo>}
+ */
 /**
  * Returns version information about the Puter deployment. Accepts an options
  * object with `success`/`error` callbacks, or trailing positional callbacks.
  *
  * @this {import('./index.js').OSModule}
- * @param {...(((value: Record<string, unknown>) => void) | { success?: Function, error?: Function })} args
- * @returns {Promise<Record<string, unknown>>}
+ * @param {...unknown} args
+ * @returns {Promise<VersionInfo>}
  */
 export function version (...args) {
     const { puter } = this;
