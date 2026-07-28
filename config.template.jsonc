@@ -329,6 +329,7 @@
             "secret_key": "",
             "region": "us-west-2"
         },
+        "speechify": { "apiKey": "" },
         "aws-textract": {
             "access_key": "",
             "secret_key": "",

@@ -128,6 +128,7 @@ beforeAll(async () => {
             },
             gemini: { apiKey: 'gem-key' },
             xai: { apiKey: 'xai-key' },
+            speechify: { apiKey: 'speechify-key' },
         },
     } as never);
     driver = server.drivers.aiTts as unknown as TTSDriver;
@@ -191,6 +192,7 @@ describe('TTSDriver provider registration', () => {
             'elevenlabs',
             'gemini',
             'openai',
+            'speechify',
             'xai',
         ]);
     });
@@ -239,6 +241,28 @@ describe('TTSDriver.synthesize provider routing', () => {
         expect(fetchSpy).toHaveBeenCalledTimes(1);
         expect(String(fetchSpy.mock.calls[0]![0])).toMatch(
             /api\.elevenlabs\.io\/v1\/text-to-speech\//,
+        );
+        expect(openaiSpeechCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('routes via legacy driverAlias (speechify-tts → speechify)', async () => {
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    audio_data: Buffer.from('audio').toString('base64'),
+                    audio_format: 'mp3',
+                }),
+                { status: 200, headers: { 'content-type': 'application/json' } },
+            ),
+        );
+
+        await withDriverName('speechify-tts', () =>
+            driver.synthesize({ text: 'hi' }),
+        );
+
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(String(fetchSpy.mock.calls[0]![0])).toBe(
+            'https://api.speechify.ai/v1/audio/speech',
         );
         expect(openaiSpeechCreateMock).not.toHaveBeenCalled();
     });
@@ -295,6 +319,7 @@ describe('TTSDriver list_voices / list_engines', () => {
         expect(providers.has('openai')).toBe(true);
         expect(providers.has('gemini')).toBe(true);
         expect(providers.has('xai')).toBe(true);
+        expect(providers.has('speechify')).toBe(true);
         expect(providers.has('aws-polly')).toBe(true);
     });
 
@@ -321,6 +346,7 @@ describe('TTSDriver list_voices / list_engines', () => {
                 'eleven_multilingual_v2', // elevenlabs
                 'gemini-2.5-flash-preview-tts',
                 'xai-tts',
+                'simba-3.2', // speechify
                 'standard', // aws-polly
             ]),
         );
@@ -350,6 +376,7 @@ describe('TTSDriver.getReportedCosts', () => {
                 'driver:aiTts/aws-polly',
                 'driver:aiTts/gemini',
                 'driver:aiTts/xai',
+                'driver:aiTts/speechify',
             ]),
         );
     });
