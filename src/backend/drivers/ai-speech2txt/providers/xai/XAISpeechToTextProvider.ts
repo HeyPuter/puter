@@ -18,14 +18,17 @@
  * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
-import { Context } from '../../core/context.js';
-import { HttpError } from '../../core/http/HttpError.js';
-import { PuterDriver } from '../types.js';
-import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
-import { loadFileInput } from '../util/fileInput.js';
+import { HttpError } from '../../../../core/http/HttpError.js';
+import { loadFileInput } from '../../../util/fileInput.js';
+import type {
+    ISpeechToTextDeps,
+    ISpeechToTextModel,
+    ITranscribeArgs,
+} from '../../types.js';
+import { SpeechToTextProvider } from '../SpeechToTextProvider.js';
 
 /**
- * Driver implementing `puter-speech2txt` for the xAI (Grok) STT API.
+ * Speech-to-text via the xAI (Grok) STT API.
  *
  * Uses the xAI /v1/stt REST endpoint which accepts multipart/form-data with an
  * audio file and returns a JSON transcript with word-level timestamps.
@@ -54,28 +57,17 @@ const SAMPLE_TRANSCRIPT = {
     ],
 };
 
-interface TranscribeArgs {
-    file: unknown;
-    language?: string;
-    format?: boolean;
-    diarize?: boolean;
-    multichannel?: boolean;
-    channels?: number;
-    audio_format?: string;
-    sample_rate?: number;
-    test_mode?: boolean;
-}
+export class XAISpeechToTextProvider extends SpeechToTextProvider {
+    readonly providerName = 'xai';
 
-export class XAISpeechToTextDriver extends PuterDriver {
-    readonly driverInterface = 'puter-speech2txt';
-    readonly driverName = 'xai-speech2txt';
+    // Null when the deployment has no xAI credentials. The provider still
+    // registers so its model catalogue stays listable; transcription rejects.
+    #apiKey: string | null;
 
-    // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.
-    // Shares the `puter-speech2txt` per-user bucket with SpeechToTextDriver.
-    readonly rateLimit = AI_RATE_LIMIT;
-    readonly concurrent = AI_CONCURRENT;
-
-    #apiKey: string | null = null;
+    constructor(deps: ISpeechToTextDeps, config: { apiKey?: string }) {
+        super(deps);
+        this.#apiKey = config.apiKey ?? null;
+    }
 
     override getReportedCosts(): Record<string, unknown>[] {
         return [
@@ -88,22 +80,7 @@ export class XAISpeechToTextDriver extends PuterDriver {
         ];
     }
 
-    override onServerStart() {
-        const providers = (this.config.providers ?? {}) as Record<
-            string,
-            Record<string, unknown> | undefined
-        >;
-        const xai = providers['xai'];
-        if (!xai) return;
-        const key =
-            (xai.apiKey as string | undefined) ??
-            (xai.secret_key as string | undefined) ??
-            (xai.api_key as string | undefined) ??
-            (xai.key as string | undefined);
-        if (key) this.#apiKey = key;
-    }
-
-    async list_models() {
+    async listModels(): Promise<ISpeechToTextModel[]> {
         return [
             {
                 id: 'xai-stt',
@@ -117,11 +94,11 @@ export class XAISpeechToTextDriver extends PuterDriver {
         ];
     }
 
-    async transcribe(args: TranscribeArgs) {
+    async transcribe(args: ITranscribeArgs) {
         return this.#handleTranscription(args);
     }
 
-    async translate(args: TranscribeArgs) {
+    async translate(args: ITranscribeArgs) {
         // xAI STT doesn't have a separate translation endpoint;
         // delegate to transcribe which auto-detects language
         return this.#handleTranscription(args);
@@ -134,7 +111,7 @@ export class XAISpeechToTextDriver extends PuterDriver {
         );
     }
 
-    async #handleTranscription(args: TranscribeArgs) {
+    async #handleTranscription(args: ITranscribeArgs) {
         if (args.test_mode) {
             return { ...SAMPLE_TRANSCRIPT, model: 'xai-stt' };
         }
@@ -144,17 +121,9 @@ export class XAISpeechToTextDriver extends PuterDriver {
                 legacyCode: 'internal_error',
             });
         }
-        if (!args.file) {
-            throw new HttpError(400, '`file` is required', {
-                legacyCode: 'bad_request',
-            });
-        }
+        this.requireFile(args);
 
-        const actor = Context.get('actor');
-        if (!actor)
-            throw new HttpError(401, 'Authentication required', {
-                legacyCode: 'unauthorized',
-            });
+        const actor = this.requireActor();
 
         // Determine if the input is an HTTP URL or a filesystem/data-URL reference
         const isUrl = this.#isHttpUrl(args.file);
@@ -167,8 +136,8 @@ export class XAISpeechToTextDriver extends PuterDriver {
 
         if (!isUrl) {
             const loaded = await loadFileInput(
-                this.stores,
-                this.services.fs,
+                this.deps.stores,
+                this.deps.fs,
                 actor,
                 args.file,
                 { maxBytes: MAX_AUDIO_FILE_SIZE },
@@ -185,7 +154,7 @@ export class XAISpeechToTextDriver extends PuterDriver {
             ? Math.max(1, Math.ceil(fileBuffer.byteLength / 16000))
             : 60;
         const estimatedCost = UCENTS_PER_SECOND * estimatedSeconds;
-        const allowed = await this.services.metering.hasEnoughCredits(
+        const allowed = await this.deps.metering.hasEnoughCredits(
             actor,
             estimatedCost,
         );
@@ -228,7 +197,7 @@ export class XAISpeechToTextDriver extends PuterDriver {
         if (!response.ok) {
             const errText = await response.text().catch(() => '');
             console.error(
-                `[XAISpeechToTextDriver] API returned ${response.status}: ${errText}`,
+                `[XAISpeechToTextProvider] API returned ${response.status}: ${errText}`,
             );
             // Mirrors ElevenLabs / XAITTS — map upstream status to an
             // `upstream_*` HttpError so the alarm gate skips it.
@@ -268,7 +237,7 @@ export class XAISpeechToTextDriver extends PuterDriver {
                 : estimatedSeconds;
         const actualCost = UCENTS_PER_SECOND * actualSeconds;
 
-        this.services.metering.incrementUsage(
+        this.deps.metering.incrementUsage(
             actor,
             'xai:stt:second',
             actualSeconds,

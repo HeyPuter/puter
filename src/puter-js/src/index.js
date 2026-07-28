@@ -111,15 +111,86 @@ const puterInit = function () {
     'use strict';
 
     class Puter {
-        // The environment that the SDK is running in. Can be 'gui', 'app' or 'web'.
-        // 'gui' means the SDK is running in the Puter GUI, i.e. Puter.com.
-        // 'app' means the SDK is running as a Puter app, i.e. within an iframe in the Puter GUI.
-        // 'web' means the SDK is running in a 3rd-party website.
+        /**
+         * The environment that the SDK is running in.
+         *
+         * `gui` means the SDK is running in the Puter GUI, i.e. Puter.com.
+         * `app` means it is running as a Puter app, i.e. within an iframe in
+         * the Puter GUI. `web` means it is running in a 3rd-party website.
+         *
+         * @type {import('../types/shared').PuterEnvironment}
+         */
         env;
+
+        /**
+         * Arguments the host environment launched this app with.
+         *
+         * @type {Record<string, unknown>}
+         */
+        args = {};
+
+        /**
+         * The token the SDK authenticates API calls with, if any.
+         *
+         * @type {string | null}
+         */
+        authToken = null;
+
+        /**
+         * Origin every API call is sent to.
+         *
+         * @type {string}
+         */
+        APIOrigin;
+
+        /**
+         * Tool schemas this app exposes to `puter.ai`.
+         *
+         * @type {import('../types/shared').ToolSchema[]}
+         */
+        tools = [];
+
+        // The modules, declared here rather than left to inference because
+        // `initSubmodules` assigns them outside the constructor, which would
+        // otherwise make every one of them possibly-undefined for consumers.
+        // Each type comes from the module's own public export, so the
+        // implementation stays the source of truth.
+
+        /** @type {InstanceType<typeof Util>} */
+        util;
+        /** @type {InstanceType<typeof Auth>} */
+        auth;
+        /** @type {InstanceType<typeof OS>} */
+        os;
+        /** @type {InstanceType<typeof PuterJSFileSystemModule>} */
+        fs;
+        /** @type {InstanceType<typeof UI>} */
+        ui;
+        /** @type {InstanceType<typeof Hosting>} */
+        hosting;
+        /** @type {InstanceType<typeof Apps>} */
+        apps;
+        /** @type {InstanceType<typeof AI>} */
+        ai;
+        /** @type {InstanceType<typeof KV>} */
+        kv;
+        /** @type {InstanceType<typeof Email>} */
+        email;
+        /** @type {InstanceType<typeof Perms>} */
+        perms;
+        /** @type {InstanceType<typeof Drivers>} */
+        drivers;
+        /** @type {InstanceType<typeof Debug>} */
+        debug;
+        /** @type {InstanceType<typeof Peer>} */
+        peer;
+        /** @type {typeof path} */
+        path;
 
         #defaultAPIOrigin = 'https://api.puter.com';
         #defaultGUIOrigin = 'https://puter.com';
 
+        /** @returns {string} */
         get defaultAPIOrigin() {
             return (
                 globalThis.PUTER_API_ORIGIN ||
@@ -131,6 +202,7 @@ const puterInit = function () {
             this.#defaultAPIOrigin = v;
         }
 
+        /** @returns {string} */
         get defaultGUIOrigin() {
             return (
                 globalThis.PUTER_ORIGIN ||
@@ -142,7 +214,11 @@ const puterInit = function () {
             this.#defaultGUIOrigin = v;
         }
 
-        // An optional callback when the user is authenticated. This can be set by the app using the SDK.
+        /**
+         * Called once the user is authenticated. Set by the app using the SDK.
+         *
+         * @type {((user: Record<string, unknown>) => void) | undefined}
+         */
         onAuth;
 
         /**
@@ -191,33 +267,33 @@ const puterInit = function () {
          *
          * InitSubmodules is called from the constructor of this class.
          */
-        initSubmodules = function () {
+        initSubmodules() {
             // Util
             this.util = new Util();
 
-            this.registerModule('auth', Auth);
-            this.registerModule('os', OS);
-            this.registerModule('fs', PuterJSFileSystemModule);
-            this.registerModule('ui', UI, {
+            this.auth = this.registerModule('auth', Auth);
+            this.os = this.registerModule('os', OS);
+            this.fs = this.registerModule('fs', PuterJSFileSystemModule);
+            this.ui = this.registerModule('ui', UI, {
                 appInstanceID: this.appInstanceID,
                 parentInstanceID: this.parentInstanceID,
             });
-            this.registerModule('hosting', Hosting);
-            this.registerModule('apps', Apps);
-            this.registerModule('ai', AI);
-            this.registerModule('kv', KV);
-            this.registerModule('email', Email);
-            this.registerModule('perms', Perms);
-            this.registerModule('drivers', Drivers);
-            this.registerModule('debug', Debug);
-            this.registerModule('peer', Peer);
+            this.hosting = this.registerModule('hosting', Hosting);
+            this.apps = this.registerModule('apps', Apps);
+            this.ai = this.registerModule('ai', AI);
+            this.kv = this.registerModule('kv', KV);
+            this.email = this.registerModule('email', Email);
+            this.perms = this.registerModule('perms', Perms);
+            this.drivers = this.registerModule('drivers', Drivers);
+            this.debug = this.registerModule('debug', Debug);
+            this.peer = this.registerModule('peer', Peer);
 
             // Path
             this.path = path;
 
             // Register web components for standalone UI fallback
             registerComponents();
-        };
+        }
 
         normalizeAuthTokenCandidate = function (tokenCandidate) {
             if (typeof tokenCandidate !== 'string') return null;
@@ -747,12 +823,28 @@ const puterInit = function () {
             }
         }
 
+        /**
+         * Instantiates a module, registers it for auth/origin updates, and
+         * hands it back for the caller to attach. Assigning the result to a
+         * named property rather than having this write `this[name]` is what
+         * keeps each module's type visible to consumers of the SDK.
+         *
+         * @template T
+         * @param {string} name
+         * @param {new (
+         *     puter: Puter,
+         *     parameters: Record<string, unknown>,
+         * ) => T} cls
+         * @param {Record<string, unknown>} [parameters]
+         * @returns {T}
+         */
         registerModule(name, cls, parameters = {}) {
             const instance = new cls(this, parameters);
             instance.puter = this;
             this.modules_.push(name);
             this[name] = instance;
             if (instance._init) instance._init({ puter: this });
+            return instance;
         }
 
         updateSubmodules() {
@@ -764,6 +856,7 @@ const puterInit = function () {
             }
         }
 
+        /** @param {string} appID */
         setAppID = function (appID) {
             // save to localStorage
             try {
@@ -776,6 +869,7 @@ const puterInit = function () {
             this.appDataPath = appID ? `~/AppData/${appID}` : undefined;
         };
 
+        /** @param {string} authToken */
         setAuthToken = function (authToken) {
             const normalizedAuthToken =
                 this.normalizeAuthTokenCandidate(authToken);
@@ -848,6 +942,7 @@ const puterInit = function () {
             });
         };
 
+        /** @param {string} APIOrigin */
         setAPIOrigin = function (APIOrigin) {
             this.APIOrigin = APIOrigin;
             // reinitialize submodules
@@ -1362,9 +1457,8 @@ const puterInit = function () {
         /**
          * Configures API call logging settings
          *
-         * @param {Object} config - Configuration options for API call logging
-         * @param {boolean} config.enabled - Enable/disable API call logging
-         * @param {boolean} config.enabled - Enable/disable API call logging
+         * @param {import('../types/shared').APILoggingConfig} [config]
+         * @returns {this}
          */
         configureAPILogging = function (config = {}) {
             if (this.apiCallLogger) {
@@ -1376,8 +1470,8 @@ const puterInit = function () {
         /**
          * Enables API call logging with optional configuration
          *
-         * @param {Object} config - Optional configuration to apply when
-         *   enabling
+         * @param {import('../types/shared').APILoggingConfig} [config]
+         * @returns {this}
          */
         enableAPILogging = function (config = {}) {
             if (this.apiCallLogger) {
@@ -1386,7 +1480,11 @@ const puterInit = function () {
             return this;
         };
 
-        /** Disables API call logging */
+        /**
+         * Disables API call logging
+         *
+         * @returns {this}
+         */
         disableAPILogging = function () {
             if (this.apiCallLogger) {
                 this.apiCallLogger.disable();
@@ -1612,7 +1710,6 @@ export default puter;
 globalThis.puter = puter;
 puter.runWhenPuterHappensCallbacks();
 
-puter.tools = [];
 /** @type {{ messageTarget: Window }} */
 const puterParent = puter.ui.parentApp();
 globalThis.puterParent = puterParent;

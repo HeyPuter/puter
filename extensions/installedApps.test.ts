@@ -38,7 +38,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-    await server.shutdown();
+    await server?.shutdown();
 });
 
 const seedUser = async () => {

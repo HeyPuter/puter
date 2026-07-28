@@ -23,6 +23,12 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { DriverStreamResult } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
+import {
+    DEFAULT_TTS_PROVIDER,
+    normalizeTTSProvider,
+    TTS_DRIVER_ALIASES,
+    TTS_PROVIDERS,
+} from './providerAliases.js';
 import { AWSPollyTTSProvider } from './providers/awsPolly/AWSPollyTTSProvider.js';
 import { ElevenLabsTTSProvider } from './providers/elevenlabs/ElevenLabsTTSProvider.js';
 import { GeminiTTSProvider } from './providers/gemini/GeminiTTSProvider.js';
@@ -39,36 +45,27 @@ import type {
 /**
  * Driver implementing the `puter-tts` interface.
  *
- * Manages multiple upstream TTS providers (OpenAI, ElevenLabs, AWS Polly) and
- * handles provider routing, voice/engine aggregation, and speech synthesis.
- * Each provider is an `ITTSProvider` instantiated from config on boot.
+ * Manages multiple upstream TTS providers and handles provider routing,
+ * voice/engine aggregation, and speech synthesis. Each provider is an
+ * `ITTSProvider` instantiated from config on boot.
+ *
+ * Provider selection, alias resolution and per-provider option naming all live
+ * here, so a caller only has to name the provider it wants.
  */
-// puter-js still routes TTS via legacy per-provider driver names rather
-// than passing `{ provider }` in args, so alias the unified driver under
-// the names the client expects. `#providerFromAlias` normalizes those
-// aliases to the internal provider keys used by `#providers`.
-const TTS_ALIASES = [
-    'aws-polly',
-    'openai-tts',
-    'elevenlabs-tts',
-    'gemini-tts',
-    'xai-tts',
-    'speechify-tts',
-] as const;
-type TTSAlias = (typeof TTS_ALIASES)[number];
-const ALIAS_TO_PROVIDER: Record<TTSAlias, string> = {
-    'aws-polly': 'aws-polly',
-    'openai-tts': 'openai',
-    'elevenlabs-tts': 'elevenlabs',
-    'gemini-tts': 'gemini',
-    'xai-tts': 'xai',
-    'speechify-tts': 'speechify',
-};
+
+/** Opt-in value that widens the list methods out to every provider. */
+const ALL_PROVIDERS = 'all';
+
+const isAllProviders = (value: unknown): boolean =>
+    typeof value === 'string' && value.trim().toLowerCase() === ALL_PROVIDERS;
 
 export class TTSDriver extends PuterDriver {
     readonly driverInterface = 'puter-tts';
     readonly driverName = 'ai-tts';
-    readonly driverAliases = [...TTS_ALIASES];
+    // Older SDK bundles name the provider in the driver slot instead of
+    // passing `{ provider }`; `#resolveProvider` reads the requested alias
+    // back off the Context.
+    readonly driverAliases = [...TTS_DRIVER_ALIASES];
     readonly isDefault = true;
 
     // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.
@@ -77,55 +74,50 @@ export class TTSDriver extends PuterDriver {
 
     #providers: Record<string, ITTSProvider> = {};
 
-    /** Resolve a provider name from the alias the caller used, if any. */
-    #providerFromAlias(): string | undefined {
-        const alias = Context.get('driverName') as string | undefined;
-        if (!alias) return undefined;
-        return ALIAS_TO_PROVIDER[alias as TTSAlias];
-    }
-
     override onServerStart() {
         this.#registerProviders();
     }
 
     // -- Interface methods -------------------------------------------
 
-    /** List all available voices across all configured providers. */
+    /**
+     * List available voices. Defaults to the default provider; pass `provider:
+     * 'all'` to aggregate across every configured provider.
+     */
     async list_voices(args?: Record<string, unknown>): Promise<ITTSVoice[]> {
-        const provider =
-            (args?.provider as string | undefined) ?? this.#providerFromAlias();
-
-        if (provider) {
-            const p = this.#providers[provider];
-            if (!p) return [];
-            return p.listVoices(args);
+        const { provider: requested, ...rest } = args ?? {};
+        if (isAllProviders(requested)) {
+            const allVoices: ITTSVoice[] = [];
+            for (const p of Object.values(this.#providers)) {
+                allVoices.push(...(await p.listVoices(rest)));
+            }
+            return allVoices;
         }
 
-        const allVoices: ITTSVoice[] = [];
-        for (const p of Object.values(this.#providers)) {
-            const voices = await p.listVoices(args);
-            allVoices.push(...voices);
-        }
-        return allVoices;
+        const p =
+            this.#providers[this.#resolveProvider({ provider: requested })];
+        if (!p) return [];
+        return p.listVoices(rest);
     }
 
-    /** List all available engines/models across all configured providers. */
+    /**
+     * List available engines/models. Defaults to the default provider; pass
+     * `provider: 'all'` to aggregate across every configured provider.
+     */
     async list_engines(args?: Record<string, unknown>): Promise<ITTSEngine[]> {
-        const provider =
-            (args?.provider as string | undefined) ?? this.#providerFromAlias();
-
-        if (provider) {
-            const p = this.#providers[provider];
-            if (!p) return [];
-            return p.listEngines();
+        const requested = args?.provider;
+        if (isAllProviders(requested)) {
+            const allEngines: ITTSEngine[] = [];
+            for (const p of Object.values(this.#providers)) {
+                allEngines.push(...(await p.listEngines()));
+            }
+            return allEngines;
         }
 
-        const allEngines: ITTSEngine[] = [];
-        for (const p of Object.values(this.#providers)) {
-            const engines = await p.listEngines();
-            allEngines.push(...engines);
-        }
-        return allEngines;
+        const p =
+            this.#providers[this.#resolveProvider({ provider: requested })];
+        if (!p) return [];
+        return p.listEngines();
     }
 
     /** List provider names that are currently configured. */
@@ -154,8 +146,8 @@ export class TTSDriver extends PuterDriver {
     }
 
     /**
-     * Synthesize speech from text. Routes to the appropriate provider based on
-     * the `provider` argument, or falls back to the first available provider.
+     * Synthesize speech from text, routed to the provider named by `provider`
+     * (or the default when none is given).
      */
     async synthesize(
         args: ISynthesizeArgs,
@@ -166,28 +158,87 @@ export class TTSDriver extends PuterDriver {
                 legacyCode: 'unauthorized',
             });
 
-        const providerName =
-            args.provider ||
-            this.#providerFromAlias() ||
-            this.#getDefaultProviderName();
-        if (!providerName) {
-            throw new HttpError(500, 'No TTS providers configured', {
-                legacyCode: 'internal_error',
-            });
-        }
-
+        const providerName = this.#resolveProvider(args);
         const provider = this.#providers[providerName];
         if (!provider) {
             throw new HttpError(
                 400,
-                `TTS provider not found: ${providerName}. Available: ${Object.keys(this.#providers).join(', ')}`,
+                `TTS provider not configured: ${providerName}. Available: ${Object.keys(this.#providers).join(', ')}`,
                 { legacyCode: 'bad_request' },
             );
         }
 
-        return provider.synthesize(args) as Promise<
+        return provider.synthesize(
+            this.#providerArgs(providerName, args),
+        ) as Promise<
             DriverStreamResult | { url: string; content_type: string }
         >;
+    }
+
+    // -- Provider routing --------------------------------------------
+
+    /**
+     * Decide which provider handles a call. An explicit `provider` wins, then
+     * an `engine` that names a provider (a long-standing shorthand), then the
+     * legacy driver alias the caller dispatched through, then the default.
+     */
+    #resolveProvider(args: { provider?: unknown; engine?: unknown }): string {
+        if (
+            args.provider !== undefined &&
+            args.provider !== null &&
+            args.provider !== ''
+        ) {
+            const named = normalizeTTSProvider(args.provider);
+            if (!named) {
+                throw new HttpError(
+                    400,
+                    `TTS provider not found: ${String(args.provider)}. Available: ${TTS_PROVIDERS.join(', ')}`,
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            return named;
+        }
+
+        return (
+            normalizeTTSProvider(args.engine) ??
+            normalizeTTSProvider(Context.get('driverName')) ??
+            this.#defaultProvider()
+        );
+    }
+
+    /**
+     * `engine` is AWS Polly's own concept; on the model-based providers it is
+     * the legacy spelling of `model`.
+     */
+    #providerArgs(
+        providerName: string,
+        args: ISynthesizeArgs,
+    ): ISynthesizeArgs {
+        if (providerName === 'aws-polly') {
+            return { ...args, provider: providerName };
+        }
+        const { engine, ...rest } = args;
+        if (
+            rest.model === undefined &&
+            typeof engine === 'string' &&
+            // An engine that named the provider selected it above; it is not
+            // also a model id.
+            !normalizeTTSProvider(engine)
+        ) {
+            rest.model = engine;
+        }
+        return { ...rest, provider: providerName };
+    }
+
+    /**
+     * The documented default, falling back to whatever is configured so a
+     * deployment without AWS Polly still serves TTS.
+     */
+    #defaultProvider(): string {
+        for (const name of [DEFAULT_TTS_PROVIDER, ...TTS_PROVIDERS]) {
+            if (this.#providers[name]) return name;
+        }
+        return Object.keys(this.#providers)[0] ?? DEFAULT_TTS_PROVIDER;
     }
 
     // -- Provider registration ---------------------------------------
@@ -318,9 +369,8 @@ export class TTSDriver extends PuterDriver {
 
     #registerSpeechifyProvider(providers: Record<string, unknown>) {
         const m = this.services.metering;
-        const speechify = (providers['speechify'] ?? providers['speechify-tts']) as
-            | Record<string, unknown>
-            | undefined;
+        const speechify = (providers['speechify'] ??
+            providers['speechify-tts']) as Record<string, unknown> | undefined;
         const speechifyKey =
             (speechify?.apiKey as string | undefined) ??
             (speechify?.api_key as string | undefined) ??
@@ -337,15 +387,5 @@ export class TTSDriver extends PuterDriver {
                 );
             }
         }
-    }
-
-    #getDefaultProviderName(): string | null {
-        const names = Object.keys(this.#providers);
-        if (names.length === 0) return null;
-        // Prefer openai, then elevenlabs, then gemini, then aws-polly
-        if (this.#providers['openai']) return 'openai';
-        if (this.#providers['elevenlabs']) return 'elevenlabs';
-        if (this.#providers['gemini']) return 'gemini';
-        return names[0];
     }
 }

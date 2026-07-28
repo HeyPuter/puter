@@ -270,7 +270,7 @@ export interface Txt2SpeechOptions {
     voice?: string;
     /** AWS Polly synthesis engine: `'standard'` (default), `'neural'`, `'long-form'`, or `'generative'`. */
     engine?: string;
-    /** TTS provider: `'aws-polly'` (default), `'openai'`, `'elevenlabs'`, `'gemini'`, `'xai'`, or `'speechify'`. */
+    /** TTS provider: `'aws-polly'` (default), `'openai'`, `'elevenlabs'`, `'gemini'`, `'xai'`, or `'speechify'`. Common aliases (`'eleven'`, `'google'`, `'grok'`, `'polly'`, `'simba'`, …) resolve to these. */
     provider?: string;
     /** Model identifier (provider-specific). */
     model?: string;
@@ -289,7 +289,7 @@ export interface Txt2SpeechOptions {
 }
 
 export interface ListTTSEnginesOptions {
-    /** TTS provider to query. Defaults to `'aws-polly'`. */
+    /** TTS provider to query. Defaults to `'aws-polly'`; `'all'` returns every provider's engines. */
     provider?: string;
 }
 
@@ -306,7 +306,7 @@ export interface TTSEngine {
 }
 
 export interface ListTTSVoicesOptions {
-    /** TTS provider to query. Defaults to `'aws-polly'`. */
+    /** TTS provider to query. Defaults to `'aws-polly'`; `'all'` returns every provider's voices. */
     provider?: string;
     /** Engine/model filter (provider-specific, ignored by some providers). */
     engine?: string;

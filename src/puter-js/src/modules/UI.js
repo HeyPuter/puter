@@ -6,8 +6,13 @@ import PuterDialog from './PuterDialog.js';
 /** @typedef {import('../../types/modules/ui').AlertButton} AlertButton */
 /** @typedef {import('../../types/modules/ui').AlertOptions} AlertOptions */
 /** @typedef {import('../../types/modules/ui').AppConnection} AppConnection */
+/** @typedef {import('../../types/modules/ui').ColorPickerOptions} ColorPickerOptions */
+/** @typedef {import('../../types/modules/ui').ConnectionEvent} ConnectionEvent */
 /** @typedef {import('../../types/modules/ui').ContextMenuOptions} ContextMenuOptions */
+/** @typedef {import('../../types/modules/ui').FontPickerOptions} FontPickerOptions */
+/** @typedef {import('../../types/modules/ui').LaunchAppOptions} LaunchAppOptions */
 /** @typedef {import('../../types/modules/ui').MenubarOptions} MenubarOptions */
+/** @typedef {import('../../types/modules/ui').ThemeData} ThemeData */
 /** @typedef {import('../../types/modules/ui').NotificationOptions} NotificationOptions */
 /** @typedef {import('../../types/modules/ui').WindowHandle} WindowHandle */
 /** @typedef {import('../../types/modules/ui').WindowOptions} WindowOptions */
@@ -40,6 +45,14 @@ class AppConnection extends EventListener {
     // Whether the target app uses the Puter SDK, and so accepts messages
     // (Closing and close events will still function.)
     #usesSDK;
+
+    /**
+     * Extra information the target app supplied when the connection was
+     * established. Declared here because `from()` sets it on the instance.
+     *
+     * @type {(Record<string, unknown> & { launchResult?: import('../../types/modules/ui').LaunchAppResult }) | undefined}
+     */
+    response;
 
     static from (values, puter, { messageTarget, appInstanceID }) {
         const connection = new AppConnection(puter, {
@@ -986,9 +999,10 @@ class UI extends EventListener {
 
     /**
      * Shows a font picker. Resolves to the chosen font. Accepts either a
-     * default font name or an options object.
+     * default font name or an options object. `default` is a legacy alias for
+     * `defaultFont`.
      *
-     * @param {string | { default?: string }} [options]
+     * @param {string | (FontPickerOptions & { default?: string })} [options]
      * @returns {Promise<{ fontFamily: string }>}
      */
     showFontPicker (options) {
@@ -1011,9 +1025,10 @@ class UI extends EventListener {
 
     /**
      * Shows a color picker. Resolves to the chosen color. Accepts either a
-     * default color or an options object.
+     * default color or an options object. `default` and `defaultValue` are
+     * legacy aliases for `defaultColor`.
      *
-     * @param {string | { default?: string }} [options]
+     * @param {string | (ColorPickerOptions & { default?: string, defaultValue?: string })} [options]
      * @returns {Promise<string>}
      */
     showColorPicker (options) {
@@ -1849,13 +1864,26 @@ class UI extends EventListener {
         });
     };
 
-    // Returns a Promise<AppConnection>
     /**
-     * launchApp opens the specified app in Puter with the specified argumets.
-     * @param {*} nameOrOptions - name of the app as a string, or an options object
-     * @param {*} args - named parameters that will be passed to the app as arguments
-     * @param {*} callback - in case you don't want to use `await` or `.then()`
-     * @returns
+     * @overload
+     * @param {LaunchAppOptions} options
+     * @returns {Promise<AppConnection>}
+     */
+    /**
+     * @overload
+     * @param {string} [appName]
+     * @param {Record<string, unknown>} [args]
+     * @param {(connection: AppConnection) => void} [callback]
+     * @returns {Promise<AppConnection>}
+     */
+    /**
+     * Opens the named app in Puter with the given arguments, or takes a single
+     * options object. Resolves to a connection to the launched app.
+     *
+     * @param {string | LaunchAppOptions} [nameOrOptions]
+     * @param {Record<string, unknown>} [args]
+     * @param {(connection: AppConnection) => void} [callback]
+     * @returns {Promise<AppConnection>}
      */
     launchApp = async function launchApp (nameOrOptions, args, callback) {
         let pseudonym = undefined;
@@ -2175,6 +2203,24 @@ class UI extends EventListener {
         }));
     };
 
+    /**
+     * @overload
+     * @param {'localeChanged'} eventName
+     * @param {(data: { language: string }) => void} callback
+     * @returns {void}
+     */
+    /**
+     * @overload
+     * @param {'themeChanged'} eventName
+     * @param {(data: ThemeData) => void} callback
+     * @returns {void}
+     */
+    /**
+     * @overload
+     * @param {'connection'} eventName
+     * @param {(data: ConnectionEvent) => void} callback
+     * @returns {void}
+     */
     /**
      * Listens for a broadcast from Puter. A broadcast that already happened is
      * replayed to the handler immediately with its most recent value.

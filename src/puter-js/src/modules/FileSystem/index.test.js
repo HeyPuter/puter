@@ -57,17 +57,21 @@ afterEach(() => {
 describe('cache update timer', () => {
     it('keeps a single interval across repeated setAuthToken calls', () => {
         const fs = makeModule();
+        // `vi.getTimerCount()` is global and constructing the module schedules
+        // a timer of its own, so the cache interval is counted as a delta from
+        // construction rather than as an absolute.
+        const baseline = vi.getTimerCount();
 
         fs.setAuthToken('one');
         const timer = fs.cacheUpdateTimer;
         fs.setAuthToken('two');
         fs.setAuthToken('three');
 
-        expect(vi.getTimerCount()).toBe(1);
+        expect(vi.getTimerCount()).toBe(baseline + 1);
         expect(fs.cacheUpdateTimer).not.toBe(timer);
 
         fs.stopCacheUpdateTimer();
-        expect(vi.getTimerCount()).toBe(0);
+        expect(vi.getTimerCount()).toBe(baseline);
     });
 
     it('refreshes the cache timestamp while running', () => {
@@ -92,11 +96,13 @@ describe('cache update timer', () => {
 
     it('does not run outside the desktop environment', () => {
         const fs = makeModule('web');
+        const baseline = vi.getTimerCount();
 
         fs.setAuthToken('one');
         fs.startCacheUpdateTimer();
 
-        expect(vi.getTimerCount()).toBe(0);
+        // No cache interval on top of what construction already scheduled.
+        expect(vi.getTimerCount()).toBe(baseline);
         expect(fs.cacheUpdateTimer).toBeNull();
     });
 });

@@ -77,7 +77,7 @@ describe('MeteringService', () => {
             originalShardCount;
         (target.constructor as typeof MeteringService).APP_SHARD_COUNT =
             originalShardCount;
-        await server.shutdown();
+        await server?.shutdown();
     });
 
     // Each test uses a fresh user so KV state from one test never leaks into

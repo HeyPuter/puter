@@ -114,6 +114,13 @@ export default async function globalSetup () {
     );
 
     await page.waitForFunction(() => !!window.puter, null, { timeout: 60_000 });
+
+    // A token from the URL is confirmed before it's adopted; nothing reaches
+    // localStorage until this is dismissed.
+    await page.locator('.alert-resp-button.button-primary')
+        .first()
+        .click({ timeout: 60_000 });
+
     await page.waitForFunction(
         () => {
             // v2 key since the v1→v2 cutover; legacy key tolerated.

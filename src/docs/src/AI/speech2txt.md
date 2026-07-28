@@ -32,7 +32,7 @@ When you omit `source`, supply `options.file` or `options.audio` instead.
 Fine-tune how transcription runs.
 
 - `file` / `audio` (String | File | Blob): Alternative way to pass the audio input.
-- `provider` (String): STT provider to use. `'openai'` (default) or `'xai'`.
+- `provider` (String): STT provider to use. `'openai'` (default) or `'xai'`. Aliases `'whisper'`, `'grok'` and `'x-ai'` are also accepted; anything else is rejected with a `bad_request` error.
 - `model` (String): One of `gpt-4o-mini-transcribe`, `gpt-4o-transcribe`, `gpt-4o-transcribe-diarize`, `whisper-1`, or any future backend-supported model. Defaults to `gpt-4o-mini-transcribe` for transcription and `whisper-1` for translation.
 - `translate` (Boolean): Set to `true` to force English output (uses the translations endpoint).
 - `response_format` (String): Desired output shape. Examples: `json`, `text`, `diarized_json`, `srt`, `verbose_json`, `vtt` (depends on the model).

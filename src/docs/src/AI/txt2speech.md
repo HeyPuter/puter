@@ -32,7 +32,7 @@ Additional settings for the generation request. Available options depend on the 
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `provider` | `String` | TTS provider to use. `'aws-polly'` (default), `'openai'`, `'elevenlabs'`, `'gemini'`, `'xai'`, `'speechify'` |
+| `provider` | `String` | TTS provider to use. `'aws-polly'` (default), `'openai'`, `'elevenlabs'`, `'gemini'`, `'xai'`, `'speechify'`. Common aliases (`'eleven'`, `'google'`, `'grok'`, `'polly'`, `'simba'`, …) are also accepted; anything else is rejected with a `bad_request` error |
 | `model` | `String` | Model identifier (provider-specific) |
 | `voice` | `String` | Voice ID used for synthesis (provider-specific) |
 | `test_mode` | `Boolean` | When `true`, returns a sample audio without using credits |

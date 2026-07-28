@@ -46,8 +46,7 @@ const EXPECTED: Record<string, string[]> = {
     aiTts: ['list', 'list_engines', 'list_voices', 'synthesize'],
     aiVideo: ['generate', 'list', 'models'],
     aiSpeech2Speech: ['convert'],
-    aiSpeech2Txt: ['list_models', 'transcribe', 'translate'],
-    aiSpeech2TxtXai: ['list_models', 'transcribe', 'translate'],
+    aiSpeech2Txt: ['list', 'list_models', 'transcribe', 'translate'],
     aiOcr: ['recognize'],
     // AppDriver is the legacy `.js` driver: its non-RPC helpers are plain
     // public methods (not `#`-private), so `isNameAvailable` (an AppController

@@ -262,6 +262,46 @@ describe('createAuthProbe — token extraction precedence', () => {
     });
 });
 
+describe('createAuthProbe — tokenSource', () => {
+    const cases: Array<[string, Parameters<typeof makeReq>[0]]> = [
+        ['body', { body: { auth_token: 'tok' } }],
+        ['header', { headers: { authorization: 'Bearer tok' } }],
+        ['x-api-key', { headers: { 'x-api-key': 'tok' } }],
+        ['cookie', { cookieHeader: 'puter_token=tok' }],
+        ['query', { query: { auth_token: 'tok' } }],
+        ['handshake', { handshakeQuery: { auth_token: 'tok' } }],
+    ];
+
+    const actor: Actor = { user: { uuid: 'u-1' } };
+
+    it.each(cases)('records %s', async (expected, init) => {
+        const stub = makeStubAuth(actor);
+        const probe = createAuthProbe({
+            authService: stub.service,
+            cookieName: 'puter_token',
+        });
+        const { req } = await runProbe(probe, makeReq(init));
+        expect(req.tokenSource).toBe(expected);
+    });
+
+    it('is left unset when no token is presented', async () => {
+        const stub = makeStubAuth(actor);
+        const probe = createAuthProbe({ authService: stub.service });
+        const { req } = await runProbe(probe, makeReq({}));
+        expect(req.tokenSource).toBeUndefined();
+    });
+
+    it('is left unset when the token fails to authenticate', async () => {
+        const stub = makeStubAuth(null);
+        const probe = createAuthProbe({ authService: stub.service });
+        const { req } = await runProbe(
+            probe,
+            makeReq({ headers: { authorization: 'Bearer tok' } }),
+        );
+        expect(req.tokenSource).toBeUndefined();
+    });
+});
+
 describe('createAuthProbe — header parsing', () => {
     it("strips 'Bearer ' (case-insensitive) from the Authorization value", async () => {
         const stub = makeStubAuth();

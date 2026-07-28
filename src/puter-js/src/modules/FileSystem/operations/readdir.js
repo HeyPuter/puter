@@ -173,6 +173,11 @@ const readdirPaged = async function (options) {
  *     success?: (value: FSItem[]) => void,
  *     error?: (reason: unknown) => void,
  *   ): Promise<FSItem[]>,
+ *   (
+ *     path: string,
+ *     success?: (value: FSItem[]) => void,
+ *     error?: (reason: unknown) => void,
+ *   ): Promise<FSItem[]>,
  * }} ReaddirOperation
  */
 

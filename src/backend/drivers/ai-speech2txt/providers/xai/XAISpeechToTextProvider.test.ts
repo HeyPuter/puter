@@ -18,12 +18,12 @@
  */
 
 /**
- * Offline unit tests for XAISpeechToTextDriver.
+ * Offline unit tests for the xAI speech-to-text provider.
  *
  * Boots a real PuterServer (in-memory sqlite + dynamo + s3 + mock
- * redis) configured with an xAI API key, then drives
- * `server.drivers.aiSpeech2TxtXai` directly. xAI has no SDK — the
- * driver calls the REST `/v1/stt` endpoint via `fetch` — so global
+ * redis) configured with an xAI API key, then drives the unified
+ * `puter-speech2txt` driver with `provider: 'xai'`. xAI has no SDK —
+ * the provider calls the REST `/v1/stt` endpoint via `fetch` — so global
  * `fetch` is spied for each request shape assertion. Audio inputs use
  * `data:` URLs through the live `loadFileInput`, and the FS-resolution
  * branch is exercised by writing a real file via `server.services.fs.write`.
@@ -42,13 +42,13 @@ import {
 } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 
-import type { Actor } from '../../core/actor.js';
-import { runWithContext } from '../../core/context.js';
-import { PuterServer } from '../../server.js';
-import type { MeteringService } from '../../services/metering/MeteringService.js';
-import { setupTestServer } from '../../testUtil.js';
-import { generateDefaultFsentries } from '../../util/userProvisioning.js';
-import type { XAISpeechToTextDriver } from './XAISpeechToTextDriver.js';
+import type { Actor } from '../../../../core/actor.js';
+import { runWithContext } from '../../../../core/context.js';
+import { PuterServer } from '../../../../server.js';
+import type { MeteringService } from '../../../../services/metering/MeteringService.js';
+import { setupTestServer } from '../../../../testUtil.js';
+import { generateDefaultFsentries } from '../../../../util/userProvisioning.js';
+import type { SpeechToTextDriver } from '../../SpeechToTextDriver.js';
 
 // Mirror the driver's per-second cost so test expectations stay in lockstep
 // with the real value rather than restating an arbitrary literal.
@@ -57,7 +57,17 @@ const UCENTS_PER_SECOND = 2778;
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
-let driver: XAISpeechToTextDriver;
+let sttDriver: SpeechToTextDriver;
+
+// Every call below goes through the unified driver pinned to this provider.
+const driver = {
+    transcribe: (args: Record<string, unknown> = {}) =>
+        sttDriver.transcribe({ ...args, provider: 'xai' }),
+    translate: (args: Record<string, unknown> = {}) =>
+        sttDriver.translate({ ...args, provider: 'xai' }),
+    list_models: () => sttDriver.list_models({ provider: 'xai' }),
+    getReportedCosts: () => sttDriver.getReportedCosts(),
+};
 let fetchSpy: MockInstance<typeof fetch>;
 let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
@@ -68,7 +78,7 @@ beforeAll(async () => {
             xai: { apiKey: 'xai-test-key' },
         },
     } as never);
-    driver = server.drivers.aiSpeech2TxtXai as unknown as XAISpeechToTextDriver;
+    sttDriver = server.drivers.aiSpeech2Txt as unknown as SpeechToTextDriver;
 });
 
 afterAll(async () => {
@@ -129,9 +139,13 @@ const sttResponse = (body: Record<string, unknown>, status = 200) =>
 
 // ── getReportedCosts ────────────────────────────────────────────────
 
-describe('XAISpeechToTextDriver.getReportedCosts', () => {
-    it('reports a single per-second line item at the documented xAI rate', () => {
-        const reported = driver.getReportedCosts();
+describe('XAISpeechToTextProvider.getReportedCosts', () => {
+    it('contributes a single per-second line item at the documented xAI rate', () => {
+        // The driver aggregates every provider's catalogue; only the xAI
+        // contribution is this provider's business.
+        const reported = driver
+            .getReportedCosts()
+            .filter((entry) => entry.source === 'driver:aiSpeech2Txt/xai');
         expect(reported).toEqual([
             {
                 usageType: 'xai:stt:second',
@@ -145,7 +159,7 @@ describe('XAISpeechToTextDriver.getReportedCosts', () => {
 
 // ── list_models ─────────────────────────────────────────────────────
 
-describe('XAISpeechToTextDriver.list_models', () => {
+describe('XAISpeechToTextProvider.list_models', () => {
     it('returns the single xai-stt entry with diarization support', async () => {
         const models = await driver.list_models();
         expect(models).toHaveLength(1);
@@ -163,7 +177,7 @@ describe('XAISpeechToTextDriver.list_models', () => {
 
 // ── test_mode bypass ────────────────────────────────────────────────
 
-describe('XAISpeechToTextDriver test_mode', () => {
+describe('XAISpeechToTextProvider test_mode', () => {
     it('returns the canned sample for transcribe, bypassing all I/O', async () => {
         const result = (await driver.transcribe({
             file: undefined,
@@ -191,7 +205,7 @@ describe('XAISpeechToTextDriver test_mode', () => {
 
 // ── Argument validation ─────────────────────────────────────────────
 
-describe('XAISpeechToTextDriver argument validation', () => {
+describe('XAISpeechToTextProvider argument validation', () => {
     it('throws 400 when file is missing', async () => {
         const { actor } = await makeUser();
         await expect(
@@ -212,7 +226,7 @@ describe('XAISpeechToTextDriver argument validation', () => {
 
 // ── Missing API key ─────────────────────────────────────────────────
 
-describe('XAISpeechToTextDriver missing API key', () => {
+describe('XAISpeechToTextProvider missing API key', () => {
     it('throws 500 internal_error when no xAI key is configured', async () => {
         // Boot a separate server WITHOUT an xAI provider entry so the
         // driver leaves its key unset. test_mode and validation paths
@@ -220,9 +234,10 @@ describe('XAISpeechToTextDriver missing API key', () => {
         const bareServer = await setupTestServer();
         try {
             const bareDriver =
-                bareServer.drivers.aiSpeech2TxtXai as unknown as XAISpeechToTextDriver;
+                bareServer.drivers.aiSpeech2Txt as unknown as SpeechToTextDriver;
             await expect(
                 bareDriver.transcribe({
+                    provider: 'xai',
                     file: dataUrl(Buffer.from('a'), 'audio/mp3'),
                 }),
             ).rejects.toMatchObject({
@@ -237,7 +252,7 @@ describe('XAISpeechToTextDriver missing API key', () => {
 
 // ── Credit gate ─────────────────────────────────────────────────────
 
-describe('XAISpeechToTextDriver credit gate', () => {
+describe('XAISpeechToTextProvider credit gate', () => {
     it('throws 402 BEFORE hitting xAI when actor lacks credits', async () => {
         hasCreditsSpy.mockResolvedValueOnce(false);
         const { actor } = await makeUser();
@@ -285,7 +300,7 @@ describe('XAISpeechToTextDriver credit gate', () => {
 
 // ── Audio input handling ────────────────────────────────────────────
 
-describe('XAISpeechToTextDriver audio input handling', () => {
+describe('XAISpeechToTextProvider audio input handling', () => {
     it('decodes a base64 data URL and POSTs it as the multipart `file` field', async () => {
         const { actor } = await makeUser();
         fetchSpy.mockResolvedValueOnce(
@@ -366,7 +381,7 @@ describe('XAISpeechToTextDriver audio input handling', () => {
 
 // ── Request shape ───────────────────────────────────────────────────
 
-describe('XAISpeechToTextDriver request shape', () => {
+describe('XAISpeechToTextProvider request shape', () => {
     it('forwards language / format / diarize / multichannel / channels / audio_format / sample_rate', async () => {
         const { actor } = await makeUser();
         fetchSpy.mockResolvedValueOnce(
@@ -438,7 +453,7 @@ describe('XAISpeechToTextDriver request shape', () => {
 
 // ── Response shape ──────────────────────────────────────────────────
 
-describe('XAISpeechToTextDriver response shape', () => {
+describe('XAISpeechToTextProvider response shape', () => {
     it('forwards the parsed xAI JSON response verbatim', async () => {
         const { actor } = await makeUser();
         const upstream = {
@@ -461,7 +476,7 @@ describe('XAISpeechToTextDriver response shape', () => {
 
 // ── Metering ────────────────────────────────────────────────────────
 
-describe('XAISpeechToTextDriver metering', () => {
+describe('XAISpeechToTextProvider metering', () => {
     it('meters ceil(duration) seconds × per-second ucents using the API duration', async () => {
         const { actor } = await makeUser();
         // Upstream reports 3.2s → driver should ceil to 4s.
@@ -508,7 +523,7 @@ describe('XAISpeechToTextDriver metering', () => {
 
 // ── Error paths ─────────────────────────────────────────────────────
 
-describe('XAISpeechToTextDriver error paths', () => {
+describe('XAISpeechToTextProvider error paths', () => {
     it('maps upstream 4xx to HttpError 400 upstream_bad_request and skips metering', async () => {
         const { actor } = await makeUser();
         fetchSpy.mockResolvedValueOnce(

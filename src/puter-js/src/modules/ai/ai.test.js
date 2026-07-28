@@ -223,25 +223,28 @@ describe('ai.chat driver payloads', () => {
 });
 
 describe('ai.img2txt driver payloads', () => {
-    it('img2txt(source) targets aws-textract by default', async () => {
+    it('img2txt(source) targets the unified ai-ocr driver', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: {} });
         await ai.img2txt('https://example.com/scan.png');
         const body = lastBody();
         expect(body).toMatchObject({
             interface: 'puter-ocr',
-            driver: 'aws-textract',
+            driver: 'ai-ocr',
             method: 'recognize',
             test_mode: false,
         });
         expect(body.args).toEqual({ source: 'https://example.com/scan.png' });
     });
 
-    it('img2txt honors the mistral provider and strips it from args', async () => {
+    it('img2txt forwards the provider for the driver to resolve', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: {} });
         await ai.img2txt({ source: 'https://example.com/scan.png', provider: 'mistral' });
         const body = lastBody();
-        expect(body.driver).toBe('mistral');
-        expect(body.args).toEqual({ source: 'https://example.com/scan.png' });
+        expect(body.driver).toBe('ai-ocr');
+        expect(body.args).toEqual({
+            source: 'https://example.com/scan.png',
+            provider: 'mistral',
+        });
     });
 
     it('img2txt(source, testMode) sets test_mode', async () => {
@@ -277,22 +280,18 @@ describe('ai.img2txt driver payloads', () => {
 });
 
 describe('ai.txt2speech driver payloads', () => {
-    it('txt2speech(text) defaults to aws-polly with Joanna', async () => {
+    it('txt2speech(text) targets the unified ai-tts driver with no defaults of its own', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: 'data:audio/mpeg;base64,QUJD' });
         await ai.txt2speech('hello world');
         const body = lastBody();
         expect(body).toMatchObject({
             interface: 'puter-tts',
-            driver: 'aws-polly',
+            driver: 'ai-tts',
             method: 'synthesize',
             test_mode: false,
         });
-        expect(body.args).toEqual({
-            text: 'hello world',
-            voice: 'Joanna',
-            engine: 'standard',
-            language: 'en-US',
-        });
+        // Provider, voice, engine and language defaults are the driver's job.
+        expect(body.args).toEqual({ text: 'hello world' });
     });
 
     it('txt2speech supports legacy positional language/voice/engine', async () => {
@@ -306,59 +305,37 @@ describe('ai.txt2speech driver payloads', () => {
         });
     });
 
-    it('txt2speech routes provider openai with its defaults', async () => {
+    it('txt2speech forwards the provider verbatim', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: 'data:audio/mpeg;base64,QUJD' });
         await ai.txt2speech('hello', { provider: 'openai' });
         const body = lastBody();
-        expect(body.driver).toBe('openai-tts');
-        expect(body.args).toEqual({
-            text: 'hello',
-            provider: 'openai',
-            voice: 'alloy',
-            model: 'gpt-4o-mini-tts',
-            response_format: 'mp3',
-        });
+        expect(body.driver).toBe('ai-tts');
+        expect(body.args).toEqual({ text: 'hello', provider: 'openai' });
     });
 
-    it('txt2speech routes provider elevenlabs with its defaults', async () => {
+    it('txt2speech forwards provider aliases untouched', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: 'data:audio/mpeg;base64,QUJD' });
-        await ai.txt2speech('hello', { provider: 'elevenlabs' });
+        await ai.txt2speech('hello', { provider: '11labs' });
         const body = lastBody();
-        expect(body.driver).toBe('elevenlabs-tts');
-        expect(body.args).toEqual({
-            text: 'hello',
-            provider: 'elevenlabs',
-            voice: '21m00Tcm4TlvDq8ikWAM',
-            model: 'eleven_multilingual_v2',
-            output_format: 'mp3_44100_128',
-        });
+        expect(body.driver).toBe('ai-tts');
+        expect(body.args).toEqual({ text: 'hello', provider: '11labs' });
     });
 
-    it('txt2speech routes provider speechify with its defaults', async () => {
+    it('txt2speech forwards the speechify provider without filling in defaults', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: 'data:audio/mpeg;base64,QUJD' });
         await ai.txt2speech('hello', { provider: 'speechify' });
         const body = lastBody();
-        expect(body.driver).toBe('speechify-tts');
-        expect(body.args).toEqual({
-            text: 'hello',
-            provider: 'speechify',
-            voice: 'geffen_32',
-            model: 'simba-3.2',
-            output_format: 'mp3',
-        });
+        expect(body.driver).toBe('ai-tts');
+        // voice/model/output_format defaults belong to the driver.
+        expect(body.args).toEqual({ text: 'hello', provider: 'speechify' });
     });
 
-    it('txt2speech infers the provider from engine aliases', async () => {
+    it('txt2speech forwards an engine that names a provider', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: 'data:audio/mpeg;base64,QUJD' });
         await ai.txt2speech('hello', { engine: 'gemini' });
         const body = lastBody();
-        expect(body.driver).toBe('gemini-tts');
-        // Long-standing quirk: the engine alias is carried over as the model.
-        expect(body.args).toEqual({
-            text: 'hello',
-            voice: 'Kore',
-            model: 'gemini',
-        });
+        expect(body.driver).toBe('ai-tts');
+        expect(body.args).toEqual({ text: 'hello', engine: 'gemini' });
     });
 
     it('txt2speech(text, testMode) sets test_mode', async () => {
@@ -383,41 +360,36 @@ describe('ai.txt2speech driver payloads', () => {
             .rejects.toMatchObject({ code: 'input_too_large' });
     });
 
-    it('txt2speech rejects an invalid aws engine', async () => {
-        await expect(ai.txt2speech('hello', { engine: 'bogus' }))
-            .rejects.toMatchObject({ code: 'invalid_engine' });
-    });
-
     it('txt2speech rejects an invalid second argument', async () => {
         await expect(ai.txt2speech('hello', 123))
             .rejects.toMatchObject({ code: 'invalid_arguments' });
     });
 
-    it('txt2speech.listEngines defaults to aws-polly', async () => {
+    it('txt2speech.listEngines sends no provider when none is named', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: [] });
         await ai.txt2speech.listEngines();
         const body = lastBody();
         expect(body).toMatchObject({
             interface: 'puter-tts',
-            driver: 'aws-polly',
+            driver: 'ai-tts',
             method: 'list_engines',
         });
         expect(body.args).toEqual({});
     });
 
-    it('txt2speech.listEngines routes to the named provider', async () => {
+    it('txt2speech.listEngines(provider) forwards the string form as provider', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: [] });
-        await ai.txt2speech.listEngines({ provider: 'openai' });
+        await ai.txt2speech.listEngines('openai');
         const body = lastBody();
-        expect(body.driver).toBe('openai-tts');
+        expect(body.driver).toBe('ai-tts');
         expect(body.args).toEqual({ provider: 'openai' });
     });
 
-    it('txt2speech.listVoices(engine) filters by engine', async () => {
+    it('txt2speech.listVoices(engine) forwards the string form as engine', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: [] });
         await ai.txt2speech.listVoices('neural');
         const body = lastBody();
-        expect(body).toMatchObject({ driver: 'aws-polly', method: 'list_voices' });
+        expect(body).toMatchObject({ driver: 'ai-tts', method: 'list_voices' });
         expect(body.args).toEqual({ engine: 'neural' });
     });
 });
@@ -429,7 +401,7 @@ describe('ai.speech2txt driver payloads', () => {
         const body = lastBody();
         expect(body).toMatchObject({
             interface: 'puter-speech2txt',
-            driver: 'openai-speech2txt',
+            driver: 'ai-speech2txt',
             method: 'transcribe',
             test_mode: false,
         });
@@ -444,9 +416,12 @@ describe('ai.speech2txt driver payloads', () => {
             provider: 'xai',
         });
         const body = lastBody();
-        expect(body.driver).toBe('xai-speech2txt');
+        expect(body.driver).toBe('ai-speech2txt');
         expect(body.method).toBe('translate');
-        expect(body.args).toEqual({ file: 'data:audio/mpeg;base64,QUJD' });
+        expect(body.args).toEqual({
+            file: 'data:audio/mpeg;base64,QUJD',
+            provider: 'xai',
+        });
     });
 
     it('speech2txt returns bare text for response_format text', async () => {
@@ -475,7 +450,7 @@ describe('ai.speech2speech driver payloads', () => {
         const body = lastBody();
         expect(body).toMatchObject({
             interface: 'puter-speech2speech',
-            driver: 'elevenlabs-voice-changer',
+            driver: 'ai-speech2speech',
             method: 'convert',
             test_mode: false,
         });
@@ -520,10 +495,10 @@ describe('ai.txt2img driver payloads', () => {
         expect(lastBody().test_mode).toBe(true);
     });
 
-    it('txt2img expands the nano-banana model aliases', async () => {
+    it('txt2img forwards friendly model aliases for the driver to expand', async () => {
         FakeXHR.respondWith = () => ({ success: true, result: 'data:image/png;base64,QUJD' });
         await ai.txt2img({ prompt: 'a cat', model: 'nano-banana' });
-        expect(lastBody().args.model).toBe('gemini-2.5-flash-image-preview');
+        expect(lastBody().args.model).toBe('nano-banana');
     });
 
     it('txt2img honors an explicit driver hint', async () => {

@@ -23,7 +23,7 @@ describe('KVStoreDriver', () => {
     });
 
     afterAll(async () => {
-        await server.shutdown();
+        await server?.shutdown();
     });
 
     // Each test runs against a unique actor namespace so state from one test

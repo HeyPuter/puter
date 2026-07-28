@@ -97,12 +97,18 @@ window.hostingTests = [
                 const dir = await makeDir('del');
                 await puter.hosting.create(sub, dir);
                 await puter.hosting.delete(sub);
+                // `fail()` throws, so it must not be called inside a try whose
+                // catch reports a pass — the throw would be caught there and
+                // the failure reported as success.
+                let resolved = false;
                 try {
                     await puter.hosting.get(sub);
-                    fail("testDelete failed: get of a deleted subdomain resolved");
+                    resolved = true;
                 } catch (e) {
-                    pass("testDelete passed");
+                    // Expected: the subdomain is gone.
                 }
+                assert(!resolved, "get of a deleted subdomain should reject");
+                pass("testDelete passed");
             } catch (error) {
                 fail("testDelete failed:", error);
             }

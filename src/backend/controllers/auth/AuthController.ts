@@ -924,7 +924,8 @@ export class AuthController extends PuterController {
                     is_temp: user!.password === null && user!.email === null,
                     ip:
                         (req?.headers?.['x-forwarded-for'] as
-                            string | undefined) ||
+                            | string
+                            | undefined) ||
                         (
                             req as unknown as {
                                 connection?: { remoteAddress?: string };
@@ -3721,6 +3722,15 @@ export class AuthController extends PuterController {
         allowUnconfirmed: true,
     })
     async handleSessionSyncCookie(req: Request, res: Response): Promise<void> {
+        // This route installs a session cookie, so the token has to come from
+        // page script on our own origin rather than from the URL.
+        if (req.tokenSource !== 'header') {
+            throw new HttpError(
+                401,
+                'This endpoint requires an Authorization header.',
+                { legacyCode: 'token_auth_failed' },
+            );
+        }
         if (!req.actor?.session?.uid) {
             res.status(400).end();
             return;

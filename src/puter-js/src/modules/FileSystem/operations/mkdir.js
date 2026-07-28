@@ -17,6 +17,11 @@ import { defineOperation, firstDefined } from './scaffold.js';
  *     success?: (value: FSItem) => void,
  *     error?: (reason: unknown) => void,
  *   ): Promise<FSItem>,
+ *   (
+ *     dirPath: string,
+ *     success: (value: FSItem) => void,
+ *     error?: (reason: unknown) => void,
+ *   ): Promise<FSItem>,
  * }}
  */
 const mkdir = defineOperation({

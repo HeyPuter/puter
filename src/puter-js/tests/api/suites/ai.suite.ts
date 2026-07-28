@@ -19,6 +19,37 @@ const useApiToken = (t: TestContext): void => {
     t.puter.setAuthToken(t.env.users.user.apiToken);
 };
 
+/**
+ * Everything the routing tests below need to reach a driver. Neither is
+ * ever sent upstream — the drivers either short-circuit on `test_mode` or
+ * reject during provider resolution, both of which happen before any
+ * provider credential is touched.
+ */
+const TINY_AUDIO = 'data:audio/mp3;base64,QUJD';
+const TINY_PNG =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+
+/**
+ * Flatten a rejection to text. SDK errors arrive in a few shapes (Error,
+ * a plain `{ message, code }`, or the driver's serialized body), and these
+ * tests assert on the *canonical provider name* the driver reports back —
+ * which is what proves an alias was resolved server-side.
+ */
+const rejectionText = async (fn: () => Promise<unknown>): Promise<string> => {
+    try {
+        await fn();
+    } catch (e) {
+        if (typeof e === 'string') return e;
+        if (e instanceof Error) return `${e.message} ${JSON.stringify(e)}`;
+        return JSON.stringify(e);
+    }
+    throw new Error('expected the call to reject, but it resolved');
+};
+
+/** Unwrap `puter.drivers.call`'s `{ success, result }` envelope. */
+const resultOf = (resp: unknown): unknown =>
+    (resp as { result?: unknown })?.result ?? resp;
+
 const textOf = (result: {
     message?: { content?: unknown };
 }): string => {
@@ -293,6 +324,342 @@ export default suite('ai', {
             `the wire route should accept the API token, got ${apiRes.status}: ${await apiRes
                 .clone()
                 .text()}`,
+        );
+    },
+
+    // ── Unified driver routing ──────────────────────────────────────
+    //
+    // Provider selection and per-provider defaults live in the drivers,
+    // not the SDK: puter.js always dispatches to the unified driver name
+    // (`ai-speech2txt`, `ai-tts`, `ai-ocr`, `ai-speech2speech`) and
+    // forwards `provider` as an argument. These tests stay keyless — they
+    // assert routing, alias resolution and back-compat, never synthesis.
+
+    'speech2txt routes to openai when no provider is named': async (t) => {
+        useApiToken(t);
+        const result = (await t.puter.ai.speech2txt({
+            file: TINY_AUDIO,
+            test_mode: true,
+        })) as { model?: string };
+        // The openai provider's documented transcription default.
+        t.assert.equal(result.model, 'gpt-4o-mini-transcribe');
+    },
+
+    'speech2txt resolves every xai provider alias': async (t) => {
+        useApiToken(t);
+        for (const provider of ['xai', 'grok', 'x-ai']) {
+            const result = (await t.puter.ai.speech2txt({
+                file: TINY_AUDIO,
+                provider,
+                test_mode: true,
+            })) as { model?: string };
+            t.assert.equal(
+                result.model,
+                'xai-stt',
+                `provider "${provider}" should reach the xai provider`,
+            );
+        }
+    },
+
+    'speech2txt keeps the whisper alias on openai': async (t) => {
+        useApiToken(t);
+        const result = (await t.puter.ai.speech2txt({
+            file: TINY_AUDIO,
+            provider: 'whisper',
+            test_mode: true,
+        })) as { model?: string };
+        t.assert.equal(result.model, 'gpt-4o-mini-transcribe');
+    },
+
+    'speech2txt translate uses the openai translation default': async (t) => {
+        useApiToken(t);
+        const result = (await t.puter.ai.speech2txt({
+            file: TINY_AUDIO,
+            translate: true,
+            test_mode: true,
+        })) as { model?: string };
+        t.assert.equal(result.model, 'whisper-1');
+    },
+
+    'speech2txt rejects an unknown provider': async (t) => {
+        useApiToken(t);
+        const text = await rejectionText(() =>
+            t.puter.ai.speech2txt({
+                file: TINY_AUDIO,
+                provider: 'ai-suite-no-such-provider',
+                test_mode: true,
+            }),
+        );
+        t.assert.ok(
+            text.includes('ai-suite-no-such-provider'),
+            `rejection should name the bad provider, got ${text}`,
+        );
+    },
+
+    'the speech2txt driver lists its configured providers': async (t) => {
+        useApiToken(t);
+        const providers = resultOf(
+            await t.puter.drivers.call(
+                'puter-speech2txt',
+                'ai-speech2txt',
+                'list',
+                {},
+            ),
+        ) as string[];
+        t.assert.ok(Array.isArray(providers), 'list should return an array');
+        for (const expected of ['openai', 'xai']) {
+            t.assert.ok(
+                providers.includes(expected),
+                `provider list should include "${expected}", got ${JSON.stringify(providers)}`,
+            );
+        }
+    },
+
+    'speech2txt list_models defaults to one provider and widens with all': async (t) => {
+        useApiToken(t);
+        const callList = async (args: Record<string, unknown>) =>
+            resultOf(
+                await t.puter.drivers.call(
+                    'puter-speech2txt',
+                    'ai-speech2txt',
+                    'list_models',
+                    args,
+                ),
+            ) as Array<{ id?: string; provider?: string }>;
+
+        const defaulted = await callList({});
+        const ids = defaulted.map((m) => m.id);
+        t.assert.ok(
+            ids.includes('whisper-1'),
+            `default list should be the openai catalogue, got ${JSON.stringify(ids)}`,
+        );
+        t.assert.ok(
+            !ids.includes('xai-stt'),
+            'default list should not aggregate other providers',
+        );
+
+        const all = await callList({ provider: 'all' });
+        const allIds = all.map((m) => m.id);
+        t.assert.ok(
+            allIds.includes('whisper-1') && allIds.includes('xai-stt'),
+            `provider "all" should aggregate every catalogue, got ${JSON.stringify(allIds)}`,
+        );
+        for (const model of all) {
+            t.assert.ok(
+                typeof model.provider === 'string',
+                `aggregated entries should be tagged with their provider, got ${JSON.stringify(model)}`,
+            );
+        }
+    },
+
+    'speech2txt list_models resolves a provider alias': async (t) => {
+        useApiToken(t);
+        const models = resultOf(
+            await t.puter.drivers.call(
+                'puter-speech2txt',
+                'ai-speech2txt',
+                'list_models',
+                { provider: 'grok' },
+            ),
+        ) as Array<{ id?: string }>;
+        t.assert.equal(models.length, 1);
+        t.assert.equal(models[0]?.id, 'xai-stt');
+    },
+
+    'the legacy per-provider speech2txt driver names still route': async (t) => {
+        // Bundles predating the unified driver put the provider in the wire
+        // `driver` slot, and the driver aliases have to keep those working.
+        // This goes over raw HTTP on purpose: `puter.drivers.call` accepts an
+        // implementation argument but drops it before building the body, so
+        // the current SDK cannot address a specific driver name at all.
+        const callDriver = async (driver: string) => {
+            const res = await fetch(`${t.env.apiOrigin}/drivers/call`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${t.env.users.user.apiToken}`,
+                    Origin: t.env.apiOrigin,
+                },
+                body: JSON.stringify({
+                    interface: 'puter-speech2txt',
+                    driver,
+                    method: 'transcribe',
+                    args: { file: TINY_AUDIO, test_mode: true },
+                }),
+            });
+            const body = (await res.json()) as {
+                result?: { model?: string };
+            };
+            t.assert.equal(
+                res.status,
+                200,
+                `driver "${driver}" should resolve, got ${res.status}: ${JSON.stringify(body)}`,
+            );
+            return body.result?.model;
+        };
+
+        // Each legacy name has to land on its own provider, not just resolve
+        // to the unified driver and fall through to the default.
+        t.assert.equal(
+            await callDriver('openai-speech2txt'),
+            'gpt-4o-mini-transcribe',
+        );
+        t.assert.equal(await callDriver('xai-speech2txt'), 'xai-stt');
+        // The canonical name is not a provider alias — it takes the default.
+        t.assert.equal(
+            await callDriver('ai-speech2txt'),
+            'gpt-4o-mini-transcribe',
+        );
+    },
+
+    'txt2speech rejects an unknown provider': async (t) => {
+        useApiToken(t);
+        const text = await rejectionText(() =>
+            t.puter.ai.txt2speech('hi', { provider: 'ai-suite-no-such-tts' }),
+        );
+        t.assert.ok(
+            text.includes('ai-suite-no-such-tts'),
+            `rejection should name the bad provider, got ${text}`,
+        );
+    },
+
+    'txt2speech resolves provider aliases to their canonical names': async (t) => {
+        useApiToken(t);
+        // Keyless, so the resolved provider isn't registered and the driver
+        // reports it back by its canonical id — which is exactly the proof
+        // that the alias resolved server-side rather than being forwarded
+        // verbatim to an upstream.
+        const cases: Array<[string, string]> = [
+            ['11labs', 'elevenlabs'],
+            ['eleven', 'elevenlabs'],
+            ['simba', 'speechify'],
+            ['google', 'gemini'],
+            ['grok', 'xai'],
+        ];
+        for (const [alias, canonical] of cases) {
+            const text = await rejectionText(() =>
+                t.puter.ai.txt2speech('hi', { provider: alias }),
+            );
+            t.assert.ok(
+                text.includes(canonical),
+                `alias "${alias}" should resolve to "${canonical}", got ${text}`,
+            );
+        }
+    },
+
+    'txt2speech.listVoices rejects an unknown provider': async (t) => {
+        useApiToken(t);
+        const text = await rejectionText(() =>
+            t.puter.ai.txt2speech.listVoices({
+                provider: 'ai-suite-no-such-tts',
+            }),
+        );
+        t.assert.ok(
+            text.includes('ai-suite-no-such-tts'),
+            `rejection should name the bad provider, got ${text}`,
+        );
+    },
+
+    'txt2speech list methods accept the all provider': async (t) => {
+        useApiToken(t);
+        // Aggregation is now opt-in; the shape is what matters here since a
+        // keyless server registers no TTS provider.
+        const engines = await t.puter.ai.txt2speech.listEngines({
+            provider: 'all',
+        });
+        t.assert.ok(Array.isArray(engines), 'listEngines should return an array');
+        const voices = await t.puter.ai.txt2speech.listVoices({
+            provider: 'all',
+        });
+        t.assert.ok(Array.isArray(voices), 'listVoices should return an array');
+    },
+
+    'img2txt test mode short-circuits before provider resolution': async (t) => {
+        useApiToken(t);
+        const text = await t.puter.ai.img2txt({
+            source: TINY_PNG,
+            test_mode: true,
+        });
+        t.assert.equal(typeof text, 'string');
+    },
+
+    'img2txt rejects an unknown provider': async (t) => {
+        useApiToken(t);
+        const text = await rejectionText(() =>
+            t.puter.ai.img2txt({
+                source: TINY_PNG,
+                provider: 'ai-suite-no-such-ocr',
+            }),
+        );
+        t.assert.ok(
+            text.includes('ai-suite-no-such-ocr'),
+            `rejection should name the bad provider, got ${text}`,
+        );
+    },
+
+    'img2txt resolves its provider aliases': async (t) => {
+        useApiToken(t);
+        // Keyless: each alias resolves, then fails on the *resolved*
+        // provider's missing credentials — never as "unknown provider".
+        for (const alias of ['aws', 'textract', 'aws-textract', 'mistral', 'mistral-ocr']) {
+            const text = await rejectionText(() =>
+                t.puter.ai.img2txt({ source: TINY_PNG, provider: alias }),
+            );
+            t.assert.ok(
+                !text.includes('Unknown OCR provider'),
+                `alias "${alias}" should resolve to a known provider, got ${text}`,
+            );
+        }
+    },
+
+    'the legacy per-provider OCR driver names still route': async (t) => {
+        useApiToken(t);
+        for (const driver of ['aws-textract', 'mistral']) {
+            const result = resultOf(
+                await t.puter.drivers.call('puter-ocr', driver, 'recognize', {
+                    source: TINY_PNG,
+                    test_mode: true,
+                }),
+            );
+            t.assert.ok(
+                result,
+                `driver "${driver}" should resolve to the unified OCR driver`,
+            );
+        }
+    },
+
+    'speech2speech accepts its one real provider': async (t) => {
+        useApiToken(t);
+        // `provider` now reaches the driver instead of being dropped by the
+        // SDK, so the supported value has to survive validation. Keyless,
+        // that means it fails on the missing ElevenLabs key — never as an
+        // unknown provider.
+        const text = await rejectionText(() =>
+            t.puter.ai.speech2speech({
+                audio: TINY_AUDIO,
+                provider: 'elevenlabs',
+            }),
+        );
+        t.assert.ok(
+            !text.includes('provider not found'),
+            `"elevenlabs" should pass provider validation, got ${text}`,
+        );
+    },
+
+    'speech2speech rejects an unknown provider': async (t) => {
+        useApiToken(t);
+        // Naming a provider that doesn't exist must fail loudly rather
+        // than quietly converting with the only one that does.
+        const text = await rejectionText(() =>
+            t.puter.ai.speech2speech({
+                audio: TINY_AUDIO,
+                provider: 'ai-suite-no-such-sts',
+                test_mode: true,
+            }),
+        );
+        t.assert.ok(
+            text.includes('ai-suite-no-such-sts'),
+            `rejection should name the bad provider, got ${text}`,
         );
     },
 });

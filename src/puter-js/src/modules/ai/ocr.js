@@ -15,13 +15,8 @@ import { isBlobLike, isPlainObject } from './lib/args.js';
 
 const MAX_INPUT_SIZE = 10 * 1024 * 1024;
 
-const normalizeProvider = (value) => {
-    if ( ! value ) return 'aws-textract';
-    const normalized = String(value).toLowerCase();
-    if ( ['aws', 'textract', 'aws-textract'].includes(normalized) ) return 'aws-textract';
-    if ( ['mistral', 'mistral-ocr'].includes(normalized) ) return 'mistral';
-    return 'aws-textract';
-};
+// The unified OCR driver picks the provider from `options.provider`.
+const OCR_DRIVER = 'ai-ocr';
 
 /**
  * Reduce the provider-specific recognition result to plain text.
@@ -114,8 +109,6 @@ export async function img2txt (sourceOrOptions, optionsOrTestMode, testModeOrOpt
         testMode = options.testMode;
     }
 
-    const provider = normalizeProvider(options.provider);
-    delete options.provider;
     delete options.testMode;
 
     if ( ! options.source ) {
@@ -137,7 +130,7 @@ export async function img2txt (sourceOrOptions, optionsOrTestMode, testModeOrOpt
 
     return await utils.makeDriverMethod({
         iface: 'puter-ocr',
-        driver: provider,
+        driver: OCR_DRIVER,
         method: 'recognize',
         argNames: ['source'],
         puter,
