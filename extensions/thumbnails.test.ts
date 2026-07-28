@@ -41,7 +41,7 @@ describe('thumbnails extension — handleThumbnailCreated', () => {
     });
 
     afterAll(async () => {
-        await server.shutdown();
+        await server?.shutdown();
     });
 
     it('uploads a valid data: URL thumbnail to S3 and rewrites event.url to an s3:// pointer', async () => {
@@ -108,7 +108,7 @@ describe('thumbnails extension — handleThumbnailUploadPrepare', () => {
     });
 
     afterAll(async () => {
-        await server.shutdown();
+        await server?.shutdown();
     });
 
     it('returns early when event has no items array', async () => {
@@ -188,7 +188,7 @@ describe('thumbnails extension — handleThumbnailRead', () => {
     });
 
     afterAll(async () => {
-        await server.shutdown();
+        await server?.shutdown();
     });
 
     it('rewrites an s3:// thumbnail into a presigned https URL', async () => {
@@ -281,7 +281,7 @@ describe('thumbnails extension — handleFsRemoveNodeThumbnail', () => {
     });
 
     afterAll(async () => {
-        await server.shutdown();
+        await server?.shutdown();
     });
 
     it('deletes the S3 object referenced by an s3:// thumbnail URL', async () => {

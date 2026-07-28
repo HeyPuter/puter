@@ -28,7 +28,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-    await server.shutdown();
+    await server?.shutdown();
 });
 
 const seedOwnedApp = async (prefix: string) => {

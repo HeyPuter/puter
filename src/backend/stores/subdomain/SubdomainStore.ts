@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -115,10 +116,10 @@ export class SubdomainStore extends PuterStore {
 
     /**
      * Pass `primary: true` for read-after-write lookups (e.g. checking a
-     * subdomain that may have been created moments ago): it skips the
-     * cache — which may hold a stale negative marker — and reads the
-     * primary instead of a possibly-lagging replica. The result still
-     * refreshes the cache, healing any stale marker.
+     * subdomain that may have been created moments ago): it skips the cache —
+     * which may hold a stale negative marker — and reads the primary instead of
+     * a possibly-lagging replica. The result still refreshes the cache, healing
+     * any stale marker.
      */
     async getBySubdomain(
         subdomain: string,
@@ -146,19 +147,30 @@ export class SubdomainStore extends PuterStore {
             : await this.clients.db.read(sql, [subdomain]);
         const row = (rows[0] as unknown as SubdomainRow | undefined) ?? null;
 
+        // These writes are fire-and-forget, so a mutation that lands between
+        // the SELECT above and the SET below would otherwise be overwritten
+        // by the row we just read — stranding the pre-write row in cache for
+        // the full TTL (an hour of a site serving its old root_dir after
+        // `hosting.update`). A replica read is not authoritative, so it only
+        // *populates* an absent key (`NX`) and can never clobber a fresher
+        // write. A `primary` read is read-after-write on the primary, so it
+        // writes through — that's what heals a stale negative marker.
+        const populate = (value: string, ttlSeconds: number) =>
+            (primary
+                ? this.clients.redis.set(cacheKey, value, 'EX', ttlSeconds)
+                : this.clients.redis.set(
+                      cacheKey,
+                      value,
+                      'EX',
+                      ttlSeconds,
+                      'NX',
+                  )
+            ).catch(() => {});
+
         if (row) {
-            this.clients.redis
-                .set(cacheKey, JSON.stringify(row), 'EX', CACHE_TTL_SECONDS)
-                .catch(() => {});
+            populate(JSON.stringify(row), CACHE_TTL_SECONDS);
         } else {
-            this.clients.redis
-                .set(
-                    cacheKey,
-                    NEGATIVE_CACHE_MARKER,
-                    'EX',
-                    NEGATIVE_CACHE_TTL_SECONDS,
-                )
-                .catch(() => {});
+            populate(NEGATIVE_CACHE_MARKER, NEGATIVE_CACHE_TTL_SECONDS);
         }
         return row;
     }
@@ -375,7 +387,16 @@ export class SubdomainStore extends PuterStore {
 
     // -- Writes -------------------------------------------------------
 
-    /** @param {{ userId: number, subdomain: string, rootDirId?: number|null, associatedAppId?: number|null, appOwner?: number|null, preambleVersion?: string|null }} opts */
+    /**
+     * @param {{
+     *     userId: number;
+     *     subdomain: string;
+     *     rootDirId?: number | null;
+     *     associatedAppId?: number | null;
+     *     appOwner?: number | null;
+     *     preambleVersion?: string | null;
+     * }} opts
+     */
     async create({
         userId,
         subdomain,

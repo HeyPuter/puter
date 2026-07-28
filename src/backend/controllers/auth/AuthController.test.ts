@@ -38,6 +38,7 @@ import type { Actor } from '../../core/actor.js';
 import { Context, runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { requireUserActorGate } from '../../core/http/middleware/gates.js';
+import type { TokenSource } from '../../core/http/types.js';
 import { PuterServer } from '../../server.js';
 import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -228,6 +229,7 @@ const makeReq = (
     extra: Partial<{
         actor: Actor;
         token: string;
+        tokenSource: TokenSource;
         headers: Record<string, unknown>;
         ip: string;
         params: Record<string, string>;
@@ -241,6 +243,7 @@ const makeReq = (
     params: extra.params ?? {},
     actor: extra.actor,
     token: extra.token,
+    tokenSource: extra.tokenSource,
 });
 
 // PermissionService-backed handlers (grants, get-user-app-token) call
@@ -5145,7 +5148,10 @@ describe('AuthController.handleGetGuiToken + handleSessionSyncCookie', () => {
         const { user, actor } = await makeUserAndActor();
         // No session → 400.
         const r1 = makeRes();
-        await controller.handleSessionSyncCookie(makeReq({}, { actor }), r1);
+        await controller.handleSessionSyncCookie(
+            makeReq({}, { actor, tokenSource: 'header' }),
+            r1,
+        );
         expect(r1.statusCode).toBe(400);
 
         // Bound session → 204 with the session cookie set.
@@ -5161,11 +5167,42 @@ describe('AuthController.handleGetGuiToken + handleSessionSyncCookie', () => {
 
         const r2 = makeRes();
         await controller.handleSessionSyncCookie(
-            makeReq({}, { actor: sessionedActor }),
+            makeReq({}, { actor: sessionedActor, tokenSource: 'header' }),
             r2,
         );
         expect(r2.statusCode).toBe(204);
         expect(r2.cookies['puter_auth_token']).toBeDefined();
+    });
+
+    it('session/sync-cookie: refuses a token that arrived anywhere but the Authorization header', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const sessionRes = await server.services.auth.createSessionToken(
+            user,
+            {},
+        );
+        const sessionUid = (sessionRes.session as { uuid: string }).uuid;
+        const sessionedActor = {
+            ...actor,
+            session: { uid: sessionUid },
+        } as Actor;
+
+        for (const tokenSource of [
+            'query',
+            'cookie',
+            'body',
+            'x-api-key',
+            'handshake',
+            undefined,
+        ] as (TokenSource | undefined)[]) {
+            const res = makeRes();
+            await expect(
+                controller.handleSessionSyncCookie(
+                    makeReq({}, { actor: sessionedActor, tokenSource }),
+                    res,
+                ),
+            ).rejects.toMatchObject({ statusCode: 401 });
+            expect(res.cookies['puter_auth_token']).toBeUndefined();
+        }
     });
 });
 
@@ -6178,7 +6215,7 @@ describe('AuthController.handleGetGuiToken / handleSessionSyncCookie additional 
 
         const res = makeRes();
         await controller.handleSessionSyncCookie(
-            makeReq({}, { actor: sessionedActor }),
+            makeReq({}, { actor: sessionedActor, tokenSource: 'header' }),
             res,
         );
         expect(res.statusCode).toBe(404);

@@ -21,7 +21,7 @@ describe('EventClient', () => {
     });
 
     afterAll(async () => {
-        await server.shutdown();
+        await server?.shutdown();
     });
 
     // Each test gets a fresh key so listeners registered by earlier tests

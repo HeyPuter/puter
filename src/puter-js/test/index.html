@@ -8,6 +8,7 @@
     <script src="./txt2speech.test.js"></script>
     <script src="./txt2img.test.js"></script>
     <script src="./txt2vid.test.js"></script>
+    <script src="./aiProviders.test.js"></script>
     <script src="./hosting.test.js"></script>
     <script src="./apps.test.js"></script>
     <script src="./os.test.js"></script>
@@ -740,6 +741,7 @@
         // Additional module suites, rendered data-driven so each new group
         // reuses the same template + handlers instead of a copy-pasted section.
         const extraGroups = [
+            { key: 'aiProviders', label: 'AI Provider Routing', tests: window.aiProvidersTests || [] },
             { key: 'hosting', label: 'Hosting', tests: window.hostingTests || [] },
             { key: 'apps', label: 'Apps', tests: window.appsTests || [] },
             { key: 'os', label: 'OS', tests: window.osTests || [] },
@@ -1139,7 +1141,7 @@
                 }
             }
 
-            // Additional module suites (hosting/apps/os/perms), same loop shape.
+            // Additional module suites (see `extraGroups`), same loop shape.
             for (const group of (window.extraGroups || [])) {
                 for (let i = 0; i < group.tests.length; i++) {
                     if (document.getElementById(`${group.key}Tests${i}`)?.checked) {
@@ -1202,6 +1204,12 @@
             const isChecked = $(this).prop('checked');
             $('.test-checkbox').prop('checked', isChecked);
             $('#fsTests-group, #kvTests-group, #aiTests-group, #txt2speechTests-group, #txt2imgTests-group, #txt2vidTests-group').prop('checked', isChecked);
+            // The data-driven groups aren't in the selector above, so sync
+            // their headers too — otherwise "select all" leaves them looking
+            // unchecked even though their tests are selected and will run.
+            for (const group of (window.extraGroups || [])) {
+                $(`#${group.key}Tests-group`).prop('checked', isChecked).prop('indeterminate', false);
+            }
             // Update the counter display
             updateMasterCheckboxState();
         });

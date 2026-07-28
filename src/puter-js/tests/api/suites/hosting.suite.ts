@@ -146,14 +146,22 @@ export default suite('hosting', {
         const dirB = await makeSiteDir(t, 'dir-b', 'site B');
 
         await t.puter.hosting.create('hosting-suite-repoint', dirA);
+        // Reading before the update matters: it populates the subdomain
+        // lookup cache, so this also covers the update invalidating what the
+        // read cached rather than losing a race with it.
         const before = await fetch(siteUrl(t, 'hosting-suite-repoint'));
-        t.assert.ok((await before.text()).includes('site A'));
+        const beforeBody = await before.text();
+        t.assert.ok(
+            beforeBody.includes('site A'),
+            `new subdomain should serve its directory, got ${JSON.stringify(beforeBody)}`,
+        );
 
         await t.puter.hosting.update('hosting-suite-repoint', dirB);
         const after = await fetch(siteUrl(t, 'hosting-suite-repoint'));
+        const afterBody = await after.text();
         t.assert.ok(
-            (await after.text()).includes('site B'),
-            'updated subdomain should serve the new directory',
+            afterBody.includes('site B'),
+            `updated subdomain should serve the new directory, got ${JSON.stringify(afterBody)}`,
         );
     },
 

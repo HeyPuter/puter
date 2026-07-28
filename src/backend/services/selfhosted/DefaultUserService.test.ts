@@ -12,7 +12,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-    await server.shutdown();
+    await server?.shutdown();
 });
 
 describe('DefaultUserService — bootstrap admin credentials', () => {
