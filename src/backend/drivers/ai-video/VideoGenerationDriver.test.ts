@@ -209,7 +209,7 @@ describe('VideoGenerationDriver catalog', () => {
         const ids = all.map((m) => m.id);
         // Sentinel ids from each provider.
         expect(ids).toContain('sora-2'); // OpenAI
-        expect(ids).toContain('veo-2.0-generate-001'); // Gemini
+        expect(ids).toContain('veo-3.1-generate-preview'); // Gemini
         // Together IDs are lowercased togetherai:org/model strings.
         expect(ids).toContain('togetherai:minimax/video-01-director');
         // Sort assertion: same-provider entries should be alphabetical.
@@ -256,7 +256,7 @@ describe('VideoGenerationDriver.generate provider routing', () => {
         expect(geminiGenerateVideosMock).not.toHaveBeenCalled();
     });
 
-    it('routes a known veo-2.0-generate-001 id to the Gemini provider', async () => {
+    it('routes a known veo-3.1-generate-preview id to the Gemini provider', async () => {
         geminiGenerateVideosMock.mockResolvedValueOnce({
             done: true,
             response: {
@@ -269,7 +269,7 @@ describe('VideoGenerationDriver.generate provider routing', () => {
         await withActor(() =>
             driver.generate({
                 prompt: 'hi',
-                model: 'veo-2.0-generate-001',
+                model: 'veo-3.1-generate-preview',
             } as never),
         );
 
