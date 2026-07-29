@@ -320,7 +320,7 @@ export class ClaudeProvider implements IChatProvider {
         } = {
             model: modelUsed.id,
             max_tokens: Math.floor(
-                max_tokens ||
+                max_tokens ??
                     (model === 'claude-3-5-sonnet-20241022' ||
                     model === 'claude-3-5-sonnet-20240620'
                         ? 8192
