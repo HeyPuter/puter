@@ -66,6 +66,11 @@ function buildErrorRedirectUrl(
     message: string,
     stateDecoded?: Record<string, unknown>,
     requestCode?: string,
+    // Signs the popup-return proof. Passed in because this is a module-level
+    // helper with no access to services; omitted by callers that have no
+    // state to attest (the proof is simply absent then, and the popup falls
+    // back to its browser-attested sources).
+    signPopupReturn?: (payload: Record<string, unknown>) => string,
 ): string {
     const targetFlow =
         OIDC_ERROR_REDIRECT_MAP[sourceFlow]?.[errorCondition] ?? sourceFlow;
@@ -99,6 +104,19 @@ function buildErrorRedirectUrl(
         });
         if (stateDecoded?.opener_origin) {
             params.set('opener_origin', String(stateDecoded.opener_origin));
+        }
+        // Same reasoning as the success leg: the popup cannot tell a verified
+        // `opener_origin` from a typed one, so attest it. The error leg is a
+        // real return from the provider too — the flow failed, not the hop.
+        if (signPopupReturn) {
+            params.set(
+                'opener_state',
+                signPopupReturn({
+                    opener_origin: stateDecoded?.opener_origin ?? null,
+                    msg_id: stateDecoded?.msg_id ?? null,
+                    oidc_login: false,
+                }),
+            );
         }
     } else {
         params = new URLSearchParams({
@@ -146,6 +164,51 @@ function isSameOrigin(target: string, origin: string): boolean {
  */
 export class OIDCController extends PuterController {
     registerRoutes(router: PuterRouter): void {
+        // -- POST /auth/oidc/verify-popup-return ---------------------
+        // Public — hand back the facts a popup-return proof attests to.
+        //
+        // A sign-in popup returning from a provider is told the opener's
+        // origin and that a login completed. It cannot check either: the
+        // values arrive as query parameters, and a URL built from a verified
+        // `state` looks exactly like one an attacker typed. The opener's
+        // origin decides which app a token gets minted for, so the popup
+        // redeems the signed proof here instead of believing the raw
+        // parameters.
+        //
+        // Unauthenticated on purpose — it reveals nothing the caller did not
+        // already hand over, and a forged or expired proof yields nothing.
+
+        router.post(
+            '/auth/oidc/verify-popup-return',
+            {
+                subdomain: 'api',
+                rateLimit: {
+                    scope: 'oidc-verify-popup-return',
+                    limit: 60,
+                    window: 60_000,
+                },
+            },
+            async (req: Request, res: Response) => {
+                const proof = req.body?.opener_state;
+                if (typeof proof !== 'string' || !proof) {
+                    throw new HttpError(400, 'Missing `opener_state`', {
+                        legacyCode: 'bad_request',
+                    });
+                }
+                const decoded = this.services.oidc.verifyPopupReturn(proof);
+                if (!decoded) {
+                    throw new HttpError(400, 'Invalid `opener_state`', {
+                        legacyCode: 'bad_request',
+                    });
+                }
+                res.json({
+                    opener_origin: decoded.opener_origin ?? null,
+                    msg_id: decoded.msg_id ?? null,
+                    oidc_login: decoded.oidc_login === true,
+                });
+            },
+        );
+
         // -- GET /auth/oidc/providers --------------------------------
         // Public — list enabled provider IDs for the frontend.
 
@@ -344,6 +407,7 @@ export class OIDCController extends PuterController {
                         resolved.code ?? 'unauthorized',
                         stateDecoded,
                         resolved.requestCode,
+                        (p) => this.services.oidc.signPopupReturn(p),
                     ),
                 );
             }
@@ -361,6 +425,8 @@ export class OIDCController extends PuterController {
                         'other',
                         'account_suspended',
                         stateDecoded,
+                        undefined,
+                        (p) => this.services.oidc.signPopupReturn(p),
                     ),
                 );
             }
@@ -407,6 +473,7 @@ export class OIDCController extends PuterController {
                         resolved.code ?? 'unauthorized',
                         stateDecoded,
                         resolved.requestCode,
+                        (p) => this.services.oidc.signPopupReturn(p),
                     ),
                 );
             }
@@ -421,6 +488,8 @@ export class OIDCController extends PuterController {
                         'other',
                         'account_suspended',
                         stateDecoded,
+                        undefined,
+                        (p) => this.services.oidc.signPopupReturn(p),
                     ),
                 );
             }
@@ -700,6 +769,22 @@ if (window.opener) {
 
         if (stateDecoded.embedded_in_popup) {
             target = appendQueryParam(target, 'oidc_login', 'true');
+            // `opener_origin` and `oidc_login` reach the popup as bare query
+            // parameters, which say nothing about where they came from: the
+            // URL a verified state produces is byte-identical to one anybody
+            // can type. The popup treats the opener's origin as the app
+            // identity to mint a token for, so it needs the integrity this
+            // state already carries — re-signed here, at the one point where
+            // the round trip is known to have actually happened.
+            target = appendQueryParam(
+                target,
+                'opener_state',
+                this.services.oidc.signPopupReturn({
+                    opener_origin: stateDecoded.opener_origin ?? null,
+                    msg_id: stateDecoded.msg_id ?? null,
+                    oidc_login: true,
+                }),
+            );
         }
 
         if (extraQueryParams) {

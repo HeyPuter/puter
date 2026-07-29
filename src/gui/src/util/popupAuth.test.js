@@ -18,10 +18,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import * as popupAuth from './popupAuth.js';
 import {
     deliversTokenToOpener,
     offersFederatedSignInInPopup,
-    trustsOpenerOriginParam,
 } from './popupAuth.js';
 
 describe('deliversTokenToOpener', () => {
@@ -68,44 +68,15 @@ describe('offersFederatedSignInInPopup', () => {
     });
 });
 
-describe('trustsOpenerOriginParam', () => {
-    it('disbelieves a link-supplied origin on an action-less popup', () => {
-        // The reported hole. This was a denylist of `request-permission`, so
-        // `undefined` — a popup with no action, which is also the one shape
-        // that renders no consent UI — was trusted. Any site could then have a
-        // token minted in another app's name with a single navigation.
-        expect(trustsOpenerOriginParam(undefined)).toBe(false);
-    });
-
-    it('disbelieves it on a permission prompt', () => {
-        // The opener's origin is the requester's identity there: it is the name
-        // the dialog shows and the app the server writes the grant to. Taking it
-        // from the link would let any site prompt in another app's name — the
-        // same hole `app_uid` was removed from this URL to close.
-        expect(trustsOpenerOriginParam('request-permission')).toBe(false);
-    });
-
-    it('disbelieves it on the file-picker actions', () => {
-        for ( const action of [
-            'show-open-file-picker',
-            'show-directory-picker',
-            'show-save-file-picker',
-        ] ) {
-            expect(trustsOpenerOriginParam(action)).toBe(false);
-        }
-    });
-
-    it('believes it only on the actions an OIDC return leg produces', () => {
-        // The parameter exists to survive that redirect, which drops the rest
-        // of the query and comes back with the provider as the referrer.
-        // `sign-in` is the success leg; the others are the error leg retrying
-        // the flow it came from.
-        for ( const action of ['sign-in', 'login', 'signup', 'revalidate'] ) {
-            expect(trustsOpenerOriginParam(action)).toBe(true);
-        }
-    });
-
-    it('disbelieves an unknown action', () => {
-        expect(trustsOpenerOriginParam('something-new')).toBe(false);
+describe('the retired opener_origin gate', () => {
+    it('is gone, because no action believes the raw parameter now', () => {
+        // It used to allow `opener_origin` for every action but
+        // `request-permission`. Being a denylist it fell open on `undefined` —
+        // a popup with no action, which is also the one shape that renders no
+        // consent UI — so any site could have a token minted in another app's
+        // name with a single navigation. The OIDC round trip the parameter
+        // existed for now redeems a signed proof instead; see
+        // util/popupOidcReturn.js.
+        expect(popupAuth.trustsOpenerOriginParam).toBeUndefined();
     });
 });

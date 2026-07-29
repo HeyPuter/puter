@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import type { LayerInstances } from '../../types';
@@ -42,6 +43,9 @@ const MICROSOFT_SCOPES = 'openid email profile';
 // admin-editable and only attested via the opt-in `xms_edov` claim.
 const MICROSOFT_CONSUMER_TENANT = '9188040d-6c67-4c5b-b112-36a304b66dad';
 const STATE_EXPIRY_SEC = 600; // 10 minutes
+// The popup redeems this on the request the provider redirects it into, so it
+// only has to outlive one hop.
+const POPUP_RETURN_EXPIRY_SEC = 300; // 5 minutes
 const VALID_OIDC_FLOWS = ['login', 'signup', 'revalidate'] as const;
 const REVALIDATION_EXPIRY_SEC = 300; // 5 minutes
 
@@ -75,7 +79,8 @@ interface OIDCUserInfo {
  * Delegates to TokenService for JWT state signing, AuthService for session
  * creation, UserStore for user creation.
  *
- * Config shape: `config.oidc.providers.<providerId>.{ client_id, client_secret, ... }`
+ * Config shape: `config.oidc.providers.<providerId>.{ client_id, client_secret,
+ * ... }`
  */
 export class OIDCService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
@@ -237,6 +242,30 @@ export class OIDCService extends PuterService {
         });
     }
 
+    /**
+     * Sign the facts a popup needs back from an OIDC round trip.
+     *
+     * The return URL states the opener's origin and that a login completed.
+     * Both come out of a verified `state`, but they reach the popup as bare
+     * query parameters — and the popup treats the opener's origin as the app
+     * identity it mints a token for. Since a URL says nothing about who wrote
+     * it, that pair is re-signed here so the popup can tell a real return leg
+     * from a crafted link.
+     *
+     * Short-lived: this is consumed on the very next request, as the provider
+     * redirects the popup home.
+     */
+    signPopupReturn(payload: Record<string, unknown>): string {
+        return this.services.token.sign('oidc-state', payload, {
+            expiresIn: POPUP_RETURN_EXPIRY_SEC,
+        });
+    }
+
+    /** Verify a popup-return proof. Returns null on a bad or expired one. */
+    verifyPopupReturn(token: string): Record<string, unknown> | null {
+        return this.verifyState(token);
+    }
+
     verifyState(token: string): Record<string, unknown> | null {
         try {
             return this.services.token.verify<Record<string, unknown>>(
@@ -367,8 +396,8 @@ export class OIDCService extends PuterService {
      * Find an existing Puter user by the email claimed by the OIDC provider.
      *
      * Matches on both the raw `email` column and the canonical `clean_email`
-     * column so that `Foo.Bar+tag@gmail.com` (OIDC) resolves to an account
-     * that signed up as `foobar@gmail.com`. Primary email is preferred over a
+     * column so that `Foo.Bar+tag@gmail.com` (OIDC) resolves to an account that
+     * signed up as `foobar@gmail.com`. Primary email is preferred over a
      * clean_email collision.
      */
     async findUserByEmail(email: string): Promise<UserRow | null> {
@@ -382,9 +411,9 @@ export class OIDCService extends PuterService {
      * Link an OIDC provider to an existing user. Use when the `sub` wasn't
      * linked yet but we matched the user by email.
      *
-     * Does NOT touch the password column — a user who originally signed up
-     * with a password keeps password login. Does mark `email_confirmed` if
-     * the provider verified the email and the row wasn't already confirmed.
+     * Does NOT touch the password column — a user who originally signed up with
+     * a password keeps password login. Does mark `email_confirmed` if the
+     * provider verified the email and the row wasn't already confirmed.
      */
     async linkProviderToUser(
         userId: number,
@@ -421,8 +450,8 @@ export class OIDCService extends PuterService {
     }
 
     /**
-     * Create a new Puter user from OIDC claims and link the provider.
-     * Returns `{ success, user, error? }`.
+     * Create a new Puter user from OIDC claims and link the provider. Returns
+     * `{ success, user, error? }`.
      */
     async createUserFromOIDC(
         providerId: string,
@@ -434,8 +463,8 @@ export class OIDCService extends PuterService {
         error?: string;
         code?: string;
         /**
-         * Support-correlation id for a vetoed signup (the abuse trail id).
-         * Safe to show the user; the veto reason in `error` is not.
+         * Support-correlation id for a vetoed signup (the abuse trail id). Safe
+         * to show the user; the veto reason in `error` is not.
          */
         requestCode?: string;
     }> {
@@ -737,9 +766,9 @@ export class OIDCService extends PuterService {
 
     /**
      * Verify an id_token against the provider's JWKS and return its claims.
-     * Used for providers without a userinfo endpoint (e.g. Apple). Delegates
-     * to the standalone verifier, passing this service's JWKS cache so keys
-     * are reused across calls. See {@link verifyOidcIdToken} for semantics.
+     * Used for providers without a userinfo endpoint (e.g. Apple). Delegates to
+     * the standalone verifier, passing this service's JWKS cache so keys are
+     * reused across calls. See {@link verifyOidcIdToken} for semantics.
      */
     async #verifyIdToken(
         idToken: string,

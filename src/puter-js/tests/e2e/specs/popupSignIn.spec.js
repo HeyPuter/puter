@@ -113,6 +113,48 @@ test.describe('popup sign-in cannot be driven from a link', () => {
         expect(await page.evaluate(() => window.__leaked)).toBe('waiting');
     });
 
+    test('`oidc_login` in the URL does not skip the account picker', async ({
+        page,
+    }) => {
+        // The backend appends this on a genuine OIDC return leg, but as a bare
+        // query parameter anyone can write it — and it suppressed the picker
+        // outright. Both it and the opener's origin now come from the signed
+        // `opener_state` proof, which only the server can mint.
+        const session = '11111111-2222-4333-8444-888888888888';
+        const popup = await probe(
+            page,
+            session,
+            '__GUI__/action/sign-in?embedded_in_popup=true' +
+                '&cross_origin_isolated=true&oidc_login=true' +
+                `&signin_session=${session}&msg_id=90`,
+        );
+
+        await expect(popup.locator('.window-session-list')).toBeVisible({
+            timeout: 60_000,
+        });
+        expect(await page.evaluate(() => window.__leaked)).toBe('waiting');
+    });
+
+    test('a forged opener_state is not believed', async ({ page }) => {
+        // Only the server holds the signing key, so a made-up proof is refused
+        // by /auth/oidc/verify-popup-return and the popup falls back to its
+        // browser-attested opener.
+        const session = '11111111-2222-4333-8444-aaaaaaaaaaaa';
+        const popup = await probe(
+            page,
+            session,
+            '__GUI__/action/sign-in?embedded_in_popup=true' +
+                '&cross_origin_isolated=true&oidc_login=true' +
+                '&opener_state=not.a.real.proof' +
+                `&signin_session=${session}&msg_id=92`,
+        );
+
+        await expect(popup.locator('.window-session-list')).toBeVisible({
+            timeout: 60_000,
+        });
+        expect(await page.evaluate(() => window.__leaked)).toBe('waiting');
+    });
+
     test('dismissing the account picker leaves the opener with no token', async ({
         page,
     }) => {

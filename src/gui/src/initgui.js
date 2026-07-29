@@ -59,10 +59,8 @@ import { ThemeService } from './services/ThemeService.js';
 // silently resolve to the factory — use `window.privacy_aware_path` instead.
 import { privacy_aware_path as privacy_aware_path_factory } from './util/desktop.js';
 import { resolveAPIOrigin } from './util/apiOrigin.js';
-import {
-    deliversTokenToOpener,
-    trustsOpenerOriginParam,
-} from './util/popupAuth.js';
+import { deliversTokenToOpener } from './util/popupAuth.js';
+import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
 
 const postAuthActions = async (action) => {
     // Set when a popup's user-app token exchange fails. The exchange is what
@@ -1126,18 +1124,26 @@ window.initgui = async function (options) {
     if (window.embedded_in_popup) {
         $('body').addClass('embedded-in-popup');
 
-        // determine the origin of the opener (preserved across OIDC redirect via URL param, else referrer or messaging)
-        // The parameter is only believed for the actions an OIDC return leg
-        // actually produces — it exists to survive that redirect and nothing
-        // else. See util/popupAuth.js.
-        const openerOriginFromUrl = trustsOpenerOriginParam(action)
-            ? window.url_query_params.get('opener_origin')
-            : null;
-        if (openerOriginFromUrl) {
-            window.openerOrigin = openerOriginFromUrl;
-        } else {
-            window.openerOrigin = document.referrer;
-        }
+        // Determine the origin of the opener. This is the one assignment that
+        // matters: the token exchange, `checkUserSiteRelationship`,
+        // `getAppUIDFromOrigin` and both `postMessage` targets all read
+        // `window.openerOrigin`, so every one of them is only as trustworthy
+        // as this line.
+        //
+        // An OIDC redirect drops `document.referrer` — it returns the popup
+        // with the *provider* as referrer — so the opener's origin has to
+        // survive the hop. It does, inside the signed `state`, but the backend
+        // used to flatten it into a bare `opener_origin` parameter: a URL
+        // built from a verified state is byte-identical to one anybody can
+        // type, and the popup believed both. Now the return leg carries a
+        // signed proof, redeemed here for the value the server actually
+        // attested. Everything else falls back to browser-attested sources.
+        window.oidcPopupReturn = await verifyOidcPopupReturn(
+            window.url_query_params.get('opener_state'),
+            window.url_query_params.get('msg_id'),
+        );
+        window.openerOrigin =
+            window.oidcPopupReturn?.opener_origin || document.referrer;
         if (!window.openerOrigin) {
             try {
                 window.openerOrigin = await requestOpenerOrigin();
@@ -1226,8 +1232,13 @@ window.initgui = async function (options) {
                 console.error("error in 'sign-in' flow", e);
             }
 
-            if (window.url_query_params.get('oidc_login') === 'true') {
-                // OIDC login just completed in popup — skip session list and finish the flow
+            // An OIDC login that just completed may skip the account picker —
+            // the user chose their account at the provider moments ago. That
+            // comes from the same signed proof as the opener's origin, rather
+            // than the `oidc_login` query parameter it used to be read from:
+            // as a bare parameter anyone could write it, and it suppresses the
+            // one prompt standing between a link and a token.
+            if (window.oidcPopupReturn?.oidc_login) {
                 picked_a_user_for_sdk_login = true;
                 await window.getUserAppToken(window.openerOrigin);
             } else {
