@@ -29,7 +29,9 @@ async function getEpoxyRuntime () {
     }
 }
 
-function createPuterPasswordBuilder (runtime, wispToken) {
+// Exported for tests: the wisp password extension's byte layout is hand-packed,
+// and `runtime` is injectable, so it can be exercised without the wasm bundle.
+export function createPuterPasswordBuilder (runtime, wispToken) {
     class PuterPasswordExt extends runtime.JsProtocolExtension {
         constructor (required, toSend) {
             super(0x02, [], []);
