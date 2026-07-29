@@ -578,7 +578,7 @@ window.refresh_user_data = async (auth_token) => {
     }
 };
 
-window.update_auth_data = async (auth_token, user, api_origin) => {
+window.update_auth_data = async (auth_token, user) => {
     window.auth_token = auth_token;
     // Write the v2 key going forward and clear any lingering v1 key so
     // a single localStorage source-of-truth is used.
@@ -604,11 +604,6 @@ window.update_auth_data = async (auth_token, user, api_origin) => {
                 message: `Failed to sync session cookie: ${ e.message}`,
             });
         }
-    }
-
-    if ( api_origin ) {
-        window.api_origin = api_origin;
-        localStorage.setItem('api_origin', api_origin);
     }
 
     // Has username changed?
