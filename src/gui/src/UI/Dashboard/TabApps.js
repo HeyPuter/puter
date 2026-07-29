@@ -1,6 +1,7 @@
 import UIContextMenu from '../UIContextMenu.js';
 import UIAlert from '../UIAlert.js';
 import launch_app from '../../helpers/launch_app.js';
+import revokeAppSessions from '../../helpers/revoke_app_sessions.js';
 import { begin_dashboard_tile_launch, settle_dashboard_tile_launch } from '../UIWindow.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
@@ -252,7 +253,27 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
             finishRemoval();
         }
 
-        puter.perms.revokeApp(appUid, '*').catch(async err => {
+        puter.perms.revokeApp(appUid, '*').then(async () => {
+            // Clearing the grants is only half of it. An app the user already
+            // opened holds a token that authenticates against a session row,
+            // and that row outlives the permission rows — so without this an
+            // uninstalled app keeps calling with the credential it has. The
+            // revoke endpoint deliberately doesn't do this itself: dropping
+            // grants without ending the app's sign-in is a valid thing to ask
+            // for on its own, so uninstall asks for both.
+            //
+            // The grants are already gone at this point, so the app is
+            // uninstalled either way and the tile stays removed. A failure here
+            // is worth saying out loud rather than swallowing — it's the
+            // difference between "revoked" and "revoked but still signed in",
+            // and Manage Sessions is where the user can finish the job.
+            try {
+                await revokeAppSessions(appUid);
+            } catch ( e ) {
+                console.error('Uninstalled the app but could not end its sessions:', e);
+                UIAlert(i18n('uninstall_sessions_failed', [displayName]));
+            }
+        }).catch(async err => {
             console.error('Failed to uninstall app:', err);
             await removalSettled;
             self._invalidateInFlightLoads();

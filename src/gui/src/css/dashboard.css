@@ -51,6 +51,12 @@
     --dashboard-warning-hover-border: #d97706;
     --dashboard-warning-hover-text: #78350f;
 
+    /* Advisory notices (trial ending, renewal scheduled). Deliberately not the
+       warning ramp — nothing is wrong, so amber overstates it. */
+    --dashboard-notice-background: #eff6ff;
+    --dashboard-notice-border: #bfdbfe;
+    --dashboard-notice-text: #1d4ed8;
+
     --dashboard-success-background: #e6ffed;
     --dashboard-success-border: #08bf4e;
     --dashboard-success-text: #03933a;
@@ -155,6 +161,12 @@ body {
         --dashboard-warning-hover-bg: #4a2608;
         --dashboard-warning-hover-border: #d97706;
         --dashboard-warning-hover-text: #fde68a;
+
+        /* Muted slate-blue rather than the amber ramp, which glares on a dark
+           surface. Low-chroma fill, visible-but-quiet border, legible text. */
+        --dashboard-notice-background: #17202f;
+        --dashboard-notice-border: #2f4058;
+        --dashboard-notice-text: #a8c4e8;
 
         --dashboard-success-background: #052e16;
         --dashboard-success-border: #16a34a;
@@ -3459,6 +3471,19 @@ body.myapps-reordering .myapps-tile {
     gap: 24px;
 }
 
+/* Three even columns need real width. Below that the plan column lands around
+   230px, which wraps its badge and renewal notice into a tall ribbon — so give
+   the plan its own row and let the two usage meters share the next one. */
+@media (max-width: 1200px) {
+    .dashboard .bento-usage-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .dashboard .bento-plan-section {
+        grid-column: 1 / -1;
+    }
+}
+
 .dashboard .bento-usage-section {
     display: flex;
     flex-direction: column;
@@ -3505,9 +3530,9 @@ body.myapps-reordering .myapps-tile {
     border-radius: 999px;
     font-size: 12px;
     font-weight: 500;
-    color: var(--dashboard-warning-text);
-    background: var(--dashboard-warning-background);
-    border: 1px solid var(--dashboard-warning-border);
+    color: var(--dashboard-notice-text);
+    background: var(--dashboard-notice-background);
+    border: 1px solid var(--dashboard-notice-border);
 }
 
 .dashboard .bento-plan-warning {
@@ -3522,11 +3547,11 @@ body.myapps-reordering .myapps-tile {
 }
 
 /* Time-boxed but not broken — a trial notice reads as advisory, not as the
-   red dunning banner. */
+   red dunning banner and not as an amber warning either. */
 .dashboard .bento-plan-warning.info {
-    color: var(--dashboard-warning-text);
-    background: var(--dashboard-warning-background);
-    border-color: var(--dashboard-warning-border);
+    color: var(--dashboard-notice-text);
+    background: var(--dashboard-notice-background);
+    border-color: var(--dashboard-notice-border);
 }
 
 .dashboard .bento-plan-upgrade {
