@@ -181,6 +181,7 @@ const en = {
         log_in: 'Log In',
         log_into_another_account_anyway: 'Log into another account anyway',
         log_out: 'Log Out',
+        logging_in_as: 'Logging in as <strong>{{identity}}</strong>',
         looks_good: 'Looks good!',
         manage_sessions: 'Manage Sessions',
         modified: 'Modified',

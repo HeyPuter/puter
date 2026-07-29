@@ -90,17 +90,15 @@ export default async function globalSetup () {
     // 1) Direct API login → token (no browser, no /signup, no rate-limit risk).
     const token = await loginAsAdmin({ origin: PUTER_ORIGIN, username: ADMIN_USERNAME, password: ADMIN_PASSWORD });
 
-    // 2) Open Puter with ?auth_token=<token>&api_origin=<origin> so initgui's
-    //    auth_token flow runs the full setup (puter.setAuthToken,
-    //    puter.setAPIOrigin, /session/sync-cookie, update_auth_data) and persists
-    //    the API origin to localStorage.api_origin — otherwise the bundled SDK
-    //    keeps its production default (https://api.puter.com) and apps.create
-    //    hits the wrong server.
+    // 2) Open Puter with ?auth_token=<token> so initgui's auth_token flow runs
+    //    the full setup (puter.setAuthToken, /session/sync-cookie,
+    //    update_auth_data). The GUI points the SDK at its own templated
+    //    api_origin — that is not overridable from the URL.
     const browser = await chromium.launch();
     const context = await browser.newContext();
     const page = await context.newPage();
 
-    // Probe the GUI's templated api_origin first so we can pass it through.
+    // Probe the GUI's templated api_origin so we can assert the SDK adopts it.
     await page.goto(PUTER_ORIGIN);
     const apiOrigin = await page.evaluate(() => window.api_origin || null);
     if ( ! apiOrigin ) {
@@ -108,10 +106,7 @@ export default async function globalSetup () {
         throw new Error(`Could not determine api_origin from ${PUTER_ORIGIN} (window.api_origin was empty).`);
     }
 
-    await page.goto(
-        `${PUTER_ORIGIN}/?auth_token=${encodeURIComponent(token)}` +
-        `&api_origin=${encodeURIComponent(apiOrigin)}`,
-    );
+    await page.goto(`${PUTER_ORIGIN}/?auth_token=${encodeURIComponent(token)}`);
 
     await page.waitForFunction(() => !!window.puter, null, { timeout: 60_000 });
 
@@ -122,13 +117,12 @@ export default async function globalSetup () {
         .click({ timeout: 60_000 });
 
     await page.waitForFunction(
-        () => {
+        expectedApiOrigin => {
             // v2 key since the v1→v2 cutover; legacy key tolerated.
             const ls = (typeof localStorage !== 'undefined') ? (localStorage.getItem('auth_token_v2') || localStorage.getItem('auth_token')) : null;
-            const lsApi = (typeof localStorage !== 'undefined') ? localStorage.getItem('api_origin') : null;
-            return !!(ls && lsApi && window.auth_token && window.puter?.authToken && window.puter?.APIOrigin === lsApi);
+            return !!(ls && window.auth_token && window.puter?.authToken && window.puter?.APIOrigin === expectedApiOrigin);
         },
-        null,
+        apiOrigin,
         { timeout: 60_000 },
     );
 

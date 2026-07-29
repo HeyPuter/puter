@@ -58,6 +58,7 @@ import { ThemeService } from './services/ThemeService.js';
 // factory name so a bare `privacy_aware_path(path)` call in this module can't
 // silently resolve to the factory — use `window.privacy_aware_path` instead.
 import { privacy_aware_path as privacy_aware_path_factory } from './util/desktop.js';
+import { resolveAPIOrigin } from './util/apiOrigin.js';
 import {
     deliversTokenToOpener,
     trustsOpenerOriginParam,
@@ -896,6 +897,9 @@ window.initgui = async function (options) {
         .filter((element) => element);
     window.url_paths = url_paths;
 
+    // GET query params provided
+    window.url_query_params = new URLSearchParams(window.location.search);
+
     // Install device signal helpers; collection is lazy. The fingerprint is
     // on by default (gui_params.thumbmarkEnabled = false kills it); the Prelude
     // dispatch id needs gui_params.preludeSdkKey.
@@ -907,11 +911,25 @@ window.initgui = async function (options) {
     if (window.auth_token && puter.authToken !== window.auth_token) {
         puter.setAuthToken(window.auth_token);
     }
-    // update SDK if api_origin is different from the one in the SDK
-    if (window.api_origin && puter.APIOrigin !== window.api_origin) {
-        puter.setAPIOrigin(
-            localStorage.getItem('api_origin') || window.api_origin,
-        );
+    // Point the SDK at this deployment's own API. Anywhere but a Puter served
+    // off the developer's own machine, that is the only origin we'll use — see
+    // resolveAPIOrigin for why, and for the dev flow that is the exception.
+    if (window.api_origin) {
+        const api_origin = resolveAPIOrigin({
+            configuredOrigin: window.api_origin,
+            guiOrigin: window.location.origin,
+            urlOrigin: window.url_query_params.get('api_origin'),
+            storedOrigin: localStorage.getItem('api_origin'),
+        });
+        if (api_origin === window.api_origin) {
+            localStorage.removeItem('api_origin');
+        } else {
+            // Sticks for the rest of the session: only the boot that carried
+            // the parameter has it in the URL.
+            localStorage.setItem('api_origin', api_origin);
+            window.api_origin = api_origin;
+        }
+        if (puter.APIOrigin !== api_origin) puter.setAPIOrigin(api_origin);
     }
 
     // Print the version to the console
@@ -959,9 +977,6 @@ window.initgui = async function (options) {
     $('head').append(
         '<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">',
     );
-
-    // GET query params provided
-    window.url_query_params = new URLSearchParams(window.location.search);
 
     // will hold the result of the whoami API call
     let whoami;
@@ -1333,17 +1348,12 @@ window.initgui = async function (options) {
     // -------------------------------------------------------------------------------------
     else if (window.url_query_params.has('auth_token')) {
         let query_param_auth_token = window.url_query_params.get('auth_token');
-        let api_origin;
-
-        // check if we have api_origin in the URL query params
-        if (window.url_query_params.has('api_origin')) {
-            api_origin = window.url_query_params.get('api_origin');
-            puter.setAPIOrigin(api_origin);
-        }
 
         const previous_auth_token = window.auth_token;
-        const previous_api_origin = window.api_origin;
 
+        // The token is resolved against our own API origin — deliberately not
+        // one named by the same URL that carried the token, which would leave
+        // the identity we're about to render up to whoever wrote the link.
         puter.setAuthToken(query_param_auth_token);
 
         try {
@@ -1358,7 +1368,7 @@ window.initgui = async function (options) {
         // Confirm the identity before adopting a token that came from the
         // URL. Every other path into `update_auth_data` is an account the
         // user picked in the UI, so those don't ask.
-        if (whoami && window.user?.uuid !== whoami.uuid) {
+        if (whoami && (!window.user || window.user.uuid !== whoami.uuid)) {
             const proceed = await UIAlert({
                 type: 'confirm',
                 // `false` — UIAlert encodes the message itself.
@@ -1376,7 +1386,6 @@ window.initgui = async function (options) {
                 // Back to whatever session was already here; normal boot
                 // picks up below.
                 puter.setAuthToken(previous_auth_token);
-                if (api_origin) puter.setAPIOrigin(previous_api_origin);
                 whoami = null;
             }
         }
@@ -1432,11 +1441,7 @@ window.initgui = async function (options) {
             // show login progress window
             UIWindowLoginInProgress({ user_info: whoami });
             // update auth data
-            await window.update_auth_data(
-                query_param_auth_token,
-                whoami,
-                api_origin,
-            );
+            await window.update_auth_data(query_param_auth_token, whoami);
         }
         // remove auth_token from URL, keeping the current path (e.g. `/` or `/desktop`)
         // and hash (dashboard tab links like /#usage)
