@@ -195,6 +195,38 @@ export default suite('kv', {
         t.assert.equal(await t.puter.kv.incr('kv-suite-incr-fresh', 3), 3);
     },
 
+    'incr rejects a path that walks the prototype chain': async (t) => {
+        await t.assert.rejects(
+            () =>
+                t.puter.kv.incr('kv-suite-proto', {
+                    'constructor.prototype.polluted': 1,
+                }),
+            'a prototype-walking path should be rejected',
+        );
+        await t.assert.rejects(
+            () =>
+                t.puter.kv.incr('kv-suite-proto', {
+                    '__proto__.polluted.deep': 1,
+                }),
+            'a __proto__ path should be rejected',
+        );
+        t.assert.equal(
+            ({} as Record<string, unknown>).polluted,
+            undefined,
+            'nothing should have landed on Object.prototype',
+        );
+    },
+
+    'set rejects a value carrying a reserved object key': async (t) => {
+        // A JSON body can carry `__proto__` as a real own property; an object
+        // literal in source cannot.
+        const value = JSON.parse('{"__proto__":{"polluted":true}}');
+        await t.assert.rejects(
+            () => t.puter.kv.set('kv-suite-proto-value', value),
+            'a value with a __proto__ key should be rejected',
+        );
+    },
+
     'decr can drive a value negative': async (t) => {
         t.assert.equal(await t.puter.kv.decr('kv-suite-decr-neg', 5), -5);
     },

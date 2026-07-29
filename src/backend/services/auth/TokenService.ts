@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import jwt, { type SignOptions } from 'jsonwebtoken';
@@ -52,9 +53,32 @@ interface CompressionContext {
     short_to_fullkey: Record<string, string>;
 }
 
+/**
+ * Table lookups keyed by a JWT field name. A decoded payload is attacker-
+ * shaped (`decodeWithoutVerify` runs before any signature check), and a literal
+ * `constructor` or `__proto__` key would otherwise resolve to an
+ * `Object.prototype` member and be mistaken for a field definition.
+ */
+const lookupOwn = <T>(table: Record<string, T>, key: string): T | undefined =>
+    Object.hasOwn(table, key) ? table[key] : undefined;
+
+/** Write a key as data, so a `__proto__` field can't reassign the prototype. */
+const setOwn = (
+    target: Record<string, unknown>,
+    key: string,
+    value: unknown,
+): void => {
+    Object.defineProperty(target, key, {
+        value,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+    });
+};
+
 const def = (o: Record<string, FieldInfoShorthand>): CompressionContext => {
     const fullkey_to_info: Record<string, FieldInfo> = {};
-    for (const k in o) {
+    for (const k of Object.keys(o)) {
         const v = o[k];
         fullkey_to_info[k] = typeof v === 'string' ? { short: v } : v;
     }
@@ -165,10 +189,10 @@ const COMPRESSION: Record<string, CompressionContext> = {
 
 /**
  * Thrown by `verify()` when a v1 token is presented while
- * `auth.allow_v1_tokens=false`. Carries the **unverified** payload so
- * the auth probe can mint a `reauth_required` response with an
- * `auth_id` hint — the hint is advisory only (never trusted as
- * identity), so reading it from an unsigned payload is safe.
+ * `auth.allow_v1_tokens=false`. Carries the **unverified** payload so the auth
+ * probe can mint a `reauth_required` response with an `auth_id` hint — the hint
+ * is advisory only (never trusted as identity), so reading it from an unsigned
+ * payload is safe.
  */
 export class V1TokensDisabledError extends Error {
     constructor(public readonly payload: Record<string, unknown>) {
@@ -270,9 +294,10 @@ export class TokenService extends PuterService {
 
     /**
      * Verify and decompress. Routes by header `kid`:
-     *   - `kid === 'v2'` → verify against the v2 secret.
-     *   - else → verify against the legacy secret and tag the result with
-     *     `legacy: true`. Rejected outright if `allow_v1_tokens=false`.
+     *
+     * - `kid === 'v2'` → verify against the v2 secret.
+     * - Else → verify against the legacy secret and tag the result with `legacy:
+     *   true`. Rejected outright if `allow_v1_tokens=false`.
      *
      * Throws on invalid signature / expired / malformed (propagates
      * `jsonwebtoken`'s errors). Callers in the auth probe should catch and
@@ -332,14 +357,13 @@ export class TokenService extends PuterService {
     }
 
     /**
-     * Decode + decompress *without* verifying the signature. Returns
-     * `null` for malformed tokens. Use **only** for paths that need to
-     * recover advisory hints from an expired / unsignable token (e.g.,
-     * the logout path that wants to revoke a session row even if the
-     * JWT has expired since the user opened the tab). The result is
-     * never trusted as identity — only as a pointer for cleanup
-     * operations the caller would otherwise authorize via a different
-     * channel.
+     * Decode + decompress _without_ verifying the signature. Returns `null` for
+     * malformed tokens. Use **only** for paths that need to recover advisory
+     * hints from an expired / unsignable token (e.g., the logout path that
+     * wants to revoke a session row even if the JWT has expired since the user
+     * opened the tab). The result is never trusted as identity — only as a
+     * pointer for cleanup operations the caller would otherwise authorize via a
+     * different channel.
      */
     decodeWithoutVerify<T = Record<string, unknown>>(
         scope: string,
@@ -363,10 +387,10 @@ export class TokenService extends PuterService {
         if (!context) return payload;
         const { fullkey_to_info } = context;
         const out: Record<string, unknown> = {};
-        for (const fullkey in payload) {
-            const info = fullkey_to_info[fullkey];
+        for (const fullkey of Object.keys(payload)) {
+            const info = lookupOwn(fullkey_to_info, fullkey);
             if (!info) {
-                out[fullkey] = payload[fullkey];
+                setOwn(out, fullkey, payload[fullkey]);
                 continue;
             }
             let k = fullkey;
@@ -375,13 +399,13 @@ export class TokenService extends PuterService {
             if (
                 info.values &&
                 typeof v === 'string' &&
-                info.values.to_short[v] !== undefined
+                lookupOwn(info.values.to_short, v) !== undefined
             ) {
                 v = info.values.to_short[v];
             } else if (info.encode && typeof v === 'string') {
                 v = info.encode(v);
             }
-            out[k] = v;
+            setOwn(out, k, v);
         }
         return out;
     }
@@ -393,26 +417,28 @@ export class TokenService extends PuterService {
         if (!context) return payload;
         const { fullkey_to_info, short_to_fullkey } = context;
         const out: Record<string, unknown> = {};
-        for (const short in payload) {
-            const fullkey = short_to_fullkey[short];
-            if (!fullkey) {
-                out[short] = payload[short];
+        for (const short of Object.keys(payload)) {
+            const fullkey = lookupOwn(short_to_fullkey, short);
+            const info = fullkey
+                ? lookupOwn(fullkey_to_info, fullkey)
+                : undefined;
+            if (!fullkey || !info) {
+                setOwn(out, short, payload[short]);
                 continue;
             }
-            const info = fullkey_to_info[fullkey];
             let k = short;
             let v = payload[short];
             if (info.short) k = fullkey;
             if (
                 info.values &&
                 typeof v === 'string' &&
-                info.values.to_long[v] !== undefined
+                lookupOwn(info.values.to_long, v) !== undefined
             ) {
                 v = info.values.to_long[v];
             } else if (info.decode && typeof v === 'string') {
                 v = info.decode(v);
             }
-            out[k] = v;
+            setOwn(out, k, v);
         }
         return out;
     }

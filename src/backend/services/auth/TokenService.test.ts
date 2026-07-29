@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { createHmac } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { describe, expect, it } from 'vitest';
 import { TokenService } from './TokenService.js';
@@ -366,4 +367,55 @@ describe('TokenService.verify — algorithm pinning', () => {
         const token = jwt.sign({ t: 's' }, V1_SECRET, { algorithm: 'HS512' });
         expect(() => svc.verify('auth', token)).toThrow(/algorithm/);
     });
+});
+
+describe('TokenService payload key handling', () => {
+    // Decompression looks every field name up in a table keyed by claim
+    // name. A crafted token can name a field after an `Object.prototype`
+    // member, which must be read as data rather than as a field definition.
+    const prototypeKeys = ['constructor', '__proto__', 'toString'];
+
+    /**
+     * Hand-mint a v2-shaped token. `jwt.sign` refuses these payloads (its own
+     * claim validator has the same prototype-lookup flaw), which is exactly
+     * why an attacker assembles the JWT by hand instead.
+     */
+    const mintRawV2Token = (payloadJson: string, sign = true): string => {
+        const b64 = (s: string) => Buffer.from(s).toString('base64url');
+        const head = b64(
+            JSON.stringify({ alg: 'HS256', typ: 'JWT', kid: 'v2' }),
+        );
+        const body = b64(payloadJson);
+        const sig = sign
+            ? createHmac('sha256', V2_SECRET)
+                  .update(`${head}.${body}`)
+                  .digest('base64url')
+            : 'not-a-signature';
+        return `${head}.${body}.${sig}`;
+    };
+
+    it.each(prototypeKeys)(
+        'decodes an unsigned payload carrying a `%s` field',
+        (key) => {
+            const svc = createTokenService();
+            const token = mintRawV2Token(`{"t":"s","${key}":"x"}`, false);
+            const decoded = svc.decodeWithoutVerify<Record<string, unknown>>(
+                'auth',
+                token,
+            );
+            expect(decoded).toMatchObject({ type: 'session' });
+            expect(Object.getPrototypeOf(decoded)).toBe(Object.prototype);
+        },
+    );
+
+    it.each(prototypeKeys)(
+        'verifies a signed payload carrying a `%s` field',
+        (key) => {
+            const svc = createTokenService();
+            const token = mintRawV2Token(`{"t":"s","${key}":"x"}`);
+            const verified = svc.verify<Record<string, unknown>>('auth', token);
+            expect(verified).toMatchObject({ type: 'session' });
+            expect(Object.getPrototypeOf(verified)).toBe(Object.prototype);
+        },
+    );
 });
