@@ -1691,6 +1691,9 @@ body.myapps-reordering .myapps-tile {
     float: unset;
     -webkit-user-select: none;
     user-select: none;
+    /* Safari shows an I-beam over text regardless of user-select unless a
+       cursor is set explicitly; children (item-name, size, modified) inherit. */
+    cursor: default;
 }
 
 .dashboard-section-files .row.folder {
