@@ -44,7 +44,7 @@ class PuterPeerConnectionErrorEvent extends Event {
     }
 }
 
-class PuterPeerServer extends EventTarget {
+export class PuterPeerServer extends EventTarget {
     #wsconn;
     #oncreateresolve;
 
@@ -83,7 +83,7 @@ class PuterPeerServer extends EventTarget {
 
         this.#wsconn.onmessage = (event) => {
             let data = JSON.parse(event.data);
-            this.#message(data);
+            return this.#message(data);
         };
 
         this.#wsconn.onclose = () => {
@@ -168,12 +168,12 @@ class PuterPeerServer extends EventTarget {
         if ( data.server.offer ) {
             let uuid = data.server.offer.id;
             let connection = this.connections.get(uuid);
-            if ( connection ) {
-                await connection.setRemoteDescription(
-                    new RTCSessionDescription(data.server.offer.offer),
-                );
+            if ( ! connection ) {
+                return;
             }
-
+            await connection.setRemoteDescription(
+                new RTCSessionDescription(data.server.offer.offer),
+            );
             const answer = await connection.createAnswer();
             this.#wsconn.send(
                 JSON.stringify({
