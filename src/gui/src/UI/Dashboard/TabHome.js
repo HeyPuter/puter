@@ -468,8 +468,8 @@ const TabHome = {
                         )
                         .show();
                 } else if (trialing) {
-                    // A trial grants the full tier but lapses to Free unless a
-                    // payment method is added, so say when it ends.
+                    // A trial grants the full tier and then continues as a paid
+                    // plan, so say when that happens and where to opt out.
                     $badge
                         .text(
                             trialEnds
@@ -480,8 +480,8 @@ const TabHome = {
                     $warning
                         .text(
                             trialEnds
-                                ? `Your free trial ends on ${trialEnds.long}. Add a payment method before then to keep this plan.`
-                                : 'You are on a free trial. Add a payment method to keep this plan when it ends.',
+                                ? `Your free trial ends on ${trialEnds.long}, after which the plan continues at the usual monthly price. Cancel any time before then under Billing.`
+                                : 'When your free trial ends the plan continues at the usual monthly price. Cancel any time before then under Billing.',
                         )
                         .addClass('info')
                         .show();
