@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { HttpError } from '../../core/http/HttpError.js';
@@ -75,6 +76,11 @@ export class SystemController extends PuterController {
                 process.env.npm_package_version ??
                 'unknown';
             const parts = String(version).split('.');
+            // Deploy-constant, and callers poll it. Cache per-client only:
+            // a shared cache could pin one region's `location` for everyone,
+            // and the short window still bounds how long a client can miss a
+            // new deploy.
+            res.setHeader('Cache-Control', 'private, max-age=60');
             res.json({
                 version,
                 major: parts[0] ? Number(parts[0]) : null,
