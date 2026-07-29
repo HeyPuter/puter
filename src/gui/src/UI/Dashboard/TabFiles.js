@@ -3421,8 +3421,19 @@ const TabFiles = {
             // row would lose all visual state the moment the pointer moves
             // onto the menu (same treatment as the right-click handler).
             const releaseCtxState = this.markRowContextMenuOpen(rowElement);
-            const menu = UIContextMenu({ items: items });
-            menu.onClose = releaseCtxState;
+            // Anchor the menu to the button — below it, right edges aligned —
+            // rather than at the pointer, and keep the button in its active
+            // state until the menu closes.
+            const btnRect = targetElement.getBoundingClientRect();
+            targetElement.classList.add('has-open-contextmenu');
+            const menu = UIContextMenu({
+                items: items,
+                position: { top: btnRect.bottom, right: btnRect.right },
+            });
+            menu.onClose = () => {
+                targetElement.classList.remove('has-open-contextmenu');
+                releaseCtxState();
+            };
         }
     },
 

@@ -1821,6 +1821,12 @@ body.myapps-reordering .myapps-tile {
     }
 }
 
+/* The '⋯' button stays in its active look while the menu it opened is up
+   (the pointer is on the menu by then, so :hover alone can't hold it). */
+.dashboard-section-files .row .item-more.has-open-contextmenu {
+    color: var(--dashboard-text);
+}
+
 .dashboard-section-files .row.selected .item-more {
     color: var(--dashboard-text-secondary);
 }
@@ -2388,7 +2394,8 @@ body.myapps-reordering .myapps-tile {
         transition: background-color 0.15s ease, color 0.15s ease;
     }
 
-    .dashboard-section-files .files-tab .files.files-grid-view .row .item-more:hover {
+    .dashboard-section-files .files-tab .files.files-grid-view .row .item-more:hover,
+    .dashboard-section-files .files-tab .files.files-grid-view .row .item-more.has-open-contextmenu {
         color: var(--dashboard-text-primary);
         background: var(--dashboard-hover);
     }

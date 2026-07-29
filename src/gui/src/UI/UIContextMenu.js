@@ -378,7 +378,9 @@
  * @param {string} [options.id] - Unique identifier for the menu
  * @param {Object} [options.position] - Custom positioning for the menu
  * @param {number} options.position.top - Top position in pixels
- * @param {number} options.position.left - Left position in pixels
+ * @param {number} [options.position.left] - Left position in pixels (pins the menu's left edge)
+ * @param {number} [options.position.right] - Right position in pixels (pins the menu's right
+ *                                            edge instead — for anchoring to right-edge buttons)
  * @param {boolean|number} [options.delay] - Animation delay for menu appearance
  *                                          true/1/undefined = 50ms fade
  *                                          false = no animation
@@ -541,7 +543,12 @@ function UIContextMenu (options) {
         // custom position
         //--------------------------------
         else {
-            start_x = options.position.left;
+            // position.right pins the menu's right edge (anchors that sit at
+            // the right edge of their container would otherwise trigger the
+            // overflow flip only sometimes, making placement inconsistent)
+            start_x = options.position.right !== undefined
+                ? options.position.right - $(contextMenu).outerWidth()
+                : options.position.left;
             start_y = options.position.top;
         }
 
