@@ -269,6 +269,24 @@ describe('OpenAiChatProvider.complete request shape', () => {
         expect(args.temperature).toBe(0.4);
     });
 
+    it('forwards temperature 0 and max_tokens 0 instead of dropping them', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5-nano',
+                messages: [{ role: 'user', content: 'hello' }],
+                max_tokens: 0,
+                temperature: 0,
+            }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.max_completion_tokens).toBe(0);
+        expect(args.temperature).toBe(0);
+    });
+
     it('drops reasoning_effort and verbosity for gpt-5-prefixed models (they manage these themselves)', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);

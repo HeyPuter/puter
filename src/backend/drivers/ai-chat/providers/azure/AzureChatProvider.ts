@@ -50,9 +50,7 @@ import { AZURE_MODELS } from './models.js';
  * spending records, and content moderation.
  */
 export class AzureChatProvider implements IChatProvider {
-    /**
-     * @type {import('openai').OpenAI}
-     */
+    /** @type {import('openai').OpenAI} */
     #openAi: OpenAI;
 
     #defaultModel = 'gpt-5.4-nano';
@@ -95,7 +93,8 @@ export class AzureChatProvider implements IChatProvider {
 
     /**
      * Returns an array of available AI models with their pricing information.
-     * Each model object includes an ID and cost details (currency, tokens, input/output rates).
+     * Each model object includes an ID and cost details (currency, tokens,
+     * input/output rates).
      */
     models() {
         return AZURE_MODELS.filter((e) => !e.responses_api_only);
@@ -213,8 +212,10 @@ export class AzureChatProvider implements IChatProvider {
             messages: messages,
             model: modelUsed.id,
             ...(tools ? { tools } : {}),
-            ...(max_tokens ? { max_completion_tokens: max_tokens } : {}),
-            ...(temperature ? { temperature } : {}),
+            ...(max_tokens !== undefined
+                ? { max_completion_tokens: max_tokens }
+                : {}),
+            ...(temperature !== undefined ? { temperature } : {}),
             stream: !!stream,
             ...(stream
                 ? {

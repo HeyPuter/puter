@@ -150,8 +150,8 @@ export class TogetherAIProvider implements IChatProvider {
             messages,
             stream,
             ...(tools ? { tools } : {}),
-            ...(max_tokens ? { max_tokens } : {}),
-            ...(temperature ? { temperature } : {}),
+            ...(max_tokens !== undefined ? { max_tokens } : {}),
+            ...(temperature !== undefined ? { temperature } : {}),
             ...(stream ? { stream_options: { include_usage: true } } : {}),
         } as Together.Chat.Completions.CompletionCreateParamsNonStreaming);
 
