@@ -178,14 +178,21 @@ export class PSocket extends EventListener {
                 }
             }
 
-            this.#emitClose(false);
+            // A teardown already under way owns the close event. Cancelling the
+            // reader resolves the pending read with `done`, which lands here
+            // first; emitting now would report a clean shutdown and let
+            // #closeStreams' hadError flag lose the race.
+            if ( ! this.#closing ) {
+                this.#emitClose(false);
+            }
         } catch ( error ) {
             if ( this.#closing ) {
-                this.#emitClose(false);
-            } else {
-                clearEpoxyClientCache();
-                this.#emitErrorAndClose(error);
+                // As above: #closeStreams is mid-flight and will emit close.
+                return;
             }
+
+            clearEpoxyClientCache();
+            this.#emitErrorAndClose(error);
         } finally {
             try {
                 this.#reader.releaseLock();

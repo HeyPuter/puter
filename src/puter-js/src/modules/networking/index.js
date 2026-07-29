@@ -77,29 +77,35 @@ export async function generateWispV1URL () {
 }
 
 export async function getEpoxyClient ({ refresh = false } = {}) {
-    if ( cachedEpoxy && cachedEpoxy.initting ) return await cachedEpoxy.promise;
-
     const nextKey = getClientCacheKey();
-    if ( refresh || !(cachedEpoxy && cachedEpoxy.key === nextKey) ) {
-        let epoxy = { key: nextKey, initting: true };
-        let promise = (async () => {
-            try {
-                const { wispToken, wispServer } = await getWispCredentials();
-                let ret = await initEpoxy({ wispToken, wispServer });
-                epoxy.initting = false;
-                return ret;
-            } catch {
-                if ( cachedEpoxy === epoxy ) {
-                    cachedEpoxy = undefined;
-                }
-            }
-        })();
-        epoxy.promise = promise;
 
-        cachedEpoxy = epoxy;
+    // Concurrent callers share one attempt, but only while it is still the
+    // attempt they asked for: a `refresh` exists to replace the cached entry,
+    // and a changed origin or token needs a client of its own.
+    if ( ! refresh && cachedEpoxy && cachedEpoxy.key === nextKey ) {
+        return await cachedEpoxy.promise;
     }
 
-    return await cachedEpoxy.promise;
+    const epoxy = { key: nextKey };
+    epoxy.promise = (async () => {
+        try {
+            const { wispToken, wispServer } = await getWispCredentials();
+            return await initEpoxy({ wispToken, wispServer });
+        } catch ( error ) {
+            // Never cache a failed attempt, or every later caller would keep
+            // resolving the same broken client. The reason is re-thrown so
+            // callers report why the relay is unreachable instead of tripping
+            // over an undefined client.
+            if ( cachedEpoxy === epoxy ) {
+                cachedEpoxy = undefined;
+            }
+            throw error;
+        }
+    })();
+
+    cachedEpoxy = epoxy;
+
+    return await epoxy.promise;
 }
 
 export function clearEpoxyClientCache () {

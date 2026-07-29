@@ -239,26 +239,77 @@ describe('getEpoxyClient', () => {
         expect(mockInitEpoxy).toHaveBeenCalledTimes(2);
     });
 
-    // A failed init must not be cached, otherwise every later socket would keep
-    // resolving the same broken attempt.
+    // Swallowing the reason here used to hand callers an undefined client, so
+    // a dead relay surfaced as "cannot read properties of undefined" instead.
+    it('surfaces why the client could not be built', async () => {
+        mockInitEpoxy.mockRejectedValue(new Error('wasm unavailable'));
+
+        await expect(getEpoxyClient()).rejects.toThrow('wasm unavailable');
+    });
+
+    it('surfaces a credential failure the same way', async () => {
+        mockFetch.mockImplementation(async () => relayResponse({ status: 500 }));
+
+        await expect(getEpoxyClient()).rejects.toThrow(/HTTP 500/);
+    });
+
+    it('rejects every caller waiting on a failed attempt', async () => {
+        mockInitEpoxy.mockRejectedValue(new Error('wasm unavailable'));
+
+        const results = await Promise.allSettled([getEpoxyClient(), getEpoxyClient()]);
+
+        expect(results.map(r => r.status)).toEqual(['rejected', 'rejected']);
+        expect(mockInitEpoxy).toHaveBeenCalledTimes(1);
+    });
+
+    // A failed attempt must not be cached, otherwise every later socket would
+    // keep resolving the same broken client.
     it('does not cache a failed init, so the next caller retries', async () => {
         mockInitEpoxy.mockRejectedValueOnce(new Error('wasm unavailable'));
 
-        await getEpoxyClient();
+        await expect(getEpoxyClient()).rejects.toThrow('wasm unavailable');
         const retried = await getEpoxyClient();
 
         expect(mockInitEpoxy).toHaveBeenCalledTimes(2);
         expect(retried).toEqual({ client: 'epoxy' });
     });
 
-    // Credential failures are swallowed the same way an init failure is.
     it('does not cache a failed credential fetch', async () => {
         mockFetch.mockImplementationOnce(async () => relayResponse({ status: 500 }));
 
-        await getEpoxyClient();
+        await expect(getEpoxyClient()).rejects.toThrow(/HTTP 500/);
         const retried = await getEpoxyClient();
 
         expect(retried).toEqual({ client: 'epoxy' });
+    });
+
+    // A refresh exists to replace what is cached, so it must not be answered
+    // with the very attempt the caller is trying to supersede.
+    it('honours a refresh requested while an init is still in flight', async () => {
+        const gate = deferred();
+        mockInitEpoxy.mockImplementationOnce(() => gate.promise);
+
+        const stale = getEpoxyClient();
+        const fresh = getEpoxyClient({ refresh: true });
+        gate.resolve({ client: 'stale' });
+
+        expect(await stale).toEqual({ client: 'stale' });
+        expect(await fresh).toEqual({ client: 'epoxy' });
+        expect(mockInitEpoxy).toHaveBeenCalledTimes(2);
+    });
+
+    it('starts a separate attempt when the token changes mid-init', async () => {
+        const gate = deferred();
+        mockInitEpoxy.mockImplementationOnce(() => gate.promise);
+
+        const first = getEpoxyClient();
+        globalThis.puter.authToken = 'different-tok';
+        const second = getEpoxyClient();
+        gate.resolve({ client: 'first' });
+
+        expect(await first).toEqual({ client: 'first' });
+        expect(await second).toEqual({ client: 'epoxy' });
+        expect(mockInitEpoxy).toHaveBeenCalledTimes(2);
     });
 });
 
@@ -268,5 +319,45 @@ describe('netAPI surface', () => {
         expect(typeof netAPI.tls.TLSSocket).toBe('function');
         expect(typeof netAPI.fetch).toBe('function');
         expect(typeof netAPI.generateWispV1URL).toBe('function');
+    });
+});
+
+// The PSocket unit tests stub this module out, so nothing there would notice if
+// the two drifted apart. These drive the real socket against the real client
+// cache -- only the wasm bundle and the token endpoint are stubbed -- and pin
+// the property that matters: a caller learns why the relay is unreachable.
+describe('failure reporting through a real socket', () => {
+    const listen = () => {
+        const socket = new netAPI.Socket('example.com', 80);
+        const events = { error: vi.fn(), close: vi.fn() };
+        socket.on('error', events.error);
+        socket.on('close', events.close);
+        return events;
+    };
+
+    const closed = events =>
+        vi.waitFor(() => expect(events.close).toHaveBeenCalled(), { interval: 1 });
+
+    it('reports why the epoxy client could not be built', async () => {
+        mockInitEpoxy.mockRejectedValue(new Error('wasm unavailable'));
+
+        const events = listen();
+        await closed(events);
+
+        expect(events.error).toHaveBeenCalledTimes(1);
+        const [reason] = events.error.mock.calls[0];
+        expect(reason).toBeInstanceOf(Error);
+        expect(reason.message).toBe('wasm unavailable');
+        expect(events.close).toHaveBeenCalledWith(true);
+    });
+
+    it('reports why the relay refused to mint a token', async () => {
+        mockFetch.mockImplementation(async () => relayResponse({ status: 503 }));
+
+        const events = listen();
+        await closed(events);
+
+        expect(events.error.mock.calls[0][0].message).toMatch(/HTTP 503/);
+        expect(events.close).toHaveBeenCalledWith(true);
     });
 });
