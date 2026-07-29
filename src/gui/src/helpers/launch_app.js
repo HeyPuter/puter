@@ -52,8 +52,9 @@ const getLaunchResult = (launchOutcome) => {
     return null;
 };
 
-const endLaunchTransaction = (transaction) => {
+const endLaunchTransaction = (transaction, outcome) => {
     if ( transaction ) {
+        if ( outcome ) transaction.annotate({ outcome });
         transaction.end();
     }
 };
@@ -119,7 +120,17 @@ const launch_app = async (options) => {
     // for it to be ready.
     // Explorer is a special case, it's not an app per se, so it doesn't need a transaction.
     if ( options?.name !== 'explorer' ) {
-        transaction = new window.Transaction('app-is-ready');
+        // Attribute the timing: the same span covers a tile click on a warm
+        // dashboard and a cold landing on /app/<name>, which are different
+        // enough that a combined percentile describes neither.
+        transaction = new window.Transaction('app-is-ready', {
+            'launch.app': options?.name ?? options?.app_obj?.name ?? 'unknown',
+            'launch.dashboard_mode': !! window.is_dashboard_mode,
+            'launch.from_app_url':
+                typeof window.location?.pathname === 'string'
+                && window.location.pathname.startsWith('/app/'),
+            'launch.has_app_obj': !! options?.app_obj,
+        });
         transaction.start();
     }
 
@@ -154,6 +165,7 @@ const launch_app = async (options) => {
 
     // If no `options.name` is provided, use the app name from the app_info
     options.name = options.name ?? app_info.name;
+    transaction?.annotate({ 'launch.app': options.name ?? 'unknown' });
     const requestedAppName = options.privateLaunchRequestedAppName ?? options.name ?? app_info.name ?? null;
     const privateAccessDecision = normalizePrivateAccessDecision(app_info.privateAccess);
 
@@ -191,7 +203,7 @@ const launch_app = async (options) => {
                 fallbackLaunchOutcome.launchResult = redirectedLaunchResult;
             }
 
-            endLaunchTransaction(transaction);
+            endLaunchTransaction(transaction, 'redirected-to-fallback');
             return fallbackLaunchOutcome ?? { launchResult: redirectedLaunchResult };
         }
 
@@ -217,7 +229,7 @@ const launch_app = async (options) => {
             deniedPrivateAccess: true,
             privateAccess: privateAccessDecision,
         };
-        endLaunchTransaction(transaction);
+        endLaunchTransaction(transaction, 'denied-private-access');
         return { launchResult: deniedLaunchResult };
     }
 
@@ -480,7 +492,7 @@ const launch_app = async (options) => {
                     privateAccess: privateAccessDecision ?? undefined,
                     authTokenAcquired: false,
                 };
-                endLaunchTransaction(transaction);
+                endLaunchTransaction(transaction, 'token-unavailable');
                 return { launchResult: tokenFailureLaunchResult };
             }
         }
@@ -722,7 +734,7 @@ const launch_app = async (options) => {
     };
 
     // end the transaction
-    endLaunchTransaction(transaction);
+    endLaunchTransaction(transaction, 'launched');
 
     return process;
 };

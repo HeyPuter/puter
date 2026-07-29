@@ -233,13 +233,24 @@ window.PANEL_WIDTH = 400;
 
 // the transaction class
 window.Transaction = class {
-    constructor (name) {
+    constructor (name, attributes = {}) {
         this.name = name;
         this.id = uuidv4();
+        // Reported alongside the timing so a slow transaction can be
+        // attributed to a particular subject rather than only a name.
+        this.attributes = { ...attributes };
     }
 
     start () {
         this.start_ts = Date.now();
+    }
+
+    /**
+     * Annotate the transaction with anything learned after it started (the
+     * resolved app name, which entry point triggered it, how it finished).
+     */
+    annotate (attributes) {
+        Object.assign(this.attributes, attributes);
     }
 
     getDuration () {

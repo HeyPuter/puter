@@ -80,8 +80,16 @@ window.gui = async (options) => {
         // await window.loadCSS('/dist/bundle.min.css');
     }
 
-    // Load Cloudflare Turnstile script
-    await window.loadScript('https://challenges.cloudflare.com/turnstile/v0/api.js', { defer: true });
+    // Load the captcha script alongside the GUI rather than ahead of it.
+    // Nothing during boot needs it — the challenge modal polls for the
+    // global and the signup form is opened long after — so awaiting it here
+    // only put a third-party round trip in front of every page load. Skipped
+    // entirely when no site key is configured, since every consumer gates on
+    // one.
+    if ( options.turnstileSiteKey ) {
+        window.loadScript('https://challenges.cloudflare.com/turnstile/v0/api.js', { defer: true })
+            .catch(error => console.debug('Captcha script unavailable:', error));
+    }
 
     // 🚀 Launch the GUI 🚀
     window.initgui(options);

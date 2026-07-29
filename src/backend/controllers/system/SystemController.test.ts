@@ -75,6 +75,7 @@ const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
 interface CapturedResponse {
     statusCode: number;
     body: unknown;
+    headers: Record<string, unknown>;
 }
 
 const makeReq = (init: {
@@ -91,7 +92,11 @@ const makeReq = (init: {
 };
 
 const makeRes = () => {
-    const captured: CapturedResponse = { statusCode: 200, body: undefined };
+    const captured: CapturedResponse = {
+        statusCode: 200,
+        body: undefined,
+        headers: {},
+    };
     const res = {
         json: vi.fn((value: unknown) => {
             captured.body = value;
@@ -105,7 +110,10 @@ const makeRes = () => {
             captured.statusCode = code;
             return res;
         }),
-        setHeader: vi.fn(() => res),
+        setHeader: vi.fn((name: string, value: unknown) => {
+            captured.headers[name] = value;
+            return res;
+        }),
     };
     return { res: res as unknown as Response, captured };
 };
@@ -341,6 +349,12 @@ describe('SystemController GET /version', () => {
         // Default test config carries env='dev' from config.default.json.
         expect(body.environment).toBe('dev');
         expect(typeof body.deploy_timestamp).toBe('number');
+    });
+
+    it('is cacheable per-client but never by a shared cache', async () => {
+        const { res, captured } = makeRes();
+        await callRoute('get', '/version', makeReq({}), res);
+        expect(captured.headers['Cache-Control']).toBe('private, max-age=60');
     });
 });
 

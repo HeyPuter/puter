@@ -57,8 +57,35 @@ interface AuthProbeOptions {
  * 5. `?auth_token=...` query param
  * 6. Socket handshake query (for ws upgrades that pass through HTTP first)
  */
+// Reauth is a property of a session, not an event: a client still holding a
+// legacy token repeats the identical line on every request it makes, which
+// buries every other log line without adding information. Keep the forensic
+// signal but emit it at most once per auth_id per window.
+const REAUTH_LOG_WINDOW_MS = 10 * 60 * 1000;
+// Bounds the map so a flood of distinct ids can't grow it without limit.
+const REAUTH_LOG_MAX_KEYS = 1024;
+
 export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
     const { authService, cookieName } = opts;
+
+    const reauthLoggedAt = new Map<string, number>();
+    const shouldLogReauth = (key: string): boolean => {
+        const now = Date.now();
+        const last = reauthLoggedAt.get(key);
+        if (last !== undefined && now - last < REAUTH_LOG_WINDOW_MS) {
+            return false;
+        }
+        if (reauthLoggedAt.size >= REAUTH_LOG_MAX_KEYS) {
+            // Map iterates in insertion order and every log re-inserts, so
+            // the first key is the least recently logged.
+            const oldest = reauthLoggedAt.keys().next().value;
+            if (oldest !== undefined) reauthLoggedAt.delete(oldest);
+        }
+        reauthLoggedAt.delete(key);
+        reauthLoggedAt.set(key, now);
+        return true;
+    };
+
     return async (req, _res, next): Promise<void> => {
         // If something upstream already attached an actor, respect it.
         if (req.actor) {
@@ -83,21 +110,42 @@ export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
             });
 
             if (result.reauth) {
+                const { reason, auth_id } = result.reauth;
                 // Bind a short-lived JWT proving the rejected session
                 // identified this auth_id. The GUI echoes this back on
                 // /login or /signup; the raw auth_id is informational
                 // only and is not accepted as authoritative on its own.
-                const reauth_token = result.reauth.auth_id
-                    ? authService.signReauthToken(result.reauth.auth_id)
-                    : undefined;
+                //
+                // Signed on read, not here: a legacy-but-still-valid token
+                // sets `reauth` on a request that then succeeds, and only
+                // the 401 path ever reads the token, so signing eagerly
+                // burns a JWT per request for a value nobody looks at.
+                let signed = false;
+                let signedToken: string | undefined;
                 req.requiresReauth = {
-                    reason: result.reauth.reason as ReauthReason,
-                    auth_id: result.reauth.auth_id,
-                    ...(reauth_token ? { reauth_token } : {}),
+                    reason: reason as ReauthReason,
+                    auth_id,
+                    get reauth_token() {
+                        if (!signed) {
+                            signed = true;
+                            try {
+                                signedToken = auth_id
+                                    ? authService.signReauthToken(auth_id)
+                                    : undefined;
+                            } catch {
+                                // Losing the hint is survivable; the client
+                                // still gets `reauth_required` and can log in.
+                                signedToken = undefined;
+                            }
+                        }
+                        return signedToken;
+                    },
                 };
-                console.info(
-                    `[auth-v2] reauth reason=${result.reauth.reason} auth_id=${result.reauth.auth_id ?? '-'}`,
-                );
+                if (shouldLogReauth(`${reason}:${auth_id ?? '-'}`)) {
+                    console.info(
+                        `[auth-v2] reauth reason=${reason} auth_id=${auth_id ?? '-'}`,
+                    );
+                }
             }
 
             if (result.blocked) {

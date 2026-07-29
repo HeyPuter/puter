@@ -699,6 +699,71 @@ describe('createAuthProbe — reauth signal', () => {
         }
     });
 
+    it('collapses repeat reauth lines for the same auth_id to one', async () => {
+        const stub = makeStubAuth();
+        const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+        try {
+            const probe = createAuthProbe({ authService: stub.service });
+            for (let i = 0; i < 5; i++) {
+                stub.setNextResult({
+                    reauth: { reason: 'token_v1', auth_id: 'u-noisy' },
+                });
+                await runProbe(
+                    probe,
+                    makeReq({ headers: { authorization: 'Bearer tok' } }),
+                );
+            }
+            const reauthCalls = infoSpy.mock.calls.filter((args) =>
+                String(args[0]).startsWith('[auth-v2] reauth'),
+            );
+            expect(reauthCalls).toHaveLength(1);
+        } finally {
+            infoSpy.mockRestore();
+        }
+    });
+
+    it('still logs separately for a different auth_id', async () => {
+        const stub = makeStubAuth();
+        const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+        try {
+            const probe = createAuthProbe({ authService: stub.service });
+            for (const authId of ['u-a', 'u-b']) {
+                stub.setNextResult({
+                    reauth: { reason: 'token_v1', auth_id: authId },
+                });
+                await runProbe(
+                    probe,
+                    makeReq({ headers: { authorization: 'Bearer tok' } }),
+                );
+            }
+            const reauthCalls = infoSpy.mock.calls.filter((args) =>
+                String(args[0]).startsWith('[auth-v2] reauth'),
+            );
+            expect(reauthCalls).toHaveLength(2);
+        } finally {
+            infoSpy.mockRestore();
+        }
+    });
+
+    it('does not sign a reauth token until something reads it', async () => {
+        const stub = makeStubAuth();
+        stub.setNextResult({
+            reauth: { reason: 'token_v1', auth_id: 'u-lazy' },
+        });
+        const signSpy = vi.spyOn(stub.service, 'signReauthToken');
+        const { req } = await runProbe(
+            createAuthProbe({ authService: stub.service }),
+            makeReq({ headers: { authorization: 'Bearer tok' } }),
+        );
+
+        expect(signSpy).not.toHaveBeenCalled();
+        expect(req.requiresReauth?.reauth_token).toBeTruthy();
+        expect(signSpy).toHaveBeenCalledTimes(1);
+        // Memoized — a second read must not re-sign.
+        void req.requiresReauth?.reauth_token;
+        expect(signSpy).toHaveBeenCalledTimes(1);
+    });
+
     it('does not emit a reauth log line on a healthy v2 verify', async () => {
         const stub = makeStubAuth({ user: { uuid: 'u-1' } });
         const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
