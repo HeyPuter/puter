@@ -19,12 +19,12 @@ function normalizeWriteData (data) {
     throw new Error('Invalid data type (not TypedArray, ArrayBuffer or String).');
 }
 
-function normalizeErrorReason (reason) {
+function normalizeError (reason) {
     if ( reason instanceof Error ) {
-        return reason.message;
+        return reason;
     }
 
-    return String(reason);
+    return new Error(String(reason));
 }
 
 /** @typedef {import('./types.js').SocketEvent} SocketEvent */
@@ -278,7 +278,7 @@ export class PSocket extends EventListener {
             return;
         }
 
-        this.emit('error', normalizeErrorReason(reason));
+        this.emit('error', normalizeError(reason));
         this.#closing = true;
         void this.#closeStreams(true);
     }
