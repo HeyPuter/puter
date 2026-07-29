@@ -13,6 +13,7 @@
     --select-color: hsl(var(--select-hue), var(--select-saturation), var(--select-lightness));
     /* Selection surfaces: a quiet accent wash + hairline ring instead of a
        solid accent fill, so icons and labels keep their natural colors. */
+    --select-tint-weak: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.05);
     --select-tint: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.1);
     --select-tint-strong: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.2);
     --select-ring: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.4);
@@ -124,6 +125,7 @@ body {
         --primary-color-sidebar-item: #e8e8e8;
 
         /* Alpha tints need a little more presence over dark surfaces */
+        --select-tint-weak: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.08);
         --select-tint: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.16);
         --select-tint-strong: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.28);
         --select-ring: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.5);
@@ -1702,13 +1704,13 @@ body.myapps-reordering .myapps-tile {
 
 @media (hover: hover) {
     .dashboard-section-files .row:hover {
-        background: var(--dashboard-hover);
+        background: var(--select-tint-weak);
         border-radius: 3px;
     }
 }
 
 .dashboard-section-files .row.has-open-contextmenu:not(.selected) {
-    background: var(--dashboard-hover);
+    background: var(--select-tint-weak);
     border-radius: 3px;
 }
 
@@ -2297,16 +2299,16 @@ body.myapps-reordering .myapps-tile {
 
 @media (hover: hover) {
     .dashboard-section-files .files-tab .files.files-grid-view .row:hover {
-        background: var(--dashboard-sidebar-background);
-        border-color: var(--dashboard-border);
+        background: var(--select-tint-weak);
+        border-color: var(--select-tint-strong);
     }
 }
 
 /* An open context menu keeps its row in the hover state (the pointer is on
    the menu, so :hover no longer matches). Selected rows keep their own look. */
 .dashboard-section-files .files-tab .files.files-grid-view .row.has-open-contextmenu:not(.selected) {
-    background: var(--dashboard-sidebar-background);
-    border-color: var(--dashboard-border);
+    background: var(--select-tint-weak);
+    border-color: var(--select-tint-strong);
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view .row.selected {
