@@ -54,6 +54,8 @@ URL_SIGNATURE_SECRET=$(openssl rand -hex 64)
 cat > .env <<EOF
 HTTP_PORT=80
 # HTTPS_PORT=443     # uncomment after enabling TLS in Step 3
+PUTER_DOMAIN=puter.localhost
+PUTER_PROTOCOL=http
 
 MARIADB_ROOT_PASSWORD=$MARIADB_ROOT_PASSWORD
 MARIADB_DATABASE=puter
@@ -142,6 +144,7 @@ Why these knobs:
 - `providers.ollama.enabled: false` — Puter auto-probes a local Ollama at `127.0.0.1:11434` by default; without one running you'd see `ECONNREFUSED` on every boot. To run a bundled Ollama, see [Optional: local LLM (Ollama)](#optional-local-llm-ollama) below.
 - `s3.s3Config.forcePathStyle: true` — RustFS / MinIO / fauxqs need path-style URLs (`<endpoint>/<bucket>`). Real AWS S3 wants virtual-hosted (`<bucket>.<endpoint>`) — drop this flag (or set `false`) when you swap to real S3.
 - `s3.s3Config.publicEndpoint` — `endpoint` (`http://s3:9000`) only resolves inside the docker network; presigned upload/download URLs handed to the browser need a host-reachable URL. Caddy routes the `s3.<domain>` subdomain to RustFS internally and preserves the Host header end-to-end (required for S3 signature validation), so the browser hits the same port/protocol as the rest of the app — no separate published port, no mixed-content surprises when you turn on TLS. Switch to `https://s3.<your-domain>` once you enable TLS in Step 3. Real AWS S3 doesn't need this — its endpoint is already public; drop the field entirely.
+- `PUTER_DOMAIN` + `PUTER_PROTOCOL` in `.env` — the `s3-init` container uses these values to apply a restricted bucket CORS policy for Puter's main, API, app, site, dev, and host origins. Keep them aligned with `domain` and `protocol` in `config.json`; `docker compose up -d` reapplies the policy safely.
 - `trust_proxy: 1` — Caddy terminates TLS and forwards `X-Forwarded-For`. Without this, `req.ip` is the docker-network address of the Caddy container instead of the real client IP, which breaks rate limiting and IP-based audit logs. `1` = one trusted hop (Caddy). Bump to `2` if you put Cloudflare in front of Caddy; never set `true` (it trusts every hop and makes XFF forgeable).
 
 > If you ever change `MARIADB_PASSWORD` after first boot, `.env` alone won't update MariaDB — its credentials are baked into `./puter/data/mariadb/` on first init. Either rotate the password inside MariaDB by hand or `docker compose down && rm -rf ./puter/data/mariadb` to start fresh.
@@ -192,7 +195,8 @@ Drop the resulting `fullchain.pem` and `privkey.pem` into `./puter/tls/`.
 2. (Optional but recommended) Replace the plain `:80 { import puter_routes }` block with the `redir` version shown alongside it, to force HTTPS everywhere.
 3. In [docker-compose.yml](../docker-compose.yml), uncomment the `443:443` port mapping under the `caddy` service.
 4. In `.env`, uncomment `HTTPS_PORT=443`.
-5. In `config.json`, switch:
+5. In `.env`, set `PUTER_PROTOCOL=https` so the S3 bucket CORS policy uses HTTPS origins.
+6. In `config.json`, switch:
     ```json
     { "protocol": "https", "pub_port": 443 }
     ```
