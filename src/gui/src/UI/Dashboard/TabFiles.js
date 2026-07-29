@@ -565,10 +565,45 @@ const TabFiles = {
         this.setupKeyboardShortcuts();
 
         // Refresh current directory when the user returns to this browser tab
-        document.addEventListener('visibilitychange', () => {
-            if ( document.visibilityState === 'visible' && this.currentPath ) {
-                this.renderDirectory(this.currentPath, { skipNavHistory: true, skipUrlUpdate: true });
+        document.addEventListener('visibilitychange', async () => {
+            if ( document.visibilityState !== 'visible' || !this.currentPath ) return;
+
+            const $filesTab = this.$el_window.find('.files-tab');
+
+            // The refresh rebuilds the list, which would destroy an open
+            // rename editor along with whatever the user has typed.
+            if ( $filesTab.find('.item-name-editor-active').length > 0 ) return;
+
+            // The rebuild also wipes selection, the keyboard/shift anchor,
+            // and scroll position — state the user expects to survive a quick
+            // trip to another browser tab. Carry it across by uid.
+            const $files = $filesTab.find('.files');
+            const scrollTop = $files.scrollTop();
+            const selectedUids = new Set($filesTab.find('.row.selected').map(function () {
+                return $(this).attr('data-uid');
+            }).get());
+            const anchorUid = window.latest_selected_item
+                ? $(window.latest_selected_item).attr('data-uid')
+                : null;
+
+            await this.renderDirectory(this.currentPath, { skipNavHistory: true, skipUrlUpdate: true });
+
+            if ( selectedUids.size > 0 ) {
+                $filesTab.find('.row').each(function () {
+                    if ( selectedUids.has($(this).attr('data-uid')) ) {
+                        this.classList.add('selected');
+                    }
+                });
+                this.updateFooterStats();
             }
+            if ( anchorUid ) {
+                const anchorRow = $filesTab.find(`.row[data-uid="${anchorUid}"]`)[0];
+                if ( anchorRow ) {
+                    window.latest_selected_item = anchorRow;
+                    window.active_element = anchorRow;
+                }
+            }
+            $files.scrollTop(scrollTop);
         });
     },
 
