@@ -1,3 +1,5 @@
+[![MCP Toplist](https://mcptoplist.com/badge/com.puter%2Fmcp-server.svg)](https://mcptoplist.com/server/com.puter%2Fmcp-server)
+
 <h3 align="center"><img width="80" alt="Puter.com, The Personal Cloud Computer: All your files, apps, and games in one place accessible from anywhere at any time." src="https://assets.puter.site/puter-logo.png"></h3>
 
 <h3 align="center">The Open-Source Internet Computer!</h3>
