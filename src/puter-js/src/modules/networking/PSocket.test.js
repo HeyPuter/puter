@@ -50,6 +50,41 @@ function makeStream ({ failWrite } = {}) {
     };
 }
 
+// The epoxy client's streams come from wasm rather than being the platform's
+// ReadableStream, so a cancel that rejects the pending read -- instead of
+// resolving it `done` the way the spec requires -- is possible. This models
+// that, which a real ReadableStream cannot be made to do.
+function makeRejectingStream ({ failWrite } = {}) {
+    let rejectRead;
+    const reader = {
+        read: () => new Promise((resolve, reject) => {
+            rejectRead = reject;
+        }),
+        cancel: async () => {
+            rejectRead?.(new Error('stream torn down'));
+        },
+        releaseLock: () => {},
+    };
+
+    const written = [];
+    const writer = {
+        write: async chunk => {
+            if ( failWrite ) {
+                throw failWrite;
+            }
+            written.push(chunk);
+        },
+        close: async () => {},
+        releaseLock: () => {},
+    };
+
+    return {
+        read: { getReader: () => reader },
+        write: { getWriter: () => writer },
+        written,
+    };
+}
+
 function makeClient (stream) {
     return {
         connect: vi.fn(async () => stream),
@@ -318,23 +353,36 @@ describe('PSocket write', () => {
         expect(mockClearEpoxyClientCache).toHaveBeenCalled();
     });
 
-    // KNOWN BUG -- unskip once #readLoop stops racing the error path.
-    //
-    // A failed write sets #closing and hands the close event to #closeStreams,
-    // which must await reader.cancel() and writer.close() before emitting
-    // close(true). That cancel resolves #readLoop's pending read() with
-    // {done: true}, so the loop breaks and reaches its own #emitClose(false)
-    // first -- #closed is already set by the time #closeStreams gets there, so
-    // callers are told the socket shut down cleanly after an error.
-    // A read failure is unaffected: that path throws into #readLoop's catch,
-    // which never calls #emitClose(false).
-    it.skip('closes with the error flag set when a write fails', async () => {
+    // Regression guard: a failed write hands the close event to #closeStreams,
+    // whose reader.cancel() resolves #readLoop's pending read with {done: true}.
+    // The loop must not treat that as a clean shutdown and emit close(false)
+    // before #closeStreams reports the error.
+    it('closes with the error flag set when a write fails', async () => {
         const stream = makeStream({ failWrite: new Error('write failed') });
         const { socket, events } = await connected(stream);
 
         socket.write('doomed');
         await until(() => expect(events.close).toHaveBeenCalled());
 
+        expect(events.close).toHaveBeenCalledWith(true);
+    });
+
+    // Same guarantee when the teardown's cancel rejects the in-flight read
+    // rather than ending it cleanly: the flag must still come from the path
+    // that knows an error happened.
+    it('keeps the error flag when cancelling rejects the pending read', async () => {
+        const stream = makeRejectingStream({ failWrite: new Error('write failed') });
+        mockGetEpoxyClient.mockResolvedValue(makeClient(stream));
+
+        const socket = new PSocket('example.com', 80);
+        const events = listen(socket);
+        await until(() => expect(events.open).toHaveBeenCalled());
+
+        socket.write('doomed');
+        await until(() => expect(events.close).toHaveBeenCalled());
+
+        expect(events.error.mock.calls[0][0].message).toBe('write failed');
+        expect(events.close).toHaveBeenCalledTimes(1);
         expect(events.close).toHaveBeenCalledWith(true);
     });
 });
@@ -370,6 +418,34 @@ describe('PSocket close', () => {
         await until(() => expect(cancelSpy).toHaveBeenCalled());
         expect(abortSpy).toHaveBeenCalled();
         expect(events.open).not.toHaveBeenCalled();
+    });
+
+    // #readLoop now defers the close event to #closeStreams whenever a teardown
+    // is under way, so #closeStreams has to emit it even when cancelling the
+    // reader fails -- otherwise close would go missing entirely.
+    it('still emits close when cancelling the reader fails', async () => {
+        let readController;
+        const read = new ReadableStream({
+            start (controller) {
+                readController = controller;
+            },
+            cancel () {
+                throw new Error('cancel failed');
+            },
+        });
+        void readController;
+        const write = new WritableStream({ write () {} });
+        mockGetEpoxyClient.mockResolvedValue(makeClient({ read, write }));
+
+        const socket = new PSocket('example.com', 80);
+        const events = listen(socket);
+        await until(() => expect(events.open).toHaveBeenCalled());
+
+        socket.close();
+        await until(() => expect(events.close).toHaveBeenCalled());
+
+        expect(events.close).toHaveBeenCalledTimes(1);
+        expect(events.close).toHaveBeenCalledWith(false);
     });
 
     it('stops emitting data after close', async () => {
