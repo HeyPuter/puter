@@ -289,6 +289,26 @@ describe('ai.img2txt driver payloads', () => {
     it('img2txt rejects without a source', async () => {
         await expect(ai.img2txt({})).rejects.toMatchObject({ code: 'source_required' });
     });
+
+    it('img2txt sizes data URIs by decoded bytes, not string length', async () => {
+        FakeXHR.respondWith = () => ({ success: true, result: { text: 'ok' } });
+        const prefix = 'data:image/png;base64,';
+        // String length just over 10MB; base64 still decodes under the 10MB limit (~7.5MB).
+        const targetLen = 10 * 1024 * 1024 + 4;
+        let base64Len = targetLen - prefix.length;
+        base64Len += (4 - (base64Len % 4)) % 4;
+        const uri = prefix + 'A'.repeat(base64Len);
+        expect(uri.length).toBeGreaterThan(10 * 1024 * 1024);
+        await expect(ai.img2txt(uri)).resolves.toBe('ok');
+    });
+
+    it('img2txt rejects when decoded data-URI bytes exceed 10MB', async () => {
+        const prefix = 'data:image/png;base64,';
+        let base64Len = Math.ceil(((10 * 1024 * 1024) + 1) * 4 / 3);
+        base64Len += (4 - (base64Len % 4)) % 4;
+        const uri = prefix + 'A'.repeat(base64Len);
+        await expect(ai.img2txt(uri)).rejects.toMatchObject({ code: 'input_too_large' });
+    });
 });
 
 describe('ai.txt2speech driver payloads', () => {
