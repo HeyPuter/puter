@@ -29,10 +29,18 @@ export class PWispHandler {
             };
             this._ws.onmessage = (event) => {
                 const parsed = parseIncomingPacket(new Uint8Array(event.data));
+                if ( ! parsed ) {
+                    return;
+                }
                 switch ( parsed.packetType ) {
-                case DATA:
-                    this.streamMap.get(parsed.streamID).dataCallBack(parsed.payload.slice(0)); // return a copy for the user to do as they please
+                case DATA: {
+                    const stream = this.streamMap.get(parsed.streamID);
+                    if ( ! stream ) {
+                        break;
+                    }
+                    stream.dataCallBack(parsed.payload.slice(0)); // return a copy for the user to do as they please
                     break;
+                }
                 case CONTINUE:
                     if ( parsed.streamID === 0 ) {
                         this._bufferMax = parsed.remainingBuffer;
@@ -42,13 +50,22 @@ export class PWispHandler {
                         }
                         return;
                     }
-                    this.streamMap.get(parsed.streamID).buffer = parsed.remainingBuffer;
-                    this._continue(parsed.streamID);
+                    {
+                        const stream = this.streamMap.get(parsed.streamID);
+                        if ( ! stream ) {
+                            break;
+                        }
+                        stream.buffer = parsed.remainingBuffer;
+                        this._continue(parsed.streamID);
+                    }
                     break;
                 case CLOSE:
-                    if ( parsed.streamID !== 0 )
-                    {
-                        this.streamMap.get(parsed.streamID).closeCallBack(parsed.reason);
+                    if ( parsed.streamID !== 0 ) {
+                        const stream = this.streamMap.get(parsed.streamID);
+                        if ( ! stream ) {
+                            break;
+                        }
+                        stream.closeCallBack(parsed.reason);
                     }
                     break;
                 case INFO:

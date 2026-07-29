@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CONTINUE, DATA, createWispPacket, parseIncomingPacket } from './parsers.js';
+import { CLOSE, CONTINUE, DATA, createWispPacket, parseIncomingPacket } from './parsers.js';
 import { PWispHandler } from './PWispHandler.js';
 
 // Fake WebSocket standing in for the relay connection. Records every instance
@@ -147,5 +147,42 @@ describe('PWispHandler backpressure', () => {
         expect(flushed.packetType).toBe(DATA);
         expect(flushed.streamID).toBe(streamID);
         expect(Array.from(flushed.payload)).toEqual([2]);
+    });
+});
+
+describe('PWispHandler unknown streams', () => {
+    // Late/duplicate frames after close (or hostile stream ids) used to
+    // null-deref streamMap.get(...) and crash the shared relay onmessage.
+    it('ignores DATA for an unknown stream id', () => {
+        new PWispHandler('wss://relay.test/', 'token');
+        handshake();
+
+        expect(() => deliver(createWispPacket({
+            packetType: DATA,
+            streamID: 999,
+            payload: new Uint8Array([1, 2, 3]),
+        }))).not.toThrow();
+    });
+
+    it('ignores CONTINUE for an unknown stream id', () => {
+        new PWispHandler('wss://relay.test/', 'token');
+        handshake();
+
+        expect(() => deliver(createWispPacket({
+            packetType: CONTINUE,
+            streamID: 999,
+            remainingBuffer: 4,
+        }))).not.toThrow();
+    });
+
+    it('ignores CLOSE for an unknown stream id', () => {
+        new PWispHandler('wss://relay.test/', 'token');
+        handshake();
+
+        expect(() => deliver(createWispPacket({
+            packetType: CLOSE,
+            streamID: 999,
+            reason: 0x02,
+        }))).not.toThrow();
     });
 });
