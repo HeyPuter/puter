@@ -1,4 +1,12 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+    afterAll,
+    afterEach,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+} from 'vitest';
 import { setupTestServer } from '../../testUtil.ts';
 import type { SystemKVStore } from './SystemKVStore.ts';
 import { PuterServer } from '../../server.ts';
@@ -710,6 +718,153 @@ describe('SystemKVStore', () => {
             await expect(
                 target.remove({ key: 'k', paths: [] }, opts),
             ).rejects.toMatchObject({ statusCode: 400 });
+        });
+    });
+
+    describe('prototype-chain safety', () => {
+        const unsafeSegments = ['__proto__', 'constructor', 'prototype'];
+
+        afterEach(() => {
+            // Nothing a caller sends may end up on the shared prototype.
+            expect(
+                Object.getOwnPropertyNames(Object.prototype),
+            ).not.toContain('polluted');
+            expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+        });
+
+        it.each(unsafeSegments)(
+            'incr rejects a path traversing `%s`',
+            async (segment) => {
+                await expect(
+                    target.incr(
+                        {
+                            key: 'proto-incr',
+                            pathAndAmountMap: {
+                                [`${segment}.polluted.deep`]: 1,
+                            },
+                        },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
+
+        it.each(unsafeSegments)(
+            'decr rejects a path traversing `%s`',
+            async (segment) => {
+                await expect(
+                    target.decr(
+                        {
+                            key: 'proto-decr',
+                            pathAndAmountMap: {
+                                [`${segment}.polluted.deep`]: 1,
+                            },
+                        },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
+
+        it.each(unsafeSegments)(
+            'update rejects a path traversing `%s`',
+            async (segment) => {
+                await expect(
+                    target.update(
+                        {
+                            key: 'proto-update',
+                            pathAndValueMap: {
+                                [`${segment}.polluted.deep`]: 1,
+                            },
+                        },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
+
+        it.each(unsafeSegments)(
+            'add rejects a path traversing `%s`',
+            async (segment) => {
+                await expect(
+                    target.add(
+                        {
+                            key: 'proto-add',
+                            pathAndValueMap: {
+                                [`${segment}.polluted.deep`]: 1,
+                            },
+                        },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
+
+        it.each(unsafeSegments)(
+            'remove rejects a path traversing `%s`',
+            async (segment) => {
+                await expect(
+                    target.remove(
+                        { key: 'proto-remove', paths: [`${segment}.polluted`] },
+                        opts,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
+
+        it('rejects an unsafe segment anywhere in the path', async () => {
+            await expect(
+                target.incr(
+                    {
+                        key: 'proto-deep',
+                        pathAndAmountMap: { 'a.b.__proto__.polluted': 1 },
+                    },
+                    opts,
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it.each(unsafeSegments)(
+            'set rejects a value carrying a `%s` key',
+            async (unsafeKey) => {
+                // A JSON body can carry these as real own properties even
+                // though an object literal in JS source cannot.
+                const value = JSON.parse(`{"${unsafeKey}":{"polluted":true}}`);
+                await expect(
+                    target.set({ key: 'proto-set', value }, opts),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
+
+        it('rejects an unsafe key nested deep inside a value', async () => {
+            const value = JSON.parse(
+                '{"a":[{"b":{"constructor":{"polluted":true}}}]}',
+            );
+            await expect(
+                target.set({ key: 'proto-nested', value }, opts),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('rejects an unsafe key in a batchPut item', async () => {
+            const value = JSON.parse('{"__proto__":{"polluted":true}}');
+            await expect(
+                target.batchPut({ items: [{ key: 'proto-batch', value }] }, opts),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('still allows ordinary paths and values', async () => {
+            await target.set(
+                { key: 'proto-ok', value: { safe: { nested: true } } },
+                opts,
+            );
+            const stored = await target.get({ key: 'proto-ok' }, opts);
+            expect(stored.res).toEqual({ safe: { nested: true } });
+
+            const bumped = await target.incr(
+                { key: 'proto-ok-counter', pathAndAmountMap: { 'a.b': 2 } },
+                opts,
+            );
+            expect(bumped.res).toMatchObject({ a: { b: 2 } });
         });
     });
 
