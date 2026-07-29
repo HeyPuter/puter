@@ -237,6 +237,22 @@ describe('ClaudeProvider.complete request shape', () => {
         });
     });
 
+    it('forwards max_tokens 0 instead of substituting the model default', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [{ role: 'user', content: 'hello' }],
+                max_tokens: 0,
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect(args.max_tokens).toBe(0);
+    });
+
     it('extracts system messages and forwards them as the top-level `system` field', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);

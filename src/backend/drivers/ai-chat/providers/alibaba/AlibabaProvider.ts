@@ -86,7 +86,7 @@ export class AlibabaProvider implements IChatProvider {
             messages,
             model: modelUsed.id,
             ...(tools ? { tools } : {}),
-            max_tokens: max_tokens || 1000,
+            max_tokens: max_tokens ?? 1000,
             temperature,
             stream,
             ...(stream

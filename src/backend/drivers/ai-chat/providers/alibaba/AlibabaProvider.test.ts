@@ -225,6 +225,21 @@ describe('AlibabaProvider.complete request shape', () => {
         expect(createMock.mock.calls[0]![0].max_tokens).toBe(256);
     });
 
+    it('forwards max_tokens 0 instead of substituting the default 1000', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'qwen-plus',
+                messages: [{ role: 'user', content: 'hi' }],
+                max_tokens: 0,
+            }),
+        );
+
+        expect(createMock.mock.calls[0]![0].max_tokens).toBe(0);
+    });
+
     it('forwards temperature when supplied', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
