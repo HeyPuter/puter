@@ -405,6 +405,7 @@ const en = {
         ui_session_last_active: 'Last active',
         ui_toggle_session_children: 'Toggle child sessions',
         undo: 'Undo',
+        uninstall_sessions_failed: '%% was uninstalled, but its existing sign-in could not be ended. You can revoke it under Settings → Security → Manage Sessions.',
         unlimited: 'Unlimited',
         unzip: 'Unzip',
         unzipping: 'Unzipping %strong%',
