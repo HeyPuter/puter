@@ -163,6 +163,18 @@ describe('ai.chat driver payloads', () => {
         });
     });
 
+    it('chat(prompt, options) forwards temperature: 0 and max_tokens: 0', async () => {
+        await ai.chat('hello', {
+            temperature: 0,
+            max_tokens: 0,
+        });
+        expect(lastBody().args).toEqual({
+            messages: [{ content: 'hello' }],
+            temperature: 0,
+            max_tokens: 0,
+        });
+    });
+
     it('chat(prompt, imageURL) builds a vision request', async () => {
         await ai.chat('describe', 'https://example.com/cat.png');
         expect(lastBody().args).toEqual({
