@@ -37,7 +37,9 @@ window.appsTests = [
                 });
                 const fetched = await puter.apps.get(name);
                 assert(Boolean(fetched.maximize_on_start) === true, "maximize_on_start not stored");
-                assert(JSON.stringify(fetched.filetype_associations) === JSON.stringify(['.txt', 'image/png']), "filetype_associations not stored");
+                // Extensions are canonicalized to the bare lowercase form on
+                // write ('.txt' → 'txt'); MIME types pass through unchanged.
+                assert(JSON.stringify(fetched.filetype_associations) === JSON.stringify(['txt', 'image/png']), "filetype_associations not stored");
                 pass("testCreateOptionsRemap passed");
             } catch (error) {
                 fail("testCreateOptionsRemap failed:", error);

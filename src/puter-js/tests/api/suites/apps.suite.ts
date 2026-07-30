@@ -222,7 +222,9 @@ export default suite('apps', {
             maximizeOnStart: true,
         });
         const fetched = await t.puter.apps.get('apps-suite-remap');
-        t.assert.deepEqual(fetched.filetype_associations, ['.txt', 'image/png']);
+        // Extensions are canonicalized to the bare lowercase form on write
+        // ('.txt' → 'txt'); MIME-type associations pass through unchanged.
+        t.assert.deepEqual(fetched.filetype_associations, ['txt', 'image/png']);
         t.assert.equal(Boolean(fetched.maximize_on_start), true);
     },
 });
