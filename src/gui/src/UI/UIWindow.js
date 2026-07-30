@@ -275,6 +275,7 @@ async function UIWindow (options) {
                 data-element_uuid="${html_encode(options.element_uuid)}"
                 data-parent_uuid="${html_encode(options.parent_uuid)}"
                 ${options.parent_instance_id ? `data-parent_instance_id="${options.parent_instance_id}"` : ''}
+                ${options.file_uid ? `data-file_uid="${html_encode(String(options.file_uid).toLowerCase())}"` : ''}
                 data-id ="${win_id}"
                 data-iframe_msg_uid ="${html_encode(options.iframe_msg_uid)}"
                 data-is_dir ="${options.is_dir}"

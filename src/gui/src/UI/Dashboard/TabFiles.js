@@ -564,6 +564,14 @@ const TabFiles = {
         // Setup keyboard shortcuts
         this.setupKeyboardShortcuts();
 
+        // Rows double as the switcher for app windows opened from this tab
+        // (open_item restores a file's existing window instead of launching
+        // a duplicate): a dot marks files that are open in a — possibly
+        // minimized — app window. UIWindow fires this on window open/close.
+        document.addEventListener('dashboard-app-windows-changed', () => {
+            this.updateOpenFileDots();
+        });
+
         // Refresh current directory when the user returns to this browser tab
         document.addEventListener('visibilitychange', async () => {
             if ( document.visibilityState !== 'visible' || !this.currentPath ) return;
@@ -2145,6 +2153,7 @@ const TabFiles = {
         this.applyColumnWidths();
         this.updateFooterStats();
         this.updateNavButtonStates();
+        this.updateOpenFileDots();
         this.hideSpinner();
         this.renderingDirectory = false;
     },
@@ -2251,6 +2260,28 @@ const TabFiles = {
         this.$el_window.find('.files-tab .files').append(row);
 
         this.createItemListeners(row, file);
+    },
+
+    /**
+     * Toggles the open-file dot on rows whose file is currently open in an
+     * app window — visible or minimized. Matches each row's uid (shortcuts
+     * resolve to their target) against the data-file_uid that launch_app
+     * stamps on app windows. In dashboard mode the row doubles as that
+     * window's switcher (clicking it restores instead of relaunching — see
+     * open_item.js), so the dot marks where a click will return, not launch.
+     *
+     * @returns {void}
+     */
+    updateOpenFileDots () {
+        if ( ! this.$el_window ) return;
+        const open_uids = new Set();
+        $('.window[data-file_uid]').each(function () {
+            open_uids.add($(this).attr('data-file_uid'));
+        });
+        this.$el_window.find('.files-tab .files .row').each(function () {
+            const uid = ($(this).attr('data-shortcut_to') || $(this).attr('data-uid') || '').toLowerCase();
+            $(this).toggleClass('file-is-open', open_uids.has(uid));
+        });
     },
 
     /**

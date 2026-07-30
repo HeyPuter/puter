@@ -648,6 +648,11 @@ const launch_app = async (options) => {
             width: window_width,
             app: options.name,
             iframe_credentialless: credentialless,
+            // The file this instance was launched to open, stamped on the
+            // window as data-file_uid so open_item can restore this window
+            // when the same file is opened again (the signature's uid wins:
+            // it's resolved, e.g. a shortcut's uid becomes its target's).
+            file_uid: file_signature?.uid ?? options.file_uid,
             is_visible: !app_info.background,
             is_maximized: options.maximized,
             is_fullpage: options.is_fullpage,
