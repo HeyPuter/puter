@@ -25,10 +25,10 @@ import {
     DEFAULT_TEMP_SUBSCRIPTION,
 } from '../../services/metering/consts.js';
 import {
-    ICON_DATA_URL_MIME_ALLOWLIST,
     isAppIconEndpointUrl,
     isRawBase64ImageString,
     normalizeRawBase64ImageString,
+    validateIconDataUrl,
 } from '../../util/appIcon.js';
 import {
     buildHostedBackingDenial,
@@ -582,8 +582,10 @@ export class AppDriver extends PuterDriver {
             // Accepted shapes (mirrors v1's `image-base64` proptype so
             // puter-js callers keep working):
             //   1. Empty string — unset
-            //   2. Raw base64 (no prefix) — normalized to a PNG data URL
-            //   3. `data:image/<mime>;…` with an allow-listed MIME
+            //   2. Raw base64 (no prefix) of a real image — normalized to a
+            //      data URL carrying the sniffed MIME
+            //   3. `data:image/<mime>;base64,<image>` with an allow-listed
+            //      MIME that matches the decoded payload
             //   4. `/app-icon/<uid>` endpoint URL (relative, or absolute
             //      on a host we control)
             // Anything else (including arbitrary http(s) URLs) is rejected:
@@ -594,24 +596,20 @@ export class AppDriver extends PuterDriver {
                 // Raw base64 → wrap as data URL (v1 parity)
                 if (isRawBase64ImageString(iconStr)) {
                     iconStr = normalizeRawBase64ImageString(iconStr);
-                } else if (iconStr.startsWith('data:')) {
-                    const semi = iconStr.indexOf(';');
-                    const comma = iconStr.indexOf(',');
-                    const mimeEnd =
-                        semi !== -1 && (comma === -1 || semi < comma)
-                            ? semi
-                            : comma;
-                    const mime =
-                        mimeEnd !== -1
-                            ? iconStr.slice(5, mimeEnd).toLowerCase()
-                            : '';
-                    if (!ICON_DATA_URL_MIME_ALLOWLIST.includes(mime)) {
-                        throw new HttpError(
-                            400,
-                            '`icon` data URL must use an image MIME type',
-                            { legacyCode: 'bad_request' },
-                        );
+                }
+                if (iconStr.startsWith('data:')) {
+                    // Validates the whole URL, payload included — a MIME
+                    // prefix check alone let arbitrary text (quotes, tags)
+                    // through, which a Dev Center template then interpolated
+                    // into markup.
+                    const verdict = validateIconDataUrl(iconStr);
+                    if (!verdict.ok) {
+                        throw new HttpError(400, `\`icon\` ${verdict.reason}`, {
+                            legacyCode: 'bad_request',
+                        });
                     }
+                    // Store the canonical form, not the caller's spelling.
+                    iconStr = verdict.normalized;
                 } else if (!isAppIconEndpointUrl(iconStr, this.config)) {
                     throw new HttpError(
                         400,

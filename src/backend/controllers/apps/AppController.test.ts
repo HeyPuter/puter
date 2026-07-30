@@ -92,6 +92,11 @@ const uniqueName = (prefix: string) =>
 const uniqueIndexUrl = () =>
     `https://example-${Math.random().toString(36).slice(2, 10)}.test/`;
 
+// 1x1 transparent PNG. The `icon` write path validates the decoded payload,
+// not just the declared MIME, so icon fixtures must be real images.
+const MINIMAL_PNG_BASE64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+
 const createApp = async (
     actor: Actor,
     overrides: Record<string, unknown> = {},
@@ -718,7 +723,9 @@ describe('AppController GET /app-icon/:app_uid', () => {
 
     it('decodes a data URL icon and serves the declared MIME', async () => {
         const owner = await makeUser();
-        const png = Buffer.from('mock-png-bytes');
+        // Real PNG bytes: the write path sniffs the decoded payload and
+        // rejects anything that isn't the image type it claims to be.
+        const png = Buffer.from(MINIMAL_PNG_BASE64, 'base64');
         const dataUrl = `data:image/png;base64,${png.toString('base64')}`;
         const app = await createApp(owner.actor, { icon: dataUrl });
 
@@ -740,7 +747,7 @@ describe('AppController GET /app-icon/:app_uid', () => {
     // than the redirect path that serves the same resource.
     it('caches an inline data-URL icon as long as the redirect path', async () => {
         const owner = await makeUser();
-        const dataUrl = `data:image/png;base64,${Buffer.from('x').toString('base64')}`;
+        const dataUrl = `data:image/png;base64,${MINIMAL_PNG_BASE64}`;
         const app = await createApp(owner.actor, { icon: dataUrl });
 
         const { res, captured } = makeRes();

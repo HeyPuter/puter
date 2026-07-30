@@ -1378,7 +1378,7 @@ $(document).on('click', '.delete-app-settings', async function (e) {
     const app_data = await puter.apps.get(app_name, { icon_size: 16 });
 
     if ( app_data.metadata?.locked ) {
-        puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
+        puter.ui.alert(`<strong>${html_encode(app_data.title)}</strong> is locked and cannot be deleted.`, [
             {
                 label: 'Ok',
             },
@@ -1568,7 +1568,7 @@ function generate_app_card (app) {
       background-position: center;
       background-repeat: no-repeat;
       background-size: 92%;
-      background-image: url(${app.icon === null ? './img/app.svg' : app.icon});
+      background-image: url(${html_encode(app.icon === null ? './img/app.svg' : app.icon)});
       width: 60px;
       height: 60px;
       margin-right: 10px;
@@ -2457,7 +2457,7 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
 
             if ( app_data.metadata?.locked ) {
                 if ( apps.length === 1 ) {
-                    puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
+                    puter.ui.alert(`<strong>${html_encode(app_data.title)}</strong> is locked and cannot be deleted.`, [
                         {
                             label: 'Ok',
                         },
@@ -2468,7 +2468,7 @@ $(document).on('click', '.delete-apps-btn', async function (e) {
                     break;
                 }
 
-                let resp = await puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
+                let resp = await puter.ui.alert(`<strong>${html_encode(app_data.title)}</strong> is locked and cannot be deleted.`, [
                     {
                         label: 'Skip and Continue',
                         value: 'Continue',
@@ -3142,7 +3142,7 @@ function app_context_menu (app_name, app_title, app_uid) {
                                         overwrite: false,
                                         appUID: app_uid,
                                     }).then(async (uploaded) => {
-                        puter.ui.alert(`<strong>${app_title}</strong> shortcut has been added to your desktop.`, [
+                        puter.ui.alert(`<strong>${html_encode(app_title)}</strong> shortcut has been added to your desktop.`, [
                             {
                                 label: 'Ok',
                                 type: 'primary',
@@ -3182,7 +3182,7 @@ async function attempt_delete_app (app_name, app_title, app_uid) {
     const app_data = await puter.apps.get(app_name, { icon_size: 16 });
 
     if ( app_data.metadata?.locked ) {
-        puter.ui.alert(`<strong>${app_data.title}</strong> is locked and cannot be deleted.`, [
+        puter.ui.alert(`<strong>${html_encode(app_data.title)}</strong> is locked and cannot be deleted.`, [
             {
                 label: 'Ok',
             },
