@@ -228,6 +228,23 @@ const postAuthActions = async (action) => {
         if (isolated) {
             try {
                 const data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
+                // Same two failure modes the postMessage path below guards
+                // against: `getUserAppToken` reports a network failure by
+                // returning null, and an HTTP failure (a blocked origin, an
+                // unparseable origin, a 5xx) by returning the parsed *error*
+                // body — truthy, but carrying no token. Without this check the
+                // missing token is handed to `/login/set`, which rejects it as
+                // a 400, and every distinct cause — including the ones that
+                // only occur on a deployment with a populated origin blocklist
+                // — collapses into the same unattributable alert below.
+                if ( ! data?.token ) {
+                    const detail = data?.code
+                        ? `${data.code}: ${data.message ?? ''}`
+                        : 'no response';
+                    throw new Error(
+                        `user-app token exchange returned no token (${detail})`,
+                    );
+                }
                 const resp = await fetch(`${window.api_origin}/login/set`, {
                     method: 'POST',
                     headers: {
