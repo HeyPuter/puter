@@ -4017,6 +4017,25 @@ window.toggle_empty_folder_message = function (el_item_container) {
     }
 };
 
+/**
+ * The z-index band a window stacks in, as a base offset. Stay-on-top
+ * windows (every fullpage/dashboard app window) are created in the
+ * 99999999+ band; a window that isn't stay-on-top itself but hangs off one
+ * through parent_uuid — e.g. a file dialog opened by a dashboard app —
+ * must stack in that same band, or it renders buried under every app
+ * window. Walks up the parent_uuid chain (bounded, in case of a cycle).
+ */
+function window_zindex_base (el_window) {
+    let $win = $(el_window);
+    for ( let depth = 0; $win.length > 0 && depth < 10; depth++ ) {
+        if ( $win.attr('data-stay_on_top') === 'true' ) return 99999999;
+        const parent_uuid = $win.attr('data-parent_uuid');
+        if ( ! parent_uuid || parent_uuid === 'null' ) return 0;
+        $win = $(`.window[data-element_uuid="${parent_uuid}"]`);
+    }
+    return 0;
+}
+
 $.fn.focusWindow = function (event) {
     if ( this.hasClass('window') ) {
         const $app_iframe = $(this).find('.window-app-iframe');
@@ -4028,17 +4047,29 @@ $.fn.focusWindow = function (event) {
         $(this).addClass('window-active');
         // disable pointer events on all windows' iframes, except for this window's iframe
         $('.window-app-iframe').not($app_iframe).css('pointer-events', 'none');
-        // bring this window to front, only if it's not stay_on_top
+        // bring this window to front, only if it's not stay_on_top — and
+        // within its stacking band: a dialog owned by a stay-on-top
+        // (fullpage/dashboard) app window must rise into that band, not the
+        // plain counter band underneath it.
         if ( $(this).attr('data-stay_on_top') !== 'true' ) {
-            $(this).css('z-index', ++window.last_window_zindex);
+            $(this).css('z-index', window_zindex_base(this) + (++window.last_window_zindex));
         }
-        // if this window has a parent, bring them to the front too
+        // if this window has a parent, bring them to the front too — in the
+        // parent's own band. Assigning the bare counter here demoted a
+        // stay-on-top parent under every other fullpage/dashboard window
+        // (focusing an app's file dialog buried the app under other apps).
         if ( $(this).attr('data-parent_uuid') !== 'null' ) {
-            $(`.window[data-element_uuid="${$(this).attr('data-parent_uuid')}"]`).css('z-index', window.last_window_zindex);
+            const $parent_win = $(`.window[data-element_uuid="${$(this).attr('data-parent_uuid')}"]`);
+            if ( $parent_win.length > 0 ) {
+                $parent_win.css('z-index', window_zindex_base($parent_win) + window.last_window_zindex);
+            }
         }
-        // if this window has child windows, bring them to the front too
+        // if this window has child windows, bring them to the front too —
+        // each in its own band, same reasoning as above.
         if ( $(this).attr('data-element_uuid') !== 'null' ) {
-            $(`.window[data-parent_uuid="${$(this).attr('data-element_uuid')}"]`).css('z-index', ++window.last_window_zindex);
+            $(`.window[data-parent_uuid="${$(this).attr('data-element_uuid')}"]`).each(function () {
+                $(this).css('z-index', window_zindex_base(this) + (++window.last_window_zindex));
+            });
         }
 
         // hide other global menubars
