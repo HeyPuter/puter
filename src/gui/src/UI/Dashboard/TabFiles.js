@@ -4264,7 +4264,12 @@ const TabFiles = {
                 }
             }
         }
-        let str = `${path_seperator_html}<span class="dirname" data-path="${html_encode('/')}">${html_encode(window.root_dirname)}</span>`;
+        // The root crumb ("Puter") is noise on every path beneath it, so it
+        // only renders at the root itself, where it's all there is to show.
+        // Every crumb keeps its leading caret, including the first.
+        let str = abs_path === '/'
+            ? `${path_seperator_html}<span class="dirname" data-path="${html_encode('/')}">${html_encode(window.root_dirname)}</span>`
+            : '';
         for ( let k = 1; k < dirs.length; k++ ) {
             str += `${path_seperator_html}<span class="dirname" data-path="${html_encode(dirpaths[k])}">${dirs[k] === 'Trash' ? i18n('trash') : html_encode(dirs[k])}</span>`;
         }
