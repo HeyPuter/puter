@@ -40,6 +40,14 @@ const LIST_CACHE_TRACKER_KEY = `${LIST_CACHE_KEY_PREFIX}:keys`;
 const LIST_CACHE_TTL_SECONDS = 15 * 60;
 const FILETYPE_CACHE_KEY_PREFIX = 'apps:by-filetype';
 const FILETYPE_CACHE_TTL_SECONDS = 60;
+// Filetype associations are matched against the bare lowercase extension
+// (see SuggestedAppsService), but clients historically stored whatever the
+// developer typed — `.docx` was common. Canonicalize on write and tolerate
+// the dotted legacy form on read.
+const normalizeFiletype = (type) =>
+    typeof type === 'string'
+        ? type.trim().toLowerCase().replace(/^\.+/, '')
+        : '';
 const APP_ID_PROPERTIES = ['id', 'uid', 'name'];
 // Old-name redirect window. After this many months an entry in
 // `old_app_names` is considered stale and is deleted on the next read
@@ -652,7 +660,9 @@ export class AppStore extends PuterStore {
         // reads inside the TTL window hit redis. `setFiletypeAssociations`
         // invalidates the affected extension explicitly so changes show up
         // immediately.
-        const cacheKey = `${FILETYPE_CACHE_KEY_PREFIX}:${extension}`;
+        const ext = normalizeFiletype(extension);
+        if (!ext) return [];
+        const cacheKey = `${FILETYPE_CACHE_KEY_PREFIX}:${ext}`;
         try {
             const cached = await this.clients.redis.get(cacheKey);
             if (cached) {
@@ -663,13 +673,22 @@ export class AppStore extends PuterStore {
             // Fall through to DB on any cache failure.
         }
 
+        // Rows written before writes were canonicalized may carry a leading
+        // dot (`.docx`); match both forms so they work without a migration.
         const rows = await this.clients.db.read(
             `SELECT a.* FROM \`apps\` a
              INNER JOIN \`app_filetype_association\` fa ON fa.\`app_id\` = a.\`id\`
-             WHERE fa.\`type\` = ?`,
-            [extension],
+             WHERE fa.\`type\` IN (?, ?)`,
+            [ext, `.${ext}`],
         );
-        const apps = rows.map((r) => this.#normalizeRow(r));
+        // An app associated under both forms joins to two rows.
+        const seenIds = new Set();
+        const apps = [];
+        for (const row of rows) {
+            if (seenIds.has(row.id)) continue;
+            seenIds.add(row.id);
+            apps.push(this.#normalizeRow(row));
+        }
 
         this.clients.redis
             .set(
@@ -701,7 +720,16 @@ export class AppStore extends PuterStore {
         // Replace-all semantics. Capture the previous extension set so we
         // can drop their cached app lists in addition to the new ones.
         const previous = await this.getFiletypeAssociations(appId);
-        const newTypes = Array.isArray(types) ? types : [];
+        // Canonicalize before storing — readers match on the bare lowercase
+        // extension. Dedupe after normalizing: '.docx' and 'docx' in the
+        // same call are one association, not two rows.
+        const newTypes = [
+            ...new Set(
+                (Array.isArray(types) ? types : [])
+                    .map(normalizeFiletype)
+                    .filter(Boolean),
+            ),
+        ];
 
         // DELETE + multi-row INSERT in one transactional batch — partial
         // success would otherwise leave the row's filetype set in a state
@@ -723,7 +751,11 @@ export class AppStore extends PuterStore {
         }
         await this.clients.db.batchWrite(entries);
 
-        const affected = new Set([...previous, ...newTypes]);
+        // Cache keys are always the canonical form — normalize `previous`
+        // too, since pre-existing rows may be stored dotted.
+        const affected = new Set(
+            [...previous.map(normalizeFiletype), ...newTypes].filter(Boolean),
+        );
         if (affected.size === 0) return;
         const keys = [...affected].map(
             (t) => `${FILETYPE_CACHE_KEY_PREFIX}:${t}`,

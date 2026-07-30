@@ -821,8 +821,9 @@ describe('AppDriver.create additional branches', () => {
             }),
         );
         expect(Array.isArray(created.filetype_associations)).toBe(true);
+        // Dotted input is canonicalized to the bare lowercase extension.
         expect(created.filetype_associations).toEqual(
-            expect.arrayContaining(['.txt', '.md']),
+            expect.arrayContaining(['txt', 'md']),
         );
     });
 
@@ -970,8 +971,9 @@ describe('AppDriver.update additional branches', () => {
                 ? JSON.parse(updated.metadata)
                 : updated.metadata;
         expect(meta).toEqual({ version: 2 });
+        // Dotted input is canonicalized to the bare lowercase extension.
         expect(updated.filetype_associations).toEqual(
-            expect.arrayContaining(['.md', '.csv']),
+            expect.arrayContaining(['md', 'csv']),
         );
     });
 });

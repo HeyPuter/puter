@@ -222,3 +222,102 @@ describe('AppStore batched lookups', () => {
         expect(found.get(a.id)?.title).toBe('Alpha');
     });
 });
+
+describe('AppStore filetype associations', () => {
+    let server;
+    let appStore;
+    let db;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+        appStore = server.stores.app;
+        db = server.clients.db;
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    const createApp = async () => {
+        const name = `ft-${Math.random().toString(36).slice(2, 10)}`;
+        return appStore.create(
+            {
+                name,
+                title: 'Filetype Test',
+                index_url: `https://${name}.example.com/`,
+            },
+            { ownerUserId: 1 },
+        );
+    };
+
+    // Unique per test — getAppsByFiletype caches per extension in redis, so
+    // sharing an extension across tests would serve stale results.
+    const freshExt = () => `ext${Math.random().toString(36).slice(2, 10)}`;
+
+    const insertRawAssociation = (appId, type) =>
+        db.write(
+            'INSERT INTO `app_filetype_association` (`app_id`, `type`) VALUES (?, ?)',
+            [appId, type],
+        );
+
+    it('canonicalizes on write: trims, lowercases, strips leading dots, dedupes', async () => {
+        const app = await createApp();
+
+        await appStore.setFiletypeAssociations(app.id, [
+            ' .DocX ',
+            'docx',
+            '.doc',
+        ]);
+
+        const stored = await appStore.getFiletypeAssociations(app.id);
+        expect(stored.sort()).toEqual(['doc', 'docx']);
+    });
+
+    it('drops entries that normalize to nothing', async () => {
+        const app = await createApp();
+
+        await appStore.setFiletypeAssociations(app.id, ['.', '  ', 'txt']);
+
+        expect(await appStore.getFiletypeAssociations(app.id)).toEqual([
+            'txt',
+        ]);
+    });
+
+    it('getAppsByFiletype matches legacy rows stored with a leading dot', async () => {
+        const app = await createApp();
+        const ext = freshExt();
+        // Pre-normalization rows were written verbatim from client input.
+        await insertRawAssociation(app.id, `.${ext}`);
+
+        const apps = await appStore.getAppsByFiletype(ext);
+
+        expect(apps.map((a) => a.id)).toContain(app.id);
+    });
+
+    it('getAppsByFiletype returns one entry for an app associated under both forms', async () => {
+        const app = await createApp();
+        const ext = freshExt();
+        await insertRawAssociation(app.id, ext);
+        await insertRawAssociation(app.id, `.${ext}`);
+
+        const apps = await appStore.getAppsByFiletype(ext);
+
+        expect(apps.filter((a) => a.id === app.id)).toHaveLength(1);
+    });
+
+    it('getAppsByFiletype normalizes the requested extension', async () => {
+        const app = await createApp();
+        const ext = freshExt();
+        await appStore.setFiletypeAssociations(app.id, [ext]);
+
+        const apps = await appStore.getAppsByFiletype(`.${ext.toUpperCase()}`);
+
+        expect(apps.map((a) => a.id)).toContain(app.id);
+    });
+
+    it('getAppsByFiletype returns [] when the extension normalizes to nothing', async () => {
+        expect(await appStore.getAppsByFiletype('')).toEqual([]);
+        expect(await appStore.getAppsByFiletype('.')).toEqual([]);
+        expect(await appStore.getAppsByFiletype(null)).toEqual([]);
+    });
+});
