@@ -27,7 +27,13 @@ class Auth extends PuterModule {
      * Rejects with `{ error: 'popup_blocked' }` if the browser blocked the
      * popup, or `{ error: 'auth_window_closed' }` if the user closed it.
      *
-     * @type {(options?: { attempt_temp_user_creation?: boolean }) => Promise<SignInResult>}
+     * `request_auth` asks the popup to let the user re-pick their account even
+     * when this site already holds a token for them — the GUI otherwise skips
+     * that prompt for a site it has seen before. Implicit auth (a `puter.*`
+     * call that finds no token) sets it, which is the behaviour its own popup
+     * used to carry as `?request_auth=true`.
+     *
+     * @type {(options?: { attempt_temp_user_creation?: boolean, request_auth?: boolean }) => Promise<SignInResult>}
      */
     signIn = (options) => {
         options = options || {};
@@ -35,7 +41,7 @@ class Auth extends PuterModule {
         return new Promise((resolve, reject) => {
             const signinsession = crypto.randomUUID();
             const msg_id = this.#messageID++;
-            const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}`;
+            const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}${options.request_auth ? '&request_auth=true' : ''}`;
 
             // Guards against settling the promise more than once across the
             // message, popup-closed, and dialog-cancel code paths.
