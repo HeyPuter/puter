@@ -723,6 +723,11 @@ const launch_app = async (options) => {
         const parent_minimized = $(el_parent_win).attr('data-is_minimized');
         if ( el_parent_win && parent_minimized !== '1' && parent_minimized !== 'true' ) {
             $(el_parent_win).hideWindow();
+            // Remember WHY this window is minimized: closing the child
+            // should land on the dashboard rather than resurrecting a
+            // parent the user never dismissed themselves (UIWindow's close
+            // path reads this; any restore clears it).
+            $(el_parent_win).attr('data-minimized_for_child', uuid);
         }
     }
 

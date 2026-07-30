@@ -3643,7 +3643,22 @@ $.fn.close = async function (options) {
                 // address bar doesn't keep naming a dead app (the popstate
                 // handler finds no window left and just restores the title;
                 // no-op when the closing app doesn't own the URL).
-                pop_dashboard_app_url($(this).attr('data-app'));
+                //
+                // If the app underneath is only minimized because it
+                // launched THIS app, closing lands on the dashboard instead
+                // of resurrecting it: closing an app always goes home, and
+                // the parent keeps running behind its tile (Back, which
+                // doesn't come through here, still returns to it). A parent
+                // the user has since restored themselves no longer carries
+                // the marker, so it is left alone.
+                const $stacked_parent = $(`.window[data-minimized_for_child="${html_encode(window_uuid)}"]`);
+                const parent_minimized = $stacked_parent.attr('data-is_minimized');
+                const parent_is_stacked = $stacked_parent.length > 0
+                    && (parent_minimized === '1' || parent_minimized === 'true');
+                if ( $stacked_parent.length > 0 ) {
+                    $stacked_parent.removeAttr('data-minimized_for_child');
+                }
+                pop_dashboard_app_url($(this).attr('data-app'), { to_dashboard: parent_is_stacked });
                 // bring focus to the last window in the window-stack (only if not minimized)
                 let next_window_focused = false;
                 if ( window.window_stack.length > 0 ) {
@@ -3926,6 +3941,10 @@ $.fn.showWindow = async function (options) {
                     'data-is_minimized': false,
                     'data-minimized_in_place': '0',
                 });
+                // On screen again (Back, tile click, Forward), so it is no
+                // longer minimized-because-a-child-took-over: closing that
+                // child must not now send the user to the dashboard.
+                $(el_window).removeAttr('data-minimized_for_child');
                 $(el_window).css('z-index', raised_zindex());
                 const reduce_motion = window.matchMedia
                     && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -4236,13 +4255,22 @@ function push_dashboard_app_url (app_name, title) {
 let dashboard_url_pop_pending = false;
 let dashboard_url_pop_watchdog = null;
 
-function pop_dashboard_app_url (app_name) {
+// Set for the in-flight pop when the entry underneath belongs to an app
+// that is only minimized because IT launched the app being closed. The
+// traversal still consumes exactly one entry (no extra history hops —
+// those are what the watchdog above exists to survive); the popstate
+// handler just declines to restore what it lands on and rewrites the
+// address bar to the dashboard's route instead.
+let dashboard_pop_to_dashboard = false;
+
+function pop_dashboard_app_url (app_name, options) {
     if ( ! window.is_dashboard_mode || ! app_name ) return false;
     if ( dashboard_app_url_current() !== app_name ) return false;
     // Duplicate request for an entry already being popped: report it
     // handled so the caller doesn't ALSO hide the window.
     if ( dashboard_url_pop_pending ) return true;
     dashboard_url_pop_pending = true;
+    if ( options?.to_dashboard ) dashboard_pop_to_dashboard = true;
     window.history.back();
     // WATCHDOG — back() traverses the JOINT session history, which the
     // app's iframe shares. If the app navigated internally after load
@@ -4263,6 +4291,9 @@ function pop_dashboard_app_url (app_name) {
         // push claimed the URL (both clear the latch).
         if ( ! dashboard_url_pop_pending ) return;
         dashboard_url_pop_pending = false;
+        // The repair below already lands on the dashboard's route and
+        // restores nothing, which is exactly what to_dashboard asks for.
+        dashboard_pop_to_dashboard = false;
         if ( dashboard_app_url_current() !== app_name ) return;
         window.history.replaceState(null, '', dashboard_url_base || '/');
         dashboard_url_app = null;
@@ -4306,6 +4337,10 @@ window.addEventListener('popstate', () => {
     if ( ! window.is_dashboard_mode ) return;
     // Any traversal settles a pending pop (see pop_dashboard_app_url).
     dashboard_url_pop_pending = false;
+    // Consume the flag: it belongs to this one traversal only, and must not
+    // leak into the user's next Back/Forward.
+    const to_dashboard = dashboard_pop_to_dashboard;
+    dashboard_pop_to_dashboard = false;
     const new_app = dashboard_app_url_current();
     const prev_app = dashboard_url_app;
     // Same app on both sides means the traversal wasn't ours (e.g. an app
@@ -4327,7 +4362,18 @@ window.addEventListener('popstate', () => {
         }
     }
 
-    if ( new_app ) {
+    if ( new_app && to_dashboard ) {
+        // A closing app popped onto its launcher's entry: leave the
+        // launcher minimized and show the dashboard. Rewriting the entry
+        // (rather than traversing again) keeps this to the single hop the
+        // close already issued.
+        window.history.replaceState(null, '', dashboard_url_base || '/');
+        dashboard_url_app = null;
+        if ( window.dashboard_base_title !== undefined ) {
+            document.title = window.dashboard_base_title;
+        }
+    }
+    else if ( new_app ) {
         // ...and landed on another app's entry (Forward, or Back across
         // two stacked apps): restore its window — or relaunch it if it
         // was closed, so the entry behaves as a live deep link.
