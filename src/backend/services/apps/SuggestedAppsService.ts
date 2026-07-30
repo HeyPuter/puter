@@ -149,16 +149,28 @@ const MEDIA_EXTS = new Set([
     'aac',
 ]);
 
-function suggestionsForExtension(ext: string): string[] {
+function suggestionsForExtension(ext: string): {
+    names: string[];
+    isFallback: boolean;
+} {
     const lower = ext.toLowerCase();
-    if (CODE_EXTS.has(lower)) return ['code', 'editor'];
-    if (lower === 'txt' || lower === '') return ['editor', 'code'];
-    if (lower === 'md') return ['markus', 'editor', 'code'];
-    if (IMAGE_EXTS.has(lower)) return ['viewer', 'draw'];
-    if (lower === 'pdf') return ['pdf'];
-    if (MEDIA_EXTS.has(lower)) return ['player'];
-    // Unknown extension — fall back to editor
-    return ['editor'];
+    if (CODE_EXTS.has(lower)) {
+        return { names: ['code', 'editor'], isFallback: false };
+    }
+    if (lower === 'txt' || lower === '') {
+        return { names: ['editor', 'code'], isFallback: false };
+    }
+    if (lower === 'md') {
+        return { names: ['markus', 'editor', 'code'], isFallback: false };
+    }
+    if (IMAGE_EXTS.has(lower)) {
+        return { names: ['viewer', 'draw'], isFallback: false };
+    }
+    if (lower === 'pdf') return { names: ['pdf'], isFallback: false };
+    if (MEDIA_EXTS.has(lower)) return { names: ['player'], isFallback: false };
+    // Unknown extension — editor is a last-resort guess, not a mapping.
+    // Callers rank it below apps that explicitly registered the extension.
+    return { names: ['editor'], isFallback: true };
 }
 
 // In-memory cache TTL. Apps rarely change, and the worst-case on staleness
@@ -247,34 +259,39 @@ export class SuggestedAppsService extends PuterService {
     async #resolveForExtension(
         ext: string,
     ): Promise<Array<Record<string, unknown>>> {
-        const builtinNames = suggestionsForExtension(ext);
-
-        const seen = new Set<number>();
-        const candidates: Array<Record<string, unknown>> = [];
+        const { names: builtinNames, isFallback } =
+            suggestionsForExtension(ext);
 
         const apiBaseUrl = this.config.api_base_url as string | undefined;
 
         // Built-in apps, looked up by their stable app name. Parallel-safe
-        // because order is imposed at the end via `builtinNames`.
+        // because order is imposed below via `builtinNames`.
         const builtinApps = await Promise.all(
             builtinNames.map((appName) => this.stores.app.getByName(appName)),
         );
-        for (const app of builtinApps) {
-            if (app && !seen.has(app.id)) {
-                seen.add(app.id);
-                candidates.push(app);
-            }
-        }
 
-        if (ext) {
-            const thirdParty = await this.stores.app.getAppsByFiletype(ext);
-            for (const app of thirdParty) {
-                if (seen.has(app.id)) continue;
-                if (app.approved_for_opening_items) {
-                    seen.add(app.id);
-                    candidates.push(app);
-                }
-            }
+        const thirdPartyApps = ext
+            ? (await this.stores.app.getAppsByFiletype(ext)).filter(
+                  (app) => app.approved_for_opening_items,
+              )
+            : [];
+
+        // Order decides the default opener: `suggested[0]` feeds the GUI's
+        // double-click path and `/open_item`. Intentionally mapped built-ins
+        // keep the head slot, but the unknown-extension `editor` fallback is
+        // only a guess — an app that explicitly registered the extension
+        // outranks it (a .docx should open in a word processor that claimed
+        // it, not in the plain-text editor).
+        const ordered = isFallback
+            ? [...thirdPartyApps, ...builtinApps]
+            : [...builtinApps, ...thirdPartyApps];
+
+        const seen = new Set<number>();
+        const candidates: Array<Record<string, unknown>> = [];
+        for (const app of ordered) {
+            if (!app || seen.has(app.id)) continue;
+            seen.add(app.id);
+            candidates.push(app);
         }
 
         // Drop apps whose puter-hosted backing is gone or has been reclaimed

@@ -333,6 +333,42 @@ describe('SuggestedAppsService hosted-backing guard', () => {
         expect(suggested.find((a) => a.name === name)).toBeDefined();
     });
 
+    it('ranks a registered app ahead of the editor fallback for unknown extensions', async () => {
+        // For extensions with no intentional built-in mapping, `editor` is
+        // only a guess — and `suggested[0]` is what double-click and
+        // `/open_item` launch. An app that explicitly registered the
+        // extension must take the head slot or binary files open as
+        // plain text.
+        const { userId } = await makeUser();
+        const ext = uniqueName('ext10').replace(/-/g, '');
+        await pointBuiltinAt('editor', userId, 'https://editor.example.com/');
+        const name = await makeOpenerApp({
+            userId,
+            indexUrl: 'https://dev-owned-domain.example/',
+            ext,
+        });
+
+        const names = (await suggestFor(ext)).map((a) => a.name);
+        expect(names[0]).toBe(name);
+        expect(names).toContain('editor');
+    });
+
+    it('keeps built-ins first for intentionally mapped extensions', async () => {
+        // `.txt` → editor is a deliberate mapping, not the fallback guess;
+        // a third-party association must not displace it.
+        const { userId } = await makeUser();
+        await pointBuiltinAt('editor', userId, 'https://editor.example.com/');
+        const name = await makeOpenerApp({
+            userId,
+            indexUrl: 'https://dev-owned-domain.example/',
+            ext: 'txt',
+        });
+
+        const names = (await suggestFor('txt')).map((a) => a.name);
+        expect(names[0]).toBe('editor');
+        expect(names).toContain(name);
+    });
+
     it('does not hit the subdomain store for non-hosted index_urls', async () => {
         // Built-ins and apps on a developer's own domain aren't on a
         // hosting domain, so the guard short-circuits on the URL alone.
