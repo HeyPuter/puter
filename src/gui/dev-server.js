@@ -21,12 +21,65 @@ import { generateDevHtml, build } from './utils.js';
 import { argv } from 'node:process';
 import chalk from 'chalk';
 import dotenv from 'dotenv';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 dotenv.config();
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Arguments: the first bare argument selects the env ('dev' or 'prod');
+// `--server=<domain-or-origin>` points the GUI at a remote Puter backend,
+// e.g. `--server=puter.com` or `--server=http://puter.localhost:4100`.
+// `--extensions=<dir>[;<dir>...]` bundles extra (out-of-tree) GUI extension
+// directories into the build via PUTER_GUI_EXTENSION_PATHS.
+// `npm start --server=puter.com` (repo root) arrives via npm_config_server.
+let env = null;
+let server = process.env.npm_config_server || null;
+let extensions = process.env.npm_config_extensions || null;
+for ( const arg of argv.slice(2) ) {
+    if ( arg.startsWith('--server=') ) server = arg.slice('--server='.length);
+    else if ( arg.startsWith('--extensions=') ) extensions = arg.slice('--extensions='.length);
+    else if ( ! arg.startsWith('--') && env === null ) env = arg;
+}
+
+if ( extensions ) {
+    const dirs = extensions.split(';').filter(Boolean)
+        .map(p => path.resolve(process.cwd(), p));
+    for ( const dir of dirs ) {
+        if ( ! fs.existsSync(dir) ) {
+            console.warn(chalk.yellow(`WARNING: GUI extensions directory not found: ${dir}`));
+        }
+    }
+    process.env.PUTER_GUI_EXTENSION_PATHS =
+        [process.env.PUTER_GUI_EXTENSION_PATHS, ...dirs].filter(Boolean).join(';');
+    console.log('Extra GUI extensions:', dirs.join(', '));
+}
+// A remote server implies the bundled GUI: the unbundled html loads raw
+// source modules, whose bare npm imports don't resolve in the browser.
+env = env ?? (server ? 'prod' : 'dev');
+const bundled = env === 'prod';
+
+// Bare domains follow the production convention of the API living at
+// `api.<domain>`; a full origin (or an `api.` host) is used verbatim.
+// guiOrigin is the remote server's own GUI origin — login, signup,
+// anti-csrf, socket.io, and builtin apps are all served there, so the
+// local GUI must point `gui_origin` at it (the backend is CORS-open).
+const { apiOrigin, guiOrigin, appDomain } = (() => {
+    const value = server ?? 'puter.com';
+    const url = new URL(value.includes('://') ? value : `https://${value}`);
+    return {
+        apiOrigin: value.includes('://') || url.hostname.startsWith('api.')
+            ? url.origin
+            : `https://api.${url.hostname}`,
+        guiOrigin: `${url.protocol}//${url.host.replace(/^api\./, '')}`,
+        appDomain: url.hostname.replace(/^api\./, ''),
+    };
+})();
 
 const app = express();
 let port = process.env.PORT ?? 4000; // Starting port
 const maxAttempts = 10; // Maximum number of ports to try
-const env = argv[2] ?? 'dev';
 
 const startServer = (attempt, useAnyFreePort = false) => {
     if ( attempt > maxAttempts ) {
@@ -36,6 +89,7 @@ const startServer = (attempt, useAnyFreePort = false) => {
     const server = app.listen(useAnyFreePort ? 0 : port, () => {
         console.log('\n-----------------------------------------------------------\n');
         console.log('Puter is now live at: ', chalk.underline.blue(`http://localhost:${server.address().port}`));
+        console.log('Backend (API) origin: ', chalk.underline.blue(apiOrigin));
         console.log('\n-----------------------------------------------------------\n');
     }).on('error', (err) => {
         if ( err.code === 'EADDRINUSE' ) { // Check if the error is because the port is already in use
@@ -46,31 +100,48 @@ const startServer = (attempt, useAnyFreePort = false) => {
     });
 };
 
-// Start the server with the first attempt
+// Build the GUI. The bundled html can't render without the webpack output,
+// so wait for the build before serving anything.
+try {
+    await build();
+} catch (err) {
+    // webpack already printed the compilation errors above
+    console.error(chalk.red(`\nGUI build failed: ${err.message}`));
+    process.exit(1);
+}
+
 startServer(1);
 
-// build the GUI
-build();
-
-app.get(['/', '/app/*', '/action/*', '/desktop', '/dashboard'], (req, res) => {
+app.get(['/', '/app/*splat', '/action/*splat', '/desktop', '/dashboard'], (req, res) => {
     res.send(generateDevHtml({
         env: env,
-        api_origin: 'https://api.puter.com',
+        api_origin: apiOrigin,
+        gui_origin: guiOrigin,
+        app_domain: appDomain,
         title: 'Puter',
         max_item_name_length: 150,
         require_email_verification_to_publish_website: false,
         short_description: 'Puter is a privacy-first personal cloud that houses all your files, apps, and games in one private and secure place, accessible from anywhere at any time.',
     }));
 });
-app.use(express.static('./'));
 
-if ( env === 'prod' ) {
+// The unbundled html loads the local puter.js build at /sdk/puter.dev.js;
+// fall back to the production build when only that one exists.
+const sdkDir = path.join(__dirname, '../puter-js/dist');
+app.use('/sdk', express.static(sdkDir));
+app.get('/sdk/puter.dev.js', (req, res, next) => {
+    const prodBuild = path.join(sdkDir, 'puter.js');
+    if ( fs.existsSync(prodBuild) ) res.sendFile(prodBuild);
+    else next();
+});
+
+app.use(express.static(__dirname));
+
+if ( bundled ) {
     // make sure to serve the ./dist/ folder maps to the root of the website
-    app.use(express.static('./dist/'));
-}
-
-if ( env === 'dev' ) {
-    app.use(express.static('./src/'));
+    app.use(express.static(path.join(__dirname, 'dist')));
+} else {
+    app.use(express.static(path.join(__dirname, 'src')));
 }
 
 export { app };
