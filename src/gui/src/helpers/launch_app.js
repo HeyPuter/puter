@@ -116,6 +116,11 @@ const fetchUserAppTokenForLaunch = async ({ appUid } = {}) => {
  */
 const launch_app = async (options) => {
     let transaction;
+    // Ends once the app signals over IPC, i.e. when it can actually be used.
+    // Only apps built on the SDK ever signal, so this one is deliberately
+    // left unended (and therefore unreported) for the rest — better a series
+    // that covers fewer launches than one padded with timeouts.
+    let interactiveTransaction;
     // A transaction to trace the time it takes to launch an app and
     // for it to be ready.
     // Explorer is a special case, it's not an app per se, so it doesn't need a transaction.
@@ -123,15 +128,31 @@ const launch_app = async (options) => {
         // Attribute the timing: the same span covers a tile click on a warm
         // dashboard and a cold landing on /app/<name>, which are different
         // enough that a combined percentile describes neither.
-        transaction = new window.Transaction('app-is-ready', {
+        const launchAttributes = {
             'launch.app': options?.name ?? options?.app_obj?.name ?? 'unknown',
             'launch.dashboard_mode': !! window.is_dashboard_mode,
             'launch.from_app_url':
                 typeof window.location?.pathname === 'string'
                 && window.location.pathname.startsWith('/app/'),
             'launch.has_app_obj': !! options?.app_obj,
+        };
+        // Exec-service launches never get the IPC listener attached below,
+        // so no interactive span is expected for them. Recording that here
+        // gives the interactive series a denominator: how many launches
+        // could have produced one.
+        const ipcTracked = ! options?.launched_by_exec_service;
+
+        transaction = new window.Transaction('app-is-ready', {
+            ...launchAttributes,
+            'launch.ipc_tracked': ipcTracked,
         });
         transaction.start();
+
+        if ( ipcTracked ) {
+            interactiveTransaction = new window.Transaction(
+                'app-interactive', launchAttributes);
+            interactiveTransaction.start();
+        }
     }
 
     const uuid = options.uuid ?? window.uuidv4();
@@ -165,7 +186,9 @@ const launch_app = async (options) => {
 
     // If no `options.name` is provided, use the app name from the app_info
     options.name = options.name ?? app_info.name;
-    transaction?.annotate({ 'launch.app': options.name ?? 'unknown' });
+    const resolvedAppName = { 'launch.app': options.name ?? 'unknown' };
+    transaction?.annotate(resolvedAppName);
+    interactiveTransaction?.annotate(resolvedAppName);
     const requestedAppName = options.privateLaunchRequestedAppName ?? options.name ?? app_info.name ?? null;
     const privateAccessDecision = normalizePrivateAccessDecision(app_info.privateAccess);
 
@@ -736,6 +759,11 @@ const launch_app = async (options) => {
             if ( value !== PROCESS_IPC_ATTACHED ) return;
 
             $(process.references.iframe).attr('data-appUsesSDK', 'true');
+
+            // The app is talking to us, so it's genuinely usable now —
+            // unlike `app-is-ready`, which stops at the window element.
+            endLaunchTransaction(interactiveTransaction, 'ipc-attached');
+            interactiveTransaction = undefined;
 
             // Send any saved broadcasts to the new app
             globalThis.services.get('broadcast').sendSavedBroadcastsTo(uuid);

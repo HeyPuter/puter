@@ -241,8 +241,23 @@ window.Transaction = class {
         this.attributes = { ...attributes };
     }
 
+    /**
+     * Absolute, but read off the monotonic clock. A plain wall-clock read
+     * can jump mid-transaction when the system clock is adjusted, which
+     * lands as a negative or wildly inflated duration. Adding `timeOrigin`
+     * keeps the stamps on a real timeline (reporters place spans by
+     * absolute time) while the gap between two of them stays monotonic.
+     */
+    #now () {
+        return typeof performance !== 'undefined'
+            && typeof performance.now === 'function'
+            && typeof performance.timeOrigin === 'number'
+            ? performance.timeOrigin + performance.now()
+            : Date.now();
+    }
+
     start () {
-        this.start_ts = Date.now();
+        this.start_ts = this.#now();
     }
 
     /**
@@ -254,11 +269,11 @@ window.Transaction = class {
     }
 
     getDuration () {
-        return Date.now() - this.start_ts;
+        return this.#now() - this.start_ts;
     }
 
     end () {
-        this.end_ts = Date.now();
+        this.end_ts = this.#now();
         this.duration = this.end_ts - this.start_ts;
 
         // emit an event
