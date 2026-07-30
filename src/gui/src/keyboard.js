@@ -789,15 +789,19 @@ $(document).bind('keyup keydown', async function (e) {
     if ( e.which === 13 && !$(focused_el).is('input') && !$(focused_el).is('textarea') && (Date.now() - window.last_enter_pressed_to_rename_ts) > 200
         // prevent firing twice, because this will be fired on both keyup and keydown
         && e.type === 'keydown' ) {
-        let $selected_items;
-
-        e.preventDefault();
-        e.stopPropagation();
+        // preventDefault only happens in the branch that actually handles
+        // the key: an unconditional preventDefault here would suppress the
+        // browser's native Enter activation of whatever is focused — a
+        // focused link or button (e.g. a dashboard sidebar item) must
+        // still receive its synthesized click when nothing below claims
+        // the key.
 
         // ---------------------------------------------
         // if this is a selected Launch menu item, open it
         // ---------------------------------------------
         if ( $('.launch-app-selected').length > 0 ) {
+            e.preventDefault();
+            e.stopPropagation();
             // close launch menu
             $('.launch-popover').fadeOut(200, function () {
                 launch_app({
@@ -814,6 +818,8 @@ $(document).bind('keyup keydown', async function (e) {
         // if this is a selected context menu item, open it
         // ---------------------------------------------
         else if ( $('.context-menu-active .context-menu-item-active').length > 0 && (e.which === 13) ) {
+            e.preventDefault();
+            e.stopPropagation();
             let selected_item = $('.context-menu-active .context-menu-item-active').get(0);
             $(selected_item).removeClass('context-menu-item-active');
             $(selected_item).addClass('context-menu-item-active-blurred');
@@ -830,19 +836,21 @@ $(document).bind('keyup keydown', async function (e) {
         // if this is a selected item, open it
         // ---------------------------------------------
         else if ( window.active_item_container ) {
-            $selected_items = $(window.active_item_container).find('.item-selected');
+            const $selected_items = $(window.active_item_container).find('.item-selected');
             if ( $selected_items.length > 0 ) {
+                e.preventDefault();
+                e.stopPropagation();
                 $selected_items.each(function () {
                     open_item({
                         item: this,
                         new_window: e.metaKey || e.ctrlKey,
                     });
                 });
+                return false;
             }
-            return false;
         }
-
-        return false;
+        // Nothing claimed the key — fall through so the browser's default
+        // Enter behavior still runs on the focused element.
     }
     //----------------------------------------------
     // Paste
