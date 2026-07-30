@@ -479,6 +479,19 @@ body {
     font-weight: 500;
 }
 
+/* Keyboard focus on the sidebar's controls: swap the UA's default blue
+   ring for the dashboard's own selection ring, hugging the control's
+   rounded corners from the inside. :focus-visible only, so a mouse click
+   (which also focuses these) never paints it. */
+.dashboard-sidebar-item:focus-visible,
+.dashboard-user-btn:focus-visible,
+.dashboard-sidebar-toggle:focus-visible,
+.dashboard-sidebar-collapse-toggle:focus-visible,
+.dashboard-sidebar-close:focus-visible {
+    outline: 2px solid var(--select-ring);
+    outline-offset: -2px;
+}
+
 /* User options button at bottom of sidebar */
 .dashboard-user-options {
     border-top: 1px solid var(--dashboard-border);
