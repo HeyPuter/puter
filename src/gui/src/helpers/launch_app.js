@@ -271,6 +271,16 @@ const launch_app = async (options) => {
     if ( app_info.maximize_on_start ) {
         options.maximized = 1;
     }
+    // Dashboard mode: apps are full-tab experiences (headless chrome,
+    // control drawer, tile/Back switching), so every app launch defaults
+    // to maximized — matching tile launches. Without this, an app launched
+    // by another app (puter.ui.launchApp) opened as a floating titlebar
+    // window over the full-tab parent, with no tile to switch back to.
+    // Explorer keeps its windowed form; an explicit option still wins.
+    if ( window.is_dashboard_mode && options.maximized === undefined
+        && options.name !== 'explorer' && options.name !== 'trash' ) {
+        options.maximized = 1;
+    }
     //-----------------------------------
     // if opened a file, sign it
     //-----------------------------------
@@ -700,6 +710,21 @@ const launch_app = async (options) => {
 
     const el = await el_win;
     process.references.el_win = el;
+
+    // Dashboard mode: an app launched from another app takes over the tab,
+    // iOS-style — the parent app minimizes behind it. State only: the
+    // parent's /app/<name> history entry already sits beneath the child's,
+    // so Back from the child (and the child's close, which consumes its
+    // entry) lands on the parent's entry and the popstate handler restores
+    // it. The parent keeps running while hidden — parent/child IPC works.
+    if ( window.is_dashboard_mode && options.parent_instance_id
+        && options.maximized && !app_info.background && el ) {
+        const el_parent_win = window.window_for_app_instance(options.parent_instance_id);
+        const parent_minimized = $(el_parent_win).attr('data-is_minimized');
+        if ( el_parent_win && parent_minimized !== '1' && parent_minimized !== 'true' ) {
+            $(el_parent_win).hideWindow();
+        }
+    }
 
     if ( ! options.launched_by_exec_service ) {
         process.onchange('ipc_status', value => {
