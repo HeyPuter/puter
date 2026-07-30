@@ -18,6 +18,7 @@
  * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
+import { metrics } from '@opentelemetry/api';
 import type { Request, Response } from 'express';
 import { actorUid } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
@@ -44,6 +45,17 @@ import { withSpan } from '../../util/span.js';
 import { PuterController } from '../types.js';
 
 type DriverInstance = WithLifecycle & Record<string, unknown>;
+
+// Every driver call is timed here already, for the lifecycle events below.
+// Recording the same number as a histogram makes the per-interface latency
+// distribution available downstream; which interfaces are worth keeping is a
+// collector-side decision, not one made here, so this deliberately records
+// everything and lets the export pipeline drop what it doesn't want.
+const meter = metrics.getMeter('puter-backend');
+const driverCallDuration = meter.createHistogram('driver.call.duration', {
+    description: 'Wall time of a driver method call',
+    unit: 'ms',
+});
 
 const extractUpstreamStatus = (e: {
     status?: number;
@@ -429,6 +441,11 @@ export class DriverController extends PuterController {
                 () => (fn as (...x: unknown[]) => any).call(driver, args),
             );
         } catch (e) {
+            driverCallDuration.record(Date.now() - startedAt, {
+                driver: ifaceName,
+                'driver.method': method,
+                outcome: 'error',
+            });
             this.clients.event?.emit(
                 `driver.${ifaceName}.${method}.error`,
                 {
@@ -446,6 +463,15 @@ export class DriverController extends PuterController {
             );
             throw translateProviderError(e);
         }
+
+        // Same window the span and the lifecycle events measure: for streamed
+        // results this is stream start, not stream drain. Worth remembering
+        // when reading AI latency — it is time-to-first-token, not total.
+        driverCallDuration.record(Date.now() - startedAt, {
+            driver: ifaceName,
+            'driver.method': method,
+            outcome: 'ok',
+        });
         this.clients.event?.emit(
             `driver.${ifaceName}.${method}.after`,
             {
