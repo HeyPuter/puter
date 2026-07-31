@@ -38,6 +38,16 @@ import UIWindowSignup from './UI/UIWindowSignup.js';
 import UIWindowRecoverPassword from './UI/UIWindowRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import create_access_token from './helpers/create_access_token.js';
+import create_gui_token from './helpers/create_gui_token.js';
+import {
+    authmeRequestUrl,
+    authmeReturnUrl,
+    fullTokenAllowed,
+    isDeliverableRedirect,
+    shouldUseRemoteAuthme,
+    urlTokenParam,
+    wantsFullToken,
+} from './util/authmeGrant.js';
 import init_device_signals from './helpers/device_signals.js';
 import item_icon from './helpers/item_icon.js';
 import launch_app from './helpers/launch_app.js';
@@ -72,30 +82,66 @@ const postAuthActions = async (action) => {
     // -------------------------------------------------------------------------------------
     if ( action === 'authme' ) {
         const redirectURL = window.url_query_params.get('redirectURL');
+        // Refuse an undeliverable destination before the dialog, not after:
+        // `javascript:` and `data:` targets execute in *this* document when
+        // assigned to `location`, which would be script execution on the
+        // account origin rather than a redirect. See `isDeliverableRedirect`.
+        if ( redirectURL && ! isDeliverableRedirect(redirectURL) ) {
+            await UIAlert({ message: i18n('authme_bad_redirect_url') });
+            return;
+        }
+        // A full account session is only ever *offered* when the caller names
+        // it. Without `token_type=session` this flow can hand over nothing but
+        // the restricted API token, so an ordinary AuthMe link can't be
+        // dressed up into a session grant by whoever crafted it.
+        //
+        // Naming it isn't sufficient either: the session grade is only offered
+        // to a loopback destination, the one setup it exists for. Anywhere
+        // else falls back to the restricted token — see `fullTokenAllowed`.
+        const wants_full_token = fullTokenAllowed(
+            window.url_query_params,
+            redirectURL,
+        );
+        if ( wantsFullToken(window.url_query_params) && ! wants_full_token ) {
+            console.warn(
+                '[authme] token_type=session ignored for a non-loopback ' +
+                'destination; granting the restricted API token instead.',
+            );
+        }
         if ( redirectURL ) {
             const approved = await UIWindowAuthMe({
                 redirect_url: redirectURL,
+                full_token: wants_full_token,
             });
             if ( approved ) {
-                // Hand the app a named, revocable full-API-access
-                // token instead of the raw GUI/session token: it can
-                // use the whole API but can't manage the account.
+                // Default: a named, revocable full-API-access token rather
+                // than the raw GUI/session token — it can use the whole API
+                // but can't manage the account.
+                //
+                // `token_type=session` (approved via type-to-confirm) hands
+                // over a GUI token instead. That exists for a locally served
+                // GUI pointed at a remote backend: `/login` only accepts its
+                // own origin, so this is the sanctioned way for a dev GUI to
+                // get a session — the password is still only ever typed here.
                 let host = '';
                 try { host = new URL(redirectURL).host; } catch ( e ) { /* ignore */ }
                 let token;
                 try {
-                    token = await create_access_token({
-                        label: host
-                            ? `${i18n('token_label_external_app')} (${host})`
-                            : i18n('token_label_external_app'),
-                    });
+                    token = wants_full_token
+                        ? await create_gui_token()
+                        : await create_access_token({
+                            label: host
+                                ? `${i18n('token_label_external_app')} (${host})`
+                                : i18n('token_label_external_app'),
+                        });
                 } catch ( e ) {
                     await UIAlert({ message: e?.message ?? String(e) });
                     return;
                 }
-                const url = new URL(redirectURL);
-                url.searchParams.set('token', token);
-                window.location.href = url.href;
+                window.location.href = authmeReturnUrl(
+                    redirectURL,
+                    token,
+                ).href;
                 return;
             }
         }
@@ -1398,6 +1444,13 @@ window.initgui = async function (options) {
         opts.send_confirmation_code = true;
         await UIWindowSignup(Object.keys(opts).length ? opts : undefined);
     }
+    // Which URL parameter (if any) is carrying a token to sign in with —
+    // `auth_token`, or `token` when returning from a remote backend's AuthMe.
+    const url_token_param = urlTokenParam(
+        window.url_query_params,
+        shouldUseRemoteAuthme(window.gui_origin, window.location.origin),
+    );
+
     // -------------------------------------------------------------------------------------
     // If in embedded in a popup, it is important to check whether the opener app has a relationship with the user
     // if yes, we need to get the user app token and send it to the opener
@@ -1436,10 +1489,13 @@ window.initgui = async function (options) {
         }
     }
     // -------------------------------------------------------------------------------------
-    // `auth_token` provided in URL, use it to log in
+    // A token provided in the URL, use it to log in. `auth_token` normally;
+    // `token` as well when a locally served GUI is returning from the remote
+    // backend's AuthMe flow, which is the name AuthMe hands back.
     // -------------------------------------------------------------------------------------
-    else if (window.url_query_params.has('auth_token')) {
-        let query_param_auth_token = window.url_query_params.get('auth_token');
+    else if (url_token_param) {
+        let query_param_auth_token =
+            window.url_query_params.get(url_token_param);
 
         const previous_auth_token = window.auth_token;
 
@@ -1534,10 +1590,21 @@ window.initgui = async function (options) {
             UIWindowLoginInProgress({ user_info: whoami });
             // update auth data
             await window.update_auth_data(query_param_auth_token, whoami);
+            // The token landed and `whoami` accepted it — let a later sign-out
+            // in this tab hand off to AuthMe again (see the remote-backend
+            // branch below).
+            try {
+                sessionStorage.removeItem('puter.authme_redirect_attempted');
+            } catch (e) { /* sessionStorage unavailable */ }
         }
-        // remove auth_token from URL, keeping the current path (e.g. `/` or `/desktop`)
-        // and hash (dashboard tab links like /#usage)
-        window.history.pushState(
+        // remove the token from URL, keeping the current path (e.g. `/` or
+        // `/desktop`) and hash (dashboard tab links like /#usage).
+        //
+        // `replaceState`, not `pushState`: pushing leaves the token-bearing URL
+        // as the previous history entry, so Back returns to a URL containing a
+        // live credential (and it stays in session restore). Replacing drops it
+        // from this tab's history instead of merely navigating away from it.
+        window.history.replaceState(
             null,
             document.title,
             window.location.pathname + window.location.hash,
@@ -1809,6 +1876,47 @@ window.initgui = async function (options) {
         !window.is_auth() &&
         (!window.first_visit_ever || window.disable_temp_users)
     ) {
+        // `npm start --server=<remote>` serves this GUI locally while pointing
+        // `gui_origin` at a remote Puter. There is nothing here to log into:
+        // `/login` accepts only its own origin, because it answers with a full
+        // session token and reflected CORS would otherwise let any page read
+        // one. So hand off to the remote's AuthMe flow — the password is typed
+        // on the real origin, and we come back with a token in the URL.
+        if (shouldUseRemoteAuthme(window.gui_origin, window.location.origin)) {
+            // One attempt per tab. A token that comes back but fails `whoami`
+            // would otherwise bounce us straight back out again forever.
+            const ATTEMPTED_KEY = 'puter.authme_redirect_attempted';
+            let attempted = false;
+            try {
+                attempted = sessionStorage.getItem(ATTEMPTED_KEY) === '1';
+                sessionStorage.setItem(ATTEMPTED_KEY, '1');
+            } catch (e) {
+                // sessionStorage unavailable — fall through and redirect once.
+            }
+            if (!attempted) {
+                window.location.href = authmeRequestUrl(
+                    window.gui_origin,
+                    window.location.origin + window.location.pathname,
+                    { fullToken: true },
+                ).href;
+                return;
+            }
+            // Second pass in this tab: something came back but didn't
+            // authenticate us. Clear the flag before reporting, so a reload
+            // gets one fresh attempt instead of being stuck on this alert
+            // forever — the guard exists to stop an *automatic* loop, and an
+            // automatic return only happens when a token was handed back.
+            try {
+                sessionStorage.removeItem(ATTEMPTED_KEY);
+            } catch (e) { /* sessionStorage unavailable */ }
+            await UIAlert({
+                message: i18n('remote_backend_signin_failed', {
+                    origin: window.gui_origin,
+                }),
+            });
+            return;
+        }
+
         const needs_action = action === 'authme' || action === 'copyauth';
         const reload_on_success = needs_action;
         if (window.logged_in_users.length > 0) {

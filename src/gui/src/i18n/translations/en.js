@@ -682,6 +682,20 @@ const en = {
         authorization_cancelled: 'Authorization Cancelled',
         authorization_cancelled_desc: 'You have declined the authorization request.',
         authorization_cancelled_message: 'The app will not receive access to your account. You can close this window safely.',
+
+        // AuthMe dialog — full account session grant (opt-in, type-to-confirm)
+        authme_full_token_title: 'Full Account Access',
+        authme_full_token_request: 'An app is requesting a token that can do anything you can.',
+        shared_full_token: 'A full account session',
+        shared_full_token_item_files: 'Read, change, and delete all of your files',
+        shared_full_token_item_account: 'Change your password, email address, and two-factor settings',
+        shared_full_token_item_act: 'Act as you on Puter until you revoke it',
+        shared_full_token_note: 'This is not a restricted API token. Only continue if you started this yourself and completely trust the destination above. You can revoke it under Settings → Security → Manage sessions.',
+        authme_full_token_confirm_label: 'Type {{phrase}} below to give {{host}} full access to the account {{username}}.',
+        authme_full_token_confirm_label_no_user: 'Type {{phrase}} below to give {{host}} full access to your account.',
+        authme_full_token_confirm_phrase: 'grant full access',
+        remote_backend_signin_failed: 'Could not sign in to {{origin}}. Reload this page to try again, or check that you are signed in at {{origin}}.',
+        authme_bad_redirect_url: 'This authorization request was cancelled because its destination is not a valid web address. Nothing has been shared with it.',
     },
 };
 
