@@ -791,6 +791,71 @@ input.myapps-search::-webkit-search-decoration {
     appearance: none;
 }
 
+/* Frozen while reorder mode is on (see TabApps._setReorderMode). */
+input.myapps-search:disabled {
+    opacity: 0.55;
+}
+
+/* Toggle for the touch reorder mode. Hidden by default: it only appears on
+   touch-primary devices (media query below — same test as
+   isTouchPrimaryDevice()) and only once there are 2+ tiles to reorder
+   (.myapps-reorder-btn-available, kept in sync by renderApps). */
+.myapps-reorder-btn {
+    display: none;
+    flex: none;
+    -webkit-appearance: none;
+    appearance: none;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 6px;
+    background: var(--dashboard-input-background);
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+    white-space: nowrap;
+}
+
+.myapps-reorder-btn svg {
+    display: block;
+    width: 16px;
+    height: 16px;
+}
+
+.myapps-reorder-btn.myapps-reorder-btn-active {
+    background: var(--select-color);
+    border-color: var(--select-color);
+    color: white;
+}
+
+@media (pointer: coarse) and (hover: none) {
+    .myapps-tab .myapps-reorder-btn.myapps-reorder-btn-available {
+        display: inline-flex;
+        align-items: center;
+    }
+
+    /* Sit the button beside the search box. With the button hidden (or on
+       devices where it never shows) the lone flex child centers at the same
+       360px max width the block layout gave it. */
+    .myapps-tab .myapps-search-wrap {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+    }
+
+    .myapps-tab .myapps-search-inner {
+        flex: 1 1 auto;
+        max-width: 360px;
+        margin-left: 0;
+        margin-right: 0;
+    }
+}
+
 .myapps-container {
     /* Pager geometry; TabApps.js reads these to size pages. */
     --myapps-tile-w: 100px;
@@ -988,6 +1053,8 @@ input.myapps-search::-webkit-search-decoration {
        this, an overflowing label makes flexbox shrink the icon box, deforming
        the icon into a landscape crop. */
     flex: none;
+    /* Positioning context for the reorder-mode uninstall badge. */
+    position: relative;
     width: 56px;
     height: 56px;
     overflow: hidden;
@@ -1394,13 +1461,17 @@ input.myapps-search::-webkit-search-decoration {
 }
 
 /* Floating clone that tracks the pointer. Lives on <body> so the scroller's
-   overflow can't clip it; positioned entirely via an inline transform. */
+   overflow can't clip it; positioned entirely via an inline transform.
+   z-index must clear every window band — the fullpage dashboard window sits
+   at ~1e7 and stay-on-top windows near 1e9 (see UIWindow), and a ghost that
+   loses that contest renders invisibly behind the very grid being dragged.
+   Max int is safe: the ghost is transient, purely visual, pointer-events:none. */
 .myapps-drag-ghost {
     position: fixed;
     top: 0;
     left: 0;
     margin: 0;
-    z-index: 100000;
+    z-index: 2147483647;
     pointer-events: none;
     opacity: 0.95;
     filter: drop-shadow(0 10px 20px var(--dashboard-shadow-medium));
@@ -1433,6 +1504,86 @@ body.myapps-reordering .myapps-tile:active .myapps-tile-icon {
 
 body.myapps-reordering .myapps-tile {
     touch-action: none;
+}
+
+/* -- Reorder mode (touch; see TabApps._setReorderMode) --
+   touch-action must be locked down BEFORE the finger goes down — the browser
+   reads it at gesture start, so the mid-drag body.myapps-reordering rule
+   above can't stop a touch the scroller has already claimed. While the mode
+   is on, touches that start on a tile belong to the drag logic (ones on the
+   gaps still pan pages natively) and the iOS long-press callout is off. */
+.myapps-reorder-mode .myapps-tile {
+    touch-action: none;
+    -webkit-touch-callout: none;
+}
+
+/* iOS-style uninstall badge (see buildTileHtml); rendered on every tile that
+   may be uninstalled but only shown while reorder mode is on. Fixed dark
+   grey / white ×, like iOS, works over any theme. */
+.myapps-tile-remove {
+    display: none;
+    position: absolute;
+    top: -7px;
+    left: -7px;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(58, 58, 64, 0.92);
+    color: #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+    touch-action: manipulation;
+}
+
+.myapps-tile-remove svg {
+    width: 11px;
+    height: 11px;
+}
+
+/* Pad the 22px badge out to a finger-sized target. */
+.myapps-tile-remove::after {
+    content: '';
+    position: absolute;
+    inset: -7px;
+}
+
+.myapps-reorder-mode .myapps-tile-remove {
+    display: flex;
+}
+
+/* The badge overhangs the icon box's corner; the box normally clips. */
+.myapps-reorder-mode .myapps-tile-icon {
+    overflow: visible;
+}
+
+/* iOS-home-screen jiggle: the visible cue that tiles are draggable. Applied
+   to the icon, not the tile, so it can't fight the FLIP translate transforms
+   the drag logic puts on the tiles themselves. Phases are staggered by grid
+   position so the tiles don't wobble in lockstep. */
+@keyframes myapps-reorder-jiggle {
+    0% { transform: rotate(-1.5deg); }
+    50% { transform: rotate(1.5deg); }
+    100% { transform: rotate(-1.5deg); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .myapps-reorder-mode .myapps-tile .myapps-tile-icon {
+        animation: myapps-reorder-jiggle 0.35s ease-in-out infinite;
+    }
+
+    .myapps-reorder-mode .myapps-tile:nth-child(2n) .myapps-tile-icon {
+        animation-duration: 0.33s;
+        animation-delay: -0.12s;
+    }
+
+    .myapps-reorder-mode .myapps-tile:nth-child(3n) .myapps-tile-icon {
+        animation-delay: -0.24s;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {

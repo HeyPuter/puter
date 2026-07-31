@@ -32,9 +32,7 @@ const APP_NAMES_NO_UNINSTALL = new Set([
  */
 
 // -- Drag-to-reorder tuning --
-const DRAG_START_DISTANCE = 5;      // px a mouse/pen must travel before a drag begins
-const DRAG_TOUCH_CANCEL_DISTANCE = 10; // px of finger travel that reclassifies a press as a scroll
-const DRAG_TOUCH_LONGPRESS_MS = 450; // hold time before a touch begins reordering
+const DRAG_START_DISTANCE = 5;      // px a pointer must travel before a drag begins
 const DRAG_EDGE_ZONE = 60;          // px from a scroller edge that arms a page flip
 const DRAG_EDGE_DWELL_MS = 480;     // hold time at an edge before the page flips
 const DRAG_FLIP_SETTLE_MS = 440;    // time to let a page flip's smooth-scroll settle
@@ -46,6 +44,10 @@ const TILE_REMOVE_DELAY_MS = 500;   // pause between the uninstall modal closing
 // inside it (this fraction is trimmed off every edge). The resulting deadzone
 // around each tile is what stops items flickering back and forth at a boundary.
 const DRAG_HIT_INSET = 0.28;
+
+// Cog on the reorder-mode toggle; _setReorderMode swaps it for "Done" while
+// the mode is on.
+const REORDER_BTN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
 
 // External apps (not owned by a Puter user) can report an opaque app-… id
 // as their title (uid === name === title); in that case show the hostname
@@ -81,6 +83,13 @@ function buildTileHtml (app) {
     let h = `<div class="myapps-tile" role="button" tabindex="-1" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" data-target-link="${html_encode(targetLink)}" title="${html_encode(title)}">`;
     h += '<div class="myapps-tile-icon">';
     h += `<img src="${html_encode(iconUrl)}" alt="" draggable="false">`;
+    // iOS-style uninstall badge; only shown while reorder mode is on (CSS).
+    // tabindex=-1 keeps it out of the grid's roving-tabindex tab order.
+    if ( ! APP_NAMES_NO_UNINSTALL.has((app.name || '').toLowerCase()) ) {
+        h += `<button type="button" class="myapps-tile-remove" tabindex="-1" aria-label="Uninstall ${html_encode(title)}">`;
+        h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+        h += '</button>';
+    }
     h += '</div>';
     h += `<span class="myapps-tile-label">${html_encode(title)}</span>`;
     h += '</div>';
@@ -329,6 +338,7 @@ const TabApps = {
     _pageCount: 0,
     _hasCustomOrder: false,
     _drag: null,
+    _reorderMode: false,
     _justDragged: false,
     _reduceMotionMQL: undefined,
     _loadPromise: null,
@@ -347,6 +357,9 @@ const TabApps = {
         // offering email/contact autofill suggestions on focus.
         h += '<input type="search" name="myapps-search" class="myapps-search" placeholder="Search apps..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-form-type="other" data-lpignore="true" data-1p-ignore>';
         h += '</div>';
+        // Touch devices' way into drag-to-reorder (CSS shows it only there);
+        // toggles the reorder mode — see _setReorderMode.
+        h += `<button type="button" class="myapps-reorder-btn" aria-pressed="false" aria-label="Edit apps">${REORDER_BTN_ICON}</button>`;
         h += '</div>';
         h += '<div class="myapps-container">';
         h += '</div>';
@@ -355,9 +368,33 @@ const TabApps = {
     },
 
     init ($el_window) {
+        // This object outlives a closed dashboard window; a re-init gets a
+        // fresh DOM that is not in reorder mode, whatever the old one was.
+        this._reorderMode = false;
+
         this.loadApps($el_window);
 
         const self = this;
+
+        $el_window.on('click', '.myapps-reorder-btn', function () {
+            self._setReorderMode($el_window, ! self._reorderMode);
+        });
+
+        // Reorder mode's per-tile uninstall badge — the context-menu route to
+        // Uninstall is suppressed while the mode is on, this replaces it.
+        $el_window.on('click', '.myapps-tile-remove', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if ( ! self._reorderMode || self._drag ) return;
+            const $tile = $(this).closest('.myapps-tile');
+            showUninstallModal({
+                appName: $tile.attr('data-app-name'),
+                appTitle: $tile.attr('data-app-title'),
+                appUid: $tile.attr('data-app-uid'),
+                self,
+                $el_window,
+            });
+        });
 
         // Tiles double as the app switcher for headless in-page apps: a
         // dot marks tiles whose app has an open (or minimized) window.
@@ -385,6 +422,9 @@ const TabApps = {
         $el_window.on('click', '.myapps-tile', function (e) {
             e.preventDefault();
             e.stopPropagation();
+            // In reorder mode a press on a tile is a (potential) drag pickup,
+            // never a launch.
+            if ( self._reorderMode ) return;
             // A click synthesized at the end of a drag must not open the app.
             if ( self._justDragged ) {
                 self._justDragged = false;
@@ -448,16 +488,18 @@ const TabApps = {
         });
 
         // Start a drag-to-reorder gesture. Kept separate from click so a plain
-        // click still opens the app (see _onTilePointerDown for the threshold /
-        // long-press logic that distinguishes the two).
+        // click still opens the app (see _onTilePointerDown for the movement
+        // threshold that distinguishes the two).
         $el_window.on('pointerdown', '.myapps-tile', function (e) {
             self._onTilePointerDown($el_window, e, this);
         });
 
-        // Context menu on right-click
+        // Context menu on right-click (and, where the platform fires it,
+        // touch long-press).
         $el_window.on('contextmenu', '.myapps-tile', function (e) {
-            // Suppress the menu (and any touch long-press callout) mid-drag.
-            if ( self._drag && self._drag.started ) {
+            // Reorder mode owns every tile gesture — no menu there; likewise
+            // suppress the menu (and any long-press callout) mid-drag.
+            if ( self._reorderMode || (self._drag && self._drag.started) ) {
                 e.preventDefault();
                 return;
             }
@@ -512,10 +554,9 @@ const TabApps = {
                 });
             }
 
-            // A touch long-press arms a drag pickup (see _onTilePointerDown). If
-            // the user held rather than dragged, they want this menu — cancel the
-            // pending pickup so the long-press → Uninstall path keeps working on
-            // touch. An already-started drag was handled by the guard above.
+            // A pending pickup (button held, not yet moved) would be stranded
+            // under the menu; cancel it so the two can't run at once. An
+            // already-started drag was handled by the guard above.
             if ( self._drag ) self._endDrag(false);
 
             e.preventDefault();
@@ -682,6 +723,16 @@ const TabApps = {
     renderApps ($el_window, { preservePage = false, instant = false } = {}) {
         if ( ! this._apps ) return;
 
+        // The reorder toggle only earns its place once there's something to
+        // reorder (CSS additionally gates it to touch-primary devices). A
+        // background refresh can also shrink the list below two mid-mode
+        // (e.g. apps uninstalled in another window) — leave the mode then.
+        $el_window.find('.myapps-reorder-btn')
+            .toggleClass('myapps-reorder-btn-available', this._apps.length >= 2);
+        if ( this._reorderMode && this._apps.length < 2 ) {
+            this._setReorderMode($el_window, false);
+        }
+
         const $container = $el_window.find('.myapps-container');
         const query = String($el_window.find('.myapps-search').val() || '').toLowerCase().trim();
 
@@ -811,6 +862,49 @@ const TabApps = {
         return !! (this._reduceMotionMQL && this._reduceMotionMQL.matches);
     },
 
+    // -- Reorder mode (touch) --
+    // On touch, a drag must win the gesture from native scrolling *before*
+    // the finger moves — touch-action is consulted at gesture start, so no
+    // amount of long-press arming can reclaim a touch the scroller already
+    // owns (hence the flaky pre-mode behavior, worst on iOS). An explicit
+    // mode can: while it's on, CSS sets touch-action:none on the tiles, the
+    // first pointer movement begins a drag, taps don't launch, and the
+    // context menu is suppressed. Each drop still persists immediately via
+    // saveOrder (same as desktop), so the Done button only exits the mode —
+    // there is no unsaved state to lose.
+    _setReorderMode ($el_window, on) {
+        on = !! on;
+        if ( this._reorderMode === on ) return;
+        if ( on && (! this._apps || this._apps.length < 2) ) return;
+
+        if ( ! on && this._drag ) {
+            // Done tapped with another finger mid-gesture: settle the drag
+            // first — commit a started one, discard a pending pickup.
+            this._endDrag(this._drag.started);
+        }
+
+        this._reorderMode = on;
+        $el_window.find('.dashboard-tab-content.myapps-tab')
+            .toggleClass('myapps-reorder-mode', on);
+
+        // Reordering a filtered subset is ambiguous (see _onTilePointerDown),
+        // so the mode owns the unfiltered grid: clear any query and freeze
+        // the search box while the mode is on.
+        const $search = $el_window.find('.myapps-search');
+        if ( on && String($search.val() || '') !== '' ) {
+            $search.val('');
+            this.updateSearchIcons($el_window);
+            this.renderApps($el_window);
+        }
+        $search.prop('disabled', on);
+
+        $el_window.find('.myapps-reorder-btn')
+            .toggleClass('myapps-reorder-btn-active', on)
+            .attr('aria-pressed', on ? 'true' : 'false')
+            .attr('aria-label', on ? 'Done editing' : 'Edit apps')
+            .html(on ? 'Done' : REORDER_BTN_ICON);
+    },
+
     // -- Drag-to-reorder --
 
     _onTilePointerDown ($el_window, e, tileEl) {
@@ -820,11 +914,20 @@ const TabApps = {
         if ( oe.button !== undefined && oe.button !== 0 ) return;
         if ( this._drag ) return;
         if ( ! this._apps || this._apps.length < 2 ) return;
+        // A press on the uninstall badge belongs to that button, not to a
+        // drag pickup — a finger wobble while tapping × must not lift the tile.
+        if ( oe.target && oe.target.closest && oe.target.closest('.myapps-tile-remove') ) return;
         // Reordering a filtered subset is ambiguous — only reorder the full list.
         const query = String($el_window.find('.myapps-search').val() || '').trim();
         if ( query ) return;
 
         const pointerType = oe.pointerType || 'mouse';
+        // Touch reorders only inside reorder mode (the button is the way in;
+        // outside it the scroller owns touch gestures and would cancel the
+        // drag anyway — see _setReorderMode). A touch press outside the mode
+        // stays a tap (launch), swipe (page), or long-press (context menu on
+        // platforms that fire it), all handled elsewhere.
+        if ( pointerType === 'touch' && ! this._reorderMode ) return;
         const d = this._drag = {
             $el_window,
             tileEl,
@@ -837,13 +940,11 @@ const TabApps = {
             offsetX: 0,
             offsetY: 0,
             started: false,
-            readyToDrag: pointerType !== 'touch', // touch must long-press first
             ghost: null,
             edgeTimer: null,
             edgeDir: 0,
             flipping: false,
             flipClearTimer: null,
-            longPressTimer: null,
         };
 
         // Ignore events from a second pointer (e.g. a stray finger) so it can't
@@ -860,21 +961,6 @@ const TabApps = {
         document.addEventListener('pointercancel', d.onCancel);
         document.addEventListener('keydown', d.onKey);
         window.addEventListener('blur', d.onBlur);
-
-        // Touch: a long-press *arms* reordering (it doesn't grab the tile yet).
-        // Moving after that begins the drag; holding still instead lets the
-        // native long-press context menu (Uninstall) fire. A finger that moves
-        // before the long-press is a page swipe and cancels the intent (see
-        // _onDragPointerMove).
-        if ( pointerType === 'touch' ) {
-            d.longPressTimer = setTimeout(() => {
-                if ( this._drag !== d || d.started ) return;
-                d.readyToDrag = true;
-                if ( navigator.vibrate ) {
-                    try { navigator.vibrate(8); } catch ( _e ) { /* not supported */ }
-                }
-            }, DRAG_TOUCH_LONGPRESS_MS);
-        }
     },
 
     _onDragPointerMove (e) {
@@ -883,11 +969,6 @@ const TabApps = {
 
         if ( ! d.started ) {
             const dist = Math.hypot(e.clientX - d.startX, e.clientY - d.startY);
-            if ( ! d.readyToDrag ) {
-                // Touch, pre-long-press: a moving finger is a page swipe.
-                if ( dist > DRAG_TOUCH_CANCEL_DISTANCE ) this._endDrag(false);
-                return;
-            }
             if ( dist <= DRAG_START_DISTANCE ) return;
             d.lastClientX = e.clientX;
             d.lastClientY = e.clientY;
@@ -917,8 +998,9 @@ const TabApps = {
         // starting a drag on a stale node would corrupt the persisted order.
         if ( ! d.tileEl.isConnected ) { this._endDrag(false); return; }
         d.started = true;
-        clearTimeout(d.longPressTimer);
-        d.longPressTimer = null;
+        if ( d.pointerType === 'touch' && navigator.vibrate ) {
+            try { navigator.vibrate(8); } catch ( _e ) { /* not supported */ }
+        }
 
         const rect = d.tileEl.getBoundingClientRect();
         d.offsetX = d.startX - rect.left;
@@ -1089,7 +1171,6 @@ const TabApps = {
         document.removeEventListener('pointercancel', d.onCancel);
         document.removeEventListener('keydown', d.onKey);
         window.removeEventListener('blur', d.onBlur);
-        clearTimeout(d.longPressTimer);
         clearTimeout(d.edgeTimer);
         clearTimeout(d.flipClearTimer);
     },
@@ -1113,8 +1194,8 @@ const TabApps = {
             const names = d.$el_window.find('.myapps-page .myapps-tile').toArray()
                 .map(t => t.getAttribute('data-app-name'));
             const current = this._apps.map(a => a.name);
-            // Only persist when the order actually changed, so an accidental
-            // long-press or drop-in-place doesn't freeze the default ordering.
+            // Only persist when the order actually changed, so a pickup
+            // dropped back in place doesn't freeze the default ordering.
             changed = names.length !== current.length
                 || names.some((name, i) => name !== current[i]);
             if ( changed ) {
