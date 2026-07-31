@@ -18,10 +18,10 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import * as popupAuth from './popupAuth.js';
 import {
     deliversTokenToOpener,
     offersFederatedSignInInPopup,
-    trustsOpenerOriginParam,
 } from './popupAuth.js';
 
 describe('deliversTokenToOpener', () => {
@@ -68,28 +68,15 @@ describe('offersFederatedSignInInPopup', () => {
     });
 });
 
-describe('trustsOpenerOriginParam', () => {
-    it('disbelieves a link-supplied origin on a permission prompt', () => {
-        // The opener's origin is the requester's identity there: it is the name
-        // the dialog shows and the app the server writes the grant to. Taking it
-        // from the link would let any site prompt in another app's name — the
-        // same hole `app_uid` was removed from this URL to close.
-        expect(trustsOpenerOriginParam('request-permission')).toBe(false);
-    });
-
-    it('believes it for the flows the parameter exists to carry', () => {
-        // It survives an OIDC redirect, which drops the rest of the query.
-        // `undefined` is a plain sign-in popup, which carries no action.
-        for ( const action of [
-            undefined,
-            'sign-in',
-            'login',
-            'signup',
-            'show-open-file-picker',
-            'show-directory-picker',
-            'show-save-file-picker',
-        ] ) {
-            expect(trustsOpenerOriginParam(action)).toBe(true);
-        }
+describe('the retired opener_origin gate', () => {
+    it('is gone, because no action believes the raw parameter now', () => {
+        // It used to allow `opener_origin` for every action but
+        // `request-permission`. Being a denylist it fell open on `undefined` —
+        // a popup with no action, which is also the one shape that renders no
+        // consent UI — so any site could have a token minted in another app's
+        // name with a single navigation. The OIDC round trip the parameter
+        // existed for now redeems a signed proof instead; see
+        // util/popupOidcReturn.js.
+        expect(popupAuth.trustsOpenerOriginParam).toBeUndefined();
     });
 });

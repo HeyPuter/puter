@@ -59,10 +59,8 @@ import { ThemeService } from './services/ThemeService.js';
 // silently resolve to the factory — use `window.privacy_aware_path` instead.
 import { privacy_aware_path as privacy_aware_path_factory } from './util/desktop.js';
 import { resolveAPIOrigin } from './util/apiOrigin.js';
-import {
-    deliversTokenToOpener,
-    trustsOpenerOriginParam,
-} from './util/popupAuth.js';
+import { deliversTokenToOpener } from './util/popupAuth.js';
+import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
 
 const postAuthActions = async (action) => {
     // Set when a popup's user-app token exchange fails. The exchange is what
@@ -189,9 +187,64 @@ const postAuthActions = async (action) => {
         let isolated = window.url_query_params.get("cross_origin_isolated") === 'true'
             && deliversTokenToOpener(action);
         let session = window.url_query_params.get('signin_session');
+
+        // Signing the opener in is something the user has to have asked for.
+        // The gates upstream record that decision — picking an account,
+        // finishing signup, or already holding a token for this opener — and
+        // a first visit that mints a throwaway temp user has no existing
+        // account to hand over. Without this check the hand-off below runs
+        // unconditionally, so a popup that showed the user nothing still
+        // ended in a token: dismissing the account picker skipped only the
+        // early exchange, not the delivery.
+        //
+        // Scoped to the popups whose whole purpose is signing in. The
+        // file-picker actions also reach the hand-off, but they answer for
+        // themselves — they have their own dialogs and never show an account
+        // picker, so requiring one here would just break them.
+        const is_signin_popup = !action || action === 'sign-in';
+        const consented =
+            window.popup_signin_consent ||
+            (window.attempt_temp_user_creation && window.first_visit_ever);
+        if (is_signin_popup && !consented) {
+            console.error(
+                'popup sign-in was not consented to; not delivering a token',
+            );
+            if (isolated) {
+                window.close();
+                window.open('', '_self').close();
+                return;
+            }
+            window.opener?.postMessage({
+                msg: 'puter.token',
+                success: false,
+                token: null,
+                msg_id: msg_id,
+            }, window.openerOrigin);
+            window.close();
+            window.open('', '_self').close();
+            return;
+        }
+
         if (isolated) {
             try {
                 const data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
+                // Same two failure modes the postMessage path below guards
+                // against: `getUserAppToken` reports a network failure by
+                // returning null, and an HTTP failure (a blocked origin, an
+                // unparseable origin, a 5xx) by returning the parsed *error*
+                // body — truthy, but carrying no token. Without this check the
+                // missing token is handed to `/login/set`, which rejects it as
+                // a 400, and every distinct cause — including the ones that
+                // only occur on a deployment with a populated origin blocklist
+                // — collapses into the same unattributable alert below.
+                if ( ! data?.token ) {
+                    const detail = data?.code
+                        ? `${data.code}: ${data.message ?? ''}`
+                        : 'no response';
+                    throw new Error(
+                        `user-app token exchange returned no token (${detail})`,
+                    );
+                }
                 const resp = await fetch(`${window.api_origin}/login/set`, {
                     method: 'POST',
                     headers: {
@@ -1088,19 +1141,26 @@ window.initgui = async function (options) {
     if (window.embedded_in_popup) {
         $('body').addClass('embedded-in-popup');
 
-        // determine the origin of the opener (preserved across OIDC redirect via URL param, else referrer or messaging)
-        // A permission prompt is the exception: there the opener's origin names
-        // the requester on the dialog and picks the app the grant is written to,
-        // so it may only come from a source the browser vouches for. See
-        // util/popupAuth.js.
-        const openerOriginFromUrl = trustsOpenerOriginParam(action)
-            ? window.url_query_params.get('opener_origin')
-            : null;
-        if (openerOriginFromUrl) {
-            window.openerOrigin = openerOriginFromUrl;
-        } else {
-            window.openerOrigin = document.referrer;
-        }
+        // Determine the origin of the opener. This is the one assignment that
+        // matters: the token exchange, `checkUserSiteRelationship`,
+        // `getAppUIDFromOrigin` and both `postMessage` targets all read
+        // `window.openerOrigin`, so every one of them is only as trustworthy
+        // as this line.
+        //
+        // An OIDC redirect drops `document.referrer` — it returns the popup
+        // with the *provider* as referrer — so the opener's origin has to
+        // survive the hop. It does, inside the signed `state`, but the backend
+        // used to flatten it into a bare `opener_origin` parameter: a URL
+        // built from a verified state is byte-identical to one anybody can
+        // type, and the popup believed both. Now the return leg carries a
+        // signed proof, redeemed here for the value the server actually
+        // attested. Everything else falls back to browser-attested sources.
+        window.oidcPopupReturn = await verifyOidcPopupReturn(
+            window.url_query_params.get('opener_state'),
+            window.url_query_params.get('msg_id'),
+        );
+        window.openerOrigin =
+            window.oidcPopupReturn?.opener_origin || document.referrer;
         if (!window.openerOrigin) {
             try {
                 window.openerOrigin = await requestOpenerOrigin();
@@ -1158,10 +1218,19 @@ window.initgui = async function (options) {
                     },
                 })
             ) {
+                // Completing signup in a sign-in popup is the user asking to
+                // be signed in to the opener.
+                window.popup_signin_consent = true;
                 await window.getUserAppToken(window.openerOrigin);
             }
         } else if (
-            action === 'sign-in' &&
+            // An action-less popup is a sign-in popup — `postAuthActions`
+            // already treats it as one when it decides to close the window,
+            // and it ends in the same token hand-off. It has to reach the
+            // same account picker too: leaving it out meant the one popup
+            // shape that shows the user nothing was also the one that minted
+            // a token for the opener without being asked.
+            (action === 'sign-in' || !action) &&
             window.is_auth() &&
             !(window.attempt_temp_user_creation && window.first_visit_ever)
         ) {
@@ -1180,8 +1249,13 @@ window.initgui = async function (options) {
                 console.error("error in 'sign-in' flow", e);
             }
 
-            if (window.url_query_params.get('oidc_login') === 'true') {
-                // OIDC login just completed in popup — skip session list and finish the flow
+            // An OIDC login that just completed may skip the account picker —
+            // the user chose their account at the provider moments ago. That
+            // comes from the same signed proof as the opener's origin, rather
+            // than the `oidc_login` query parameter it used to be read from:
+            // as a bare parameter anyone could write it, and it suppresses the
+            // one prompt standing between a link and a token.
+            if (window.oidcPopupReturn?.oidc_login) {
                 picked_a_user_for_sdk_login = true;
                 await window.getUserAppToken(window.openerOrigin);
             } else {
@@ -1197,6 +1271,12 @@ window.initgui = async function (options) {
                     await window.getUserAppToken(window.openerOrigin);
                 }
             }
+            // Picking an account here *is* the consent to sign the opener in.
+            // `postAuthActions` runs later and unconditionally, so it needs to
+            // know whether that decision was ever made — dismissing the picker
+            // has to mean the opener gets nothing, not just that the early
+            // token exchange was skipped.
+            window.popup_signin_consent = !!picked_a_user_for_sdk_login;
         }
     }
 
@@ -1341,6 +1421,18 @@ window.initgui = async function (options) {
                 has_head: false,
                 cover_page: true,
             });
+            if (picked_a_user_for_sdk_login) {
+                window.popup_signin_consent = true;
+            }
+        }
+
+        // An opener the user has already signed in to before does not need to
+        // be re-approved on every visit — that grant is what
+        // `checkUserSiteRelationship` reports. This is also what keeps the
+        // file-picker and permission popups, which never show an account
+        // picker, from being blocked by the gate in `postAuthActions`.
+        if (window.userAppToken) {
+            window.popup_signin_consent = true;
         }
     }
     // -------------------------------------------------------------------------------------
@@ -2048,6 +2140,13 @@ window.initgui = async function (options) {
     // `login` event handler
     // --------------------------------------------------------------------------------------
     $(document).on('login', async (e) => {
+        // Reaching this in a popup means the user just entered credentials in
+        // a window the opener asked for — that is the consent `postAuthActions`
+        // looks for. The account-picker gate upstream never runs on this path:
+        // it only applies to a popup that was already signed in at boot.
+        if (window.embedded_in_popup) {
+            window.popup_signin_consent = true;
+        }
         // close all windows
         $('.window').close();
 

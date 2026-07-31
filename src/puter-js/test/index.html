@@ -13,6 +13,7 @@
     <script src="./apps.test.js"></script>
     <script src="./os.test.js"></script>
     <script src="./perms.test.js"></script>
+    <script src="./signin.test.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -746,6 +747,7 @@
             { key: 'apps', label: 'Apps', tests: window.appsTests || [] },
             { key: 'os', label: 'OS', tests: window.osTests || [] },
             { key: 'perms', label: 'Permissions', tests: window.permsTests || [] },
+            { key: 'signin', label: 'Cross-Origin Sign-In', tests: window.signinTests || [] },
         ];
         window.extraGroups = extraGroups;
 

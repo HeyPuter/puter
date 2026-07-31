@@ -133,6 +133,31 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
+
+        // Browser-only gate, same rule as `handleMigrateToken` below. The
+        // session id is client-chosen and travels in a link, so it is not a
+        // secret — the `Origin` header is what actually says who is asking,
+        // and only a browser is prevented from lying about it. A caller with
+        // no `Origin` (curl, a server-side fetch) could otherwise collect a
+        // token minted for someone else's app just by knowing the id.
+        //
+        // `"null"` is rejected too: sandboxed iframes and `file://` documents
+        // serialise their opaque origin that way, and two *unrelated* opaque
+        // origins would compare equal to each other.
+        const reqOrigin = req.headers.origin;
+        if (!reqOrigin || reqOrigin === 'null') {
+            throw new HttpError(403, 'Origin not allowed', {
+                legacyCode: 'forbidden',
+            });
+        }
+
+        // The app identity this caller is allowed to collect a token for,
+        // derived from the browser-attested header rather than anything in
+        // the request body — so no client, honest or not, can influence the
+        // comparison made after the token arrives.
+        const expectedAppUid =
+            await this.services.auth.appUidFromOrigin(reqOrigin);
+
         const { resolve, promise } = Promise.withResolvers<void>();
 
         let token: string | null = null;
@@ -153,12 +178,56 @@ export class AuthController extends PuterController {
             });
         }
 
+        // Audience check. The postMessage hand-off this relay stands in for
+        // is origin-bound for free — it posts with `targetOrigin`, so a page
+        // can only ever receive a token minted for *itself*. Delivering
+        // server-side dropped that binding; this restores it. Without it a
+        // popup talked into minting for app X (see `trustsOpenerOriginParam`
+        // in the GUI) hands X's token to whoever holds the session id.
+        if (!this.#tokenIsForApp(token, expectedAppUid)) {
+            // Deliberately the same 408 the no-token path returns: a caller
+            // learns only that nothing arrived for them, not that a token
+            // for a different app went past.
+            throw new HttpError(408, 'Request timeout.', {
+                legacyCode: 'request_timeout',
+            });
+        }
+
         res.json({
             auth_token: token,
         });
     }
+
+    /**
+     * Whether a relayed token is an app-under-user token minted for
+     * `expectedAppUid`. Verifies the signature — an unverified decode would let
+     * a caller relay a token whose claims it wrote itself.
+     */
+    #tokenIsForApp(token: string, expectedAppUid: string): boolean {
+        try {
+            const payload = this.services.token.verify<{
+                type?: string;
+                app_uid?: string;
+            }>('auth', token);
+            return (
+                payload.type === 'app-under-user' &&
+                !!payload.app_uid &&
+                payload.app_uid === expectedAppUid
+            );
+        } catch {
+            // Malformed, expired, or signed with a key we don't hold.
+            return false;
+        }
+    }
     @Post('/login/set', {
         subdomain: ['api'],
+        // Unauthenticated fan-out to every `/login/wait` listener on the
+        // session id. A legitimate popup posts here exactly once per sign-in,
+        // so a generous per-IP cap costs honest traffic nothing while denying
+        // an attacker unbounded attempts to land a token on a guessed id.
+        rateLimit: [
+            { scope: 'login-set', limit: 60, window: 15 * 60_000, key: 'ip' },
+        ],
     })
     async loginSet(req: Request, res: Response) {
         const { session, auth_token } = req.body;

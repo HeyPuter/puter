@@ -1859,16 +1859,52 @@ class UI extends EventListener {
         puter.puterAuthState.isPromptOpen = true;
         puter.puterAuthState.authGranted = null;
 
-        return new Promise((resolve, reject) => {
-            if ( ! puter.authToken ) {
-                const puterDialog = new PuterDialog(resolve, reject);
-                document.body.appendChild(puterDialog);
-                puterDialog.open();
-            } else {
-                // If authToken is already present, resolve immediately
-                resolve();
+        // Hand off to `signIn()` rather than opening a second sign-in popup of
+        // our own. It is the same flow with the parts this one never grew:
+        // it opens the popup directly when a user gesture is available (and
+        // falls back to the consent dialog to obtain one when not), notices the
+        // user closing the popup, and — on a cross-origin-isolated page, where
+        // COOP severs `window.opener` so no `puter.token` message can ever come
+        // back — collects the token from the `/login/set` → `/login/wait` relay
+        // instead. Without that last part implicit auth could not complete at
+        // all on an isolated page: every `puter.ai.chat()` / `puter.fs.*` call
+        // opened a popup that had no way to return anything, while an explicit
+        // `puter.auth.signIn()` worked.
+        //
+        // `signIn` adopts the token itself, so all that is left here is
+        // settling the shared prompt state and anything queued behind it.
+        const settle = (granted) => {
+            puter.puterAuthState.authGranted = granted;
+            puter.puterAuthState.isPromptOpen = false;
+            const resolver = puter.puterAuthState.resolver;
+            puter.puterAuthState.resolver = null;
+            if ( resolver ) {
+                if ( granted ) {
+                    resolver.resolve();
+                } else {
+                    resolver.reject();
+                }
             }
-        });
+        };
+
+        // `request_auth` keeps the one behaviour the popup this replaced had
+        // that a plain `signIn()` does not: with more than one account signed
+        // in, the user gets to re-pick even if this site already holds a token
+        // for them.
+        return puter.auth.signIn({ request_auth: true }).then(
+            () => {
+                settle(true);
+                if ( puter.onAuth && typeof puter.onAuth === 'function' ) {
+                    puter.getUser().then((user) => {
+                        puter.onAuth(user);
+                    });
+                }
+            },
+            (err) => {
+                settle(false);
+                throw err;
+            },
+        );
     };
 
     /**

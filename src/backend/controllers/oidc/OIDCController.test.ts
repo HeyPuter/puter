@@ -27,6 +27,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { runWithContext } from '../../core/context.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
@@ -1592,5 +1593,100 @@ describe('OIDCController GET /auth/revalidate-done', () => {
         expect(body).toContain('puter-revalidate-done');
         // The configured origin is JSON-stringified into the inline script.
         expect(body).toContain(JSON.stringify(TEST_ORIGIN));
+    });
+});
+
+// ── POST /auth/oidc/verify-popup-return ─────────────────────────────
+
+/**
+ * The proof exists because the popup return leg states two things the popup
+ * cannot check — the opener's origin and that a login completed — and a URL
+ * built from a verified `state` is byte-identical to one anybody can type.
+ * The opener's origin picks the app a token is minted for, so it has to be
+ * attested rather than read.
+ */
+describe('OIDCController POST /auth/oidc/verify-popup-return', () => {
+    const redeem = async (opener_state: unknown) => {
+        const { res, captured } = makeRes();
+        await callRoute(
+            'post',
+            '/auth/oidc/verify-popup-return',
+            makeReq({ body: { opener_state } }),
+            res,
+        );
+        return captured;
+    };
+
+    it('hands back what a genuine proof attests', async () => {
+        const proof = server.services.oidc.signPopupReturn({
+            opener_origin: 'https://opener.test',
+            msg_id: '77',
+            oidc_login: true,
+        });
+        const captured = await redeem(proof);
+        expect(captured.body).toEqual({
+            opener_origin: 'https://opener.test',
+            msg_id: '77',
+            oidc_login: true,
+        });
+    });
+
+    it('rejects a proof signed with someone else’s key', async () => {
+        // The whole point: only the server can mint one of these.
+        const forged = jwt.sign(
+            { opener_origin: 'https://console.puter.com', oidc_login: true },
+            'not-the-server-secret',
+            { keyid: 'v2' },
+        );
+        await expect(
+            callRoute(
+                'post',
+                '/auth/oidc/verify-popup-return',
+                makeReq({ body: { opener_state: forged } }),
+                makeRes().res,
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects an expired proof', async () => {
+        // Comfortably past `TokenService`'s 30s clock tolerance — the proof is
+        // redeemed on the very next request, so a stale one is never genuine.
+        const stale = server.services.token.sign(
+            'oidc-state',
+            { opener_origin: 'https://opener.test', oidc_login: true },
+            { expiresIn: -600 },
+        );
+        await expect(
+            callRoute(
+                'post',
+                '/auth/oidc/verify-popup-return',
+                makeReq({ body: { opener_state: stale } }),
+                makeRes().res,
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects a missing or non-string proof', async () => {
+        for (const bad of [undefined, null, '', 42, {}]) {
+            await expect(
+                callRoute(
+                    'post',
+                    '/auth/oidc/verify-popup-return',
+                    makeReq({ body: { opener_state: bad } }),
+                    makeRes().res,
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+    });
+
+    it('reports oidc_login false when the proof does not claim a login', async () => {
+        // The error leg mints one of these: a real return, but nothing was
+        // signed in on it, so it must not suppress the account picker.
+        const proof = server.services.oidc.signPopupReturn({
+            opener_origin: 'https://opener.test',
+            msg_id: '77',
+            oidc_login: false,
+        });
+        expect((await redeem(proof)).body).toMatchObject({ oidc_login: false });
     });
 });
