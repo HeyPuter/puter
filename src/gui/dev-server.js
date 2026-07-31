@@ -86,7 +86,11 @@ const startServer = (attempt, useAnyFreePort = false) => {
         useAnyFreePort = true; // Use any port that is free
     }
 
-    const server = app.listen(useAnyFreePort ? 0 : port, () => {
+    // Express 5 invokes the listen callback on 'error' as well, with the
+    // error as its first argument — in that case server.address() is null,
+    // so bail and let the 'error' listener below own the retry.
+    const server = app.listen(useAnyFreePort ? 0 : port, (err) => {
+        if ( err ) return;
         console.log('\n-----------------------------------------------------------\n');
         console.log('Puter is now live at: ', chalk.underline.blue(`http://localhost:${server.address().port}`));
         console.log('Backend (API) origin: ', chalk.underline.blue(apiOrigin));
