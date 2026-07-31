@@ -27,12 +27,7 @@ import type { Actor } from '../actor';
  * it instead of accepting any token that authenticates.
  */
 export type TokenSource =
-    | 'body'
-    | 'header'
-    | 'x-api-key'
-    | 'cookie'
-    | 'query'
-    | 'handshake';
+    'body' | 'header' | 'x-api-key' | 'cookie' | 'query' | 'handshake';
 
 /**
  * Every route method PuterRouter exposes. Mirrors the express router surface
@@ -247,6 +242,17 @@ export interface RouteOptions {
      * token is consumed on use. Requires authentication (keyed by user uuid).
      */
     antiCsrf?: boolean;
+
+    /**
+     * Restrict the route to pages on this deployment's own GUI origin
+     * (`config.origin`, plus any `config.allow_gui_origins`). Requests with no
+     * `Origin` header still pass — the gate stops cross-origin browser pages,
+     * not non-browser clients.
+     *
+     * For routes that return a session credential to the caller. See
+     * `guiOriginGate` for why reflected-CORS makes this necessary.
+     */
+    guiOriginOnly?: boolean;
 
     /**
      * Per-route rate limiting. In-memory sliding window keyed by request

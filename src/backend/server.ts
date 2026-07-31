@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -47,6 +48,7 @@ import {
     requireVerifiedGate,
     subdomainGate,
 } from './core/http/middleware/gates';
+import { guiOriginGate } from './core/http/middleware/originGate';
 import { createStepUpGate } from './core/http/middleware/stepUpSession';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
 import {
@@ -331,10 +333,10 @@ export class PuterServer {
     /**
      * Register every rate-limit backend whose dependency is available, so
      * routes / drivers can mix and match per call. `config.rate_limit.backend`
-     * selects the *default* applied when a caller doesn't specify a
-     * backend; it's no longer an exclusive choice. A typo or missing
-     * dependency for the chosen default falls back to memory with a
-     * warning so boot doesn't break.
+     * selects the _default_ applied when a caller doesn't specify a backend;
+     * it's no longer an exclusive choice. A typo or missing dependency for the
+     * chosen default falls back to memory with a warning so boot doesn't
+     * break.
      */
     #configureRateLimiter() {
         // Default to `redis` — the redis client is always present (falls
@@ -367,14 +369,15 @@ export class PuterServer {
     }
 
     /**
-     * Install always-on middleware on the express app, in the order they
-     * must run at request time. Ordering note:
-     *   - `express.json` must run before `authProbe` so `req.body.auth_token`
-     *     is readable.
-     *   - `authProbe` never rejects; it only populates `req.actor` if a valid
-     *     token is present.
-     *   - Per-route gate middleware (requireAuth, adminOnly, ...) lands in
-     *     `#materializeRoute` as those options ship.
+     * Install always-on middleware on the express app, in the order they must
+     * run at request time. Ordering note:
+     *
+     * - `express.json` must run before `authProbe` so `req.body.auth_token` is
+     *   readable.
+     * - `authProbe` never rejects; it only populates `req.actor` if a valid token
+     *   is present.
+     * - Per-route gate middleware (requireAuth, adminOnly, ...) lands in
+     *   `#materializeRoute` as those options ship.
      */
     #installGlobalMiddleware() {
         this.#app.use(cookieParser());
@@ -703,12 +706,13 @@ export class PuterServer {
 
     /**
      * Install end-of-pipeline middleware. Order matters:
-     *   1. The 404 catch-all runs only when no earlier route matched, so it
-     *      must be installed *after* every controller + extension route.
-     *   2. The error handler is the express terminal — it catches everything
-     *      thrown by routes, gates, and the 404 above. Express 5 auto-forwards
-     *      thrown errors (sync and async), so handlers can `throw new HttpError(...)`
-     *      without `next(err)` ceremony.
+     *
+     * 1. The 404 catch-all runs only when no earlier route matched, so it must be
+     *    installed _after_ every controller + extension route.
+     * 2. The error handler is the express terminal — it catches everything thrown
+     *    by routes, gates, and the 404 above. Express 5 auto-forwards thrown
+     *    errors (sync and async), so handlers can `throw new HttpError(...)`
+     *    without `next(err)` ceremony.
      */
     #installTerminalMiddleware() {
         this.#app.use(
@@ -777,11 +781,11 @@ export class PuterServer {
     }
 
     /**
-     * Walk a controller's declared routes (via `PuterRouter`) and register
-     * each one against the underlying express app. Per-route option → middleware
-     * translation lives here — when we add auth/subdomain/body-parsing
-     * options, they get wired in at this single point without touching any
-     * controller call site.
+     * Walk a controller's declared routes (via `PuterRouter`) and register each
+     * one against the underlying express app. Per-route option → middleware
+     * translation lives here — when we add auth/subdomain/body-parsing options,
+     * they get wired in at this single point without touching any controller
+     * call site.
      */
     #registerControllerRoutes(
         controllerName: string,
@@ -840,6 +844,15 @@ export class PuterServer {
                 }
                 next();
             });
+        }
+
+        // 1b. Origin gate. Runs before auth, rate limiting, and captcha so an
+        // off-origin caller is rejected on the header alone — it never reaches
+        // the credential comparison, and it can't burn another request's rate
+        // limit budget on the way. Unauthenticated by nature: the routes that
+        // opt in are the ones that *hand out* a credential.
+        if (opts.guiOriginOnly) {
+            mwChain.push(guiOriginGate(this.#config));
         }
 
         // 2. Auth gates. Implication graph:
@@ -1318,8 +1331,8 @@ export class PuterServer {
     #prepareShutdownHooksRan = false;
 
     /**
-     * Run every layer's `onServerPrepareShutdown` exactly once, whichever
-     * of `prepareShutdown()` / `shutdown()` gets there first.
+     * Run every layer's `onServerPrepareShutdown` exactly once, whichever of
+     * `prepareShutdown()` / `shutdown()` gets there first.
      */
     async #runPrepareShutdownHooks() {
         if (this.#prepareShutdownHooksRan) return;
