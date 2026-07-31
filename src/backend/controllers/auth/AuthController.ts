@@ -251,6 +251,11 @@ export class AuthController extends PuterController {
     // -- Login -------------------------------------------------------
 
     @Post('/login', {
+        // Returns a full session token in the response body. Reflected CORS
+        // would otherwise let any page trade a password for that token and
+        // read it — third-party sign-in goes through `puter.auth.signIn()`,
+        // whose popup runs on this origin and yields an app-scoped token.
+        guiOriginOnly: true,
         captcha: true,
         // Two limits: per-fingerprint keeps users behind a shared IP
         // (offices, campuses) from throttling each other, while the
@@ -367,6 +372,8 @@ export class AuthController extends PuterController {
     // -- Login: OTP verification -------------------------------------
 
     @Post('/login/otp', {
+        // Second leg of `/login` — also completes into `#completeLogin`.
+        guiOriginOnly: true,
         captcha: true,
         rateLimit: [
             { scope: 'login-otp', limit: 15, window: 30 * 60_000 },
@@ -431,6 +438,8 @@ export class AuthController extends PuterController {
     // -- Login: recovery code ----------------------------------------
 
     @Post('/login/recovery-code', {
+        // Second leg of `/login` — also completes into `#completeLogin`.
+        guiOriginOnly: true,
         captcha: true,
         rateLimit: [
             { scope: 'login-recovery', limit: 10, window: 60 * 60_000 },
@@ -508,6 +517,9 @@ export class AuthController extends PuterController {
     // -- Signup ------------------------------------------------------
 
     @Post('/signup', {
+        // Completes into `#completeLogin`, so it hands back a session token
+        // exactly like `/login`. Same reasoning.
+        guiOriginOnly: true,
         captcha: true,
         rateLimit: [
             { scope: 'signup', limit: 10, window: 15 * 60_000 },
@@ -993,8 +1005,7 @@ export class AuthController extends PuterController {
                     is_temp: user!.password === null && user!.email === null,
                     ip:
                         (req?.headers?.['x-forwarded-for'] as
-                            | string
-                            | undefined) ||
+                            string | undefined) ||
                         (
                             req as unknown as {
                                 connection?: { remoteAddress?: string };
@@ -3791,6 +3802,11 @@ export class AuthController extends PuterController {
     }
 
     @Get('/session/sync-cookie', {
+        // Installs the session cookie. Only page script on our own origin
+        // should be able to ask for that (the `tokenSource` check below is the
+        // companion rule: the token has to come from an Authorization header,
+        // not a URL).
+        guiOriginOnly: true,
         requireUserActor: true,
         allowUnconfirmed: true,
     })

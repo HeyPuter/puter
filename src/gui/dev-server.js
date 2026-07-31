@@ -24,6 +24,8 @@ import dotenv from 'dotenv';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import open from 'open';
+import { authmeRequestUrl } from './src/util/authmeGrant.js';
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -62,9 +64,17 @@ const bundled = env === 'prod';
 
 // Bare domains follow the production convention of the API living at
 // `api.<domain>`; a full origin (or an `api.` host) is used verbatim.
-// guiOrigin is the remote server's own GUI origin — login, signup,
-// anti-csrf, socket.io, and builtin apps are all served there, so the
-// local GUI must point `gui_origin` at it (the backend is CORS-open).
+// guiOrigin is the remote server's own GUI origin — whoarewe, anti-csrf,
+// socket.io, and builtin apps are all served there and are CORS-open, so
+// the local GUI must point `gui_origin` at it.
+//
+// Signing in is the exception. `/login` and `/signup` answer with a full
+// session token, so they only accept their own origin (`guiOriginGate` on
+// the backend) — otherwise any page anywhere could trade a password for a
+// session and read it straight out of the response. Instead the GUI bounces
+// to `<guiOrigin>/?action=authme&token_type=session&redirectURL=<here>` and
+// comes back with a token in the URL: the password is only ever typed on the
+// remote's own origin, and the grant needs a type-to-confirm.
 const { apiOrigin, guiOrigin, appDomain } = (() => {
     const value = server ?? 'puter.com';
     const url = new URL(value.includes('://') ? value : `https://${value}`);
@@ -91,10 +101,28 @@ const startServer = (attempt, useAnyFreePort = false) => {
     // so bail and let the 'error' listener below own the retry.
     const server = app.listen(useAnyFreePort ? 0 : port, (err) => {
         if ( err ) return;
-        console.log('\n-----------------------------------------------------------\n');
-        console.log('Puter is now live at: ', chalk.underline.blue(`http://localhost:${server.address().port}`));
-        console.log('Backend (API) origin: ', chalk.underline.blue(apiOrigin));
-        console.log('\n-----------------------------------------------------------\n');
+        const guiUrl = `http://localhost:${server.address().port}`;
+        // Same builder the GUI navigates to when it finds no session, so the
+        // printed link and the automatic redirect can never disagree.
+        const signInUrl = authmeRequestUrl(guiOrigin, `${guiUrl}/`, {
+            fullToken: true,
+        }).href;
+
+        const label = (s) => chalk.dim(s.padEnd(14));
+        console.log(`\n${chalk.bold('  Puter')} ${chalk.dim('(GUI only — backend is remote)')}\n`);
+        console.log(`  ${label('GUI')}${chalk.underline.blue(guiUrl)}`);
+        console.log(`  ${label('API')}${chalk.underline.blue(apiOrigin)}`);
+        console.log(`  ${label('Accounts')}${chalk.underline.blue(guiOrigin)}`);
+        console.log(`\n  ${label('Sign in')}${chalk.underline.cyan(signInUrl)}`);
+        console.log(chalk.dim(`\n  Opening ${guiUrl} sends you there automatically when you have no\n  session. Signing in grants this local GUI a full account session, so\n  ${guiOrigin} asks you to confirm before handing it over.\n`));
+
+        if ( process.env.PUTER_NO_BROWSER ) return;
+        // Open the GUI rather than the sign-in link directly: it's idempotent.
+        // An already-signed-in GUI loads straight to the desktop instead of
+        // re-prompting for consent on every restart.
+        open(guiUrl).catch((e) => {
+            console.log(chalk.dim(`  (could not open a browser: ${e.message})`));
+        });
     }).on('error', (err) => {
         if ( err.code === 'EADDRINUSE' ) { // Check if the error is because the port is already in use
             console.error(chalk.red(`ERROR: Port ${port} is already in use. Trying next port...`));
