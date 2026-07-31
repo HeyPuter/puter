@@ -33,6 +33,8 @@ const APP_NAMES_NO_UNINSTALL = new Set([
 
 // -- Drag-to-reorder tuning --
 const DRAG_START_DISTANCE = 5;      // px a pointer must travel before a drag begins
+const MODE_LONGPRESS_MS = 500;      // hold on empty grid space before reorder mode engages
+const MODE_LONGPRESS_CANCEL_DISTANCE = 10; // px of travel that reclassifies the hold as a swipe
 const DRAG_EDGE_ZONE = 60;          // px from a scroller edge that arms a page flip
 const DRAG_EDGE_DWELL_MS = 480;     // hold time at an edge before the page flips
 const DRAG_FLIP_SETTLE_MS = 440;    // time to let a page flip's smooth-scroll settle
@@ -339,6 +341,8 @@ const TabApps = {
     _hasCustomOrder: false,
     _drag: null,
     _reorderMode: false,
+    _emptyPress: null,
+    _suppressEmptyTap: false,
     _justDragged: false,
     _reduceMotionMQL: undefined,
     _loadPromise: null,
@@ -369,15 +373,42 @@ const TabApps = {
 
     init ($el_window) {
         // This object outlives a closed dashboard window; a re-init gets a
-        // fresh DOM that is not in reorder mode, whatever the old one was.
+        // fresh DOM that is not in reorder mode, whatever the old one was —
+        // and a pending empty-space press holds document-level listeners
+        // that must not survive the old DOM.
         this._reorderMode = false;
+        this._cancelEmptyPress();
 
         this.loadApps($el_window);
 
         const self = this;
 
-        $el_window.on('click', '.myapps-reorder-btn', function () {
+        $el_window.on('click', '.myapps-reorder-btn', function (e) {
+            // Don't bubble on to the empty-tap handler below: toggling the
+            // mode replaces this button's content, and if the tap landed on
+            // the cog svg the detached target no longer matches the
+            // handler's ancestry checks — the tap would read as empty space
+            // and undo the toggle it just made.
+            e.stopPropagation();
             self._setReorderMode($el_window, ! self._reorderMode);
+        });
+
+        // Tapping empty grid space while the mode is on acts as Done,
+        // iOS-style. Interactive pieces are excluded: they handle themselves.
+        // _suppressEmptyTap covers the clicks a drag-drop or a long-press
+        // lift synthesizes on empty space.
+        $el_window.on('click', '.myapps-tab', function (e) {
+            if ( ! self._reorderMode || self._suppressEmptyTap ) return;
+            // A detached target means some handler already reshaped the DOM
+            // under this click — whatever it was, it wasn't empty space.
+            if ( ! e.target.isConnected ) return;
+            if ( $(e.target).closest('.myapps-tile, .myapps-tile-remove, .myapps-reorder-btn, .myapps-pager-dot, .myapps-pager-arrow').length ) return;
+            self._setReorderMode($el_window, false);
+        });
+
+        // …and pressing-and-holding empty grid space enters the mode.
+        $el_window.on('pointerdown', '.myapps-tab', function (e) {
+            self._onEmptyPointerDown($el_window, e);
         });
 
         // Reorder mode's per-tile uninstall badge — the context-menu route to
@@ -869,9 +900,11 @@ const TabApps = {
     // owns (hence the flaky pre-mode behavior, worst on iOS). An explicit
     // mode can: while it's on, CSS sets touch-action:none on the tiles, the
     // first pointer movement begins a drag, taps don't launch, and the
-    // context menu is suppressed. Each drop still persists immediately via
-    // saveOrder (same as desktop), so the Done button only exits the mode —
-    // there is no unsaved state to lose.
+    // context menu is suppressed. Entry is the cog button or a long-press on
+    // empty grid space; exit is Done or a tap on empty space (all iOS
+    // home-screen conventions). Each drop still persists immediately via
+    // saveOrder (same as desktop), so exiting only leaves the mode — there
+    // is no unsaved state to lose.
     _setReorderMode ($el_window, on) {
         on = !! on;
         if ( this._reorderMode === on ) return;
@@ -903,6 +936,74 @@ const TabApps = {
             .attr('aria-pressed', on ? 'true' : 'false')
             .attr('aria-label', on ? 'Done editing' : 'Edit apps')
             .html(on ? 'Done' : REORDER_BTN_ICON);
+    },
+
+    // A drag's drop and a long-press's lift both synthesize a click that can
+    // land on empty grid space; without this window the empty-tap-is-Done
+    // handler would read them as an exit request.
+    _suppressEmptyTapBriefly () {
+        this._suppressEmptyTap = true;
+        clearTimeout(this._suppressEmptyTapTimer);
+        this._suppressEmptyTapTimer = setTimeout(() => {
+            this._suppressEmptyTap = false;
+        }, 350);
+    },
+
+    // Long-press on empty grid space (touch) enters reorder mode. Unlike the
+    // abandoned long-press-to-drag, nothing here races the scroller or the
+    // native callout — the finger only has to hold still, so a plain timer
+    // is dependable. Movement (a swipe / page pan) or an early lift cancels
+    // the intent; after the mode engages, the same press keeps its listeners
+    // just long enough to suppress the click its lift synthesizes.
+    _onEmptyPointerDown ($el_window, e) {
+        const oe = e.originalEvent || e;
+        if ( this._reorderMode || this._drag || this._emptyPress ) return;
+        if ( (oe.pointerType || 'mouse') !== 'touch' ) return;
+        // Match the cog button's audience (a mode with no visible toggle
+        // would confuse hover-capable touchscreen laptops).
+        if ( ! isTouchPrimaryDevice() ) return;
+        if ( ! this._apps || this._apps.length < 2 ) return;
+        if ( $(oe.target).closest('.myapps-tile, .myapps-reorder-btn, .myapps-pager-dot, .myapps-pager-arrow, .myapps-search-inner, .myapps-modal-overlay').length ) return;
+
+        const p = this._emptyPress = {
+            pointerId: oe.pointerId,
+            startX: oe.clientX,
+            startY: oe.clientY,
+            timer: null,
+            fired: false,
+        };
+        const isPressPointer = ev => ev.pointerId === undefined || ev.pointerId === p.pointerId;
+        p.onMove = ev => {
+            if ( ! isPressPointer(ev) || p.fired ) return;
+            const dist = Math.hypot(ev.clientX - p.startX, ev.clientY - p.startY);
+            if ( dist > MODE_LONGPRESS_CANCEL_DISTANCE ) this._cancelEmptyPress();
+        };
+        p.onEnd = ev => {
+            if ( ! isPressPointer(ev) ) return;
+            if ( p.fired ) this._suppressEmptyTapBriefly();
+            this._cancelEmptyPress();
+        };
+        document.addEventListener('pointermove', p.onMove, { passive: true });
+        document.addEventListener('pointerup', p.onEnd);
+        document.addEventListener('pointercancel', p.onEnd);
+        p.timer = setTimeout(() => {
+            if ( this._emptyPress !== p ) return;
+            p.fired = true;
+            this._setReorderMode($el_window, true);
+            if ( navigator.vibrate ) {
+                try { navigator.vibrate(8); } catch ( _e ) { /* not supported */ }
+            }
+        }, MODE_LONGPRESS_MS);
+    },
+
+    _cancelEmptyPress () {
+        const p = this._emptyPress;
+        if ( ! p ) return;
+        this._emptyPress = null;
+        clearTimeout(p.timer);
+        document.removeEventListener('pointermove', p.onMove);
+        document.removeEventListener('pointerup', p.onEnd);
+        document.removeEventListener('pointercancel', p.onEnd);
     },
 
     // -- Drag-to-reorder --
@@ -1188,6 +1289,10 @@ const TabApps = {
         }
 
         d.tileEl.classList.remove('myapps-tile-dragging');
+
+        // The click this drop synthesizes may land on empty grid space (the
+        // drop spot) — it is the tail of the drag, not an exit-the-mode tap.
+        this._suppressEmptyTapBriefly();
 
         let changed = false;
         if ( commit ) {
