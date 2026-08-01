@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -20,12 +20,11 @@
 /**
  * DELIMITER-aware splitter for MySQL dump / migration files.
  *
- * Splits `sql` into individual statements using the active statement
- * delimiter (default `;`). Recognises `DELIMITER X` lines, single-quoted
- * strings, double-quoted strings, backtick-quoted identifiers, line
- * comments (`-- `, `#`) and block comments (`/* ... *\/`). DELIMITER
- * directives are stripped from the output (they're a client-side concept,
- * not server SQL).
+ * Splits `sql` into individual statements using the active statement delimiter
+ * (default `;`). Recognises `DELIMITER X` lines, single-quoted strings,
+ * double-quoted strings, backtick-quoted identifiers, line comments (`-- `,
+ * `#`) and block comments (`/* ... *\/`). DELIMITER directives are stripped
+ * from the output (they're a client-side concept, not server SQL).
  *
  * Returns trimmed, non-empty statements without the trailing delimiter.
  */

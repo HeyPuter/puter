@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -20,8 +20,8 @@
 /**
  * Types for the `puter-chat-completion` driver interface.
  *
- * No openai SDK type dependency. The PuterMessage type is intentionally
- * loose; each provider normalises internally.
+ * No openai SDK type dependency. The PuterMessage type is intentionally loose;
+ * each provider normalises internally.
  */
 
 export type ModelCost = Record<string, number>;
@@ -76,8 +76,9 @@ export interface ICompleteArguments {
      */
     compaction?: boolean | { trigger_tokens?: number };
     /**
-     * Escape hatch: provider-native `context_management` payload, passed through
-     * untouched (used by `/responses` callers sending the OpenAI-native array).
+     * Escape hatch: provider-native `context_management` payload, passed
+     * through untouched (used by `/responses` callers sending the OpenAI-native
+     * array).
      */
     context_management?: unknown;
     previous_response_id?: string;
@@ -132,8 +133,8 @@ export interface IChatMessageResult {
     /**
      * Inline-compaction artifact, present when the upstream compacted earlier
      * context during this (non-streaming) response. Carries `type:'compaction'`
-     * so it's a drop-in `messages` item — the caller resends it on the next turn
-     * in place of the summarized history. See [[ICompleteArguments]].
+     * so it's a drop-in `messages` item — the caller resends it on the next
+     * turn in place of the summarized history. See [[ICompleteArguments]].
      */
     compaction?: { type: 'compaction'; id?: string; encrypted_content: string };
 }

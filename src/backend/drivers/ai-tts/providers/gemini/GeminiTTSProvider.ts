@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -314,9 +314,7 @@ export class GeminiTTSProvider extends TTSProvider {
         };
     }
 
-    /**
-     * Wrap raw PCM samples in a WAV container so browsers can play it.
-     */
+    /** Wrap raw PCM samples in a WAV container so browsers can play it. */
     #wrapPcmInWav(
         pcm: Buffer,
         sampleRate: number,

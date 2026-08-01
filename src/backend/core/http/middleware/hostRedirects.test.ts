@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -18,9 +18,13 @@
  */
 
 import type { Request, Response } from 'express';
-import { describe, expect, it, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import nodePath from 'node:path';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { IConfig } from '../../../types';
 import {
+    createNativeAppStatic,
     createUserSubdomainRedirect,
     createWwwRedirect,
 } from './hostRedirects';
@@ -354,5 +358,229 @@ describe('createUserSubdomainRedirect', () => {
         );
         expect(out.redirectArgs).toBeUndefined();
         expect(next).toHaveBeenCalledTimes(1);
+    });
+});
+
+// ── createNativeAppStatic ───────────────────────────────────────────
+
+describe('createNativeAppStatic', () => {
+    let root: string;
+
+    // Express's `res.sendFile` is the only piece we stand in for — the
+    // middleware's contract with it is "path relative to `root`".
+    interface StaticRes {
+        sent?: { path: string; root: string };
+        redirectArgs?: unknown[];
+    }
+
+    const makeStaticRes = (sendFileError?: Error) => {
+        const out: StaticRes = {};
+        const res = {
+            redirect(...args: unknown[]) {
+                out.redirectArgs = args;
+            },
+            sendFile(
+                path: string,
+                options: { root: string },
+                cb: (err?: Error) => void,
+            ) {
+                out.sent = { path, root: options.root };
+                cb(sendFileError);
+            },
+        } as unknown as Response;
+        return { res, out };
+    };
+
+    const staticReq = (init: {
+        subdomains?: string[];
+        path?: string;
+        originalUrl?: string;
+    }): Request =>
+        ({
+            subdomains: init.subdomains ?? [],
+            path: init.path ?? '/',
+            originalUrl: init.originalUrl ?? init.path ?? '/',
+            headers: {},
+        }) as unknown as Request;
+
+    const runStatic = async (
+        middleware: ReturnType<typeof createNativeAppStatic>,
+        req: Request,
+        sendFileError?: Error,
+    ) => {
+        const { res, out } = makeStaticRes(sendFileError);
+        const next = vi.fn();
+        await (
+            middleware as unknown as (
+                q: Request,
+                s: Response,
+                n: () => void,
+            ) => Promise<void>
+        )(req, res, next);
+        return { out, next };
+    };
+
+    beforeAll(() => {
+        root = mkdtempSync(nodePath.join(tmpdir(), 'native-apps-'));
+        mkdirSync(nodePath.join(root, 'editor', 'assets'), { recursive: true });
+        writeFileSync(
+            nodePath.join(root, 'editor', 'index.html'),
+            '<h1>editor</h1>',
+        );
+        writeFileSync(
+            nodePath.join(root, 'editor', 'assets', 'app.js'),
+            'console.log(1);',
+        );
+        mkdirSync(nodePath.join(root, 'docs', 'dist'), { recursive: true });
+        writeFileSync(
+            nodePath.join(root, 'docs', 'dist', 'index.html'),
+            '<h1>docs</h1>',
+        );
+        // A `docs/index.html` outside `dist` must NOT be what gets served.
+        writeFileSync(nodePath.join(root, 'docs', 'index.html'), 'WRONG');
+    });
+
+    afterAll(() => {
+        rmSync(root, { recursive: true, force: true });
+    });
+
+    const config = { native_apps_root: '' } as unknown as IConfig;
+    const withRoot = () =>
+        createNativeAppStatic({ native_apps_root: root } as unknown as IConfig);
+
+    it('is a no-op when native_apps_root is unset', async () => {
+        const { out, next } = await runStatic(
+            createNativeAppStatic(config),
+            staticReq({
+                subdomains: ['localhost', 'puter', 'editor'],
+                path: '/index.html',
+            }),
+        );
+        expect(out.sent).toBeUndefined();
+        expect(next).toHaveBeenCalledTimes(1);
+    });
+
+    it('passes through subdomains that are not native apps', async () => {
+        const { out, next } = await runStatic(
+            withRoot(),
+            staticReq({
+                subdomains: ['localhost', 'puter', 'api'],
+                path: '/index.html',
+            }),
+        );
+        expect(out.sent).toBeUndefined();
+        expect(next).toHaveBeenCalledTimes(1);
+    });
+
+    it('passes through when there is no subdomain at all', async () => {
+        const { next } = await runStatic(
+            withRoot(),
+            staticReq({ subdomains: [], path: '/index.html' }),
+        );
+        expect(next).toHaveBeenCalledTimes(1);
+    });
+
+    it('serves a file from <root>/<app> for a plain native app', async () => {
+        const { out, next } = await runStatic(
+            withRoot(),
+            staticReq({
+                subdomains: ['localhost', 'puter', 'editor'],
+                path: '/index.html',
+            }),
+        );
+        expect(out.sent).toEqual({
+            path: '/index.html',
+            root: nodePath.join(root, 'editor'),
+        });
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it('matches the subdomain case-insensitively', async () => {
+        const { out } = await runStatic(
+            withRoot(),
+            staticReq({
+                subdomains: ['localhost', 'puter', 'EDITOR'],
+                path: '/index.html',
+            }),
+        );
+        expect(out.sent?.root).toBe(nodePath.join(root, 'editor'));
+    });
+
+    it('serves docs out of its dist/ subdirectory, not the app root', async () => {
+        const { out } = await runStatic(
+            withRoot(),
+            staticReq({
+                subdomains: ['localhost', 'puter', 'docs'],
+                path: '/index.html',
+            }),
+        );
+        expect(out.sent).toEqual({
+            path: '/index.html',
+            root: nodePath.join(root, 'docs', 'dist'),
+        });
+    });
+
+    it('307s a directory request without a trailing slash, preserving the query', async () => {
+        const { out, next } = await runStatic(
+            withRoot(),
+            staticReq({
+                subdomains: ['localhost', 'puter', 'editor'],
+                path: '/assets',
+                originalUrl: '/assets?v=2',
+            }),
+        );
+        expect(out.redirectArgs).toEqual([307, '/assets/?v=2']);
+        expect(out.sent).toBeUndefined();
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it('serves a directory request that already has the trailing slash', async () => {
+        // `stat` resolves the directory, but with the slash present the
+        // middleware hands it to sendFile (which serves index.html).
+        const { out } = await runStatic(
+            withRoot(),
+            staticReq({
+                subdomains: ['localhost', 'puter', 'editor'],
+                path: '/assets/',
+            }),
+        );
+        expect(out.redirectArgs).toBeUndefined();
+        expect(out.sent?.path).toBe('/assets/');
+    });
+
+    it('falls through when the requested file does not exist', async () => {
+        const { out, next } = await runStatic(
+            withRoot(),
+            staticReq({
+                subdomains: ['localhost', 'puter', 'editor'],
+                path: '/nope.html',
+            }),
+        );
+        expect(out.sent).toBeUndefined();
+        expect(next).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls through when sendFile reports an error', async () => {
+        const { next } = await runStatic(
+            withRoot(),
+            staticReq({
+                subdomains: ['localhost', 'puter', 'editor'],
+                path: '/index.html',
+            }),
+            new Error('send failed'),
+        );
+        expect(next).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a traversal path before it can touch the filesystem', async () => {
+        await expect(
+            runStatic(
+                withRoot(),
+                staticReq({
+                    subdomains: ['localhost', 'puter', 'editor'],
+                    path: '/../../etc/passwd',
+                }),
+            ),
+        ).rejects.toThrow();
     });
 });

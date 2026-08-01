@@ -196,6 +196,73 @@ export default suite('hosting', {
         t.assert.equal(byHost.subdomain, 'hostingsuitefull');
     },
 
+    'list with a limit returns a plain array of subdomains': async (t) => {
+        const dir = await makeSiteDir(t, 'limited');
+        await t.puter.hosting.create('hosting-suite-limited', dir);
+        const sites = (await t.puter.hosting.list({ limit: 2 })) as Array<{
+            subdomain: string;
+        }>;
+        t.assert.equal(Array.isArray(sites), true, 'a limit alone keeps the array shape');
+        t.assert.ok(sites.length <= 2, 'the limit should be respected');
+    },
+
+    'list with stream rejects offset client-side': async (t) => {
+        let err: { code?: string; message?: string } | undefined;
+        try {
+            t.puter.hosting.list({ stream: true, offset: 1 } as never);
+        } catch (e) {
+            err = e as typeof err;
+        }
+        t.assert.equal(err?.code, 'invalid_request');
+        t.assert.equal(
+            err?.message,
+            '`offset` cannot be combined with `stream`; pass `cursor` to resume from a position.',
+        );
+    },
+
+    'list fires the legacy positional success callback': async (t) => {
+        const dir = await makeSiteDir(t, 'cb');
+        await t.puter.hosting.create('hosting-suite-cb', dir);
+        let seen: Array<{ subdomain: string }> | undefined;
+        const result = (await (
+            t.puter.hosting.list as (
+                s: (v: Array<{ subdomain: string }>) => void,
+            ) => Promise<Array<{ subdomain: string }>>
+        )((value) => { seen = value; })) as Array<{ subdomain: string }>;
+        t.assert.ok(seen, 'the success callback should fire');
+        t.assert.equal(seen?.length, result.length);
+        t.assert.ok(
+            seen?.some((site) => site.subdomain === 'hosting-suite-cb'),
+            'the callback should receive the full listing',
+        );
+    },
+
+    'create accepts the object form': async (t) => {
+        const dir = await makeSiteDir(t, 'objform', 'object form site');
+        const created = await t.puter.hosting.create({
+            subdomain: 'hosting-suite-objform',
+            root_dir: dir,
+        });
+        t.assert.equal(created.subdomain, 'hosting-suite-objform');
+        const res = await fetch(siteUrl(t, 'hosting-suite-objform'));
+        t.assert.ok(
+            (await res.text()).includes('object form site'),
+            'the object form should connect the directory too',
+        );
+    },
+
+    'a hosted directory is reported by readdir': async (t) => {
+        const dir = await makeSiteDir(t, 'flagged', 'flagged site');
+        await t.puter.hosting.create('hosting-suite-flagged', dir);
+        const entries = await t.puter.fs.readdir(home(t));
+        const entry = entries.find(
+            (e: { name: string }) => e.name === 'hosting-suite-flagged',
+        ) as { has_website?: boolean; subdomains?: unknown[] } | undefined;
+        t.assert.ok(entry, 'the hosted directory should appear in its parent listing');
+        t.assert.equal(Array.isArray(entry?.subdomains), true);
+        t.assert.equal(entry?.has_website, true, 'the directory should be flagged as hosted');
+    },
+
     'delete removes the subdomain': async (t) => {
         const dir = await makeSiteDir(t, 'delete');
         await t.puter.hosting.create('hosting-suite-delete', dir);

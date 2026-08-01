@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -90,7 +90,9 @@ export interface AccessTokenPayload extends TokenPayloadBase {
 }
 
 export type AnyTokenPayload =
-    SessionTokenPayload | AppUnderUserTokenPayload | AccessTokenPayload;
+    | SessionTokenPayload
+    | AppUnderUserTokenPayload
+    | AccessTokenPayload;
 
 // -- Session row (from `sessions` table) ----------------------------
 

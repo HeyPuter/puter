@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -89,20 +89,22 @@ export class SQLBatcher {
     #metricAttrs;
 
     /**
-     * @param {object} dbPool mysql2 pool
+     * @param {object} dbPool Mysql2 pool
      * @param {object} [opts]
-     * @param {number} [opts.maxTimeInQueue] ms an item may wait before flush
-     * @param {number} [opts.maxBatchSize] items coalesced per flush
-     * @param {number} [opts.maxQueueSize] drop-oldest high-water mark
-     * @param {number} [opts.failureThreshold] consecutive failures to open the breaker
-     * @param {number} [opts.cooldownMs] breaker open duration after last failure
-     * @param {'primary'|'replica'} [opts.poolLabel] role label on metrics; in
+     * @param {number} [opts.maxTimeInQueue] Ms an item may wait before flush
+     * @param {number} [opts.maxBatchSize] Items coalesced per flush
+     * @param {number} [opts.maxQueueSize] Drop-oldest high-water mark
+     * @param {number} [opts.failureThreshold] Consecutive failures to open the
+     *   breaker
+     * @param {number} [opts.cooldownMs] Breaker open duration after last
+     *   failure
+     * @param {'primary' | 'replica'} [opts.poolLabel] Role label on metrics; in
      *   single-node setups the 'replica' batcher shares the primary pool, so
      *   this reflects the read/write role rather than a physical instance
-     * @param {boolean} [opts.readOnly] this batcher only ever carries SELECTs,
+     * @param {boolean} [opts.readOnly] This batcher only ever carries SELECTs,
      *   so any transient failure is safe to retry
-     * @param {number} [opts.acquireTimeoutMs] max wait for a pooled
-     *   connection; 0 disables the bound
+     * @param {number} [opts.acquireTimeoutMs] Max wait for a pooled connection;
+     *   0 disables the bound
      */
     constructor(
         dbPool,

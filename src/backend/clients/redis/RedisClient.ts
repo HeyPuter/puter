@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -108,13 +108,13 @@ const buildCluster = (config: IConfig): Cluster => {
 
 /**
  * `RedisClient` IS the ioredis `Cluster` instance — consumers call
- * `this.clients.redis.get(...)` / `.set(...)` directly rather than
- * going through an inner `.client` field. Lifecycle methods
- * (`onServerShutdown`) are attached onto the cluster instance itself.
+ * `this.clients.redis.get(...)` / `.set(...)` directly rather than going
+ * through an inner `.client` field. Lifecycle methods (`onServerShutdown`) are
+ * attached onto the cluster instance itself.
  *
- * Type-wise, `RedisClient` is `Cluster & WithLifecycle`; the registry-
- * facing value below is a constructor that returns that shape. Mirrors
- * the `DatabaseClientFactory` pattern.
+ * Type-wise, `RedisClient` is `Cluster & WithLifecycle`; the registry- facing
+ * value below is a constructor that returns that shape. Mirrors the
+ * `DatabaseClientFactory` pattern.
  */
 export type RedisClient = Cluster & WithLifecycle;
 

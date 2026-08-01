@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -28,8 +28,8 @@ import { PuterService } from '../types.js';
 export type SocketReauthError = Error & { data: Record<string, unknown> };
 
 /**
- * Build a `reauth_required` error for the socket auth middleware to
- * pass to `next()`. Exported for unit testing.
+ * Build a `reauth_required` error for the socket auth middleware to pass to
+ * `next()`. Exported for unit testing.
  */
 export const buildSocketReauthError = (reauth: {
     reason: string;
@@ -48,15 +48,15 @@ export const buildSocketReauthError = (reauth: {
 export type SocketAuthDecision = { accept: Actor } | { reject: Error };
 
 /**
- * Map an `AuthService.authenticate()` result onto the socket-handshake
- * verdict. Order matters:
+ * Map an `AuthService.authenticate()` result onto the socket-handshake verdict.
+ * Order matters:
  *
- *   1. `reauth` → structured `reauth_required` error so the client can
- *      drive the same migration / re-login flow it does for HTTP.
- *   2. Missing actor → generic `socket auth failed`.
- *   3. App-under-user / access-token actor → rejected with a specific
- *      message; sockets only accept plain user actors.
- *   4. Otherwise → accept the actor.
+ * 1. `reauth` → structured `reauth_required` error so the client can drive the
+ *    same migration / re-login flow it does for HTTP.
+ * 2. Missing actor → generic `socket auth failed`.
+ * 3. App-under-user / access-token actor → rejected with a specific message;
+ *    sockets only accept plain user actors.
+ * 4. Otherwise → accept the actor.
  *
  * Pure / no side effects — the middleware logs the reauth event.
  */
@@ -75,9 +75,9 @@ export const decideSocketAuth = (result: AuthResult): SocketAuthDecision => {
 };
 
 /**
- * Socket push target. A `room` fans to every socket in that room; a
- * `socket` targets one specific socket by id. Multiple specifiers may
- * be passed as an array.
+ * Socket push target. A `room` fans to every socket in that room; a `socket`
+ * targets one specific socket by id. Multiple specifiers may be passed as an
+ * array.
  */
 export interface SocketSpecifier {
     room?: string | number;
@@ -117,30 +117,26 @@ interface UploadProgressPayload {
 }
 
 /**
- * Extend the socket.io `Socket` with the actor attached by our auth
- * middleware. Using the module-augmentation pattern keeps callers
- * typed without casts.
+ * Extend the socket.io `Socket` with the actor attached by our auth middleware.
+ * Using the module-augmentation pattern keeps callers typed without casts.
  */
 interface AuthenticatedSocket extends Socket {
     actor?: Actor;
 }
 
 /**
- * socket.io wrapper with:
+ * Socket.io wrapper with:
  *
- * 1. Auth middleware — reads `handshake.auth.auth_token`, validates it
- *    via `AuthService`, rejects anything other than plain user actors
- *    (no app-under-user, no access-token), and joins the socket to a
- *    per-user room keyed by `user.id`.
- *
- * 2. Event bus → socket fan-out — subscribes to the known set of
- *    `outer.gui.*` mutation events and pushes each to the affected
- *    users' rooms. Strips the `outer.gui.` prefix before emitting.
- *
- * 3. FS cache-invalidation timestamp — bumps a per-user Redis key on
- *    every mutation so puter-js running on a different node (or a
- *    different tab) can detect staleness on its next poll of
- *    `/cache/last-change-timestamp`.
+ * 1. Auth middleware — reads `handshake.auth.auth_token`, validates it via
+ *    `AuthService`, rejects anything other than plain user actors (no
+ *    app-under-user, no access-token), and joins the socket to a per-user room
+ *    keyed by `user.id`.
+ * 2. Event bus → socket fan-out — subscribes to the known set of `outer.gui.*`
+ *    mutation events and pushes each to the affected users' rooms. Strips the
+ *    `outer.gui.` prefix before emitting.
+ * 3. FS cache-invalidation timestamp — bumps a per-user Redis key on every
+ *    mutation so puter-js running on a different node (or a different tab) can
+ *    detect staleness on its next poll of `/cache/last-change-timestamp`.
  *
  * Cross-node fan-out comes free via `@socket.io/redis-streams-adapter`:
  * `send()` on any node reaches every socket for that room cluster-wide.
@@ -151,10 +147,10 @@ export class SocketService extends PuterService {
     // -- Lifecycle ---------------------------------------------------
 
     /**
-     * Called by `PuterServer` after the http server is created but
-     * before it starts listening. Attaches socket.io, wires auth,
-     * subscribes to the event bus. Sync — no await on the caller side
-     * is required, but we accept a Promise return for symmetry.
+     * Called by `PuterServer` after the http server is created but before it
+     * starts listening. Attaches socket.io, wires auth, subscribes to the event
+     * bus. Sync — no await on the caller side is required, but we accept a
+     * Promise return for symmetry.
      */
     attachHttpServer(server: HttpServer): void {
         // ioredis Cluster is compatible with the redis-streams adapter.
@@ -215,9 +211,9 @@ export class SocketService extends PuterService {
     // -- Public API (used by other services / controllers) ----------
 
     /**
-     * Push an event to one or more specifiers. `room` targets every
-     * socket joined to that room (we use `user.id` as the room name),
-     * `socket` targets one specific socket by id.
+     * Push an event to one or more specifiers. `room` targets every socket
+     * joined to that room (we use `user.id` as the room name), `socket` targets
+     * one specific socket by id.
      */
     async send(
         specifiers: SocketSpecifier | SocketSpecifier[],
@@ -236,9 +232,9 @@ export class SocketService extends PuterService {
     }
 
     /**
-     * Check whether the specifier currently resolves to at least one
-     * live socket on *this* node. Note: doesn't check other cluster
-     * nodes — intended for best-effort local checks only.
+     * Check whether the specifier currently resolves to at least one live
+     * socket on _this_ node. Note: doesn't check other cluster nodes — intended
+     * for best-effort local checks only.
      */
     has(specifier: SocketSpecifier): boolean {
         if (!this.#io) return false;
@@ -260,9 +256,9 @@ export class SocketService extends PuterService {
     }
 
     /**
-     * Read the last-change timestamp for a user from Redis. Returns 0
-     * when unset. Called by `LegacyFSController`'s
-     * `/cache/last-change-timestamp` route.
+     * Read the last-change timestamp for a user from Redis. Returns 0 when
+     * unset. Called by `LegacyFSController`'s `/cache/last-change-timestamp`
+     * route.
      */
     async getLastChangeTimestamp(userId: number | string): Promise<number> {
         try {

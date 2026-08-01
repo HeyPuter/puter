@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -32,22 +32,24 @@ const MAX_SELECT_LIMIT = 200;
 /**
  * Driver exposing the `puter-notifications` interface.
  *
- * Wraps NotificationStore with owner-scoped permission checks.
- * Methods follow the `crud-q` shape: create, read, select.
+ * Wraps NotificationStore with owner-scoped permission checks. Methods follow
+ * the `crud-q` shape: create, read, select.
  *
- * Read-only for clients — `update` and `delete` are not exposed. `create`
- * is available for server-internal callers (other services push
- * notifications via `/drivers/call` with a system token or directly
- * through the store). `read` and `select` accept predicates.
+ * Read-only for clients — `update` and `delete` are not exposed. `create` is
+ * available for server-internal callers (other services push notifications via
+ * `/drivers/call` with a system token or directly through the store). `read`
+ * and `select` accept predicates.
  *
  * Permission model:
- *   - Strictly owner-limited — each user can only see their own notifications
- *   - No app-actor access (user tokens only)
+ *
+ * - Strictly owner-limited — each user can only see their own notifications
+ * - No app-actor access (user tokens only)
  *
  * Predicates:
- *   - `'unseen'` — shown IS NULL AND acknowledged IS NULL
- *   - `'unacknowledged'` — acknowledged IS NULL (may be shown)
- *   - `'acknowledged'` — acknowledged IS NOT NULL
+ *
+ * - `'unseen'` — shown IS NULL AND acknowledged IS NULL
+ * - `'unacknowledged'` — acknowledged IS NULL (may be shown)
+ * - `'acknowledged'` — acknowledged IS NOT NULL
  */
 export class NotificationDriver extends PuterDriver {
     readonly driverInterface = 'puter-notifications';

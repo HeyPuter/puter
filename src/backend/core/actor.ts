@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -25,9 +25,9 @@ export interface ActorApp {
 }
 
 /**
- * Access-token wrapper. When set, this actor is acting *through* an access
- * token issued by `issuer`. The token's row in `access_token_permissions`
- * gates which permissions of the issuer it can exercise.
+ * Access-token wrapper. When set, this actor is acting _through_ an access
+ * token issued by `issuer`. The token's row in `access_token_permissions` gates
+ * which permissions of the issuer it can exercise.
  */
 export interface ActorAccessToken {
     uid: string;
@@ -51,12 +51,12 @@ export interface Actor {
     system?: boolean;
     accessToken?: ActorAccessToken | null;
     /**
-     * Session reference when authenticated via a session token (user actors)
-     * or an app-under-user token that carries a session. Absent for system,
-     * raw-app, and pure access-token actors. Used for session introspection
-     * and targeted logout. `kind` mirrors the session row's kind (e.g.
-     * 'web', 'app', 'worker') so callers can gate on how the credential
-     * was minted without an extra session lookup.
+     * Session reference when authenticated via a session token (user actors) or
+     * an app-under-user token that carries a session. Absent for system,
+     * raw-app, and pure access-token actors. Used for session introspection and
+     * targeted logout. `kind` mirrors the session row's kind (e.g. 'web',
+     * 'app', 'worker') so callers can gate on how the credential was minted
+     * without an extra session lookup.
      */
     session?: { uid: string; kind?: string | null } | null;
 }
@@ -85,8 +85,8 @@ export const isAccessTokenActor = (
 };
 
 /**
- * Stable identifier for an actor.
- * Used as a cache key (e.g., permission scan cache) and for cycle detection.
+ * Stable identifier for an actor. Used as a cache key (e.g., permission scan
+ * cache) and for cycle detection.
  */
 export const actorUid = (actor: Actor): string => {
     if (actor.accessToken) {

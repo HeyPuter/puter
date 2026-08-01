@@ -804,6 +804,9 @@ const puterInit = function () {
         }
 
         /**
+         * @returns {Promise<import('../types/modules/auth').User | null>} The
+         *   cached user, or null when there was no token, the token was
+         *   rejected, or the request failed.
          * @internal
          * Populates `puter.whoami` for callers that read the cached user
          * synchronously. Non-interactive for the same reason as `/rao`: this
@@ -815,10 +818,6 @@ const puterInit = function () {
          * before `initSubmodules` in the app environment, and carries the token
          * explicitly because `includePuterAuth` reads `globalThis.puter`, which
          * isn't assigned until the constructor returns.
-         *
-         * @returns {Promise<import('../types/modules/auth').User|null>} The
-         *   cached user, or null when there was no token, the token was
-         *   rejected, or the request failed.
          */
         async cacheWhoami_() {
             if (!this.authToken) return null;
@@ -865,9 +864,9 @@ const puterInit = function () {
         }
 
         /**
-         * Subscribes to auth token / API origin changes. Modules read both
-         * live off this instance, so this is only needed by the ones holding
-         * a connection that has to be rebuilt.
+         * Subscribes to auth token / API origin changes. Modules read both live
+         * off this instance, so this is only needed by the ones holding a
+         * connection that has to be rebuilt.
          *
          * @param {() => void} listener
          * @returns {() => void} Unsubscribes the listener.
@@ -1143,6 +1142,11 @@ const puterInit = function () {
         };
 
         /**
+         * @param {{
+         *     reason?: string;
+         *     auth_id?: string;
+         *     sentToken?: string;
+         * }} signal
          * @internal
          * The non-interactive half of the reauth policy, called by the network
          * layer (lib/networkUtils.js) when a request the user didn't initiate
@@ -1158,8 +1162,6 @@ const puterInit = function () {
          * `sentToken` is the token the failed request carried. A reauth may have
          * completed while it was in flight, so a token that no longer matches is
          * left alone rather than signing the user back out.
-         *
-         * @param {{ reason?: string; auth_id?: string; sentToken?: string }} signal
          */
         dropStaleAuthToken = function ({ reason, auth_id, sentToken } = {}) {
             if (sentToken && sentToken !== this.authToken) return;
@@ -1641,6 +1643,13 @@ const puterInit = function () {
 
             let username = puter.whoami.username;
 
+            // Nothing awaits these refreshes, so a path the user doesn't
+            // have — or any transient failure — must not escape as an
+            // unhandled rejection.
+            const warm = (refresh) => {
+                refresh.catch(() => {});
+            };
+
             // common paths
             let home_path = `/${username}`;
             let desktop_path = `/${username}/Desktop`;
@@ -1653,7 +1662,7 @@ const puterInit = function () {
                     `/${username} item is not cached, refetching cache`,
                 );
                 // fetch home
-                puter.fs.stat(home_path);
+                warm(puter.fs.stat(home_path));
             }
             // item:Desktop
             if (!puter._cache.get(`item:${desktop_path}`)) {
@@ -1661,7 +1670,7 @@ const puterInit = function () {
                     `/${username}/Desktop item is not cached, refetching cache`,
                 );
                 // fetch desktop
-                puter.fs.stat(desktop_path);
+                warm(puter.fs.stat(desktop_path));
             }
             // item:Documents
             if (!puter._cache.get(`item:${documents_path}`)) {
@@ -1669,7 +1678,7 @@ const puterInit = function () {
                     `/${username}/Documents item is not cached, refetching cache`,
                 );
                 // fetch documents
-                puter.fs.stat(documents_path);
+                warm(puter.fs.stat(documents_path));
             }
             // item:Public
             if (!puter._cache.get(`item:${public_path}`)) {
@@ -1677,14 +1686,14 @@ const puterInit = function () {
                     `/${username}/Public item is not cached, refetching cache`,
                 );
                 // fetch public
-                puter.fs.stat(public_path);
+                warm(puter.fs.stat(public_path));
             }
 
             // readdir:Home
             if (!puter._cache.get(`readdir:${home_path}`)) {
                 console.log(`/${username} is not cached, refetching cache`);
                 // fetch home
-                puter.fs.readdir(home_path);
+                warm(puter.fs.readdir(home_path));
             }
             // readdir:Desktop
             if (!puter._cache.get(`readdir:${desktop_path}`)) {
@@ -1692,7 +1701,7 @@ const puterInit = function () {
                     `/${username}/Desktop is not cached, refetching cache`,
                 );
                 // fetch desktop
-                puter.fs.readdir(desktop_path);
+                warm(puter.fs.readdir(desktop_path));
             }
             // readdir:Documents
             if (!puter._cache.get(`readdir:${documents_path}`)) {
@@ -1700,7 +1709,7 @@ const puterInit = function () {
                     `/${username}/Documents is not cached, refetching cache`,
                 );
                 // fetch documents
-                puter.fs.readdir(documents_path);
+                warm(puter.fs.readdir(documents_path));
             }
             // readdir:Public
             if (!puter._cache.get(`readdir:${public_path}`)) {
@@ -1708,7 +1717,7 @@ const puterInit = function () {
                     `/${username}/Public is not cached, refetching cache`,
                 );
                 // fetch public
-                puter.fs.readdir(public_path);
+                warm(puter.fs.readdir(public_path));
             }
         };
     }

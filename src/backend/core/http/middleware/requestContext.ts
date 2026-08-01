@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -30,11 +30,11 @@ import '../expressAugmentation';
  *
  *     body parsers  →  authProbe  →  **requestContext**  →  routes
  *
- * Running AFTER the auth probe means `req.actor` is already populated
- * when we snapshot it into the context. Everything downstream — gates,
- * per-route parsers, controller handlers, and any services they call —
- * runs inside the ALS scope and can reach the context via
- * `Context.get('actor')`, `Context.get('req')`, etc.
+ * Running AFTER the auth probe means `req.actor` is already populated when we
+ * snapshot it into the context. Everything downstream — gates, per-route
+ * parsers, controller handlers, and any services they call — runs inside the
+ * ALS scope and can reach the context via `Context.get('actor')`,
+ * `Context.get('req')`, etc.
  */
 export const createRequestContextMiddleware = (): RequestHandler => {
     return (req, _res, next) => {

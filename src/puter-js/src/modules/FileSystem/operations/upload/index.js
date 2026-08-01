@@ -20,7 +20,8 @@ import { performLegacyBatchUpload } from './legacyBatchUpload.js';
  * Uploads local items — files, blobs, strings, directory entries, or a
  * `DataTransferItemList` from a drop — into `dirPath`, which defaults to the
  * app's root directory. Resolves to a single `FSItem` when one item was
- * uploaded and an array when several were.
+ * uploaded and an array when several were; rejects when any part of the
+ * upload failed, so the resolved value never mixes items with errors.
  *
  * @this {import('../../index.js').PuterJSFileSystemModule}
  * @param {UploadItems} items

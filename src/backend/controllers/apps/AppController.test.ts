@@ -1,21 +1,20 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify it under the
- * terms of the GNU Affero General Public License as published by the Free
- * Software Foundation, either version 3 of the License, or (at your option) any
- * later version.
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
- * details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see
- * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 import type { Request, RequestHandler, Response } from 'express';
@@ -800,5 +799,155 @@ describe('AppController GET /app-icon/:app_uid', () => {
         // Either the default icon (no `icon` column on the row) or a
         // configured one — both come back as 200, not 404.
         expect(captured.statusCode).toBe(200);
+    });
+});
+
+// ── /rao actor gating ───────────────────────────────────────────────
+
+describe('AppController POST /rao actor gating', () => {
+    it('refuses to record an open for a scoped access token', async () => {
+        const { actor } = await makeUser();
+        const app = await createApp(actor);
+        // Shared / scoped credentials must not drive analytics counters.
+        const tokenActor = {
+            ...actor,
+            accessToken: { uuid: uuidv4(), permissions: [] },
+        } as unknown as Actor;
+
+        const { res } = makeRes();
+        await expect(
+            withActor(tokenActor, () =>
+                callRoute(
+                    'post',
+                    '/rao',
+                    makeReq({
+                        body: { app_uid: app.uid },
+                        actor: tokenActor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
+    });
+
+    it("refuses to let an app actor record another app's open", async () => {
+        const { actor } = await makeUser();
+        const own = await createApp(actor);
+        const other = await createApp(actor);
+        const appActor = {
+            ...actor,
+            app: { uid: own.uid as string },
+        } as unknown as Actor;
+
+        const { res } = makeRes();
+        await expect(
+            withActor(appActor, () =>
+                callRoute(
+                    'post',
+                    '/rao',
+                    makeReq({
+                        body: { app_uid: other.uid },
+                        actor: appActor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
+    });
+});
+
+// ── app-icon redirect + fallback paths ──────────────────────────────
+
+describe('AppController GET /app-icon remote icons', () => {
+    // AppDriver.create validates the `icon` column, so these fixtures write
+    // it straight to the row. AppStore caches by uid — drop that entry or the
+    // handler reads the pre-update app back.
+    const setIcon = async (uid: string, icon: string) => {
+        await server.clients.db.write(
+            'UPDATE `apps` SET `icon` = ? WHERE `uid` = ?',
+            [icon, uid],
+        );
+        await server.stores.app.invalidateByUid(uid);
+    };
+
+    it('redirects to an icon hosted on a trusted host', async () => {
+        const owner = await makeUser();
+        const app = await createApp(owner.actor);
+        const { static_hosting_domain: hostingDomain } = (
+            server.controllers.apps as unknown as {
+                config: { static_hosting_domain: string };
+            }
+        ).config;
+        const trusted = `https://puter-app-icons.${hostingDomain}/${app.uid}-128.png`;
+        await setIcon(String(app.uid), trusted);
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app-icon/:app_uid',
+            makeReq({ params: { app_uid: app.uid } }),
+            res,
+        );
+        expect(captured.redirectStatus).toBe(302);
+        expect(captured.redirectUrl).toBe(trusted);
+        expect(captured.headers['cache-control']).toBe('public, max-age=900');
+    });
+
+    it('never redirects to an icon URL on an untrusted host', async () => {
+        const owner = await makeUser();
+        const app = await createApp(owner.actor);
+        // An open redirect here would let an app row point browsers anywhere.
+        await setIcon(String(app.uid), 'https://evil.example.com/icon.png');
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app-icon/:app_uid',
+            makeReq({ params: { app_uid: app.uid } }),
+            res,
+        );
+        expect(captured.redirectUrl).toBeUndefined();
+        expect(captured.headers['content-type']).toContain('image/svg+xml');
+    });
+
+    it('serves the default icon for a malformed data URL with no comma', async () => {
+        const owner = await makeUser();
+        const app = await createApp(owner.actor);
+        await setIcon(String(app.uid), 'data:image/png;base64');
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app-icon/:app_uid',
+            makeReq({ params: { app_uid: app.uid } }),
+            res,
+        );
+        expect(captured.headers['content-type']).toContain('image/svg+xml');
+    });
+
+    it('serves the default icon for an unknown app uid', async () => {
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app-icon/:app_uid',
+            makeReq({ params: { app_uid: `app-${uuidv4()}` } }),
+            res,
+        );
+        expect(captured.headers['content-type']).toContain('image/svg+xml');
+    });
+
+    it('serves the default icon for a bare (non-URL, non-data) icon value', async () => {
+        const owner = await makeUser();
+        const app = await createApp(owner.actor);
+        await setIcon(String(app.uid), 'legacy-icon-name.png');
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app-icon/:app_uid/:size',
+            makeReq({ params: { app_uid: app.uid, size: '64' } }),
+            res,
+        );
+        expect(captured.headers['content-type']).toContain('image/svg+xml');
     });
 });

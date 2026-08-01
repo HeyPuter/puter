@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -248,9 +248,9 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
 
     /**
      * Apply `.sql` files from each configured migration directory in order.
-     * Files within a directory are sorted lexically. Files MUST be
-     * idempotent — there is no per-file applied-state tracking. Failures
-     * abort startup so operators see schema problems loud.
+     * Files within a directory are sorted lexically. Files MUST be idempotent —
+     * there is no per-file applied-state tracking. Failures abort startup so
+     * operators see schema problems loud.
      */
     private async runMigrations(): Promise<void> {
         const paths = this.config.database?.migrationPaths;
@@ -414,8 +414,10 @@ export class MySQLDatabaseClient extends AbstractDatabaseClient {
         return isRetriableError(error);
     }
 
-    /** Replica failures worth retrying on the primary: batcher load-shed
-     *  or transient connection errors — never deterministic SQL errors. */
+    /**
+     * Replica failures worth retrying on the primary: batcher load-shed or
+     * transient connection errors — never deterministic SQL errors.
+     */
     private static isFailoverWorthy(error: unknown): boolean {
         const code = (error as { code?: string })?.code;
         return code === 'dbBatchFailed' || isRetriableError(error);

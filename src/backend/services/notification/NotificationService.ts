@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -21,17 +21,17 @@ import { v4 as uuidv4 } from 'uuid';
 import { PuterService } from '../types.js';
 
 /**
- * Notification orchestration — glues the NotificationStore (DB) to the
- * event bus (socket push) and handles lifecycle events (user connects →
- * send unreads, notification shown/acked → socket event).
+ * Notification orchestration — glues the NotificationStore (DB) to the event
+ * bus (socket push) and handles lifecycle events (user connects → send unreads,
+ * notification shown/acked → socket event).
  *
- * Other services push notifications via `notify(userIds, notification)`.
- * The driver (`puter-notifications`) handles read/select/mark for API
- * consumers; this service handles the write-and-push side.
+ * Other services push notifications via `notify(userIds, notification)`. The
+ * driver (`puter-notifications`) handles read/select/mark for API consumers;
+ * this service handles the write-and-push side.
  */
 export class NotificationService extends PuterService {
     #pendingWrites = new Map<string, Promise<unknown>>();
-    /** user.id → debounce timeout */
+    /** User.id → debounce timeout */
     #connectTimeouts = new Map<number, ReturnType<typeof setTimeout>>();
 
     override onServerStart(): void {
@@ -80,36 +80,48 @@ export class NotificationService extends PuterService {
     // -- Public API --------------------------------------------------
 
     /**
-     * Push a notification to one or more users. The notification is
-     * emitted to the socket bus immediately (real-time), then persisted
-     * to the DB asynchronously.
+     * Push a notification to one or more users. The notification is emitted to
+     * the socket bus immediately (real-time), then persisted to the DB
+     * asynchronously.
      *
-     * @param userIds  Target user ids
-     * @param notification  Payload — { source, title, text?, icon?, template?, fields? }
+     * Each recipient gets their own row, and `notification.uid` is unique
+     * table-wide, so the uid is minted per recipient and each push carries the
+     * uid naming _that_ recipient's row. The client echoes it back on dismiss
+     * (`/notif/mark-ack`), and the delivery receipt below marks it shown —
+     * neither can find a row otherwise.
+     *
+     * @param userIds Target user ids
+     * @param notification Payload — { source, title, text?, icon?, template?,
+     *   fields? }
+     * @returns The uid of the first recipient's notification.
      */
     async notify(
         userIds: number[],
         notification: Record<string, unknown>,
     ): Promise<string> {
-        const uid = uuidv4();
+        const uidByIndex = userIds.map(() => uuidv4());
 
         // Immediate socket push (before DB write completes)
-        this.clients.event.emit(
-            'outer.gui.notif.message',
-            {
-                user_id_list: userIds,
-                response: { uid, notification },
-            },
-            {},
-        );
+        userIds.forEach((userId, i) => {
+            this.clients.event.emit(
+                'outer.gui.notif.message',
+                {
+                    user_id_list: [userId],
+                    response: { uid: uidByIndex[i], notification },
+                },
+                {},
+            );
+        });
 
         // Async DB inserts — one row per user.
-        const writePromise = (async () => {
-            for (const userId of userIds) {
+        userIds.forEach((userId, i) => {
+            const uid = uidByIndex[i];
+            const writePromise = (async () => {
                 try {
                     await this.stores.notification.create({
                         userId,
                         value: notification,
+                        uid,
                     });
                 } catch (err) {
                     console.warn(
@@ -117,33 +129,29 @@ export class NotificationService extends PuterService {
                         err,
                     );
                 }
-            }
-        })();
-        this.#pendingWrites.set(uid, writePromise);
-        writePromise.finally(() => this.#pendingWrites.delete(uid));
+            })();
+            this.#pendingWrites.set(uid, writePromise);
+            writePromise.finally(() => this.#pendingWrites.delete(uid));
 
-        // Fire persisted event after all writes complete
-        writePromise
-            .then(() => {
+            // Fire persisted event once that recipient's write completes
+            writePromise.then(() => {
                 this.clients.event.emit(
                     'outer.gui.notif.persisted',
                     {
-                        user_id_list: userIds,
+                        user_id_list: [userId],
                         response: { uid },
                     },
                     {},
                 );
-            })
-            .catch(() => {
-                /* already logged per-user above */
             });
+        });
 
-        return uid;
+        return uidByIndex[0] ?? uuidv4();
     }
 
     /**
-     * Mark a notification as acknowledged (user dismissed it) and push
-     * the ack event to sockets so other tabs update.
+     * Mark a notification as acknowledged (user dismissed it) and push the ack
+     * event to sockets so other tabs update.
      */
     async markAcknowledged(uid: string, userId: number): Promise<void> {
         await this.stores.notification.markAcknowledged(uid, userId);
@@ -157,9 +165,7 @@ export class NotificationService extends PuterService {
         );
     }
 
-    /**
-     * Mark a notification as shown (user saw it) and push the ack event.
-     */
+    /** Mark a notification as shown (user saw it) and push the ack event. */
     async markShown(uid: string, userId: number): Promise<void> {
         await this.stores.notification.markShown(uid, userId);
         this.clients.event.emit(

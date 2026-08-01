@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -24,19 +24,18 @@ import type { NotificationService } from '../../services/notification/Notificati
 import { PuterController } from '../types.js';
 
 /**
- * GUI-facing notification endpoints. These supplement the
- * `puter-notifications` driver (which handles CRUD via `/drivers/call`)
- * with two small mutation routes that the puter desktop client calls
- * directly.
+ * GUI-facing notification endpoints. These supplement the `puter-notifications`
+ * driver (which handles CRUD via `/drivers/call`) with two small mutation
+ * routes that the puter desktop client calls directly.
  *
- * Both routes emit `outer.gui.notif.ack` via the NotificationService
- * so other open tabs for the same user see the state change immediately.
+ * Both routes emit `outer.gui.notif.ack` via the NotificationService so other
+ * open tabs for the same user see the state change immediately.
  */
 @Controller('/notif')
 export class NotificationController extends PuterController {
     /**
-     * POST /notif/mark-ack — user dismissed a notification.
-     * Sets `acknowledged` timestamp; pushes ack event to sockets.
+     * POST /notif/mark-ack — user dismissed a notification. Sets `acknowledged`
+     * timestamp; pushes ack event to sockets.
      */
     @Post('/mark-ack', {
         subdomain: 'api',
@@ -78,8 +77,8 @@ export class NotificationController extends PuterController {
     }
 
     /**
-     * POST /notif/mark-read — user saw a notification.
-     * Sets `shown` timestamp; pushes ack event to sockets.
+     * POST /notif/mark-read — user saw a notification. Sets `shown` timestamp;
+     * pushes ack event to sockets.
      */
     @Post('/mark-read', {
         subdomain: 'api',

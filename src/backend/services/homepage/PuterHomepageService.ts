@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -57,9 +57,9 @@ interface PuterGuiAddonsEvent {
     headContent: string;
     prependHeadContent: string;
     /**
-     * Scripts/markup that must run BEFORE the `gui(...)` bootstrap. Useful
-     * for loading jQuery or third-party SDKs (Stripe.js) that the GUI code
-     * expects to be present on window.
+     * Scripts/markup that must run BEFORE the `gui(...)` bootstrap. Useful for
+     * loading jQuery or third-party SDKs (Stripe.js) that the GUI code expects
+     * to be present on window.
      */
     prependBodyContent: string;
 }
@@ -68,13 +68,14 @@ interface PuterGuiAddonsEvent {
  * Serves the root HTML shell that bootstraps the Puter GUI.
  *
  * Extensions contribute by:
- *   - `registerScript(url)` — adds a `<script type="module" src=...>` tag
- *     after the GUI init script.
- *   - `setGuiParam(key, value)` — injects a value into the client-side
- *     `gui()` call.
- *   - Listening for `puter.gui.addons` — mutate the event object's
- *     `bodyContent` / `headContent` / `prependHeadContent` strings to
- *     splice arbitrary markup into the shell.
+ *
+ * - `registerScript(url)` — adds a `<script type="module" src=...>` tag after the
+ *   GUI init script.
+ * - `setGuiParam(key, value)` — injects a value into the client-side `gui()`
+ *   call.
+ * - Listening for `puter.gui.addons` — mutate the event object's `bodyContent` /
+ *   `headContent` / `prependHeadContent` strings to splice arbitrary markup
+ *   into the shell.
  */
 export class PuterHomepageService extends PuterService {
     #manifest: Manifest | null = null;

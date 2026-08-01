@@ -217,3 +217,194 @@ describe('AlarmClient transport registration', () => {
         expect(pdEvent).not.toHaveBeenCalled();
     });
 });
+
+describe('AlarmClient alarm registry', () => {
+    beforeEach(() => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    it('finds an alarm by its full id or its short id', () => {
+        const client = makeClient();
+        client.create('disk-pressure', 'nearly full');
+
+        const alarm = client.get('disk-pressure');
+        expect(alarm?.message).toBe('nearly full');
+        expect(client.get(alarm!.shortId)).toBe(alarm);
+    });
+
+    it('returns nothing for an id it has never seen', () => {
+        expect(makeClient().get('never-raised')).toBeUndefined();
+    });
+
+    it('forgets an alarm once cleared, under both ids', () => {
+        const client = makeClient();
+        client.create('disk-pressure', 'nearly full');
+        const shortId = client.get('disk-pressure')!.shortId;
+
+        client.clear('disk-pressure');
+
+        expect(client.get('disk-pressure')).toBeUndefined();
+        expect(client.get(shortId)).toBeUndefined();
+    });
+
+    it('ignores a clear for an alarm that is not active', () => {
+        const client = makeClient();
+        expect(() => client.clear('never-raised')).not.toThrow();
+    });
+
+    it('abbreviates long ids in the log line but keeps the short id usable', () => {
+        const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const client = makeClient();
+        const longId = 'a-very-long-alarm-identifier-that-wraps';
+
+        client.create(longId, 'noisy');
+
+        const shortId = client.get(longId)!.shortId;
+        expect(log).toHaveBeenCalledWith(
+            `[alarm] ACTIVE ${shortId} (${longId.slice(0, 20)}...) :: noisy`,
+        );
+    });
+
+    it('accumulates fields across repeats of the same alarm', () => {
+        const client = makeClient();
+        const seen = capture(client);
+
+        client.create('flap', 'first', { a: 1 });
+        client.create('flap', 'second', { b: 2 });
+
+        expect(seen[1].fields).toEqual({ a: '1', b: '2' });
+        expect(client.get('flap')?.occurrences).toHaveLength(2);
+    });
+
+    it('names anonymous handlers by their registration order', () => {
+        const client = makeClient();
+        client.addAlertHandler(async () => {
+            throw new Error('down');
+        });
+        expect(() => client.create('boom', 'x')).not.toThrow();
+    });
+
+    it('only logs the drain notice once', () => {
+        const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+        log.mockClear();
+        const client = makeClient();
+
+        client.onServerPrepareShutdown();
+        // A second prepare must not restart the drain.
+        client.onServerPrepareShutdown();
+        client.create('a', 'x');
+        client.create('b', 'y');
+
+        const drainLogs = log.mock.calls.filter(
+            ([message]) =>
+                message === '[alarm] suppressing alarm while draining',
+        );
+        expect(drainLogs).toHaveLength(1);
+    });
+
+    it('substitutes placeholders for an empty id and message', () => {
+        const client = makeClient();
+        const seen = capture(client);
+
+        client.create('', '');
+
+        expect(seen[0]).toMatchObject({
+            id: 'something-bad',
+            message: 'something bad happened',
+        });
+    });
+});
+
+describe('AlarmClient known-error rules', () => {
+    beforeEach(() => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    it('suppresses alerts for a matching rule', () => {
+        const client = makeClient();
+        const seen = capture(client);
+        client.setKnownErrors([
+            { match: { id: 'noisy' }, action: { type: 'no-alert' } },
+        ]);
+
+        client.create('noisy', 'ignore me');
+        client.create('noisy', 'ignore me again');
+
+        expect(seen).toHaveLength(0);
+    });
+
+    it('leaves alarms with a different id alone', () => {
+        const client = makeClient();
+        const seen = capture(client);
+        client.setKnownErrors([
+            { match: { id: 'noisy' }, action: { type: 'no-alert' } },
+        ]);
+
+        client.create('real', 'page me');
+
+        expect(seen).toHaveLength(1);
+    });
+
+    it('only matches when the message matches too', () => {
+        const rules = [
+            {
+                match: { id: 'timeout', message: 'upstream timed out' },
+                action: { type: 'no-alert' as const },
+            },
+        ];
+
+        // Separate clients: suppression is recorded on the alarm, so a
+        // second occurrence of the same id would inherit it.
+        const matching = makeClient();
+        const matchingSeen = capture(matching);
+        matching.setKnownErrors(rules);
+        matching.create('timeout', 'upstream timed out');
+        expect(matchingSeen).toHaveLength(0);
+
+        const differing = makeClient();
+        const differingSeen = capture(differing);
+        differing.setKnownErrors(rules);
+        differing.create('timeout', 'something else entirely');
+        expect(differingSeen.map((alert) => alert.message)).toEqual([
+            'something else entirely',
+        ]);
+    });
+
+    it('only matches when every named field matches', () => {
+        const client = makeClient();
+        const seen = capture(client);
+        client.setKnownErrors([
+            {
+                match: { id: 'http', fields: { status: 404 } },
+                action: { type: 'no-alert' },
+            },
+        ]);
+
+        client.create('http', 'not found', { status: 404 });
+        client.create('http-2', 'server error', { status: 500 });
+
+        expect(seen.map((alert) => alert.id)).toEqual(['http-2']);
+    });
+
+    it('retiers a matching alarm to a lower severity', () => {
+        const client = makeClient();
+        const paging = capture(client, 'error');
+        const chat = capture(client, 'info');
+        client.setKnownErrors([
+            {
+                match: { id: 'flaky' },
+                action: { type: 'severity', value: 'info' },
+            },
+        ]);
+
+        client.create('flaky', 'transient', {}, 'critical');
+
+        expect(paging).toHaveLength(0);
+        expect(chat).toHaveLength(1);
+        expect(chat[0].severity).toBe('info');
+    });
+});

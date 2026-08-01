@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -69,19 +69,20 @@ export type IPuterDriver<T extends WithCostsReporting = WithCostsReporting> =
  * **Two ways to declare a driver:**
  *
  * 1. Decorator:
+ *
  *    ```ts
  *    @Driver('puter-chat-completion', { name: 'openai', default: true })
  *    class OpenAIChat extends PuterDriver { ... }
- *    ```
+ * ```
  *
- * 2. Imperative (no decorator):
- *    ```ts
- *    class OpenAIChat extends PuterDriver {
- *        readonly driverInterface = 'puter-chat-completion';
- *        readonly driverName = 'openai';
- *        readonly isDefault = true;
- *    }
- *    ```
+ *     2. Imperative (no decorator):
+ *
+ *        ```ts
+ *        class OpenAIChat extends PuterDriver {
+ *            readonly driverInterface = 'puter-chat-completion';
+ *            readonly driverName = 'openai';
+ *            readonly isDefault = true;
+ *        }
  */
 export const PuterDriver = class PuterDriver implements WithCostsReporting {
     /** The interface this driver implements. Set by `@Driver` or override. */
@@ -97,16 +98,16 @@ export const PuterDriver = class PuterDriver implements WithCostsReporting {
      */
     declare readonly rateLimit?: DriverRateLimitConfig;
     /**
-     * Concurrent in-flight policy applied to RPC calls into this driver.
-     * Set by `@Driver({ concurrent: ... })` or declared imperatively.
-     * See `DriverConcurrentConfig` in `./meta` for the shape.
+     * Concurrent in-flight policy applied to RPC calls into this driver. Set by
+     * `@Driver({ concurrent: ... })` or declared imperatively. See
+     * `DriverConcurrentConfig` in `./meta` for the shape.
      */
     declare readonly concurrent?: DriverConcurrentConfig;
     /**
-     * When true, `/drivers/call` rejects bare account-session ("root")
-     * tokens for this driver — callers need an app/worker token or a
-     * dashboard-minted API token. Set by `@Driver({ noUserSession: true })`
-     * or declared imperatively. See `DriverMeta.noUserSession` in `./meta`.
+     * When true, `/drivers/call` rejects bare account-session ("root") tokens
+     * for this driver — callers need an app/worker token or a dashboard-minted
+     * API token. Set by `@Driver({ noUserSession: true })` or declared
+     * imperatively. See `DriverMeta.noUserSession` in `./meta`.
      */
     declare readonly noUserSession?: boolean;
 

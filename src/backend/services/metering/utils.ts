@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -18,9 +18,8 @@
  */
 
 /**
- *
  * @param dollars
- * @returns microcents
+ * @returns Microcents
  */
 export const toMicroCents = (dollars: number): number =>
     dollars * 1_000_000 * 100;

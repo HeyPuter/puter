@@ -73,9 +73,12 @@ export function pFetch (...args) {
                 return;
             }
 
-            // Sending default UA
+            // Sending default UA. `navigator` is absent in workerd, where
+            // reading it unguarded would fail every request outright; send
+            // no User-Agent at all rather than inventing one.
             if ( ! headers.get('user-agent') ) {
-                headers.set('user-agent', navigator.userAgent);
+                const runtimeUserAgent = globalThis.navigator?.userAgent;
+                if ( runtimeUserAgent ) headers.set('user-agent', runtimeUserAgent);
             }
 
             let reqHead = `${reqObj.method} ${parsedURL.pathname}${parsedURL.search} HTTP/1.1\r\nHost: ${parsedURL.host}\r\nConnection: close\r\n`;

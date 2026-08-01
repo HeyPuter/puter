@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -47,16 +47,15 @@ export const normalize_json_schema = (schema) => {
 /**
  * Normalizes the 'tools' object in-place.
  *
- * This function will accept an array of tools provided by the
- * user, and produce a normalized object that can then be
- * converted to the apprpriate representation for another
- * service.
+ * This function will accept an array of tools provided by the user, and produce
+ * a normalized object that can then be converted to the apprpriate
+ * representation for another service.
  *
- * We will accept conventions from either service that a user
- * might expect to work, prioritizing the OpenAI convention
- * when conflicting conventions are present.
+ * We will accept conventions from either service that a user might expect to
+ * work, prioritizing the OpenAI convention when conflicting conventions are
+ * present.
  *
- * @param {*} tools
+ * @param {any} tools
  */
 export const normalize_tools_object = (tools) => {
     for (let i = 0; i < tools.length; i++) {
@@ -118,10 +117,10 @@ export const normalize_tools_object = (tools) => {
 };
 
 /**
- * This function will convert a normalized tools object to the
- * format expected by OpenAI.
+ * This function will convert a normalized tools object to the format expected
+ * by OpenAI.
  *
- * @param {*} tools
+ * @param {any} tools
  * @returns
  */
 export const make_openai_tools = (tools) => {
@@ -129,10 +128,10 @@ export const make_openai_tools = (tools) => {
 };
 
 /**
- * This function will convert a normalized tools object to the
- * format expected by Claude.
+ * This function will convert a normalized tools object to the format expected
+ * by Claude.
  *
- * @param {*} tools
+ * @param {any} tools
  * @returns
  */
 export const make_claude_tools = (tools) => {

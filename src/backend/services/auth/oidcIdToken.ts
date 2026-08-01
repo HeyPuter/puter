@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -40,9 +40,9 @@ export interface IdTokenClaims {
     /** Microsoft: tenant id of the account's home tenant. */
     tid?: string;
     /**
-     * Microsoft: "email domain owner verified" — true when the email's
-     * domain is a verified domain of the issuing tenant. Opt-in claim,
-     * configured on the Azure app registration.
+     * Microsoft: "email domain owner verified" — true when the email's domain
+     * is a verified domain of the issuing tenant. Opt-in claim, configured on
+     * the Azure app registration.
      */
     xms_edov?: boolean;
 }
@@ -134,9 +134,9 @@ export const getSigningKey = async (
  * or signature/claim verification fails.
  *
  * Used for providers without a userinfo endpoint (e.g. Apple). The token
- * already arrives directly from the provider's token endpoint over TLS, so
- * this is defense-in-depth — but verifying the signature is the correct
- * behaviour rather than trusting an unverified base64 payload.
+ * already arrives directly from the provider's token endpoint over TLS, so this
+ * is defense-in-depth — but verifying the signature is the correct behaviour
+ * rather than trusting an unverified base64 payload.
  */
 export const verifyOidcIdToken = async (
     idToken: string,

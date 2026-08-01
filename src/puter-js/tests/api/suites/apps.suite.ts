@@ -214,6 +214,183 @@ export default suite('apps', {
         t.assert.equal(err?.error?.message, 'Index URL is required');
     },
 
+    'create accepts a positional title': async (t) => {
+        const app = await t.puter.apps.create(
+            'apps-suite-positional-title',
+            'https://example.com/positional',
+            'Positional Title',
+        );
+        t.assert.equal(app.title, 'Positional Title');
+        const fetched = await t.puter.apps.get('apps-suite-positional-title');
+        t.assert.equal(fetched.title, 'Positional Title');
+    },
+
+    'create defaults the title to the app name': async (t) => {
+        const app = await t.puter.apps.create(
+            'apps-suite-default-title',
+            'https://example.com/default-title',
+        );
+        t.assert.equal(app.title, 'apps-suite-default-title');
+    },
+
+    'create with a non-object argument rejects with invalid_request': async (t) => {
+        const err = await t.assert.rejects(
+            () => (t.puter.apps.create as (n: unknown) => Promise<unknown>)(42),
+            'a numeric argument should be rejected',
+        );
+        t.assert.equal((err as { code?: string })?.code, 'invalid_request');
+        t.assert.equal(
+            (err as { error?: { message?: string } })?.error?.message,
+            'Name is required',
+        );
+    },
+
+    'create with dedupeName picks a free name instead of conflicting': async (t) => {
+        await t.puter.apps.create({
+            name: 'apps-suite-dedupe',
+            indexURL: 'https://example.com/dedupe',
+        });
+        const second = await t.puter.apps.create({
+            name: 'apps-suite-dedupe',
+            indexURL: 'https://example.com/dedupe-2',
+            dedupeName: true,
+        });
+        t.assert.ok(
+            second.name !== 'apps-suite-dedupe',
+            `dedupeName should pick a new name, got ${second.name}`,
+        );
+    },
+
+    'get accepts per-request params alongside the name': async (t) => {
+        await t.puter.apps.create(
+            'apps-suite-params',
+            'https://example.com/params',
+        );
+        const app = await t.puter.apps.get('apps-suite-params', {
+            icon_size: 64,
+        } as never);
+        t.assert.equal(app.name, 'apps-suite-params');
+    },
+
+    'list with a limit returns a plain array': async (t) => {
+        await t.puter.apps.create(
+            'apps-suite-limited',
+            'https://example.com/limited',
+        );
+        const apps = (await t.puter.apps.list({ limit: 2 })) as Array<{
+            name: string;
+        }>;
+        t.assert.equal(Array.isArray(apps), true, 'a limit alone keeps the array shape');
+        t.assert.ok(apps.length <= 2, 'the limit should be respected');
+    },
+
+    'list with an offset returns a page envelope': async (t) => {
+        for (const name of ['apps-suite-off-a', 'apps-suite-off-b']) {
+            await t.puter.apps.create(name, `https://example.com/${name}`);
+        }
+        const page = (await t.puter.apps.list({ limit: 1, offset: 1 })) as {
+            items?: Array<{ name: string }>;
+        } | Array<{ name: string }>;
+        const items = Array.isArray(page) ? page : (page.items ?? []);
+        t.assert.equal(items.length, 1, 'offset paging returns one row');
+    },
+
+    'list forwards non-pagination options as request params': async (t) => {
+        await t.puter.apps.create(
+            'apps-suite-iconsize',
+            'https://example.com/iconsize',
+        );
+        const apps = (await t.puter.apps.list({ icon_size: 64 } as never)) as Array<{
+            name: string;
+        }>;
+        t.assert.equal(Array.isArray(apps), true);
+        t.assert.ok(
+            apps.some((a) => a.name === 'apps-suite-iconsize'),
+            'the listing should still contain the created app',
+        );
+    },
+
+    'list with stream rejects offset client-side': async (t) => {
+        let err: { code?: string; message?: string } | undefined;
+        try {
+            t.puter.apps.list({ stream: true, offset: 1 } as never);
+        } catch (e) {
+            err = e as typeof err;
+        }
+        t.assert.equal(err?.code, 'invalid_request');
+        t.assert.equal(
+            err?.message,
+            '`offset` cannot be combined with `stream`; pass `cursor` to resume from a position.',
+        );
+    },
+
+    'returned apps carry the user-iteration helpers': async (t) => {
+        const created = await t.puter.apps.create(
+            'apps-suite-users',
+            'https://example.com/users',
+        );
+        t.assert.equal(typeof created.getUsers, 'function');
+        t.assert.equal(typeof created.users, 'function');
+        const fetched = await t.puter.apps.get('apps-suite-users');
+        t.assert.equal(typeof fetched.getUsers, 'function');
+        const listed = await t.puter.apps.list();
+        const match = listed.find((a) => a.name === 'apps-suite-users');
+        t.assert.equal(typeof match?.getUsers, 'function');
+    },
+
+    'checkName without a name rejects with invalid_request': async (t) => {
+        const err = await t.assert.rejects(
+            () => (t.puter.apps.checkName as (n?: unknown) => Promise<unknown>)(''),
+            'an empty name should be rejected',
+        );
+        t.assert.equal((err as { code?: string })?.code, 'invalid_request');
+        t.assert.equal(
+            (err as { error?: { message?: string } })?.error?.message,
+            'Name is required',
+        );
+    },
+
+    'checkName reports an available name as available': async (t) => {
+        const result = await t.puter.apps.checkName(
+            'apps-suite-definitely-free-name',
+        );
+        t.assert.ok(result && typeof result === 'object');
+        t.assert.equal(
+            JSON.stringify(result).includes('true'),
+            true,
+            `an unused name should read as available, got ${JSON.stringify(result)}`,
+        );
+    },
+
+    'getDeveloperProfile fires trailing positional callbacks': async (t) => {
+        const profile = await new Promise((resolve, reject) => {
+            (
+                t.puter.apps.getDeveloperProfile as (
+                    s: (v: unknown) => void,
+                    e: (r: unknown) => void,
+                ) => void
+            )(resolve, reject);
+        });
+        t.assert.ok(profile && typeof profile === 'object');
+    },
+
+    'update of an unknown app rejects': async (t) => {
+        await t.assert.rejects(
+            () =>
+                t.puter.apps.update('apps-suite-never-created', {
+                    indexURL: 'https://example.com/nope',
+                }),
+            'updating a nonexistent app should reject',
+        );
+    },
+
+    'delete of an unknown app rejects': async (t) => {
+        await t.assert.rejects(
+            () => t.puter.apps.delete('apps-suite-never-existed'),
+            'deleting a nonexistent app should reject',
+        );
+    },
+
     'create remaps camelCase options to the stored app fields': async (t) => {
         await t.puter.apps.create({
             name: 'apps-suite-remap',

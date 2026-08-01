@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -41,17 +41,17 @@ interface NormalizedArgs {
  *
  * Controllers call familiar express-shaped methods (`router.get(...)`,
  * `router.post(...)`, ...); the router pushes a `RouteDescriptor` onto
- * `routes`. `PuterServer` then walks each controller's routes and
- * materializes them into real express handlers, applying middleware
- * derived from the per-route `options` plus any caller-supplied
- * `options.middleware` chain.
+ * `routes`. `PuterServer` then walks each controller's routes and materializes
+ * them into real express handlers, applying middleware derived from the
+ * per-route `options` plus any caller-supplied `options.middleware` chain.
  *
  * Keeping registration purely declarative means:
+ *
  * - Decorator-style and imperative-style controllers share one target.
- * - New per-route options (auth, subdomain, body parsing) can be added
- *   without touching any call site.
- * - The router has no dependency on an express app — useful for tests
- *   and for controllers constructed before the server is wired.
+ * - New per-route options (auth, subdomain, body parsing) can be added without
+ *   touching any call site.
+ * - The router has no dependency on an express app — useful for tests and for
+ *   controllers constructed before the server is wired.
  */
 export class PuterRouter {
     readonly prefix: string;

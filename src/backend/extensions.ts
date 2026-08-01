@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -67,9 +67,9 @@ import type {
 import type { IConfig, LayerInstances } from './types';
 
 /**
- * The in-memory registry an extension's module-scope code writes into, and
- * that `PuterServer` drains during boot. Every field is optional at write
- * time — an extension that only needs routes never touches the registries.
+ * The in-memory registry an extension's module-scope code writes into, and that
+ * `PuterServer` drains during boot. Every field is optional at write time — an
+ * extension that only needs routes never touches the registries.
  */
 export const extensionStore = {
     clients: {} as IPuterClientRegistry,
@@ -89,8 +89,8 @@ export const extensionStore = {
 };
 
 /**
- * Internal: normalize `(path, handler)` or `(path, options, handler)` into
- * a single `RouteDescriptor` the server can materialize.
+ * Internal: normalize `(path, handler)` or `(path, options, handler)` into a
+ * single `RouteDescriptor` the server can materialize.
  */
 const pushRoute = (
     method: RouteMethod,
@@ -128,13 +128,10 @@ const makeRouteFn = (method: RouteMethod): ExtensionRouteFn => {
 };
 
 /**
- * `extension.use` mirrors `app.use` and supports three shapes:
- *   use(handler)
- *   use(options, handler)
- *   use(path, handler)
- *   use(path, options, handler)
- * Pathless calls register global middleware — the server materializer
- * drops the path when calling `app.use` (see `RouteDescriptor.path?`).
+ * `extension.use` mirrors `app.use` and supports three shapes: use(handler)
+ * use(options, handler) use(path, handler) use(path, options, handler) Pathless
+ * calls register global middleware — the server materializer drops the path
+ * when calling `app.use` (see `RouteDescriptor.path?`).
  */
 interface ExtensionUseFn {
     (handler: RequestHandler): void;
@@ -190,26 +187,26 @@ const makeUseFn = (): ExtensionUseFn => {
  * Global `extension` API available inside every dynamically-loaded extension
  * module. Exposes:
  *
- *   - Registry writers: `registerClient`, `registerStore`, `registerService`,
- *     `registerController`, `registerDriver`.
- *   - Event subscription: `on(event, handler)`.
- *   - Imperative route registration: `get`, `post`, `put`, `delete`, `patch`,
- *     `head`, `options`, `all`, `use`. Each accepts the same `RouteOptions`
- *     vocabulary used by controllers (subdomain, requireAuth, bodyJson, …)
- *     so extension routes get identical gate + parser treatment.
- *   - Back-reference lookup: `import('service:foo')` / `'client:bar'` /
- *     `'store:baz'` / `'controller:qux'` / `'driver:fred'` — returns a lazy
- *     proxy to the registered instance (thrown on use-before-init).
+ * - Registry writers: `registerClient`, `registerStore`, `registerService`,
+ *   `registerController`, `registerDriver`.
+ * - Event subscription: `on(event, handler)`.
+ * - Imperative route registration: `get`, `post`, `put`, `delete`, `patch`,
+ *   `head`, `options`, `all`, `use`. Each accepts the same `RouteOptions`
+ *   vocabulary used by controllers (subdomain, requireAuth, bodyJson, …) so
+ *   extension routes get identical gate + parser treatment.
+ * - Back-reference lookup: `import('service:foo')` / `'client:bar'` /
+ *   `'store:baz'` / `'controller:qux'` / `'driver:fred'` — returns a lazy proxy
+ *   to the registered instance (thrown on use-before-init).
  */
 /**
- * Wrap a resolved layer instance so that pulling a method off the import
- * comes out *bound* to the instance. Extensions routinely grab a method as a
- * bare reference — `const { write } = extension.import('service').fs` or
- * `const w = svc.fs.write` — then call it detached; without binding, `this`
- * is `undefined` and the method's private-field access throws on the first
- * line. Getters keep the real instance as their receiver, so private-field
- * reads inside accessors still resolve. Only `get` is trapped; writes, `in`,
- * and descriptor reads fall through to the instance unchanged.
+ * Wrap a resolved layer instance so that pulling a method off the import comes
+ * out _bound_ to the instance. Extensions routinely grab a method as a bare
+ * reference — `const { write } = extension.import('service').fs` or `const w =
+ * svc.fs.write` — then call it detached; without binding, `this` is `undefined`
+ * and the method's private-field access throws on the first line. Getters keep
+ * the real instance as their receiver, so private-field reads inside accessors
+ * still resolve. Only `get` is trapped; writes, `in`, and descriptor reads fall
+ * through to the instance unchanged.
  *
  * Trade-off: each method access returns a fresh bound function, so reference
  * identity is not stable (`svc.fs.write !== svc.fs.write`). That's acceptable
@@ -229,6 +226,50 @@ const bindLayerMethods = <T>(instance: T): T => {
         },
     }) as T;
 };
+
+/**
+ * Lazy lookup proxy over one layer's instance container.
+ *
+ * Extension modules are imported before the layers are constructed, so a name
+ * read at module scope is normally still absent. Both levels therefore resolve
+ * against the container on _every_ access: `extension.import('client').db`
+ * captured at import time keeps working once the real client lands, which is
+ * the whole point of the proxy.
+ *
+ * A name that never gets registered throws on first property read rather than
+ * returning `undefined`, so a typo surfaces at the access site instead of
+ * silently becoming a no-op. Callers probing for an optional layer entry must
+ * do so inside a try/catch.
+ */
+const makeLayerImportProxy = (
+    layer: string,
+    containers: Record<string, unknown>,
+): object =>
+    new Proxy(
+        {},
+        {
+            get: (_target: object, prop: string) => {
+                const instance = containers[prop];
+                if (instance) return bindLayerMethods(instance);
+                return new Proxy(
+                    {},
+                    {
+                        get: (_target2: object, prop2: string) => {
+                            const late = containers[prop];
+                            if (!late) {
+                                throw new Error(
+                                    `extension.import('${layer}:${prop}') missing property '${String(prop2)}'`,
+                                );
+                            }
+                            return bindLayerMethods(late)[
+                                prop2 as keyof typeof late
+                            ];
+                        },
+                    },
+                );
+            },
+        },
+    );
 
 export const extension = {
     // -- Config access -----------------------------------------------
@@ -333,144 +374,31 @@ export const extension = {
                 : never => {
         switch (name) {
             case 'clients':
-            case 'client': {
-                const proxyHandler = {
-                    get: (_target: object, prop: string) => {
-                        const proxiedObj = clientsContainers[prop];
-                        if (!proxiedObj) {
-                            const proxyProxyHandler = {
-                                get: (_target2: object, prop2: string) => {
-                                    const proxiedObj2 =
-                                        // @ts-expect-error any type needed
-                                        clientsContainers[prop][prop2];
-                                    if (!proxiedObj2) {
-                                        throw new Error(
-                                            `extension.import('client:${prop}') missing property '${prop2}'`,
-                                        );
-                                    }
-                                    return proxiedObj2;
-                                },
-                            };
-                            return new Proxy({}, proxyProxyHandler) as object;
-                        }
-                        return bindLayerMethods(proxiedObj);
-                    },
-                };
+            case 'client':
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return new Proxy({}, proxyHandler) as any;
-            }
+                return makeLayerImportProxy('client', clientsContainers) as any;
             case 'stores':
-            case 'store': {
-                const proxyHandler = {
-                    get: (_target: object, prop: string) => {
-                        const proxiedObj = storesContainers[prop];
-
-                        if (!proxiedObj) {
-                            const proxyProxyHandler = {
-                                get: (_target2: object, prop2: string) => {
-                                    const proxiedObj2 =
-                                        // @ts-expect-error any type needed
-                                        clientsContainers[prop][prop2];
-                                    if (!proxiedObj2) {
-                                        throw new Error(
-                                            `extension.import('client:${prop}') missing property '${prop2}'`,
-                                        );
-                                    }
-                                    return proxiedObj2;
-                                },
-                            };
-                            return new Proxy({}, proxyProxyHandler) as object;
-                        }
-                        return bindLayerMethods(proxiedObj);
-                    },
-                };
+            case 'store':
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return new Proxy({}, proxyHandler) as any;
-            }
+                return makeLayerImportProxy('store', storesContainers) as any;
             case 'services':
-            case 'service': {
-                const proxyHandler = {
-                    get: (_target: object, prop: string) => {
-                        const proxiedObj = servicesContainers[prop];
-
-                        if (!proxiedObj) {
-                            const proxyProxyHandler = {
-                                get: (_target2: object, prop2: string) => {
-                                    const proxiedObj2 =
-                                        // @ts-expect-error any type needed
-                                        clientsContainers[prop][prop2];
-                                    if (!proxiedObj2) {
-                                        throw new Error(
-                                            `extension.import('client:${prop}') missing property '${prop2}'`,
-                                        );
-                                    }
-                                    return proxiedObj2;
-                                },
-                            };
-                            return new Proxy({}, proxyProxyHandler) as object;
-                        }
-                        return bindLayerMethods(proxiedObj);
-                    },
-                };
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return new Proxy({}, proxyHandler) as any;
-            }
+            case 'service':
+                return makeLayerImportProxy(
+                    'service',
+                    servicesContainers,
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                ) as any;
             case 'controllers':
-            case 'controller': {
-                const proxyHandler = {
-                    get: (_target: object, prop: string) => {
-                        const proxiedObj = controllersContainers[prop];
-
-                        if (!proxiedObj) {
-                            const proxyProxyHandler = {
-                                get: (_target2: object, prop2: string) => {
-                                    const proxiedObj2 =
-                                        // @ts-expect-error any type needed
-                                        clientsContainers[prop][prop2];
-                                    if (!proxiedObj2) {
-                                        throw new Error(
-                                            `extension.import('client:${prop}') missing property '${prop2}'`,
-                                        );
-                                    }
-                                    return proxiedObj2;
-                                },
-                            };
-                            return new Proxy({}, proxyProxyHandler) as object;
-                        }
-                        return bindLayerMethods(proxiedObj);
-                    },
-                };
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return new Proxy({}, proxyHandler) as any;
-            }
+            case 'controller':
+                return makeLayerImportProxy(
+                    'controller',
+                    controllersContainers,
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                ) as any;
             case 'drivers':
-            case 'driver': {
-                const proxyHandler = {
-                    get: (_target: object, prop: string) => {
-                        const proxiedObj = driversContainers[prop];
-
-                        if (!proxiedObj) {
-                            const proxyProxyHandler = {
-                                get: (_target2: object, prop2: string) => {
-                                    const proxiedObj2 =
-                                        // @ts-expect-error any type needed
-                                        clientsContainers[prop][prop2];
-                                    if (!proxiedObj2) {
-                                        throw new Error(
-                                            `extension.import('client:${prop}') missing property '${prop2}'`,
-                                        );
-                                    }
-                                    return proxiedObj2;
-                                },
-                            };
-                            return new Proxy({}, proxyProxyHandler) as object;
-                        }
-                        return bindLayerMethods(proxiedObj);
-                    },
-                };
+            case 'driver':
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                return new Proxy({}, proxyHandler) as any;
-            }
+                return makeLayerImportProxy('driver', driversContainers) as any;
             default:
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 return undefined as any;

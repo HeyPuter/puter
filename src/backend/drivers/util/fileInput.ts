@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -31,12 +31,11 @@ import { secureFetch } from '../../util/secureHttp.js';
 /**
  * Resolve a file-like input sent through the drivers API into a Buffer.
  *
- * puter-js sends driver args as plain JSON (no multipart). `audio`, `source`,
- * and similar file fields arrive as one of:
- *   • a data URL string (`data:image/png;base64,...`)
- *   • a web URL string (`https://example.com/image.png`)
- *   • a plain path string (`/alice/music/sample.mp3`)
- *   • an object with `{ path?, uid?, uuid? }`
+ * Puter-js sends driver args as plain JSON (no multipart). `audio`, `source`,
+ * and similar file fields arrive as one of: • a data URL string
+ * (`data:image/png;base64,...`) • a web URL string
+ * (`https://example.com/image.png`) • a plain path string
+ * (`/alice/music/sample.mp3`) • an object with `{ path?, uid?, uuid? }`
  *
  * This helper collapses those shapes into `{ buffer, filename, mimeType }`.
  */

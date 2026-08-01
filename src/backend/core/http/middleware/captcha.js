@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -21,13 +21,13 @@ import crypto from 'node:crypto';
 import { HttpError } from '../HttpError.js';
 import svgCaptcha from 'svg-captcha';
 /**
- * Simple SVG captcha service — generates image challenges and verifies
- * one-time tokens. Tokens are stored in Redis so generation and verification
- * can happen on different server nodes.
+ * Simple SVG captcha service — generates image challenges and verifies one-time
+ * tokens. Tokens are stored in Redis so generation and verification can happen
+ * on different server nodes.
  *
- * Exposed as a route option: `{ captcha: true }` on any route.
- * The middleware rejects if captcha is enabled and the request
- * doesn't carry valid captchaToken + captchaAnswer fields.
+ * Exposed as a route option: `{ captcha: true }` on any route. The middleware
+ * rejects if captcha is enabled and the request doesn't carry valid
+ * captchaToken + captchaAnswer fields.
  *
  * When captcha is disabled in config, the middleware is a no-op.
  */
@@ -101,8 +101,8 @@ export async function verifyCaptcha(token, answer) {
 /**
  * Captcha gate middleware factory.
  *
- * Reads `captchaToken` and `captchaAnswer` from `req.body`.
- * Rejects with 400 if missing or invalid.
+ * Reads `captchaToken` and `captchaAnswer` from `req.body`. Rejects with 400 if
+ * missing or invalid.
  *
  * Pass `enabled` from config — when false, the gate is a no-op.
  */

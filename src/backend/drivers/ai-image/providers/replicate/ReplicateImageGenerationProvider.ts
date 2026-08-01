@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -305,8 +305,8 @@ export class ReplicateImageGenerationProvider implements IImageProvider {
 
     /**
      * Applies `param_transforms` on top of the aliased map: injects defaults
-     * for missing keys, then appends any configured string suffix to the
-     * value. Returns the original map unchanged when the model declares no
+     * for missing keys, then appends any configured string suffix to the value.
+     * Returns the original map unchanged when the model declares no
      * transforms.
      */
     #applyTransforms(

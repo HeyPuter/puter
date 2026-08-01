@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -26,27 +26,28 @@ import type { OIDCService } from '../../../services/auth/OIDCService';
 import type { TokenService } from '../../../services/auth/TokenService';
 
 /**
- * Gate for security-critical account endpoints mounted under `/user-protected/*`.
+ * Gate for security-critical account endpoints mounted under
+ * `/user-protected/*`.
  *
  * Runs AFTER the built-in `requireUserActor` + `antiCsrf` gates; adds four
  * extra checks:
  *
- *   1. **Session-cookie only** — reject API tokens, GUI tokens, `x-api-key`
- *      headers, query-string tokens. `authProbe` stashes the token it
- *      resolved as `req.token`; if that doesn't match the session cookie
- *      value, the request came in via a non-cookie source and is rejected.
- *   2. **Cache-bypass user refresh** — a suspended account whose session
- *      row is still cached would otherwise pass; re-fetch with
- *      `{ force: true }` and reject anything suspended.
- *   3. **Temp-user block** — temporary accounts (no password + no email)
- *      can only reach `/delete-own-user`. Opt in by constructing with
- *      `{ allowTempUsers: true }` on that route.
- *   4. **Password OR OIDC revalidation cookie** — `req.body.password` is
- *      verified via bcrypt against the user row; otherwise a valid
- *      `puter_revalidation` cookie (signed via `services.token.sign('oidc-state')`)
- *      is required. OIDC-only accounts (no password) MUST use the
- *      revalidation cookie — password path returns `oidc_revalidation_required`
- *      with a `revalidate_url` so the GUI can open the OIDC popup.
+ * 1. **Session-cookie only** — reject API tokens, GUI tokens, `x-api-key` headers,
+ *    query-string tokens. `authProbe` stashes the token it resolved as
+ *    `req.token`; if that doesn't match the session cookie value, the request
+ *    came in via a non-cookie source and is rejected.
+ * 2. **Cache-bypass user refresh** — a suspended account whose session row is
+ *    still cached would otherwise pass; re-fetch with `{ force: true }` and
+ *    reject anything suspended.
+ * 3. **Temp-user block** — temporary accounts (no password + no email) can only
+ *    reach `/delete-own-user`. Opt in by constructing with `{ allowTempUsers:
+ *    true }` on that route.
+ * 4. **Password OR OIDC revalidation cookie** — `req.body.password` is verified
+ *    via bcrypt against the user row; otherwise a valid `puter_revalidation`
+ *    cookie (signed via `services.token.sign('oidc-state')`) is required.
+ *    OIDC-only accounts (no password) MUST use the revalidation cookie —
+ *    password path returns `oidc_revalidation_required` with a `revalidate_url`
+ *    so the GUI can open the OIDC popup.
  */
 
 const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
@@ -64,13 +65,13 @@ export interface UserProtectedGateDeps {
 }
 
 /**
- * Cookie-only credential check. Rejects API tokens, GUI tokens,
- * `x-api-key` headers, and query-string tokens — only a request whose
- * resolved `req.token` matches the session cookie passes. Used both by
- * `createUserProtectedGate` (as its first stage) and standalone by
- * routes that need session-cookie-only credentials without the full
- * password-revalidation gate (e.g. `/auth/revoke-*`, where an access
- * token shouldn't be able to revoke its own issuing web session).
+ * Cookie-only credential check. Rejects API tokens, GUI tokens, `x-api-key`
+ * headers, and query-string tokens — only a request whose resolved `req.token`
+ * matches the session cookie passes. Used both by `createUserProtectedGate` (as
+ * its first stage) and standalone by routes that need session-cookie-only
+ * credentials without the full password-revalidation gate (e.g.
+ * `/auth/revoke-*`, where an access token shouldn't be able to revoke its own
+ * issuing web session).
  */
 export const createSessionCookieGate = (config: IConfig): RequestHandler => {
     const cookieName = config.cookie_name ?? 'puter_token';
@@ -88,12 +89,12 @@ export const createSessionCookieGate = (config: IConfig): RequestHandler => {
 };
 
 /**
- * Same intent as `createSessionCookieGate` ("an access token can't revoke
- * its issuing web session") but identity-shape based instead of cookie-
- * value based, so it works for the cross-subdomain GUI -> api.puter.com
- * call path where the session cookie isn't sent. Accepts a plain user
- * actor (web/session/gui-token); rejects app-under-user actors and
- * access-token actors. Pair with `antiCsrf: true` on the route.
+ * Same intent as `createSessionCookieGate` ("an access token can't revoke its
+ * issuing web session") but identity-shape based instead of cookie- value
+ * based, so it works for the cross-subdomain GUI -> api.puter.com call path
+ * where the session cookie isn't sent. Accepts a plain user actor
+ * (web/session/gui-token); rejects app-under-user actors and access-token
+ * actors. Pair with `antiCsrf: true` on the route.
  */
 export const createWebSessionActorGate = (): RequestHandler => {
     return (req, _res, next) => {

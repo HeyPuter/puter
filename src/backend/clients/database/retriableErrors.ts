@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -41,11 +41,10 @@ const RETRIABLE_ERROR_MESSAGES = [
 ];
 
 /**
- * Failures where the statement provably never reached the server, so a
- * retry can never double-apply it — safe even for writes. Anything that
- * can occur after the statement was sent (resets, protocol drops) is
- * deliberately excluded: the server may have committed before the
- * connection died.
+ * Failures where the statement provably never reached the server, so a retry
+ * can never double-apply it — safe even for writes. Anything that can occur
+ * after the statement was sent (resets, protocol drops) is deliberately
+ * excluded: the server may have committed before the connection died.
  */
 const NEVER_SENT_ERROR_CODES = new Set([
     'ECONNREFUSED',
@@ -59,10 +58,9 @@ const errorCode = (error: unknown): string | undefined =>
     (error as { code?: string } | null)?.code;
 
 /**
- * Transient connection-level failures worth retrying — but only for
- * statements that are safe to run twice (reads). Row-level errors
- * (duplicate key, constraint violations) are deterministic and never
- * match.
+ * Transient connection-level failures worth retrying — but only for statements
+ * that are safe to run twice (reads). Row-level errors (duplicate key,
+ * constraint violations) are deterministic and never match.
  */
 export const isRetriableError = (error: unknown): boolean => {
     const code = errorCode(error);

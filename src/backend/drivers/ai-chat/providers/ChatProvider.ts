@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -25,9 +25,8 @@ import type {
 } from '../types.js';
 
 /**
- * Abstract base for AI chat providers. Each provider wraps a single
- * upstream API (Anthropic, OpenAI, …) and exposes the unified
- * `IChatProvider` contract.
+ * Abstract base for AI chat providers. Each provider wraps a single upstream
+ * API (Anthropic, OpenAI, …) and exposes the unified `IChatProvider` contract.
  */
 export class ChatProvider implements IChatProvider {
     getDefaultModel(): string {

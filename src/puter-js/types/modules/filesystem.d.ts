@@ -165,6 +165,36 @@ export interface UploadOptions extends RequestCallbacks<FSItem | FSItem[]> {
 }
 
 /**
+ * One operation's outcome inside a failed upload: either a failed operation
+ * (`error: true`, with its own `status`, `message`, and `code`) or the
+ * `FSItem` a successful operation produced.
+ */
+export type UploadOperationResult =
+    | { error: true; status?: number; message?: string; code?: string; [key: string]: unknown }
+    | FSItem;
+
+/**
+ * The rejection value of `upload()` when the batch request itself completed
+ * but one or more of its operations failed.
+ */
+export interface UploadBatchError {
+    message: string;
+    /**
+     * `batch_upload_failed` when nothing was written, `batch_upload_partially_failed`
+     * when only some operations failed, and `batch_upload_no_results` when the server
+     * reported success without saying what it wrote.
+     */
+    code: 'batch_upload_failed' | 'batch_upload_partially_failed' | 'batch_upload_no_results';
+    status: number;
+    /** Every operation's result, in the order the operations were sent. */
+    results: UploadOperationResult[];
+    /** Just the operations that failed. */
+    failedItems: UploadOperationResult[];
+    failedCount: number;
+    totalCount: number;
+}
+
+/**
  * Options for the `write` operation.
  */
 export interface WriteOptions extends RequestCallbacks<FSItem> {
@@ -273,6 +303,9 @@ export class FS {
      * Uploads local items to the Puter filesystem. Resolves to a single `FSItem` if `items`
      * contains one item, or an array of `FSItem` objects if it contains multiple items.
      * If `dirPath` is not set, items are uploaded to the app's root directory.
+     * Rejects if any part of the upload failed — the promise never resolves to a mix
+     * of items and errors. On the batch-endpoint path (`nodejs`, `workers`) the
+     * rejection value is an `UploadBatchError`.
      */
     upload (items: UploadItems, dirPath?: string, options?: UploadOptions): Promise<FSItem | FSItem[]>;
 

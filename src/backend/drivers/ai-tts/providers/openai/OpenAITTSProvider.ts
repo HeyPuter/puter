@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -72,8 +72,8 @@ const OPENAI_TTS_MODELS = [
 ];
 
 /**
- * OpenAI TTS provider. Wraps the OpenAI speech synthesis API and
- * returns audio as a DriverStreamResult.
+ * OpenAI TTS provider. Wraps the OpenAI speech synthesis API and returns audio
+ * as a DriverStreamResult.
  */
 export class OpenAITTSProvider extends TTSProvider {
     readonly providerName = 'openai';

@@ -47,6 +47,25 @@ describe('FSItem properties', () => {
     it('accepts the camelCase isDir spelling', () => {
         expect(makeItem({ isDir: true }).isDirectory).toBe(true);
     });
+
+    it('reads signature and expires off the signed URL', () => {
+        const item = makeItem();
+        expect(item._internalProperties.signature).toBe('sig');
+        expect(item._internalProperties.expires).toBe('1');
+    });
+
+    // Stat/readdir results and picker payloads carry no read or write URL;
+    // there is nothing to infer from, which is not an error.
+    it('builds from an entry with no signed URL', () => {
+        const item = new FSItem({
+            uid: 'uid-1',
+            name: 'file.txt',
+            path: '/user/file.txt',
+        });
+        expect(item.name).toBe('file.txt');
+        expect(item._internalProperties.signature).toBe(null);
+        expect(item._internalProperties.expires).toBe(null);
+    });
 });
 
 describe('FSItem.write', () => {

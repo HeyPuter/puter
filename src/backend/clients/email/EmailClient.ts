@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -110,10 +110,11 @@ const DOMAIN_ALIASES: Record<string, string> = {
 
 /**
  * Unified email client. Handles:
- *   - Template-based outbound mail (via `send`)
- *   - Raw nodemailer passthrough (via `sendRaw`)
- *   - Canonical-form normalization for dedup (via `clean`)
- *   - Policy + extensible validation (via `validate`)
+ *
+ * - Template-based outbound mail (via `send`)
+ * - Raw nodemailer passthrough (via `sendRaw`)
+ * - Canonical-form normalization for dedup (via `clean`)
+ * - Policy + extensible validation (via `validate`)
  */
 export class EmailClient extends PuterClient {
     private transport: ReturnType<typeof nodemailer.createTransport> | null =
@@ -151,9 +152,7 @@ export class EmailClient extends PuterClient {
 
     // -- Public API: sending ------------------------------------------
 
-    /**
-     * Render a template and send it to `to`.
-     */
+    /** Render a template and send it to `to`. */
     async send<T extends EmailTemplateName>(
         to: string,
         template: T,
@@ -173,12 +172,12 @@ export class EmailClient extends PuterClient {
     }
 
     /**
-     * Raw send — bypasses the template system. Useful for one-off
-     * admin emails that don't warrant a named template.
+     * Raw send — bypasses the template system. Useful for one-off admin emails
+     * that don't warrant a named template.
      *
-     * Returns the transport's send result, or `null` when no transport
-     * is configured (the send is a no-op in that case — callers that
-     * must not silently drop mail should check `isConfigured` first).
+     * Returns the transport's send result, or `null` when no transport is
+     * configured (the send is a no-op in that case — callers that must not
+     * silently drop mail should check `isConfigured` first).
      */
     async sendRaw(options: SendMailOptions) {
         if (!this.transport) {
@@ -202,9 +201,9 @@ export class EmailClient extends PuterClient {
     // -- Public API: clean / validate ---------------------------------
 
     /**
-     * Normalize an email to its canonical form for dedup comparisons.
-     * Applies provider-specific rules (e.g. Gmail ignores dots in
-     * the local part) plus generic subaddressing removal.
+     * Normalize an email to its canonical form for dedup comparisons. Applies
+     * provider-specific rules (e.g. Gmail ignores dots in the local part) plus
+     * generic subaddressing removal.
      */
     clean(email: string): string {
         let [local, domain] = email.split('@');
@@ -233,9 +232,9 @@ export class EmailClient extends PuterClient {
     }
 
     /**
-     * Check whether an email is allowed to be used. Checks domain
-     * blocklist plus any registered validators (services can call
-     * `addValidator()` to register custom policy hooks).
+     * Check whether an email is allowed to be used. Checks domain blocklist
+     * plus any registered validators (services can call `addValidator()` to
+     * register custom policy hooks).
      */
     async validate(email: string): Promise<boolean> {
         if (this.config.env === 'dev') return true;
@@ -258,9 +257,8 @@ export class EmailClient extends PuterClient {
     }
 
     /**
-     * Register a custom validation hook. Services can call this
-     * during their startup to veto specific emails (e.g. a
-     * disposable-email service).
+     * Register a custom validation hook. Services can call this during their
+     * startup to veto specific emails (e.g. a disposable-email service).
      */
     addValidator(fn: EmailValidator): void {
         this.validators.push(fn);

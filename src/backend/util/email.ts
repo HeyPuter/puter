@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -18,11 +18,11 @@
  */
 
 /**
- * Email normalization + block-list check. Stateless — used by
- * AuthController (signup / change-email / save-account).
+ * Email normalization + block-list check. Stateless — used by AuthController
+ * (signup / change-email / save-account).
  *
- *   cleanEmail('foo.bar+tag@gmail.com') === 'foobar@gmail.com'
- *   isBlockedEmail('temp@mailinator.com', ['mailinator.com']) === true
+ * CleanEmail('foo.bar+tag@gmail.com') === 'foobar@gmail.com'
+ * isBlockedEmail('temp@mailinator.com', ['mailinator.com']) === true
  */
 
 type RuleName = 'dots_dont_matter' | 'remove_subaddressing';
@@ -42,9 +42,9 @@ const RULES: Record<RuleName, (p: Parts) => void> = {
 };
 
 /**
- * Providers whose addresses should be canonicalized before comparison.
- * `rules` are added on top of the default `remove_subaddressing`; `rmrules`
- * are subtracted (Yahoo permits `+` in local parts).
+ * Providers whose addresses should be canonicalized before comparison. `rules`
+ * are added on top of the default `remove_subaddressing`; `rmrules` are
+ * subtracted (Yahoo permits `+` in local parts).
  */
 const PROVIDERS: Record<string, { rules?: RuleName[]; rmrules?: RuleName[] }> =
     {

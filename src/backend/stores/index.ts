@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -35,8 +35,8 @@ import type { IPuterStoreRegistry } from './types.js';
  * Populate `IPuterStoreInstances` (declared in `./types`) with the concrete
  * types of built-in stores. Done via declaration merging instead of
  * `LayerInstances<typeof puterStores>` because every concrete store extends
- * `PuterStore`, whose `protected stores` field references this type — a
- * direct `typeof puterStores` lookup would self-cycle.
+ * `PuterStore`, whose `protected stores` field references this type — a direct
+ * `typeof puterStores` lookup would self-cycle.
  */
 declare module './types.js' {
     interface IPuterStoreInstances {

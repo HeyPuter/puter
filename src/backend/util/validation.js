@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -20,8 +20,8 @@
 import { HttpError } from '../core/http/HttpError.js';
 
 /**
- * Small input validation utilities for driver methods.
- * Throws HttpError(400, ...) on failure. Returns the value on success.
+ * Small input validation utilities for driver methods. Throws HttpError(400,
+ * ...) on failure. Returns the value on success.
  */
 
 export function validateString(

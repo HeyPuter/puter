@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -23,9 +23,9 @@ import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 
 /**
- * Resolve an entry by one of several reference shapes (path, uid, id) to
- * a plain FSEntry row. Everything else (size, descendants, subdomains,
- * shares) is fetched by explicit service methods as needed.
+ * Resolve an entry by one of several reference shapes (path, uid, id) to a
+ * plain FSEntry row. Everything else (size, descendants, subdomains, shares) is
+ * fetched by explicit service methods as needed.
  *
  * If a caller wants a batch resolve, do N individual calls — the repository
  * caches each result in Redis on first read.
@@ -44,7 +44,10 @@ export interface NodeRef {
 }
 
 export interface ResolveNodeOptions {
-    /** Throw a 404 HttpError when nothing resolves; default `false` returns null. */
+    /**
+     * Throw a 404 HttpError when nothing resolves; default `false` returns
+     * null.
+     */
     required?: boolean;
 }
 
@@ -111,9 +114,9 @@ function notFoundOrNull(required: boolean | undefined, message: string): null {
 
 /**
  * Split an absolute path into `{ parentPath, name }`. Used for operations that
- * accept "create child X of parent Y" shape (touch/mkdir/write), plus the
- * `{ parent, name }` selector style (parent resolves first, then we append
- * name to parent.path).
+ * accept "create child X of parent Y" shape (touch/mkdir/write), plus the `{
+ * parent, name }` selector style (parent resolves first, then we append name to
+ * parent.path).
  */
 export function splitParentAndName(absolutePath: string): {
     parentPath: string;
@@ -160,8 +163,8 @@ export function normalizeAbsolutePath(path: string): string {
 /**
  * Expand a leading `~` (home-dir shorthand) to `/<username>`. Preserves
  * non-tilde paths as-is. Throws 400 when the path needs expansion but no
- * username was supplied. Used by legacy FS endpoints (stat/readdir/etc.)
- * that accept user-authored paths verbatim.
+ * username was supplied. Used by legacy FS endpoints (stat/readdir/etc.) that
+ * accept user-authored paths verbatim.
  */
 export function expandTildePath(path: string, username?: string): string {
     if (typeof path !== 'string') return path;

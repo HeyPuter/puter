@@ -1,7 +1,21 @@
-const { readFileSync } = require('node:fs');
+const { existsSync, readFileSync } = require('node:fs');
 const vm = require('node:vm');
 const { resolve } = require('node:path');
 const open = require('open');
+
+// `puter.cjs` only exists after `prepublishOnly` renames webpack's output, so
+// fall back to the raw bundle — a plain `npm run build` is then enough to use
+// the CLI from a source checkout.
+const resolveBundle = () => {
+    const dist = `${resolve(__filename, '..')}/../dist`;
+    for (const name of ['puter.cjs', 'puter.js']) {
+        const candidate = `${dist}/${name}`;
+        if (existsSync(candidate)) return candidate;
+    }
+    throw new Error(
+        'puter.js bundle not found — run `npm run build` in src/puter-js first',
+    );
+};
 /**
  * Method for loading puter.js in Node.js environment with auth token
  * @param {string} authToken - Optional auth token to initialize puter with
@@ -20,7 +34,7 @@ const init = (authToken) => {
         }
     });
     goodContext.globalThis = goodContext;
-    const code = readFileSync(`${resolve(__filename, '..')}/../dist/puter.cjs`, 'utf8');
+    const code = readFileSync(resolveBundle(), 'utf8');
     const context = vm.createContext(goodContext);
     vm.runInNewContext(code, context);
     if ( authToken ) {

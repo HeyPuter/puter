@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -20,10 +20,10 @@
 /**
  * True when `err` is a UNIQUE / PRIMARY KEY constraint violation, across the
  * three database drivers Puter runs on. Use to make an "insert if absent"
- * idempotent in the face of a lost check-then-insert race — only a duplicate
- * is swallowed; CHECK / NOT NULL / FK / type violations still bubble up.
+ * idempotent in the face of a lost check-then-insert race — only a duplicate is
+ * swallowed; CHECK / NOT NULL / FK / type violations still bubble up.
  *
- * better-sqlite3 surfaces `SqliteError.code`; mysql2 surfaces `.code` and
+ * Better-sqlite3 surfaces `SqliteError.code`; mysql2 surfaces `.code` and
  * `.errno` (1062 = ER_DUP_ENTRY); pg surfaces SQLSTATE `23505`.
  */
 export function isUniqueViolation(err: unknown): boolean {

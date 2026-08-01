@@ -131,15 +131,20 @@ class FSItem {
         });
 
         // Currently 'signature' and 'expires' are not provided in 'options',
-        // but they can be inferred by writeURL or readURL.
-        internalProperties.signature = options.signature ?? (() => {
-            const url = new URL(/** @type {string} */ (this.writeURL ?? this.readURL));
-            return url.searchParams.get('signature');
+        // but they can be inferred by writeURL or readURL. Items built from an
+        // unsigned entry (a stat/readdir result, a picker payload without a
+        // read URL) simply have neither.
+        const signedParams = (() => {
+            const signedUrl = this.writeURL ?? this.readURL;
+            if ( typeof signedUrl !== 'string' || signedUrl === '' ) return null;
+            try {
+                return new URL(signedUrl).searchParams;
+            } catch (e) {
+                return null;
+            }
         })();
-        internalProperties.expires = options.expires ?? (() => {
-            const url = new URL(/** @type {string} */ (this.writeURL ?? this.readURL));
-            return url.searchParams.get('expires');
-        })();
+        internalProperties.signature = options.signature ?? signedParams?.get('signature') ?? null;
+        internalProperties.expires = options.expires ?? signedParams?.get('expires') ?? null;
 
         // This computed property gives us an object in the format output by
         // the `/sign` endpoint, which can be passed to `launch_app` to

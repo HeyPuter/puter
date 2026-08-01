@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -18,8 +18,8 @@
  */
 
 import jwt from 'jsonwebtoken';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Actor } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -298,13 +298,7 @@ describe('AuthService (integration)', () => {
             const uid = `app-${uuidv4()}`;
             await server.clients.db.write(
                 'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
-                [
-                    uid,
-                    `n-${uid}`,
-                    `t-${uid}`,
-                    `https://${uid}.example/`,
-                    1,
-                ],
+                [uid, `n-${uid}`, `t-${uid}`, `https://${uid}.example/`, 1],
             );
             return uid;
         };
@@ -314,16 +308,19 @@ describe('AuthService (integration)', () => {
             const appUid = await makeApp();
             const appToken = await authService.getUserAppToken(
                 {
-                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
                 } as Actor,
                 appUid,
             );
             // Pull the session_uid claim out of the JWT so we revoke
             // the exact row the verify path will look up.
-            const decoded = server.services.token.verify(
-                'auth',
-                appToken,
-            ) as { session_uid: string };
+            const decoded = server.services.token.verify('auth', appToken) as {
+                session_uid: string;
+            };
             await server.stores.session.removeByUuid(decoded.session_uid);
 
             const result = await authService.authenticate(appToken);
@@ -339,14 +336,17 @@ describe('AuthService (integration)', () => {
             const appUid = await makeApp();
             const appToken = await authService.getUserAppToken(
                 {
-                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
                 } as Actor,
                 appUid,
             );
-            const decoded = server.services.token.verify(
-                'auth',
-                appToken,
-            ) as { session_uid: string };
+            const decoded = server.services.token.verify('auth', appToken) as {
+                session_uid: string;
+            };
             await server.clients.db.write(
                 'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ?',
                 [Math.floor(Date.now() / 1000) - 60, decoded.session_uid],
@@ -373,7 +373,11 @@ describe('AuthService (integration)', () => {
             // identity isn't what this test exercises.
             const accessToken = await authService.createAccessToken(
                 {
-                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
                 } as Actor,
                 [[`user:${user.uuid}:email:read`]],
             );
@@ -398,7 +402,11 @@ describe('AuthService (integration)', () => {
             // check only fires when expires_at is non-NULL.
             const accessToken = await authService.createAccessToken(
                 {
-                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
                 } as Actor,
                 [[`user:${user.uuid}:email:read`]],
                 { expiresIn: '1h' },
@@ -436,7 +444,10 @@ describe('AuthService (integration)', () => {
             // Tokens differ — session vs. GUI type.
             expect(out.token).not.toBe(out.gui_token);
 
-            const sessionDecoded = server.services.token.verify('auth', out.token) as {
+            const sessionDecoded = server.services.token.verify(
+                'auth',
+                out.token,
+            ) as {
                 type: string;
             };
             expect(sessionDecoded.type).toBe('session');
@@ -487,7 +498,11 @@ describe('AuthService (integration)', () => {
         it('is a no-op on a token whose type is neither session nor gui', async () => {
             const otpJwt = server.services.token.sign(
                 'auth',
-                { type: 'access-token', token_uid: uuidv4(), user_uid: uuidv4() },
+                {
+                    type: 'access-token',
+                    token_uid: uuidv4(),
+                    user_uid: uuidv4(),
+                },
                 { expiresIn: '5m' },
             );
             await expect(
@@ -705,7 +720,10 @@ describe('AuthService (integration)', () => {
             // rows created above stamped `last_activity = now`.
             const future = Math.floor(Date.now() / 1000) + 60_000;
             await server.stores.session.updateActivity(olderUuid, future);
-            await server.stores.session.updateActivity(newerUuid, future + 1000);
+            await server.stores.session.updateActivity(
+                newerUuid,
+                future + 1000,
+            );
             const actor = {
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 session: { uid: currentUuid },
@@ -758,9 +776,7 @@ describe('AuthService (integration)', () => {
             // boundary across `describe`s they should be empty for a
             // fresh uuid.)
             void store; // intentional no-op — kept as a docstring anchor
-            await server.clients.redis.del(
-                `sessions:v2:uuid:${sessionUuid}`,
-            );
+            await server.clients.redis.del(`sessions:v2:uuid:${sessionUuid}`);
         };
 
         const readRawRow = async (uuid: string) => {
@@ -824,14 +840,17 @@ describe('AuthService (integration)', () => {
             );
             const appToken = await authService.getUserAppToken(
                 {
-                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
                 } as Actor,
                 appUid,
             );
-            const decoded = server.services.token.verify(
-                'auth',
-                appToken,
-            ) as { session_uid: string };
+            const decoded = server.services.token.verify('auth', appToken) as {
+                session_uid: string;
+            };
             await ageSessionForTouch(decoded.session_uid);
 
             await authService.authenticate(appToken, {
@@ -848,7 +867,11 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const accessToken = await authService.createAccessToken(
                 {
-                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
                 } as Actor,
                 [[`user:${user.uuid}:email:read`]],
                 { expiresIn: '1h' },
@@ -1181,9 +1204,9 @@ describe('AuthService (integration)', () => {
                 appUid,
                 `wk-${Math.random().toString(36).slice(2, 8)}-b`,
             );
-            expect((decodeAuth(a) as { session_uid: string }).session_uid).not.toBe(
-                (decodeAuth(b) as { session_uid: string }).session_uid,
-            );
+            expect(
+                (decodeAuth(a) as { session_uid: string }).session_uid,
+            ).not.toBe((decodeAuth(b) as { session_uid: string }).session_uid);
         });
 
         it('createWorkerAppToken refuses an actor with no user (403)', async () => {
@@ -1202,11 +1225,7 @@ describe('AuthService (integration)', () => {
                 user: { id: user.id, uuid: user.uuid, username: user.username },
             } as Actor;
             await expect(
-                authService.createWorkerAppToken(
-                    actor,
-                    `app-${uuidv4()}`,
-                    '',
-                ),
+                authService.createWorkerAppToken(actor, `app-${uuidv4()}`, ''),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
 
@@ -1746,7 +1765,11 @@ describe('AuthService (integration)', () => {
             } as Actor;
             const actor = {
                 user: { id: user.id, uuid: user.uuid, username: user.username },
-                accessToken: { uid: `tok-${uuidv4()}`, issuer, authorized: null },
+                accessToken: {
+                    uid: `tok-${uuidv4()}`,
+                    issuer,
+                    authorized: null,
+                },
             } as Actor;
             await expect(
                 authService.getUserAppToken(actor, `app-${uuidv4()}`),
@@ -2047,8 +2070,7 @@ describe('AuthService (integration)', () => {
             const fullJwt = await authService.createAccessToken(userActor, [
                 [FULL_API_ACCESS],
             ]);
-            const fullActor =
-                await authService.authenticateFromToken(fullJwt);
+            const fullActor = await authService.authenticateFromToken(fullJwt);
             expect(fullActor).toBeTruthy();
             // The signed claim is surfaced on the actor — this flag is what the
             // resource gate and the permission scan both key off.
@@ -2219,7 +2241,8 @@ describe('AuthService (integration)', () => {
                 sessionUuid,
                 host: 'host.example',
             });
-            const decoded = await authService.verifyPublicHostedActorToken(token);
+            const decoded =
+                await authService.verifyPublicHostedActorToken(token);
             expect(decoded.authId).toBe(user.uuid);
         });
 
@@ -2332,7 +2355,10 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const otherDevice = await authService.createSessionToken(user, {});
             const otherUuid = (otherDevice.session as { uuid: string }).uuid;
-            const currentDevice = await authService.createSessionToken(user, {});
+            const currentDevice = await authService.createSessionToken(
+                user,
+                {},
+            );
             const currentUuid = (currentDevice.session as { uuid: string })
                 .uuid;
             const actor = {
@@ -2347,14 +2373,15 @@ describe('AuthService (integration)', () => {
                 await server.stores.session.getByUuid(currentUuid),
             ).toBeTruthy();
             // Other device's session is gone.
-            expect(
-                await server.stores.session.getByUuid(otherUuid),
-            ).toBeNull();
+            expect(await server.stores.session.getByUuid(otherUuid)).toBeNull();
         });
 
         it('with includeCurrent=true also revokes the caller', async () => {
             const user = await makeUser();
-            const currentDevice = await authService.createSessionToken(user, {});
+            const currentDevice = await authService.createSessionToken(
+                user,
+                {},
+            );
             const currentUuid = (currentDevice.session as { uuid: string })
                 .uuid;
             const actor = {
@@ -2390,9 +2417,7 @@ describe('AuthService (integration)', () => {
             } as unknown as Actor);
 
             // Web is gone, app survives.
-            expect(
-                await server.stores.session.getByUuid(webUuid),
-            ).toBeNull();
+            expect(await server.stores.session.getByUuid(webUuid)).toBeNull();
             const appSession = await server.stores.session.getOrCreateApp(
                 user.id,
                 appUid,
@@ -2407,7 +2432,10 @@ describe('AuthService (integration)', () => {
             } as Actor;
             const appUid = `app-${uuidv4()}`;
             const appToken = await authService.getUserAppToken(actor, appUid);
-            const appDecoded = server.services.token.verify('auth', appToken) as {
+            const appDecoded = server.services.token.verify(
+                'auth',
+                appToken,
+            ) as {
                 session_uid: string;
             };
 
@@ -2423,5 +2451,111 @@ describe('AuthService (integration)', () => {
                 await server.stores.session.getByUuid(appDecoded.session_uid),
             ).toBeNull();
         });
+    });
+});
+
+// -- Origin alias groups ----------------------------------------------
+
+describe('AuthService.appUidFromOrigin — aliased hosts', () => {
+    let server: PuterServer;
+    let authService: AuthService;
+
+    beforeAll(async () => {
+        server = await setupTestServer({
+            app_origin_aliases: [
+                ['beta.example.com', 'ALPHA.example.com', ' beta.example.com '],
+                // Malformed entries must be skipped, not brick resolution.
+                'not-a-group',
+                [],
+                [42, '   '],
+            ],
+        } as never);
+        authService = server.services.auth as unknown as AuthService;
+    }, 60_000);
+
+    afterAll(async () => {
+        await server?.shutdown();
+    }, 60_000);
+
+    it('collapses every member of a group onto one app uid', async () => {
+        const alpha = await authService.appUidFromOrigin(
+            'https://alpha.example.com',
+        );
+        const beta = await authService.appUidFromOrigin(
+            'https://beta.example.com',
+        );
+        // Case-insensitively too — config is normalized on read.
+        const shouty = await authService.appUidFromOrigin(
+            'https://BETA.example.com',
+        );
+        // Regression: the canonical member must land on the same uid as the
+        // aliases that redirect onto it, so the alias origin has to be
+        // normalized exactly the way a bare origin is.
+        expect(beta).toBe(alpha);
+        expect(shouty).toBe(alpha);
+    });
+
+    it('leaves hosts outside every group on their own uid', async () => {
+        const grouped = await authService.appUidFromOrigin(
+            'https://alpha.example.com',
+        );
+        const ungrouped = await authService.appUidFromOrigin(
+            'https://gamma.example.com',
+        );
+        expect(ungrouped).not.toBe(grouped);
+    });
+
+    it('keeps distinct ports distinct — the group names bare hosts', async () => {
+        // `alpha.example.com:8080` is not a group member, so it canonicalizes
+        // on its hostname instead and keeps the port in the resolved uid.
+        const withPort = await authService.appUidFromOrigin(
+            'https://alpha.example.com:8080',
+        );
+        const withoutPort = await authService.appUidFromOrigin(
+            'https://alpha.example.com',
+        );
+        expect(withPort).not.toBe(withoutPort);
+    });
+});
+
+describe('AuthService.subdomainOwnerIdFromOrigin — edge cases', () => {
+    let server: PuterServer;
+    let authService: AuthService;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+        authService = server.services.auth as unknown as AuthService;
+    }, 60_000);
+
+    afterAll(async () => {
+        await server?.shutdown();
+    }, 60_000);
+
+    it('returns null for an unparseable origin', async () => {
+        expect(await authService.subdomainOwnerIdFromOrigin('nope')).toBeNull();
+    });
+
+    it('returns null for the hosting domain apex itself', async () => {
+        expect(
+            await authService.subdomainOwnerIdFromOrigin(
+                'https://site.puter.localhost',
+            ),
+        ).toBeNull();
+    });
+
+    it('returns null for an origin outside every hosting domain', async () => {
+        expect(
+            await authService.subdomainOwnerIdFromOrigin(
+                'https://elsewhere.example.com',
+            ),
+        ).toBeNull();
+    });
+
+    it('returns null for an unregistered subdomain under a hosting domain', async () => {
+        expect(
+            await authService.subdomainOwnerIdFromOrigin(
+                `https://never-made-${uuidv4()}.site.puter.localhost`,
+            ),
+        ).toBeNull();
     });
 });

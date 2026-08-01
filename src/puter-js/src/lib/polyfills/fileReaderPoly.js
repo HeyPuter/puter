@@ -9,8 +9,23 @@ export class FileReaderPoly {
     constructor() {
         this.result = null;
         this.error = null;
+        this.onload = null;
+        this.onerror = null;
         this.onloadend = null;
     }
+
+    // The DOM FileReader fires `onload`/`onerror` and then `onloadend`.
+    // Callers listen on the first pair, so a poly that only fires
+    // `onloadend` leaves them waiting forever.
+    #finish() {
+        if ( this.error ) {
+            if ( typeof this.onerror === 'function' ) this.onerror(this.error);
+        } else if ( typeof this.onload === 'function' ) {
+            this.onload({ target: this });
+        }
+        if ( typeof this.onloadend === 'function' ) this.onloadend();
+    }
+
     readAsDataURL(blob) {
         const self = this;
         (async function () {
@@ -29,12 +44,10 @@ export class FileReaderPoly {
                 const base64 = toBase64FromBuffer(buffer);
                 const mime = (blob && blob.type) || 'application/octet-stream';
                 self.result = 'data:' + mime + ';base64,' + base64;
-                if (typeof self.onloadend === 'function') self.onloadend();
             } catch (err) {
                 self.error = err;
-                if (typeof self.onloadend === 'function') self.onloadend();
             }
+            self.#finish();
         })();
     }
 }
-

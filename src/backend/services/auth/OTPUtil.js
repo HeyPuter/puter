@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -21,9 +21,7 @@ import { TOTP } from 'otpauth';
 import crypto from 'node:crypto';
 import { encode } from 'hi-base32';
 
-/**
- * Standalone OTP utilities — no service class, just functions.
- */
+/** Standalone OTP utilities — no service class, just functions. */
 
 export function createSecret(label) {
     const secret = genOtpSecret();

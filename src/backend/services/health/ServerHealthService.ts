@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -22,21 +22,21 @@ import type { SocketService } from '../socket/SocketService';
 import { kv } from '../../util/kvSingleton';
 
 /**
- * Periodic liveness monitor for the backend. Other services register
- * checks via `addCheck`; the internal loop runs them every
- * `CHECK_INTERVAL_MS`, raises an alarm on first failure, fires `onFail`
- * handlers (for self-heal hooks), and exposes `getStatus()` for the
- * `/healthcheck` route.
+ * Periodic liveness monitor for the backend. Other services register checks via
+ * `addCheck`; the internal loop runs them every `CHECK_INTERVAL_MS`, raises an
+ * alarm on first failure, fires `onFail` handlers (for self-heal hooks), and
+ * exposes `getStatus()` for the `/healthcheck` route.
  *
  * Default checks registered on server start:
- *   - `database-liveness` — `SELECT 1 AS ok` latency-gated against
- *     `config.server_health.db_liveness_latency_fail_ms` (default 1500ms).
- *   - `socket-initialized` — socket.io must be attached. Only registered
- *     when SocketService is present (skipped for API-only deployments).
  *
- * Draining mode: `onServerPrepareShutdown` flips the service into drain
- * and clears failure state. `/healthcheck` returns 503 so load balancers
- * route traffic away before the process exits.
+ * - `database-liveness` — `SELECT 1 AS ok` latency-gated against
+ *   `config.server_health.db_liveness_latency_fail_ms` (default 1500ms).
+ * - `socket-initialized` — socket.io must be attached. Only registered when
+ *   SocketService is present (skipped for API-only deployments).
+ *
+ * Draining mode: `onServerPrepareShutdown` flips the service into drain and
+ * clears failure state. `/healthcheck` returns 503 so load balancers route
+ * traffic away before the process exits.
  */
 
 const SECOND = 1000;
@@ -124,8 +124,8 @@ export class ServerHealthService extends PuterService {
 
     /**
      * Register a named health check. The returned chainable exposes
-     * `onFail(fn)` so callers can hook self-heal logic (e.g., recreating
-     * a pooled DB client after a liveness drop).
+     * `onFail(fn)` so callers can hook self-heal logic (e.g., recreating a
+     * pooled DB client after a liveness drop).
      */
     addCheck(name: string, fn: CheckFn): Chainable {
         const registered: RegisteredCheck = { name, fn, onFailHandlers: [] };
@@ -140,21 +140,20 @@ export class ServerHealthService extends PuterService {
     }
 
     /**
-     * Current health status of this node. Results are cached in-process
-     * (kv.js) for 5 seconds so a busy /healthcheck endpoint stays cheap.
-     * The cache is deliberately per-node — a load balancer polling
-     * /healthcheck must see the health of the exact node it hit, never
-     * a status shared with other nodes.
+     * Current health status of this node. Results are cached in-process (kv.js)
+     * for 5 seconds so a busy /healthcheck endpoint stays cheap. The cache is
+     * deliberately per-node — a load balancer polling /healthcheck must see the
+     * health of the exact node it hit, never a status shared with other nodes.
      *
-     * `ignore` names failing states to disregard for this request only,
-     * letting an orchestrator poll `/healthcheck` while tolerating specific
+     * `ignore` names failing states to disregard for this request only, letting
+     * an orchestrator poll `/healthcheck` while tolerating specific
      * known-failing checks; when the remaining failures are all ignored the
-     * status collapses back to `{ ok: true }`. `degrade` instead demotes
-     * named failures to a non-fatal `degraded` list — `ok` stays true but
-     * the caller can see the partial state. Any failure name may be filtered
-     * this way, including the `draining` lifecycle state. The cached status
-     * is always the full, unfiltered set — filtering is applied per-request
-     * after the cache read so it never leaks across callers.
+     * status collapses back to `{ ok: true }`. `degrade` instead demotes named
+     * failures to a non-fatal `degraded` list — `ok` stays true but the caller
+     * can see the partial state. Any failure name may be filtered this way,
+     * including the `draining` lifecycle state. The cached status is always the
+     * full, unfiltered set — filtering is applied per-request after the cache
+     * read so it never leaks across callers.
      */
     async getStatus(opts: GetStatusOptions = {}): Promise<HealthStatus> {
         const base = this.#draining
@@ -179,10 +178,9 @@ export class ServerHealthService extends PuterService {
 
     /**
      * Reclassify a status against the per-request `ignore`/`degrade` sets.
-     * `ignore`d failures are dropped; `degrade`d failures move to a
-     * non-fatal `degraded` list; anything left stays a hard failure. `ok`
-     * is false only while hard failures remain. A healthy status is
-     * returned as-is.
+     * `ignore`d failures are dropped; `degrade`d failures move to a non-fatal
+     * `degraded` list; anything left stays a hard failure. `ok` is false only
+     * while hard failures remain. A healthy status is returned as-is.
      */
     #applyFilters(
         status: HealthStatus,
