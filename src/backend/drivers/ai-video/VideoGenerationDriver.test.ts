@@ -150,6 +150,9 @@ beforeEach(() => {
     togetherVideosRetrieveMock.mockReset();
     hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
     hasCreditsSpy.mockResolvedValue(true);
+    vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
+        100_000_000_000,
+    );
 });
 
 afterEach(() => {

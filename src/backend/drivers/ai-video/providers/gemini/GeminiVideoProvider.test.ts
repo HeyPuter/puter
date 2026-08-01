@@ -79,7 +79,10 @@ vi.mock('@google/genai', () => {
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let remainingUsageSpy: MockInstance<MeteringService['getRemainingUsage']>;
+
+// Plenty of credit for every test that isn't specifically about the gate.
+const AMPLE_CREDIT = 100_000_000_000;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
 
 beforeAll(async () => {
@@ -118,8 +121,8 @@ beforeEach(() => {
     generateVideosMock.mockReset();
     getVideosOperationMock.mockReset();
     googleAICtor.mockReset();
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
-    hasCreditsSpy.mockResolvedValue(true);
+    remainingUsageSpy = vi.spyOn(server.services.metering, 'getRemainingUsage');
+    remainingUsageSpy.mockResolvedValue(AMPLE_CREDIT);
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
@@ -178,7 +181,7 @@ describe('GeminiVideoProvider.generate test_mode', () => {
             provider.generate({ prompt: 'hi', test_mode: true }),
         );
         expect(result).toBe('https://assets.puter.site/txt2vid.mp4');
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(remainingUsageSpy).not.toHaveBeenCalled();
         expect(generateVideosMock).not.toHaveBeenCalled();
     });
 });
@@ -203,10 +206,50 @@ describe('GeminiVideoProvider.generate argument validation', () => {
 describe('GeminiVideoProvider.generate credit gate', () => {
     it('throws 402 BEFORE hitting Gemini when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        remainingUsageSpy.mockResolvedValueOnce(0);
 
         await expect(
             withTestActor(() => provider.generate({ prompt: 'hi' })),
+        ).rejects.toMatchObject({ statusCode: 402 });
+        expect(generateVideosMock).not.toHaveBeenCalled();
+    });
+
+    // veo-3.1 is 40 usd-cents/second at 720p and only accepts 4s / 6s / 8s.
+    it('caps the clip to the longest supported duration the credit buys', async () => {
+        const provider = makeProvider();
+        remainingUsageSpy.mockResolvedValueOnce(7 * 40 * 1_000_000);
+        generateVideosMock.mockResolvedValueOnce(completedOperation());
+
+        await withTestActor(() =>
+            provider.generate({
+                prompt: 'hi',
+                model: 'veo-3.1-generate-preview',
+                size: '1280x720',
+                seconds: 8,
+            }),
+        );
+
+        expect(generateVideosMock.mock.calls[0][0].config).toMatchObject({
+            durationSeconds: 6,
+        });
+        const [, , count, cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(count).toBe(6);
+        expect(cost).toBe(6 * 40 * 1_000_000);
+    });
+
+    it('stays all-or-nothing for 1080p, which upstream locks to 8s', async () => {
+        const provider = makeProvider();
+        remainingUsageSpy.mockResolvedValueOnce(7 * 40 * 1_000_000);
+
+        await expect(
+            withTestActor(() =>
+                provider.generate({
+                    prompt: 'hi',
+                    model: 'veo-3.1-generate-preview',
+                    size: '1920x1080',
+                    seconds: 8,
+                }),
+            ),
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(generateVideosMock).not.toHaveBeenCalled();
     });
