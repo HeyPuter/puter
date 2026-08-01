@@ -42,6 +42,18 @@ export function meetsMinSeverity(
 }
 
 /**
+ * True when `severity` is quiet enough for a transport whose ceiling is `max`.
+ * A ceiling is what keeps a chat transport from repeating everything the pager
+ * already delivered.
+ */
+export function withinMaxSeverity(
+    severity: PagerSeverity,
+    max: PagerSeverity,
+): boolean {
+    return RANK[severity] <= RANK[max];
+}
+
+/**
  * Look up the operator override for an alarm id. Exact ids win over prefix
  * patterns (`cronMonitor:*`); among patterns the longest prefix wins, so a
  * specific rule can carve an exception out of a broad one.

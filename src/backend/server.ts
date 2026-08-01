@@ -781,6 +781,9 @@ export class PuterServer {
                         // An unhandled server error is the one thing that
                         // still pages on-call.
                         forcedSeverity ?? 'critical',
+                        // The id pins route + error signature, so repeats are
+                        // the same fault and belong on one incident.
+                        { dedup: true },
                     );
                 },
             }),

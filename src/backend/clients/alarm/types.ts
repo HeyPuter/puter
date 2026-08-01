@@ -30,7 +30,18 @@ export interface AlarmOccurrence {
     timestamp: number;
 }
 
-export interface Alarm {
+export interface AlarmOptions {
+    /**
+     * Collapse repeats of this alarm id into a single incident on transports
+     * that de-duplicate (PagerDuty). Only right when the id already pins down
+     * one recurring fault — an uncaught error on a route, say — so that N
+     * occurrences really are one thing to fix. Off by default: every other
+     * alarm raises its own incident per occurrence.
+     */
+    dedup?: boolean;
+}
+
+export interface Alarm extends AlarmOptions {
     id: string;
     shortId: string;
     message: string;
@@ -47,6 +58,11 @@ export interface Alarm {
 
 export interface AlertPayload {
     id: string;
+    /**
+     * Key a de-duplicating transport groups by. Equal to `id` for alarms raised
+     * with `dedup`, and unique per occurrence for everything else.
+     */
+    dedupKey: string;
     /** Readable slug for the same alarm, for humans quoting it back. */
     shortId: string;
     message: string;

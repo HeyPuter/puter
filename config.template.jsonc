@@ -292,8 +292,12 @@
             // Optional; defaults to the channel the webhook was created for.
             "channel": "#alerts",
             "username": "puter-alarms",
-            // Lowest severity posted. Default "info" (everything).
+            // Severity window posted to Slack. The ceiling defaults to
+            // "info" when PagerDuty is configured — what pages belongs in
+            // the pager, not in chat — and to "critical" when Slack is the
+            // only transport.
             "minSeverity": "info",
+            "maxSeverity": "info",
             // Don't repost the same alarm id within this window. The first
             // occurrence always posts; the next post that gets through
             // reports how many occurrences piled up. 0 disables throttling.

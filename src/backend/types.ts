@@ -97,8 +97,14 @@ export interface ISlackAlertConfig {
     channel?: string;
     /** Bot display name on the posted message. */
     username?: string;
-    /** Lowest severity posted to Slack. Default `info` (everything). */
+    /** Lowest severity posted to Slack. Default `info`. */
     minSeverity?: PagerSeverity;
+    /**
+     * Highest severity posted to Slack. Defaults to `info` when PagerDuty is
+     * configured — anything that pages belongs in the paging system, not in
+     * chat — and to `critical` (everything) when Slack is the only transport.
+     */
+    maxSeverity?: PagerSeverity;
     /**
      * Don't repost the same alarm id within this window. The first occurrence
      * always posts; repeats inside the window only bump the occurrence count
