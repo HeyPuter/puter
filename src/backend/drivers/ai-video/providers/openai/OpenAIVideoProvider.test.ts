@@ -86,8 +86,11 @@ vi.mock('openai', () => {
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
-let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
+let remainingUsageSpy: MockInstance<MeteringService['getRemainingUsage']>;
 let incrementUsageSpy: MockInstance<MeteringService['incrementUsage']>;
+
+// Plenty of credit for every test that isn't specifically about the gate.
+const AMPLE_CREDIT = 100_000_000_000;
 
 beforeAll(async () => {
     server = await setupTestServer();
@@ -128,8 +131,8 @@ beforeEach(() => {
     videosRetrieveMock.mockReset();
     videosDownloadContentMock.mockReset();
     openAICtor.mockReset();
-    hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
-    hasCreditsSpy.mockResolvedValue(true);
+    remainingUsageSpy = vi.spyOn(server.services.metering, 'getRemainingUsage');
+    remainingUsageSpy.mockResolvedValue(AMPLE_CREDIT);
     incrementUsageSpy = vi.spyOn(server.services.metering, 'incrementUsage');
 });
 
@@ -184,7 +187,7 @@ describe('OpenAIVideoProvider.generate test_mode', () => {
             }),
         );
         expect(result).toBe('https://assets.puter.site/txt2vid.mp4');
-        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(remainingUsageSpy).not.toHaveBeenCalled();
         expect(videosCreateMock).not.toHaveBeenCalled();
     });
 });
@@ -221,9 +224,13 @@ describe('OpenAIVideoProvider.generate argument validation', () => {
 // ── Credit gate ─────────────────────────────────────────────────────
 
 describe('OpenAIVideoProvider.generate credit gate', () => {
+    // sora-2 is 10 usd-cents/second, i.e. 10_000_000 micro-cents/second, and
+    // only accepts 4s / 8s / 12s clips.
+    const PER_SECOND = 10_000_000;
+
     it('throws 402 BEFORE hitting OpenAI when actor lacks credits', async () => {
         const provider = makeProvider();
-        hasCreditsSpy.mockResolvedValueOnce(false);
+        remainingUsageSpy.mockResolvedValueOnce(0);
 
         await expect(
             withTestActor(() =>
@@ -231,6 +238,85 @@ describe('OpenAIVideoProvider.generate credit gate', () => {
             ),
         ).rejects.toMatchObject({ statusCode: 402 });
         expect(videosCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('throws 402 when credit falls one micro-cent short of the shortest clip', async () => {
+        const provider = makeProvider();
+        remainingUsageSpy.mockResolvedValueOnce(4 * PER_SECOND - 1);
+
+        await expect(
+            withTestActor(() =>
+                provider.generate({
+                    prompt: 'hi',
+                    model: 'sora-2',
+                    seconds: 4,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 402 });
+        expect(videosCreateMock).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        // remaining credit, requested seconds, seconds actually requested upstream
+        [4 * PER_SECOND, 12, '4'],
+        [7 * PER_SECOND, 12, '4'],
+        [10 * PER_SECOND, 12, '8'],
+        [12 * PER_SECOND, 12, '12'],
+        [4 * PER_SECOND, 8, '4'],
+    ])(
+        'caps a %i micro-cent balance asking for %is down to %ss',
+        async (remaining, requested, expected) => {
+            const provider = makeProvider();
+            remainingUsageSpy.mockResolvedValueOnce(remaining);
+            videosCreateMock.mockResolvedValueOnce(
+                completedJob({ seconds: expected }),
+            );
+            videosDownloadContentMock.mockResolvedValueOnce(downloadResponse());
+
+            await withTestActor(() =>
+                provider.generate({
+                    prompt: 'hi',
+                    model: 'sora-2',
+                    seconds: requested,
+                }),
+            );
+
+            expect(videosCreateMock.mock.calls[0][0]).toMatchObject({
+                seconds: expected,
+            });
+        },
+    );
+
+    it('never meters more than the capped clip costs', async () => {
+        const provider = makeProvider();
+        // $1.00 — enough for 8s, not the 12s the caller asked for.
+        remainingUsageSpy.mockResolvedValueOnce(10 * PER_SECOND);
+        videosCreateMock.mockResolvedValueOnce(completedJob({ seconds: '8' }));
+        videosDownloadContentMock.mockResolvedValueOnce(downloadResponse());
+
+        await withTestActor(() =>
+            provider.generate({ prompt: 'hi', model: 'sora-2', seconds: 12 }),
+        );
+
+        const [, , count, cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(count).toBe(8);
+        expect(cost).toBe(8 * PER_SECOND);
+        expect(cost).toBeLessThanOrEqual(10 * PER_SECOND);
+    });
+
+    it('leaves an affordable request untouched', async () => {
+        const provider = makeProvider();
+        remainingUsageSpy.mockResolvedValueOnce(AMPLE_CREDIT);
+        videosCreateMock.mockResolvedValueOnce(completedJob({ seconds: '12' }));
+        videosDownloadContentMock.mockResolvedValueOnce(downloadResponse());
+
+        await withTestActor(() =>
+            provider.generate({ prompt: 'hi', model: 'sora-2', seconds: 12 }),
+        );
+
+        expect(videosCreateMock.mock.calls[0][0]).toMatchObject({
+            seconds: '12',
+        });
     });
 });
 
