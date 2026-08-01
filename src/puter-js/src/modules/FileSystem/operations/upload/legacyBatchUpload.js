@@ -8,6 +8,69 @@ import { parseResponse } from '../../../../lib/networkUtils.js';
 import path from 'path-browserify';
 import { normalizeThumbnailData } from './thumbnails.js';
 
+/** @typedef {{ error?: boolean, status?: number, message?: string, code?: string }} BatchResult */
+
+/**
+ * Whether a `/batch` per-operation result describes a failure. Failed
+ * operations are marked with `error: true` and carry a non-200 `status`;
+ * successful ones are plain filesystem entries with neither field.
+ *
+ * @param {unknown} result
+ * @returns {boolean}
+ */
+const isFailedBatchResult = (result) => {
+    if ( ! result || typeof result !== 'object' ) return false;
+    if ( result.error === true ) return true;
+    return typeof result.status === 'number' && result.status !== 200;
+};
+
+/**
+ * Summarize a partially- or wholly-failed `/batch` response into a rejectable
+ * `{ message, code }` error that still carries the per-operation results.
+ *
+ * @param {BatchResult[]} results
+ * @param {BatchResult[]} failedResults
+ * @returns {{
+ *   message: string,
+ *   code: 'batch_upload_failed' | 'batch_upload_partially_failed',
+ *   status: number,
+ *   results: BatchResult[],
+ *   failedItems: BatchResult[],
+ *   failedCount: number,
+ *   totalCount: number,
+ * }}
+ */
+const buildBatchFailureError = (results, failedResults) => {
+    const totalCount = results.length;
+    const failedCount = failedResults.length;
+    const allFailed = failedCount > 0 && failedCount === totalCount;
+    const reason = failedResults
+        .map((result) => result?.message)
+        .find((message) => typeof message === 'string' && message.length > 0);
+
+    let message;
+    if ( failedCount === 0 ) {
+        // 218 without an identifiable failed operation: the server says
+        // something failed but we can't say which, so report the weaker claim.
+        message = 'Upload partially failed: the server reported a failed operation.';
+    } else if ( allFailed ) {
+        message = `Upload failed: ${reason ?? 'the server did not report a reason'}`;
+    } else {
+        message = `Upload partially failed: ${failedCount} of ${totalCount} operations failed`
+            + ` (${reason ?? 'the server did not report a reason'})`;
+    }
+
+    return {
+        message,
+        code: allFailed ? 'batch_upload_failed' : 'batch_upload_partially_failed',
+        status: 218,
+        results,
+        failedItems: failedResults,
+        failedCount,
+        totalCount,
+    };
+};
+
 /**
  * Run the legacy `/batch` upload for the current operation. Settles the
  * caller's promise asynchronously through `ctx.resolve` / `ctx.error` once the
@@ -216,14 +279,18 @@ export function performLegacyBatchUpload (ctx) {
         }
     }, 100);
 
+    // Stops the cloud upload progress tracker and unsubscribes the socket
+    // handler; every terminal outcome of the request goes through this.
+    const stopProgressTracking = () => {
+        clearInterval(cloudProgressCheckInterval);
+        this.socket.off('upload.progress', progressHandler);
+    };
+
     // -----------------------------------------------
     // onabort
     // -----------------------------------------------
     xhr.onabort = () => {
-        // stop the cloud upload progress tracker
-        clearInterval(cloudProgressCheckInterval);
-        // remove progress handler
-        this.socket.off('upload.progress', progressHandler);
+        stopProgressTracking();
         // if an 'abort' callback is provided, call it
         if ( options.abort && typeof options.abort === 'function' )
         {
@@ -234,58 +301,61 @@ export function performLegacyBatchUpload (ctx) {
     // -----------------------------------------------
     // on success/error
     // -----------------------------------------------
-    xhr.onreadystatechange = async (e) => {
-        if ( xhr.readyState === 4 ) {
-            const resp = await parseResponse(xhr);
-            // Error
-            if ( (xhr.status >= 400 && xhr.status < 600) || (options.strict && xhr.status === 218) ) {
-                // stop the cloud upload progress tracker
-                clearInterval(cloudProgressCheckInterval);
 
-                // remove progress handler
-                this.socket.off('upload.progress', progressHandler);
-
-                // If this is a 'strict' upload (i.e. status code is 218), we need to find out which operation failed
-                // and call the error callback with that operation.
-                if ( options.strict && xhr.status === 218 ) {
-                    // find the operation that failed
-                    let failedOperation;
-                    for ( let i = 0; i < resp.results?.length; i++ ) {
-                        if ( resp.results[i].status !== 200 ) {
-                            failedOperation = resp.results[i];
-                            break;
-                        }
-                    }
-                    return error(failedOperation);
-                }
-
-                return error(resp);
-            }
-            // Success
-            else {
-                if ( !resp || !resp.results || resp.results.length === 0 ) {
-                    // no results
-                    if ( puter.debugMode )
-                    {
-                        console.log('no results');
-                    }
-                }
-
-                let items = resp.results;
-                items = items.length === 1 ? items[0] : items;
-
-                // if success callback is provided, call it
-                if ( options.success && typeof options.success === 'function' ) {
-                    options.success(items);
-                }
-                // stop the cloud upload progress tracker
-                clearInterval(cloudProgressCheckInterval);
-                // remove progress handler
-                this.socket.off('upload.progress', progressHandler);
-
-                return resolve(items);
-            }
+    xhr.onreadystatechange = async () => {
+        if ( xhr.readyState !== 4 ) {
+            return;
         }
+
+        const resp = await parseResponse(xhr);
+        const results = Array.isArray(resp?.results) ? resp.results : null;
+
+        // Request-level failure: pass the server's body through unchanged.
+        if ( xhr.status >= 400 && xhr.status < 600 ) {
+            stopProgressTracking();
+            return error(resp);
+        }
+
+        // `strict` (what `write()` uses) reports the failed operation itself
+        // rather than a summary of the batch.
+        if ( options.strict && xhr.status === 218 ) {
+            stopProgressTracking();
+            const failedOperation = results?.find(isFailedBatchResult) ?? results?.[0];
+            return error(failedOperation);
+        }
+
+        // 218 means at least one operation failed. The body is still shaped
+        // like a success, so resolving it would report an upload that wrote
+        // nothing (or only part of what was asked for) as a success.
+        const failedResults = results ? results.filter(isFailedBatchResult) : [];
+        if ( xhr.status === 218 || failedResults.length > 0 ) {
+            stopProgressTracking();
+            return error(buildBatchFailureError(results ?? [], failedResults));
+        }
+
+        // A 2xx carrying no operation results means nothing was written.
+        if ( ! results || results.length === 0 ) {
+            stopProgressTracking();
+            return error({
+                message: 'Upload failed: the server returned no results.',
+                code: 'batch_upload_no_results',
+                status: xhr.status,
+                results: [],
+                failedItems: [],
+                failedCount: 0,
+                totalCount: 0,
+            });
+        }
+
+        const items = results.length === 1 ? results[0] : results;
+
+        // if success callback is provided, call it
+        if ( options.success && typeof options.success === 'function' ) {
+            options.success(items);
+        }
+        stopProgressTracking();
+
+        return resolve(items);
     };
 
     // Fire off the 'start' event

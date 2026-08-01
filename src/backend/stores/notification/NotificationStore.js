@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -41,7 +41,10 @@ export class NotificationStore extends PuterStore {
         return this.#normalizeRow(rows[0]) ?? null;
     }
 
-    /** @param {number} userId @param {{ limit?: number, onlyUnacknowledged?: boolean, filter?: string }} [opts] */
+    /**
+     * @param {number} userId @param {{ limit?: number, onlyUnacknowledged?:
+     *   boolean, filter?: string }} [opts]
+     */
     async listByUserId(
         userId,
         { limit = 200, onlyUnacknowledged = false, filter = undefined } = {},
@@ -94,9 +97,15 @@ export class NotificationStore extends PuterStore {
 
     // -- Writes -------------------------------------------------------
 
-    async create({ userId, value }) {
+    /**
+     * `uid` lets the caller name the row up front — NotificationService pushes
+     * the uid to the socket before this insert lands, and the ack / mark-shown
+     * round trip comes back keyed on it.
+     *
+     * @param {{ userId: number; value: unknown; uid?: string }} args
+     */
+    async create({ userId, value, uid = uuidv4() }) {
         if (!userId) throw new Error('create: userId is required');
-        const uid = uuidv4();
         const serialized =
             typeof value === 'string' ? value : JSON.stringify(value ?? {});
         await this.clients.db.write(

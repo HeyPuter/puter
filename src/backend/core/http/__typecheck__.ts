@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -20,9 +20,9 @@
 /**
  * Compile-time narrowing checks for PuterRouter type ergonomics.
  *
- * This file is *only* here to fail the typecheck if the const-generic
- * narrowing on `req.actor` regresses. It produces no runtime artifacts of
- * interest. Delete it whenever a real test suite for the router exists.
+ * This file is _only_ here to fail the typecheck if the const-generic narrowing
+ * on `req.actor` regresses. It produces no runtime artifacts of interest.
+ * Delete it whenever a real test suite for the router exists.
  */
 import type { Actor } from '../actor';
 import { PuterRouter } from './PuterRouter';

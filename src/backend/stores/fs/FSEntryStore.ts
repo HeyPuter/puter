@@ -1,21 +1,20 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify it under the
- * terms of the GNU Affero General Public License as published by the Free
- * Software Foundation, either version 3 of the License, or (at your option) any
- * later version.
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
- * details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see
- * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 import { statfs } from 'node:fs/promises';
@@ -2407,11 +2406,19 @@ export class FSEntryStore extends PuterStore {
             `UPDATE fsentries SET ${assignments.join(', ')} WHERE uuid = ?`,
             [...values, uuid],
         );
-        const entry = await this.getEntryByUuid(uuid);
-        if (!entry)
+        // Re-read the row itself rather than going through `getEntryByUuid`:
+        // that read is cache-first and would hand back the pre-touch
+        // timestamps (and then re-cache them for another TTL).
+        const refreshedRows = (await this.clients.db.tryHardRead(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
+            [uuid],
+        )) as unknown as FSEntryRow[];
+        const refreshedRow = refreshedRows[0];
+        if (!refreshedRow)
             throw new HttpError(404, 'Entry not found after touch', {
                 legacyCode: 'not_found',
             });
+        const entry = this.#mapFSEntryRow(refreshedRow);
         await this.#invalidateEntryCache(entry);
         await this.#writeEntryToCache(entry);
         return entry;
@@ -2478,7 +2485,8 @@ export class FSEntryStore extends PuterStore {
         } = {},
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
         const payload = decodeCursor(options.cursor) as
-            { v: unknown; id: number; s?: string; o?: string } | undefined;
+            | { v: unknown; id: number; s?: string; o?: string }
+            | undefined;
 
         const requestedSort = options.sortBy ?? null;
         const requestedOrder = options.sortOrder ?? null;
@@ -2661,7 +2669,8 @@ export class FSEntryStore extends PuterStore {
         const limit = normalizeLimit(options.limit, { cap: 10_000 }) ?? 1000;
 
         const payload = decodeCursor(options.cursor) as
-            { p: string } | undefined;
+            | { p: string }
+            | undefined;
         const seek = payload ? 'AND path > ?' : '';
         const params: unknown[] = payload
             ? [userId, likePattern, maxSlashes, payload.p, limit + 1]

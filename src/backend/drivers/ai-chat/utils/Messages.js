@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -20,11 +20,13 @@
 import { HttpError } from '@heyputer/backend/src/core/http';
 
 /**
- * Normalizes a single message into a standardized format with role and content array.
- * Converts string messages to objects, ensures content is an array of content blocks,
- * transforms tool_calls into tool_use content blocks, and coerces content items into objects.
+ * Normalizes a single message into a standardized format with role and content
+ * array. Converts string messages to objects, ensures content is an array of
+ * content blocks, transforms tool_calls into tool_use content blocks, and
+ * coerces content items into objects.
  *
- * @param {string|Object} message - The message to normalize, either a string or message object
+ * @param {string | Object} message - The message to normalize, either a string
+ *   or message object
  * @param {Object} params - Optional parameters including default role
  * @returns {Object} Normalized message with role and content array
  * @throws {HttpError} If message is not a string or object
@@ -153,11 +155,12 @@ export const normalize_single_message = (message, params = {}) => {
 
 /**
  * Normalizes an array of messages by applying normalize_single_message to each,
- * then splits messages with multiple content blocks into separate messages,
- * and finally merges consecutive messages from the same role.
+ * then splits messages with multiple content blocks into separate messages, and
+ * finally merges consecutive messages from the same role.
  *
  * @param {Array} messages - Array of messages to normalize
- * @param {Object} params - Optional parameters passed to normalize_single_message
+ * @param {Object} params - Optional parameters passed to
+ *   normalize_single_message
  * @returns {Array} Normalized and merged array of messages
  */
 export const normalize_messages = (messages, params = {}) => {
@@ -240,8 +243,8 @@ export const extract_and_remove_system_messages = (messages) => {
 
 /**
  * Extracts all text content from messages, handling various message formats.
- * Processes strings, objects with content arrays, and nested content structures,
- * joining all text with spaces.
+ * Processes strings, objects with content arrays, and nested content
+ * structures, joining all text with spaces.
  *
  * @param {Array} messages - Array of messages to extract text from
  * @returns {string} Concatenated text content from all messages

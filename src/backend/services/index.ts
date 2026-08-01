@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -42,9 +42,9 @@ import type { IPuterServiceRegistry } from './types';
 /**
  * Populate `IPuterServiceInstances` (declared in `./types`) with the concrete
  * types of built-in services. Done via declaration merging instead of
- * `LayerInstances<typeof puterServices>` because every concrete service
- * extends `PuterService`, whose `protected services` field references this
- * type — a direct `typeof puterServices` lookup would self-cycle.
+ * `LayerInstances<typeof puterServices>` because every concrete service extends
+ * `PuterService`, whose `protected services` field references this type — a
+ * direct `typeof puterServices` lookup would self-cycle.
  */
 declare module './types' {
     interface IPuterServiceInstances {

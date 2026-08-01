@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -69,9 +69,9 @@ function computeSignature(
 /**
  * Constant-time equality for the hex signature strings. A plain `===`
  * short-circuits on the first differing character, leaking a byte-by-byte
- * timing oracle on the one value an attacker controls and submits
- * repeatedly. Length mismatch (or non-hex input) returns false without
- * a timing-variable compare.
+ * timing oracle on the one value an attacker controls and submits repeatedly.
+ * Length mismatch (or non-hex input) returns false without a timing-variable
+ * compare.
  */
 function signaturesEqual(provided: string, expected: string): boolean {
     if (provided.length !== expected.length) return false;
@@ -133,8 +133,8 @@ export function signFile(
 
 /**
  * Verify a request's URL signature for a given action. A valid `write`
- * signature also authorises `read`. Throws HttpError(403) on mismatch,
- * expired signatures, or missing params.
+ * signature also authorises `read`. Throws HttpError(403) on mismatch, expired
+ * signatures, or missing params.
  */
 export function verifySignature(
     query: { uid?: string; expires?: string | number; signature?: string },
@@ -191,8 +191,8 @@ export function verifySignature(
 
 /**
  * Non-throwing variant that returns whether the signature is valid for the
- * given action. Useful when callers want to attempt `write` auth and fall
- * back to `read` without triggering error propagation.
+ * given action. Useful when callers want to attempt `write` auth and fall back
+ * to `read` without triggering error propagation.
  */
 export function isSignatureValid(
     query: { uid?: string; expires?: string | number; signature?: string },

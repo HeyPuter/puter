@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -22,10 +22,10 @@ import { PuterController } from '../types.js';
 
 /**
  * Site hosting endpoints. Listing and create/update are not exposed as
- * controller routes — clients use the `puter-subdomains` driver
- * (select / create / update / read) so they get the v1-shape with
- * uuids and nested objects (no raw mysql ids). Only `/delete-site`
- * lives here because v1 also exposed it as a top-level POST.
+ * controller routes — clients use the `puter-subdomains` driver (select /
+ * create / update / read) so they get the v1-shape with uuids and nested
+ * objects (no raw mysql ids). Only `/delete-site` lives here because v1 also
+ * exposed it as a top-level POST.
  */
 export class HostingController extends PuterController {
     constructor(config, clients, stores, services) {

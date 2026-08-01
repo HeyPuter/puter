@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -50,23 +50,26 @@ import {
  * routes so site hosts don't accidentally hit the API/GUI routers.
  *
  * Scope:
- *   - subdomain → site row (SubdomainStore) → file under site root
- *   - 404 for unknown subdomain / missing file / suspended owner
- *   - private-app gate via `app.privateAccess.check` — marketplace extension
- *     decides; default is denied + redirect to `app-center`
- *   - Range / ETag / Last-Modified passthrough via `fsEntry.readContent`
+ *
+ * - Subdomain → site row (SubdomainStore) → file under site root
+ * - 404 for unknown subdomain / missing file / suspended owner
+ * - Private-app gate via `app.privateAccess.check` — marketplace extension
+ *   decides; default is denied + redirect to `app-center`
+ * - Range / ETag / Last-Modified passthrough via `fsEntry.readContent`
  *
  * Deferred (not yet implemented):
- *   - `.at` username-based sites (UUIDv5-keyed `/user/Public`).
- *   - Custom domains (subdomains table `domain` column) — requires host
- *     validation to allow arbitrary hostnames first.
+ *
+ * - `.at` username-based sites (UUIDv5-keyed `/user/Public`).
+ * - Custom domains (subdomains table `domain` column) — requires host validation
+ *   to allow arbitrary hostnames first.
  *
  * Site config:
- *   - `.puter_site_config` at the site root (see `puterSiteConfig.ts`)
- *     supplies custom error pages. On a file 404, the matching rule's
- *     `file` is served with the rule's `status` — supports the SPA
- *     fallback pattern of `404 → /index.html with status 200`. The
- *     config file itself is hidden from public serving.
+ *
+ * - `.puter_site_config` at the site root (see `puterSiteConfig.ts`) supplies
+ *   custom error pages. On a file 404, the matching rule's `file` is served
+ *   with the rule's `status` — supports the SPA fallback pattern of `404 →
+ *   /index.html with status 200`. The config file itself is hidden from public
+ *   serving.
  */
 
 const SUBDOMAIN_404 = `<div style="font-size: 20px;

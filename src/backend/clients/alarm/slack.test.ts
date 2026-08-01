@@ -148,4 +148,58 @@ describe('createSlackAlertHandler', () => {
         await handler(alert());
         expect(fetchMock).toHaveBeenCalledTimes(2);
     });
+
+    it('releases the throttle slot when the post itself errors', async () => {
+        fetchMock.mockRejectedValueOnce(new Error('socket hang up'));
+        const handler = createSlackAlertHandler({
+            webhookUrl: 'https://hooks.example/abc',
+            repeatThrottleMs: 60_000,
+        });
+
+        await expect(handler(alert())).rejects.toThrow('socket hang up');
+        await handler(alert());
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('evicts throttle entries that have aged out once the map fills', async () => {
+        const throttleMs = 60_000;
+        const handler = createSlackAlertHandler({
+            webhookUrl: 'https://hooks.example/abc',
+            repeatThrottleMs: throttleMs,
+        });
+
+        // Fill to the high-water mark, then age every entry past the window.
+        for (let i = 0; i < 5000; i++) {
+            await handler(alert({ id: `aged:${i}` }));
+        }
+        vi.advanceTimersByTime(throttleMs);
+
+        await handler(alert({ id: 'fresh' }));
+        expect(fetchMock).toHaveBeenCalledTimes(5001);
+
+        // The aged ids were pruned, so they post again immediately.
+        await handler(alert({ id: 'aged:0' }));
+        expect(fetchMock).toHaveBeenCalledTimes(5002);
+    });
+
+    it('drops the oldest entry when the map is full of live ones', async () => {
+        const handler = createSlackAlertHandler({
+            webhookUrl: 'https://hooks.example/abc',
+            repeatThrottleMs: 60_000,
+        });
+
+        for (let i = 0; i < 5000; i++) {
+            await handler(alert({ id: `live:${i}` }));
+        }
+
+        // Nothing has aged out, so the oldest id makes room for the new one.
+        await handler(alert({ id: 'newcomer' }));
+        expect(fetchMock).toHaveBeenCalledTimes(5001);
+
+        await handler(alert({ id: 'live:0' }));
+        expect(fetchMock).toHaveBeenCalledTimes(5002);
+        // The newcomer is still throttled.
+        await handler(alert({ id: 'newcomer' }));
+        expect(fetchMock).toHaveBeenCalledTimes(5002);
+    });
 });

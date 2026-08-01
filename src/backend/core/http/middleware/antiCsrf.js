@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -23,10 +23,9 @@ import { HttpError } from '../HttpError.js';
 /**
  * Anti-CSRF token manager (Redis-backed).
  *
- * One key per token: `csrf:<sessionId>:<token>` with TTL. Consume is
- * DEL — returns 1 if it existed (and we just consumed it), 0 otherwise.
- * Atomic across a cluster, no MULTI needed since each op touches a
- * single key.
+ * One key per token: `csrf:<sessionId>:<token>` with TTL. Consume is DEL —
+ * returns 1 if it existed (and we just consumed it), 0 otherwise. Atomic across
+ * a cluster, no MULTI needed since each op touches a single key.
  *
  * Tokens expire after `TOKEN_TTL_MS` whether consumed or not.
  */
@@ -67,8 +66,8 @@ export const antiCsrf = {
 // -- Route middleware ------------------------------------------------
 
 /**
- * Middleware that requires a valid anti-CSRF token in `req.body.anti_csrf`.
- * The session key is `req.actor.user.uuid`.
+ * Middleware that requires a valid anti-CSRF token in `req.body.anti_csrf`. The
+ * session key is `req.actor.user.uuid`.
  */
 export function requireAntiCsrf() {
     return async (req, _res, next) => {

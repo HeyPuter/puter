@@ -128,15 +128,21 @@ describe('ai.chat driver payloads', () => {
         expect(body.args).toEqual({ messages: [{ content: 'hello' }] });
     });
 
+    // The flag rides both slots: the top-level field is the historical wire
+    // shape, `args.test_mode` is what the drivers actually read.
     it('chat(prompt, testMode) sets test_mode', async () => {
         await ai.chat('hello', true);
         expect(lastBody().test_mode).toBe(true);
-        expect(lastBody().args).toEqual({ messages: [{ content: 'hello' }] });
+        expect(lastBody().args).toEqual({
+            messages: [{ content: 'hello' }],
+            test_mode: true,
+        });
     });
 
     it('chat(prompt, options, testMode) sets test_mode', async () => {
         await ai.chat('hello', { model: 'fake' }, true);
         expect(lastBody().test_mode).toBe(true);
+        expect(lastBody().args.test_mode).toBe(true);
         expect(lastBody().args.model).toBe('fake');
     });
 
@@ -263,6 +269,7 @@ describe('ai.img2txt driver payloads', () => {
         FakeXHR.respondWith = () => ({ success: true, result: {} });
         await ai.img2txt('https://example.com/scan.png', true);
         expect(lastBody().test_mode).toBe(true);
+        expect(lastBody().args.test_mode).toBe(true);
     });
 
     it('img2txt converts a Blob source to a data URI', async () => {

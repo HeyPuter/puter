@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -74,10 +74,10 @@ for (const [address, prefix] of [
 BLOCKED_IPV4_MAPPED_IPS.addSubnet('::ffff:0.0.0.0', 96, 'ipv6');
 
 /**
- * Reject URLs whose host is a raw IP or `localhost`. The goal is to make
- * SSRF harder by stopping trivial `http://169.254.169.254/...` probes before
- * DNS. Pair with the custom resolver below, which rejects private/reserved
- * resolved addresses after DNS.
+ * Reject URLs whose host is a raw IP or `localhost`. The goal is to make SSRF
+ * harder by stopping trivial `http://169.254.169.254/...` probes before DNS.
+ * Pair with the custom resolver below, which rejects private/reserved resolved
+ * addresses after DNS.
  */
 export function validateUrlNoIP(url: string): void {
     const { hostname } = new URL(url);
@@ -175,21 +175,19 @@ interface SecureFetchInit extends Omit<RequestInit, 'redirect'> {
 }
 
 /**
- * Fetch `url` with SSRF guards:
- *   • Rejects raw-IP / localhost hosts via {@link validateUrlNoIP}.
- *   • Forces `redirect: 'manual'` and rejects any 3xx response so a permissive
- *     target can't bounce us onto an internal endpoint.
- *   • Re-checks DNS at connect time: every address the socket actually
- *     connects to must pass {@link isPublicResolvedAddress}, so a hostname
- *     resolving to a private/reserved address (including via DNS rebinding)
- *     is rejected.
- *   • If `config.secureCorsProxy` is set AND the URL isn't a `data:` URI,
- *     rewrites the request through the configured signed Cloudflare Worker
- *     proxy (adds `x-cors-proxy-auth-secret`).
+ * Fetch `url` with SSRF guards: • Rejects raw-IP / localhost hosts via
+ * {@link validateUrlNoIP}. • Forces `redirect: 'manual'` and rejects any 3xx
+ * response so a permissive target can't bounce us onto an internal endpoint. •
+ * Re-checks DNS at connect time: every address the socket actually connects to
+ * must pass {@link isPublicResolvedAddress}, so a hostname resolving to a
+ * private/reserved address (including via DNS rebinding) is rejected. • If
+ * `config.secureCorsProxy` is set AND the URL isn't a `data:` URI, rewrites the
+ * request through the configured signed Cloudflare Worker proxy (adds
+ * `x-cors-proxy-auth-secret`).
  *
  * Intended for any outbound fetch whose URL originates from user input.
- * Internal-only endpoints (a provider's own API URL, etc.) should keep
- * using plain `fetch`.
+ * Internal-only endpoints (a provider's own API URL, etc.) should keep using
+ * plain `fetch`.
  */
 export async function secureFetch(
     url: string,

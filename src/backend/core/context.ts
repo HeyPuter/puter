@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -24,8 +24,8 @@ import type { Actor } from './actor';
 /**
  * Per-request context with both typed well-known fields AND an open-ended
  * key-value map for ad-hoc data. Common fields (`actor`, `req`) are typed for
- * autocomplete / safety, while the generic `get`/`set` bag lets any code
- * stash per-request values without threading them through function arguments.
+ * autocomplete / safety, while the generic `get`/`set` bag lets any code stash
+ * per-request values without threading them through function arguments.
  *
  * Backed by Node's `AsyncLocalStorage`, so the context propagates through
  * async/await, timers, and microtasks automatically. The middleware
@@ -33,6 +33,7 @@ import type { Actor } from './actor';
  * context after the auth probe has populated `req.actor`.
  *
  * Usage:
+ *
  * ```ts
  * // read typed field
  * const actor = Context.get('actor');
@@ -71,16 +72,16 @@ const als = new AsyncLocalStorage<ContextStore>();
 /**
  * Static-style context accessor.
  *
- * Well-known keys (`actor`, `req`, `requestId`) return typed values.
- * Any other string key hits the generic map and returns `unknown`.
+ * Well-known keys (`actor`, `req`, `requestId`) return typed values. Any other
+ * string key hits the generic map and returns `unknown`.
  */
 export class Context {
     /**
      * Get a value from the current request context.
      *
-     * Well-known keys return typed values; arbitrary string keys
-     * return `unknown`. Returns `undefined` when called outside a
-     * request scope or when the key hasn't been set.
+     * Well-known keys return typed values; arbitrary string keys return
+     * `unknown`. Returns `undefined` when called outside a request scope or
+     * when the key hasn't been set.
      */
     /** Get the entire context store (no-arg form). */
     static get(): ContextStore | undefined;
@@ -134,8 +135,8 @@ export class Context {
 // -- Internal: used by the request-context middleware -----------------
 
 /**
- * Run `fn` inside a new context scope. Used by the request-context
- * middleware to wrap the remainder of the middleware/handler chain.
+ * Run `fn` inside a new context scope. Used by the request-context middleware
+ * to wrap the remainder of the middleware/handler chain.
  */
 export const runWithContext = <T>(
     initial: Partial<KnownContextFields>,

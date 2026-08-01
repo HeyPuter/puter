@@ -1,8 +1,24 @@
 import * as utils from '../../../lib/utils.js';
 
 /**
+ * Read the hosted-asset URL a driver reports instead of raw bytes. Same key
+ * set `toVideoElement` accepts.
+ *
+ * @param {Record<string, unknown>} result
+ * @returns {string | null}
+ */
+const assetUrlOf = (result) => {
+    for ( const key of ['asset_url', 'url', 'href'] ) {
+        const value = result[key];
+        if ( typeof value === 'string' && value ) return value;
+    }
+    return null;
+};
+
+/**
  * Drivers return media payloads in several shapes (URL string, Blob,
- * ArrayBuffer, or a Response-like object). Reduce them all to a URL.
+ * ArrayBuffer, a Response-like object, or an object naming a hosted asset).
+ * Reduce them all to a URL.
  *
  * @param {unknown} result
  * @param {{ code: string, message: string }} error - thrown when the shape is unrecognized
@@ -21,6 +37,10 @@ const resultToUrl = async (result, error) => {
     if ( result && typeof result === 'object' && typeof result.arrayBuffer === 'function' ) {
         const arrayBuffer = await result.arrayBuffer();
         return await utils.blobToDataUri(new Blob([arrayBuffer], { type: result.type || undefined }));
+    }
+    if ( result && typeof result === 'object' ) {
+        const assetUrl = assetUrlOf(result);
+        if ( assetUrl ) return assetUrl;
     }
     throw error;
 };
@@ -71,7 +91,7 @@ export const toVideoElement = async (result) => {
     } else if ( typeof result === 'string' ) {
         sourceUrl = result;
     } else if ( result && typeof result === 'object' ) {
-        sourceUrl = result.asset_url || result.url || result.href || null;
+        sourceUrl = assetUrlOf(result);
         mimeType = result.mime_type || result.content_type || null;
     }
 

@@ -71,9 +71,7 @@ describe('serverInfo extension — handleServerInfo', () => {
         const statfsSpy = vi
             .spyOn(fs.default, 'statfs')
             .mockRejectedValue(new Error('statfs unsupported'));
-        const errSpy = vi
-            .spyOn(console, 'error')
-            .mockImplementation(() => {});
+        const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
         const { res, captured } = makeRes();
         await handleServerInfo({} as Request, res);
@@ -87,5 +85,19 @@ describe('serverInfo extension — handleServerInfo', () => {
 
         statfsSpy.mockRestore();
         errSpy.mockRestore();
+    });
+
+    it('reports an unknown CPU model when os.cpus() comes back empty', async () => {
+        const os = await import('node:os');
+        const cpusSpy = vi.spyOn(os.default, 'cpus').mockReturnValue([]);
+
+        const { res, captured } = makeRes();
+        await handleServerInfo({} as Request, res);
+
+        const cpu = captured.body!.cpu as Record<string, unknown>;
+        expect(cpu.model).toBe('Unknown');
+        expect(cpu.cores).toBe(0);
+
+        cpusSpy.mockRestore();
     });
 });

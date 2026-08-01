@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -36,13 +36,13 @@ const ADMIN_STORAGE_BYTES = 10 * 1024 * 1024 * 1024;
  *
  * If no admin exists, creates one with a random 8-char hex password, places
  * them in the admin group, and stashes the plaintext under
- * `metadata.tmp_password` so we can detect on later boots whether the
- * operator has rotated it yet.
+ * `metadata.tmp_password` so we can detect on later boots whether the operator
+ * has rotated it yet.
  *
  * Each boot where the current password hash still matches the stashed
- * plaintext, the credentials are re-printed to stdout (CI scrapes this
- * line to extract the default password). Once rotation is detected the
- * stash is deleted so the plaintext isn't retained longer than needed.
+ * plaintext, the credentials are re-printed to stdout (CI scrapes this line to
+ * extract the default password). Once rotation is detected the stash is deleted
+ * so the plaintext isn't retained longer than needed.
  */
 export class DefaultUserService extends PuterService {
     override async onServerStart(): Promise<void> {

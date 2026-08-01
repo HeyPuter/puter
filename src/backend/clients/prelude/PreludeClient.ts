@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -74,11 +74,11 @@ export type PreludeCheckStatus =
     | 'transaction_mismatch';
 
 /**
- * Prelude Verify v2 client (https://docs.prelude.so/verify/v2). Sends and checks
- * SMS one-time codes — Prelude generates, delivers, and validates the code, so
- * we never store one ourselves. No-ops with a warning when no API key is
- * configured (so dev environments don't crash); `isConfigured()` lets callers
- * surface a clean "phone verification unavailable" error instead.
+ * Prelude Verify v2 client (https://docs.prelude.so/verify/v2). Sends and
+ * checks SMS one-time codes — Prelude generates, delivers, and validates the
+ * code, so we never store one ourselves. No-ops with a warning when no API key
+ * is configured (so dev environments don't crash); `isConfigured()` lets
+ * callers surface a clean "phone verification unavailable" error instead.
  */
 export class PreludeClient extends PuterClient {
     private apiKey: string | null = null;
@@ -113,7 +113,9 @@ export class PreludeClient extends PuterClient {
 
     /**
      * Whether SMS verification should be offered for a country. False when the
-     * country is unknown, has no SMS channel, or its rate exceeds the cost cap.
+     * country is unknown, has no SMS channel, or its rate exceeds the cost
+     * cap.
+     *
      * @param iso ISO-3166 alpha-2 (e.g. 'US') — from the parsed phone number.
      */
     isCountrySupported(iso: string | undefined): boolean {
@@ -174,7 +176,9 @@ export class PreludeClient extends PuterClient {
     }
 
     /**
-     * Check a code the user entered against the active verification for `target`.
+     * Check a code the user entered against the active verification for
+     * `target`.
+     *
      * @returns `{ status }` — `'success'` means verified.
      */
     async checkVerification(

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -35,10 +35,10 @@ const DEFAULT_FOLDERS = [
 type FolderName = (typeof DEFAULT_FOLDERS)[number];
 
 /**
- * Creates a user's default FS tree: `/<username>` (home) and the seven
- * standard children (Trash, AppData, Desktop, Documents, Pictures, Videos,
- * Public). Records each folder's `uuid` + `id` on the `user` row so callers
- * can look them up without an extra SELECT.
+ * Creates a user's default FS tree: `/<username>` (home) and the seven standard
+ * children (Trash, AppData, Desktop, Documents, Pictures, Videos, Public).
+ * Records each folder's `uuid` + `id` on the `user` row so callers can look
+ * them up without an extra SELECT.
  *
  * Safe to call once per user (e.g. after signup or during admin bootstrap).
  * Callers should check `user.trash_uuid` / similar up-front if they need
@@ -127,12 +127,12 @@ export async function generateDefaultFsentries(
 }
 
 /**
- * Moves a user from the default *temp* group to the default *user* group.
- * Call after a user's `email_confirmed` flips to 1.
+ * Moves a user from the default _temp_ group to the default _user_ group. Call
+ * after a user's `email_confirmed` flips to 1.
  *
- * Best-effort on both sides: missing temp membership is common (e.g.
- * OIDC signups that come in already-verified), and a failing user-group
- * add shouldn't fail the response — we just log it.
+ * Best-effort on both sides: missing temp membership is common (e.g. OIDC
+ * signups that come in already-verified), and a failing user-group add
+ * shouldn't fail the response — we just log it.
  */
 export async function promoteToVerifiedGroup(
     groupStore: GroupStore,

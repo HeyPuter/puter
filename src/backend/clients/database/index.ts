@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -33,9 +33,9 @@ import { PostgresDatabaseClient } from './PostgresDatabaseClient';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient';
 
 /**
- * Factory class registered in `puterClients`. PuterServer calls
- * `new DatabaseClientFactory(config)` — the constructor returns the
- * concrete subclass selected by `config.database.engine`.
+ * Factory class registered in `puterClients`. PuterServer calls `new
+ * DatabaseClientFactory(config)` — the constructor returns the concrete
+ * subclass selected by `config.database.engine`.
  */
 export const DatabaseClientFactory = class DatabaseClientFactory {
     constructor(config: IConfig) {

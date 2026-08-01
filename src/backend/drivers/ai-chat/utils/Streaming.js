@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -93,7 +93,7 @@ export class AIChatStream {
         this.stream = stream;
     }
 
-    end(/** @type {Record<string,number>} */ usage) {
+    end(/** @type {Record<string, number>} */ usage) {
         this.stream.write(
             `${JSON.stringify({
                 type: 'usage',
@@ -110,7 +110,7 @@ export class AIChatStream {
      * an identical `{ type: 'compaction', id, encrypted_content }` chunk
      * regardless of which upstream served the request.
      *
-     * @param {{ id?: string, encrypted_content: string }} compaction
+     * @param {{ id?: string; encrypted_content: string }} compaction
      */
     compaction({ id, encrypted_content }) {
         this.stream.write(

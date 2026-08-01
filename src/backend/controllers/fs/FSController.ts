@@ -1,21 +1,20 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify it under the
- * terms of the GNU Affero General Public License as published by the Free
- * Software Foundation, either version 3 of the License, or (at your option) any
- * later version.
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
- * details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see
- * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 import Busboy from 'busboy';
@@ -439,6 +438,11 @@ export class FSController extends PuterController {
             let parseFailure: Error | null = null;
             const uploadPromises: Promise<UploadedBatchWriteItem | null>[] = [];
             const uploadedIndexes = new Set<number>();
+            // Manifest indexes are client-chosen and may skip values (an
+            // ignored `.DS_Store`, or a sparse numbering). `prepareBatchWrites`
+            // re-indexes by array position, so the two spaces have to be
+            // bridged explicitly or file parts get paired with the wrong item.
+            const preparedIndexByManifestIndex = new Map<number, number>();
             let fileOrderIndex = 0;
 
             const failParse = (error: unknown) => {
@@ -549,6 +553,12 @@ export class FSController extends PuterController {
                                 { pathAlreadyNormalized: true },
                             );
 
+                            activeManifestItems.forEach((item, position) => {
+                                preparedIndexByManifestIndex.set(
+                                    item.index,
+                                    position,
+                                );
+                            });
                             preparedBatch =
                                 await this.services.fs.prepareBatchWrites(
                                     userId,
@@ -621,9 +631,13 @@ export class FSController extends PuterController {
                         }
                         uploadedIndexes.add(itemIndex);
 
+                        const preparedIndex =
+                            preparedIndexByManifestIndex.get(itemIndex);
                         const preparedItem =
-                            preparedBatch.itemsByIndex.get(itemIndex);
-                        if (!preparedItem) {
+                            preparedIndex === undefined
+                                ? undefined
+                                : preparedBatch.itemsByIndex.get(preparedIndex);
+                        if (preparedIndex === undefined || !preparedItem) {
                             throw new HttpError(
                                 400,
                                 `Batch write metadata was not found for index ${itemIndex}`,
@@ -641,7 +655,7 @@ export class FSController extends PuterController {
 
                         return await this.services.fs.uploadPreparedBatchItem({
                             preparedBatch,
-                            itemIndex,
+                            itemIndex: preparedIndex,
                             fileContent: stream,
                             uploadTracker,
                         });
@@ -653,6 +667,12 @@ export class FSController extends PuterController {
                     }
                 })();
                 uploadPromises.push(uploadPromise);
+                // Failures are collected with `Promise.allSettled` once
+                // parsing finishes, which is many ticks away — attach an
+                // inert handler now so an immediate rejection (e.g. a file
+                // part arriving before the manifest) isn't reported as an
+                // unhandled rejection in the meantime.
+                void uploadPromise.catch(() => undefined);
             });
 
             const parsingComplete = new Promise<void>((resolve, reject) => {
@@ -662,6 +682,18 @@ export class FSController extends PuterController {
 
             req.pipe(busboy);
             await parsingComplete;
+            // A manifest that failed to parse never sets
+            // `manifestPreparationPromise`, so surface the real reason
+            // (invalid JSON, bad item index, duplicate index → 409) before
+            // falling back to "no manifest was sent at all". Scoped to that
+            // case on purpose: with no prepared batch nothing can have been
+            // uploaded, so there is nothing to clean up. A parse failure that
+            // arrives *after* a manifest was accepted has to fall through to
+            // the cleanup path below, which sweeps objects already in storage.
+            if (parseFailure && !manifestPreparationPromise) {
+                await Promise.allSettled(uploadPromises);
+                throw parseFailure;
+            }
             if (!manifestPreparationPromise) {
                 await Promise.allSettled(uploadPromises);
                 throw new HttpError(400, 'Batch write manifest is required', {
@@ -2059,7 +2091,8 @@ export class FSController extends PuterController {
         // the ActorUser type. Access via the escape hatch until a proper
         // storage-quota mechanism is in place.
         const actorUser = req.actor?.user as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
 
         const candidates = [
             this.#toStorageCapacityCandidate(actorUser?.free_storage),

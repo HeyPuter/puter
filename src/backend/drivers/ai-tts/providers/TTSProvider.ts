@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -18,9 +18,9 @@
  */
 
 /**
- * Abstract base for TTS providers. Each provider wraps a single upstream
- * API (OpenAI, ElevenLabs, AWS Polly) and exposes the unified
- * `ITTSProvider` contract.
+ * Abstract base for TTS providers. Each provider wraps a single upstream API
+ * (OpenAI, ElevenLabs, AWS Polly) and exposes the unified `ITTSProvider`
+ * contract.
  */
 
 import type { MeteringService } from '../../../services/metering/MeteringService.js';

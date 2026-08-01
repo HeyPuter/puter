@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -55,10 +55,10 @@ export const routeEventKeyBase = (
  * On each request it: emits `before` (awaited, so a listener may veto by
  * setting `allow = false`), times the handler, and emits a single terminal
  * event when the response finishes or the connection closes — `after` on a
- * clean response, `error` on an abort or a >=500, `reject` only when a
- * listener vetoes (it then answers 403 and the handler never runs). A listener
- * that writes its own response without vetoing terminates as `after`/`error`
- * keyed off the real status, not `reject`.
+ * clean response, `error` on an abort or a >=500, `reject` only when a listener
+ * vetoes (it then answers 403 and the handler never runs). A listener that
+ * writes its own response without vetoing terminates as `after`/`error` keyed
+ * off the real status, not `reject`.
  *
  * Subscribers can listen on `route.*`, `route.<method>.*`, or the exact key.
  */

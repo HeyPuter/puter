@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -40,10 +40,10 @@ interface ContentPart {
  * Resolve any `puter_path` content parts into inline base64 data URLs.
  *
  * Rewrites each matching part in place: images become `image_url`, audio
- * becomes `input_audio`, and any error (too large, unsupported MIME,
- * missing file, permission denied) is swapped for a `text` part describing
- * the problem so the model can surface it to the user rather than the
- * request failing outright.
+ * becomes `input_audio`, and any error (too large, unsupported MIME, missing
+ * file, permission denied) is swapped for a `text` part describing the problem
+ * so the model can surface it to the user rather than the request failing
+ * outright.
  */
 export async function processPuterPathUploads(
     messages: Array<{ content?: unknown }>,
@@ -98,7 +98,11 @@ async function processPart(
         }
         setTextError(part, 'input file has unsupported MIME type');
     } catch (err) {
-        const status = (err as { status?: number })?.status;
+        // Upstream SDK errors carry `status`; our own HttpError carries
+        // `statusCode` — the size gate can raise either.
+        const status =
+            (err as { status?: number; statusCode?: number })?.status ??
+            (err as { statusCode?: number })?.statusCode;
         if (status === 413) {
             setTextError(
                 part,

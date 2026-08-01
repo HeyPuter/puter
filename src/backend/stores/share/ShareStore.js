@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -26,9 +26,9 @@ import { PuterStore } from '../types';
  * Columns: id, uid (unique), issuer_user_id, recipient_email, data (JSON),
  * created_at.
  *
- * Shares are pending permission grants sent to an email address. Once
- * the recipient applies the share, the permissions are granted and the
- * row is deleted.
+ * Shares are pending permission grants sent to an email address. Once the
+ * recipient applies the share, the permissions are granted and the row is
+ * deleted.
  */
 export class ShareStore extends PuterStore {
     // -- Reads --------------------------------------------------------

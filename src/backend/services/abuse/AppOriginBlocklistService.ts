@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -36,14 +36,14 @@ const NOT_BLOCKED: BlockMatch = { blocked: false };
  * In-memory, TTL-cached view of the `blocked_app_origins` table.
  *
  * Admins manage the table (the admin extension writes it directly, mirroring
- * how it writes the `user` table for suspend). This service answers the hot
- * "is this app/origin blocked?" question from a cached snapshot so the
- * per-request app-token validation path never hits the DB.
+ * how it writes the `user` table for suspend). This service answers the hot "is
+ * this app/origin blocked?" question from a cached snapshot so the per-request
+ * app-token validation path never hits the DB.
  *
  * Consistency: the cache refreshes lazily after {@link CACHE_TTL_MS}. Because
- * each worker process holds its own cache, a freshly-added block can take up
- * to one TTL to take effect across the fleet — acceptable for an
- * admin-initiated block.
+ * each worker process holds its own cache, a freshly-added block can take up to
+ * one TTL to take effect across the fleet — acceptable for an admin-initiated
+ * block.
  */
 export class AppOriginBlocklistService extends PuterService {
     private static readonly CACHE_TTL_MS = 30_000;
@@ -54,8 +54,8 @@ export class AppOriginBlocklistService extends PuterService {
 
     /**
      * Decide whether a bare host (already without scheme/path) is blocked.
-     * Exact entries match the host verbatim; `include_subdomains` entries
-     * also match any subdomain of `domain`.
+     * Exact entries match the host verbatim; `include_subdomains` entries also
+     * match any subdomain of `domain`.
      */
     async isHostBlocked(host: string): Promise<BlockMatch> {
         const normalized = normalizeHost(host);

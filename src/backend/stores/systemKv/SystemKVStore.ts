@@ -1,21 +1,20 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify it under the
- * terms of the GNU Affero General Public License as published by the Free
- * Software Foundation, either version 3 of the License, or (at your option) any
- * later version.
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
- * details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see
- * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 import { PuterStore } from '../types';
@@ -404,7 +403,8 @@ export class SystemKVStore extends PuterStore {
             res: true,
             usage: writeUsage(
                 (response.ConsumedCapacity?.CapacityUnits as
-                    number | undefined) ?? 1,
+                    | number
+                    | undefined) ?? 1,
             ),
         };
     }
@@ -435,7 +435,9 @@ export class SystemKVStore extends PuterStore {
             | { key: string; value: unknown }[]
             | {
                   items:
-                      string[] | unknown[] | { key: string; value: unknown }[];
+                      | string[]
+                      | unknown[]
+                      | { key: string; value: unknown }[];
                   cursor?: string;
                   total?: number;
               }
@@ -514,7 +516,8 @@ export class SystemKVStore extends PuterStore {
                 usage,
                 readUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             );
             return response;
@@ -531,7 +534,8 @@ export class SystemKVStore extends PuterStore {
                 const skip = await runQuery(remaining, startKey, 'COUNT');
                 remaining -= Number(skip.Count ?? 0);
                 startKey = skip.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
                 if (!startKey) {
                     exhausted = remaining > 0;
                     break;
@@ -554,7 +558,8 @@ export class SystemKVStore extends PuterStore {
                     >),
                 );
                 nextKey = response.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
                 pages++;
                 if (normalizedLimit === undefined) {
                     // Legacy full listing: follow continuation pages so the
@@ -590,7 +595,8 @@ export class SystemKVStore extends PuterStore {
                 const counted = await runQuery(0, countKey, 'COUNT');
                 total += Number(counted.Count ?? 0);
                 countKey = counted.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
             } while (countKey);
         }
 
@@ -912,7 +918,8 @@ export class SystemKVStore extends PuterStore {
                 res: response.Attributes?.value,
                 usage: writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             };
         } catch (e) {

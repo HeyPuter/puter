@@ -1,21 +1,20 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify it under the
- * terms of the GNU Affero General Public License as published by the Free
- * Software Foundation, either version 3 of the License, or (at your option) any
- * later version.
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful, but WITHOUT
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
- * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
- * details.
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program. If not, see
- * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
@@ -838,7 +837,17 @@ export class AuthService extends PuterService {
             return null;
         }
         parsed.host = canonical;
-        return parsed.toString();
+        // Same shape `#originFromUrl` produces. `URL.toString()` would append
+        // a path separator, so an aliased host would hash to a different app
+        // uid (and match the origin blocklist differently) than the canonical
+        // host resolves to on its own.
+        return this.#normalizedOrigin(parsed);
+    }
+
+    /** Scheme + host + explicit port, with no trailing separator. */
+    #normalizedOrigin(parsed: URL): string {
+        const port = parsed.port ? `:${parsed.port}` : '';
+        return `${parsed.protocol}//${parsed.hostname}${port}`;
     }
 
     /**
@@ -1595,7 +1604,7 @@ export class AuthService extends PuterService {
             if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
                 return null;
             }
-            return `${parsed.protocol}//${parsed.hostname}${parsed.port ? `:${parsed.port}` : ''}`;
+            return this.#normalizedOrigin(parsed);
         } catch {
             return null;
         }

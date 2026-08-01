@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -35,8 +35,8 @@ import {
  * Stage-3 decorators (TS 5+), matching the extensionController pattern. Every
  * method decorator pushes a `CollectedRoute` onto `prototype.__puterRoutes`
  * during class initialization. `@Controller` seals the deal by installing a
- * `registerRoutes` method on the prototype that walks the collected routes
- * and feeds them to the `PuterRouter` passed in by `PuterServer`.
+ * `registerRoutes` method on the prototype that walks the collected routes and
+ * feeds them to the `PuterRouter` passed in by `PuterServer`.
  *
  * Usage is optional — imperative controllers that override `registerRoutes`
  * directly work equally well.
@@ -62,16 +62,16 @@ const getOrInitRoutes = (proto: DecoratedPrototype): CollectedRoute[] => {
 /**
  * Class decorator.
  *
- * - Stores the controller's path `prefix` on the prototype so `PuterServer`
- *   can construct a correctly-prefixed `PuterRouter` for this controller.
+ * - Stores the controller's path `prefix` on the prototype so `PuterServer` can
+ *   construct a correctly-prefixed `PuterRouter` for this controller.
  * - Installs a default `registerRoutes(router)` on the prototype that walks
- *   routes collected by method decorators (if this class hasn't defined its
- *   own `registerRoutes`). This means a purely-decorated controller needs
- *   no body — the decorators do all the wiring.
+ *   routes collected by method decorators (if this class hasn't defined its own
+ *   `registerRoutes`). This means a purely-decorated controller needs no body —
+ *   the decorators do all the wiring.
  *
  * Controllers that define their own `registerRoutes` are untouched; they can
- * still use `@Post` etc. and walk `prototype[ROUTES_METADATA_KEY]` manually
- * if they want to combine the styles.
+ * still use `@Post` etc. and walk `prototype[ROUTES_METADATA_KEY]` manually if
+ * they want to combine the styles.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyCtor = new (...args: any[]) => any;

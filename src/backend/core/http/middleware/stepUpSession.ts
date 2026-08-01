@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -34,8 +34,8 @@ import '../expressAugmentation';
  * An ordinary session cookie proves only that someone holds the credential; for
  * privileged endpoints that isn't enough, since a leaked session would inherit
  * the privilege. Elevation makes the caller re-prove identity — a fresh TOTP
- * code when 2FA is enabled, otherwise the account password — via
- * `POST /auth/elevate`, which mints the cookie below.
+ * code when 2FA is enabled, otherwise the account password — via `POST
+ * /auth/elevate`, which mints the cookie below.
  *
  * Both halves are required and neither is sufficient: gates demand a live
  * session actor AND this proof, and the proof is bound to that actor's
@@ -47,7 +47,7 @@ import '../expressAugmentation';
  * two are equivalent — both are the same signed token, and obtaining either
  * requires the password/TOTP. Nothing is exempt from the requirement: there is
  * deliberately no carve-out for any credential kind, because any credential a
- * stolen session can obtain *without* re-proving identity would be a way around
+ * stolen session can obtain _without_ re-proving identity would be a way around
  * this control rather than an exception to it.
  *
  * The token has its own scope and `purpose` claim and carries no auth `type`
@@ -135,23 +135,23 @@ export function verifyStepUpSession(
  *
  * Narrow by design — the only exemption is the app-gated path:
  *
- *   - Not env-conditional, so the flow exercised locally is the one that ships.
- *   - No carve-out for full-access tokens. That looks safe (a deliberately
- *     minted, header-borne credential) but isn't: `/auth/create-access-token`
- *     needs only a session, so a stolen session can mint a full-access token
- *     without ever re-proving identity and walk straight around this gate.
- *   - No carve-out based on how the credential arrived (cookie vs bearer). The
- *     holder of a token chooses which header to put it in, so that distinction
- *     is attacker-controlled and worthless as a gate.
- *   - `allowedAppUids`: the exemption is keyed off the *token*, not the route.
- *     An actor whose token carries one of these allowlisted app ids (an admin
- *     acting through an allowlisted app) is exempt — that actor can't elevate at
- *     all (apps have no password/TOTP and are blocked from `/auth/elevate`), so
- *     step-up is unsatisfiable for it. A token WITHOUT an allowlisted app id — a
- *     root/human session — still requires step-up, exactly as it would on a
- *     route with no `allowedAppIds`. So this is not a session or token-kind
- *     carve-out: reaching the exempt path needs an admin's OAuth grant to a
- *     specific allowlisted app.
+ * - Not env-conditional, so the flow exercised locally is the one that ships.
+ * - No carve-out for full-access tokens. That looks safe (a deliberately minted,
+ *   header-borne credential) but isn't: `/auth/create-access-token` needs only
+ *   a session, so a stolen session can mint a full-access token without ever
+ *   re-proving identity and walk straight around this gate.
+ * - No carve-out based on how the credential arrived (cookie vs bearer). The
+ *   holder of a token chooses which header to put it in, so that distinction is
+ *   attacker-controlled and worthless as a gate.
+ * - `allowedAppUids`: the exemption is keyed off the _token_, not the route. An
+ *   actor whose token carries one of these allowlisted app ids (an admin acting
+ *   through an allowlisted app) is exempt — that actor can't elevate at all
+ *   (apps have no password/TOTP and are blocked from `/auth/elevate`), so
+ *   step-up is unsatisfiable for it. A token WITHOUT an allowlisted app id — a
+ *   root/human session — still requires step-up, exactly as it would on a route
+ *   with no `allowedAppIds`. So this is not a session or token-kind carve-out:
+ *   reaching the exempt path needs an admin's OAuth grant to a specific
+ *   allowlisted app.
  *
  * The invariant for the human path: reaching a privileged endpoint requires
  * proving the password or a TOTP code within the elevation's lifetime.

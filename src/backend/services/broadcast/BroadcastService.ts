@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -60,30 +60,30 @@ interface IncomingHeaders {
 /**
  * Cross-node event replication via signed HTTP webhooks.
  *
- * **Outbound** — subscribes to local `outer.*` events on the event bus.
- * Each event is added to a small in-memory map (deduped by serialized
- * shape), then flushed every `outbound_flush_ms` as a single POST per
- * configured peer. Each POST carries:
+ * **Outbound** — subscribes to local `outer.*` events on the event bus. Each
+ * event is added to a small in-memory map (deduped by serialized shape), then
+ * flushed every `outbound_flush_ms` as a single POST per configured peer. Each
+ * POST carries:
  *
- *   - `X-Broadcast-Peer-Id` — this server's own peerId
- *   - `X-Broadcast-Timestamp` — unix seconds, peer rejects ±5min
- *   - `X-Broadcast-Nonce` — monotonic per-peer counter, peer rejects replays
- *   - `X-Broadcast-Signature` — HMAC-SHA256 of `<ts>.<nonce>.<rawBody>`
+ * - `X-Broadcast-Peer-Id` — this server's own peerId
+ * - `X-Broadcast-Timestamp` — unix seconds, peer rejects ±5min
+ * - `X-Broadcast-Nonce` — monotonic per-peer counter, peer rejects replays
+ * - `X-Broadcast-Signature` — HMAC-SHA256 of `<ts>.<nonce>.<rawBody>`
  *
- * **Inbound** — `BroadcastController` accepts POSTs at `/broadcast/webhook`
- * and hands each one off to `verifyAndEmit()`. The service validates the
- * HMAC + nonce + timestamp window, then re-emits each contained event
- * onto the local bus tagged with `meta.from_outside = true` so the
- * outbound subscriber doesn't bounce it back.
+ * **Inbound** — `BroadcastController` accepts POSTs at `/broadcast/webhook` and
+ * hands each one off to `verifyAndEmit()`. The service validates the HMAC +
+ * nonce + timestamp window, then re-emits each contained event onto the local
+ * bus tagged with `meta.from_outside = true` so the outbound subscriber doesn't
+ * bounce it back.
  *
  * Self-loop avoidance:
- *   - Outbound subscriber skips events with `meta.from_outside`.
- *   - Inbound handler ignores POSTs whose `X-Broadcast-Peer-Id` matches
- *     this server's own peerId (catches misconfigured loopbacks).
  *
+ * - Outbound subscriber skips events with `meta.from_outside`.
+ * - Inbound handler ignores POSTs whose `X-Broadcast-Peer-Id` matches this
+ *   server's own peerId (catches misconfigured loopbacks).
  */
 export class BroadcastService extends PuterService {
-    /** peerId → resolved peer config, used for incoming-verify lookup. */
+    /** PeerId → resolved peer config, used for incoming-verify lookup. */
     #peersByKey: Record<string, IBroadcastPeerConfig> = {};
     /** Subset of peers with `webhook: true`, used for outbound fan-out. */
     #webhookPeers: IBroadcastPeerConfig[] = [];
@@ -134,12 +134,12 @@ export class BroadcastService extends PuterService {
     // -- Public API used by BroadcastController ----------------------
 
     /**
-     * Verify an incoming webhook POST and, if valid, fan its events
-     * onto the local event bus (tagged `from_outside: true`).
+     * Verify an incoming webhook POST and, if valid, fan its events onto the
+     * local event bus (tagged `from_outside: true`).
      *
-     * Caller (controller) provides the request's parsed JSON body, the
-     * raw bytes that JSON came from (HMAC verifies over those exact
-     * bytes), and the four broadcast headers.
+     * Caller (controller) provides the request's parsed JSON body, the raw
+     * bytes that JSON came from (HMAC verifies over those exact bytes), and the
+     * four broadcast headers.
      */
     async verifyAndEmit(
         rawBody: Buffer | undefined,
@@ -490,9 +490,9 @@ export class BroadcastService extends PuterService {
     }
 
     /**
-     * Atomically claim an inbound (peerId, ts, nonce) tuple. Returns
-     * true on first claim, false on replay. SET NX with TTL = replay
-     * window; single key ⇒ cluster-mode safe.
+     * Atomically claim an inbound (peerId, ts, nonce) tuple. Returns true on
+     * first claim, false on replay. SET NX with TTL = replay window; single key
+     * ⇒ cluster-mode safe.
      */
     async #claimIncomingNonce(
         peerId: string,
@@ -511,10 +511,9 @@ export class BroadcastService extends PuterService {
     }
 
     /**
-     * Atomically allocate the next outbound nonce for a peer. Shared
-     * counter across all ALB-fronted nodes via Redis INCR — guarantees
-     * uniqueness so the receiver's per-peer replay protection accepts
-     * every legitimate send.
+     * Atomically allocate the next outbound nonce for a peer. Shared counter
+     * across all ALB-fronted nodes via Redis INCR — guarantees uniqueness so
+     * the receiver's per-peer replay protection accepts every legitimate send.
      */
     async #nextOutgoingNonce(peerId: string): Promise<number> {
         const n = await this.clients.redis.incr(`broadcast:out:${peerId}`);

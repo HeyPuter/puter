@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -23,9 +23,9 @@ import type { IConfig, LayerInstances, WithLifecycle } from '../types';
 
 /**
  * Built-in store instance registry. Forward-declared here and populated via
- * declaration merging from `stores/index.ts` to avoid the circular
- * `typeof puterStores` reference (stores extend `PuterStore`, whose
- * `protected stores` field references this type).
+ * declaration merging from `stores/index.ts` to avoid the circular `typeof
+ * puterStores` reference (stores extend `PuterStore`, whose `protected stores`
+ * field references this type).
  *
  * Consumers see the merged `IPuterStoreInstances & IExtensionStoreInstances`
  * type — built-in keys + extension-augmented keys.
@@ -34,8 +34,8 @@ import type { IConfig, LayerInstances, WithLifecycle } from '../types';
 export interface IPuterStoreInstances {}
 
 /**
- * Extension-augmentable store registry. Extensions add their own store
- * instance types via TypeScript declaration merging:
+ * Extension-augmentable store registry. Extensions add their own store instance
+ * types via TypeScript declaration merging:
  *
  *     declare module '@heyputer/backend/stores/types' {
  *         interface IExtensionStoreInstances {
@@ -57,15 +57,14 @@ export interface IExtensionStoreInstances {
 }
 
 /**
- * Stores may depend on clients and on *prior* stores (those declared
- * earlier in the registry).
+ * Stores may depend on clients and on _prior_ stores (those declared earlier in
+ * the registry).
  *
- * Type contract caveat: `stores` is typed as the FULLY-populated registry,
- * even though at construction time only prior stores exist. Same trade-off
- * as `PuterService.services` — handler/lifecycle methods (the dominant
- * read site) run after all stores are wired, so typed access wins. Don't
- * read `this.stores.X` from a store constructor unless `X` is registered
- * earlier.
+ * Type contract caveat: `stores` is typed as the FULLY-populated registry, even
+ * though at construction time only prior stores exist. Same trade-off as
+ * `PuterService.services` — handler/lifecycle methods (the dominant read site)
+ * run after all stores are wired, so typed access wins. Don't read
+ * `this.stores.X` from a store constructor unless `X` is registered earlier.
  */
 export type IPuterStore<T extends WithLifecycle = WithLifecycle> = new (
     config: IConfig,
@@ -96,9 +95,9 @@ export const PuterStore = class PuterStore implements WithLifecycle {
 
     /**
      * Refresh (pass `serializedData`) or invalidate (omit it) cache keys
-     * locally. Pass `broadcast: true` to also send the same mutation to
-     * peer nodes via `outer.cacheUpdate`. Pipelined for cluster-mode safety
-     * (no multi-key DEL/MSET that would CROSSSLOT on Valkey).
+     * locally. Pass `broadcast: true` to also send the same mutation to peer
+     * nodes via `outer.cacheUpdate`. Pipelined for cluster-mode safety (no
+     * multi-key DEL/MSET that would CROSSSLOT on Valkey).
      */
     protected async publishCacheKeys(params: {
         keys: string[];

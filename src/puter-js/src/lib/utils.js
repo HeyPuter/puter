@@ -258,6 +258,15 @@ function makeDriverMethod (spec) {
             driverArgs = preprocess(driverArgs);
         }
 
+        // Drivers read the test-mode flag off their arguments; the top-level
+        // `test_mode` field `driverCall` still sends is the older wire shape
+        // and no longer reaches them. Without this the `testMode` positional
+        // argument silently makes a real, billed upstream call. An explicit
+        // `test_mode` in the caller's options wins.
+        if ( testMode === true && driverArgs.test_mode === undefined ) {
+            driverArgs = { ...driverArgs, test_mode: true };
+        }
+
         return await driverCall(
             { iface, driver, method, args: driverArgs, testMode, puter },
             { readonly, responseType, transform, onError },

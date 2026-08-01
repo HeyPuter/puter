@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -42,11 +42,11 @@ export interface ClaudeUploadResult {
 }
 
 /**
- * Resolve any `puter_path` content parts by uploading the referenced FS
- * entries to Anthropic's Files API and rewriting each part to reference the
- * returned `file_id`. Parts that fail (too large, missing, etc.) are swapped
- * for an inline `text` error so the model can explain rather than the whole
- * request failing.
+ * Resolve any `puter_path` content parts by uploading the referenced FS entries
+ * to Anthropic's Files API and rewriting each part to reference the returned
+ * `file_id`. Parts that fail (too large, missing, etc.) are swapped for an
+ * inline `text` error so the model can explain rather than the whole request
+ * failing.
  *
  * Callers MUST pass `betas: [FILES_API_BETA]` on the subsequent
  * `beta.messages.create`/`.stream` call when any files were uploaded, and
@@ -109,7 +109,11 @@ async function processPart(
         part.type = contentBlockTypeForMime(mimeType);
         part.source = { type: 'file', file_id: uploaded.id };
     } catch (err) {
-        const status = (err as { status?: number })?.status;
+        // Anthropic SDK errors carry `status`; our own HttpError carries
+        // `statusCode` — the size gate can raise either.
+        const status =
+            (err as { status?: number; statusCode?: number })?.status ??
+            (err as { statusCode?: number })?.statusCode;
         if (status === 413) {
             setTextError(
                 part,

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -82,8 +82,8 @@ const escape_permission_component = (component: string): string => {
 };
 
 /**
- * Utility functions for handling permission strings: split/join/escape plus
- * the `reading_to_options` tree flattener used by `check()` and consumers.
+ * Utility functions for handling permission strings: split/join/escape plus the
+ * `reading_to_options` tree flattener used by `check()` and consumers.
  */
 export const PermissionUtil = {
     unescape_permission_component,
@@ -152,8 +152,8 @@ export const PermissionUtil = {
 };
 
 /**
- * Check whether a reading includes any terminal node (an `option`, or a
- * `path` that itself transitively terminates).
+ * Check whether a reading includes any terminal node (an `option`, or a `path`
+ * that itself transitively terminates).
  */
 export const readingHasTerminal = (reading: ReadingNode[]): boolean => {
     for (const node of reading) {

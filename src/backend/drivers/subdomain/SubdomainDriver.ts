@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -27,7 +27,6 @@ import {
 } from '../../services/metering/consts.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
-import type { AclMode } from '../../services/acl/ACLService.js';
 import type { DriverRateLimitConfig } from '../meta.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
@@ -66,15 +65,15 @@ const RESERVED_SUBDOMAINS = new Set([
 /**
  * Driver exposing the `puter-subdomains` interface.
  *
- * Wraps SubdomainStore with validation + permission checks.
- * Methods follow the `crud-q` shape: create, read, select, update,
- * upsert, delete.
+ * Wraps SubdomainStore with validation + permission checks. Methods follow the
+ * `crud-q` shape: create, read, select, update, upsert, delete.
  *
  * Permission model:
- *   - Owner (user_id) can read/write their own subdomains
- *   - App actor matching app_owner can read/write scoped subdomains
- *   - `system:es:write-all-owners` grants blanket write
- *   - `read-all-subdomains` grants cross-user reads
+ *
+ * - Owner (user_id) can read/write their own subdomains
+ * - App actor matching app_owner can read/write scoped subdomains
+ * - `system:es:write-all-owners` grants blanket write
+ * - `read-all-subdomains` grants cross-user reads
  */
 export class SubdomainDriver extends PuterDriver {
     readonly driverInterface = 'puter-subdomains';
@@ -321,65 +320,6 @@ export class SubdomainDriver extends PuterDriver {
         return shaped ?? null;
     }
 
-    async #checkFSAccess(
-        rootDirId: number | null | undefined,
-        actor: Actor,
-        mode: AclMode = 'write',
-    ): Promise<void> {
-        if (rootDirId == null) return;
-
-        const entry = await this.stores.fsEntry.getEntryById(rootDirId);
-        if (!entry) {
-            throw new HttpError(400, 'root_dir_id does not exist', {
-                legacyCode: 'bad_request',
-            });
-        }
-
-        const fsService = this.services.fs;
-        let ancestorsCache: Promise<
-            Array<{ uid: string; path: string }>
-        > | null = null;
-        const descriptor = {
-            path: entry.path,
-            resolveAncestors() {
-                if (!ancestorsCache) {
-                    ancestorsCache = fsService.getAncestorChain(entry.path);
-                }
-                return ancestorsCache;
-            },
-        };
-        const allowed = await this.services.acl.check(actor, descriptor, mode);
-        if (allowed) return;
-
-        const safe = (await this.services.acl.getSafeAclError(
-            actor,
-            descriptor,
-            mode,
-        )) as {
-            status?: unknown;
-            message?: unknown;
-            fields?: { code?: unknown };
-        };
-        const status = Number(safe?.status);
-        const message =
-            typeof safe?.message === 'string' && safe.message.length > 0
-                ? safe.message
-                : 'Access denied';
-        const code =
-            typeof safe?.fields?.code === 'string'
-                ? safe.fields.code
-                : undefined;
-        const legacyCode = code === 'forbidden' ? 'access_denied' : code;
-        if (status === 404) {
-            throw new HttpError(404, message, {
-                ...(legacyCode ? { legacyCode } : {}),
-            });
-        }
-        throw new HttpError(403, message, {
-            legacyCode: legacyCode ?? 'access_denied',
-        });
-    }
-
     async upsert(args: Record<string, unknown>): Promise<unknown> {
         const existing = await this.#resolve(args);
         if (existing)
@@ -500,8 +440,8 @@ export class SubdomainDriver extends PuterDriver {
     /**
      * Mirror of the HTTP-layer `requireVerifiedGate` on /delete-site — only
      * active when `strict_email_verification_required` is truthy, so self-
-     * hosted installs without SMTP aren't bricked. Applied at the driver
-     * level so /drivers/call can't bypass the gate the HTTP route enforces.
+     * hosted installs without SMTP aren't bricked. Applied at the driver level
+     * so /drivers/call can't bypass the gate the HTTP route enforces.
      */
     #requireVerified(actor: Actor): void {
         assertVerifiedEmail(
@@ -587,12 +527,11 @@ export class SubdomainDriver extends PuterDriver {
     /**
      * Hydrate raw subdomain rows into the v1-shaped client response.
      *
-     * Resolves the foreign keys (user_id → owner, root_dir_id →
-     * root_dir, associated_app_id / app_owner → app shapes) with one
-     * batched lookup per store, regardless of how many rows we're
-     * shaping. Used by both `select` (many rows) and the single-row
-     * paths (`create`/`read`/`update`/`upsert`) so the wire shape stays
-     * identical.
+     * Resolves the foreign keys (user_id → owner, root_dir_id → root_dir,
+     * associated_app_id / app_owner → app shapes) with one batched lookup per
+     * store, regardless of how many rows we're shaping. Used by both `select`
+     * (many rows) and the single-row paths (`create`/`read`/`update`/`upsert`)
+     * so the wire shape stays identical.
      */
     async #hydrateRows(
         rows: Array<Record<string, unknown>>,
@@ -653,9 +592,9 @@ export class SubdomainDriver extends PuterDriver {
 
     /**
      * For each subdomain row, find the app owned by the same user whose
-     * `index_url` matches one of the subdomain's host candidates
-     * (subdomain × hosting domains × protocols × paths). Returns a
-     * `rowUuid → appId` map. Rows with no matching app are absent.
+     * `index_url` matches one of the subdomain's host candidates (subdomain ×
+     * hosting domains × protocols × paths). Returns a `rowUuid → appId` map.
+     * Rows with no matching app are absent.
      *
      * Runs one batched DB query regardless of input size.
      */

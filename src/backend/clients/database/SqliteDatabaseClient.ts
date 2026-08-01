@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -27,9 +27,9 @@ import { AbstractDatabaseClient, type WriteResult } from './DatabaseClient';
 const MIGRATIONS_DIR = resolve(__dirname, './migrations/sqlite');
 
 /**
- * Ordered list of [threshold_version, files[]] pairs.
- * A database whose `user_version` is <= threshold_version will have
- * the corresponding files applied.
+ * Ordered list of [threshold_version, files[]] pairs. A database whose
+ * `user_version` is <= threshold_version will have the corresponding files
+ * applied.
  */
 const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [-1, ['0001_create-tables.sql', '0002_add-default-apps.sql']],
@@ -155,6 +155,16 @@ export class SqliteDatabaseClient extends AbstractDatabaseClient {
         params: unknown[] = [],
     ): Promise<Record<string, unknown>[]> {
         // SQLite is single-node — pread is identical to read
+        return this.read(query, params);
+    }
+
+    override async tryHardRead(
+        query: string,
+        params: unknown[] = [],
+    ): Promise<Record<string, unknown>[]> {
+        // No replica to race, so the base class's parallel
+        // primary-plus-replica read would run the same statement twice on
+        // the one connection.
         return this.read(query, params);
     }
 

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -24,8 +24,8 @@ const tracer = trace.getTracer('puter-backend');
 type AttrsOrFactory = Attributes | (() => Attributes);
 
 /**
- * Run `fn` inside an active span. Handles sync + async transparently,
- * records exceptions, and always closes the span.
+ * Run `fn` inside an active span. Handles sync + async transparently, records
+ * exceptions, and always closes the span.
  */
 export function withSpan<T>(
     name: string,
@@ -72,16 +72,16 @@ function recordError(span: ReturnType<typeof tracer.startSpan>, err: unknown) {
 }
 
 /**
- * Stage-3 method decorator: wrap the decorated method in a span.
- * Usage:
- *     class Foo {
- *         @Span()                // span name = "Foo.bar"
+ * Stage-3 method decorator: wrap the decorated method in a span. Usage: class
+ * Foo {
+ *
+ * @Span() // span name = "Foo.bar"
  *         async bar() { ... }
  *
- *         @Span('custom.name')   // span name = "custom.name"
+ * @Span('custom.name') // span name = "custom.name"
  *         async baz() { ... }
  *
- *         @Span('db.read', (query: string) => ({ 'db.statement': query }))
+ * @Span('db.read', (query: string) => ({ 'db.statement': query }))
  *         async read(query: string) { ... }  // attrs built from call args
  *     }
  */

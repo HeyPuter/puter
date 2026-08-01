@@ -58,7 +58,11 @@ describe('withSpan', () => {
     });
 
     it('resolves an attribute factory lazily', () => {
-        withSpan('factory.op', () => ({ computed: 'yes' }), () => null);
+        withSpan(
+            'factory.op',
+            () => ({ computed: 'yes' }),
+            () => null,
+        );
         expect(exporter.getFinishedSpans()[0].attributes).toMatchObject({
             computed: 'yes',
         });
@@ -116,5 +120,40 @@ describe('Span decorator', () => {
         expect(exporter.getFinishedSpans()[0].status.code).toBe(
             SpanStatusCode.ERROR,
         );
+    });
+});
+
+describe('withSpan — failure paths', () => {
+    it('records the error and rethrows when a sync function throws', () => {
+        expect(() =>
+            withSpan('sync.boom', {}, () => {
+                throw new Error('sync failure');
+            }),
+        ).toThrow('sync failure');
+
+        const [span] = exporter.getFinishedSpans();
+        expect(span.name).toBe('sync.boom');
+        expect(span.status.code).toBe(SpanStatusCode.ERROR);
+        expect(span.status.message).toBe('sync failure');
+        expect(span.events.map((e) => e.name)).toContain('exception');
+    });
+
+    it('wraps a non-Error throw so the span still carries a message', async () => {
+        await expect(
+            withSpan('async.nonerror', {}, async () => {
+                throw 'just a string';
+            }),
+        ).rejects.toBe('just a string');
+
+        const [span] = exporter.getFinishedSpans();
+        expect(span.status.code).toBe(SpanStatusCode.ERROR);
+        expect(span.status.message).toBe('just a string');
+    });
+
+    it('mirrors the span name into a filterable attribute', () => {
+        withSpan('named.op', {}, () => undefined);
+        expect(exporter.getFinishedSpans()[0].attributes).toMatchObject({
+            span_name: 'named.op',
+        });
     });
 });

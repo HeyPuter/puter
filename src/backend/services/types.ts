@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -26,13 +26,13 @@ import type {
 import type { IConfig, LayerInstances, WithLifecycle } from '../types';
 
 /**
- * Built-in service instance registry. Forward-declared here and populated
- * via declaration merging from `services/index.ts` to avoid the circular
- * `typeof puterServices` reference (services extend `PuterService`, whose
- * `protected services` field references this type).
+ * Built-in service instance registry. Forward-declared here and populated via
+ * declaration merging from `services/index.ts` to avoid the circular `typeof
+ * puterServices` reference (services extend `PuterService`, whose `protected
+ * services` field references this type).
  *
- * Consumers see the merged `IPuterServiceInstances & IExtensionServiceInstances`
- * type — built-in keys + extension-augmented keys.
+ * Consumers see the merged `IPuterServiceInstances &
+ * IExtensionServiceInstances` type — built-in keys + extension-augmented keys.
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface IPuterServiceInstances {}
@@ -62,16 +62,16 @@ export interface IExtensionServiceInstances {
 }
 
 /**
- * Services may depend on clients, stores, and *prior* services (those
- * declared earlier in the registry).
+ * Services may depend on clients, stores, and _prior_ services (those declared
+ * earlier in the registry).
  *
  * Type contract caveat: `services` is typed as the FULLY-populated registry,
  * even though at construction time only prior services exist. This is a
  * deliberate trade-off — almost every `this.services.X` access happens in
- * handler/lifecycle methods (which run after all services are wired up), so
- * the convenience of typed access in those sites outweighs the construction-
- * time inaccuracy. Don't read `this.services.X` from a service constructor
- * unless you've verified `X` is registered earlier in the registry.
+ * handler/lifecycle methods (which run after all services are wired up), so the
+ * convenience of typed access in those sites outweighs the construction- time
+ * inaccuracy. Don't read `this.services.X` from a service constructor unless
+ * you've verified `X` is registered earlier in the registry.
  */
 export type IPuterService<T extends WithLifecycle = WithLifecycle> = new (
     config: IConfig,

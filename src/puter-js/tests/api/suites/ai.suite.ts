@@ -28,6 +28,35 @@ const useApiToken = (t: TestContext): void => {
 const TINY_AUDIO = 'data:audio/mp3;base64,QUJD';
 const TINY_PNG =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+const TINY_MP4 = 'data:video/mp4;base64,QUJD';
+
+/** The `{ message, code }` shape both client-side and driver rejections carry. */
+type SdkError = { message?: string; code?: string };
+
+const errorOf = async (
+    t: TestContext,
+    fn: () => Promise<unknown>,
+): Promise<SdkError> => (await t.assert.rejects(fn)) as SdkError;
+
+/**
+ * A `data:` URI whose base64 payload decodes to one byte more than `maxBytes`.
+ * The size guards read the length off the payload rather than decoding it, so
+ * only the length and the `=` padding have to be right — `padding` picks which
+ * of the three padding cases the guard has to account for.
+ */
+const oversizedDataUri = (
+    mime: string,
+    maxBytes: number,
+    padding: 0 | 1 | 2,
+): string => {
+    let length = Math.ceil(((maxBytes + padding + 1) * 4) / 3);
+    length += (4 - (length % 4)) % 4;
+    const payload = 'A'.repeat(length - padding) + '='.repeat(padding);
+    return `data:${mime};base64,${payload}`;
+};
+
+/** Token usage the `costly` fake model reports back. */
+type Usage = { input_tokens?: number; output_tokens?: number };
 
 /**
  * Flatten a rejection to text. SDK errors arrive in a few shapes (Error,
@@ -661,5 +690,532 @@ export default suite('ai', {
             text.includes('ai-suite-no-such-sts'),
             `rejection should name the bad provider, got ${text}`,
         );
+    },
+
+    // -- Message construction ----------------------------------------
+    //
+    // The `costly` fake model bills one input token per four characters of
+    // message text, so its reported usage is a direct read-out of the
+    // message array the SDK built from each call form.
+
+    'chat bills the whole prompt through the costly model': async (t) => {
+        useApiToken(t);
+        const prompt = 'x'.repeat(400);
+        const result = await t.puter.ai.chat(prompt, { model: 'costly' });
+        const usage = result.usage as Usage;
+        t.assert.equal(usage?.input_tokens, 100);
+    },
+
+    'chat bills every entry of a messages array': async (t) => {
+        useApiToken(t);
+        const prompt = 'x'.repeat(400);
+        const result = await t.puter.ai.chat(
+            [
+                { role: 'user', content: prompt },
+                { role: 'assistant', content: prompt },
+            ],
+            { model: 'costly' },
+        );
+        const usage = result.usage as Usage;
+        t.assert.equal(
+            usage?.input_tokens,
+            200,
+            'both messages should reach the driver',
+        );
+    },
+
+    'chat keeps the prompt when media is attached': async (t) => {
+        useApiToken(t);
+        const prompt = 'x'.repeat(400);
+        const single = await t.puter.ai.chat(prompt, TINY_MP4, {
+            model: 'costly',
+        });
+        t.assert.equal(
+            (single.usage as Usage)?.input_tokens,
+            100,
+            'a video media argument should not displace the prompt',
+        );
+
+        const many = await t.puter.ai.chat(prompt, [TINY_PNG, TINY_MP4], {
+            model: 'costly',
+        });
+        t.assert.equal(
+            (many.usage as Usage)?.input_tokens,
+            100,
+            'a mixed image/video media array should not displace the prompt',
+        );
+    },
+
+    'chat forwards a zero max_tokens instead of dropping it': async (t) => {
+        useApiToken(t);
+        // The fake model clamps its output-token count to `max_tokens` and
+        // otherwise picks a number well above 1, so these values only appear
+        // when the option survived the SDK's option copying. A truthy check
+        // would swallow the zero.
+        const capped = await t.puter.ai.chat('count me', {
+            model: 'costly',
+            max_tokens: 1,
+        });
+        t.assert.equal((capped.usage as Usage)?.output_tokens, 1);
+
+        const zero = await t.puter.ai.chat('count me', {
+            model: 'costly',
+            temperature: 0,
+            max_tokens: 0,
+        });
+        t.assert.equal((zero.usage as Usage)?.output_tokens, 0);
+    },
+
+    'chat accepts a File as the media argument': async (t) => {
+        useApiToken(t);
+        // The File is converted to a data URI before the call. Off-browser
+        // that conversion runs on the SDK's own FileReader stand-in, which
+        // used to never settle — so reaching a response at all is the point.
+        const file = new File([new Uint8Array([1, 2, 3])], 'pixel.png', {
+            type: 'image/png',
+        });
+        const result = await t.puter.ai.chat('what is this', file, {
+            model: 'fake',
+        });
+        t.assert.equal(result.message?.role, 'assistant');
+        t.assert.ok(textOf(result).length > 0, 'message should contain text');
+    },
+
+    'chat accepts an explicit non-streaming request': async (t) => {
+        useApiToken(t);
+        const result = await t.puter.ai.chat('no stream please', {
+            model: 'fake',
+            stream: false,
+        });
+        t.assert.equal(
+            typeof (result as { [Symbol.asyncIterator]?: unknown })[
+                Symbol.asyncIterator
+            ],
+            'undefined',
+            'stream:false should resolve a buffered response, not an iterator',
+        );
+        t.assert.ok(textOf(result).length > 0, 'message should contain text');
+    },
+
+    // -- txt2img -----------------------------------------------------
+
+    'txt2img forwards the model from either call form': async (t) => {
+        useApiToken(t);
+        // Keyless the model can never resolve, and the driver echoes back the
+        // id it was asked for — which is what proves the SDK forwarded it.
+        const positional = await errorOf(t, () =>
+            t.puter.ai.txt2img('a red circle', { model: 'ai-suite-model' }),
+        );
+        t.assert.equal(positional.code, 'bad_request');
+        t.assert.equal(positional.message, 'Model not found: ai-suite-model');
+
+        const objectForm = await errorOf(t, () =>
+            t.puter.ai.txt2img({
+                prompt: 'a red circle',
+                model: 'ai-suite-model',
+            }),
+        );
+        t.assert.equal(objectForm.message, 'Model not found: ai-suite-model');
+    },
+
+    'txt2img sends the driver hint in the driver slot': async (t) => {
+        useApiToken(t);
+        const error = await errorOf(t, () =>
+            t.puter.ai.txt2img({
+                prompt: 'a red circle',
+                driver: 'ai-suite-no-such-image-driver',
+            }),
+        );
+        t.assert.equal(error.code, 'not_found');
+        t.assert.equal(
+            error.message,
+            'Driver not found: puter-image-generation:ai-suite-no-such-image-driver',
+        );
+    },
+
+    'txt2img resolves a relative output path against the caller': async (t) => {
+        useApiToken(t);
+        // The destination is authorized before any model work, so the two
+        // outcomes below distinguish a resolved path from a raw one: an
+        // unresolved `out.png` would land at the filesystem root and be
+        // refused as such.
+        const resolved = await errorOf(t, () =>
+            t.puter.ai.txt2img({
+                prompt: 'a red circle',
+                puter_output_path: 'ai-suite-image-out.png',
+            }),
+        );
+        t.assert.equal(
+            resolved.message,
+            'Missing `model`',
+            'a relative path should be accepted as a writable destination',
+        );
+
+        const foreign = await errorOf(t, () =>
+            t.puter.ai.txt2img({
+                prompt: 'a red circle',
+                puter_output_path: `/${t.env.users.other.username}/out.png`,
+            }),
+        );
+        t.assert.equal(foreign.code, 'access_denied');
+    },
+
+    // -- txt2vid -----------------------------------------------------
+
+    'txt2vid rejects a call with no prompt': async (t) => {
+        useApiToken(t);
+        for (const call of [
+            () => t.puter.ai.txt2vid(),
+            () => t.puter.ai.txt2vid({}),
+            () => t.puter.ai.txt2vid({ seconds: 4 }),
+        ]) {
+            const error = await errorOf(t, call);
+            t.assert.equal(error.code, 'prompt_required');
+            t.assert.equal(error.message, 'Prompt parameter is required');
+        }
+    },
+
+    'txt2vid takes duration as an alias of seconds': async (t) => {
+        useApiToken(t);
+        // `duration` has to be mapped before the request leaves the SDK; if
+        // the alias threw or short-circuited we would see a client-side code
+        // here rather than the keyless provider failure.
+        const error = await errorOf(t, () =>
+            t.puter.ai.txt2vid({ prompt: 'a cat', duration: 4 }),
+        );
+        t.assert.equal(error.code, 'internal_error');
+    },
+
+    'txt2vid resolves a relative output path against the caller': async (t) => {
+        useApiToken(t);
+        const resolved = await errorOf(t, () =>
+            t.puter.ai.txt2vid({
+                prompt: 'a cat',
+                puter_output_path: 'ai-suite-video-out.mp4',
+            }),
+        );
+        t.assert.equal(
+            resolved.code,
+            'internal_error',
+            'a relative path should be accepted as a writable destination',
+        );
+
+        const foreign = await errorOf(t, () =>
+            t.puter.ai.txt2vid({
+                prompt: 'a cat',
+                puter_output_path: `/${t.env.users.other.username}/out.mp4`,
+            }),
+        );
+        t.assert.equal(foreign.code, 'access_denied');
+    },
+
+    // -- txt2speech --------------------------------------------------
+
+    'txt2speech rejects a call with no text': async (t) => {
+        useApiToken(t);
+        for (const call of [
+            () => t.puter.ai.txt2speech(''),
+            () => t.puter.ai.txt2speech('', { voice: 'Joanna' }),
+        ]) {
+            const error = await errorOf(t, call);
+            t.assert.equal(error.code, 'text_required');
+            t.assert.equal(error.message, 'Text parameter is required');
+        }
+    },
+
+    'txt2speech rejects text past the input limit': async (t) => {
+        useApiToken(t);
+        const error = await errorOf(t, () =>
+            t.puter.ai.txt2speech('a'.repeat(3001)),
+        );
+        t.assert.equal(error.code, 'input_too_large');
+        t.assert.equal(error.message, 'Input size cannot be larger than 3000');
+
+        // The boundary itself is allowed through to the driver, which fails
+        // on the missing provider rather than on the input size.
+        const atLimit = await errorOf(t, () =>
+            t.puter.ai.txt2speech('a'.repeat(3000)),
+        );
+        t.assert.ok(
+            atLimit.code !== 'input_too_large',
+            `3000 characters should be accepted, got ${atLimit.code}`,
+        );
+    },
+
+    'txt2speech rejects a second argument that is neither options nor a language': async (t) => {
+        useApiToken(t);
+        const error = await errorOf(t, () =>
+            (t.puter.ai.txt2speech as (...args: unknown[]) => Promise<unknown>)(
+                'hi',
+                42,
+            ),
+        );
+        t.assert.equal(error.code, 'invalid_arguments');
+    },
+
+    'txt2speech routes the engine from either call form': async (t) => {
+        useApiToken(t);
+        // The engine names a provider, so the driver reports the provider it
+        // resolved to — proving the legacy positional slot still reaches it.
+        const positional = await errorOf(t, () =>
+            t.puter.ai.txt2speech('hi', 'en-US', 'Rachel', 'elevenlabs'),
+        );
+        const objectForm = await errorOf(t, () =>
+            t.puter.ai.txt2speech('hi', { engine: 'elevenlabs' }),
+        );
+        for (const error of [positional, objectForm]) {
+            t.assert.equal(error.code, 'bad_request');
+            t.assert.ok(
+                (error.message ?? '').includes('elevenlabs'),
+                `the engine should reach the driver, got ${error.message}`,
+            );
+        }
+    },
+
+    'the txt2speech list methods read a bare string differently': async (t) => {
+        useApiToken(t);
+        // `listEngines` takes a provider, `listVoices` an engine — the same
+        // string has to land in different slots.
+        const error = await errorOf(t, () =>
+            t.puter.ai.txt2speech.listEngines('ai-suite-no-such-tts'),
+        );
+        t.assert.ok(
+            (error.message ?? '').includes('ai-suite-no-such-tts'),
+            `listEngines should treat the string as a provider, got ${error.message}`,
+        );
+
+        const voices = await t.puter.ai.txt2speech.listVoices(
+            'ai-suite-no-such-engine',
+        );
+        t.assert.ok(
+            Array.isArray(voices),
+            'listVoices should treat the string as an engine, not a provider',
+        );
+    },
+
+    // -- img2txt -----------------------------------------------------
+
+    'img2txt rejects a call with no arguments': async (t) => {
+        useApiToken(t);
+        const error = await errorOf(t, () => t.puter.ai.img2txt());
+        t.assert.equal(error.code, 'arguments_required');
+        t.assert.equal(error.message, 'Arguments are required');
+    },
+
+    'img2txt rejects options with no source': async (t) => {
+        useApiToken(t);
+        const error = await errorOf(t, () => t.puter.ai.img2txt({}));
+        t.assert.equal(error.code, 'source_required');
+        t.assert.equal(error.message, 'Source is required');
+    },
+
+    'img2txt honors the positional test-mode flag': async (t) => {
+        useApiToken(t);
+        // Keyless there is no OCR provider, so a reply at all proves the flag
+        // reached the driver instead of a real (billed) recognition running.
+        const text = await t.puter.ai.img2txt(TINY_PNG, true);
+        t.assert.ok(
+            text.includes('sample OCR response'),
+            `positional test mode should short-circuit, got ${text}`,
+        );
+    },
+
+    'img2txt honors testMode from the options object': async (t) => {
+        useApiToken(t);
+        const text = await t.puter.ai.img2txt({
+            source: TINY_PNG,
+            testMode: true,
+        });
+        t.assert.ok(text.includes('sample OCR response'));
+    },
+
+    'img2txt converts a Blob source to a data URI': async (t) => {
+        useApiToken(t);
+        const blob = new Blob([new Uint8Array([1, 2, 3])], {
+            type: 'image/png',
+        });
+        const text = await t.puter.ai.img2txt(blob, true);
+        t.assert.ok(text.includes('sample OCR response'));
+    },
+
+    'img2txt accepts a File nested under source': async (t) => {
+        useApiToken(t);
+        const file = new File([new Uint8Array([4, 5, 6])], 'scan.png', {
+            type: 'image/png',
+        });
+        const text = await t.puter.ai.img2txt(
+            { source: { source: file } } as unknown as { source: File },
+            true,
+        );
+        t.assert.ok(text.includes('sample OCR response'));
+    },
+
+    'img2txt rejects a source past the input limit': async (t) => {
+        useApiToken(t);
+        const error = await errorOf(t, () =>
+            t.puter.ai.img2txt(
+                oversizedDataUri('image/png', 10 * 1024 * 1024, 2),
+            ),
+        );
+        t.assert.equal(error.code, 'input_too_large');
+        t.assert.equal(
+            error.message,
+            `Input size cannot be larger than ${10 * 1024 * 1024}`,
+        );
+    },
+
+    // -- speech2txt --------------------------------------------------
+
+    'speech2txt rejects a call with no arguments': async (t) => {
+        useApiToken(t);
+        const error = await errorOf(t, () => t.puter.ai.speech2txt());
+        t.assert.equal(error.code, 'arguments_required');
+    },
+
+    'speech2txt rejects options with no audio': async (t) => {
+        useApiToken(t);
+        const error = await errorOf(t, () => t.puter.ai.speech2txt({}));
+        t.assert.equal(error.code, 'audio_required');
+        t.assert.equal(error.message, 'Audio input is required');
+    },
+
+    'speech2txt honors the positional test-mode flag': async (t) => {
+        useApiToken(t);
+        const result = (await t.puter.ai.speech2txt(
+            TINY_AUDIO,
+            true,
+        )) as { text?: string };
+        t.assert.ok(
+            (result.text ?? '').includes('sample transcription'),
+            `positional test mode should short-circuit, got ${JSON.stringify(result)}`,
+        );
+    },
+
+    'speech2txt takes audio as an alias of file': async (t) => {
+        useApiToken(t);
+        const result = (await t.puter.ai.speech2txt({
+            audio: TINY_AUDIO,
+            test_mode: true,
+        })) as { text?: string };
+        t.assert.ok((result.text ?? '').includes('sample transcription'));
+    },
+
+    'speech2txt converts a Blob audio input': async (t) => {
+        useApiToken(t);
+        const blob = new Blob([new Uint8Array([7, 8, 9])], {
+            type: 'audio/mpeg',
+        });
+        const result = (await t.puter.ai.speech2txt(blob, {
+            test_mode: true,
+        })) as { text?: string };
+        t.assert.ok((result.text ?? '').includes('sample transcription'));
+    },
+
+    'speech2txt unwraps the bare text for response_format text': async (t) => {
+        useApiToken(t);
+        const text = await t.puter.ai.speech2txt({
+            file: TINY_AUDIO,
+            test_mode: true,
+            response_format: 'text',
+        });
+        t.assert.equal(typeof text, 'string');
+        t.assert.ok((text as string).includes('sample transcription'));
+    },
+
+    'speech2txt rejects audio past the input limit': async (t) => {
+        useApiToken(t);
+        const error = await errorOf(t, () =>
+            t.puter.ai.speech2txt(
+                oversizedDataUri('audio/mpeg', 25 * 1024 * 1024, 1),
+            ),
+        );
+        t.assert.equal(error.code, 'input_too_large');
+        t.assert.equal(error.message, 'Input size cannot be larger than 25 MB');
+    },
+
+    // -- speech2speech -----------------------------------------------
+
+    'speech2speech rejects a call with no arguments': async (t) => {
+        useApiToken(t);
+        const error = await errorOf(t, () => t.puter.ai.speech2speech());
+        t.assert.equal(error.code, 'arguments_required');
+    },
+
+    'speech2speech rejects options with no audio': async (t) => {
+        useApiToken(t);
+        const error = await errorOf(t, () => t.puter.ai.speech2speech({}));
+        t.assert.equal(error.code, 'audio_required');
+    },
+
+    'speech2speech resolves the sample conversion to an audio element': async (t) => {
+        useApiToken(t);
+        // The driver answers test mode with a hosted asset rather than bytes;
+        // the audio element has to carry that URL on `src` and stringify to it.
+        const audio = await t.puter.ai.speech2speech({
+            audio: TINY_AUDIO,
+            test_mode: true,
+        });
+        t.assert.ok(
+            audio.src.startsWith('https://'),
+            `expected a hosted sample URL, got ${audio.src}`,
+        );
+        t.assert.equal(String(audio), audio.src);
+    },
+
+    'speech2speech honors the positional test-mode flag': async (t) => {
+        useApiToken(t);
+        const audio = await t.puter.ai.speech2speech(TINY_AUDIO, true);
+        t.assert.ok(
+            audio.src.startsWith('https://'),
+            `positional test mode should short-circuit, got ${audio.src}`,
+        );
+    },
+
+    'speech2speech takes file as an alias of audio': async (t) => {
+        useApiToken(t);
+        const audio = await t.puter.ai.speech2speech({
+            file: TINY_AUDIO,
+            test_mode: true,
+        });
+        t.assert.ok(audio.src.startsWith('https://'));
+    },
+
+    'speech2speech accepts a Blob audio input': async (t) => {
+        useApiToken(t);
+        const blob = new Blob([new Uint8Array([1, 2, 3])], {
+            type: 'audio/mpeg',
+        });
+        const audio = await t.puter.ai.speech2speech(blob, {
+            test_mode: true,
+        });
+        t.assert.ok(audio.src.startsWith('https://'));
+    },
+
+    'speech2speech accepts the camelCase option aliases': async (t) => {
+        useApiToken(t);
+        const audio = await t.puter.ai.speech2speech({
+            audio: TINY_AUDIO,
+            voiceId: 'ai-suite-voice',
+            modelId: 'ai-suite-model',
+            outputFormat: 'mp3_44100_128',
+            fileFormat: 'mp3',
+            voiceSettings: { stability: 0.5 },
+            removeBackgroundNoise: false,
+            optimizeStreamingLatency: 0,
+            enableLogging: false,
+            test_mode: true,
+        });
+        t.assert.ok(audio.src.startsWith('https://'));
+    },
+
+    'speech2speech rejects audio past the input limit': async (t) => {
+        useApiToken(t);
+        const error = await errorOf(t, () =>
+            t.puter.ai.speech2speech(
+                oversizedDataUri('audio/mpeg', 25 * 1024 * 1024, 0),
+            ),
+        );
+        t.assert.equal(error.code, 'input_too_large');
+        t.assert.equal(error.message, 'Input size cannot be larger than 25 MB');
     },
 });

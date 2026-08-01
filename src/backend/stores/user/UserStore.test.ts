@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -87,5 +87,156 @@ describe('UserStore', () => {
         expect(
             await server.stores.user.countOthersByPhone('+19995550000', -1),
         ).toBe(0);
+    });
+});
+
+describe('UserStore batched and uncached lookups', () => {
+    let server: PuterServer;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    const makeUser = async (overrides: Record<string, unknown> = {}) => {
+        const username = `ub-${Math.random().toString(36).slice(2, 10)}`;
+        return server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+            ...overrides,
+        } as never);
+    };
+
+    it('getByIds resolves known ids, skips unknown ones and dedupes input', async () => {
+        const a = await makeUser();
+        const b = await makeUser();
+
+        const found = await server.stores.user.getByIds([
+            a.id,
+            b.id,
+            a.id,
+            99999999,
+            null as never,
+            undefined as never,
+        ]);
+
+        expect(found.size).toBe(2);
+        expect(found.get(a.id)?.username).toBe(a.username);
+        expect(found.get(b.id)?.username).toBe(b.username);
+    });
+
+    it('getByIds tolerates empty and non-array input', async () => {
+        expect((await server.stores.user.getByIds([])).size).toBe(0);
+        expect((await server.stores.user.getByIds(null as never)).size).toBe(0);
+    });
+
+    it('getByIds serves warm ids from cache and cold ids from the database', async () => {
+        const warm = await makeUser();
+        const cold = await makeUser();
+        // Warm only the first id's cache entry.
+        await server.stores.user.getById(warm.id);
+        await server.stores.user.invalidateById(cold.id);
+
+        await server.clients.db.write(
+            'UPDATE `user` SET `username` = ? WHERE `id` = ?',
+            [`${cold.username}-renamed`, cold.id],
+        );
+
+        const found = await server.stores.user.getByIds([warm.id, cold.id]);
+        expect(found.get(warm.id)?.username).toBe(warm.username);
+        expect(found.get(cold.id)?.username).toBe(`${cold.username}-renamed`);
+    });
+
+    it('getByIds falls back to the database when a cached entry is corrupt', async () => {
+        const user = await makeUser();
+        await server.stores.user.getById(user.id);
+        await server.clients.redis.set(`user:id:${user.id}`, 'not-json');
+
+        const found = await server.stores.user.getByIds([user.id]);
+        expect(found.get(user.id)?.username).toBe(user.username);
+    });
+
+    it('getByCleanEmail finds the account behind an aliased address', async () => {
+        const user = await makeUser();
+        await server.stores.user.update(user.id, {
+            clean_email: `canonical-${user.username}@test.local`,
+        });
+
+        const found = await server.stores.user.getByCleanEmail(
+            `canonical-${user.username}@test.local`,
+        );
+        expect(found?.id).toBe(user.id);
+    });
+
+    it('getByCleanEmail returns null for empty, unknown, or non-latin1 values', async () => {
+        expect(await server.stores.user.getByCleanEmail('')).toBeNull();
+        expect(
+            await server.stores.user.getByCleanEmail('nobody@test.local'),
+        ).toBeNull();
+        // Outside latin1 — no stored row could match, so it never reaches SQL.
+        expect(
+            await server.stores.user.getByCleanEmail('日本語@test.local'),
+        ).toBeNull();
+    });
+
+    it('countOthersByPhone excludes the caller and ignores unusable input', async () => {
+        const phone = `+1415555${Math.floor(1000 + Math.random() * 9000)}`;
+        const a = await makeUser();
+        const b = await makeUser();
+        await server.stores.user.update(a.id, { phone });
+        await server.stores.user.update(b.id, { phone });
+
+        expect(await server.stores.user.countOthersByPhone(phone, a.id)).toBe(
+            1,
+        );
+        expect(await server.stores.user.countOthersByPhone('', a.id)).toBe(0);
+        expect(
+            await server.stores.user.countOthersByPhone('☎️12345', a.id),
+        ).toBe(0);
+    });
+
+    it('short-circuits identifying lookups whose value cannot exist in a latin1 column', async () => {
+        expect(await server.stores.user.getByUsername('用户')).toBeNull();
+        expect(
+            await server.stores.user.getByEmail('用户@test.local'),
+        ).toBeNull();
+    });
+
+    it('refuses to write a non-latin1 value into a latin1 column', async () => {
+        const user = await makeUser();
+        await expect(
+            server.stores.user.update(user.id, { username: '用户' }),
+        ).rejects.toMatchObject({ code: 'userFieldNotLatin1' });
+        // Columns outside the latin1 set are unaffected.
+        await expect(
+            server.stores.user.update(user.id, {
+                taskbar_items: '日本語',
+            } as never),
+        ).resolves.toBeUndefined();
+    });
+
+    it('ignores an update with no fields', async () => {
+        const user = await makeUser();
+        await expect(
+            server.stores.user.update(user.id, {}),
+        ).resolves.toBeUndefined();
+    });
+
+    it('normalizes a corrupt metadata column to an empty object', async () => {
+        const user = await makeUser();
+        await server.clients.db.write(
+            'UPDATE `user` SET `metadata` = ? WHERE `id` = ?',
+            ['{not json', user.id],
+        );
+        await server.stores.user.invalidateById(user.id);
+
+        expect((await server.stores.user.getById(user.id))?.metadata).toEqual(
+            {},
+        );
     });
 });

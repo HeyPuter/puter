@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -17,11 +17,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-/** Per-country Prelude SMS pricing, hardcoded from the Prelude global price
+/**
+ * Per-country Prelude SMS pricing, hardcoded from the Prelude global price
  * sheet. `sms` is the average cost in EUR, or null when SMS is unavailable
  * there. Used to cap phone verification to affordable countries (see
  * PreludeClient.isCountrySupported). Regenerate from the price sheet when
- * Prelude updates rates. */
+ * Prelude updates rates.
+ */
 export interface CountryPrice {
     name: string;
     /** Prelude SMS average in EUR, or null when SMS is not available. */

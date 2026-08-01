@@ -133,6 +133,8 @@ export interface Img2TxtOptions {
     source?: string | File | Blob;
     provider?: string;
     testMode?: boolean;
+    /** `snake_case` spelling of `testMode`, forwarded to the driver as-is. */
+    test_mode?: boolean;
     model?: string;
     pages?: number[];
     includeImageBase64?: boolean;
@@ -410,7 +412,9 @@ export interface Speech2SpeechOptions {
     file?: string | File | Blob;
     provider?: string;
     model?: string;
+    model_id?: string;
     voice?: string;
+    voice_id?: string;
     output_format?: string;
     voice_settings?: Record<string, unknown>;
     seed?: number;
@@ -419,6 +423,17 @@ export interface Speech2SpeechOptions {
     optimize_streaming_latency?: number;
     enable_logging?: boolean;
     test_mode?: boolean;
+
+    // camelCase aliases, mapped onto the snake_case names above before the
+    // request goes out. The snake_case spelling wins when both are given.
+    modelId?: string;
+    voiceId?: string;
+    outputFormat?: string;
+    voiceSettings?: Record<string, unknown>;
+    fileFormat?: string;
+    removeBackgroundNoise?: boolean;
+    optimizeStreamingLatency?: number;
+    enableLogging?: boolean;
 }
 
 export class AI {

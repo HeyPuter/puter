@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -30,11 +30,14 @@ import {
 } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { isHttpError } from '../HttpError.js';
+import { setupTestServer } from '../../../testUtil.ts';
 import {
     acquireDriverConcurrent,
     checkDriverRateLimit,
+    checkRateLimit,
     concurrencyGate,
     configureRateLimit,
+    listConfiguredRateLimitBackends,
     rateLimitGate,
 } from './rateLimit.js';
 
@@ -107,14 +110,10 @@ describe('rateLimitGate — memory backend (default)', () => {
 
     it("'ip' strategy buckets by req.ip — separate IPs are independent", async () => {
         const opts = { limit: 1, window: 60_000, key: 'ip', scope: 'mem-ip' };
-        expect(
-            await runGate(opts, makeReq({ ip: '1.1.1.1' })),
-        ).toBeUndefined();
+        expect(await runGate(opts, makeReq({ ip: '1.1.1.1' }))).toBeUndefined();
         const reA = await runGate(opts, makeReq({ ip: '1.1.1.1' }));
         expect(isHttpError(reA)).toBe(true);
-        expect(
-            await runGate(opts, makeReq({ ip: '2.2.2.2' })),
-        ).toBeUndefined();
+        expect(await runGate(opts, makeReq({ ip: '2.2.2.2' }))).toBeUndefined();
     });
 
     it("'fingerprint' (default) varies by IP + UA + accept-language + accept-encoding", async () => {
@@ -267,16 +266,12 @@ describe('rateLimitGate — memory backend (default)', () => {
             key: 'user',
             scope: 'mem-user-fallback',
         };
-        expect(
-            await runGate(opts, makeReq({ ip: '9.9.9.9' })),
-        ).toBeUndefined();
+        expect(await runGate(opts, makeReq({ ip: '9.9.9.9' }))).toBeUndefined();
         // Same fingerprint → rate-limited.
         const re = await runGate(opts, makeReq({ ip: '9.9.9.9' }));
         expect(isHttpError(re)).toBe(true);
         // Different fingerprint → fresh.
-        expect(
-            await runGate(opts, makeReq({ ip: '8.8.8.8' })),
-        ).toBeUndefined();
+        expect(await runGate(opts, makeReq({ ip: '8.8.8.8' }))).toBeUndefined();
     });
 
     it('accepts a custom function as the key strategy', async () => {
@@ -287,10 +282,7 @@ describe('rateLimitGate — memory backend (default)', () => {
             scope: 'mem-custom',
         };
         expect(
-            await runGate(
-                opts,
-                makeReq({ headers: { 'x-tenant': 'acme' } }),
-            ),
+            await runGate(opts, makeReq({ headers: { 'x-tenant': 'acme' } })),
         ).toBeUndefined();
         const re = await runGate(
             opts,
@@ -298,10 +290,7 @@ describe('rateLimitGate — memory backend (default)', () => {
         );
         expect(isHttpError(re)).toBe(true);
         expect(
-            await runGate(
-                opts,
-                makeReq({ headers: { 'x-tenant': 'other' } }),
-            ),
+            await runGate(opts, makeReq({ headers: { 'x-tenant': 'other' } })),
         ).toBeUndefined();
     });
 
@@ -317,7 +306,7 @@ describe('rateLimitGate — memory backend (default)', () => {
         expect(await runGate(opts, req)).toBeUndefined();
     });
 
-    it("uses req.route.path as scope when no explicit scope is given", async () => {
+    it('uses req.route.path as scope when no explicit scope is given', async () => {
         // Same key strategy + same route path = same bucket;
         // different route paths = independent buckets.
         const optsA = {
@@ -537,9 +526,7 @@ describe('rateLimitGate — per-route backend selection', () => {
     });
 
     it('unknown backend names log a warning and fall through to the default', async () => {
-        const warnSpy = vi
-            .spyOn(console, 'warn')
-            .mockImplementation(() => {});
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const opts = {
             limit: 1,
             window: 60_000,
@@ -608,9 +595,9 @@ describe('checkDriverRateLimit', () => {
     it('returns true while under the limit and false once exceeded', async () => {
         const req = { actor: { user: { uuid: 'user-1' } } };
         for (let i = 0; i < 3; i++) {
-            expect(
-                await checkDriverRateLimit(req, 'kv', 'get', spec(3)),
-            ).toBe(true);
+            expect(await checkDriverRateLimit(req, 'kv', 'get', spec(3))).toBe(
+                true,
+            );
         }
         expect(await checkDriverRateLimit(req, 'kv', 'get', spec(3))).toBe(
             false,
@@ -1003,7 +990,12 @@ describe('acquireDriverConcurrent', () => {
         // Drivers that declare nothing stay unbounded — same as before
         // this feature was introduced.
         const req = { actor: { user: { uuid: 'u' } } };
-        const handle = await acquireDriverConcurrent(req, 'iface', 'm', undefined);
+        const handle = await acquireDriverConcurrent(
+            req,
+            'iface',
+            'm',
+            undefined,
+        );
         expect(handle.ok).toBe(true);
         // Must be callable without throwing.
         await handle.release();
@@ -1048,5 +1040,305 @@ describe('acquireDriverConcurrent', () => {
         const h2 = await acquireDriverConcurrent(reqFree, 'iface', 'm', opts);
         expect(h1.ok).toBe(true);
         expect(h2.ok).toBe(false); // free is capped at 1
+    });
+});
+
+// ── Backend registry introspection ──────────────────────────────────
+
+describe('listConfiguredRateLimitBackends', () => {
+    afterEach(() => configureRateLimit());
+
+    it('reports memory only when nothing else is wired', () => {
+        configureRateLimit();
+        expect(listConfiguredRateLimitBackends()).toEqual({
+            available: ['memory'],
+            default: 'memory',
+        });
+    });
+
+    it('reports every wired backend plus the chosen default', () => {
+        const redis = new RedisMock();
+        const kv = { list: async () => ({ res: [] }), set: async () => {} };
+        configureRateLimit({ default: 'kv', redis, kv });
+        const listed = listConfiguredRateLimitBackends();
+        expect(listed.available.sort()).toEqual(['kv', 'memory', 'redis']);
+        expect(listed.default).toBe('kv');
+    });
+
+    it('drops a previously-wired backend on reconfigure', () => {
+        configureRateLimit({ redis: new RedisMock() });
+        expect(listConfiguredRateLimitBackends().available).toContain('redis');
+        configureRateLimit();
+        expect(listConfiguredRateLimitBackends().available).toEqual(['memory']);
+    });
+});
+
+// ── KV backend ──────────────────────────────────────────────────────
+//
+// Driven against the real SystemKVStore (DynamoDB emulated in-memory) so
+// the `list({ as: 'keys', pattern })` contract the limiter depends on is
+// the production one.
+
+describe('rate + concurrent limiting — kv backend', () => {
+    let server;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+        configureRateLimit({ default: 'kv', kv: server.stores.kv });
+    });
+
+    afterAll(async () => {
+        configureRateLimit();
+        await server?.shutdown();
+    });
+
+    const uniqueScope = () => `kv-${Math.random().toString(36).slice(2, 10)}`;
+
+    it('admits up to `limit` hits and rejects the next one', async () => {
+        const key = uniqueScope();
+        expect(await checkRateLimit(key, 2, 60_000)).toBe(true);
+        expect(await checkRateLimit(key, 2, 60_000)).toBe(true);
+        expect(await checkRateLimit(key, 2, 60_000)).toBe(false);
+    });
+
+    it('keeps separate keys independent', async () => {
+        const a = uniqueScope();
+        const b = uniqueScope();
+        expect(await checkRateLimit(a, 1, 60_000)).toBe(true);
+        expect(await checkRateLimit(a, 1, 60_000)).toBe(false);
+        expect(await checkRateLimit(b, 1, 60_000)).toBe(true);
+    });
+
+    it('rejects immediately when the limit is zero', async () => {
+        expect(await checkRateLimit(uniqueScope(), 0, 60_000)).toBe(false);
+    });
+
+    it('holds a concurrent slot until it is released', async () => {
+        const req = { ip: '9.9.9.9', headers: {}, actor: undefined };
+        const opts = { limit: 1, backend: 'kv', scope: uniqueScope() };
+
+        const first = await acquireDriverConcurrent(req, 'iface', 'm', opts);
+        expect(first.ok).toBe(true);
+
+        const blocked = await acquireDriverConcurrent(req, 'iface', 'm', opts);
+        expect(blocked.ok).toBe(false);
+
+        await first.release();
+        const afterRelease = await acquireDriverConcurrent(
+            req,
+            'iface',
+            'm',
+            opts,
+        );
+        expect(afterRelease.ok).toBe(true);
+        await afterRelease.release();
+    });
+});
+
+// ── Imperative helper ───────────────────────────────────────────────
+
+describe('checkRateLimit', () => {
+    beforeEach(() => configureRateLimit());
+    afterEach(() => configureRateLimit());
+
+    it('admits under the limit, rejects at and above it', async () => {
+        const key = `imperative-${Math.random()}`;
+        expect(await checkRateLimit(key, 2, 60_000)).toBe(true);
+        expect(await checkRateLimit(key, 2, 60_000)).toBe(true);
+        expect(await checkRateLimit(key, 2, 60_000)).toBe(false);
+    });
+
+    it('honours the named backend and keeps counters separate per backend', async () => {
+        const redis = new RedisMock();
+        await redis.flushall();
+        configureRateLimit({ redis });
+        const key = `imperative-split-${Math.random()}`;
+
+        expect(await checkRateLimit(key, 1, 60_000, 'memory')).toBe(true);
+        expect(await checkRateLimit(key, 1, 60_000, 'memory')).toBe(false);
+        // Same key on a different backend has its own budget.
+        expect(await checkRateLimit(key, 1, 60_000, 'redis')).toBe(true);
+        await redis.quit?.();
+    });
+
+    it('fails open when the backend throws', async () => {
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                multi: () => {
+                    throw new Error('redis exploded');
+                },
+            },
+        });
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        expect(await checkRateLimit('boom', 1, 60_000)).toBe(true);
+        expect(spy).toHaveBeenCalled();
+        spy.mockRestore();
+    });
+});
+
+// ── Failure paths on the driver helpers ─────────────────────────────
+
+describe('driver helpers — backend failures', () => {
+    afterEach(() => configureRateLimit());
+
+    const req = { ip: '7.7.7.7', headers: {}, socket: {} };
+
+    it('checkDriverRateLimit fails open when the backend throws', async () => {
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                multi: () => {
+                    throw new Error('redis exploded');
+                },
+            },
+        });
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        expect(await checkDriverRateLimit(req, 'iface', 'm', {})).toBe(true);
+        expect(spy).toHaveBeenCalled();
+        spy.mockRestore();
+    });
+
+    it('acquireDriverConcurrent fails open when acquire throws', async () => {
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                multi: () => {
+                    throw new Error('redis exploded');
+                },
+            },
+        });
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const handle = await acquireDriverConcurrent(req, 'iface', 'm', {
+            limit: 1,
+        });
+        expect(handle.ok).toBe(true);
+        await handle.release();
+        expect(spy).toHaveBeenCalled();
+        spy.mockRestore();
+    });
+
+    it('acquireDriverConcurrent swallows a release failure', async () => {
+        // Acquire succeeds, release blows up — the caller's `finally`
+        // must not see it.
+        let failRelease = false;
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                multi: () => ({
+                    incr: function () {
+                        return this;
+                    },
+                    expire: function () {
+                        return this;
+                    },
+                    exec: async () => [[null, 1]],
+                }),
+                decr: async () => {
+                    if (failRelease) throw new Error('decr exploded');
+                    return 0;
+                },
+                set: async () => 'OK',
+            },
+        });
+        const handle = await acquireDriverConcurrent(req, 'iface', 'm', {
+            limit: 5,
+        });
+        expect(handle.ok).toBe(true);
+
+        failRelease = true;
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        await expect(handle.release()).resolves.toBeUndefined();
+        await new Promise((r) => setTimeout(r, 0));
+        expect(spy).toHaveBeenCalledWith(
+            '[concurrent] driver release failed:',
+            expect.any(Error),
+        );
+        spy.mockRestore();
+    });
+
+    it('concurrencyGate logs but does not throw when release fails', async () => {
+        configureRateLimit({
+            default: 'redis',
+            redis: {
+                multi: () => ({
+                    incr: function () {
+                        return this;
+                    },
+                    expire: function () {
+                        return this;
+                    },
+                    exec: async () => [[null, 1]],
+                }),
+                decr: async () => {
+                    throw new Error('decr exploded');
+                },
+                set: async () => 'OK',
+            },
+        });
+        const res = new EventEmitter();
+        const next = vi.fn();
+        await concurrencyGate({ limit: 5, key: 'ip', scope: 'cg-relfail' })(
+            req,
+            res,
+            next,
+        );
+        expect(next.mock.calls[0][0]).toBeUndefined();
+
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        res.emit('finish');
+        await new Promise((r) => setTimeout(r, 0));
+        expect(spy).toHaveBeenCalledWith(
+            '[concurrent] release failed:',
+            expect.any(Error),
+        );
+        spy.mockRestore();
+    });
+
+    it('clamps a redis concurrent counter that went negative after a TTL race', async () => {
+        const redis = new RedisMock();
+        await redis.flushall();
+        configureRateLimit({ default: 'redis', redis });
+
+        const handle = await acquireDriverConcurrent(req, 'iface', 'clamp', {
+            limit: 2,
+        });
+        expect(handle.ok).toBe(true);
+
+        // Simulate the orphan TTL firing between acquire and release.
+        const keys = await redis.keys('concurrent:*');
+        for (const k of keys) await redis.del(k);
+
+        await handle.release();
+        const remaining = await redis.keys('concurrent:*');
+        for (const k of remaining) {
+            expect(Number(await redis.get(k))).toBe(0);
+        }
+        await redis.quit?.();
+    });
+});
+
+// ── Memory backend bounds ───────────────────────────────────────────
+//
+// Runs last: the flood below evicts every other key from the shared
+// per-process map.
+
+describe('memory backend key cap', () => {
+    beforeAll(() => configureRateLimit());
+    afterAll(() => configureRateLimit());
+
+    it('FIFO-evicts the oldest key once the cap is reached', async () => {
+        const victim = `evict-victim-${Math.random()}`;
+        // Burn the victim's only slot.
+        expect(await checkRateLimit(victim, 1, 60_000, 'memory')).toBe(true);
+        expect(await checkRateLimit(victim, 1, 60_000, 'memory')).toBe(false);
+
+        // Flood past MEMORY_MAX_KEYS so the victim is evicted.
+        for (let i = 0; i < 10_001; i++) {
+            await checkRateLimit(`flood-${i}`, 1, 60_000, 'memory');
+        }
+
+        // Evicted: the victim starts from a clean bucket.
+        expect(await checkRateLimit(victim, 1, 60_000, 'memory')).toBe(true);
     });
 });

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -57,13 +57,13 @@ const MACOS_JUNK_REGEX = /(?:^\.DS_Store$|^\._)/;
 /**
  * WebDAV controller — full RFC 4918 surface on the `dav.*` subdomain.
  *
- * All FS operations go through v2's FSService + S3ObjectStore.
- * Locking uses Redis (see `./locks.ts`). ACL is enforced via ACLService
- * before every mutation and read.
+ * All FS operations go through v2's FSService + S3ObjectStore. Locking uses
+ * Redis (see `./locks.ts`). ACL is enforced via ACLService before every
+ * mutation and read.
  *
- * Auth: HTTP Basic → parse credentials → verify via AuthService +
- * bcrypt (or `-token` username for token-based auth). Falls back to
- * the global authProbe's `req.actor` if a session cookie is present.
+ * Auth: HTTP Basic → parse credentials → verify via AuthService + bcrypt (or
+ * `-token` username for token-based auth). Falls back to the global authProbe's
+ * `req.actor` if a session cookie is present.
  */
 export class WebDAVController extends PuterController {
     registerRoutes(router: PuterRouter): void {

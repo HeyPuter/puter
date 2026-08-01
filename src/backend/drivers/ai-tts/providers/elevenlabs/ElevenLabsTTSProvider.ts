@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -39,8 +39,8 @@ const ELEVENLABS_TTS_MODELS = [
 ];
 
 /**
- * ElevenLabs TTS provider. Uses the ElevenLabs REST API to synthesize
- * speech and returns audio as a DriverStreamResult.
+ * ElevenLabs TTS provider. Uses the ElevenLabs REST API to synthesize speech
+ * and returns audio as a DriverStreamResult.
  */
 export class ElevenLabsTTSProvider extends TTSProvider {
     readonly providerName = 'elevenlabs';

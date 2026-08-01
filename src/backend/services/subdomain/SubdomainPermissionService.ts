@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -24,13 +24,12 @@ import type { puterServices } from '../index.js';
 import { PuterService } from '../types.js';
 
 /**
- * Permission rewriter for the `site:*` namespace — maps `site:<name>:mode`
- * to the uid form. Ported from v1 PuterSiteService.
+ * Permission rewriter for the `site:*` namespace — maps `site:<name>:mode` to
+ * the uid form. Ported from v1 PuterSiteService.
  *
  * The v1 `in-site` implicator for SiteActorType is not ported — v2 serves
- * hosted sites through the PuterSite middleware without a dedicated site
- * actor type, so there's no callsite that could benefit from an implicit
- * grant.
+ * hosted sites through the PuterSite middleware without a dedicated site actor
+ * type, so there's no callsite that could benefit from an implicit grant.
  */
 export class SubdomainPermissionService extends PuterService {
     declare protected stores: LayerInstances<typeof puterStores>;
