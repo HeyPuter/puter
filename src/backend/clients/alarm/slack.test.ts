@@ -4,6 +4,7 @@ import type { AlertPayload } from './types';
 
 const alert = (over: Partial<AlertPayload> = {}): AlertPayload => ({
     id: 'cronMonitor:high_aiLogEntries',
+    dedupKey: 'cronMonitor:high_aiLogEntries#1.1',
     shortId: 'amber-delta-fox',
     message: 'High AI log entries: 1200 in the last 10 minutes',
     source: 'alarm',

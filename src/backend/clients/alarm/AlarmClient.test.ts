@@ -13,13 +13,14 @@ const makeClient = (pager: IPagerConfig = {}) =>
 const capture = (
     client: AlarmClient,
     minSeverity?: 'critical' | 'error' | 'warning' | 'info',
+    maxSeverity?: 'critical' | 'error' | 'warning' | 'info',
 ) => {
     const seen: AlertPayload[] = [];
     client.addAlertHandler(
         async (alert) => {
             seen.push(alert);
         },
-        { name: 'capture', minSeverity },
+        { name: 'capture', minSeverity, maxSeverity },
     );
     return seen;
 };
@@ -60,6 +61,16 @@ describe('AlarmClient severity routing', () => {
 
         expect(paging).toHaveLength(0);
         expect(chat).toHaveLength(1);
+    });
+
+    it('skips handlers whose ceiling the alarm exceeds', () => {
+        const client = makeClient();
+        const chat = capture(client, 'info', 'info');
+
+        client.create('rate-limit', 'a user hit a limit', {}, 'info');
+        client.create('outage', 'everything is on fire', {}, 'critical');
+
+        expect(chat.map((alert) => alert.id)).toEqual(['rate-limit']);
     });
 
     it('retiers an alarm from config', () => {
@@ -181,7 +192,7 @@ describe('AlarmClient transport registration', () => {
         pdEvent.mockClear();
     });
 
-    it('keeps info alarms out of PagerDuty but sends them to Slack', async () => {
+    it('splits info to Slack and everything above it to PagerDuty', async () => {
         const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
         vi.stubGlobal('fetch', fetchMock);
 
@@ -197,9 +208,91 @@ describe('AlarmClient transport registration', () => {
 
         client.create('loud:thing', 'paging', {}, 'critical');
         await vi.waitFor(() => expect(pdEvent).toHaveBeenCalledTimes(1));
-        expect(fetchMock).toHaveBeenCalledTimes(2);
+        // The pager has it; chat doesn't repeat it.
+        expect(fetchMock).toHaveBeenCalledTimes(1);
 
         vi.unstubAllGlobals();
+    });
+
+    it('sends every severity to Slack when there is no pager', async () => {
+        const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const client = makeClient({
+            slack: { enabled: true, webhookUrl: 'https://hooks.example/abc' },
+        });
+        await client.onServerStart();
+
+        client.create(
+            'loud:thing',
+            'nowhere else to send this',
+            {},
+            'critical',
+        );
+        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+        vi.unstubAllGlobals();
+    });
+
+    it('lets config widen the Slack ceiling back out', async () => {
+        const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        const client = makeClient({
+            pagerduty: { enabled: true, routingKey: 'rk' },
+            slack: {
+                enabled: true,
+                webhookUrl: 'https://hooks.example/abc',
+                maxSeverity: 'critical',
+            },
+        });
+        await client.onServerStart();
+
+        client.create('loud:thing', 'paging', {}, 'critical');
+        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+        vi.unstubAllGlobals();
+    });
+
+    it('gives each occurrence its own PagerDuty incident by default', async () => {
+        const client = makeClient({
+            pagerduty: { enabled: true, routingKey: 'rk' },
+        });
+        await client.onServerStart();
+
+        client.create('scan:failed', 'first', {}, 'warning');
+        client.create('scan:failed', 'second', {}, 'warning');
+        await vi.waitFor(() => expect(pdEvent).toHaveBeenCalledTimes(2));
+
+        const keys = pdEvent.mock.calls.map(
+            ([arg]: [{ data: { dedup_key: string } }]) => arg.data.dedup_key,
+        );
+        expect(keys[0]).not.toBe(keys[1]);
+    });
+
+    it('collapses repeats of a dedup alarm onto one incident', async () => {
+        const client = makeClient({
+            pagerduty: { enabled: true, routingKey: 'rk' },
+        });
+        await client.onServerStart();
+
+        const raise = () =>
+            client.create(
+                'http_500:POST:/notif/mark-ack:deadlock',
+                'HTTP 500 on POST /notif/mark-ack: deadlock',
+                {},
+                'critical',
+                { dedup: true },
+            );
+        raise();
+        raise();
+        await vi.waitFor(() => expect(pdEvent).toHaveBeenCalledTimes(2));
+
+        const keys = pdEvent.mock.calls.map(
+            ([arg]: [{ data: { dedup_key: string } }]) => arg.data.dedup_key,
+        );
+        expect(keys[0]).toBe('http_500:POST:/notif/mark-ack:deadlock');
+        expect(keys[1]).toBe(keys[0]);
     });
 
     it('skips transports that are enabled but not configured', async () => {
