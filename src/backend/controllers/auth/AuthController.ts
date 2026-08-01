@@ -134,12 +134,12 @@ export class AuthController extends PuterController {
             });
         }
 
-        // Browser-only gate, same rule as `handleMigrateToken` below. The
-        // session id is client-chosen and travels in a link, so it is not a
-        // secret — the `Origin` header is what actually says who is asking,
-        // and only a browser is prevented from lying about it. A caller with
-        // no `Origin` (curl, a server-side fetch) could otherwise collect a
-        // token minted for someone else's app just by knowing the id.
+        // Browser-only gate. The session id is client-chosen and travels in a
+        // link, so it is not a secret — the `Origin` header is what actually
+        // says who is asking, and only a browser is prevented from lying about
+        // it. A caller with no `Origin` (curl, a server-side fetch) could
+        // otherwise collect a token minted for someone else's app just by
+        // knowing the id.
         //
         // `"null"` is rejected too: sandboxed iframes and `file://` documents
         // serialise their opaque origin that way, and two *unrelated* opaque
@@ -1043,10 +1043,10 @@ export class AuthController extends PuterController {
         antiCsrf: true,
     })
     async handleLogout(req: Request, res: Response): Promise<void> {
-        // Clear the session cookie + the v2 migrate-token companion
-        // cookie (set after `/auth/migrate-token` for app-under-user
-        // iframes). authProbe reads `puter_token_v2` as a fallback, so
-        // a stale value would re-authenticate the next request.
+        // Clear the session cookie + `puter_token_v2`. Nothing issues the
+        // latter any more (it came from the retired token migration), but
+        // authProbe still reads it as a fallback, so a value left in a
+        // browser would re-authenticate the next request.
         res.clearCookie(this.config.cookie_name ?? 'puter_token');
         res.clearCookie('puter_token_v2');
         // Drop any step-up elevation too, so it can't reactivate on a shared
@@ -3363,84 +3363,6 @@ export class AuthController extends PuterController {
 
     // -- Access tokens -----------------------------------------------
 
-    async handleMigrateToken(req: Request, res: Response): Promise<void> {
-        // 1. Browser-only gate. No Origin header → reject (server-side
-        // callers should re-auth properly). The exchange itself is open
-        // to any browser origin: puter.js apps live on arbitrary
-        // third-party domains, the v1 bearer token is the credential,
-        // and cookies are never read here — so a hostile page learns
-        // nothing it doesn't already hold. Origin *trust* only decides
-        // whether the `puter_token_v2` companion cookie is set below.
-        const reqOrigin = req.headers.origin;
-        if (!reqOrigin) {
-            throw new HttpError(403, 'Origin not allowed', {
-                legacyCode: 'forbidden',
-            });
-        }
-
-        // 2. Extract token. Header takes precedence so body-capture logs
-        // (if any) never see the credential.
-        const authHeader = req.headers.authorization;
-        const headerToken =
-            typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
-                ? authHeader.slice('Bearer '.length).trim()
-                : null;
-        const bodyToken =
-            typeof req.body?.token === 'string' ? req.body.token.trim() : null;
-        const v1Token = headerToken || bodyToken;
-        if (!v1Token) {
-            throw new HttpError(400, 'Missing token', {
-                legacyCode: 'bad_request',
-            });
-        }
-
-        const result = await this.services.auth.migrateLegacyToken(v1Token, {
-            ip: req.ip,
-            userAgent:
-                typeof req.headers['user-agent'] === 'string'
-                    ? req.headers['user-agent']
-                    : undefined,
-        });
-        // `puter_token_v2` is the cookie companion to v2 app tokens —
-        // it lets the GUI's cookie-only middleware authenticate
-        // subsequent same-origin calls without the client forwarding
-        // Authorization headers. Issuing it is gated on the trusted
-        // origin allowlist: an arbitrary attacker page must not be able
-        // to plant a session cookie on the GUI origin (login CSRF).
-        // Untrusted origins still get the token in the JSON body — the
-        // cookie is only consumed same-origin (see authProbe) so they
-        // lose nothing. Access tokens are programmatic (no browser
-        // cookie surface) so we deliberately skip them here.
-        if (
-            result.kind === 'app' &&
-            this.#isMigrateTokenOriginAllowed(reqOrigin)
-        ) {
-            res.cookie('puter_token_v2', result.token, {
-                ...sessionCookieFlags(this.config),
-                httpOnly: true,
-            });
-        }
-        res.json(result);
-    }
-
-    #isMigrateTokenOriginAllowed(origin: string): boolean {
-        // Origin headers and config values both reach us in inconsistent
-        // shapes (trailing slash, mixed case from misconfigured deploys,
-        // stray whitespace from JSON config edits). Normalize both sides
-        // before equality so a `config.origin` with a trailing slash
-        // doesn't reject every same-origin browser call.
-        const normalize = (raw: string | undefined): string =>
-            (raw ?? '').trim().replace(/\/+$/, '').toLowerCase();
-        const incoming = normalize(origin);
-        if (!incoming) return false;
-        if (incoming === normalize(this.config.origin)) return true;
-        const allowlist = (
-            this.config as { allow_migrate_token_origins?: string[] }
-        ).allow_migrate_token_origins;
-        if (!Array.isArray(allowlist)) return false;
-        return allowlist.some((entry) => normalize(entry) === incoming);
-    }
-
     @Post('/auth/create-access-token', {
         subdomain: 'api',
         requireAuth: true,
@@ -4170,19 +4092,6 @@ export class AuthController extends PuterController {
                 middleware: [webSessionGate],
             },
             (req, res) => this.handleRenameSession(req, res),
-        );
-
-        router.post(
-            '/auth/migrate-token',
-            {
-                rateLimit: {
-                    scope: 'migrate-token',
-                    limit: 20,
-                    window: 15 * 60_000,
-                    key: 'ip',
-                },
-            },
-            (req, res) => this.handleMigrateToken(req, res),
         );
     }
 

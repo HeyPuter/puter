@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { v4 as uuidv4 } from 'uuid';
@@ -85,10 +86,10 @@ export class SessionStore extends PuterStore {
     #lastUserTouchMs = new Map();
 
     /**
-     * Look up an active session by its uuid. Returns `null` if not
-     * found, soft-revoked, or past its `expires_at`. The cached row is
-     * gated by both `revoked_at` and `expires_at` so a stale-but-
-     * expired row in cache doesn't grant access.
+     * Look up an active session by its uuid. Returns `null` if not found,
+     * soft-revoked, or past its `expires_at`. The cached row is gated by both
+     * `revoked_at` and `expires_at` so a stale-but- expired row in cache
+     * doesn't grant access.
      */
     async getByUuid(uuid) {
         const row = await this.getByUuidAny(uuid);
@@ -116,8 +117,8 @@ export class SessionStore extends PuterStore {
     }
 
     /**
-     * Get sessions for a user. By default returns only active rows;
-     * pass `{ includeRevoked: true }` to include soft-revoked rows.
+     * Get sessions for a user. By default returns only active rows; pass `{
+     * includeRevoked: true }` to include soft-revoked rows.
      */
     async getByUserId(userId, { includeRevoked = false } = {}) {
         const sql = includeRevoked
@@ -131,21 +132,22 @@ export class SessionStore extends PuterStore {
      * Create a new session row.
      *
      * @param userId - User ID (numeric)
-     * @param opts.meta - Request-context metadata (IP, UA, etc.) stored as JSON.
+     * @param opts.meta - Request-context metadata (IP, UA, etc.) stored as
+     *   JSON.
      * @param opts.kind - 'web' (default), 'app', 'access_token', 'asset'.
      * @param opts.label - User-editable label for manage-sessions UI.
-     * @param opts.parent_session_id - uuid of root session, for derived kinds.
+     * @param opts.parent_session_id - Uuid of root session, for derived kinds.
      * @param opts.last_ip - Request IP at creation.
      * @param opts.last_user_agent - Request User-Agent at creation.
-     * @param opts.expires_at - Row-level expiry (unix seconds). NULL means
-     *   no row-level expiry (used for `access_token` rows whose JWT `exp`
-     *   is the truth). Sliding kinds (web/app/asset) get this populated by
-     *   the caller per the lifetime table; `touch()` then slides it.
+     * @param opts.expires_at - Row-level expiry (unix seconds). NULL means no
+     *   row-level expiry (used for `access_token` rows whose JWT `exp` is the
+     *   truth). Sliding kinds (web/app/asset) get this populated by the caller
+     *   per the lifetime table; `touch()` then slides it.
      * @param opts.app_uid - App UID this row authorizes. Only set for
      *   `kind='app'`; participates in the (user_id, app_uid) idempotency
      *   index.
-     * @param opts.legacy_token_uid - v1 token_uid this row backfills.
-     *   Only set for `created_via='legacy_backfill'`.
+     * @param opts.legacy_token_uid - V1 token_uid this row backfills. Only set
+     *   for `created_via='legacy_backfill'`.
      * @param opts.access_token_uid - For `kind='access_token'` v2 rows: the
      *   `token_uid` claim that lives in `access_token_permissions`. Lets
      *   raw-uuid revoke reverse-find the session row when no JWT was
@@ -161,10 +163,10 @@ export class SessionStore extends PuterStore {
 
     /**
      * Shared INSERT implementation for `create()` and the idempotent
-     * `getOrCreate*` paths. With `ignoreConflict: true`, only a duplicate-
-     * key error from the partial unique indexes is swallowed (concurrent
-     * caller won the race); every other failure — CHECK, NOT NULL, FK,
-     * type — throws. The caller then re-SELECTs to find the winning row.
+     * `getOrCreate*` paths. With `ignoreConflict: true`, only a duplicate- key
+     * error from the partial unique indexes is swallowed (concurrent caller won
+     * the race); every other failure — CHECK, NOT NULL, FK, type — throws. The
+     * caller then re-SELECTs to find the winning row.
      */
     async #insertSession(
         userId,
@@ -263,13 +265,13 @@ export class SessionStore extends PuterStore {
     }
 
     /**
-     * Rename a session's label. Ownership is enforced via the user_id
-     * filter — a label edit by user A can't touch a row owned by user B
-     * even if A guesses B's session uuid.
+     * Rename a session's label. Ownership is enforced via the user_id filter —
+     * a label edit by user A can't touch a row owned by user B even if A
+     * guesses B's session uuid.
      *
-     * Returns `true` when a row was updated, `false` when no row matched
-     * the (uuid, user_id) pair (either the uuid doesn't exist, the row
-     * belongs to another user, or it's already soft-revoked).
+     * Returns `true` when a row was updated, `false` when no row matched the
+     * (uuid, user_id) pair (either the uuid doesn't exist, the row belongs to
+     * another user, or it's already soft-revoked).
      */
     async setLabel(uuid, userId, label) {
         if (!uuid || !userId) return false;
@@ -296,12 +298,11 @@ export class SessionStore extends PuterStore {
     }
 
     /**
-     * Soft-revoke a session by uuid. The row remains in the table
-     * with `revoked_at` set; subsequent `getByUuid` calls treat it
-     * as not found. Invalidates the uuid cache and every composite
-     * cache key that pointed at this row (app / legacy-token), so a
-     * subsequent re-auth doesn't get a stale "already authorized"
-     * mapping.
+     * Soft-revoke a session by uuid. The row remains in the table with
+     * `revoked_at` set; subsequent `getByUuid` calls treat it as not found.
+     * Invalidates the uuid cache and every composite cache key that pointed at
+     * this row (app / legacy-token), so a subsequent re-auth doesn't get a
+     * stale "already authorized" mapping.
      */
     async removeByUuid(uuid) {
         if (!uuid) return;
@@ -342,9 +343,9 @@ export class SessionStore extends PuterStore {
     }
 
     /**
-     * Soft-revoke a root session and every derived session that
-     * points back to it via `parent_session_id`. Broadcasts cache
-     * invalidation for each affected row's uuid + composite keys.
+     * Soft-revoke a root session and every derived session that points back to
+     * it via `parent_session_id`. Broadcasts cache invalidation for each
+     * affected row's uuid + composite keys.
      */
     async revokeCascade(rootUuid) {
         if (!rootUuid) return;
@@ -352,8 +353,7 @@ export class SessionStore extends PuterStore {
         // Read each affected row's identity columns up-front — every
         // composite cache mapping (app, legacy-token, legacy-web) must
         // be invalidated alongside the uuid key, otherwise a follow-up
-        // `getOrCreateApp` / `findOrCreateLegacyWeb` would short-circuit
-        // to the freshly-revoked row.
+        // `getOrCreateApp` would short-circuit to the freshly-revoked row.
         const rows = await this.clients.db.read(
             'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `revoked_at` IS NULL',
             [rootUuid, rootUuid],
@@ -375,11 +375,11 @@ export class SessionStore extends PuterStore {
     }
 
     /**
-     * Active session row whose access-token identity matches `tokenUid`.
-     * Covers both v2 (`access_token_uid` set at mint) and v1 lazy-backfill
-     * (`legacy_token_uid` set on first verify) rows so raw-uuid revoke can
-     * find the row regardless of whether the token was originally v1 or v2.
-     * Returns `null` if no active row matches.
+     * Active session row whose access-token identity matches `tokenUid`. Covers
+     * both v2 (`access_token_uid` set at mint) and v1 lazy-backfill
+     * (`legacy_token_uid` set on first verify) rows so raw-uuid revoke can find
+     * the row regardless of whether the token was originally v1 or v2. Returns
+     * `null` if no active row matches.
      */
     async findActiveByAccessTokenUid(tokenUid) {
         if (!tokenUid) return null;
@@ -392,17 +392,17 @@ export class SessionStore extends PuterStore {
     }
 
     /**
-     * Idempotent "give me the app session for this (user, app)" lookup.
-     * Returns the existing active app session if one exists, or creates
-     * a new one. Concurrent callers converge on a single row via the
-     * partial unique index `idx_sessions_user_app_active`.
+     * Idempotent "give me the app session for this (user, app)" lookup. Returns
+     * the existing active app session if one exists, or creates a new one.
+     * Concurrent callers converge on a single row via the partial unique index
+     * `idx_sessions_user_app_active`.
      *
      * Cache flow:
-     *   1. Try `sessions:v2:app:<userId>:<appUid>` (full row).
-     *   2. If miss, SELECT; on hit, warm both composite + uuid cache.
-     *   3. If still nothing, INSERT (idempotent under concurrency); the
-     *      losing racer falls through to SELECT and finds the winner's
-     *      row.
+     *
+     * 1. Try `sessions:v2:app:<userId>:<appUid>` (full row).
+     * 2. If miss, SELECT; on hit, warm both composite + uuid cache.
+     * 3. If still nothing, INSERT (idempotent under concurrency); the losing racer
+     *    falls through to SELECT and finds the winner's row.
      *
      * @param userId - User row id (numeric).
      * @param appUid - App UID (string).
@@ -456,21 +456,20 @@ export class SessionStore extends PuterStore {
     }
 
     /**
-     * Idempotent "give me the worker session for this (user, app,
-     * worker_name)" lookup. Same shape as `getOrCreateApp` but keyed on
-     * a triple so multiple workers can sit under the same app (each
-     * with its own `worker_name`) and each gets its own session row.
+     * Idempotent "give me the worker session for this (user, app, worker_name)"
+     * lookup. Same shape as `getOrCreateApp` but keyed on a triple so multiple
+     * workers can sit under the same app (each with its own `worker_name`) and
+     * each gets its own session row.
      *
-     * `appUid` is allowed null for user-scoped workers — the partial
-     * unique index treats those distinctly (SQLite via NULL-distinct
-     * semantics, MySQL/Postgres via COALESCE in the generated key).
+     * `appUid` is allowed null for user-scoped workers — the partial unique
+     * index treats those distinctly (SQLite via NULL-distinct semantics,
+     * MySQL/Postgres via COALESCE in the generated key).
      *
      * @param userId - User row id (numeric).
      * @param opts.appUid - App UID or null for user-scoped workers.
      * @param opts.workerName - Per-worker discriminator. Required.
-     * @param opts.meta - Additional metadata merged into the row's
-     *   `meta` blob alongside the canonical `worker: true` and
-     *   `worker_name` markers.
+     * @param opts.meta - Additional metadata merged into the row's `meta` blob
+     *   alongside the canonical `worker: true` and `worker_name` markers.
      * @param opts.last_ip / opts.last_user_agent - Request context for
      *   first-time creation. Ignored when a row already exists.
      * @param opts.auth_id - Stable per-user identity (survives re-login).
@@ -529,139 +528,17 @@ export class SessionStore extends PuterStore {
     }
 
     /**
-     * Idempotent "give me the lazy-backfill row for this v1 token_uid"
-     * lookup. Mirrors `getOrCreateApp` but keys on `legacy_token_uid`.
-     */
-    async findOrCreateLegacyAccessToken(tokenUid, opts = {}) {
-        if (!tokenUid || !opts.userId) return null;
-
-        const cacheKey = this.#cacheKeyLegacyAt(tokenUid);
-        const now = nowSeconds();
-
-        const cached = await this.#readCacheKey(cacheKey);
-        if (cached && cached.revoked_at == null && !isExpired(cached, now)) {
-            return cached;
-        }
-
-        const existing = await this.#selectLegacyAccessTokenRow(tokenUid);
-        if (existing) {
-            await this.#writeCacheKey(cacheKey, existing);
-            this.#writeCache(existing).catch(() => {});
-            return existing;
-        }
-
-        const created = await this.#insertSession(
-            opts.userId,
-            {
-                kind: 'access_token',
-                parent_session_id: opts.parent_session_id ?? null,
-                last_ip: opts.last_ip ?? null,
-                last_user_agent: opts.last_user_agent ?? null,
-                expires_at: opts.expires_at ?? null,
-                legacy_token_uid: tokenUid,
-                created_via: 'legacy_backfill',
-                auth_id: opts.auth_id ?? null,
-            },
-            { ignoreConflict: true },
-        );
-
-        const winner = await this.#selectLegacyAccessTokenRow(tokenUid);
-        const row = winner ?? created;
-        await this.#writeCacheKey(cacheKey, row);
-        this.#writeCache(row).catch(() => {});
-        return row;
-    }
-
-    /**
-     * Best-effort lazy-backfill row for a v1 web session. The keying tuple
-     * is `(user_id, last_ip, last_user_agent)` — a UA/IP shift on a
-     * roaming client produces a fresh row, which is the spec's accepted
-     * trade-off.
-     *
-     * No partial unique index exists for this tuple (a UA string is too
-     * variable to index), so concurrent racers can both INSERT. We
-     * resolve via an optimistic-lock pass: after our INSERT we re-SELECT
-     * the oldest matching row; if we lost the race, soft-revoke our own
-     * row and return the winner so every caller converges on a single
-     * `session_uuid`. Cheap (one extra SELECT per legacy-backfill mint,
-     * which only runs on the first contact from a stale v1 client).
-     */
-    async findOrCreateLegacyWeb(opts = {}) {
-        if (!opts.userId) return null;
-
-        const ip = opts.last_ip ?? null;
-        const ua = opts.last_user_agent ?? null;
-        const cacheKey = this.#cacheKeyLegacyWeb(opts.userId, ip, ua);
-        const now = nowSeconds();
-
-        const cached = await this.#readCacheKey(cacheKey);
-        if (cached && cached.revoked_at == null && !isExpired(cached, now)) {
-            return cached;
-        }
-
-        const coalesceLastIp = this.clients.db.nullCoalesce('`last_ip`', "''");
-        const coalesceBoundIp = this.clients.db.nullCoalesce('?', "''");
-        const coalesceLastUserAgent = this.clients.db.nullCoalesce(
-            '`last_user_agent`',
-            "''",
-        );
-        const coalesceBoundUserAgent = this.clients.db.nullCoalesce('?', "''");
-        const selectOldest = () =>
-            this.clients.db.read(
-                `SELECT * FROM \`sessions\` WHERE \`kind\` = 'web' AND \`user_id\` = ? AND \`created_via\` = 'legacy_backfill' AND ${coalesceLastIp} = ${coalesceBoundIp} AND ${coalesceLastUserAgent} = ${coalesceBoundUserAgent} AND \`revoked_at\` IS NULL AND (\`expires_at\` IS NULL OR \`expires_at\` > ?) ORDER BY \`id\` ASC LIMIT 1`,
-                [opts.userId, ip, ua, now],
-            );
-
-        const rows = await selectOldest();
-        const existing = this.#normalizeRow(rows[0]);
-        if (existing) {
-            await this.#writeCacheKey(cacheKey, existing);
-            this.#writeCache(existing).catch(() => {});
-            return existing;
-        }
-
-        const created = await this.create(opts.userId, {
-            kind: 'web',
-            last_ip: ip,
-            last_user_agent: ua,
-            expires_at: now + WEB_WINDOW_SECONDS,
-            created_via: 'legacy_backfill',
-            auth_id: opts.auth_id ?? null,
-        });
-
-        // Optimistic conflict resolution: re-SELECT the oldest row that
-        // matches the same tuple. If a concurrent racer beat us to the
-        // INSERT, fold to their row and revoke ours so the (rare) pair
-        // doesn't both linger for a year. `removeByUuid` is a no-op when
-        // the row was already revoked by a third party.
-        const winnerRows = await selectOldest();
-        const winner = this.#normalizeRow(winnerRows[0]);
-        if (winner && winner.uuid !== created.uuid) {
-            await this.removeByUuid(created.uuid);
-            await this.#writeCacheKey(cacheKey, winner);
-            this.#writeCache(winner).catch(() => {});
-            return winner;
-        }
-
-        await this.#writeCacheKey(cacheKey, created);
-        // uuid cache already warmed by create()
-        return created;
-    }
-
-    /**
      * Bump `last_activity` and slide `expires_at` per the row's kind in a
      * single UPDATE. Sliding kinds (web/app/asset) get their `expires_at`
-     * extended to `now + window`; `access_token` (and unknown kinds) keep
-     * their existing `expires_at` (hard expiry). The `last_activity < ?`
-     * guard makes the UPDATE idempotent across nodes so concurrent touches
-     * don't fight.
+     * extended to `now + window`; `access_token` (and unknown kinds) keep their
+     * existing `expires_at` (hard expiry). The `last_activity < ?` guard makes
+     * the UPDATE idempotent across nodes so concurrent touches don't fight.
      *
-     * When `ip` / `userAgent` are provided and differ from the stored
-     * values, they are written into `last_ip` / `last_user_agent` in the
-     * same UPDATE — and the uuid cache is invalidated so the next read
-     * doesn't serve the pre-roam values. Unchanged values are no-ops at
-     * the SQL level (the CASE guards keep the column write conditional)
-     * and skip the cache invalidate.
+     * When `ip` / `userAgent` are provided and differ from the stored values,
+     * they are written into `last_ip` / `last_user_agent` in the same UPDATE —
+     * and the uuid cache is invalidated so the next read doesn't serve the
+     * pre-roam values. Unchanged values are no-ops at the SQL level (the CASE
+     * guards keep the column write conditional) and skip the cache invalidate.
      */
     async updateActivity(
         uuid,
@@ -728,17 +605,22 @@ export class SessionStore extends PuterStore {
 
     /**
      * Best-effort throttled activity touch. Updates the session row's
-     * `last_activity` column and the owning user's `user.last_activity_ts`
-     * if either hasn't been touched within `TOUCH_THROTTLE_MS`.
+     * `last_activity` column and the owning user's `user.last_activity_ts` if
+     * either hasn't been touched within `TOUCH_THROTTLE_MS`.
      *
-     * When `ip` / `userAgent` are passed, they ride along into
-     * `updateActivity` so a roaming session also refreshes its
-     * `last_ip` / `last_user_agent`. Throttle still applies — the IP/UA
-     * fields only get a chance to update once per `TOUCH_THROTTLE_MS`.
+     * When `ip` / `userAgent` are passed, they ride along into `updateActivity`
+     * so a roaming session also refreshes its `last_ip` / `last_user_agent`.
+     * Throttle still applies — the IP/UA fields only get a chance to update
+     * once per `TOUCH_THROTTLE_MS`.
      *
      * Callers fire-and-forget — failures are swallowed.
      *
-     * @param {{uuid?: string, userId?: number, ip?: string|null, userAgent?: string|null}} [args]
+     * @param {{
+     *     uuid?: string;
+     *     userId?: number;
+     *     ip?: string | null;
+     *     userAgent?: string | null;
+     * }} [args]
      */
     async touch({ uuid, userId, ip = null, userAgent = null } = {}) {
         const nowMs = Date.now();
@@ -798,14 +680,19 @@ export class SessionStore extends PuterStore {
         return `${CACHE_KEY_PREFIX}:app:${userId}:${appUid}`;
     }
 
+    /**
+     * Cache key for a row backfilled from a v1 access token. Nothing creates
+     * these any more, but rows and cached entries from before v1 was retired
+     * still have to be invalidated on revoke.
+     */
     #cacheKeyLegacyAt(tokenUid) {
         return `${CACHE_KEY_PREFIX}:legacy-at:${tokenUid}`;
     }
 
     /**
      * Cache key for the (user, app, worker_name) worker-session triple.
-     * `app_uid` is encoded as empty-string for user-scoped workers so
-     * the namespace doesn't fracture on NULL.
+     * `app_uid` is encoded as empty-string for user-scoped workers so the
+     * namespace doesn't fracture on NULL.
      */
     #cacheKeyWorker(userId, appUid, workerName) {
         return `${CACHE_KEY_PREFIX}:worker:${userId}:${appUid ?? ''}:${workerName}`;
@@ -813,8 +700,9 @@ export class SessionStore extends PuterStore {
 
     /**
      * Cache key for the (legacy-web) backfill lookup. IP and UA are
-     * percent-encoded into a single key segment so a UA containing `:`
-     * doesn't fracture the namespace.
+     * percent-encoded into a single key segment so a UA containing `:` doesn't
+     * fracture the namespace. Same as `#cacheKeyLegacyAt`: kept for
+     * invalidating entries that predate the v1 retirement.
      */
     #cacheKeyLegacyWeb(userId, ip, ua) {
         const tag = encodeURIComponent(`${ip ?? ''}|${ua ?? ''}`);
@@ -822,9 +710,9 @@ export class SessionStore extends PuterStore {
     }
 
     /**
-     * Every cache key currently mapped to a given row. Used by revoke
-     * paths so a single revocation invalidates every cached view onto
-     * the same row in lockstep.
+     * Every cache key currently mapped to a given row. Used by revoke paths so
+     * a single revocation invalidates every cached view onto the same row in
+     * lockstep.
      */
     #allCacheKeysForRow(row) {
         if (!row?.uuid) return [];
@@ -854,11 +742,11 @@ export class SessionStore extends PuterStore {
                 );
             }
         }
-        // Legacy-web backfill rows are cached by (user_id, last_ip,
-        // last_user_agent) inside `findOrCreateLegacyWeb`. Without this
-        // branch, revoke would clear the uuid key but leave the composite
-        // key serving the stale revoked row for up to CACHE_TTL_SECONDS,
-        // letting a same-IP/UA replay re-authenticate.
+        // Rows backfilled from a pre-v2 web token were cached by (user_id,
+        // last_ip, last_user_agent). Nothing creates them any more, but the
+        // ones that exist still need that composite key invalidated on revoke,
+        // or it would serve the stale row for up to CACHE_TTL_SECONDS and let a
+        // same-IP/UA replay re-authenticate.
         if (row.kind === 'web' && row.created_via === 'legacy_backfill') {
             keys.push(
                 this.#cacheKeyLegacyWeb(
@@ -906,10 +794,9 @@ export class SessionStore extends PuterStore {
     }
 
     /**
-     * Active app session for (userId, appUid). Matches the partial unique
-     * index `idx_sessions_user_app_active`. Kept private — public callers
-     * should go through `getOrCreateApp` so cache and idempotency stay in
-     * sync.
+     * Active app session for (userId, appUid). Matches the partial unique index
+     * `idx_sessions_user_app_active`. Kept private — public callers should go
+     * through `getOrCreateApp` so cache and idempotency stay in sync.
      */
     async #selectAppRow(userId, appUid) {
         const now = nowSeconds();
@@ -921,10 +808,10 @@ export class SessionStore extends PuterStore {
     }
 
     /**
-     * Active worker session for (userId, appUid, workerName). Matches
-     * the partial unique index `idx_sessions_user_worker_active`.
-     * `appUid` is allowed null for user-scoped workers; COALESCE keeps
-     * the comparison correct since SQL `= NULL` doesn't match.
+     * Active worker session for (userId, appUid, workerName). Matches the
+     * partial unique index `idx_sessions_user_worker_active`. `appUid` is
+     * allowed null for user-scoped workers; COALESCE keeps the comparison
+     * correct since SQL `= NULL` doesn't match.
      */
     async #selectWorkerRow(userId, appUid, workerName) {
         const now = nowSeconds();
@@ -936,15 +823,6 @@ export class SessionStore extends PuterStore {
         const rows = await this.clients.db.read(
             `SELECT * FROM \`sessions\` WHERE \`kind\` = 'worker' AND \`user_id\` = ? AND ${appUidExpr} = ${appUidBound} AND ${workerNameExpr} = ? AND \`revoked_at\` IS NULL AND (\`expires_at\` IS NULL OR \`expires_at\` > ?) LIMIT 1`,
             [userId, appUid ?? null, workerName, now],
-        );
-        return this.#normalizeRow(rows[0]);
-    }
-
-    async #selectLegacyAccessTokenRow(tokenUid) {
-        const now = nowSeconds();
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `sessions` WHERE `legacy_token_uid` = ? AND `revoked_at` IS NULL AND (`expires_at` IS NULL OR `expires_at` > ?) LIMIT 1',
-            [tokenUid, now],
         );
         return this.#normalizeRow(rows[0]);
     }

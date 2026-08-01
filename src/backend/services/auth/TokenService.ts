@@ -188,11 +188,11 @@ const COMPRESSION: Record<string, CompressionContext> = {
 };
 
 /**
- * Thrown by `verify()` when a v1 token is presented while
- * `auth.allow_v1_tokens=false`. Carries the **unverified** payload so the auth
- * probe can mint a `reauth_required` response with an `auth_id` hint — the hint
- * is advisory only (never trusted as identity), so reading it from an unsigned
- * payload is safe.
+ * Thrown by `verify()` for any token that isn't v2 — the v1 format is retired
+ * and no secret verifies it any more. Carries the **unverified** payload so the
+ * auth probe can mint a `reauth_required` response with an `auth_id` hint — the
+ * hint is advisory only (never trusted as identity), so reading it from an
+ * unsigned payload is safe.
  */
 export class V1TokensDisabledError extends Error {
     constructor(public readonly payload: Record<string, unknown>) {
@@ -224,12 +224,6 @@ export class TokenService extends PuterService {
     get #secretV2(): string {
         return this.config.jwt_secret_v2 ?? '';
     }
-    get #secretLegacy(): string {
-        return this.config.jwt_secret ?? '';
-    }
-    get #allowV1Tokens(): boolean {
-        return this.config.allow_v1_tokens !== false;
-    }
 
     override onServerStart(): void {
         const secretV2 = this.config.jwt_secret_v2;
@@ -250,7 +244,6 @@ export class TokenService extends PuterService {
         if (this.config.env !== 'dev') {
             for (const [name, value] of [
                 ['jwt_secret_v2', secretV2],
-                ['jwt_secret', this.config.jwt_secret ?? ''],
                 [
                     'url_signature_secret',
                     this.config.url_signature_secret ?? '',
@@ -267,8 +260,6 @@ export class TokenService extends PuterService {
         // Note: secrets are exposed via getters over `this.config` (see above),
         // not copied into fields here. onServerStart only validates them at
         // boot — fail fast on a missing v2 secret or a shipped placeholder.
-        // The legacy `jwt_secret` stays optional (fresh installs have no v1
-        // tokens to verify); a missing one is handled at verify time.
     }
 
     /**
@@ -293,11 +284,9 @@ export class TokenService extends PuterService {
     }
 
     /**
-     * Verify and decompress. Routes by header `kid`:
-     *
-     * - `kid === 'v2'` → verify against the v2 secret.
-     * - Else → verify against the legacy secret and tag the result with `legacy:
-     *   true`. Rejected outright if `allow_v1_tokens=false`.
+     * Verify and decompress. Only v2 tokens (`kid: 'v2'`) verify; anything else
+     * is the retired v1 format and throws `V1TokensDisabledError`, which the
+     * auth probe turns into a `reauth_required` answer rather than a bare 401.
      *
      * Throws on invalid signature / expired / malformed (propagates
      * `jsonwebtoken`'s errors). Callers in the auth probe should catch and
@@ -320,40 +309,21 @@ export class TokenService extends PuterService {
             return this.#decompressPayload(context, payload) as unknown as T;
         }
 
-        // Legacy / unsigned-kid path.
-        if (!this.#allowV1Tokens) {
-            // Surface a structured error so the auth probe can route to a
-            // `reauth_required` response (with an `auth_id` hint) instead
-            // of a bare 401 that strands the user. Decompress the
-            // *unverified* payload — the hint is advisory, never trusted
-            // as identity.
-            const rawPayload =
-                decoded &&
-                typeof decoded === 'object' &&
-                decoded.payload &&
-                typeof decoded.payload === 'object'
-                    ? (decoded.payload as Record<string, unknown>)
-                    : {};
-            const hint = this.#decompressPayload(context, rawPayload);
-            throw new V1TokensDisabledError(hint);
-        }
-        if (!this.#secretLegacy) {
-            throw new Error(
-                'v1 token presented but no legacy `jwt_secret` configured',
-            );
-        }
-        const payload = jwt.verify(token, this.#secretLegacy, {
-            clockTolerance: CLOCK_TOLERANCE_SECONDS,
-            algorithms: ['HS256'],
-        }) as Record<string, unknown>;
-        const decompressed = this.#decompressPayload(
-            context,
-            payload,
-        ) as Record<string, unknown>;
-        // `legacy: true` lets AuthService run the v1-token migration paths
-        // (lazy session backfill, re-auth signal for web sessions).
-        decompressed.legacy = true;
-        return decompressed as unknown as T;
+        // Anything without `kid: 'v2'` is the retired v1 format. Surface a
+        // structured error so the auth probe can route to a `reauth_required`
+        // response (with an `auth_id` hint) instead of a bare 401 that strands
+        // the user. Decompress the *unverified* payload — the hint is advisory,
+        // never trusted as identity.
+        const rawPayload =
+            decoded &&
+            typeof decoded === 'object' &&
+            decoded.payload &&
+            typeof decoded.payload === 'object'
+                ? (decoded.payload as Record<string, unknown>)
+                : {};
+        throw new V1TokensDisabledError(
+            this.#decompressPayload(context, rawPayload),
+        );
     }
 
     /**

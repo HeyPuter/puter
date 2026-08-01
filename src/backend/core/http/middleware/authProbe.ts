@@ -215,11 +215,11 @@ const extractToken = (
     // credentialed API CORS surface; bearer/body/x-api-key tokens remain
     // available for cross-origin SDK requests.
     //
-    // `puter_token_v2` is the cookie companion to v2 app-under-user
-    // tokens set by `POST /auth/migrate-token`. We accept it under the
-    // same same-origin gate as the primary session cookie so a private
-    // app iframe can authenticate subsequent calls without re-attaching
-    // an `Authorization` header on every request.
+    // `puter_token_v2` was the cookie companion to app-under-user tokens
+    // handed out by the retired token migration. Nothing issues it any more;
+    // values still sitting in browsers are honored (under the same
+    // same-origin gate as the primary session cookie) until they expire, and
+    // logout clears it.
     if (!isCrossOriginBrowserRequest(req)) {
         if (cookieName) {
             const cookieToken = req.cookies?.[cookieName];

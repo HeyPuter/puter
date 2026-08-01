@@ -32,15 +32,14 @@ import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowProgress from './UI/UIWindowProgress.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 
-// localStorage keys for the GUI session token. v2 is the new key written
-// after the v1→v2 cutover. Reads prefer v2; v1 is only kept to drive the
-// reauth-modal path when a stale legacy session is found.
-window.AUTH_TOKEN_KEY_V1 = 'auth_token';
+// localStorage keys for the GUI session token. The retired key is never read
+// for authentication — a token in that format no longer verifies — only
+// cleared, so it doesn't sit in a browser forever.
 window.AUTH_TOKEN_KEY_V2 = 'auth_token_v2';
+window.AUTH_TOKEN_KEY_RETIRED = 'auth_token';
 
 window.is_auth = () => {
-    const stored = localStorage.getItem(window.AUTH_TOKEN_KEY_V2)
-        || localStorage.getItem(window.AUTH_TOKEN_KEY_V1);
+    const stored = localStorage.getItem(window.AUTH_TOKEN_KEY_V2);
     if ( stored === null || window.auth_token === null )
     {
         return false;
@@ -55,10 +54,10 @@ window.is_auth = () => {
  * Central handler for `401 { code: 'reauth_required' }`.
  *
  * The backend `authProbe` middleware emits this 401 shape whenever a
- * token is legacy/revoked/expired. The GUI must NOT silently logout:
+ * token is retired/revoked/expired. The GUI must NOT silently logout:
  * that loses window/URL state and surprises the user. Instead we:
  *   1. Snapshot enough state to land back where we were after sign-in.
- *   2. Clear both the v1 and v2 token keys.
+ *   2. Clear the token key (and the retired one, if a value lingers).
  *   3. Show a soft modal explaining what happened.
  *   4. Re-open UIWindowLogin, forwarding `auth_id` so temp users can
  *      re-attach to the same identity.
@@ -81,7 +80,7 @@ window.handleReauthRequired = async (signal = {}) => {
         // same modal on the next boot.
         try {
             localStorage.removeItem(window.AUTH_TOKEN_KEY_V2);
-            localStorage.removeItem(window.AUTH_TOKEN_KEY_V1);
+            localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED);
         } catch ( e ) { /* ignore */ }
         window.auth_token = null;
 
@@ -583,7 +582,7 @@ window.update_auth_data = async (auth_token, user) => {
     // Write the v2 key going forward and clear any lingering v1 key so
     // a single localStorage source-of-truth is used.
     localStorage.setItem(window.AUTH_TOKEN_KEY_V2, auth_token);
-    localStorage.removeItem(window.AUTH_TOKEN_KEY_V1);
+    localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED);
 
     // Set http-only session cookie when user is changing.
     // This ensures user-protected endpoints, which only refer to the http-only cookie,
@@ -740,7 +739,7 @@ window.logout = () => {
     // the backend logout endpoint.
     try {
         localStorage.removeItem(window.AUTH_TOKEN_KEY_V2);
-        localStorage.removeItem(window.AUTH_TOKEN_KEY_V1);
+        localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED);
     } catch ( e ) { /* ignore */ }
     $(document).trigger('logout');
     // document.dispatchEvent(new Event("logout", { bubbles: true}));

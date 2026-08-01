@@ -21,7 +21,6 @@
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import type { Actor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
-import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
     ASSET_WINDOW_SECONDS,
     WEB_WINDOW_SECONDS,
@@ -31,8 +30,8 @@ import type { LayerInstances } from '../../types';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { Span } from '../../util/span.js';
 import type { puterServices } from '../index';
-import { PuterService } from '../types';
 import { FULL_API_ACCESS } from '../permission/consts';
+import { PuterService } from '../types';
 import { V1TokensDisabledError } from './TokenService';
 import type {
     AccessTokenPayload,
@@ -157,11 +156,11 @@ export class AuthService extends PuterService {
                 token,
             );
         } catch (err) {
-            // v1 tokens disabled — surface a `reauth_required` signal
-            // with an advisory `auth_id` hint so stragglers on cached
-            // old bundles see the re-login modal instead of a bare 401.
-            // The hint is read from the *unverified* payload; it's only
-            // used to label the response, never to grant access.
+            // A retired v1 token — surface a `reauth_required` signal with an
+            // advisory `auth_id` hint so stragglers holding one see the
+            // re-login modal instead of a bare 401. The hint is read from the
+            // *unverified* payload; it's only used to label the response, never
+            // to grant access.
             if (err instanceof V1TokensDisabledError) {
                 const hint = err.payload;
                 const auth_id =
@@ -172,33 +171,20 @@ export class AuthService extends PuterService {
             return { invalid: true };
         }
 
-        // Legacy tokens (pre-`type` field) aren't supported.
+        // Tokens predating the `type` field aren't supported.
         if (!decoded.type) return { invalid: true };
 
-        let result: AuthResult;
         switch (decoded.type) {
             case 'session':
             case 'gui':
-                result = await this.#actorFromSessionToken(decoded, ctx);
-                break;
+                return await this.#actorFromSessionToken(decoded, ctx);
             case 'app-under-user':
-                result = await this.#actorFromAppUnderUserToken(decoded, ctx);
-                break;
+                return await this.#actorFromAppUnderUserToken(decoded, ctx);
             case 'access-token':
-                result = await this.#actorFromAccessTokenToken(decoded, ctx);
-                break;
+                return await this.#actorFromAccessTokenToken(decoded, ctx);
             default:
                 return { invalid: true };
         }
-
-        if (decoded.legacy && !result.reauth) {
-            const authId =
-                (decoded.auth_id as string | undefined) ??
-                result.actor?.user?.uuid;
-            result.reauth = { reason: 'token_v1', auth_id: authId };
-        }
-
-        return result;
     }
 
     // -- Session lifecycle --------------------------------------------
@@ -698,212 +684,6 @@ export class AuthService extends PuterService {
         }
     }
 
-    async migrateLegacyToken(
-        v1Token: string,
-        _ctx: { ip?: string; userAgent?: string } = {},
-    ): Promise<{
-        token: string;
-        session_uid: string;
-        auth_id: string;
-        kind: 'access_token' | 'app';
-    }> {
-        // 1. Verify under v1 secret. `TokenService.verify` tags v1
-        // results with `legacy: true`; anything else is either a v2
-        // token (nothing to migrate) or invalid.
-        let decoded: AnyTokenPayload;
-        try {
-            decoded = this.services.token.verify<AnyTokenPayload>(
-                'auth',
-                v1Token,
-            );
-        } catch {
-            throw new HttpError(401, 'Invalid token', {
-                legacyCode: 'token_invalid',
-            });
-        }
-        if (!decoded.legacy) {
-            throw new HttpError(401, 'Token is not v1', {
-                legacyCode: 'token_invalid',
-            });
-        }
-        if (!decoded.type) {
-            throw new HttpError(401, 'Invalid token type', {
-                legacyCode: 'token_invalid',
-            });
-        }
-
-        // 2. Web tokens never migrate silently — they go through the
-        // interactive reauth flow. The `code` field is what puter.js /
-        // GUI clients key on; `legacyCode` keeps the body shape valid
-        // for legacy error readers.
-        if (decoded.type === 'session' || decoded.type === 'gui') {
-            throw new HttpError(409, 'Reauthentication required', {
-                legacyCode: 'unauthorized',
-                code: 'reauth_required',
-            });
-        }
-
-        // 3. Branch by kind.
-        if (decoded.type === 'access-token') {
-            return this.#migrateAccessToken(decoded as AccessTokenPayload);
-        }
-        if (decoded.type === 'app-under-user') {
-            // App-token migration is the kind that ultimately retires
-            // — flag-gated independently from the top-level
-            // `allow_v1_tokens` so access-token migration can stay on
-            // indefinitely.
-            const allowAppMigration =
-                (this.config as { allow_v1_app_migration?: boolean })
-                    .allow_v1_app_migration !== false;
-            if (!allowAppMigration) {
-                throw new HttpError(410, 'App-token migration disabled', {
-                    legacyCode: 'unauthorized',
-                    code: 'app_migration_disabled',
-                });
-            }
-            return this.#migrateAppToken(decoded as AppUnderUserTokenPayload);
-        }
-
-        throw new HttpError(401, 'Unsupported token type', {
-            legacyCode: 'token_invalid',
-        });
-    }
-
-    async #migrateAccessToken(decoded: AccessTokenPayload): Promise<{
-        token: string;
-        session_uid: string;
-        auth_id: string;
-        kind: 'access_token';
-    }> {
-        if (!decoded.token_uid || !decoded.user_uid) {
-            throw new HttpError(401, 'Invalid token claims', {
-                legacyCode: 'token_invalid',
-            });
-        }
-        const user = (await this.stores.user.getByUuid(
-            decoded.user_uid,
-        )) as UserRow | null;
-        if (!user) {
-            throw new HttpError(401, 'User not found', {
-                legacyCode: 'unauthorized',
-            });
-        }
-        const auth_id = this.#authIdFor(user);
-
-        // Per-auth_id rate limit — second axis beyond the route-level
-        // per-IP limit. Catches an attacker who has both the token and
-        // a rotating IP pool.
-        await this.#enforceMigrateAuthIdLimit(auth_id);
-
-        const session = await this.stores.session.findOrCreateLegacyAccessToken(
-            decoded.token_uid,
-            { userId: user.id, auth_id },
-        );
-        if (!session) {
-            throw new HttpError(500, 'Session backfill failed', {
-                legacyCode: 'internal_error',
-            });
-        }
-
-        // Mint v2 access token. token_uid is preserved so the existing
-        // `access_token_permissions` rows (keyed by token_uid) keep
-        // applying — only the JWT envelope and session-row binding
-        // change.
-        const jwtPayload: Record<string, unknown> = {
-            type: 'access-token',
-            version: '2',
-            token_uid: decoded.token_uid,
-            user_uid: user.uuid,
-            session_uid: session.uuid as string,
-            auth_id,
-        };
-        if (decoded.app_uid) jwtPayload.app_uid = decoded.app_uid;
-        const token = this.services.token.sign('auth', jwtPayload);
-
-        return {
-            token,
-            session_uid: session.uuid as string,
-            auth_id,
-            kind: 'access_token',
-        };
-    }
-
-    async #migrateAppToken(decoded: AppUnderUserTokenPayload): Promise<{
-        token: string;
-        session_uid: string;
-        auth_id: string;
-        kind: 'app';
-    }> {
-        if (!decoded.user_uid || !decoded.app_uid) {
-            throw new HttpError(401, 'Invalid token claims', {
-                legacyCode: 'token_invalid',
-            });
-        }
-        const user = (await this.stores.user.getByUuid(
-            decoded.user_uid,
-        )) as UserRow | null;
-        if (!user) {
-            throw new HttpError(401, 'User not found', {
-                legacyCode: 'unauthorized',
-            });
-        }
-        const auth_id = this.#authIdFor(user);
-
-        await this.#enforceMigrateAuthIdLimit(auth_id);
-
-        // Idempotent on `(user_id, app_uid)` via the partial unique
-        const session = await this.stores.session.getOrCreateApp(
-            user.id,
-            decoded.app_uid,
-            { auth_id },
-        );
-        if (!session) {
-            throw new HttpError(500, 'Session backfill failed', {
-                legacyCode: 'internal_error',
-            });
-        }
-
-        const jwtPayload: Record<string, unknown> = {
-            type: 'app-under-user',
-            version: '2',
-            user_uid: user.uuid,
-            app_uid: decoded.app_uid,
-            session_uid: session.uuid as string,
-            auth_id,
-        };
-        const token = this.services.token.sign('auth', jwtPayload);
-
-        return {
-            token,
-            session_uid: session.uuid as string,
-            auth_id,
-            kind: 'app',
-        };
-    }
-
-    /**
-     * Per-`auth_id` rate limit for migrate-token. Keyed on the stable v2
-     * identity so an attacker rotating IPs but holding one user's v1 token
-     * still hits a ceiling.
-     */
-    async #enforceMigrateAuthIdLimit(auth_id: string): Promise<void> {
-        // 20 migrations per 15min per identity matches the per-IP
-        // route limit — either axis trips first depending on the
-        // attack shape. Generous enough that a healthy client (one
-        // app open per device) never sees it.
-        const ok = await checkRateLimit(
-            `migrate-token-auth:${auth_id}`,
-            20,
-            15 * 60_000,
-        );
-        if (!ok) {
-            throw new HttpError(429, 'Too many migration attempts', {
-                legacyCode: 'too_many_requests',
-                fields: { 'retry-after': 900 },
-            });
-        }
-    }
-
     // -- App / origin resolution -------------------------------------
 
     /**
@@ -1373,7 +1153,6 @@ export class AuthService extends PuterService {
         subdomain?: string;
         privateHost?: string;
         authId?: string;
-        legacy?: boolean;
     }> {
         const decoded = this.#verifyHostedAssetToken(token, 'private');
         this.#assertExpected(
@@ -1421,7 +1200,6 @@ export class AuthService extends PuterService {
             subdomain: decoded.subdomain as string | undefined,
             privateHost: decoded.host as string | undefined,
             authId: decoded.auth_id as string | undefined,
-            legacy: decoded.legacy === true ? true : undefined,
         };
     }
 
@@ -1439,7 +1217,6 @@ export class AuthService extends PuterService {
         subdomain?: string;
         host?: string;
         authId?: string;
-        legacy?: boolean;
     }> {
         const decoded = this.#verifyHostedAssetToken(token, 'public');
         this.#assertExpected(
@@ -1482,7 +1259,6 @@ export class AuthService extends PuterService {
             subdomain: decoded.subdomain as string | undefined,
             host: decoded.host as string | undefined,
             authId: decoded.auth_id as string | undefined,
-            legacy: decoded.legacy === true ? true : undefined,
         };
     }
 
@@ -1850,14 +1626,7 @@ export class AuthService extends PuterService {
             return { reauth: { reason: 'session_expired', auth_id } };
         }
 
-        let session: SessionRow | null = rawRow;
-
-        if (!session && decoded.legacy) {
-            session = (await this.stores.session.findOrCreateLegacyWeb({
-                userId: user.id,
-                auth_id,
-            })) as SessionRow | null;
-        }
+        const session: SessionRow | null = rawRow;
 
         if (!session) return { invalid: true };
 
@@ -1913,24 +1682,9 @@ export class AuthService extends PuterService {
             return { reauth: { reason: 'session_expired', auth_id } };
         }
 
-        let session: SessionRow | null = rawRow;
+        const session: SessionRow | null = rawRow;
 
-        // Legacy v1: lazy-backfill keyed on (user_id, app_uid).
-        if (!session && decoded.legacy) {
-            session = (await this.stores.session.getOrCreateApp(
-                user.id,
-                decoded.app_uid,
-                { auth_id },
-            )) as SessionRow | null;
-        }
-
-        if (!session && !decoded.legacy) return { invalid: true };
-
-        if (!session && decoded.session) {
-            session = (await this.stores.session.getByUuid(
-                decoded.session,
-            )) as SessionRow | null;
-        }
+        if (!session) return { invalid: true };
 
         this.stores.session
             .touch({
@@ -1972,14 +1726,6 @@ export class AuthService extends PuterService {
             }
             if (!rawRow) return { invalid: true };
             session = rawRow;
-        } else if (decoded.legacy) {
-            session = (await this.stores.session.findOrCreateLegacyAccessToken(
-                decoded.token_uid,
-                { userId: user.id, auth_id },
-            )) as SessionRow | null;
-            // If backfill fails (DB write contention etc.) we don't
-            // strand the legacy token — it falls through to the
-            // permission-table path that v1 used.
         }
 
         let authorizer: Actor;

@@ -95,15 +95,13 @@ class Lock {
 //       (using defaultGUIOrigin breaks locally-hosted apps)
 const PROD_ORIGIN = 'https://puter.com';
 
-// localStorage keys for the auth token. v1 is the legacy key. v2 is
-// the new key written after the token rotation in the v1→v2 cutover.
-// Reads prefer v2; v1 is only consulted to drive the silent-migration
-// path (access_token / app kinds) or — for kind='web' — to fail over
-// to the interactive reauth flow.
-const STORAGE_KEY_V1 = 'puter.auth.token';
+// localStorage key for the auth token. The retired key below is never read —
+// only deleted, so a token from before the format change doesn't linger in a
+// visitor's browser (see `discardRetiredAuthToken_`).
 const STORAGE_KEY_V2 = 'puter.auth.token.v2';
-// Records the API origin a stored v2 token was minted against. A stored token
-// is only ever replayed to this origin, so a URL-controlled `puter.api_origin`
+const STORAGE_KEY_V1 = 'puter.auth.token';
+// Records the API origin a stored token was minted against. A stored token is
+// only ever replayed to this origin, so a URL-controlled `puter.api_origin`
 // can't harvest a previously-stored token and forward it to a foreign origin.
 const STORAGE_KEY_ORIGIN_V2 = 'puter.auth.token.origin.v2';
 
@@ -569,6 +567,18 @@ const puterInit = function () {
                 enabled: false, // Disabled by default
             });
 
+            // `/rao` state, set up before the environment branches below
+            // because those call setAuthToken, which requests `/rao`.
+            // Lock to prevent multiple requests to `/rao`
+            this.lock_rao_ = new Lock();
+            // Promise that resolves when it's okay to request `/rao`
+            this.p_can_request_rao_ = Promise.resolve();
+            // Flag that indicates if a request to `/rao` has been made
+            this.rao_requested_ = false;
+            // The in-flight boot `/whoami`, awaited by anything that wants the
+            // cached user without issuing its own request.
+            this.whoamiCache_ = null;
+
             // === Start :: Modules === //
 
             // The SDK is running in the Puter GUI (i.e. 'gui')
@@ -586,14 +596,8 @@ const puterInit = function () {
                 );
                 try {
                     let selectedAuthToken = bootstrapAuthToken;
-                    let needsSilentMigration = false;
                     if (bootstrapAuthToken) {
-                        // URL-param tokens may still be v1 (host apps that
-                        // haven't rebuilt yet). Set immediately so submodules
-                        // can run, then attempt silent migration in the
-                        // background.
                         this.setAuthToken(bootstrapAuthToken);
-                        needsSilentMigration = true;
                     } else {
                         // No token in the URL — fall back to a stored token,
                         // but ONLY if it is allowed for the current API origin.
@@ -601,46 +605,29 @@ const puterInit = function () {
                         // stored token must be bound to (and matched against) the
                         // origin it was minted for. A custom (non-default) origin
                         // additionally requires an explicit binding; an unbound
-                        // legacy token is only honored against the default origin.
+                        // token is only honored against the default origin.
                         const boundOrigin = this.normalizeStringCandidate(
                             localStorage.getItem(STORAGE_KEY_ORIGIN_V2),
                         );
-                        const v2 = this.normalizeAuthTokenCandidate(
+                        const storedToken = this.normalizeAuthTokenCandidate(
                             localStorage.getItem(STORAGE_KEY_V2),
                         );
-                        // v1 (legacy) tokens never carry an origin binding.
-                        const v1 = v2
-                            ? null
-                            : this.normalizeAuthTokenCandidate(
-                                  localStorage.getItem(STORAGE_KEY_V1),
-                              );
-                        const storedToken = v2 ?? v1;
                         if (
                             storedToken &&
-                            this._storedTokenUsableForCurrentOrigin(
-                                v2 ? boundOrigin : null,
-                            )
+                            this._storedTokenUsableForCurrentOrigin(boundOrigin)
                         ) {
                             this.setAuthToken(storedToken);
                             selectedAuthToken = storedToken;
-                            if (v1) needsSilentMigration = true;
                         } else if (storedToken) {
                             // A token exists but is not valid for this API
                             // origin (a URL-supplied custom/attacker origin, or
-                            // an unbound legacy token against a custom origin).
-                            // Treat as unauthenticated and force a reauth for
-                            // this origin instead of replaying the token.
+                            // an unbound token against a custom origin). Treat
+                            // as unauthenticated and force a reauth for this
+                            // origin instead of replaying the token.
                             this._needsOriginReauth = {
                                 reason: 'api_origin_mismatch',
                             };
                         }
-                    }
-                    if (needsSilentMigration && selectedAuthToken) {
-                        // Fire-and-forget. On success, setAuthToken inside the
-                        // migration helper updates submodules with the v2
-                        // token. On failure the next 401 reauth_required
-                        // triggers the interactive flow.
-                        this._silentMigrateV1Token(selectedAuthToken);
                     }
                     const tokenAppID =
                         this.getAppIDFromAuthToken(selectedAuthToken);
@@ -677,26 +664,10 @@ const puterInit = function () {
                 // initialize submodules
                 this.initSubmodules();
                 try {
-                    // Prefer the v2 storage key. Fall back to v1 and
-                    // run a silent migration in the background.
-                    const v2 = this.normalizeAuthTokenCandidate(
+                    const storedToken = this.normalizeAuthTokenCandidate(
                         localStorage.getItem(STORAGE_KEY_V2),
                     );
-                    if (v2) {
-                        this.setAuthToken(v2);
-                    } else {
-                        const v1 = this.normalizeAuthTokenCandidate(
-                            localStorage.getItem(STORAGE_KEY_V1),
-                        );
-                        if (v1) {
-                            this.setAuthToken(v1);
-                            // For kind='access_token' the backend will swap
-                            // this for a v2 token. For kind='web' it'll
-                            // refuse (409) and the next request bounces us
-                            // through the reauth popup.
-                            this._silentMigrateV1Token(v1);
-                        }
-                    }
+                    if (storedToken) this.setAuthToken(storedToken);
                     // if appID is already set in localStorage, then we don't need to show the dialog
                     if (!this.appID && localStorage.getItem('puter.app.id')) {
                         this.setAppID(localStorage.getItem('puter.app.id'));
@@ -721,12 +692,23 @@ const puterInit = function () {
                 this.initSubmodules();
             }
 
+            // Wherever tokens are stored, a value under the retired key is
+            // dead weight — drop it even when there's no new token to write
+            // over it (`setAuthToken` handles that case).
+            if (this.env === 'web' || this.env === 'app') {
+                this.discardRetiredAuthToken_();
+            }
+
             // Add prefix logger (needed to happen after modules are initialized)
             (async () => {
                 try {
-                    const whoami = await this.auth.whoami();
+                    // Reuses the boot `/whoami` rather than issuing a second
+                    // one. Nothing to prefix with when there's no token (or the
+                    // lookup failed), same as when this awaited its own call.
+                    const whoami = await this.whoamiCache_;
+                    if (!whoami) return;
                     const prefix = `[${
-                        whoami?.app_name ?? this.appInstanceID ?? 'HOST'
+                        whoami.app_name ?? this.appInstanceID ?? 'HOST'
                     }]`;
                     logger = logger.fields({ prefix });
                     this.logger = logger;
@@ -739,13 +721,6 @@ const puterInit = function () {
                     }
                 }
             })();
-
-            // Lock to prevent multiple requests to `/rao`
-            this.lock_rao_ = new Lock();
-            // Promise that resolves when it's okay to request `/rao`
-            this.p_can_request_rao_ = Promise.resolve();
-            // Flag that indicates if a request to `/rao` has been made
-            this.rao_requested_ = false;
 
             /** @type {import('../types/modules/networking').Networking} */
             this.net = {
@@ -805,7 +780,6 @@ const puterInit = function () {
                 return;
             }
 
-            let had_error = false;
             try {
                 const resp = await fetchUrl(`${this.APIOrigin}/rao`, {
                     method: 'POST',
@@ -813,16 +787,57 @@ const puterInit = function () {
                     headers: {
                         Origin: location.origin, // This is ignored in the browser but needed for workers and nodejs
                     },
+                    // Recording an app open is ours, not the user's: a stale
+                    // token must not turn a page load into a sign-in prompt.
+                    interactiveReauth: false,
                 });
+                // Set inside the lock: a caller parked on `p_can_request_rao_`
+                // acquires it the moment this releases, and would otherwise
+                // record the same open a second time.
+                this.rao_requested_ = true;
                 return await resp.json();
             } catch (e) {
-                had_error = true;
                 console.error(e);
             } finally {
                 this.lock_rao_.release();
             }
-            if (!had_error) {
-                this.rao_requested_ = true;
+        }
+
+        /**
+         * @internal
+         * Populates `puter.whoami` for callers that read the cached user
+         * synchronously. Non-interactive for the same reason as `/rao`: this
+         * runs on every load without the user asking, so a stale token must not
+         * raise sign-in UI. Callers that need a definite answer (and the prompt
+         * that comes with it) use `puter.auth.getUser()`.
+         *
+         * Uses `fetchUrl` rather than `this.auth` because `setAuthToken` runs
+         * before `initSubmodules` in the app environment, and carries the token
+         * explicitly because `includePuterAuth` reads `globalThis.puter`, which
+         * isn't assigned until the constructor returns.
+         *
+         * @returns {Promise<import('../types/modules/auth').User|null>} The
+         *   cached user, or null when there was no token, the token was
+         *   rejected, or the request failed.
+         */
+        async cacheWhoami_() {
+            if (!this.authToken) return null;
+            try {
+                const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
+                    authToken: this.authToken,
+                    interactiveReauth: false,
+                    logContext: {
+                        service: 'auth',
+                        operation: 'whoami',
+                        params: {},
+                    },
+                });
+                if (!resp.ok) return null;
+                this.whoami = await resp.json();
+                return this.whoami;
+            } catch (e) {
+                // Best-effort cache — a network failure leaves it unset.
+                return null;
             }
         }
 
@@ -917,9 +932,8 @@ const puterInit = function () {
                         localStorage.removeItem(STORAGE_KEY_V2);
                         localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
                     }
-                    // Always clear the legacy v1 key on a write — once we
-                    // have a v2 token, the v1 one must not linger or it
-                    // would be picked up by older code paths.
+                    // Clear the retired key on every write, so a stale value
+                    // never outlives the token that replaced it.
                     localStorage.removeItem(STORAGE_KEY_V1);
                 } catch (error) {
                     // Handle the error here
@@ -937,9 +951,7 @@ const puterInit = function () {
             this.request_rao_();
 
             // perform whoami and cache results
-            this.getUser().then((user) => {
-                this.whoami = user;
-            });
+            this.whoamiCache_ = this.cacheWhoami_();
         };
 
         /**
@@ -987,14 +999,15 @@ const puterInit = function () {
             }
         };
 
-        resetAuthToken = function () {
-            if (this.env === 'web-worker' || this.env === 'service-worker') {
-                throw new Error(
-                    'Sign out is not permitted from WebWorkers or ServiceWorkers',
-                );
-            }
+        /**
+         * Forget the current token, in memory and (on a 3rd-party site or an
+         * app) in localStorage. Callers own the surrounding policy — emitting
+         * events, driving reauth — this only drops the value.
+         *
+         * @private
+         */
+        _clearAuthToken = function () {
             this.authToken = null;
-            // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage
             if (this.env === 'web' || this.env === 'app') {
                 try {
                     localStorage.removeItem(STORAGE_KEY_V2);
@@ -1005,6 +1018,15 @@ const puterInit = function () {
                     console.error('Error accessing localStorage:', error);
                 }
             }
+        };
+
+        resetAuthToken = function () {
+            if (this.env === 'web-worker' || this.env === 'service-worker') {
+                throw new Error(
+                    'Sign out is not permitted from WebWorkers or ServiceWorkers',
+                );
+            }
+            this._clearAuthToken();
             this._emitAuthStateChanged();
         };
 
@@ -1038,16 +1060,7 @@ const puterInit = function () {
             // Drop the stored token immediately so a failed/canceled reauth
             // doesn't leave a poisoned value in localStorage. The new token
             // (if reauth succeeds) is written by setAuthToken downstream.
-            this.authToken = null;
-            if (this.env === 'web' || this.env === 'app') {
-                try {
-                    localStorage.removeItem(STORAGE_KEY_V2);
-                    localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
-                    localStorage.removeItem(STORAGE_KEY_V1);
-                } catch (e) {
-                    console.error('Error accessing localStorage:', e);
-                }
-            }
+            this._clearAuthToken();
             this._emitAuthStateChanged();
 
             this._reauthInflight = (async () => {
@@ -1129,6 +1142,32 @@ const puterInit = function () {
             }
         };
 
+        /**
+         * @internal
+         * The non-interactive half of the reauth policy, called by the network
+         * layer (lib/networkUtils.js) when a request the user didn't initiate
+         * comes back `401 { code: 'reauth_required' | 'token_auth_failed' }`.
+         *
+         * Boot-time telemetry and cache warmers run on every page load, so
+         * escalating their 401 to `triggerReauth` puts a sign-in popup (or the
+         * consent dialog, when there's no user activation to open one with) in
+         * front of a visitor who did nothing but load the page. Instead: forget
+         * the dead token and announce it, leaving the prompt to the next call
+         * the user actually makes.
+         *
+         * `sentToken` is the token the failed request carried. A reauth may have
+         * completed while it was in flight, so a token that no longer matches is
+         * left alone rather than signing the user back out.
+         *
+         * @param {{ reason?: string; auth_id?: string; sentToken?: string }} signal
+         */
+        dropStaleAuthToken = function ({ reason, auth_id, sentToken } = {}) {
+            if (sentToken && sentToken !== this.authToken) return;
+            this._emitReauthEvent({ reason, auth_id });
+            this._clearAuthToken();
+            this._emitAuthStateChanged();
+        };
+
         _emitReauthEvent = function ({ reason, auth_id }) {
             try {
                 const handlers =
@@ -1166,56 +1205,17 @@ const puterInit = function () {
         };
 
         /**
-         * Best-effort silent v1→v2 token migration via the backend
-         * `/auth/migrate-token` endpoint. Used at boot when only a legacy
-         * `puter.auth.token` is present; on success the v2 token is set via
-         * setAuthToken (which clears the v1 key).
-         *
-         * Returns true on successful migration, false otherwise. Failures fall
-         * through to the existing 401-reauth path: any subsequent API call
-         * against the v1 token will receive a `reauth_required` and route
-         * through triggerReauth.
+         * @internal
+         * Delete a token left behind under the retired `puter.auth.token` key.
+         * The backend no longer honors that format, so a visitor holding one is
+         * simply signed out — sending it would only earn a 401, and leaving it
+         * in storage would keep tempting later readers.
          */
-        _silentMigrateV1Token = async function (v1Token) {
-            if (!v1Token) return false;
+        discardRetiredAuthToken_ = function () {
             try {
-                // The `puter_token_v2` companion cookie set by this
-                // endpoint is only consumed by same-origin requests to
-                // the GUI origin, and the main domain doesn't serve
-                // credentialed CORS — `include` from a third-party app
-                // origin fails the preflight outright. Only ask for
-                // credentials when we're actually on the GUI origin;
-                // everywhere else the JSON token response is all we need.
-                const sameOrigin =
-                    globalThis.location?.origin === this.defaultGUIOrigin;
-                const resp = await fetchUrl(
-                    `${this.defaultGUIOrigin}/auth/migrate-token`,
-                    {
-                        method: 'POST',
-                        headers: {
-                            Authorization: `Bearer ${v1Token}`,
-                            'Content-Type': 'application/json',
-                        },
-                        withCredentials: sameOrigin,
-                        body: JSON.stringify({}),
-                    },
-                );
-                if (!resp.ok) {
-                    // 409 = backend refuses silent migration for this kind
-                    // (web sessions). Any caller will then 401 reauth_required
-                    // and the interactive flow takes over.
-                    return false;
-                }
-                const data = await resp.json().catch(() => null);
-                const token = data?.token;
-                if (typeof token === 'string' && token.length > 0) {
-                    this.setAuthToken(token);
-                    return true;
-                }
-                return false;
+                localStorage.removeItem(STORAGE_KEY_V1);
             } catch (e) {
-                // Network errors etc. — fall back to reauth on next 401.
-                return false;
+                // No storage to clean up.
             }
         };
 

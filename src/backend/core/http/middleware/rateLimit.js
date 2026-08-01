@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import crypto from 'node:crypto';
@@ -26,21 +27,21 @@ import { HttpError } from '../HttpError.js';
  *
  * Three backend implementations are registered at boot via
  * `configureRateLimit(...)`; they all stay live simultaneously so that
- * different routes / driver methods can pick whichever storage best fits
- * their access pattern:
+ * different routes / driver methods can pick whichever storage best fits their
+ * access pattern:
  *
- *   - `redis`:  Redis sorted sets — atomic per key across a cluster.
- *               Production default; ioredis-mock in dev.
- *   - `kv`:     one row per hit in the system KV (DynamoDB), with TTL.
- *               `kv.list()` already drops expired rows, so "entries under
- *               the prefix" == "entries still in the window".
- *   - `memory`: per-process counters. Capped + actively swept; does not
- *               coordinate across nodes, so use only for hot, ephemeral
- *               counters or when redis is absent.
+ * - `redis`: Redis sorted sets — atomic per key across a cluster. Production
+ *   default; ioredis-mock in dev.
+ * - `kv`: one row per hit in the system KV (DynamoDB), with TTL. `kv.list()`
+ *   already drops expired rows, so "entries under the prefix" == "entries still
+ *   in the window".
+ * - `memory`: per-process counters. Capped + actively swept; does not coordinate
+ *   across nodes, so use only for hot, ephemeral counters or when redis is
+ *   absent.
  *
- * Each backend exports a `check(key, limit, windowMs)` that returns
- * `true` (and records the hit) or `false` (rate-limited). Callers select
- * one via the `backend` option; omitting it uses the configured default.
+ * Each backend exports a `check(key, limit, windowMs)` that returns `true` (and
+ * records the hit) or `false` (rate-limited). Callers select one via the
+ * `backend` option; omitting it uses the configured default.
  */
 
 // -- Backend names ----------------------------------------------------
@@ -258,9 +259,9 @@ async function acquireKvConcurrent(kv, key, limit) {
 // backend is wired for which mode.
 
 /**
- * Wrap a backend pair so every rate / acquire call runs inside a span
- * tagged with the backend name. Applied at registration, so all gates
- * (route middleware, driver helpers, imperative checks) are covered.
+ * Wrap a backend pair so every rate / acquire call runs inside a span tagged
+ * with the backend name. Applied at registration, so all gates (route
+ * middleware, driver helpers, imperative checks) are covered.
  */
 function instrumentBackendPair(name, pair) {
     const attrs = { 'rate_limit.backend': name };
@@ -295,22 +296,21 @@ let meteringService = null;
 
 /**
  * Wire backend implementations. Call once during server boot, after
- * clients/stores are built. All backends with their dependency available
- * are registered concurrently — a route or driver method picks one
- * per-call via the `backend` option. The `default` slot selects the
- * fallback for callers that omit `backend`.
+ * clients/stores are built. All backends with their dependency available are
+ * registered concurrently — a route or driver method picks one per-call via the
+ * `backend` option. The `default` slot selects the fallback for callers that
+ * omit `backend`.
  *
- *   configureRateLimit({ default: 'redis', redis, kv, metering })
- *   configureRateLimit({ default: 'memory', redis })   // kv routes
- *                                                       // would fall back
- *   configureRateLimit()                                 // memory only
+ * ConfigureRateLimit({ default: 'redis', redis, kv, metering })
+ * configureRateLimit({ default: 'memory', redis }) // kv routes // would fall
+ * back configureRateLimit() // memory only
  *
  * `metering` is optional; pass the MeteringService instance to enable
- * `concurrent.bySubscription` overrides. Without it, the top-level
- * `limit` applies uniformly regardless of subscription tier.
+ * `concurrent.bySubscription` overrides. Without it, the top-level `limit`
+ * applies uniformly regardless of subscription tier.
  *
- * Throws if `default` names a backend whose dependency is missing — a
- * typo in config should surface loudly, not silently downgrade.
+ * Throws if `default` names a backend whose dependency is missing — a typo in
+ * config should surface loudly, not silently downgrade.
  */
 export function configureRateLimit({
     default: defaultName,
@@ -355,10 +355,10 @@ export function listConfiguredRateLimitBackends() {
 }
 
 /**
- * Resolve the `{ rate, acquire }` backend pair for a named backend.
- * Unknown / unconfigured names log once and fall through to the default
- * so a typo in a route or driver decorator doesn't 500 every request —
- * rate limiting is best-effort security.
+ * Resolve the `{ rate, acquire }` backend pair for a named backend. Unknown /
+ * unconfigured names log once and fall through to the default so a typo in a
+ * route or driver decorator doesn't 500 every request — rate limiting is
+ * best-effort security.
  */
 function resolveBackend(name) {
     if (!name) return backends[defaultBackendName];
@@ -375,15 +375,12 @@ function resolveBackend(name) {
 /**
  * Build a rate-limit key from the request.
  *
- * Strategies:
- *   'fingerprint' — network hash (IP + headers), refined by the client's
- *                    device fingerprint when one was supplied (default).
- *                    Good for unauthenticated endpoints where the same
- *                    IP may serve many users (offices, VPNs).
- *   'ip'          — bare IP. Simpler but coarser.
- *   'user'        — actor UUID. Use for authenticated endpoints where
- *                    you want per-account limits regardless of IP.
- *   function      — custom `(req) => string`.
+ * Strategies: 'fingerprint' — network hash (IP + headers), refined by the
+ * client's device fingerprint when one was supplied (default). Good for
+ * unauthenticated endpoints where the same IP may serve many users (offices,
+ * VPNs). 'ip' — bare IP. Simpler but coarser. 'user' — actor UUID. Use for
+ * authenticated endpoints where you want per-account limits regardless of IP.
+ * function — custom `(req) => string`.
  */
 function resolveKey(req, scope, strategy) {
     const prefix = scope ? `${scope}:` : '';
@@ -459,11 +456,11 @@ function fingerprint(req) {
 /**
  * Express middleware factory. Reads from the materialised route option:
  *
- *   { rateLimit: { limit: 10, window: 15 * 60_000, key: 'user' } }
- *   { rateLimit: { limit: 100, window: 60_000, backend: 'memory' } }
+ * { rateLimit: { limit: 10, window: 15 * 60_000, key: 'user' } } { rateLimit: {
+ * limit: 100, window: 60_000, backend: 'memory' } }
  *
- * Rejects with 429. Fails open on backend error — a broken Redis/KV
- * shouldn't 500 every request.
+ * Rejects with 429. Fails open on backend error — a broken Redis/KV shouldn't
+ * 500 every request.
  */
 export function rateLimitGate(opts) {
     const {
@@ -506,16 +503,16 @@ export function rateLimitGate(opts) {
 // -- Driver-call helper ----------------------------------------------
 
 /**
- * Check rate limit for a driver call. Called from DriverController's
- * /call handler. Keyed by user + interface:method so different drivers
- * and different methods don't crowd each other.
+ * Check rate limit for a driver call. Called from DriverController's /call
+ * handler. Keyed by user + interface:method so different drivers and different
+ * methods don't crowd each other.
  *
  * `opts` is the resolved per-method spec from the driver's decorator (or
  * imperative `rateLimit` field) — see `resolveDriverRateLimit` in
- * `drivers/meta.ts`. When `opts` is omitted (driver declares nothing)
- * we apply a loose 600/min default that's chatty enough for UI patterns
- * (app listings, repeated `puter-apps:es:app:read` during desktop boot,
- * kv polling) while still catching runaway loops.
+ * `drivers/meta.ts`. When `opts` is omitted (driver declares nothing) we apply
+ * a loose 600/min default that's chatty enough for UI patterns (app listings,
+ * repeated `puter-apps:es:app:read` during desktop boot, kv polling) while
+ * still catching runaway loops.
  *
  * Returns true if allowed, false if rate-limited.
  */
@@ -543,12 +540,11 @@ export async function checkDriverRateLimit(req, ifaceName, method, opts = {}) {
 // -- Imperative helper -----------------------------------------------
 
 /**
- * Imperative rate-limit check (no middleware shape). For handlers that
- * need a second-axis limit after their route-level limit fires —
- * e.g. `/auth/migrate-token` limits per IP at the route, then per
- * `auth_id` once the v1 token is decoded. Returns true if allowed,
- * false if rate-limited. Fails open on backend error, matching the
- * rest of this module's policy.
+ * Imperative rate-limit check (no middleware shape). For handlers that need a
+ * second-axis limit after their route-level limit fires — e.g. `/login` clamps
+ * per IP at the route, then tighter still on the requests that carry an
+ * `auth_id` hint. Returns true if allowed, false if rate-limited. Fails open on
+ * backend error, matching the rest of this module's policy.
  */
 export async function checkRateLimit(key, limit, windowMs, backend) {
     const bk = resolveBackend(backend);
@@ -566,13 +562,12 @@ export async function checkRateLimit(key, limit, windowMs, backend) {
 // -- Subscription-aware limit resolution -----------------------------
 
 /**
- * Per-request limit resolution shared by `rateLimitGate` and
- * `concurrencyGate`. The base value is `opts.limit`; if `bySubscription`
- * is set and we have an authenticated actor plus a metering service, we
- * look up the actor's subscription policy and prefer the matching
- * entry. Failure to resolve (no actor, no metering, metering throws)
- * falls through to the base — rate / concurrency limiting should never
- * *amplify* a request failure path.
+ * Per-request limit resolution shared by `rateLimitGate` and `concurrencyGate`.
+ * The base value is `opts.limit`; if `bySubscription` is set and we have an
+ * authenticated actor plus a metering service, we look up the actor's
+ * subscription policy and prefer the matching entry. Failure to resolve (no
+ * actor, no metering, metering throws) falls through to the base — rate /
+ * concurrency limiting should never _amplify_ a request failure path.
  */
 async function resolveSubscriptionLimit(req, opts) {
     const base = opts.limit;
@@ -593,14 +588,14 @@ async function resolveSubscriptionLimit(req, opts) {
 /**
  * Express middleware factory for concurrent in-flight limiting:
  *
- *   { concurrent: { limit: 5, key: 'user' } }
- *   { concurrent: { limit: 5, bySubscription: { user_free: 2, unlimited: 50 } } }
- *   { concurrent: { limit: 10, backend: 'redis', scope: 'expensive-op' } }
+ * { concurrent: { limit: 5, key: 'user' } } { concurrent: { limit: 5,
+ * bySubscription: { user_free: 2, unlimited: 50 } } } { concurrent: { limit:
+ * 10, backend: 'redis', scope: 'expensive-op' } }
  *
- * On accept, schedules release on `res.finish` / `res.close` so even
- * aborted requests give their slot back. On reject, 429 with the same
- * `too_many_requests` legacyCode as the rate gate (clients already
- * handle that branch). Fails open on backend error.
+ * On accept, schedules release on `res.finish` / `res.close` so even aborted
+ * requests give their slot back. On reject, 429 with the same
+ * `too_many_requests` legacyCode as the rate gate (clients already handle that
+ * branch). Fails open on backend error.
  */
 export function concurrencyGate(opts) {
     const { key: strategy = 'fingerprint', scope, backend } = opts;
@@ -652,17 +647,17 @@ export function concurrencyGate(opts) {
 }
 
 /**
- * Acquire a concurrent slot for a driver call. Mirrors
- * `checkDriverRateLimit` but returns an acquisition handle: caller MUST
- * invoke `release()` on the returned object exactly once, even on
- * thrown errors — typically in a `finally`. `ok: false` means the slot
- * was full; callers should reject with 429 in that case.
+ * Acquire a concurrent slot for a driver call. Mirrors `checkDriverRateLimit`
+ * but returns an acquisition handle: caller MUST invoke `release()` on the
+ * returned object exactly once, even on thrown errors — typically in a
+ * `finally`. `ok: false` means the slot was full; callers should reject with
+ * 429 in that case.
  *
- * `opts` is the resolved per-method spec from the driver's decorator
- * (or imperative `concurrent` field). Omitting `opts` (driver declares
- * nothing) yields `{ ok: true, release: noop }` — drivers without a
- * declared concurrency limit are unbounded, which matches today's
- * behaviour. Apply a limit explicitly to opt in.
+ * `opts` is the resolved per-method spec from the driver's decorator (or
+ * imperative `concurrent` field). Omitting `opts` (driver declares nothing)
+ * yields `{ ok: true, release: noop }` — drivers without a declared concurrency
+ * limit are unbounded, which matches today's behaviour. Apply a limit
+ * explicitly to opt in.
  */
 export async function acquireDriverConcurrent(req, ifaceName, method, opts) {
     if (!opts || typeof opts.limit !== 'number') {

@@ -70,6 +70,34 @@ describe('fetchUrl', () => {
         expect(xhrs[0]._reqHeaders['authorization']).toBe('Bearer tok-123');
     });
 
+    it('sends an explicit authToken instead of the live one', async () => {
+        // The migration endpoint sends a token that is about to be replaced.
+        globalThis.puter = { authToken: 'live' };
+        const xhrs = installFakeXHR(respond({ body: {} }));
+        await fetchUrl('https://api.example/migrate', { method: 'POST', authToken: 'explicit' });
+        expect(xhrs[0]._reqHeaders['authorization']).toBe('Bearer explicit');
+    });
+
+    it('falls back to authToken when there is no live token to read', async () => {
+        // Boot-time calls run before `globalThis.puter` is assigned.
+        const xhrs = installFakeXHR(respond({ body: {} }));
+        await fetchUrl('https://api.example/whoami', {
+            includePuterAuth: true,
+            authToken: 'from-instance',
+        });
+        expect(xhrs[0]._reqHeaders['authorization']).toBe('Bearer from-instance');
+    });
+
+    it('prefers the live token over the fallback when both are available', async () => {
+        globalThis.puter = { authToken: 'live' };
+        const xhrs = installFakeXHR(respond({ body: {} }));
+        await fetchUrl('https://api.example/whoami', {
+            includePuterAuth: true,
+            authToken: 'from-instance',
+        });
+        expect(xhrs[0]._reqHeaders['authorization']).toBe('Bearer live');
+    });
+
     it('omits the Bearer header when includePuterAuth is false', async () => {
         globalThis.puter = { authToken: 'tok-123' };
         const xhrs = installFakeXHR(respond({ body: {} }));
@@ -183,6 +211,74 @@ describe('fetchUrl', () => {
             const resp = await fetchUrl('https://api.example/x', { includePuterAuth: true });
             expect(triggerReauth).not.toHaveBeenCalled();
             expect(resp.ok).toBe(false);
+        });
+
+        // A request the user didn't initiate (boot telemetry, cache warmers)
+        // must not put a sign-in popup or consent dialog in front of someone who
+        // only loaded the page.
+        describe('interactiveReauth: false', () => {
+            const makePuter = () => ({
+                authToken: 'stale',
+                env: 'web',
+                triggerReauth: vi.fn(),
+                resetAuthToken: vi.fn(),
+                dropStaleAuthToken: vi.fn(),
+                ui: { authenticateWithPuter: vi.fn() },
+            });
+
+            it('drops the stale token without raising UI on reauth_required', async () => {
+                globalThis.puter = makePuter();
+                installFakeXHR(respond({
+                    status: 401,
+                    body: { code: 'reauth_required', reason: 'token_v1', auth_id: 'a' },
+                }));
+
+                const resp = await fetchUrl('https://api.example/rao', {
+                    method: 'POST',
+                    includePuterAuth: true,
+                    interactiveReauth: false,
+                });
+
+                expect(globalThis.puter.triggerReauth).not.toHaveBeenCalled();
+                expect(globalThis.puter.ui.authenticateWithPuter).not.toHaveBeenCalled();
+                // Reported with the token it was sent with, so a reauth that
+                // completed meanwhile keeps the token it installed.
+                expect(globalThis.puter.dropStaleAuthToken).toHaveBeenCalledWith({
+                    reason: 'token_v1',
+                    auth_id: 'a',
+                    sentToken: 'stale',
+                });
+                expect(resp.ok).toBe(false);
+                expect(resp.status).toBe(401);
+            });
+
+            it('drops the stale token without raising UI on token_auth_failed', async () => {
+                globalThis.puter = makePuter();
+                installFakeXHR(respond({ status: 401, body: { code: 'token_auth_failed' } }));
+
+                const resp = await fetchUrl('https://api.example/whoami', {
+                    includePuterAuth: true,
+                    interactiveReauth: false,
+                });
+
+                expect(globalThis.puter.ui.authenticateWithPuter).not.toHaveBeenCalled();
+                expect(globalThis.puter.resetAuthToken).not.toHaveBeenCalled();
+                expect(globalThis.puter.dropStaleAuthToken).toHaveBeenCalledTimes(1);
+                expect(resp.ok).toBe(false);
+            });
+
+            it('leaves a successful background request alone', async () => {
+                // The flag only governs the prompt: a 200 is unaffected.
+                globalThis.puter = makePuter();
+                installFakeXHR(respond({ status: 200, body: { ok: true } }));
+                const resp = await fetchUrl('https://api.example/rao', {
+                    method: 'POST',
+                    includePuterAuth: true,
+                    interactiveReauth: false,
+                });
+                expect(resp.ok).toBe(true);
+                expect(globalThis.puter.dropStaleAuthToken).not.toHaveBeenCalled();
+            });
         });
     });
 
