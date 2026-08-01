@@ -4164,8 +4164,38 @@ body.myapps-reordering .myapps-tile {
 
 .dashboard-settings-card .button {
     flex-shrink: 0;
-    color: var(--dashboard-text);
+    color: var(--dashboard-text-primary);
+    background: var(--dashboard-card-background);
+    border-color: var(--dashboard-border);
+    border-radius: 10px;
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.dashboard-settings-card .button:hover {
     background: var(--dashboard-sidebar-background);
+}
+
+.dashboard-settings-card .button:focus-visible {
+    border-color: var(--select-color);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-settings-card .button:active {
+    background: var(--dashboard-hover);
+    border-color: var(--dashboard-border);
+    color: var(--dashboard-text-primary);
+    box-shadow: none;
+}
+
+/* Base .button:disabled hard-codes light greys with !important, which
+   clashes with this outline style and glares in dark mode. */
+.dashboard-settings-card .button:disabled {
+    background: var(--dashboard-card-background) !important;
+    border-color: var(--dashboard-border) !important;
+    color: var(--dashboard-text-muted) !important;
+    text-shadow: none !important;
 }
 
 .dashboard-settings-card-success {
