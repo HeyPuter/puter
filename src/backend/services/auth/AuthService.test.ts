@@ -240,17 +240,29 @@ describe('AuthService (integration)', () => {
             });
         });
 
-        it('returns { invalid } for a malformed token', async () => {
+        it('returns { reauth: token_v1 } for a token that is not v2', async () => {
+            // Since v1 was retired nothing but `kid: 'v2'` can verify, so an
+            // unrecognizable token is answered with "sign in again" rather than
+            // a bare failure the client can't act on.
             const result = await authService.authenticate('not-a-jwt');
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth?.reason).toBe('token_v1');
+        });
+
+        it('returns { invalid } for a v2-routed token with a bad signature', async () => {
+            const forged = jwt.sign({ t: 's', uu: 'nope' }, 'wrong-secret', {
+                keyid: 'v2',
+            });
+            const result = await authService.authenticate(forged);
             expect(result.invalid).toBe(true);
             expect(result.actor).toBeUndefined();
             expect(result.reauth).toBeUndefined();
         });
 
-        it('overlays reauth.token_v1 onto the actor when the token verifies via the legacy secret', async () => {
-            // Hand-mint a v1-shape token with the legacy secret (no kid).
-            // Compress the same way TokenService does so it round-trips
-            // after verify.
+        it('a v1-signed session token resolves no actor, only a reauth signal', async () => {
+            // The user's row and session are perfectly healthy; it is the token
+            // format that is retired, so the answer is "sign in again" and
+            // never an authenticated actor.
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const legacyJwt = jwt.sign(
@@ -269,10 +281,11 @@ describe('AuthService (integration)', () => {
                 'dev-jwt-secret-change-me',
             );
             const result = await authService.authenticate(legacyJwt);
-            // The actor is resolved (row exists and is active) AND the
-            // reauth signal fires so SDK clients migrate.
-            expect(result.actor?.user.uuid).toBe(user.uuid);
+            expect(result.actor).toBeUndefined();
             expect(result.reauth?.reason).toBe('token_v1');
+            // The advisory hint still comes off the unverified payload, so the
+            // client can re-attach to the same identity.
+            expect(result.reauth?.auth_id).toBe(user.uuid);
         });
 
         // ── App-under-user verify path ─────────────────────────────
@@ -969,7 +982,7 @@ describe('AuthService (integration)', () => {
     });
 
     describe('createWorkerSessionToken / createWorkerAppToken', () => {
-        // The test config's v2 jwt_secret is the source of truth for
+        // The test config's `jwt_secret_v2` is the source of truth for
         // verifying claims; go through TokenService to mirror how
         // production decodes the same tokens.
         const decodeAuth = (token: string): Record<string, unknown> => {
@@ -2244,11 +2257,9 @@ describe('AuthService (integration)', () => {
             ).rejects.toMatchObject({ statusCode: 401 });
         });
 
-        it('v1 hosted-asset token verifies with legacy:true while allow_v1_tokens is on', async () => {
-            // Hand-mint a v1-shape hosted-asset token signed with the
-            // legacy secret. v1 compression uses the same short keys but
-            // no `kid` header, so TokenService.verify routes it to the
-            // legacy secret and tags the result `legacy: true`.
+        it('a v1-signed hosted-asset cookie no longer verifies', async () => {
+            // The gate treats this as a stale cookie and re-mints under v2, so
+            // the only requirement here is that it does not verify.
             const user = await makeUser();
             const appUid = `app-${uuidv4()}`;
             const v1Token = jwt.sign(
@@ -2265,9 +2276,9 @@ describe('AuthService (integration)', () => {
                 },
                 'dev-jwt-secret-change-me',
             );
-            const decoded = await authService.verifyPrivateAssetToken(v1Token);
-            expect(decoded.legacy).toBe(true);
-            expect(decoded.userUid).toBe(user.uuid);
+            await expect(
+                authService.verifyPrivateAssetToken(v1Token),
+            ).rejects.toThrow();
         });
     });
 
@@ -2411,216 +2422,6 @@ describe('AuthService (integration)', () => {
             expect(
                 await server.stores.session.getByUuid(appDecoded.session_uid),
             ).toBeNull();
-        });
-    });
-
-    // ── migrate-token ───────────────────────────────────────────────
-
-    describe('migrateLegacyToken', () => {
-        // Hand-mint v1 tokens using the same compression dict the
-        // TokenService's verify path will decompress against.
-
-        const encodeUuid = (u: string): string =>
-            Buffer.from(u.replace(/-/g, ''), 'hex').toString('base64');
-
-        const signV1AccessToken = (opts: {
-            tokenUid: string;
-            userUid: string;
-            appUid?: string;
-        }): string => {
-            const payload: Record<string, unknown> = {
-                t: 't',
-                token_uid: opts.tokenUid,
-                uu: encodeUuid(opts.userUid),
-            };
-            if (opts.appUid) {
-                payload.au = encodeUuid(
-                    opts.appUid.startsWith('app-')
-                        ? opts.appUid.slice('app-'.length)
-                        : opts.appUid,
-                );
-            }
-            return jwt.sign(payload, 'dev-jwt-secret-change-me');
-        };
-
-        const signV1AppToken = (opts: {
-            userUid: string;
-            appUid: string;
-        }): string => {
-            const stripped = opts.appUid.startsWith('app-')
-                ? opts.appUid.slice('app-'.length)
-                : opts.appUid;
-            return jwt.sign(
-                {
-                    t: 'au',
-                    uu: encodeUuid(opts.userUid),
-                    au: encodeUuid(stripped),
-                },
-                'dev-jwt-secret-change-me',
-            );
-        };
-
-        const signV1SessionToken = (opts: {
-            userUid: string;
-            sessionUuid: string;
-        }): string =>
-            jwt.sign(
-                {
-                    t: 's',
-                    u: encodeUuid(opts.sessionUuid),
-                    uu: encodeUuid(opts.userUid),
-                },
-                'dev-jwt-secret-change-me',
-            );
-
-        it('migrates a v1 access-token to a v2 token preserving token_uid', async () => {
-            const user = await makeUser();
-            const tokenUid = uuidv4();
-            const v1 = signV1AccessToken({
-                tokenUid,
-                userUid: user.uuid,
-            });
-
-            const result = await authService.migrateLegacyToken(v1);
-
-            expect(result.kind).toBe('access_token');
-            expect(result.auth_id).toBe(user.uuid);
-            expect(typeof result.session_uid).toBe('string');
-
-            // v2 token re-verifies and carries the same token_uid +
-            // a fresh session_uid.
-            const decoded = server.services.token.verify('auth', result.token) as {
-                type: string;
-                token_uid: string;
-                session_uid: string;
-                user_uid: string;
-            };
-            expect(decoded.type).toBe('access-token');
-            expect(decoded.token_uid).toBe(tokenUid);
-            expect(decoded.user_uid).toBe(user.uuid);
-            expect(decoded.session_uid).toBe(result.session_uid);
-        });
-
-        it('access-token migration is idempotent (same session_uid on retry)', async () => {
-            const user = await makeUser();
-            const tokenUid = uuidv4();
-            const v1 = signV1AccessToken({ tokenUid, userUid: user.uuid });
-
-            const first = await authService.migrateLegacyToken(v1);
-            const second = await authService.migrateLegacyToken(v1);
-
-            expect(first.session_uid).toBe(second.session_uid);
-        });
-
-        it('migrates a v1 app-under-user token to a v2 token', async () => {
-            const user = await makeUser();
-            const appUid = `app-${uuidv4()}`;
-            const v1 = signV1AppToken({
-                userUid: user.uuid,
-                appUid,
-            });
-
-            const result = await authService.migrateLegacyToken(v1);
-
-            expect(result.kind).toBe('app');
-            expect(result.auth_id).toBe(user.uuid);
-            const decoded = server.services.token.verify('auth', result.token) as {
-                type: string;
-                app_uid: string;
-                user_uid: string;
-                session_uid: string;
-            };
-            expect(decoded.type).toBe('app-under-user');
-            expect(decoded.app_uid).toBe(appUid);
-            expect(decoded.user_uid).toBe(user.uuid);
-            expect(decoded.session_uid).toBe(result.session_uid);
-        });
-
-        it('app-token migration is idempotent on (user_id, app_uid)', async () => {
-            const user = await makeUser();
-            const appUid = `app-${uuidv4()}`;
-            const v1a = signV1AppToken({ userUid: user.uuid, appUid });
-            const v1b = signV1AppToken({ userUid: user.uuid, appUid });
-
-            const first = await authService.migrateLegacyToken(v1a);
-            const second = await authService.migrateLegacyToken(v1b);
-
-            expect(first.session_uid).toBe(second.session_uid);
-        });
-
-        it('returns 409 reauth_required for v1 session tokens', async () => {
-            const user = await makeUser();
-            const v1 = signV1SessionToken({
-                userUid: user.uuid,
-                sessionUuid: uuidv4(),
-            });
-
-            await expect(
-                authService.migrateLegacyToken(v1),
-            ).rejects.toMatchObject({
-                statusCode: 409,
-                code: 'reauth_required',
-            });
-        });
-
-        it('rejects v2 tokens with 401 (nothing to migrate)', async () => {
-            const user = await makeUser();
-            const v2 = await authService.createAccessToken(
-                {
-                    user: { id: user.id, uuid: user.uuid, username: user.username },
-                } as Actor,
-                [[`user:${user.uuid}:email:read`]],
-            );
-            await expect(
-                authService.migrateLegacyToken(v2),
-            ).rejects.toMatchObject({ statusCode: 401 });
-        });
-
-        it('rejects garbage tokens with 401', async () => {
-            await expect(
-                authService.migrateLegacyToken('not-a-jwt'),
-            ).rejects.toMatchObject({ statusCode: 401 });
-        });
-
-        it('returns 410 for app tokens when allow_v1_app_migration=false', async () => {
-            // Use a scoped server with the flag flipped — toggling
-            // `this.config` on the shared server would race with other
-            // tests.
-            const scopedServer = await setupTestServer({
-                allow_v1_app_migration: false,
-            } as never);
-            try {
-                const scopedAuth = scopedServer.services.auth as unknown as
-                    AuthService;
-                const user = await scopedServer.stores.user.create({
-                    username: `mt-${uuidv4().slice(0, 8)}`,
-                    uuid: uuidv4(),
-                    password: null,
-                    email: `mt-${uuidv4().slice(0, 8)}@test.local`,
-                    free_storage: 100 * 1024 * 1024,
-                    requires_email_confirmation: false,
-                });
-                const appUid = `app-${uuidv4()}`;
-                const v1App = signV1AppToken({
-                    userUid: user.uuid,
-                    appUid,
-                });
-                await expect(
-                    scopedAuth.migrateLegacyToken(v1App),
-                ).rejects.toMatchObject({
-                    statusCode: 410,
-                    code: 'app_migration_disabled',
-                });
-                // Access-token migration stays on regardless.
-                const v1AccessToken = signV1AccessToken({
-                    tokenUid: uuidv4(),
-                    userUid: user.uuid,
-                });
-                const ok = await scopedAuth.migrateLegacyToken(v1AccessToken);
-                expect(ok.kind).toBe('access_token');
-            } finally {
-                await scopedServer.shutdown();
-            }
         });
     });
 });

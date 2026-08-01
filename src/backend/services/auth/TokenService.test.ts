@@ -20,22 +20,18 @@
 import { createHmac } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { describe, expect, it } from 'vitest';
-import { TokenService } from './TokenService.js';
+import { TokenService, V1TokensDisabledError } from './TokenService.js';
 
 const V2_SECRET = 'test-v2-secret';
 const V1_SECRET = 'test-v1-secret';
 
 function createTokenService(
     overrides: {
-        jwt_secret?: string;
         jwt_secret_v2?: string;
-        allow_v1_tokens?: boolean;
     } = {},
 ): TokenService {
     const config = {
-        jwt_secret: V1_SECRET,
         jwt_secret_v2: V2_SECRET,
-        allow_v1_tokens: true,
         ...overrides,
     } as ConstructorParameters<typeof TokenService>[0];
     const [clients, stores, services] = [{}, {}, {}] as [
@@ -48,16 +44,17 @@ function createTokenService(
     return svc;
 }
 
-/** Hand-mint a v1-shaped token (no `kid` header) signed with the legacy secret. */
+/**
+ * Hand-mint a token in the retired v1 shape: no `kid` header, signed with the
+ * secret that used to verify it.
+ */
 function mintV1Token(payload: Record<string, unknown>): string {
     return jwt.sign(payload, V1_SECRET);
 }
 
 describe('TokenService.onServerStart', () => {
     it('refuses to start without jwt_secret_v2', () => {
-        const config = {
-            jwt_secret: V1_SECRET,
-        } as ConstructorParameters<typeof TokenService>[0];
+        const config = {} as ConstructorParameters<typeof TokenService>[0];
         const [clients, stores, services] = [{}, {}, {}] as [
             ConstructorParameters<typeof TokenService>[1],
             ConstructorParameters<typeof TokenService>[2],
@@ -70,7 +67,6 @@ describe('TokenService.onServerStart', () => {
     it('refuses to start outside dev with the placeholder secrets from config.default.json', () => {
         const config = {
             env: 'prod',
-            jwt_secret: V1_SECRET,
             jwt_secret_v2: 'dev-jwt-secret-v2-change-me',
         } as ConstructorParameters<typeof TokenService>[0];
         const [clients, stores, services] = [{}, {}, {}] as [
@@ -85,7 +81,6 @@ describe('TokenService.onServerStart', () => {
     it('refuses to start outside dev with the placeholder url_signature_secret', () => {
         const config = {
             env: 'prod',
-            jwt_secret: 'a-real-v1-secret',
             jwt_secret_v2: 'a-real-v2-secret',
             url_signature_secret: 'dev-url-signature-secret-change-me',
         } as ConstructorParameters<typeof TokenService>[0];
@@ -106,7 +101,6 @@ describe('TokenService.onServerStart', () => {
         // happens to include those characters must not be refused.
         const config = {
             env: 'prod',
-            jwt_secret: 'a-real-v1-secret',
             jwt_secret_v2: 'kf83-change-me-not-the-placeholder-9af2',
             url_signature_secret: 'another-real-secret',
         } as ConstructorParameters<typeof TokenService>[0];
@@ -122,7 +116,6 @@ describe('TokenService.onServerStart', () => {
     it('allows the placeholder secrets in dev', () => {
         const config = {
             env: 'dev',
-            jwt_secret: 'dev-jwt-secret-change-me',
             jwt_secret_v2: 'dev-jwt-secret-v2-change-me',
             url_signature_secret: 'dev-url-signature-secret-change-me',
         } as ConstructorParameters<typeof TokenService>[0];
@@ -197,7 +190,6 @@ describe('TokenService.sign', () => {
         // jwt.sign would get an empty secret and throw `secretOrPrivateKey
         // must have a value`, surfacing as a 500.
         const config = {
-            jwt_secret: V1_SECRET,
             jwt_secret_v2: V2_SECRET,
         } as ConstructorParameters<typeof TokenService>[0];
         const [clients, stores, services] = [{}, {}, {}] as [
@@ -269,14 +261,12 @@ describe('TokenService.verify — v2', () => {
     });
 });
 
-describe('TokenService.verify — v1 fallback', () => {
-    it('verifies a v1-shaped token and tags result with legacy: true', () => {
+describe('TokenService.verify — retired v1 tokens', () => {
+    // v1 is retired: no secret verifies it any more, and every shape it could
+    // arrive in has to land on the same structured error so the auth probe can
+    // answer `reauth_required` instead of a bare 401.
+    it('rejects a v1-shaped token, carrying the unverified payload as a hint', () => {
         const svc = createTokenService();
-        // v1 stored `session` (short `s`) on app-under-user. Compress manually.
-        const sessionUuidShort = Buffer.from(
-            '11111111111111111111111111111111',
-            'hex',
-        ).toString('base64');
         const token = mintV1Token({
             t: 'au',
             v: '0.0.0',
@@ -288,50 +278,53 @@ describe('TokenService.verify — v1 fallback', () => {
                 '44444444444444444444444444444444',
                 'hex',
             ).toString('base64'),
-            s: sessionUuidShort,
         });
-        const payload = svc.verify<Record<string, unknown>>('auth', token);
-        expect(payload).toMatchObject({
+        let thrown: unknown;
+        try {
+            svc.verify('auth', token);
+        } catch (e) {
+            thrown = e;
+        }
+        expect(thrown).toBeInstanceOf(V1TokensDisabledError);
+        // Decompressed from the *unverified* payload — advisory only, but it is
+        // what labels the reauth response.
+        expect((thrown as V1TokensDisabledError).payload).toMatchObject({
             type: 'app-under-user',
-            legacy: true,
+            user_uid: '33333333-3333-3333-3333-333333333333',
         });
-        expect(payload.session).toBe(
-            '11111111-1111-1111-1111-111111111111',
-        );
     });
 
-    it('rejects v1 tokens when allow_v1_tokens=false', () => {
-        const svc = createTokenService({ allow_v1_tokens: false });
-        const token = mintV1Token({ t: 's', uu: 'whatever' });
-        expect(() => svc.verify('auth', token)).toThrow(/v1 tokens/);
-    });
-
-    it('rejects a v1 token signed with the wrong secret', () => {
-        const svc = createTokenService();
-        const token = jwt.sign({ t: 's' }, 'not-the-legacy-secret');
-        expect(() => svc.verify('auth', token)).toThrow();
-    });
-
-    it('falls back to v1 verify when header `kid` is missing', () => {
+    it('rejects when the header `kid` is missing', () => {
         const svc = createTokenService();
         const token = jwt.sign({ t: 's' }, V1_SECRET);
-        const payload = svc.verify<Record<string, unknown>>('auth', token);
-        expect(payload).toMatchObject({ type: 'session', legacy: true });
+        expect(() => svc.verify('auth', token)).toThrow(V1TokensDisabledError);
     });
 
-    it('falls back to v1 verify when header `kid` is an unknown value', () => {
+    it('rejects when the header `kid` is an unknown value', () => {
         const svc = createTokenService();
         const token = jwt.sign({ t: 's' }, V1_SECRET, { keyid: 'v99' });
-        const payload = svc.verify<Record<string, unknown>>('auth', token);
-        expect(payload).toMatchObject({ type: 'session', legacy: true });
+        expect(() => svc.verify('auth', token)).toThrow(V1TokensDisabledError);
+    });
+
+    it('rejects a v1-shaped token signed with any other secret', () => {
+        const svc = createTokenService();
+        const token = jwt.sign({ t: 's' }, 'not-the-legacy-secret');
+        expect(() => svc.verify('auth', token)).toThrow(V1TokensDisabledError);
+    });
+
+    it('rejects a garbage string that is not a JWT at all', () => {
+        const svc = createTokenService();
+        expect(() => svc.verify('auth', 'not-a-jwt')).toThrow(
+            V1TokensDisabledError,
+        );
     });
 });
 
 describe('TokenService.verify — algorithm pinning', () => {
-    // jsonwebtoken has always defaulted to HS256 for string secrets, so
-    // every token ever minted by Puter (v1 and v2) is HS256 — pinning
-    // `algorithms: ['HS256']` must not invalidate any existing token.
-    it('existing tokens keep working: minted v2 and default-signed v1 tokens are HS256 and verify', () => {
+    // jsonwebtoken has always defaulted to HS256 for string secrets, so every
+    // token Puter mints is HS256 — pinning `algorithms: ['HS256']` must not
+    // invalidate a live token.
+    it('existing tokens keep working: minted tokens are HS256 and verify', () => {
         const svc = createTokenService();
         const v2 = svc.sign('auth', {
             type: 'session',
@@ -343,14 +336,6 @@ describe('TokenService.verify — algorithm pinning', () => {
             header: { alg: 'HS256' },
         });
         expect(() => svc.verify('auth', v2)).not.toThrow();
-
-        const v1 = mintV1Token({ t: 's', uu: 'user-uuid' });
-        expect(jwt.decode(v1, { complete: true })).toMatchObject({
-            header: { alg: 'HS256' },
-        });
-        expect(svc.verify<Record<string, unknown>>('auth', v1)).toMatchObject({
-            legacy: true,
-        });
     });
 
     it('rejects a v2-routed token signed with a non-HS256 algorithm, even with the right secret', () => {
@@ -359,12 +344,6 @@ describe('TokenService.verify — algorithm pinning', () => {
             algorithm: 'HS384',
             keyid: 'v2',
         });
-        expect(() => svc.verify('auth', token)).toThrow(/algorithm/);
-    });
-
-    it('rejects a v1-routed token signed with a non-HS256 algorithm, even with the right secret', () => {
-        const svc = createTokenService();
-        const token = jwt.sign({ t: 's' }, V1_SECRET, { algorithm: 'HS512' });
         expect(() => svc.verify('auth', token)).toThrow(/algorithm/);
     });
 });

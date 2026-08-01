@@ -18,6 +18,7 @@
  */
 
 import type { Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../actor';
@@ -828,11 +829,30 @@ describe('createAuthProbe (integration) — real session token → real actor', 
         expect(req.tokenAuthFailed).toBeUndefined();
     });
 
-    it('sets tokenAuthFailed=true for a syntactically valid but garbage token', async () => {
+    it('asks a garbage token to reauth rather than failing it outright', async () => {
+        // Nothing without `kid: 'v2'` can be verified since v1 was retired, so
+        // an unrecognizable token reads as "your token is from before the
+        // cutover" — the client gets `reauth_required` and can sign in again,
+        // instead of a bare token-failure 401 it can't act on.
         const probe = createAuthProbe({ authService });
         const { req } = await runProbe(
             probe,
             makeReq({ headers: { authorization: 'Bearer not-a-real-jwt' } }),
+        );
+        expect(req.actor).toBeUndefined();
+        expect(req.requiresReauth?.reason).toBe('token_v1');
+    });
+
+    it('sets tokenAuthFailed=true for a v2 token signed with the wrong secret', async () => {
+        // The remaining `invalid` path: routed to the v2 secret by its `kid`,
+        // and rejected there.
+        const forged = jwt.sign({ type: 'session', user_uid: 'nope' }, 'wrong', {
+            keyid: 'v2',
+        });
+        const probe = createAuthProbe({ authService });
+        const { req } = await runProbe(
+            probe,
+            makeReq({ headers: { authorization: `Bearer ${forged}` } }),
         );
         expect(req.actor).toBeUndefined();
         expect(req.tokenAuthFailed).toBe(true);

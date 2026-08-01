@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import type { AbstractDatabaseClient } from '@heyputer/backend/src/clients/database/DatabaseClient';
@@ -26,28 +27,29 @@ import type { Actor } from '../../actor';
 /**
  * Support helpers for the private-app access gate — ported from v1's
  * `puterSiteMiddleware.js` (see `origin/main:src/backend/src/routers/
- * hosting/puterSiteMiddleware.js`). Split out because the middleware file
- * was getting long.
+ * hosting/puterSiteMiddleware.js`). Split out because the middleware file was
+ * getting long.
  *
  * Covers:
- *   - Host/subdomain parsing against `private_app_hosting_domain(_alt)`.
- *   - Owned-app detection for hosted sites: matches the subdomain owner's
- *     apps by `index_url` against the request host. Replaces the older
- *     `associated_app_id`-trusting path, which was user-writable without
- *     an ownership check.
- *   - Bootstrap-token identity resolution (`Authorization: Bearer`,
- *     `?puter.auth.token=`, `X-Puter-Auth-Token`, referrer query) so
- *     private-app visitors with a valid session token (but no cookie on
- *     the private host) can still be identified.
- *   - Building the redirect URL from a public hosting host (`puter.site`)
- *     to the private host (`puter.app`) when a private app is being
- *     served off the wrong domain.
+ *
+ * - Host/subdomain parsing against `private_app_hosting_domain(_alt)`.
+ * - Owned-app detection for hosted sites: matches the subdomain owner's apps by
+ *   `index_url` against the request host. Replaces the older
+ *   `associated_app_id`-trusting path, which was user-writable without an
+ *   ownership check.
+ * - Bootstrap-token identity resolution (`Authorization: Bearer`,
+ *   `?puter.auth.token=`, `X-Puter-Auth-Token`, referrer query) so private-app
+ *   visitors with a valid session token (but no cookie on the private host) can
+ *   still be identified.
+ * - Building the redirect URL from a public hosting host (`puter.site`) to the
+ *   private host (`puter.app`) when a private app is being served off the wrong
+ *   domain.
  *
  * Sticky cookies (`puter.private.asset.token` for private apps,
- * `puter.public.hosted.actor.token` for public-hosted actors) are set
- * after a visitor passes the gate, and honored on subsequent requests
- * to skip the full entitlement lookup. See AuthService
- * `createPrivateAssetToken` / `createPublicHostedActorToken`.
+ * `puter.public.hosted.actor.token` for public-hosted actors) are set after a
+ * visitor passes the gate, and honored on subsequent requests to skip the full
+ * entitlement lookup. See AuthService `createPrivateAssetToken` /
+ * `createPublicHostedActorToken`.
  */
 
 export interface PrivateHostingConfig {
@@ -56,8 +58,8 @@ export interface PrivateHostingConfig {
     privateDomains: string[];
     /**
      * Raw hosting domain values (preserving port, if configured). Used for
-     * `index_url` candidate generation — the DB stores URLs exactly as the
-     * app was created, so dev setups with explicit ports like
+     * `index_url` candidate generation — the DB stores URLs exactly as the app
+     * was created, so dev setups with explicit ports like
      * `app.puter.localhost:4100` must be matched verbatim.
      */
     staticDomainsRaw: string[];
@@ -174,17 +176,17 @@ export function subdomainFromHost(
 
 /**
  * Resolve "what app does the subdomain owner run on this host?" by matching
- * apps owned by `site.user_id` against the request's host variants. Used by
- * the puter-site middleware to decide whether the request hits a private
- * app (gate) or a public app (sticky cookie), and by the subdomain driver
- * to populate the `associated_app` field in API responses.
+ * apps owned by `site.user_id` against the request's host variants. Used by the
+ * puter-site middleware to decide whether the request hits a private app (gate)
+ * or a public app (sticky cookie), and by the subdomain driver to populate the
+ * `associated_app` field in API responses.
  *
- * Ownership-anchored on `apps.owner_user_id = site.user_id` so a subdomain
- * can never "claim" an app belonging to a different user. The `subdomains`
- * row's own `associated_app_id` column is intentionally ignored — it was
- * previously user-writable without an ownership check, so any value there
- * is either legacy or planted; deriving from `index_url` makes the answer
- * fall out of facts the system already verifies at app-create time.
+ * Ownership-anchored on `apps.owner_user_id = site.user_id` so a subdomain can
+ * never "claim" an app belonging to a different user. The `subdomains` row's
+ * own `associated_app_id` column is intentionally ignored — it was previously
+ * user-writable without an ownership check, so any value there is either legacy
+ * or planted; deriving from `index_url` makes the answer fall out of facts the
+ * system already verifies at app-create time.
  */
 export async function resolveOwnedAppForHostedSite(opts: {
     req: Request;
@@ -314,19 +316,19 @@ export function getBootstrapToken(
 }
 
 /**
- * Resolve the acting user for a private-app hosted request. Lookup
- * order (first hit wins):
+ * Resolve the acting user for a private-app hosted request. Lookup order (first
+ * hit wins):
  *
- *   1. `puter.private.asset.token` cookie — the sticky cookie set
- *      after a previous successful entitlement check. Must match the
- *      expected app + subdomain + private host.
- *   2. `req.actor` from the auth probe (e.g. main session cookie on
- *      same-site requests).
- *   3. Raw session cookie fallback (cross-site drops the probe's read).
- *   4. Bootstrap token from Authorization / query / header / referrer.
+ * 1. `puter.private.asset.token` cookie — the sticky cookie set after a previous
+ *    successful entitlement check. Must match the expected app + subdomain +
+ *    private host.
+ * 2. `req.actor` from the auth probe (e.g. main session cookie on same-site
+ *    requests).
+ * 3. Raw session cookie fallback (cross-site drops the probe's read).
+ * 4. Bootstrap token from Authorization / query / header / referrer.
  *
- * Returns `{source: 'none'}` when no identity can be established —
- * the caller then renders the login bootstrap page.
+ * Returns `{source: 'none'}` when no identity can be established — the caller
+ * then renders the login bootstrap page.
  */
 export async function resolvePrivateIdentity(opts: {
     req: Request;
@@ -350,9 +352,8 @@ export async function resolvePrivateIdentity(opts: {
 
     // 1. Sticky private-asset cookie. Prefer the v2 cookie name; fall
     // back to the legacy dot-style name while the deprecation window
-    // is open. A v1 (legacy-secret) token verifies but is intentionally
-    // NOT treated as a valid sticky cookie — we fall through so the
-    // chain re-mints under the v2 secret on this response.
+    // is open. A v1-signed token no longer verifies at all, so it lands
+    // in the catch below and the chain re-mints under v2 on this response.
     const v2CookieName = authService.getPrivateAssetCookieNameV2();
     const legacyCookieName = authService.getPrivateAssetCookieName();
     const privateCookieToken =
@@ -372,15 +373,12 @@ export async function resolvePrivateIdentity(opts: {
                     expectedPrivateHost,
                 },
             );
-            if (!claims.legacy) {
-                return {
-                    source: 'private-cookie',
-                    userUid: claims.userUid,
-                    sessionUuid: claims.sessionUuid,
-                    hasValidPrivateCookie: true,
-                };
-            }
-            /* legacy cookie: fall through so the caller re-mints v2 */
+            return {
+                source: 'private-cookie',
+                userUid: claims.userUid,
+                sessionUuid: claims.sessionUuid,
+                hasValidPrivateCookie: true,
+            };
         } catch {
             /* fall through — stale / mismatched / logged-out cookie */
         }
@@ -448,14 +446,13 @@ export async function resolvePrivateIdentity(opts: {
 }
 
 /**
- * Guard against token confusion across private-app boundaries: an actor
- * derived from an app-under-user token carries the *issuing* app's uid,
- * which must match the host the request is being made against. A token
- * minted for app A — e.g. when the visitor authorized a third-party app —
- * must not be honored as identity on app B's private host, even when the
- * underlying user happens to have entitlement to B. User-only actors
- * (no `actor.app`) are unaffected: a plain session token is portable by
- * design.
+ * Guard against token confusion across private-app boundaries: an actor derived
+ * from an app-under-user token carries the _issuing_ app's uid, which must
+ * match the host the request is being made against. A token minted for app A —
+ * e.g. when the visitor authorized a third-party app — must not be honored as
+ * identity on app B's private host, even when the underlying user happens to
+ * have entitlement to B. User-only actors (no `actor.app`) are unaffected: a
+ * plain session token is portable by design.
  */
 function actorMatchesExpectedApp(
     actor: Actor,
@@ -467,8 +464,8 @@ function actorMatchesExpectedApp(
 }
 
 /**
- * Mirror of `resolvePrivateIdentity` for public hosted apps. Reads the
- * sticky `puter.public.hosted.actor.token` cookie first, then the same
+ * Mirror of `resolvePrivateIdentity` for public hosted apps. Reads the sticky
+ * `puter.public.hosted.actor.token` cookie first, then the same
  * session/bootstrap fallbacks.
  */
 export async function resolvePublicHostedIdentity(opts: {
@@ -510,17 +507,14 @@ export async function resolvePublicHostedIdentity(opts: {
                     expectedHost,
                 },
             );
-            if (!claims.legacy) {
-                return {
-                    source: 'public-cookie',
-                    userUid: claims.userUid,
-                    sessionUuid: claims.sessionUuid,
-                    hasValidPublicCookie: true,
-                };
-            }
-            /* legacy cookie: fall through so the caller re-mints v2 */
+            return {
+                source: 'public-cookie',
+                userUid: claims.userUid,
+                sessionUuid: claims.sessionUuid,
+                hasValidPublicCookie: true,
+            };
         } catch {
-            /* fall through */
+            /* fall through — v1-signed cookies land here and get re-minted */
         }
     }
 
@@ -587,9 +581,9 @@ export async function resolvePublicHostedIdentity(opts: {
 /**
  * Turn a request path into a safe reference for `new URL(path, base)`.
  * Collapses any run of leading slashes/backslashes into a single `/` so a
- * scheme-relative path (`//evil.com`, `/\evil.com`, which the URL parser
- * folds to `//`) can't override the base authority and turn the redirect
- * into an open redirect. Guarantees exactly one leading slash.
+ * scheme-relative path (`//evil.com`, `/\evil.com`, which the URL parser folds
+ * to `//`) can't override the base authority and turn the redirect into an open
+ * redirect. Guarantees exactly one leading slash.
  */
 function normalizeRedirectPath(originalUrl: string | undefined): string {
     return '/' + (originalUrl || '/').replace(/^[/\\]+/, '');
@@ -626,8 +620,8 @@ export function buildPrivateHostRedirect(
 
 /**
  * Mirror of {@link buildPrivateHostRedirect} — produces the public-host
- * equivalent URL for a request that landed on the private hosting domain
- * but doesn't belong there (non-private app, or no app at all). Used so a
+ * equivalent URL for a request that landed on the private hosting domain but
+ * doesn't belong there (non-private app, or no app at all). Used so a
  * formerly-paid app that's now free (or a plain hosted site) resolves on
  * `puter.site` instead of 404ing on `puter.app`.
  */
@@ -673,10 +667,10 @@ export function buildAppCenterFallback(
 // -- Login bootstrap HTML --------------------------------------------
 
 /**
- * Minimal HTML page that prompts the visitor to sign in with Puter.
- * Uses puter.js's `auth.signIn` to get a token, then redirects back to
- * the same URL with `?puter.auth.token=…` so the middleware can resolve
- * identity on the next request.
+ * Minimal HTML page that prompts the visitor to sign in with Puter. Uses
+ * puter.js's `auth.signIn` to get a token, then redirects back to the same URL
+ * with `?puter.auth.token=…` so the middleware can resolve identity on the next
+ * request.
  *
  * Kept inline (no template engine dependency). Ported from v1's
  * `respondPrivateLoginBootstrap` with non-essential bells removed.

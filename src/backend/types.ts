@@ -600,35 +600,8 @@ interface IConfigOptional {
 
     // -- Auth / session ----------------------------------------------
 
-    /**
-     * Legacy HMAC secret for v1 JWTs. New tokens are always signed with
-     * `jwt_secret_v2`; this value is verify-only and accepted as long as
-     * `allow_v1_tokens` is true (flipped off to retire v1).
-     */
-    jwt_secret: string;
-    /** HMAC secret used to sign and verify v2 auth JWTs (`kid: 'v2'`). */
+    /** HMAC secret used to sign and verify auth JWTs (`kid: 'v2'`). */
     jwt_secret_v2: string;
-    /**
-     * When false, v1 tokens (no `kid` header) are rejected at verify. Default
-     * true during the v1→v2 migration window.
-     */
-    allow_v1_tokens: boolean;
-    /**
-     * When false, `POST /auth/migrate-token` returns 410 Gone for v1
-     * `app-under-user` tokens. App-token migration is retired ahead of
-     * access-token migration — keeping these on separate flags lets ops kill
-     * apps first and keep API-key migration on indefinitely. Default true.
-     */
-    allow_v1_app_migration: boolean;
-    /**
-     * Optional explicit allowlist of `Origin` header values that are trusted by
-     * `POST /auth/migrate-token` to receive the `puter_token_v2` companion
-     * cookie. The main `origin` is always trusted. The token exchange itself is
-     * open to any browser origin (the v1 bearer token is the credential); this
-     * list only gates cookie issuance, so attacker pages can't plant a session
-     * cookie on the GUI origin.
-     */
-    allow_migrate_token_origins?: string[];
     /**
      * Optional extra `Origin` header values allowed to call the routes that
      * hand back a session credential (`/login`, `/signup`,

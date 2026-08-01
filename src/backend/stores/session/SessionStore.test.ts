@@ -334,32 +334,6 @@ describe('SessionStore', () => {
         });
     });
 
-    describe('findOrCreateLegacyAccessToken', () => {
-        it('creates a kind="access_token" row tagged legacy_backfill', async () => {
-            const user = await makeUser();
-            const tokenUid = uuidv4();
-            const row = await target.findOrCreateLegacyAccessToken(tokenUid, {
-                userId: user.id,
-                auth_id: user.uuid,
-            });
-            expect(row.kind).toBe('access_token');
-            expect(row.legacy_token_uid).toBe(tokenUid);
-            expect(row.created_via).toBe('legacy_backfill');
-        });
-
-        it('is idempotent for the same legacy_token_uid', async () => {
-            const user = await makeUser();
-            const tokenUid = uuidv4();
-            const a = await target.findOrCreateLegacyAccessToken(tokenUid, {
-                userId: user.id,
-            });
-            const b = await target.findOrCreateLegacyAccessToken(tokenUid, {
-                userId: user.id,
-            });
-            expect(a.uuid).toBe(b.uuid);
-        });
-    });
-
     describe('getOrCreateWorker', () => {
         it('creates a kind="worker" row tagged meta.worker / meta.worker_name', async () => {
             const user = await makeUser();

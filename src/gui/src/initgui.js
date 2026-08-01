@@ -1133,14 +1133,14 @@ window.initgui = async function (options) {
         if (r.ok) {
             const { token } = await r.json();
             window.auth_token = token;
-            // Write the v2 key; drop legacy v1 key.
+            // Write the current key; drop any value under the retired one.
             localStorage.setItem(
                 window.AUTH_TOKEN_KEY_V2 || 'auth_token_v2',
                 token,
             );
             try {
                 localStorage.removeItem(
-                    window.AUTH_TOKEN_KEY_V1 || 'auth_token',
+                    window.AUTH_TOKEN_KEY_RETIRED || 'auth_token',
                 );
             } catch (e) {
                 /* ignore */
@@ -1722,7 +1722,9 @@ window.initgui = async function (options) {
         window.user = null;
         localStorage.removeItem('user');
         window.auth_token = null;
-        localStorage.removeItem('auth_token');
+        // `window.logout()` above already cleared the current key; this drops
+        // any value left under the retired one.
+        localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED || 'auth_token');
 
         // close all windows
         $('.window').close();

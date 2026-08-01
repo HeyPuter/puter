@@ -65,7 +65,7 @@ function resolveBackgroundReauth (resp, sentToken) {
  * utils.js) apply the exact same policy.
  *
  * Recognised backend signals:
- *   - `reauth_required` (v2 `authProbe`): legacy v1 tokens, revoked sessions,
+ *   - `reauth_required` (`authProbe`): retired v1 tokens, revoked sessions,
  *     and expired sessions beyond the silent re-mint window.
  *   - `token_auth_failed` (legacy `APIError.create('token_auth_failed')`):
  *     token no longer valid, prompt re-login (web env only).
