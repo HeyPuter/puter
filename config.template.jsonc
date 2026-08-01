@@ -251,6 +251,56 @@
         }
     },
 
+    // ── Alarms / alerting ───────────────────────────────────────────────
+    // Where system alarms go. Severity is the routing decision — each
+    // transport takes everything at or above its own `minSeverity`:
+    //
+    //   critical — an unhandled server error; pages on-call.
+    //   error    — pages as well; prefer critical or warning.
+    //   warning  — look at it today; no page.
+    //   info     — a record in the chat channel only.
+    //
+    // Both transports are off unless enabled, so a self-hosted node just
+    // logs its alarms to the console.
+    "pager": {
+        // Severity for call sites that don't pick one. Default "critical".
+        "defaultSeverity": "critical",
+
+        // Retier or silence an alarm without a deploy. Keys are alarm ids,
+        // or a prefix ending in `*`; the exact id wins over a pattern, and
+        // the longest matching pattern wins among patterns. Values are a
+        // severity or "mute". This is applied last, so it overrides both the
+        // call site and any known-error rule.
+        "severityOverrides": {
+            // "cronMonitor:*": "info",
+            // "http_500:GET:/some/flapping/route:*": "mute"
+        },
+
+        "pagerduty": {
+            "enabled": false,
+            "routingKey": "",
+            // Lowest severity that reaches PagerDuty. Default "warning",
+            // which keeps `info` out of the paging system entirely.
+            "minSeverity": "warning"
+        },
+
+        // Slack incoming webhook — the low-noise destination for everything
+        // that shouldn't page.
+        "slack": {
+            "enabled": false,
+            "webhookUrl": "",
+            // Optional; defaults to the channel the webhook was created for.
+            "channel": "#alerts",
+            "username": "puter-alarms",
+            // Lowest severity posted. Default "info" (everything).
+            "minSeverity": "info",
+            // Don't repost the same alarm id within this window. The first
+            // occurrence always posts; the next post that gets through
+            // reports how many occurrences piled up. 0 disables throttling.
+            "repeatThrottleMs": 900000
+        }
+    },
+
     // ── Rate limiting ───────────────────────────────────────────────────
     // `memory` for single-node, `redis` for multi-node (default), `kv` for
     // dynamo-backed counters.

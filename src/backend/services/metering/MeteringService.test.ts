@@ -271,8 +271,9 @@ describe('MeteringService', () => {
             expect(result['kv:read']).toMatchObject({ cost: 1, units: 1 });
             expect(alarmSpy).toHaveBeenCalledWith(
                 expect.stringContaining('negative cost'),
-                expect.any(String),
+                expect.stringContaining(actor.user!.email!),
                 expect.objectContaining({ usageType: 'kv:read' }),
+                'info',
             );
             alarmSpy.mockRestore();
         });
@@ -392,11 +393,13 @@ describe('MeteringService', () => {
             );
 
             expect(alarmSpy).toHaveBeenCalledWith(
-                expect.stringContaining('usage exceeded'),
+                // The account is named by email — what someone reading the
+                // alert needs to look it up.
+                expect.stringContaining(overActor.user!.email!),
                 expect.stringContaining('exceeded their usage allowance'),
                 expect.objectContaining({ totalUsage: expect.any(Number) }),
-                // Non-paging severity — records and de-dupes but doesn't page on-call.
-                'warning',
+                // Chat-only severity — records and de-dupes but doesn't page.
+                'info',
             );
             alarmSpy.mockRestore();
         });
@@ -518,7 +521,7 @@ describe('MeteringService', () => {
                 expect.stringContaining('usage exceeded'),
                 expect.stringContaining('exceeded their usage allowance'),
                 expect.objectContaining({ purchasedCredits: credit }),
-                'warning',
+                'info',
             );
             alarmSpy.mockRestore();
         });
@@ -588,8 +591,9 @@ describe('MeteringService', () => {
             ]);
             expect(alarmSpy).toHaveBeenCalledWith(
                 expect.stringContaining('negative cost'),
-                expect.any(String),
+                expect.stringContaining(actor.user!.email!),
                 expect.objectContaining({ usageType: 'kv:read' }),
+                'info',
             );
             alarmSpy.mockRestore();
         });

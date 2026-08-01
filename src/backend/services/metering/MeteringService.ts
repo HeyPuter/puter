@@ -51,6 +51,22 @@ interface UsageInput {
     costOverride?: number;
 }
 
+// -- Helpers ----------------------------------------------------------
+
+/**
+ * How an actor is named in metering alarms. Email is what someone reading the
+ * alert actually needs to find the account; username and uuid are fallbacks for
+ * actors that have no email (temp accounts).
+ */
+function actorLabel(actor: Actor): string {
+    return (
+        actor.user?.email ??
+        actor.user?.username ??
+        actor.user?.uuid ??
+        'unknown-user'
+    );
+}
+
 // -- MeteringService --------------------------------------------------
 
 /**
@@ -158,7 +174,7 @@ export class MeteringService extends PuterService {
         if (costOverrideRaw && costOverrideRaw < 0) {
             this.clients.alarm.create(
                 `metering unexpected negative cost access to: ${usageType}`,
-                'negative cost abuse vector!',
+                `negative cost abuse vector! (${actorLabel(actor)})`,
                 {
                     userId: actor.user?.uuid,
                     username: actor.user?.username,
@@ -168,6 +184,7 @@ export class MeteringService extends PuterService {
                     usageAmount,
                     costOverride,
                 },
+                'info',
             );
         }
 
@@ -275,7 +292,7 @@ export class MeteringService extends PuterService {
                 error: e,
             });
             this.clients.alarm.create(
-                `metering service error for user: ${actor.user?.username} app: ${actor.app?.uid}`,
+                `metering service error for user: ${actorLabel(actor)} app: ${actor.app?.uid}`,
                 (e as Error).message,
                 {
                     userId: actor.user?.uuid,
@@ -287,6 +304,7 @@ export class MeteringService extends PuterService {
                     usageAmount,
                     costOverride,
                 },
+                'info',
             );
             return { total: 0 } as UsageByType;
         }
@@ -325,7 +343,7 @@ export class MeteringService extends PuterService {
                 if (costOverrideRaw && costOverrideRaw < 0) {
                     this.clients.alarm.create(
                         `metering unexpected negative cost access to: ${usageType}`,
-                        'negative cost abuse vector!',
+                        `negative cost abuse vector! (${actorLabel(actor)})`,
                         {
                             userId: actor.user?.uuid,
                             username: actor.user?.username,
@@ -336,6 +354,7 @@ export class MeteringService extends PuterService {
                             costOverride,
                             costOverrideRaw,
                         },
+                        'info',
                     );
                 }
 
@@ -433,7 +452,7 @@ export class MeteringService extends PuterService {
                 error: e,
             });
             this.clients.alarm.create(
-                `metering service error for user: ${actor.user?.username} app: ${actor.app?.uid}`,
+                `metering service error for user: ${actorLabel(actor)} app: ${actor.app?.uid}`,
                 (e as Error).message,
                 {
                     userId: actor.user?.uuid,
@@ -444,6 +463,7 @@ export class MeteringService extends PuterService {
                     actor,
                     batchUsages: usages,
                 },
+                'info',
             );
             return { total: 0 } as UsageByType;
         }
@@ -922,8 +942,8 @@ export class MeteringService extends PuterService {
         if (!(wasAlreadyOverLimit && crossedMultiple)) return;
 
         this.clients.alarm.create(
-            `metering usage exceeded by user: ${actor.user?.username}`,
-            `Actor ${userId} has exceeded their usage allowance significantly`,
+            `metering usage exceeded by user: ${actorLabel(actor)}`,
+            `${actorLabel(actor)} (${userId}) has exceeded their usage allowance significantly`,
             {
                 userId: actor.user?.uuid,
                 username: actor.user?.username,
@@ -938,8 +958,9 @@ export class MeteringService extends PuterService {
                 purchasedCredits,
                 consumedPurchaseCredits,
             },
-            // Expected-but-worth-tracking signal — record/de-dupe it but don't page on-call.
-            'warning',
+            // One account outspending its allowance is a thing to look at, not
+            // an incident — a record in the alerts channel is enough.
+            'info',
         );
     }
 
@@ -973,6 +994,9 @@ export class MeteringService extends PuterService {
                         maxAllowedPerMinute:
                             MeteringService.MAX_GLOBAL_USAGE_PER_MINUTE,
                     },
+                    // Fleet-wide spend running away — worth someone's attention
+                    // the same day, but it isn't an outage.
+                    'warning',
                 );
             }
         }

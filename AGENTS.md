@@ -10,6 +10,7 @@ Use these as the source of truth before exploring further:
 - [doc/architecture.md](doc/architecture.md) — backend layered stack (controllers → drivers → services → stores → clients), `PuterServer` wiring, `Context` (ALS), and extensions.
 - [doc/contributing-apis.md](doc/contributing-apis.md) — adding and maintaining public APIs end to end (backend surface → puter.js → types → docs → tests). Follow it for any API work.
 - [doc/pagination.md](doc/pagination.md) — the one pagination convention for list APIs (limit/cursor/offset/includeTotal, envelope shape, cursor semantics).
+- [doc/alarms.md](doc/alarms.md) — raising alarms and picking a severity (what pages, what only gets recorded), plus the config that routes them.
 - [doc/self-hosting.md](doc/self-hosting.md) — running Puter outside hosted infra.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — testing, security, AI-assisted code, PR conventions, Boy Scout Rule.
 - [SECURITY.md](SECURITY.md) — how to report vulnerabilities (do not file them publicly).

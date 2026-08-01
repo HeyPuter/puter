@@ -87,6 +87,7 @@ import { puterStores } from './stores';
 import type {
     IConfig,
     LayerInstances,
+    PagerSeverity,
     WithControllerRegistration,
     WithLifecycle,
 } from './types';
@@ -729,25 +730,29 @@ export class PuterServer {
                     // instead of N pages.
                     //
                     // FORCED_ALERT_CODES override the 5xx-only rule: a
-                    // status < 500 still pages if its legacyCode is in
-                    // the set. Use this for things we want to know about
+                    // status < 500 still alarms if its legacyCode is in
+                    // the map. Use this for things we want to know about
                     // even though we expose them as 4xx to users (e.g.
-                    // sustained upstream provider rate limits).
+                    // sustained upstream provider rate limits). They are
+                    // not our own crashes, so each maps to the severity it
+                    // deserves rather than paging.
                     //
                     // SKIP_ALERT_PREFIXES override the 5xx rule the other
                     // direction: an error tagged as caused by an upstream
                     // provider or a misbehaving client gets exposed to
-                    // the user but does not page.
-                    const FORCED_ALERT_CODES = new Set([
-                        'upstream_rate_limited',
-                        'upstream_auth_failed',
+                    // the user but does not alarm at all.
+                    const FORCED_ALERT_CODES = new Map<string, PagerSeverity>([
+                        ['upstream_rate_limited', 'info'],
+                        // Our credentials for a provider stopped working —
+                        // everything through it fails until someone looks.
+                        ['upstream_auth_failed', 'warning'],
                     ]);
                     const SKIP_ALERT_PREFIXES = /^(upstream_|client_)/;
                     const isHttp = isHttpError(err);
                     const status = isHttp ? err.statusCode : 500;
                     const legacyCode = isHttp ? (err.legacyCode ?? '') : '';
-                    const forced = FORCED_ALERT_CODES.has(legacyCode);
-                    if (!forced) {
+                    const forcedSeverity = FORCED_ALERT_CODES.get(legacyCode);
+                    if (!forcedSeverity) {
                         if (status < 500) return;
                         if (SKIP_ALERT_PREFIXES.test(legacyCode)) return;
                     }
@@ -774,6 +779,9 @@ export class PuterServer {
                             route: routePath,
                             actor: req.actor,
                         },
+                        // An unhandled server error is the one thing that
+                        // still pages on-call.
+                        forcedSeverity ?? 'critical',
                     );
                 },
             }),
