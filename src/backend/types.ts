@@ -70,11 +70,57 @@ export interface IRedisConfig {
     useMock?: boolean;
 }
 
+/**
+ * Alert severity. Ordered `info` < `warning` < `error` < `critical`; each alert
+ * transport takes everything at or above its own `minSeverity`, so the severity
+ * a call site picks is what decides where the alarm lands.
+ */
+export type PagerSeverity = 'critical' | 'error' | 'warning' | 'info';
+
+/** A severity, or `mute` to drop the alarm before any transport sees it. */
+export type SeverityRule = PagerSeverity | 'mute';
+
+export interface IPagerDutyConfig {
+    enabled?: boolean;
+    routingKey?: string;
+    /**
+     * Lowest severity that reaches PagerDuty. Default `warning`, which keeps
+     * `info` alarms out of the paging system entirely.
+     */
+    minSeverity?: PagerSeverity;
+}
+
+export interface ISlackAlertConfig {
+    enabled?: boolean;
+    /** Incoming-webhook URL to post alerts to. */
+    webhookUrl?: string;
+    /** Channel override (e.g. `#alerts`). Defaults to the webhook's own. */
+    channel?: string;
+    /** Bot display name on the posted message. */
+    username?: string;
+    /** Lowest severity posted to Slack. Default `info` (everything). */
+    minSeverity?: PagerSeverity;
+    /**
+     * Don't repost the same alarm id within this window. The first occurrence
+     * always posts; repeats inside the window only bump the occurrence count
+     * that the next post reports. Default 15 minutes; `0` disables throttling.
+     */
+    repeatThrottleMs?: number;
+}
+
 export interface IPagerConfig {
-    pagerduty?: {
-        enabled?: boolean;
-        routingKey?: string;
-    };
+    /** Severity used when a call site doesn't pass one. Default `critical`. */
+    defaultSeverity?: PagerSeverity;
+    /**
+     * Operator overrides keyed by alarm id, or by prefix with a trailing `*`
+     * (`cronMonitor:*`). Exact ids beat patterns and the longest matching
+     * prefix wins. Applied after the call site's severity and any known-error
+     * rule, so this is the final say — it can retier or mute a noisy alarm
+     * without a deploy.
+     */
+    severityOverrides?: Record<string, SeverityRule>;
+    pagerduty?: IPagerDutyConfig;
+    slack?: ISlackAlertConfig;
 }
 
 export interface ICfFileCacheConfig {
@@ -144,7 +190,12 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
+        | 'sms'
+        | 'rcs'
+        | 'whatsapp'
+        | 'viber'
+        | 'zalo'
+        | 'telegram';
 }
 
 /**
@@ -863,8 +914,7 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];
