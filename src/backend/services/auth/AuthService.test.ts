@@ -1215,6 +1215,141 @@ describe('AuthService (integration)', () => {
             });
         });
 
+        // An app may delegate a worker token to an app it created, which is
+        // what gives each generated project its own namespace. Everything
+        // else stays as strict as interactive delegation.
+        describe('delegation to a created app', () => {
+            const makeApp = async (
+                label: string,
+                ownerUserId: number,
+                appOwner?: number,
+            ) => {
+                const name = `${label}-${Math.random().toString(36).slice(2, 8)}`;
+                return await server.stores.app.create(
+                    {
+                        name,
+                        title: name,
+                        index_url: `https://${name}.example.com/`,
+                    },
+                    { ownerUserId, appOwner },
+                );
+            };
+
+            const appActorFor = (
+                user: { id: number; uuid: string; username: string },
+                app: { uid: string; id: number },
+            ) =>
+                ({
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
+                    app: { uid: app.uid, id: app.id },
+                }) as Actor;
+
+            it('mints a token scoped to an app the caller created', async () => {
+                const user = await makeUser();
+                const builder = await makeApp('builder', user.id);
+                const generated = await makeApp(
+                    'generated',
+                    user.id,
+                    builder.id,
+                );
+
+                const token = await authService.createWorkerAppToken(
+                    appActorFor(user, builder),
+                    generated.uid,
+                    'wk-generated',
+                );
+
+                // The whole point: the worker authenticates as the generated
+                // app, not as the builder that deployed it.
+                const decoded = decodeAuth(token);
+                expect(decoded.app_uid).toBe(generated.uid);
+                expect(decoded.user_uid).toBe(user.uuid);
+                expect(decoded.worker).toBe(true);
+            });
+
+            it('refuses an app the caller did not create (403)', async () => {
+                const user = await makeUser();
+                const builder = await makeApp('builder', user.id);
+                const unrelated = await makeApp('unrelated', user.id);
+
+                await expect(
+                    authService.createWorkerAppToken(
+                        appActorFor(user, builder),
+                        unrelated.uid,
+                        'wk-unrelated',
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+            });
+
+            it('refuses a created app owned by a different user (403)', async () => {
+                const user = await makeUser();
+                const stranger = await makeUser();
+                const builder = await makeApp('builder', user.id);
+                const strangersApp = await makeApp(
+                    'strangers',
+                    stranger.id,
+                    builder.id,
+                );
+
+                await expect(
+                    authService.createWorkerAppToken(
+                        appActorFor(user, builder),
+                        strangersApp.uid,
+                        'wk-stranger',
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+            });
+
+            it('still refuses an access-token actor (403)', async () => {
+                const user = await makeUser();
+                const target = await makeApp('target', user.id);
+                const actor = {
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
+                    accessToken: {
+                        uid: uuidv4(),
+                        issuer: { user },
+                        fullAccess: true,
+                    },
+                } as unknown as Actor;
+
+                await expect(
+                    authService.createWorkerAppToken(
+                        actor,
+                        target.uid,
+                        'wk-token',
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+            });
+
+            it('leaves interactive app-token delegation strict', async () => {
+                const user = await makeUser();
+                const builder = await makeApp('builder', user.id);
+                const generated = await makeApp(
+                    'generated',
+                    user.id,
+                    builder.id,
+                );
+
+                // getUserAppToken mints a credential that acts as the app in
+                // full; the created-app allowance is deliberately not extended
+                // to it.
+                await expect(
+                    authService.getUserAppToken(
+                        appActorFor(user, builder),
+                        generated.uid,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+            });
+        });
+
         // ── Revocation flow ────────────────────────────────────────
 
         it('revokeSession on a worker session — authenticate returns reauth.session_revoked', async () => {

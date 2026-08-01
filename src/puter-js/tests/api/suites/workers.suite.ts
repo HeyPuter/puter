@@ -23,12 +23,32 @@ router.get('/whoami', async ({ user }) => {
     const me = await user.puter.getUser();
     return { authed: true, username: me.username };
 });
+router.post('/own-kv-set', async ({ request }) => {
+    const { key, value } = await request.json();
+    await me.puter.kv.set(key, value);
+    return { ok: true };
+});
 `;
 
-const deployWorker = async (t: TestContext, name: string) => {
+const deployWorker = async (
+    t: TestContext,
+    name: string,
+    options?: { sandbox?: boolean },
+) => {
     const sourcePath = `${home(t)}/workers-suite-${name}.js`;
     await t.puter.fs.write(sourcePath, WORKER_SOURCE);
-    return await t.puter.workers.create(name, sourcePath);
+    return options === undefined
+        ? await t.puter.workers.create(name, sourcePath)
+        : await t.puter.workers.create(name, sourcePath, options);
+};
+
+/** `apps.get` rejects for a missing app, so presence needs a try/catch. */
+const appExists = async (t: TestContext, name: string) => {
+    try {
+        return !!(await t.puter.apps.get(name));
+    } catch {
+        return false;
+    }
 };
 
 export default suite('workers', {
@@ -36,6 +56,68 @@ export default suite('workers', {
         const created = await deployWorker(t, 'workers-suite-create');
         t.assert.ok(created.success, 'create should succeed');
         t.assert.ok(created.url, 'create should return the worker url');
+    },
+
+    // A user token sandboxes by default, so each worker gets its own app
+    // identity — and therefore its own KV/AppData namespace.
+    'create sandboxes the worker under its own app by default': async (t) => {
+        const name = 'workers-suite-sbx-default';
+        await deployWorker(t, name);
+        t.assert.equal(
+            await appExists(t, `sandbox-${name}`),
+            true,
+            'a sandbox app should own the worker',
+        );
+    },
+
+    'create with sandbox false leaves the worker unsandboxed': async (t) => {
+        const name = 'workers-suite-sbx-off';
+        const created = await deployWorker(t, name, { sandbox: false });
+        t.assert.ok(created.success, 'create should succeed');
+        t.assert.equal(
+            await appExists(t, `sandbox-${name}`),
+            false,
+            'no sandbox app should be created',
+        );
+    },
+
+    // The reason sandboxing exists: `me.puter` inside the worker resolves to
+    // the sandbox app, so its KV lands somewhere the deploying identity can't
+    // read. Without a sandbox the worker shares the deployer's namespace.
+    'a sandboxed worker writes KV outside the deployer namespace': async (t) => {
+        const created = await deployWorker(t, 'workers-suite-kv-sbx', {
+            sandbox: true,
+        });
+        const key = `workers-suite-kv-sbx-${Date.now()}`;
+        const res = await t.puter.workers.exec(`${created.url}/own-kv-set`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key, value: 'from-sandboxed-worker' }),
+        });
+        t.assert.equal(res.status, 200);
+        t.assert.equal(
+            await t.puter.kv.get(key),
+            null,
+            'sandboxed worker KV must not be visible to the deployer',
+        );
+    },
+
+    'an unsandboxed worker shares the deployer KV namespace': async (t) => {
+        const created = await deployWorker(t, 'workers-suite-kv-plain', {
+            sandbox: false,
+        });
+        const key = `workers-suite-kv-plain-${Date.now()}`;
+        const res = await t.puter.workers.exec(`${created.url}/own-kv-set`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key, value: 'from-plain-worker' }),
+        });
+        t.assert.equal(res.status, 200);
+        t.assert.equal(
+            await t.puter.kv.get(key),
+            'from-plain-worker',
+            'unsandboxed worker shares the deployer namespace',
+        );
     },
 
     'created worker responds over http': async (t) => {

@@ -83,6 +83,30 @@ const READ_ONLY_COLUMNS = new Set([
     'database_id',
 ]);
 
+/**
+ * Build the `app_owner` predicate shared by the prefix list/count queries.
+ * `appIds` is the multi-app form (an app plus the apps it created); an empty
+ * array means "no app may own these rows", which must match nothing rather than
+ * degrade to an unfiltered query.
+ */
+const appOwnerCondition = ({
+    appId,
+    appIds,
+}: {
+    appId?: number;
+    appIds?: number[];
+}): { condition: string; values: unknown[] } | null => {
+    if (appIds) {
+        if (appIds.length === 0) return { condition: '1 = 0', values: [] };
+        return {
+            condition: `\`app_owner\` IN (${appIds.map(() => '?').join(', ')})`,
+            values: appIds,
+        };
+    }
+    if (appId) return { condition: '`app_owner` = ?', values: [appId] };
+    return null;
+};
+
 const CACHE_KEY_PREFIX = 'subdomains';
 const CACHE_TTL_SECONDS = 60 * 60;
 // Sentinel so 404s on the same public subdomain don't hit the DB repeatedly.
@@ -334,6 +358,7 @@ export class SubdomainStore extends PuterStore {
         prefix: string,
         extra: {
             appId?: number;
+            appIds?: number[];
             limit?: number;
             offset?: number;
             afterId?: number;
@@ -343,9 +368,10 @@ export class SubdomainStore extends PuterStore {
 
         const conditions = ['`user_id` = ?', '`subdomain` LIKE ?'];
         const values: unknown[] = [userId, `${prefix}%`];
-        if (extra.appId) {
-            conditions.push('`app_owner` = ?');
-            values.push(extra.appId);
+        const appOwnerFilter = appOwnerCondition(extra);
+        if (appOwnerFilter) {
+            conditions.push(appOwnerFilter.condition);
+            values.push(...appOwnerFilter.values);
         }
         if (extra.afterId !== undefined) {
             conditions.push('`id` > ?');
@@ -368,15 +394,16 @@ export class SubdomainStore extends PuterStore {
     async countByUserIdAndPrefix(
         userId: number,
         prefix: string,
-        extra: { appId?: number } = {},
+        extra: { appId?: number; appIds?: number[] } = {},
     ): Promise<number> {
         if (!userId || prefix == null) return 0;
 
         const conditions = ['`user_id` = ?', '`subdomain` LIKE ?'];
         const values: unknown[] = [userId, `${prefix}%`];
-        if (extra.appId) {
-            conditions.push('`app_owner` = ?');
-            values.push(extra.appId);
+        const appOwnerFilter = appOwnerCondition(extra);
+        if (appOwnerFilter) {
+            conditions.push(appOwnerFilter.condition);
+            values.push(...appOwnerFilter.values);
         }
         const rows = await this.clients.db.read(
             `SELECT COUNT(*) AS n FROM \`subdomains\` WHERE ${conditions.join(' AND ')}`,
