@@ -369,7 +369,7 @@ export class AuthService extends PuterService {
                 legacyCode: 'bad_request',
             });
         }
-        this.#assertAppDelegationAllowed(actor, appUid);
+        await this.#assertWorkerAppDelegationAllowed(actor, appUid);
         const auth_id = this.#authIdFor(actor.user as UserRow);
         const session = await this.stores.session.getOrCreateWorker(
             actor.user.id,
@@ -411,6 +411,44 @@ export class AuthService extends PuterService {
                 { legacyCode: 'forbidden' },
             );
         }
+    }
+
+    /**
+     * Worker-token variant of `#assertAppDelegationAllowed`, with one extra
+     * allowance: an app may bind a worker to an app it created for this same
+     * user (`apps.app_owner`). That's what lets a builder-style app give each
+     * project it generates its own worker identity — and therefore its own KV
+     * and AppData namespace — instead of pooling every generated project into
+     * the builder's.
+     *
+     * The allowance grants no reach the caller lacks: creating the target app
+     * is what stamps `app_owner`, and an app that owns another app already has
+     * full write access to it (`AppDriver.#checkWriteAccess`) including its
+     * `index_url`. Everything else stays as strict as interactive delegation —
+     * access-token actors still can't delegate at all, and an app can never
+     * name an app it didn't create.
+     */
+    async #assertWorkerAppDelegationAllowed(
+        actor: Actor,
+        appUid: string,
+    ): Promise<void> {
+        if (actor.app?.uid === appUid) return;
+
+        const forbidden = () =>
+            new HttpError(403, 'Actor cannot mint a token for another app', {
+                legacyCode: 'forbidden',
+            });
+
+        // Root user session: unchanged: may bind a worker to any app.
+        if (!actor.app && !actor.accessToken) return;
+        // Access tokens are bound to their issuing identity; no delegation.
+        if (!actor.app) throw forbidden();
+
+        const app = await this.stores.app.getByUid(appUid);
+        if (!app) throw forbidden();
+        if (Number(app.app_owner) !== Number(actor.app.id)) throw forbidden();
+        if (Number(app.owner_user_id) !== Number(actor.user.id))
+            throw forbidden();
     }
 
     /**

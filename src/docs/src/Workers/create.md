@@ -29,12 +29,38 @@ The name for the worker. It can contain letters, numbers, hyphens, and underscor
 The path to a JavaScript file in your Puter account that contains your [router](../router) code.
 
 #### `appName` (String)(Optional)
-The name of an existing app in your account to associate the worker with. When provided, the worker is bound to that app and no sandbox app is created.
+The name of an existing app in your account to bind the worker to. The worker then runs as that app, and no sandbox app is created.
+
+When your code is itself running as a Puter app, you may only name an app that **your app created** — apps you didn't create are rejected with a `403`. Deploying from the GUI or with a user token, you may name any app in your account.
 
 #### `options` (Object)(Optional)
 An alternative to `appName` for controlling the worker's sandbox.
 
-- `sandbox` (Boolean)(Optional) - Whether to run the worker inside an isolated sandbox app. Defaults to `true`. When omitted (or `true`) and you are authenticated with a user token, a dedicated `sandbox-<workerName>` app is created (or reused) to own the worker. Pass `false` to opt out.
+- `sandbox` (Boolean)(Optional) - Whether to give the worker its own isolated sandbox app. When `true`, a dedicated `sandbox-<workerName>` app is created (or reused) to own the worker. The default depends on how you're authenticated:
+  - **Deploying as an app** (your code runs inside a Puter app): defaults to `false`. The worker runs as your app.
+  - **Deploying with a user token** (the GUI, a root access token): defaults to `true`. Most people deploying workers this way never need to think about it.
+
+## Worker identity and shared state
+
+Every worker runs as some app, and that identity decides which [`puter.kv`](/KV/) namespace and which `AppData` directory the worker reaches. Two workers running as the same app read and write **the same** KV keys and the same files.
+
+<div class="info"><strong>Without a sandbox, workers share state.</strong> When an app deploys several workers without <code>sandbox: true</code>, all of them run as that app — so they share one KV namespace and one AppData directory with each other <em>and</em> with the app's own frontend. A key one worker writes is a key every other worker can read and overwrite. If your workers are meant to be independent (for example, one per project your app generates), deploy them with <code>sandbox: true</code> or bind each to its own app with <code>appName</code>.</div>
+
+Sandboxing is the way to keep them apart:
+
+```js
+// Each of these gets its own app identity, so their KV and AppData
+// are completely separate from each other and from the deploying app.
+await puter.workers.create('project-alpha-api', 'api.js', { sandbox: true });
+await puter.workers.create('project-beta-api', 'api.js', { sandbox: true });
+```
+
+Two identities are in play inside a worker, and only the first is affected by this setting:
+
+- `puter.*` (also `me.puter`) — the **worker's own** identity, set by the binding above.
+- `user.puter.*` — the identity of **whoever called the worker** via [`puter.workers.exec()`](/Workers/exec/). If an app calls a worker, this is that calling app's namespace, regardless of which app the worker itself runs as.
+
+Changing a worker's binding does not migrate its data. A worker redeployed with a different `sandbox` setting or `appName` starts against a different namespace, and anything it wrote under the old identity stays where it was.
 
 ## Return Value
 

@@ -7,6 +7,8 @@ Serverless Workers are serverless functions that run JavaScript code in the clou
 
 Workers run server-side, which makes them a good fit for centralized application data and backend logic. See [Integration with Puter.js](/Workers/router/#integration-with-puter-js) for how worker code accesses Puter resources.
 
+<div class="info">A worker runs as an app, and that identity is what its <code>puter.kv</code> and <code>AppData</code> access is scoped to. Workers running as the same app share one namespace — see <a href="/Workers/create/#worker-identity-and-shared-state">Worker identity and shared state</a> before you deploy more than one.</div>
+
 ## Router
 
 Workers use a router-based system to handle HTTP requests and can integrate with Puter's cloud services like file storage, key-value databases, and AI APIs. Workers are perfect for building backend services, REST APIs, webhooks, shared data stores, and data processing pipelines.

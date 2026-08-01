@@ -360,6 +360,13 @@ export const setupPuterTestEnv = async (
                 domain,
                 origin,
                 api_base_url: apiOrigin,
+                // The browser runner serves its fixture page from the API
+                // origin so the SDK runs same-origin, which makes that origin
+                // this env's GUI. A browser overrides any `Origin` header a
+                // test sets, so without this the credential routes behind
+                // `guiOriginGate` (/login, /signup, /session/sync-cookie) 403
+                // in the browser while passing everywhere else.
+                allow_gui_origins: [apiOrigin],
                 extensions: [extensionsDir],
             },
             configOverrides ?? {},

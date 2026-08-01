@@ -134,3 +134,71 @@ describe('SubdomainStore cache coherency', () => {
         expect(await store.getBySubdomain(subdomain)).toBeNull();
     });
 });
+
+describe('SubdomainStore app_owner filtering', () => {
+    const makeApp = async (ownerUserId: number) => {
+        const name = `sds-app-${Math.random().toString(36).slice(2, 10)}`;
+        return await server.stores.app.create(
+            {
+                name,
+                title: name,
+                index_url: `https://${name}.example.com/`,
+            },
+            { ownerUserId },
+        );
+    };
+
+    const seed = async (
+        userId: number,
+        prefix: string,
+        appOwner: number | null,
+    ) => {
+        const subdomain = `${prefix}${Math.random().toString(36).slice(2, 8)}`;
+        await store.create({ userId, subdomain, rootDirId: null, appOwner });
+        return subdomain;
+    };
+
+    it('matches rows owned by any app in `appIds`', async () => {
+        const userId = await makeUser();
+        const prefix = `sds-multi-${Math.random().toString(36).slice(2, 6)}.`;
+        const appA = await makeApp(userId);
+        const appB = await makeApp(userId);
+        const appC = await makeApp(userId);
+
+        const a = await seed(userId, prefix, appA.id);
+        const b = await seed(userId, prefix, appB.id);
+        const c = await seed(userId, prefix, appC.id);
+        const unowned = await seed(userId, prefix, null);
+
+        const rows = await store.listByUserIdAndPrefix(userId, prefix, {
+            appIds: [appA.id, appB.id],
+        });
+        const names = rows.map((r) => r.subdomain);
+        expect(names).toContain(a);
+        expect(names).toContain(b);
+        expect(names).not.toContain(c);
+        expect(names).not.toContain(unowned);
+
+        const count = await store.countByUserIdAndPrefix(userId, prefix, {
+            appIds: [appA.id, appB.id],
+        });
+        expect(count).toBe(2);
+    });
+
+    // An empty allow-list means "no app may own these rows". Degrading to an
+    // unfiltered query here would hand a caller every worker the user has.
+    it('matches nothing for an empty `appIds`', async () => {
+        const userId = await makeUser();
+        const prefix = `sds-empty-${Math.random().toString(36).slice(2, 6)}.`;
+        const app = await makeApp(userId);
+        await seed(userId, prefix, app.id);
+        await seed(userId, prefix, null);
+
+        expect(
+            await store.listByUserIdAndPrefix(userId, prefix, { appIds: [] }),
+        ).toEqual([]);
+        expect(
+            await store.countByUserIdAndPrefix(userId, prefix, { appIds: [] }),
+        ).toBe(0);
+    });
+});

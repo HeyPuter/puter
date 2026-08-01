@@ -24,8 +24,9 @@ export class WorkersHandler extends PuterModule {
      * @overload
      * @param {string} workerName
      * @param {string} filePath
-     * @param {{ sandbox?: boolean }} [options] pass `{ sandbox: false }` to opt
-     *   out of the dedicated `sandbox-<workerName>` app that owns the worker
+     * @param {{ sandbox?: boolean }} [options] whether the worker gets its own
+     *   `sandbox-<workerName>` app. Defaults to `true` for user tokens and
+     *   `false` when an app deploys the worker.
      * @returns {Promise<WorkerDeployment>}
      */
     /**
@@ -46,7 +47,14 @@ export class WorkersHandler extends PuterModule {
         if ( typeof (appName) === 'object' || typeof (appName) === 'undefined' ) {
             const user = (this.puter.whoami || await this.puter.getUser());
 
-            if ( user.is_user_token && (appName === undefined || appName?.sandbox !== false) ) {
+            // Sandboxing gives the worker its own app identity, and with it its
+            // own KV and AppData namespace. User tokens have always defaulted
+            // to it. Apps default to off: their workers already run as the app
+            // itself, and flipping that silently would move live workers off
+            // the state they were deployed against.
+            const sandbox = appName?.sandbox ?? Boolean(user.is_user_token);
+
+            if ( sandbox ) {
                 let sandboxApp;
                 try {
                     sandboxApp = await this.puter.apps.get(`sandbox-${ workerName }`);
@@ -60,7 +68,11 @@ export class WorkersHandler extends PuterModule {
             }
         }
         if ( typeof (appName) === 'string' ) {
-            appId = ((await this.puter.apps.list()).find(el => el.name === appName)).uid;
+            const app = (await this.puter.apps.list()).find(el => el.name === appName);
+            if ( ! app ) {
+                throw { message: `No app named '${ appName }' in your account`, code: 'app_not_found' };
+            }
+            appId = app.uid;
         }
 
         workerName = workerName.toLocaleLowerCase(); // just incase
