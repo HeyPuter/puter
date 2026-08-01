@@ -131,6 +131,10 @@ dist
 ./build
 build
 
+# playwright output from `npm run test:e2e`
+test-results/
+playwright-report/
+
 # config file
 src/config.js
 ssl

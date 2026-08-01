@@ -94,7 +94,11 @@ async function handle_resp (success_cb, error_cb, resolve_func, reject_func, res
     const resp = await parseResponse(response);
     // error - unauthorized
     if ( response.status === 401 ) {
-        const reauth = await resolveReauth(resp);
+        const spec = response._puterReq;
+        const reauth = await resolveReauth(resp, {
+            interactive: spec?.interactiveReauth !== false,
+            sentToken: spec?._sentAuthToken,
+        });
         if ( reauth?.action === 'replay' ) {
             // Replay the original request with the fresh token. If the replay
             // can't be scheduled (no captured request, or already retried),

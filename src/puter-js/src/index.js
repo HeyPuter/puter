@@ -569,6 +569,18 @@ const puterInit = function () {
                 enabled: false, // Disabled by default
             });
 
+            // `/rao` state, set up before the environment branches below
+            // because those call setAuthToken, which requests `/rao`.
+            // Lock to prevent multiple requests to `/rao`
+            this.lock_rao_ = new Lock();
+            // Promise that resolves when it's okay to request `/rao`
+            this.p_can_request_rao_ = Promise.resolve();
+            // Flag that indicates if a request to `/rao` has been made
+            this.rao_requested_ = false;
+            // The in-flight boot `/whoami`, awaited by anything that wants the
+            // cached user without issuing its own request.
+            this.whoamiCache_ = null;
+
             // === Start :: Modules === //
 
             // The SDK is running in the Puter GUI (i.e. 'gui')
@@ -689,12 +701,22 @@ const puterInit = function () {
                             localStorage.getItem(STORAGE_KEY_V1),
                         );
                         if (v1) {
+                            // Hold boot telemetry until the upgrade settles.
+                            // The backend rejects v1 tokens outright, so a
+                            // /rao racing the migration spends its one request
+                            // on a token that is about to be replaced.
+                            let migrationSettled;
+                            this.p_can_request_rao_ = new Promise((resolve) => {
+                                migrationSettled = resolve;
+                            });
                             this.setAuthToken(v1);
                             // For kind='access_token' the backend will swap
                             // this for a v2 token. For kind='web' it'll
                             // refuse (409) and the next request bounces us
                             // through the reauth popup.
-                            this._silentMigrateV1Token(v1);
+                            this._silentMigrateV1Token(v1).finally(
+                                migrationSettled,
+                            );
                         }
                     }
                     // if appID is already set in localStorage, then we don't need to show the dialog
@@ -724,9 +746,13 @@ const puterInit = function () {
             // Add prefix logger (needed to happen after modules are initialized)
             (async () => {
                 try {
-                    const whoami = await this.auth.whoami();
+                    // Reuses the boot `/whoami` rather than issuing a second
+                    // one. Nothing to prefix with when there's no token (or the
+                    // lookup failed), same as when this awaited its own call.
+                    const whoami = await this.whoamiCache_;
+                    if (!whoami) return;
                     const prefix = `[${
-                        whoami?.app_name ?? this.appInstanceID ?? 'HOST'
+                        whoami.app_name ?? this.appInstanceID ?? 'HOST'
                     }]`;
                     logger = logger.fields({ prefix });
                     this.logger = logger;
@@ -739,13 +765,6 @@ const puterInit = function () {
                     }
                 }
             })();
-
-            // Lock to prevent multiple requests to `/rao`
-            this.lock_rao_ = new Lock();
-            // Promise that resolves when it's okay to request `/rao`
-            this.p_can_request_rao_ = Promise.resolve();
-            // Flag that indicates if a request to `/rao` has been made
-            this.rao_requested_ = false;
 
             /** @type {import('../types/modules/networking').Networking} */
             this.net = {
@@ -805,7 +824,6 @@ const puterInit = function () {
                 return;
             }
 
-            let had_error = false;
             try {
                 const resp = await fetchUrl(`${this.APIOrigin}/rao`, {
                     method: 'POST',
@@ -813,16 +831,57 @@ const puterInit = function () {
                     headers: {
                         Origin: location.origin, // This is ignored in the browser but needed for workers and nodejs
                     },
+                    // Recording an app open is ours, not the user's: a stale
+                    // token must not turn a page load into a sign-in prompt.
+                    interactiveReauth: false,
                 });
+                // Set inside the lock: a caller parked on `p_can_request_rao_`
+                // acquires it the moment this releases, and would otherwise
+                // record the same open a second time.
+                this.rao_requested_ = true;
                 return await resp.json();
             } catch (e) {
-                had_error = true;
                 console.error(e);
             } finally {
                 this.lock_rao_.release();
             }
-            if (!had_error) {
-                this.rao_requested_ = true;
+        }
+
+        /**
+         * @internal
+         * Populates `puter.whoami` for callers that read the cached user
+         * synchronously. Non-interactive for the same reason as `/rao`: this
+         * runs on every load without the user asking, so a stale token must not
+         * raise sign-in UI. Callers that need a definite answer (and the prompt
+         * that comes with it) use `puter.auth.getUser()`.
+         *
+         * Uses `fetchUrl` rather than `this.auth` because `setAuthToken` runs
+         * before `initSubmodules` in the app environment, and carries the token
+         * explicitly because `includePuterAuth` reads `globalThis.puter`, which
+         * isn't assigned until the constructor returns.
+         *
+         * @returns {Promise<import('../types/modules/auth').User|null>} The
+         *   cached user, or null when there was no token, the token was
+         *   rejected, or the request failed.
+         */
+        async cacheWhoami_() {
+            if (!this.authToken) return null;
+            try {
+                const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
+                    authToken: this.authToken,
+                    interactiveReauth: false,
+                    logContext: {
+                        service: 'auth',
+                        operation: 'whoami',
+                        params: {},
+                    },
+                });
+                if (!resp.ok) return null;
+                this.whoami = await resp.json();
+                return this.whoami;
+            } catch (e) {
+                // Best-effort cache — a network failure leaves it unset.
+                return null;
             }
         }
 
@@ -937,9 +996,7 @@ const puterInit = function () {
             this.request_rao_();
 
             // perform whoami and cache results
-            this.getUser().then((user) => {
-                this.whoami = user;
-            });
+            this.whoamiCache_ = this.cacheWhoami_();
         };
 
         /**
@@ -987,14 +1044,15 @@ const puterInit = function () {
             }
         };
 
-        resetAuthToken = function () {
-            if (this.env === 'web-worker' || this.env === 'service-worker') {
-                throw new Error(
-                    'Sign out is not permitted from WebWorkers or ServiceWorkers',
-                );
-            }
+        /**
+         * Forget the current token, in memory and (on a 3rd-party site or an
+         * app) in localStorage. Callers own the surrounding policy — emitting
+         * events, driving reauth — this only drops the value.
+         *
+         * @private
+         */
+        _clearAuthToken = function () {
             this.authToken = null;
-            // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage
             if (this.env === 'web' || this.env === 'app') {
                 try {
                     localStorage.removeItem(STORAGE_KEY_V2);
@@ -1005,6 +1063,15 @@ const puterInit = function () {
                     console.error('Error accessing localStorage:', error);
                 }
             }
+        };
+
+        resetAuthToken = function () {
+            if (this.env === 'web-worker' || this.env === 'service-worker') {
+                throw new Error(
+                    'Sign out is not permitted from WebWorkers or ServiceWorkers',
+                );
+            }
+            this._clearAuthToken();
             this._emitAuthStateChanged();
         };
 
@@ -1038,16 +1105,7 @@ const puterInit = function () {
             // Drop the stored token immediately so a failed/canceled reauth
             // doesn't leave a poisoned value in localStorage. The new token
             // (if reauth succeeds) is written by setAuthToken downstream.
-            this.authToken = null;
-            if (this.env === 'web' || this.env === 'app') {
-                try {
-                    localStorage.removeItem(STORAGE_KEY_V2);
-                    localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
-                    localStorage.removeItem(STORAGE_KEY_V1);
-                } catch (e) {
-                    console.error('Error accessing localStorage:', e);
-                }
-            }
+            this._clearAuthToken();
             this._emitAuthStateChanged();
 
             this._reauthInflight = (async () => {
@@ -1129,6 +1187,32 @@ const puterInit = function () {
             }
         };
 
+        /**
+         * @internal
+         * The non-interactive half of the reauth policy, called by the network
+         * layer (lib/networkUtils.js) when a request the user didn't initiate
+         * comes back `401 { code: 'reauth_required' | 'token_auth_failed' }`.
+         *
+         * Boot-time telemetry and cache warmers run on every page load, so
+         * escalating their 401 to `triggerReauth` puts a sign-in popup (or the
+         * consent dialog, when there's no user activation to open one with) in
+         * front of a visitor who did nothing but load the page. Instead: forget
+         * the dead token and announce it, leaving the prompt to the next call
+         * the user actually makes.
+         *
+         * `sentToken` is the token the failed request carried. A reauth may have
+         * completed while it was in flight, so a token that no longer matches is
+         * left alone rather than signing the user back out.
+         *
+         * @param {{ reason?: string; auth_id?: string; sentToken?: string }} signal
+         */
+        dropStaleAuthToken = function ({ reason, auth_id, sentToken } = {}) {
+            if (sentToken && sentToken !== this.authToken) return;
+            this._emitReauthEvent({ reason, auth_id });
+            this._clearAuthToken();
+            this._emitAuthStateChanged();
+        };
+
         _emitReauthEvent = function ({ reason, auth_id }) {
             try {
                 const handlers =
@@ -1192,12 +1276,13 @@ const puterInit = function () {
                     `${this.defaultGUIOrigin}/auth/migrate-token`,
                     {
                         method: 'POST',
-                        headers: {
-                            Authorization: `Bearer ${v1Token}`,
-                            'Content-Type': 'application/json',
-                        },
+                        authToken: v1Token,
+                        headers: { 'Content-Type': 'application/json' },
                         withCredentials: sameOrigin,
                         body: JSON.stringify({}),
+                        // Silent by name: a refusal is handled by returning
+                        // false, never by prompting at load.
+                        interactiveReauth: false,
                     },
                 );
                 if (!resp.ok) {

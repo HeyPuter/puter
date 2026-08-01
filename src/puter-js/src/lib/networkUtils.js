@@ -31,6 +31,34 @@ const createDeferred = () => {
 };
 
 /**
+ * A background request's 401: drop the dead token and tell listeners, but never
+ * raise sign-in UI. The visitor didn't ask for anything, so a popup or consent
+ * dialog opening on its own reads as the site misbehaving; the next call the
+ * user actually initiates does the prompting.
+ *
+ * @param {Object} resp - The parsed response body.
+ * @param {string} [sentToken] - The token the failed request carried.
+ * @returns {{action: 'reject', error: Object}}
+ */
+function resolveBackgroundReauth (resp, sentToken) {
+    puter.dropStaleAuthToken({
+        reason: resp.reason,
+        auth_id: resp.auth_id,
+        sentToken,
+    });
+    return {
+        action: 'reject',
+        error: {
+            status: 401,
+            code: resp.code,
+            reason: resp.reason,
+            auth_id: resp.auth_id,
+            message: 'Reauthentication required',
+        },
+    };
+}
+
+/**
  * Shared 401 reauth policy for a parsed response body. Drives the env-specific
  * reauth flow on the Puter class and tells the caller what to do next, so the
  * fetch replacement (`fetchUrl`) and the generic XHR path (`handle_resp` in
@@ -43,13 +71,20 @@ const createDeferred = () => {
  *     token no longer valid, prompt re-login (web env only).
  *
  * @param {Object} resp - The parsed response body.
+ * @param {Object} [opts]
+ * @param {boolean} [opts.interactive=true] - Whether this request may raise
+ *   sign-in UI. False for requests the user didn't ask for (see
+ *   `resolveBackgroundReauth`).
+ * @param {string} [opts.sentToken] - The token the failed request carried, so a
+ *   background reauth only discards a token that is still the current one.
  * @returns {Promise<{action: 'replay'}|{action: 'reject', error: Object}|null>}
  *   `replay` when the caller should re-issue the request once with the fresh
  *   token, `reject` with the error to surface, or `null` when this is not a
  *   reauth-recoverable 401 and the caller should handle it normally.
  */
-async function resolveReauth (resp) {
+async function resolveReauth (resp, { interactive = true, sentToken } = {}) {
     if ( resp?.code === 'reauth_required' ) {
+        if ( ! interactive ) return resolveBackgroundReauth(resp, sentToken);
         try {
             await puter.triggerReauth({
                 reason: resp.reason,
@@ -70,6 +105,7 @@ async function resolveReauth (resp) {
         }
     }
     if ( resp?.code === 'token_auth_failed' && puter.env === 'web' ) {
+        if ( ! interactive ) return resolveBackgroundReauth(resp, sentToken);
         try {
             puter.resetAuthToken();
             await puter.ui.authenticateWithPuter();
@@ -99,6 +135,9 @@ async function resolveReauth (resp) {
  * @param {string} [spec.method='GET']
  * @param {Object} [spec.headers] - Extra headers (nullish values skipped).
  * @param {boolean} [spec.includePuterAuth=false] - Add a fresh `Authorization: Bearer`.
+ * @param {string} [spec.authToken] - The token to send when there is no live one
+ *   to read — during construction, before `globalThis.puter` is assigned — or,
+ *   without `includePuterAuth`, a token that isn't the live one at all.
  * @param {boolean} [spec.withCredentials=true]
  * @param {string} [spec.responseType='']
  * @param {Object} [spec.logId] - Pre-built apiCallLogger request id.
@@ -110,6 +149,7 @@ function buildXhr (spec) {
         method = 'GET',
         headers = {},
         includePuterAuth = false,
+        authToken,
         withCredentials = true,
         responseType = '',
     } = spec;
@@ -119,8 +159,15 @@ function buildXhr (spec) {
     xhr.withCredentials = withCredentials;
     xhr.responseType = responseType ?? '';
 
-    if ( includePuterAuth && globalThis.puter?.authToken ) {
-        xhr.setRequestHeader('Authorization', `Bearer ${globalThis.puter.authToken}`);
+    const bearer = includePuterAuth
+        ? ( globalThis.puter?.authToken ?? authToken )
+        : authToken;
+    if ( bearer ) {
+        // Recorded per attempt: a background 401 only discards the token it was
+        // actually sent with, so a reauth that landed in the meantime keeps the
+        // fresh one it installed.
+        spec._sentAuthToken = bearer;
+        xhr.setRequestHeader('Authorization', `Bearer ${bearer}`);
     }
     for ( const [ name, value ] of Object.entries(headers) ) {
         if ( value !== undefined && value !== null ) {
@@ -428,7 +475,11 @@ async function classifyRetry (outcome, ctx) {
     // reauth (401 / token_auth_failed) — one-shot, any method, no backoff.
     if ( status === 401 || parsed?.code === 'token_auth_failed' ) {
         if ( ! ctx.done.has('reauth') ) {
-            const reauth = await resolveReauth(parsed);
+            const spec = xhr?._puterReq;
+            const reauth = await resolveReauth(parsed, {
+                interactive: spec?.interactiveReauth !== false,
+                sentToken: spec?._sentAuthToken,
+            });
             if ( reauth?.action === 'replay' ) { ctx.done.add('reauth'); return { delayMs: 0 }; }
             if ( reauth?.action === 'reject' ) outcome.reauthError = reauth.error;
         }
@@ -523,6 +574,10 @@ function dedupe (key, factory, { windowMs = 2000 } = {}) {
  * @param {string} url - Full request URL (callers own origin composition).
  * @param {Object} [opts]
  * @param {boolean} [opts.includePuterAuth=false] - Add `Authorization: Bearer <puter.authToken>`.
+ * @param {string}  [opts.authToken] - The Bearer credential to send when the live
+ *   `puter.authToken` can't be read yet (boot-time calls, before the global is
+ *   assigned) or, without `includePuterAuth`, a token that isn't the live one at
+ *   all (one being exchanged for another).
  * @param {string}  [opts.method='GET']
  * @param {Object}  [opts.headers] - Extra request headers (undefined/null values skipped).
  * @param {string|Blob|ArrayBuffer|FormData|null} [opts.body]
@@ -536,12 +591,17 @@ function dedupe (key, factory, { windowMs = 2000 } = {}) {
  *   (idempotent methods retry, others don't). Never retries a write.
  * @param {boolean|string} [opts.dedupe] - Coalesce concurrent identical in-flight
  *   requests (reads only): `true` auto-keys by method+url+body, or pass a key.
+ * @param {boolean} [opts.interactiveReauth=true] - Whether a reauth-recoverable
+ *   401 may raise sign-in UI. Pass `false` for requests the user didn't ask for
+ *   (boot telemetry, cache warmers): the stale token is dropped silently and the
+ *   401 surfaces to the caller instead.
  * @param {Object} [opts.paginate] - Reserved for a later sprint step (ignored).
  * @returns {Promise<PuterResponse>}
  */
 function fetchUrl (url, opts = {}) {
     const {
         includePuterAuth = false,
+        authToken,
         method = 'GET',
         headers = {},
         body = null,
@@ -551,10 +611,11 @@ function fetchUrl (url, opts = {}) {
         logContext,
         retry,
         dedupe: dedupeOpt,
+        interactiveReauth = true,
     } = opts;
 
     const logId = logContext ?? { service: 'fetchUrl', operation: `${method} ${url}`, params: { url, method } };
-    const spec = { url, method, headers, includePuterAuth, withCredentials, responseType, body, signal, logId };
+    const spec = { url, method, headers, includePuterAuth, authToken, withCredentials, responseType, body, signal, logId, interactiveReauth };
 
     // Read-safety: idempotent methods auto-retry; a POST read opts in with
     // `retry:true`; nothing retries when `retry:false` (writes/uploads).
