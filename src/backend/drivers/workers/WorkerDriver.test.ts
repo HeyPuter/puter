@@ -393,13 +393,21 @@ describe('WorkerDriver', () => {
         });
 
         it('skips the per-user worker limit', async () => {
-            const cfServer = await setupTestServer({
-                workers: { XAUTHKEY: 'test-key', ACCOUNTID: 'test-account' },
-            });
-            const cfDriver = cfServer.drivers
-                .workers as unknown as WorkerDriver;
-            const store = cfServer.stores.subdomain;
-            const original = store.listByUserIdAndPrefix.bind(store);
+            // The limit is checked after the Cloudflare-config gate, so the
+            // driver needs credentials to reach it. Set them on the running
+            // server rather than booting a configured one: a server that boots
+            // with an account id also demands a built worker preamble, which
+            // is not built for backend tests.
+            const store = server.stores.subdomain;
+            const originalList = store.listByUserIdAndPrefix.bind(store);
+            const driverConfig = (
+                target as unknown as { config: Record<string, unknown> }
+            ).config;
+            const originalWorkersConfig = driverConfig.workers;
+            driverConfig.workers = {
+                XAUTHKEY: 'test-key',
+                ACCOUNTID: 'test-account',
+            };
             let listCalls = 0;
             store.listByUserIdAndPrefix = (async () => {
                 listCalls++;
@@ -410,8 +418,8 @@ describe('WorkerDriver', () => {
 
             try {
                 await expect(
-                    runWithContext({ actor }, () =>
-                        cfDriver.create({
+                    inCtx(() =>
+                        target.create({
                             appId: 'test-app',
                             workerName: 'atcap',
                             filePath: '/test.js',
@@ -423,8 +431,8 @@ describe('WorkerDriver', () => {
                 // With the bypass the limit is never even counted; the call
                 // fails later, on the missing source file.
                 await expect(
-                    runWithContext({ actor }, () =>
-                        cfDriver.create({
+                    inCtx(() =>
+                        target.create({
                             appId: 'test-app',
                             workerName: 'atcap',
                             filePath: '/test.js',
@@ -434,8 +442,8 @@ describe('WorkerDriver', () => {
                 ).rejects.not.toMatchObject({ statusCode: 403 });
                 expect(listCalls).toBe(1);
             } finally {
-                store.listByUserIdAndPrefix = original;
-                await cfServer.shutdown();
+                store.listByUserIdAndPrefix = originalList;
+                driverConfig.workers = originalWorkersConfig;
             }
         });
 
