@@ -2492,6 +2492,34 @@ describe('FSService copy', () => {
         expect(await readBack(overwritten)).toBe('source');
     });
 
+    it('does not see a phantom collision after the occupant is renamed', async () => {
+        const destination = (await entryAt(user, '/Desktop'))!;
+        const source = await writeFile(
+            user,
+            `${user.home}/Documents/phantom.txt`,
+            'src',
+        );
+
+        // First copy occupies Desktop/phantom.txt (and primes the path cache).
+        const first = await fs.copy(user.userId, {
+            source,
+            destinationParent: destination,
+        });
+        expect(first.path).toBe(`${user.home}/Desktop/phantom.txt`);
+
+        // Renaming the occupant frees the path...
+        await fs.rename(first, 'phantom-renamed.txt');
+
+        // ...so an immediate re-copy must succeed. A stale path-cache entry
+        // for the old name used to surface a phantom conflict here — and a
+        // Replace against it would have deleted the renamed file.
+        const second = await fs.copy(user.userId, {
+            source,
+            destinationParent: destination,
+        });
+        expect(second.path).toBe(`${user.home}/Desktop/phantom.txt`);
+    });
+
     it('cleans up and reports 404 when the source object has vanished', async () => {
         const source = await writeFile(
             user,
