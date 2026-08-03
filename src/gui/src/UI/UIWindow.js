@@ -4398,6 +4398,31 @@ window.addEventListener('popstate', () => {
 });
 
 /**
+ * An already-rendered dashboard icon for `app_name`: the Apps-tab tile or
+ * a Home-tab recent whose <img> has finished decoding. The launch resolves
+ * its own icon URL (typically a differently-sized variant served under a
+ * different URL), so an <img> pointed at it fetches cold and the icon pops
+ * in visibly late; the bitmap a tile already painted renders instantly from
+ * the browser's image cache. Generic placeholder fallbacks don't count — a
+ * slow real icon beats an instant wrong one.
+ */
+function dashboard_rendered_app_icon (app_name) {
+    if ( ! app_name || typeof CSS === 'undefined' || ! CSS.escape ) return null;
+    const esc = CSS.escape(app_name);
+    const imgs = document.querySelectorAll(
+        `.myapps-tile[data-app-name="${esc}"] .myapps-tile-icon img, `
+        + `.bento-recent-app[data-app-name="${esc}"] .bento-recent-app-icon`,
+    );
+    for ( const img of imgs ) {
+        const src = img.currentSrc || img.src;
+        if ( ! src || ! img.complete || img.naturalWidth <= 0 ) continue;
+        if ( src === window.icons['app.svg'] || src === window.icons['app-default.svg'] ) continue;
+        return src;
+    }
+    return null;
+}
+
+/**
  * The control drawer for headless dashboard app windows: one glass surface
  * flush with the top edge of the app (parent DOM, above the app's iframe)
  * that MORPHS between two shapes. At rest it's a small tongue — a grabber
@@ -4419,7 +4444,13 @@ window.addEventListener('popstate', () => {
  */
 function attach_dashboard_app_drawer (el_window, options) {
     const app_name = options.app;
-    const icon = options.icon || window.icons['app.svg'];
+    // A data: icon needs no fetch — use it as-is. A URL icon is a cold
+    // fetch the user can watch mid-intro: prefer the same bitmap a
+    // dashboard tile already painted (see dashboard_rendered_app_icon).
+    const launch_icon = options.icon || window.icons['app.svg'];
+    const icon = ( typeof launch_icon === 'string' && ! launch_icon.startsWith('data:') )
+        ? (dashboard_rendered_app_icon(app_name) || launch_icon)
+        : launch_icon;
     const title = options.title || app_name;
 
     // The toggle comes FIRST in the DOM so Tab reaches it before the
@@ -4446,6 +4477,23 @@ function attach_dashboard_app_drawer (el_window, options) {
     `);
     const drawer = $drawer.get(0);
     const toggle = $drawer.find('.dashboard-app-drawer-toggle').get(0);
+
+    // No dashboard-rendered bitmap to reuse (deep link before the grid
+    // painted): the icon is still fetching, so ease it in when it arrives
+    // instead of letting it pop into the open drawer. A failed fetch falls
+    // back to the generic app icon rather than a broken-image glyph.
+    const icon_img = $drawer.find('.dashboard-app-drawer-icon').get(0);
+    if ( ! icon_img.complete ) {
+        icon_img.style.opacity = '0';
+        icon_img.style.transition = 'opacity 0.2s ease';
+        icon_img.addEventListener('load', () => {
+            icon_img.style.opacity = '1';
+        }, { once: true });
+        icon_img.addEventListener('error', () => {
+            icon_img.src = window.icons['app.svg'];
+            icon_img.style.opacity = '1';
+        }, { once: true });
+    }
 
     let collapse_timer = null;
     let opened_at = 0;
