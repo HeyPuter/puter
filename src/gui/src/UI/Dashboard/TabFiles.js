@@ -833,11 +833,17 @@ const TabFiles = {
                     if ( _this.currentPath.startsWith(window.trash_path) && window.clipboard_op !== 'move' ) {
                         return false;
                     }
+                    // After the paste completes, refresh and highlight the
+                    // newly created rows — same treatment as uploads.
                     if ( window.clipboard_op === 'copy' ) {
-                        window.copy_clipboard_items(_this.currentPath, null);
+                        window.copy_clipboard_items(_this.currentPath, null).then(async pastedPaths => {
+                            await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
+                            _this.selectUploadedRows(pastedPaths ?? []);
+                        });
                     } else {
-                        _this.moveClipboardItems(_this.currentPath).then(() => {
-                            _this.renderDirectory(_this.currentPath);
+                        _this.moveClipboardItems(_this.currentPath).then(async pastedPaths => {
+                            await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
+                            _this.selectUploadedRows(pastedPaths ?? []);
                         });
                     }
                 }
@@ -3045,15 +3051,18 @@ const TabFiles = {
      * .item DOM elements that don't exist in the Dashboard.
      *
      * @param {string} destPath - The destination folder path
-     * @returns {Promise<void>}
+     * @returns {Promise<string[]>} Destination paths of the items that were
+     *     actually moved (skipped/failed items aren't listed) — callers use
+     *     these to highlight the new rows.
      */
     async moveClipboardItems (destPath) {
         if ( !window.clipboard || window.clipboard.length === 0 ) {
-            return;
+            return [];
         }
 
         const { html_encode } = window;
         const multiple_items = window.clipboard.length > 1;
+        const moved_item_paths = [];
         // Set once the user picks "Replace all" on a conflict; later items
         // then overwrite without asking again.
         let overwrite_all = false;
@@ -3067,7 +3076,7 @@ const TabFiles = {
             do {
                 retry = false;
                 try {
-                    await puter.fs.move({
+                    const resp = await puter.fs.move({
                         source: source,
                         destination: destPath,
                         overwrite: overwrite,
@@ -3075,6 +3084,11 @@ const TabFiles = {
                         // deduped "name (1)" style name instead of overwriting
                         dedupeName: keep_both,
                     });
+                    // The response carries the authoritative final path —
+                    // with "Keep Both" it differs from the source's name.
+                    if ( resp?.moved?.path ) {
+                        moved_item_paths.push(resp.moved.path);
+                    }
                 } catch ( err ) {
                     // Same conflict resolution as the desktop's move_items:
                     // ask, then retry with overwrite or leave the item be.
@@ -3110,6 +3124,7 @@ const TabFiles = {
         }
 
         window.clipboard = [];
+        return moved_item_paths;
     },
 
     /**
@@ -3872,14 +3887,22 @@ const TabFiles = {
             items.push({
                 html: i18n('paste'),
                 onClick: async function () {
+                    // After the paste completes, refresh and highlight the
+                    // newly created rows — same treatment as uploads. A paste
+                    // into a folder that isn't rendered matches no rows and
+                    // the highlight is a no-op.
+                    let pastedPaths = [];
                     if ( window.clipboard_op === 'copy' ) {
-                        window.copy_clipboard_items(targetPath, null);
+                        pastedPaths = await window.copy_clipboard_items(targetPath, null) ?? [];
                     } else if ( window.clipboard_op === 'move' ) {
-                        await _this.moveClipboardItems(targetPath);
-                        // Refresh so moved-away source rows disappear and any
-                        // items pasted into the current folder show up.
-                        _this.renderDirectory(_this.currentPath);
+                        pastedPaths = await _this.moveClipboardItems(targetPath) ?? [];
+                    } else {
+                        return;
                     }
+                    // Refresh so moved-away source rows disappear and any
+                    // items pasted into the current folder show up.
+                    await _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
+                    _this.selectUploadedRows(pastedPaths);
                 },
             });
         }
@@ -4293,9 +4316,9 @@ const TabFiles = {
 
     /**
      * Selects the rows matching the given absolute paths, replacing the
-     * current selection. Used after uploads so the just-uploaded items land
-     * highlighted. Paths outside the rendered directory match no rows and
-     * leave the selection untouched.
+     * current selection. Used after uploads and pastes so the just-created
+     * items land highlighted. Paths outside the rendered directory match no
+     * rows and leave the selection untouched.
      *
      * @param {string[]} paths - Absolute paths of the items to select
      * @returns {void}

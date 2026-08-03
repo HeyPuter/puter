@@ -1250,7 +1250,10 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
     window.update_explorer_footer_selected_items_count($(dest_container_element).closest('.window'));
 
     let overwrite_all = false;
-    (async () => {
+    // Resolves with the created items' paths once every clipboard entry has
+    // been copied (or skipped/cancelled) — callers may await it to highlight
+    // the new rows, or fire-and-forget it as before.
+    return (async () => {
         let copy_progress_window_init_ts = Date.now();
 
         // only show progress window if it takes longer than 2s to copy
@@ -1373,6 +1376,10 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
                 });
             }
         }
+
+        // Resolve with the paths that were actually created so callers can
+        // highlight the new items (a cancelled or skipped item isn't listed).
+        return copied_item_paths;
     })();
 };
 
