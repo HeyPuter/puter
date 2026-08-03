@@ -1255,14 +1255,21 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
 
         // only show progress window if it takes longer than 2s to copy
         let progwin;
-        let progwin_timeout = setTimeout(async () => {
+        let latest_status;
+        const arm_progwin = () => setTimeout(async () => {
             progwin = await UIWindowProgress({
                 operation_id: copy_op_id,
                 on_cancel: () => {
                     window.operation_cancelled[copy_op_id] = true;
                 },
             });
-        }, 0);
+            // Opened mid-operation: show the file being copied rather than
+            // the default "Preparing..." status.
+            if ( latest_status ) {
+                progwin.set_status(latest_status);
+            }
+        }, 2000);
+        let progwin_timeout = arm_progwin();
 
         const copied_item_paths = [];
 
@@ -1270,7 +1277,8 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
             let copy_path = window.clipboard[i].path;
             let item_with_same_name_already_exists = true;
             let overwrite = overwrite_all;
-            progwin?.set_status(i18n('copying_file', copy_path));
+            latest_status = i18n('copying_file', copy_path);
+            progwin?.set_status(latest_status);
 
             do {
                 if ( overwrite )
@@ -1296,7 +1304,7 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
 
                     // remove overwritten item from the DOM
                     if ( resp[0].overwritten?.id ) {
-                        $(`.item[data-uid=${resp[0].overwritten.id}]`).removeItems();
+                        $(`.item[data-uid='${resp[0].overwritten.id}']`).removeItems();
                     }
 
                     // copy new path for undo copy
@@ -1306,6 +1314,10 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
                     break;
                 } catch ( err ) {
                     if ( err.code === 'item_with_same_name_exists' ) {
+                        // The operation is paused on user input, so pause the
+                        // progress-window timer too — otherwise "Preparing..."
+                        // pops up on top of the dialog while it waits.
+                        clearTimeout(progwin_timeout);
                         const alert_resp = await UIAlert({
                             message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                             buttons: [
@@ -1314,6 +1326,7 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
                                 ... (window.clipboard.length > 1) ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
                             ],
                         });
+                        progwin_timeout = arm_progwin();
                         if ( alert_resp === 'replace' ) {
                             overwrite = true;
                         } else if ( alert_resp === 'replace_all' ) {
@@ -1371,14 +1384,21 @@ window.copy_items = function (el_items, dest_path) {
 
         // only show progress window if it takes longer than 2s to copy
         let progwin;
-        let progwin_timeout = setTimeout(async () => {
+        let latest_status;
+        const arm_progwin = () => setTimeout(async () => {
             progwin = await UIWindowProgress({
                 operation_id: copy_op_id,
                 on_cancel: () => {
                     window.operation_cancelled[copy_op_id] = true;
                 },
             });
+            // Opened mid-operation: show the file being copied rather than
+            // the default "Preparing..." status.
+            if ( latest_status ) {
+                progwin.set_status(latest_status);
+            }
         }, 2000);
+        let progwin_timeout = arm_progwin();
 
         const copied_item_paths = [];
 
@@ -1386,7 +1406,8 @@ window.copy_items = function (el_items, dest_path) {
             let copy_path = $(el_items[i]).attr('data-path');
             let item_with_same_name_already_exists = true;
             let overwrite = overwrite_all;
-            progwin?.set_status(i18n('copying_file', copy_path));
+            latest_status = i18n('copying_file', copy_path);
+            progwin?.set_status(latest_status);
 
             do {
                 if ( overwrite )
@@ -1409,7 +1430,7 @@ window.copy_items = function (el_items, dest_path) {
 
                     // remove overwritten item from the DOM
                     if ( resp[0].overwritten?.id ) {
-                        $(`.item[data-uid=${resp.overwritten.id}]`).removeItems();
+                        $(`.item[data-uid='${resp[0].overwritten.id}']`).removeItems();
                     }
 
                     // copy new path for undo copy
@@ -1419,6 +1440,10 @@ window.copy_items = function (el_items, dest_path) {
                     item_with_same_name_already_exists = false;
                 } catch ( err ) {
                     if ( err.code === 'item_with_same_name_exists' ) {
+                        // The operation is paused on user input, so pause the
+                        // progress-window timer too — otherwise "Preparing..."
+                        // pops up on top of the dialog while it waits.
+                        clearTimeout(progwin_timeout);
                         const alert_resp = await UIAlert({
                             message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                             buttons: [
@@ -1427,6 +1452,7 @@ window.copy_items = function (el_items, dest_path) {
                                 ... (el_items.length > 1) ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
                             ],
                         });
+                        progwin_timeout = arm_progwin();
                         if ( alert_resp === 'replace' ) {
                             overwrite = true;
                         } else if ( alert_resp === 'replace_all' ) {
@@ -1690,14 +1716,21 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
 
     // only show progress window if it takes longer than 2s to move
     let progwin;
-    let progwin_timeout = setTimeout(async () => {
+    let latest_status;
+    const arm_progwin = () => setTimeout(async () => {
         progwin = await UIWindowProgress({
             operation_id: move_op_id,
             on_cancel: () => {
                 window.operation_cancelled[move_op_id] = true;
             },
         });
+        // Opened mid-operation: show the file being moved rather than the
+        // default "Preparing..." status.
+        if ( latest_status ) {
+            progwin.set_status(latest_status);
+        }
     }, 2000);
+    let progwin_timeout = arm_progwin();
 
     // storing moved items for undo ability
     const moved_items = [];
@@ -1721,7 +1754,10 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
 
         // cannot move item to its own path, skip it
         if ( path.dirname($(el_item).attr('data-path')) === dest_path ) {
+            // pause the progress-window timer while waiting for the user
+            clearTimeout(progwin_timeout);
             await UIAlert(`<p>Moving <strong>${html_encode($(el_item).attr('data-name'))}</strong></p>Cannot move item to its current location.`);
+            progwin_timeout = arm_progwin();
 
             continue;
         }
@@ -1794,6 +1830,9 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
 
                 // moving an item into a trashed directory? deny.
                 else if ( dest_path.startsWith(window.trash_path) ) {
+                    // the pending timer would otherwise open an orphan
+                    // progress window after the operation already bailed
+                    clearTimeout(progwin_timeout);
                     progwin?.close();
                     UIAlert('Cannot move items into a deleted folder.');
                     return;
@@ -1813,7 +1852,8 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 // --------------------------------------------------------
                 // update progress window with current item being moved
                 // --------------------------------------------------------
-                progwin?.set_status(i18n(status_i18n_string, path_to_show_on_progwin));
+                latest_status = i18n(status_i18n_string, path_to_show_on_progwin);
+                progwin?.set_status(latest_status);
 
                 // execute move
                 let resp = await puter.fs.move({
@@ -1895,7 +1935,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
 
                 // if replacing an existing item, remove the old item that was just replaced
                 if ( resp.overwritten?.id ) {
-                    $(`.item[data-uid=${resp.overwritten.id}]`).removeItems();
+                    $(`.item[data-uid='${resp.overwritten.id}']`).removeItems();
                 }
 
                 // if this is trash, get original name from item metadata
@@ -1971,6 +2011,10 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 if ( err.code === 'item_with_same_name_exists' ) {
                     item_with_same_name_already_exists = true;
 
+                    // The operation is paused on user input, so pause the
+                    // progress-window timer too — otherwise "Preparing..."
+                    // pops up on top of the dialog while it waits.
+                    clearTimeout(progwin_timeout);
                     const alert_resp = await UIAlert({
                         message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                         buttons: [
@@ -1979,6 +2023,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                             ... (el_items.length > 1) ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
                         ],
                     });
+                    progwin_timeout = arm_progwin();
                     if ( alert_resp === 'replace' ) {
                         overwrite = true;
                     } else if ( alert_resp === 'replace_all' ) {
