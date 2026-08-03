@@ -1,4 +1,5 @@
 import {
+    CopyObjectCommand,
     DeleteObjectCommand,
     GetObjectCommand,
     PutObjectCommand,
@@ -280,6 +281,55 @@ export const handleThumbnailRead = async (
     }
 };
 
+export const handleFsCopyNodeThumbnail = async (
+    payload: { copy?: { thumbnail?: string | null; uuid?: string } | null },
+    deps: {
+        s3: S3Client;
+        bucketName: string;
+        db: { write: (sql: string, params: unknown[]) => Promise<unknown> };
+    },
+): Promise<void> => {
+    const copy = payload.copy;
+    const thumbnailUrl = copy?.thumbnail;
+    if (!copy || !copy.uuid || typeof thumbnailUrl !== 'string') return;
+
+    // Same trust rule as the read and remove paths: only touch objects this
+    // extension minted.
+    const sourceKey = resolveThumbnailKey(thumbnailUrl);
+    if (!sourceKey) return;
+
+    // The copied row points at the SAME S3 object as its source, and
+    // fs.remove.node deletes the pointed-to object — so the first removal
+    // among the sharers (an overwrite, a trash purge) would break every
+    // other sharer's thumbnail. Give the copy an object of its own.
+    const newKey = mintThumbnailKey();
+    try {
+        await deps.s3.send(
+            new CopyObjectCommand({
+                Bucket: deps.bucketName,
+                CopySource: `${deps.bucketName}/${sourceKey}`,
+                Key: newKey,
+            }),
+        );
+    } catch (err) {
+        // The shared object is already gone (e.g. a sharer was removed
+        // before this fix existed) — the pointer is dead either way, so
+        // drop it rather than leave the row advertising a thumbnail it
+        // doesn't have.
+        await deps.db.write(
+            'UPDATE `fsentries` SET `thumbnail` = NULL WHERE `uuid` = ?',
+            [copy.uuid],
+        );
+        console.warn('[thumbnails] failed to duplicate thumbnail on copy', err);
+        return;
+    }
+
+    await deps.db.write(
+        'UPDATE `fsentries` SET `thumbnail` = ? WHERE `uuid` = ?',
+        [`s3://${deps.bucketName}/${newKey}`, copy.uuid],
+    );
+};
+
 export const handleFsRemoveNodeThumbnail = async (
     payload: { target: { thumbnail?: string | null } },
     deps: { s3: S3Client; bucketName: string },
@@ -333,6 +383,23 @@ extension.on('thumbnail.read', async (_key, entry: Record<string, unknown>) => {
         bucketEndpoint: extensionBucketEndpoint,
         db: clients.db,
     });
+});
+
+// -- fs.copy.node ----------------------------------------------------
+// A copied entry initially shares its source's thumbnail object; duplicate
+// it so removing either entry can't break the other's thumbnail.
+
+extension.on('fs.copy.node', async (_key, payload) => {
+    await handleFsCopyNodeThumbnail(
+        payload as {
+            copy?: { thumbnail?: string | null; uuid?: string } | null;
+        },
+        {
+            s3: getClient(),
+            bucketName: thumbnailBucketName,
+            db: clients.db,
+        },
+    );
 });
 
 // -- fs.remove.node --------------------------------------------------
