@@ -3106,12 +3106,11 @@ const TabFiles = {
             $footer.find('.files-footer-separator').css('display', 'none');
         }
 
-        // Show/hide floating action bar based on selection count
-        // In mobile select mode, show with 1+ items; otherwise require 2+
+        // The floating action bar only appears in mobile select mode;
+        // desktop multi-selection relies on the context menu instead.
         const isMobileSelectMode = (window.isMobile.phone || window.isMobile.tablet) && this.selectModeActive;
-        const minCountForActionBar = isMobileSelectMode ? 1 : 2;
 
-        if ( selectedCount >= minCountForActionBar ) {
+        if ( isMobileSelectMode && selectedCount >= 1 ) {
             $selectionActions.addClass('visible');
             this.updateSelectionActionsState(selectedRows);
         } else {
