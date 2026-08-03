@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -41,6 +42,22 @@ import {
 const CF_BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
 const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
 const MAX_WORKERS_PER_USER = 100;
+
+/**
+ * Opt-in key for `create()` that skips the admission checks a _new_ worker has
+ * to clear — the per-user limit and the verified-email gate — for a worker that
+ * already exists and cleared them when it was first created. Re-running
+ * admission on an existing worker can only take a working worker away from its
+ * owner.
+ *
+ * Deliberately a symbol, not a named field: driver arguments arrive as parsed
+ * JSON from the caller and are passed through untouched, and `JSON.parse` can
+ * never produce a symbol-keyed property. Only in-process code holding this
+ * import can set it. A string key here would be a privilege-escalation hole.
+ */
+export const INTERNAL_ADMISSION_BYPASS = Symbol(
+    'workers.internalAdmissionBypass',
+);
 const MAX_SOURCE_SIZE = 10 * 1024 * 1024; // 10 MB
 let USE_LOCAL_WORKERD = false;
 
@@ -94,14 +111,15 @@ export function getWorkerPreamble(): string {
 }
 
 /**
- * Driver exposing the `workers` interface — Cloudflare Workers
- * deployment, lifecycle, and file-path queries.
+ * Driver exposing the `workers` interface — Cloudflare Workers deployment,
+ * lifecycle, and file-path queries.
  *
- * Each "worker" is a JS file in the user's Puter FS, deployed to
- * Cloudflare Workers. A corresponding `subdomains` row with subdomain
+ * Each "worker" is a JS file in the user's Puter FS, deployed to Cloudflare
+ * Workers. A corresponding `subdomains` row with subdomain
  * `workers.puter.<name>` ties the worker to its source file.
  *
- * Config: `config.workers.{XAUTHKEY, ACCOUNTID, namespace?, internetExposedUrl?, loggingUrl?}`.
+ * Config: `config.workers.{XAUTHKEY, ACCOUNTID, namespace?,
+ * internetExposedUrl?, loggingUrl?}`.
  */
 export class WorkerDriver extends PuterDriver {
     readonly driverInterface = 'workers';
@@ -141,9 +159,11 @@ export class WorkerDriver extends PuterDriver {
         workerName: string;
         filePath: string;
         authorization?: string;
+        [INTERNAL_ADMISSION_BYPASS]?: boolean;
     }): Promise<unknown> {
         const actor = this.#requireActor();
-        this.#requireVerified(actor);
+        const skipAdmission = args[INTERNAL_ADMISSION_BYPASS] === true;
+        if (!skipAdmission) this.#requireVerified(actor);
         const workerName = String(args.workerName ?? '').toLowerCase();
         const filePath = String(args.filePath ?? '');
         const appId = args.appId || actor.app?.uid;
@@ -167,11 +187,12 @@ export class WorkerDriver extends PuterDriver {
         const subdomainName = `${WORKER_SUBDOMAIN_PREFIX}${workerName}`;
 
         // Quota check — count existing workers.puter.* subdomains owned by user
-        const existingWorkers =
-            await this.stores.subdomain.listByUserIdAndPrefix(
-                actor.user.id,
-                WORKER_SUBDOMAIN_PREFIX,
-            );
+        const existingWorkers = skipAdmission
+            ? []
+            : await this.stores.subdomain.listByUserIdAndPrefix(
+                  actor.user.id,
+                  WORKER_SUBDOMAIN_PREFIX,
+              );
         if (existingWorkers.length >= MAX_WORKERS_PER_USER) {
             throw new HttpError(
                 403,
@@ -600,8 +621,8 @@ export class WorkerDriver extends PuterDriver {
     /**
      * Mirror of the HTTP-layer `requireVerifiedGate` on /delete-site — only
      * active when `strict_email_verification_required` is truthy, so self-
-     * hosted installs without SMTP aren't bricked. Applied at the driver
-     * level so /drivers/call can't bypass the gate the HTTP route enforces.
+     * hosted installs without SMTP aren't bricked. Applied at the driver level
+     * so /drivers/call can't bypass the gate the HTTP route enforces.
      */
     #requireVerified(actor: Actor): void {
         assertVerifiedEmail(
