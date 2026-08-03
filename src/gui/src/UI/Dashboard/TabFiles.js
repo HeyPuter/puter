@@ -1934,20 +1934,36 @@ const TabFiles = {
     async renderDirectory (target, options = {}) {
         if ( this.renderingDirectory ) return;
         this.renderingDirectory = true;
-        this.$el_window.find('.files-tab .files').html('');
-        this.showSpinner();
         const _this = this;
 
-        document.querySelectorAll('.files-tab .row.selected').forEach(r => {
-            r.classList.remove('selected');
-        });
+        // Re-rendering the directory already on screen (after an upload, sort
+        // change, undo, …) keeps the current rows visible while the fresh
+        // listing is fetched, then swaps the DOM in one pass — clearing up
+        // front would blank the pane for the whole network round-trip and
+        // read as flicker. Navigating to a different directory still clears
+        // immediately so the user gets instant feedback.
+        const isSameDirRefresh = typeof target === 'string' && target === this.currentPath;
+        const $files = this.$el_window.find('.files-tab .files');
+        const prevScrollTop = isSameDirRefresh ? $files.scrollTop() : 0;
 
-        // Drop the shift-click anchor — it points at a row from the directory
-        // we're leaving, and a stale detached anchor makes the first shift-click
-        // in the new directory select nothing.
-        if ( window.latest_selected_item && ! document.body.contains(window.latest_selected_item) ) {
-            window.latest_selected_item = null;
-            window.active_element = null;
+        const clearListing = () => {
+            $files.html('');
+            document.querySelectorAll('.files-tab .row.selected').forEach(r => {
+                r.classList.remove('selected');
+            });
+
+            // Drop the shift-click anchor — it points at a row that no longer
+            // exists, and a stale detached anchor makes the first shift-click
+            // after the render select nothing.
+            if ( window.latest_selected_item && ! document.body.contains(window.latest_selected_item) ) {
+                window.latest_selected_item = null;
+                window.active_element = null;
+            }
+        };
+
+        if ( ! isSameDirRefresh ) {
+            clearListing();
+            this.showSpinner();
         }
 
         // Determine whether target is a path or uid
@@ -1963,8 +1979,10 @@ const TabFiles = {
             // network). Without this, renderingDirectory would stay true and
             // the guard above would block all further navigation.
             console.error('Failed to read directory:', err);
-            // The container was already emptied above; show a message instead of
-            // leaving a blank pane with no explanation.
+            // Replace whatever the pane shows (blank after navigation, the
+            // stale rows during a same-directory refresh) with a message
+            // rather than leaving it unexplained.
+            clearListing();
             this.$el_window.find('.files-tab .files').html(`<div style="
                 display: flex;
                 justify-content: center;
@@ -2124,6 +2142,14 @@ const TabFiles = {
             });
         });
 
+        // Same-directory refresh: the stale rows stayed on screen during the
+        // fetch; swap them for the fresh listing now that it's here. The
+        // clear and the appends below run without an intervening task, so
+        // the browser paints the old and new listing back to back.
+        if ( isSameDirRefresh ) {
+            clearListing();
+        }
+
         if ( directoryContents.length === 0 ) {
             this.$el_window.find('.files-tab .files').append(`<div style="
                 display: flex;
@@ -2154,6 +2180,13 @@ const TabFiles = {
         this.updateFooterStats();
         this.updateNavButtonStates();
         this.updateOpenFileDots();
+
+        // A refresh must not jump the view back to the top — put the scroll
+        // position back where the user had it.
+        if ( isSameDirRefresh ) {
+            $files.scrollTop(prevScrollTop);
+        }
+
         this.hideSpinner();
         this.renderingDirectory = false;
     },
