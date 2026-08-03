@@ -341,6 +341,14 @@
             "apiKey": "",
             "apiBaseUrl": "https://llm.onerouter.pro/v1"
         },
+        // BytePlus ModelArk. `apiBaseUrl` selects the region; see
+        // https://docs.byteplus.com/en/docs/ModelArk/1330310 for options.
+        "byteplus": {
+            "apiKey": "",
+            "apiBaseUrl": "https://ark.ap-southeast.bytepluses.com/api/v3"
+        },
+        "zai": { "apiKey": "" },
+        "alibaba": { "apiKey": "" },
         "together-ai": { "apiKey": "" },
         // Local Ollama. `enabled: false` skips the auto-probe at startup
         // (otherwise Puter logs ECONNREFUSED on every boot when no Ollama
