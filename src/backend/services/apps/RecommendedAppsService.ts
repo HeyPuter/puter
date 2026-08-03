@@ -46,6 +46,7 @@ const RECOMMENDED_APP_NAMES = [
     'vault',
     'browser',
     'ai-image-project',
+    'chess',
     'blockup',
     'pretty-tiles',
     'galaxy-troops',
