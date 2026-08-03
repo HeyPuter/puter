@@ -13,6 +13,7 @@ import { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { INTERNAL_ADMISSION_BYPASS } from './WorkerDriver.js';
 import type { WorkerDriver } from './WorkerDriver.js';
 
 describe('WorkerDriver', () => {
@@ -603,6 +604,160 @@ describe('WorkerDriver', () => {
         it('returns an empty array (workers have no cost reporting)', () => {
             const rows = target.getReportedCosts();
             expect(rows).toEqual([]);
+        });
+    });
+
+    describe('admission bypass', () => {
+        const unverified = (): Actor =>
+            makeActor({
+                user: {
+                    uuid: 'unverified-uuid',
+                    id: 1,
+                    username: 'unverified',
+                    email: 'unverified@test.com',
+                    email_confirmed: false,
+                },
+            });
+
+        it('rejects an unverified account without the bypass', async () => {
+            const strictServer = await setupTestServer({
+                strict_email_verification_required: true,
+            });
+            const strictDriver = strictServer.drivers
+                .workers as unknown as WorkerDriver;
+            try {
+                await expect(
+                    runWithContext({ actor: unverified() }, () =>
+                        strictDriver.create({
+                            appId: 'test-app',
+                            workerName: 'existing',
+                            filePath: '/test.js',
+                        }),
+                    ),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    message: 'Account email is not verified',
+                });
+            } finally {
+                await strictServer.shutdown();
+            }
+        });
+
+        it('lets the bypass past the verified-email gate', async () => {
+            const strictServer = await setupTestServer({
+                strict_email_verification_required: true,
+            });
+            const strictDriver = strictServer.drivers
+                .workers as unknown as WorkerDriver;
+            try {
+                // Cloudflare is unconfigured in tests, so getting as far as the
+                // 503 proves the email gate no longer stopped the call.
+                await expect(
+                    runWithContext({ actor: unverified() }, () =>
+                        strictDriver.create({
+                            appId: 'test-app',
+                            workerName: 'existing',
+                            filePath: '/test.js',
+                            [INTERNAL_ADMISSION_BYPASS]: true,
+                        }),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 503 });
+            } finally {
+                await strictServer.shutdown();
+            }
+        });
+
+        it('skips the per-user worker limit', async () => {
+            // The limit is checked after the Cloudflare-config gate, so the
+            // driver needs credentials to reach it. Set them on the running
+            // server rather than booting a configured one: a server that boots
+            // with an account id also demands a built worker preamble, which
+            // is not built for backend tests.
+            const store = server.stores.subdomain;
+            const originalList = store.listByUserIdAndPrefix.bind(store);
+            const driverConfig = (
+                target as unknown as { config: Record<string, unknown> }
+            ).config;
+            const originalWorkersConfig = driverConfig.workers;
+            driverConfig.workers = {
+                XAUTHKEY: 'test-key',
+                ACCOUNTID: 'test-account',
+            };
+            let listCalls = 0;
+            store.listByUserIdAndPrefix = (async () => {
+                listCalls++;
+                return Array.from({ length: 100 }, (_, i) => ({
+                    subdomain: `workers.puter.w${i}`,
+                })) as never;
+            }) as typeof store.listByUserIdAndPrefix;
+
+            try {
+                await expect(
+                    inCtx(() =>
+                        target.create({
+                            appId: 'test-app',
+                            workerName: 'atcap',
+                            filePath: '/test.js',
+                        }),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+                expect(listCalls).toBe(1);
+
+                // With the bypass the limit is never even counted; the call
+                // fails later, on the missing source file.
+                await expect(
+                    inCtx(() =>
+                        target.create({
+                            appId: 'test-app',
+                            workerName: 'atcap',
+                            filePath: '/test.js',
+                            [INTERNAL_ADMISSION_BYPASS]: true,
+                        }),
+                    ),
+                ).rejects.not.toMatchObject({ statusCode: 403 });
+                expect(listCalls).toBe(1);
+            } finally {
+                store.listByUserIdAndPrefix = originalList;
+                driverConfig.workers = originalWorkersConfig;
+            }
+        });
+
+        it('cannot be forged through caller-supplied args', async () => {
+            const strictServer = await setupTestServer({
+                strict_email_verification_required: true,
+            });
+            const strictDriver = strictServer.drivers
+                .workers as unknown as WorkerDriver;
+            // Driver args reach the method as parsed JSON from the request
+            // body, so parse these the same way a call would.
+            const forgeries = [
+                '{"skipAdmission":true}',
+                '{"skipAdmissionChecks":true}',
+                '{"INTERNAL_ADMISSION_BYPASS":true}',
+                '{"Symbol(workers.internalAdmissionBypass)":true}',
+                '{"__proto__":{"skipAdmission":true}}',
+            ];
+            try {
+                for (const body of forgeries) {
+                    const forged = JSON.parse(body) as Record<string, unknown>;
+                    expect(Object.getOwnPropertySymbols(forged)).toHaveLength(0);
+                    await expect(
+                        runWithContext({ actor: unverified() }, () =>
+                            strictDriver.create({
+                                ...forged,
+                                appId: 'test-app',
+                                workerName: 'existing',
+                                filePath: '/test.js',
+                            } as Parameters<WorkerDriver['create']>[0]),
+                        ),
+                    ).rejects.toMatchObject({
+                        statusCode: 400,
+                        message: 'Account email is not verified',
+                    });
+                }
+            } finally {
+                await strictServer.shutdown();
+            }
         });
     });
 });
