@@ -1277,6 +1277,7 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
             let copy_path = window.clipboard[i].path;
             let item_with_same_name_already_exists = true;
             let overwrite = overwrite_all;
+            let keep_both = false;
             latest_status = i18n('copying_file', copy_path);
             progwin?.set_status(latest_status);
 
@@ -1298,8 +1299,10 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
                         source: copy_path,
                         destination: dest_path,
                         overwrite: overwrite || overwrite_all,
-                        // if user is copying an item to where its source is, change the name so there is no conflict
-                        dedupeName: dest_path === path.dirname(copy_path),
+                        // dedupe when the user chose "Keep Both" on a conflict, or
+                        // when copying an item to where its source is — either way
+                        // the copy gets a "name (1)" style name instead of conflicting
+                        dedupeName: keep_both || dest_path === path.dirname(copy_path),
                     });
 
                     // remove overwritten item from the DOM
@@ -1323,6 +1326,7 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
                             buttons: [
                                 { label: i18n('replace'), type: 'primary', value: 'replace' },
                                 ... (window.clipboard.length > 1) ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
+                                { label: i18n('keep_both'), value: 'keep_both' },
                                 ... (window.clipboard.length > 1) ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
                             ],
                         });
@@ -1332,6 +1336,8 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
                         } else if ( alert_resp === 'replace_all' ) {
                             overwrite = true;
                             overwrite_all = true;
+                        } else if ( alert_resp === 'keep_both' ) {
+                            keep_both = true;
                         } else if ( alert_resp === 'skip' || alert_resp === 'cancel' ) {
                             item_with_same_name_already_exists = false;
                         }
@@ -1406,6 +1412,7 @@ window.copy_items = function (el_items, dest_path) {
             let copy_path = $(el_items[i]).attr('data-path');
             let item_with_same_name_already_exists = true;
             let overwrite = overwrite_all;
+            let keep_both = false;
             latest_status = i18n('copying_file', copy_path);
             progwin?.set_status(latest_status);
 
@@ -1424,8 +1431,10 @@ window.copy_items = function (el_items, dest_path) {
                         source: copy_path,
                         destination: dest_path,
                         overwrite: overwrite || overwrite_all,
-                        // if user is copying an item to where the source is, automatically change the name so there is no conflict
-                        dedupeName: dest_path === path.dirname(copy_path),
+                        // dedupe when the user chose "Keep Both" on a conflict, or
+                        // when copying an item to where its source is — either way
+                        // the copy gets a "name (1)" style name instead of conflicting
+                        dedupeName: keep_both || dest_path === path.dirname(copy_path),
                     });
 
                     // remove overwritten item from the DOM
@@ -1449,6 +1458,7 @@ window.copy_items = function (el_items, dest_path) {
                             buttons: [
                                 { label: i18n('replace'), type: 'primary', value: 'replace' },
                                 ... (el_items.length > 1) ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
+                                { label: i18n('keep_both'), value: 'keep_both' },
                                 ... (el_items.length > 1) ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
                             ],
                         });
@@ -1458,6 +1468,8 @@ window.copy_items = function (el_items, dest_path) {
                         } else if ( alert_resp === 'replace_all' ) {
                             overwrite = true;
                             overwrite_all = true;
+                        } else if ( alert_resp === 'keep_both' ) {
+                            keep_both = true;
                         } else if ( alert_resp === 'skip' || alert_resp === 'cancel' ) {
                             item_with_same_name_already_exists = false;
                         }
@@ -1765,6 +1777,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
         // if an item with the same name already exists in the destination path
         let item_with_same_name_already_exists = false;
         let overwrite = overwrite_all;
+        let keep_both = false;
         let untrashed_at_least_one_item = false;
 
         // --------------------------------------------------------
@@ -1860,6 +1873,9 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     source: $(el_item).attr('data-uid'),
                     destination: dest_path,
                     overwrite: overwrite || overwrite_all,
+                    // "Keep Both" conflict resolution: move under a deduped
+                    // "name (1)" style name instead of overwriting
+                    dedupeName: keep_both,
                     newName: new_name,
                     // recycling requires making all missing dirs
                     createMissingParents: recycling,
@@ -2020,6 +2036,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                         buttons: [
                             { label: i18n('replace'), type: 'primary', value: 'replace' },
                             ... (el_items.length > 1) ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
+                            { label: i18n('keep_both'), value: 'keep_both' },
                             ... (el_items.length > 1) ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
                         ],
                     });
@@ -2029,6 +2046,8 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     } else if ( alert_resp === 'replace_all' ) {
                         overwrite = true;
                         overwrite_all = true;
+                    } else if ( alert_resp === 'keep_both' ) {
+                        keep_both = true;
                     } else if ( alert_resp === 'skip' || alert_resp === 'cancel' ) {
                         item_with_same_name_already_exists = false;
                     }

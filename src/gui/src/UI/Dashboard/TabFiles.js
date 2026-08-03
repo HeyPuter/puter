@@ -3062,6 +3062,7 @@ const TabFiles = {
             // Handle both object format { path, uid } and legacy string format
             const source = item.uid || item.path || item;
             let overwrite = overwrite_all;
+            let keep_both = false;
             let retry;
             do {
                 retry = false;
@@ -3070,6 +3071,9 @@ const TabFiles = {
                         source: source,
                         destination: destPath,
                         overwrite: overwrite,
+                        // "Keep Both" conflict resolution: move under a
+                        // deduped "name (1)" style name instead of overwriting
+                        dedupeName: keep_both,
                     });
                 } catch ( err ) {
                     // Same conflict resolution as the desktop's move_items:
@@ -3080,6 +3084,7 @@ const TabFiles = {
                             buttons: [
                                 { label: i18n('replace'), type: 'primary', value: 'replace' },
                                 ... multiple_items ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
+                                { label: i18n('keep_both'), value: 'keep_both' },
                                 ... multiple_items ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
                             ],
                         });
@@ -3089,6 +3094,9 @@ const TabFiles = {
                         } else if ( alert_resp === 'replace_all' ) {
                             overwrite = true;
                             overwrite_all = true;
+                            retry = true;
+                        } else if ( alert_resp === 'keep_both' ) {
+                            keep_both = true;
                             retry = true;
                         }
                         // skip/cancel: the item stays where it was cut from

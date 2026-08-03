@@ -52,6 +52,9 @@ const move = defineOperation({
                 source,
                 destination,
                 overwrite: options.overwrite,
+                // give the moved item a deduped name ("x (1).txt") instead of
+                // conflicting — the "Keep Both" conflict resolution
+                dedupe_name: firstDefined(options, 'dedupeName', 'dedupe_name'),
                 new_name: newName,
                 create_missing_parents: firstDefined(options, 'createMissingParents', 'create_missing_parents'),
                 new_metadata: firstDefined(options, 'newMetadata', 'new_metadata'),
