@@ -3052,17 +3052,53 @@ const TabFiles = {
             return;
         }
 
+        const { html_encode } = window;
+        const multiple_items = window.clipboard.length > 1;
+        // Set once the user picks "Replace all" on a conflict; later items
+        // then overwrite without asking again.
+        let overwrite_all = false;
+
         for ( const item of window.clipboard ) {
             // Handle both object format { path, uid } and legacy string format
             const source = item.uid || item.path || item;
-            try {
-                await puter.fs.move({
-                    source: source,
-                    destination: destPath,
-                });
-            } catch ( err ) {
-                console.error('Failed to move item:', err);
-            }
+            let overwrite = overwrite_all;
+            let retry;
+            do {
+                retry = false;
+                try {
+                    await puter.fs.move({
+                        source: source,
+                        destination: destPath,
+                        overwrite: overwrite,
+                    });
+                } catch ( err ) {
+                    // Same conflict resolution as the desktop's move_items:
+                    // ask, then retry with overwrite or leave the item be.
+                    if ( err.code === 'item_with_same_name_exists' ) {
+                        const alert_resp = await UIAlert({
+                            message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
+                            buttons: [
+                                { label: i18n('replace'), type: 'primary', value: 'replace' },
+                                ... multiple_items ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
+                                ... multiple_items ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
+                            ],
+                        });
+                        if ( alert_resp === 'replace' ) {
+                            overwrite = true;
+                            retry = true;
+                        } else if ( alert_resp === 'replace_all' ) {
+                            overwrite = true;
+                            overwrite_all = true;
+                            retry = true;
+                        }
+                        // skip/cancel: the item stays where it was cut from
+                    } else {
+                        console.error('Failed to move item:', err);
+                        const item_name = String(item.path || source).split('/').pop();
+                        UIAlert(`<p>Moving <strong>${html_encode(item_name)}</strong></p>${html_encode(err.message ?? '')}`);
+                    }
+                }
+            } while ( retry );
         }
 
         window.clipboard = [];
