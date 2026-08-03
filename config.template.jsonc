@@ -341,7 +341,9 @@
             "apiKey": "",
             "apiBaseUrl": "https://llm.onerouter.pro/v1"
         },
-        // BytePlus ModelArk. `apiBaseUrl` selects the region; see
+        // BytePlus ModelArk. One key powers chat (Seed/GLM/DeepSeek), image
+        // generation (Seedream) and video generation (Seedance); `apiBaseUrl`
+        // selects the region; see
         // https://docs.byteplus.com/en/docs/ModelArk/1330310 for options.
         "byteplus": {
             "apiKey": "",

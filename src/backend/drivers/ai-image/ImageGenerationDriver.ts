@@ -26,6 +26,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { Actor } from '../../core/actor.js';
 import { PuterDriver } from '../types.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
+import { BytePlusImageProvider } from './providers/byteplus/BytePlusImageProvider.js';
 import { CloudflareImageProvider } from './providers/cloudflare/CloudflareImageProvider.js';
 import { GeminiImageProvider } from './providers/gemini/GeminiImageProvider.js';
 import { OpenAiImageProvider } from './providers/openai/OpenAiImageProvider.js';
@@ -59,6 +60,7 @@ export class ImageGenerationDriver extends PuterDriver {
         'cloudflare-image-generation',
         'xai-image-generation',
         'replicate-image-generation',
+        'byteplus-image-generation',
     ];
     readonly isDefault = true;
 
@@ -290,8 +292,7 @@ export class ImageGenerationDriver extends PuterDriver {
         const cloudflare = (providers['cloudflare-image-generation'] ??
             providers['cloudflare-workers-ai-image'] ??
             providers['cloudflare-workers-ai']) as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
         const cfToken =
             (cloudflare?.apiToken as string | undefined) ??
             (cloudflare?.apiKey as string | undefined) ??
@@ -306,8 +307,7 @@ export class ImageGenerationDriver extends PuterDriver {
                         apiToken: cfToken,
                         accountId: cfAccount,
                         apiBaseUrl: cloudflare?.apiBaseUrl as
-                            | string
-                            | undefined,
+                            string | undefined,
                     },
                     m,
                 );
@@ -329,6 +329,26 @@ export class ImageGenerationDriver extends PuterDriver {
             this.#providers['replicate-image-generation'] =
                 new ReplicateImageGenerationProvider(
                     { apiKey: replicateKey },
+                    m,
+                );
+        }
+
+        // Falls back to the shared `byteplus` (ai-chat) key; `apiBaseUrl`
+        // selects the ModelArk region, same as the chat provider.
+        const byteplusCfg = (providers['byteplus-image-generation'] ??
+            providers['byteplus']) as Record<string, unknown> | undefined;
+        const byteplusKey = readKey(
+            providers['byteplus-image-generation'],
+            providers['byteplus'],
+        );
+        if (byteplusKey) {
+            this.#providers['byteplus-image-generation'] =
+                new BytePlusImageProvider(
+                    {
+                        apiKey: byteplusKey,
+                        apiBaseUrl: byteplusCfg?.apiBaseUrl as
+                            string | undefined,
+                    },
                     m,
                 );
         }
