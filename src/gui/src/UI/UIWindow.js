@@ -295,7 +295,6 @@ async function UIWindow (options) {
                 data-update_window_url = "${options.update_window_url && options.is_visible}"
                 data-custom_path = "${html_encode(options.custom_path)}"
                 data-user_set_url_params = "${html_encode(user_set_url_params)}"
-                data-initial_zindex = "${zindex}"
                 data-is_panel ="${options.is_panel ? 1 : 0}"
                 data-is_visible ="${options.is_visible ? 1 : 0}"
                 style=" z-index: ${zindex}; 
@@ -1923,19 +1922,12 @@ async function UIWindow (options) {
                 // rm window from original_window_position
                 window.original_window_position[$(el_window).attr('id')] = undefined;
 
-                // since jquery draggable sets the z-index automatically we need this to
-                // bring windows to the front when they are clicked.
-                window.last_window_zindex = parseInt($(el_window).css('z-index'));
-
                 //transform causes draggable to start inaccurately
                 $(el_window).css('transform', 'none');
             },
             drag: function ( e, ui ) {
                 $(el_window_app_iframe).css('pointer-events', 'none');
                 $('.window').css('pointer-events', 'none');
-                // jqueryui changes the z-index automatically, if the stay_on_top flag is set
-                // make sure window stays on top
-                $('.window[data-stay_on_top="true"]').css('z-index', 999999999);
 
                 if ( $(el_window).attr('data-is_maximized') === '1' ) {
                     $(el_window).attr('data-is_maximized', '0');
@@ -1996,11 +1988,6 @@ async function UIWindow (options) {
                 $(el_window_app_iframe).css('pointer-events', 'all');
                 $('.window').css('pointer-events', 'initial');
                 $('.toolbar').css('pointer-events', 'auto');
-                // jqueryui changes the z-index automatically, if the stay_on_top flag is set
-                // make sure window stays on top with the initial zindex though
-                $('.window[data-stay_on_top="true"]').each(function () {
-                    $(this).css('z-index', $(this).attr('data-initial_zindex'));
-                });
 
                 if ( options.is_resizable && snap_placeholder_active && !window_is_snapped ) {
                     window_will_snap = true;
@@ -2134,7 +2121,14 @@ async function UIWindow (options) {
                 }
             },
             handle: `.window-head-draggable${ options.draggable_body ? ', .window-body' : ''}`,
-            stack: '.window',
+            // No jQuery UI `stack` option here: it compacts every .window's
+            // z-index into a small sequential range on drag start, erasing the
+            // 99999999+ band that keeps stay-on-top windows — and their child
+            // dialogs, banded via window_zindex_base — above everything else
+            // (a dashboard app's file dialog would end up buried under its
+            // parent). Raise-on-click is already handled band-aware by the
+            // document mousedown -> focusWindow path, which fires before any
+            // drag starts.
             scroll: false,
             containment: '.window-container',
         });
