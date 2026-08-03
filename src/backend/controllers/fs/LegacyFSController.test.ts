@@ -928,6 +928,87 @@ describe('LegacyFSController.copy', () => {
         // The entry must still exist — the ghost handler must NOT have run.
         expect(await server.stores.fsEntry.getEntryByPath(src)).not.toBeNull();
     });
+
+    it('surfaces a name collision, then reports and removes the replaced entry on overwrite', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const src = `/${username}/Documents/dup.txt`;
+        const existing = `/${username}/Pictures/dup.txt`;
+        for ( const p of [src, existing] ) {
+            await withActor(actor, () =>
+                controller.touch(
+                    makeReq({ body: { path: p }, actor }),
+                    makeRes().res,
+                ),
+            );
+        }
+
+        // Without overwrite: the v1 conflict contract the GUI's
+        // replace/skip prompts key on.
+        await expect(
+            withActor(actor, () =>
+                controller.copy(
+                    makeReq({
+                        body: {
+                            source: src,
+                            destination: `/${username}/Pictures`,
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 409,
+            legacyCode: 'item_with_same_name_exists',
+            fields: { entry_name: 'dup.txt' },
+        });
+
+        const replaced = (await server.stores.fsEntry.getEntryByPath(
+            existing,
+        ))!;
+
+        // With overwrite: the replaced entry rides along in the response
+        // (so the caller can drop its row) and item.removed tells every
+        // other client to do the same — without it they keep a ghost row
+        // until the directory is re-listed.
+        const emitSpy = vi.spyOn(server.clients.event, 'emit');
+        let body: Array<{
+            copied: { path: string };
+            overwritten?: { id: string };
+        }>;
+        let removedCall: (typeof emitSpy.mock.calls)[number] | undefined;
+        try {
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.copy(
+                    makeReq({
+                        body: {
+                            source: src,
+                            destination: `/${username}/Pictures`,
+                            overwrite: true,
+                        },
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+            body = captured.body as typeof body;
+            removedCall = emitSpy.mock.calls.find(
+                ([eventName]) => eventName === 'outer.gui.item.removed',
+            );
+        } finally {
+            emitSpy.mockRestore();
+        }
+
+        expect(body[0].copied.path).toBe(existing);
+        expect(body[0].overwritten?.id).toBe(replaced.uuid);
+        expect(removedCall).toBeTruthy();
+        const removedPayload = removedCall?.[1] as {
+            response?: { uid?: string };
+        };
+        expect(removedPayload.response?.uid).toBe(replaced.uuid);
+    });
 });
 
 // ── move ────────────────────────────────────────────────────────────
@@ -1003,6 +1084,89 @@ describe('LegacyFSController.move', () => {
 
         const body = captured.body as { moved: { path: string } };
         expect(body.moved.path).toBe(`/${username}/Pictures/bar`);
+    });
+
+    it('surfaces a name collision, then reports and removes the replaced entry on overwrite', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const src = `/${username}/Documents/clash.txt`;
+        const existing = `/${username}/Pictures/clash.txt`;
+        for ( const p of [src, existing] ) {
+            await withActor(actor, () =>
+                controller.touch(
+                    makeReq({ body: { path: p }, actor }),
+                    makeRes().res,
+                ),
+            );
+        }
+
+        // Without overwrite: the v1 conflict contract the GUI's
+        // replace/skip prompts key on.
+        await expect(
+            withActor(actor, () =>
+                controller.move(
+                    makeReq({
+                        body: {
+                            source: src,
+                            destination: `/${username}/Pictures`,
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 409,
+            legacyCode: 'item_with_same_name_exists',
+            fields: { entry_name: 'clash.txt' },
+        });
+
+        const replaced = (await server.stores.fsEntry.getEntryByPath(
+            existing,
+        ))!;
+
+        // With overwrite: the replaced entry rides along in the response
+        // (so the caller can drop its row) and item.removed tells every
+        // other client to do the same — without it they keep a ghost row
+        // until the directory is re-listed.
+        const emitSpy = vi.spyOn(server.clients.event, 'emit');
+        let body: {
+            moved: { path: string };
+            old_path: string;
+            overwritten?: { id: string };
+        };
+        let removedCall: (typeof emitSpy.mock.calls)[number] | undefined;
+        try {
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.move(
+                    makeReq({
+                        body: {
+                            source: src,
+                            destination: `/${username}/Pictures`,
+                            overwrite: true,
+                        },
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+            body = captured.body as typeof body;
+            removedCall = emitSpy.mock.calls.find(
+                ([eventName]) => eventName === 'outer.gui.item.removed',
+            );
+        } finally {
+            emitSpy.mockRestore();
+        }
+
+        expect(body.old_path).toBe(src);
+        expect(body.moved.path).toBe(existing);
+        expect(body.overwritten?.id).toBe(replaced.uuid);
+        expect(removedCall).toBeTruthy();
+        const removedPayload = removedCall?.[1] as {
+            response?: { uid?: string };
+        };
+        expect(removedPayload.response?.uid).toBe(replaced.uuid);
     });
 });
 
