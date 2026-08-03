@@ -37,6 +37,7 @@ import { DeepSeekProvider } from './providers/deepseek/DeepSeekProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import { GeminiChatProvider } from './providers/gemini/GeminiChatProvider.js';
 import { GroqAIProvider } from './providers/groq/GroqAIProvider.js';
+import { HoonifyProvider } from './providers/hoonify/HoonifyProvider.js';
 import { InfronProvider } from './providers/infron/InfronProvider.js';
 import { MiniMaxProvider } from './providers/minimax/MiniMaxProvider.js';
 import { MistralAIProvider } from './providers/mistral/MistralAiProvider.js';
@@ -999,6 +1000,18 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
+        const hoonify = providers['hoonify'];
+        const hoonifyKey = readKey(hoonify);
+        if (hoonifyKey) {
+            this.#providers['hoonify'] = new HoonifyProvider(
+                {
+                    apiKey: hoonifyKey,
+                    apiBaseUrl: hoonify?.apiBaseUrl as string | undefined,
+                },
+                metering,
+            );
+        }
+
         // Fake provider — always available for testing
         this.#providers['fake-chat'] = new FakeChatProvider();
     }
@@ -1006,7 +1019,12 @@ export class ChatCompletionDriver extends PuterDriver {
     // -- Model map ---------------------------------------------------
 
     async #buildModelMap() {
-        const AGGREGATORS = new Set(['together-ai', 'openrouter', 'infron']);
+        const AGGREGATORS = new Set([
+            'together-ai',
+            'openrouter',
+            'infron',
+            'hoonify',
+        ]);
 
         for (const providerName in this.#providers) {
             const provider = this.#providers[providerName];
