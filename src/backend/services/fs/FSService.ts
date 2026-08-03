@@ -3496,10 +3496,16 @@ export class FSService extends PuterService {
             } else if (input.dedupeName) {
                 name = await this.#findDedupedName(destinationParent, name);
             } else {
+                // v1 wire contract: clients (the GUI's move/paste flows among
+                // them) key on `item_with_same_name_exists` + `entry_name` to
+                // offer a replace/skip prompt.
                 throw new HttpError(
                     409,
                     `An entry already exists at ${targetPath}`,
-                    { legacyCode: 'conflict' },
+                    {
+                        legacyCode: 'item_with_same_name_exists',
+                        fields: { entry_name: name },
+                    },
                 );
             }
         }
@@ -3599,10 +3605,14 @@ export class FSService extends PuterService {
             } else if (input.dedupeName) {
                 name = await this.#findDedupedName(destinationParent, name);
             } else {
+                // v1 wire contract, as in move() above.
                 throw new HttpError(
                     409,
                     `An entry already exists at ${targetPath}`,
-                    { legacyCode: 'conflict' },
+                    {
+                        legacyCode: 'item_with_same_name_exists',
+                        fields: { entry_name: name },
+                    },
                 );
             }
         }

@@ -870,6 +870,15 @@ $(document).bind('keyup keydown', async function (e) {
         if ( parent_container ) {
             target_el = parent_container;
             target_path = $(parent_container).attr('data-path');
+            // No path means this container isn't a filesystem view this
+            // handler can paste into — the dashboard's Files tab is one such
+            // (it has its own paste handler); pasting here anyway would
+            // double-move the clipboard, and reading .startsWith off the
+            // undefined path used to throw on every paste in dashboard mode.
+            if ( ! target_path )
+            {
+                return;
+            }
             // don't allow pasting in Trash
             if ( (target_path === window.trash_path || target_path.startsWith(`${window.trash_path }/`)) && window.clipboard_op !== 'move' )
             {
