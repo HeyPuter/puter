@@ -2485,8 +2485,7 @@ export class FSEntryStore extends PuterStore {
         } = {},
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
         const payload = decodeCursor(options.cursor) as
-            | { v: unknown; id: number; s?: string; o?: string }
-            | undefined;
+            { v: unknown; id: number; s?: string; o?: string } | undefined;
 
         const requestedSort = options.sortBy ?? null;
         const requestedOrder = options.sortOrder ?? null;
@@ -2669,8 +2668,7 @@ export class FSEntryStore extends PuterStore {
         const limit = normalizeLimit(options.limit, { cap: 10_000 }) ?? 1000;
 
         const payload = decodeCursor(options.cursor) as
-            | { p: string }
-            | undefined;
+            { p: string } | undefined;
         const seek = payload ? 'AND path > ?' : '';
         const params: unknown[] = payload
             ? [userId, likePattern, maxSlashes, payload.p, limit + 1]
@@ -2834,6 +2832,17 @@ export class FSEntryStore extends PuterStore {
             return existing;
         }
 
+        // A path-changing patch (rename, move) must also drop the OLD path's
+        // cache key — invalidating only the updated entry leaves
+        // `prodfsv2:fsentry:path:any:<old path>` serving the pre-update entry
+        // for the full TTL. That stale hit made a paste right after renaming
+        // the occupant report a phantom name conflict, and accepting the
+        // Replace it offered deleted the renamed file (the stale entry
+        // carries its uuid). Read the pre-update entry so its keys can be
+        // invalidated alongside the new ones.
+        const previous =
+            patch.path !== undefined ? await this.getEntryByUuid(uuid) : null;
+
         await this.clients.db.write(
             `UPDATE fsentries SET ${assignments.join(', ')} WHERE uuid = ?`,
             [...values, uuid],
@@ -2850,6 +2859,9 @@ export class FSEntryStore extends PuterStore {
             });
         }
         const updated = this.#mapFSEntryRow(row);
+        if (previous && previous.path !== updated.path) {
+            await this.#invalidateEntryCache(previous);
+        }
         await this.#invalidateEntryCache(updated);
         await this.#writeEntryToCache(updated);
         return updated;
