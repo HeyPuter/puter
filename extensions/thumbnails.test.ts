@@ -15,6 +15,7 @@ import {
 import { PuterServer } from '../src/backend/server.ts';
 import { setupTestServer } from '../src/backend/testUtil.ts';
 import {
+    handleFsCopyNodeThumbnail,
     handleFsRemoveNodeThumbnail,
     handleThumbnailCreated,
     handleThumbnailRead,
@@ -399,5 +400,109 @@ describe('thumbnails extension — handleFsRemoveNodeThumbnail', () => {
             { target: { thumbnail: 'https://cdn.example.com/x.png' } },
             { s3, bucketName: BUCKET },
         );
+    });
+});
+
+describe('thumbnails extension — handleFsCopyNodeThumbnail', () => {
+    let server: PuterServer;
+    let s3: S3Client;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+        s3 = server.clients.s3.get();
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('duplicates the shared thumbnail object and repoints the copied row', async () => {
+        const sourceKey = mintedKey();
+        const body = Buffer.from(TINY_PNG_BASE64, 'base64');
+        await s3.send(
+            new PutObjectCommand({
+                Bucket: BUCKET,
+                Key: sourceKey,
+                Body: body,
+                ContentType: 'image/png',
+            }),
+        );
+
+        const copyUuid = crypto.randomUUID();
+        const db = { write: vi.fn().mockResolvedValue(undefined) };
+        await handleFsCopyNodeThumbnail(
+            {
+                copy: {
+                    thumbnail: `s3://${BUCKET}/${sourceKey}`,
+                    uuid: copyUuid,
+                },
+            },
+            { s3, bucketName: BUCKET, db },
+        );
+
+        // The copied row was repointed at a fresh object...
+        expect(db.write).toHaveBeenCalledTimes(1);
+        const [, params] = db.write.mock.calls[0] as [string, [string, string]];
+        const [newPointer, updatedUuid] = params;
+        expect(updatedUuid).toBe(copyUuid);
+        expect(newPointer.startsWith(`s3://${BUCKET}/thumbnails/`)).toBe(true);
+        expect(newPointer).not.toBe(`s3://${BUCKET}/${sourceKey}`);
+
+        // ...whose content matches, while the source object survives — so
+        // deleting either entry can no longer break the other's thumbnail.
+        const newKey = newPointer.slice(`s3://${BUCKET}/`.length);
+        const duplicated = await s3.send(
+            new GetObjectCommand({ Bucket: BUCKET, Key: newKey }),
+        );
+        expect(
+            (await streamToBuffer(duplicated.Body as never)).equals(body),
+        ).toBe(true);
+        const original = await s3.send(
+            new GetObjectCommand({ Bucket: BUCKET, Key: sourceKey }),
+        );
+        expect(original.ContentType).toBe('image/png');
+    });
+
+    it('drops the pointer when the shared object is already gone', async () => {
+        const copyUuid = crypto.randomUUID();
+        const db = { write: vi.fn().mockResolvedValue(undefined) };
+        await handleFsCopyNodeThumbnail(
+            {
+                copy: {
+                    thumbnail: `s3://${BUCKET}/${mintedKey()}`, // never uploaded
+                    uuid: copyUuid,
+                },
+            },
+            { s3, bucketName: BUCKET, db },
+        );
+
+        expect(db.write).toHaveBeenCalledTimes(1);
+        const [sql, params] = db.write.mock.calls[0] as [string, [string]];
+        expect(sql).toContain('NULL');
+        expect(params).toEqual([copyUuid]);
+    });
+
+    it('does not duplicate an object the pointer names but we did not mint', async () => {
+        const foreignKey = crypto.randomUUID(); // shaped like an fs object key
+        const db = { write: vi.fn().mockResolvedValue(undefined) };
+        await handleFsCopyNodeThumbnail(
+            {
+                copy: {
+                    thumbnail: `s3://${BUCKET}/${foreignKey}`,
+                    uuid: crypto.randomUUID(),
+                },
+            },
+            { s3, bucketName: BUCKET, db },
+        );
+        expect(db.write).not.toHaveBeenCalled();
+    });
+
+    it('is a no-op when the copy has no thumbnail', async () => {
+        const db = { write: vi.fn().mockResolvedValue(undefined) };
+        await handleFsCopyNodeThumbnail(
+            { copy: { thumbnail: null, uuid: crypto.randomUUID() } },
+            { s3, bucketName: BUCKET, db },
+        );
+        expect(db.write).not.toHaveBeenCalled();
     });
 });
