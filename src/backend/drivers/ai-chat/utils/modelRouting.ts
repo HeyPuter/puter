@@ -30,6 +30,7 @@ export const AGGREGATOR_PROVIDERS = new Set([
     'openrouter',
     'infron',
     'neuralwatt',
+    'hoonify',
 ]);
 
 // Lower rank is served first. `openrouter` and `together-ai` sit at the very
