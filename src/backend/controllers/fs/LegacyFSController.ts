@@ -166,8 +166,7 @@ export class LegacyFSController extends PuterController {
 
         router.get('/get-launch-apps', apiOptions, async (req, res) => {
             const recommendedSvc = this.services.recommendedApps as unknown as
-                | { getRecommendedApps?: () => Promise<unknown[]> }
-                | undefined;
+                { getRecommendedApps?: () => Promise<unknown[]> } | undefined;
             const recommended = recommendedSvc?.getRecommendedApps
                 ? await recommendedSvc.getRecommendedApps()
                 : [];
@@ -589,26 +588,61 @@ export class LegacyFSController extends PuterController {
             'write',
         );
 
+        // The v1 wire contract reports the entry an overwrite replaced
+        // (`overwritten`) so clients can drop its stale row/icon. The copy
+        // deletes that entry, so resolve it beforehand.
+        const overwriteRequested = getBoolean(body, 'overwrite') ?? false;
+        let overwrittenEntry = null;
+        if (overwriteRequested) {
+            const targetName = getString(body, 'new_name') ?? source.name;
+            const targetPath =
+                destinationParent.path === '/'
+                    ? `/${targetName}`
+                    : `${destinationParent.path}/${targetName}`;
+            overwrittenEntry =
+                await this.stores.fsEntry.getEntryByPath(targetPath);
+        }
+
         const copy = await this.services.fs.copy(userId, {
             source,
             destinationParent,
             newName: getString(body, 'new_name'),
-            overwrite: getBoolean(body, 'overwrite') ?? false,
+            overwrite: overwriteRequested,
             dedupeName: getBoolean(body, 'dedupe_name', 'change_name') ?? false,
         });
         await this.#emitGuiEvent('outer.gui.item.added', copy);
+        // Without this, every other client keeps a ghost row for the
+        // replaced entry until the directory is re-listed.
+        if (overwrittenEntry) {
+            await this.#emitGuiEvent(
+                'outer.gui.item.removed',
+                overwrittenEntry,
+            );
+        }
 
         // Legacy response shape: `[{copied: fsentry, overwritten?}]`.
         // Array is historical — originally supported bulk copy.
-        const copied = await toLegacyEntry(this.clients.event, copy, {
+        const legacyEntryOpts = {
             fsEntryStore: this.stores.fsEntry,
             userStore: this.stores.user as unknown as {
                 getById: (
                     id: number,
                 ) => Promise<Record<string, unknown> | null>;
             },
-        });
-        res.json([{ copied }]);
+        };
+        const copied = await toLegacyEntry(
+            this.clients.event,
+            copy,
+            legacyEntryOpts,
+        );
+        const overwritten = overwrittenEntry
+            ? await toLegacyEntry(
+                  this.clients.event,
+                  overwrittenEntry,
+                  legacyEntryOpts,
+              )
+            : undefined;
+        res.json([{ copied, ...(overwritten ? { overwritten } : {}) }]);
     };
 
     move = async (req: Request, res: Response): Promise<void> => {
@@ -640,36 +674,77 @@ export class LegacyFSController extends PuterController {
             'write',
         );
 
+        // The v1 wire contract reports the entry an overwrite replaced
+        // (`overwritten`) so clients can drop its stale row/icon. The move
+        // deletes that entry, so resolve it beforehand.
+        const overwriteRequested = getBoolean(body, 'overwrite') ?? false;
+        let overwrittenEntry = null;
+        if (overwriteRequested) {
+            const targetName = getString(body, 'new_name') ?? source.name;
+            const targetPath =
+                destinationParent.path === '/'
+                    ? `/${targetName}`
+                    : `${destinationParent.path}/${targetName}`;
+            const existing =
+                await this.stores.fsEntry.getEntryByPath(targetPath);
+            // Moving an entry onto its own path is not an overwrite.
+            if (existing && existing.uuid !== source.uuid) {
+                overwrittenEntry = existing;
+            }
+        }
+
         const moved = await this.services.fs.move(userId, {
             source,
             destinationParent,
             newName: getString(body, 'new_name'),
-            overwrite: getBoolean(body, 'overwrite') ?? false,
+            overwrite: overwriteRequested,
             dedupeName: getBoolean(body, 'dedupe_name', 'change_name') ?? false,
             // Trash/restore rides on this: GUI sends
             // `{ original_name, original_path, trashed_ts }` when moving into
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                | Record<string, unknown>
-                | null
-                | undefined,
+                Record<string, unknown> | null | undefined,
         });
         const oldPath = source.path;
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
             old_path: oldPath,
         });
+        // Without this, every other client keeps a ghost row for the
+        // replaced entry until the directory is re-listed.
+        if (overwrittenEntry) {
+            await this.#emitGuiEvent(
+                'outer.gui.item.removed',
+                overwrittenEntry,
+            );
+        }
 
-        // Legacy response shape: `{moved: fsentry, old_path}`.
-        const movedEntry = await toLegacyEntry(this.clients.event, moved, {
+        // Legacy response shape: `{moved: fsentry, old_path, overwritten?}`.
+        const legacyEntryOpts = {
             fsEntryStore: this.stores.fsEntry,
             userStore: this.stores.user as unknown as {
                 getById: (
                     id: number,
                 ) => Promise<Record<string, unknown> | null>;
             },
+        };
+        const movedEntry = await toLegacyEntry(
+            this.clients.event,
+            moved,
+            legacyEntryOpts,
+        );
+        const overwritten = overwrittenEntry
+            ? await toLegacyEntry(
+                  this.clients.event,
+                  overwrittenEntry,
+                  legacyEntryOpts,
+              )
+            : undefined;
+        res.json({
+            moved: movedEntry,
+            old_path: oldPath,
+            ...(overwritten ? { overwritten } : {}),
         });
-        res.json({ moved: movedEntry, old_path: oldPath });
     };
 
     delete = async (req: Request, res: Response): Promise<void> => {
@@ -1090,8 +1165,7 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            | (SignedFile & { path?: string })
-            | Record<string, never>;
+            (SignedFile & { path?: string }) | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1631,10 +1705,7 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            | 'see'
-            | 'list'
-            | 'read'
-            | 'write';
+            'see' | 'list' | 'read' | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',

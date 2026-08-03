@@ -2248,6 +2248,10 @@ describe('FSService move', () => {
             fs.move(user.userId, { source, destinationParent: destination }),
         );
         expect(conflict.statusCode).toBe(409);
+        // v1 wire contract: the GUI's replace/skip prompts key on this
+        // code + entry_name; a generic 'conflict' makes them fail silently.
+        expect(conflict.legacyCode).toBe('item_with_same_name_exists');
+        expect(conflict.fields).toMatchObject({ entry_name: 'coll.txt' });
 
         const deduped = await fs.move(user.userId, {
             source,
@@ -2461,16 +2465,17 @@ describe('FSService copy', () => {
         );
         await writeFile(user, `${user.home}/Desktop/cp-coll.txt`, 'existing');
 
-        expect(
-            (
-                await caught(() =>
-                    fs.copy(user.userId, {
-                        source,
-                        destinationParent: destination,
-                    }),
-                )
-            ).statusCode,
-        ).toBe(409);
+        const conflict = await caught(() =>
+            fs.copy(user.userId, {
+                source,
+                destinationParent: destination,
+            }),
+        );
+        expect(conflict.statusCode).toBe(409);
+        // v1 wire contract: the GUI's replace/skip prompts key on this
+        // code + entry_name; a generic 'conflict' makes them fail silently.
+        expect(conflict.legacyCode).toBe('item_with_same_name_exists');
+        expect(conflict.fields).toMatchObject({ entry_name: 'cp-coll.txt' });
 
         const deduped = await fs.copy(user.userId, {
             source,
