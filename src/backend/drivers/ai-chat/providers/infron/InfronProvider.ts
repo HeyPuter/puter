@@ -80,7 +80,7 @@ export class InfronProvider implements IChatProvider {
     }
 
     getDefaultModel() {
-        return 'infron:deepseek/deepseek-v4-flash';
+        return 'infron:qwen/qwen3.5-flash';
     }
 
     /**

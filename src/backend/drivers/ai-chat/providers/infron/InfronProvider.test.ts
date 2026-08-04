@@ -101,6 +101,16 @@ const SAMPLE_API_MODELS = [
         min_completion_price: 30,
     },
     {
+        id: 'qwen/qwen3.5-flash',
+        display_name: 'Qwen: Qwen 3.5 Flash',
+        category_type: 'LLM',
+        supported_endpoint_types: ['openai'],
+        context_length: 1000000,
+        max_output_tokens: 64000,
+        min_prompt_price: 0.1,
+        min_completion_price: 0.4,
+    },
+    {
         id: 'anthropic/claude-haiku-4.5',
         display_name: 'Anthropic: Claude Haiku 4.5',
         category_type: 'LLM',
@@ -221,9 +231,7 @@ describe('InfronProvider construction', () => {
 describe('InfronProvider model catalog', () => {
     it('returns the infron-prefixed default model id', () => {
         const { provider } = makeProvider();
-        expect(provider.getDefaultModel()).toBe(
-            'infron:deepseek/deepseek-v4-flash',
-        );
+        expect(provider.getDefaultModel()).toBe('infron:qwen/qwen3.5-flash');
     });
 
     it('sends the API key as a bearer token on the catalog fetch', async () => {
@@ -240,6 +248,7 @@ describe('InfronProvider model catalog', () => {
         const { provider } = makeProvider();
         const ids = await provider.list();
         expect(ids).toContain('infron:deepseek/deepseek-v4-flash');
+        expect(ids).toContain(provider.getDefaultModel());
         expect(ids).toContain('infron:anthropic/claude-haiku-4.5');
         expect(ids).not.toContain('infron:black-forest-labs/flux-2.1');
         expect(ids).not.toContain('infron:example/display-only-model');
