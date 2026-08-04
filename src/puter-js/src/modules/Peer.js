@@ -95,6 +95,7 @@ export class PuterPeerServer extends EventTarget {
                 server: {
                     create: {
                         authToken: this.#peerConfig.authToken,
+                        anonToken: options.anonToken,
                         port: options.port,
                     },
                 },
@@ -282,6 +283,7 @@ class PuterPeerConnection extends EventTarget {
                 client: {
                     connect: {
                         authToken: this.#peerConfig.authToken,
+                        anonToken: options.anonToken,
                         invitecode,
                         port: options.port,
                     },
@@ -506,7 +508,7 @@ class Peer extends PuterModule {
      * @returns {Promise<PuterPeerServer>}
      */
     async serve (options) {
-        await this.#authenticateForPeerAction('create a server');
+        if ( !options?.anonToken ) await this.#authenticateForPeerAction('create a server');
         const peerConfig = await this.#resolvePeerConfig(options);
         const server = new PuterPeerServer(peerConfig);
         await server.start(options);
@@ -522,7 +524,7 @@ class Peer extends PuterModule {
      * @returns {Promise<PuterPeerConnection>}
      */
     async connect (invitecode, options) {
-        await this.#authenticateForPeerAction('connect to a server');
+        if ( !options?.anonToken ) await this.#authenticateForPeerAction('connect to a server');
         const peerConfig = await this.#resolvePeerConfig(options);
         const conn = new PuterPeerConnection(peerConfig);
         await conn.connect(invitecode, options);
