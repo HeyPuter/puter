@@ -690,7 +690,7 @@ async function UIWindow (options) {
     if ( window.is_dashboard_mode && options.is_visible
         && options.app && options.app !== 'explorer'
         && options.update_window_url ) {
-        push_dashboard_app_url(options.app, options.title);
+        push_dashboard_app_url(options.app, options.title, options.icon);
     }
 
     // Headless dashboard app windows get the top-edge control drawer in
@@ -4195,6 +4195,56 @@ let dashboard_url_app = null;
 // captured it.
 let dashboard_url_base = null;
 
+// The focused app also claims the browser-tab FAVICON, on the same
+// ownership as the title above. The page's own <link rel="icon"> elements
+// are detached while an app holds the tab — not rewritten in place: they
+// carry sizes/type attributes that would misdescribe an app's icon, and
+// which of several links wins is browser-dependent — and are put back
+// when the dashboard takes the tab back.
+let dashboard_default_favicons = null;
+let el_dashboard_app_favicon = null;
+
+function set_dashboard_favicon (icon_url) {
+    // No resolvable icon: leave the tab as it is. A stale app icon can't
+    // outlive its window — every path that hands the tab back to the
+    // dashboard goes through restore_dashboard_favicon.
+    if ( ! icon_url ) return;
+    if ( ! el_dashboard_app_favicon ) {
+        dashboard_default_favicons = Array.from(document.head.querySelectorAll('link[rel~="icon"]'));
+        for ( const link of dashboard_default_favicons ) link.remove();
+        el_dashboard_app_favicon = document.createElement('link');
+        el_dashboard_app_favicon.rel = 'icon';
+        document.head.append(el_dashboard_app_favicon);
+    }
+    if ( el_dashboard_app_favicon.getAttribute('href') !== icon_url ) {
+        el_dashboard_app_favicon.setAttribute('href', icon_url);
+    }
+}
+
+function restore_dashboard_favicon () {
+    if ( ! el_dashboard_app_favicon ) return;
+    el_dashboard_app_favicon.remove();
+    el_dashboard_app_favicon = null;
+    for ( const link of dashboard_default_favicons ?? [] ) {
+        document.head.append(link);
+    }
+    dashboard_default_favicons = null;
+}
+
+/**
+ * Favicon for a RUNNING app window: the bitmap its own chrome already
+ * shows (control-drawer icon on headless dashboard windows, head icon
+ * otherwise), falling back to a dashboard tile's rendered icon. Used when
+ * an app re-claims the tab with no launch in hand (restores, history
+ * traversals); the launch path passes its own icon.
+ */
+function dashboard_app_window_icon (app_name) {
+    if ( ! app_name ) return null;
+    const img = $(`.window[data-app="${html_encode(app_name)}"]`).last()
+        .find('.dashboard-app-drawer-icon, .window-head-icon').get(0);
+    return (img?.currentSrc || img?.src) || dashboard_rendered_app_icon(app_name);
+}
+
 function dashboard_app_url_current () {
     const m = /^\/app\/([^/]+)\/?$/.exec(window.location.pathname);
     if ( ! m ) return null;
@@ -4207,8 +4257,12 @@ function dashboard_app_url_current () {
     }
 }
 
-function push_dashboard_app_url (app_name, title) {
+function push_dashboard_app_url (app_name, title, icon) {
     if ( ! window.is_dashboard_mode || ! app_name ) return;
+    // The tab favicon follows the same ownership as the title. A launch
+    // passes its icon (possibly UIWindow's {image} form); a restore
+    // passes none and the icon is read off the running window.
+    set_dashboard_favicon((icon?.image ?? icon) || dashboard_app_window_icon(app_name));
     if ( dashboard_app_url_current() === app_name ) {
         // Already current (e.g. the popstate handler relaunching a closed
         // app's entry): claim it without stacking a duplicate.
@@ -4294,6 +4348,7 @@ function pop_dashboard_app_url (app_name, options) {
         if ( window.dashboard_base_title !== undefined ) {
             document.title = window.dashboard_base_title;
         }
+        restore_dashboard_favicon();
         // Same window lookup and minimized guard as the popstate handler.
         // On the close path the window is already gone — the URL repair
         // above was the part that still mattered.
@@ -4366,6 +4421,7 @@ window.addEventListener('popstate', () => {
         if ( window.dashboard_base_title !== undefined ) {
             document.title = window.dashboard_base_title;
         }
+        restore_dashboard_favicon();
     }
     else if ( new_app ) {
         // ...and landed on another app's entry (Forward, or Back across
@@ -4383,7 +4439,10 @@ window.addEventListener('popstate', () => {
                 $win.focusWindow();
             }
             document.title = $win.attr('data-name') || document.title;
+            set_dashboard_favicon(dashboard_app_window_icon(new_app));
         } else {
+            // No favicon change here: the relaunch claims it when its
+            // window opens (push_dashboard_app_url, with the fresh icon).
             launch_app({
                 name: new_app,
                 maximized: true,
@@ -4392,8 +4451,11 @@ window.addEventListener('popstate', () => {
                 console.error(`Failed to launch ${new_app}:`, err);
             });
         }
-    } else if ( window.dashboard_base_title !== undefined ) {
-        document.title = window.dashboard_base_title;
+    } else {
+        if ( window.dashboard_base_title !== undefined ) {
+            document.title = window.dashboard_base_title;
+        }
+        restore_dashboard_favicon();
     }
 });
 
