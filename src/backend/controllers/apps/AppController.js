@@ -242,7 +242,13 @@ export class AppController extends PuterController {
                             source: 'appsRoute',
                             args: req.query ?? {},
                         });
-                        return { ...shaped, privateAccess };
+                        return {
+                            ...shaped,
+                            privateAccess:
+                                shaped.privateAccess?.hasAccess === false
+                                    ? shaped.privateAccess
+                                    : privateAccess,
+                        };
                     }),
                 );
 

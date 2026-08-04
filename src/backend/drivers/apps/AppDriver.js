@@ -980,11 +980,13 @@ export class AppDriver extends PuterDriver {
         // launch token to an origin the app owner no longer controls. Only
         // set when not already denied so a private app's existing decision
         // is preserved.
-        if (
-            hostedBackingUnavailable &&
-            result.privateAccess?.hasAccess !== false
-        ) {
-            result.privateAccess = buildHostedBackingDenial();
+        if (hostedBackingUnavailable) {
+            if (result.privateAccess?.hasAccess !== false) {
+                result.privateAccess = buildHostedBackingDenial();
+            }
+            if (actor?.user?.id !== app.owner_user_id) {
+                delete result.index_url;
+            }
         }
 
         return result;

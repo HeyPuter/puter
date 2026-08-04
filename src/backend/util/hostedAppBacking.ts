@@ -23,13 +23,19 @@ import type { PrivateLaunchDecision } from './privateLaunchAccess';
 /**
  * Launch-safety checks for puter-hosted `index_url`s.
  *
- * A hosted subdomain (`*.<hosting-domain>`) can be deleted by its owner and
- * then re-registered by anyone else, but the app row keeps the stale URL —
- * nothing rewrites it on subdomain deletion. Any producer of launchable app
- * metadata must therefore re-check the backing before handing an `index_url` to
- * the GUI launcher, which appends `puter.auth.token` to it.
+ * A hosted subdomain (`*.<hosting-domain>`) can be deleted by its owner, but
+ * the app row keeps the stale URL — nothing rewrites it on subdomain deletion.
+ * Any producer of launchable app metadata must therefore re-check the backing
+ * before handing an `index_url` to the GUI launcher, which appends
+ * `puter.auth.token` to it.
  *
- * This module is the single home for that check. `AppDriver` was the first
+ * The other half of the rule lives on the write side: `SubdomainDriver.create`
+ * refuses a name that some other user's app still points at
+ * (`buildHostedSubdomainIndexUrlCandidates`), so a freed name can't be
+ * re-registered under someone else's launch origin. Only the app's own owner
+ * may re-create it, which restores their app.
+ *
+ * This module is the single home for both checks. `AppDriver` was the first
  * caller; `SuggestedAppsService` and `/get-launch-apps` build their own
  * summaries and need the same guard, so keep the logic here rather than
  * re-deriving it per producer.
@@ -42,6 +48,7 @@ interface HostedDomainConfig {
     static_hosting_domain_alt?: unknown;
     private_app_hosting_domain?: unknown;
     private_app_hosting_domain_alt?: unknown;
+    protocol?: unknown;
 }
 
 interface AppBackingRow {
@@ -49,31 +56,89 @@ interface AppBackingRow {
     owner_user_id?: unknown;
 }
 
-function normalizeConfiguredHostedDomain(domainValue: unknown): string | null {
+function normalizeHostedDomainValue(domainValue: unknown): string | null {
     if (typeof domainValue !== 'string') return null;
     const normalizedDomain = domainValue
         .trim()
         .toLowerCase()
         .replace(/^\./, '');
+    return normalizedDomain || null;
+}
+
+function normalizeConfiguredHostedDomain(domainValue: unknown): string | null {
+    const normalizedDomain = normalizeHostedDomainValue(domainValue);
     if (!normalizedDomain) return null;
     return normalizedDomain.split(':')[0] || null;
+}
+
+function configuredHostedDomainValues(
+    config: HostedDomainConfig | undefined | null,
+): unknown[] {
+    const cfg = config ?? {};
+    return [
+        cfg.static_hosting_domain,
+        cfg.static_hosting_domain_alt,
+        cfg.private_app_hosting_domain,
+        cfg.private_app_hosting_domain_alt,
+    ];
 }
 
 export function getPuterHostedDomains(
     config: HostedDomainConfig | undefined | null,
 ): string[] {
     const domains = new Set<string>();
-    const cfg = config ?? {};
-    for (const configuredDomain of [
-        cfg.static_hosting_domain,
-        cfg.static_hosting_domain_alt,
-        cfg.private_app_hosting_domain,
-        cfg.private_app_hosting_domain_alt,
-    ]) {
+    for (const configuredDomain of configuredHostedDomainValues(config)) {
         const normalized = normalizeConfiguredHostedDomain(configuredDomain);
         if (normalized) domains.add(normalized);
     }
     return [...domains];
+}
+
+/**
+ * Every `index_url` string that resolves to `subdomain` on one of our hosting
+ * domains — protocol, port and trailing-path variants included.
+ *
+ * `apps.index_url` is matched by exact string, so a caller asking "does any app
+ * still point at this name?" has to enumerate the same shapes the app write
+ * path accepts.
+ */
+export function buildHostedSubdomainIndexUrlCandidates(
+    subdomain: unknown,
+    config: HostedDomainConfig | undefined | null,
+): string[] {
+    const name =
+        typeof subdomain === 'string' ? subdomain.trim().toLowerCase() : '';
+    if (!name) return [];
+
+    const hosts = new Set<string>();
+    for (const configuredDomain of configuredHostedDomainValues(config)) {
+        // Keep the configured form and a port-stripped one: dev configs carry
+        // a `:4100`-style port and stored index_urls exist in both shapes.
+        const withPort = normalizeHostedDomainValue(configuredDomain);
+        if (withPort) hosts.add(`${name}.${withPort}`);
+        const bare = normalizeConfiguredHostedDomain(configuredDomain);
+        if (bare) hosts.add(`${name}.${bare}`);
+    }
+    if (hosts.size === 0) return [];
+
+    const configuredProtocol =
+        typeof config?.protocol === 'string'
+            ? config.protocol.trim().replace(/:$/, '')
+            : '';
+    const protocols = [
+        ...new Set([configuredProtocol, 'https', 'http'].filter(Boolean)),
+    ];
+
+    const candidates = new Set<string>();
+    for (const host of hosts) {
+        for (const protocol of protocols) {
+            const base = `${protocol}://${host}`;
+            candidates.add(base);
+            candidates.add(`${base}/`);
+            candidates.add(`${base}/index.html`);
+        }
+    }
+    return [...candidates];
 }
 
 /**

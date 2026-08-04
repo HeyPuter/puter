@@ -500,6 +500,73 @@ describe('AppController GET /apps/:name', () => {
         expect((arr[0] as Record<string, unknown>).uid).toBe(app.uid);
         expect(arr[1]).toBeNull();
     });
+
+    // The driver is the authoritative producer of launch metadata: it runs
+    // the hosted-subdomain guard, which this route knows nothing about. The
+    // route's own entitlement re-check must never turn that denial into an
+    // affirmative verdict — the GUI launcher appends `puter.auth.token` to
+    // whatever `index_url` it is handed.
+
+    it('preserves the hosted-backing denial for the app owner', async () => {
+        const owner = await makeUser();
+        const sub = uniqueName('gone');
+        const row = await server.stores.subdomain.create({
+            userId: owner.userId,
+            subdomain: sub,
+        });
+        const app = await createApp(owner.actor, {
+            index_url: `https://${sub}.site.puter.localhost/`,
+        });
+        await server.stores.subdomain.deleteByUuid(
+            String((row as { uuid: string }).uuid),
+            { userId: owner.userId },
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(owner.actor, () =>
+            callRoute(
+                'get',
+                '/apps/:name',
+                makeReq({ params: { name: app.name }, actor: owner.actor }),
+                res,
+            ),
+        );
+        const body = captured.body as Record<string, unknown>;
+        expect(body.privateAccess).toMatchObject({
+            hasAccess: false,
+            reason: 'hosted_backing_unavailable',
+        });
+    });
+
+    it('omits the stale index_url for a non-owner', async () => {
+        const owner = await makeUser();
+        const stranger = await makeUser();
+        const sub = uniqueName('gone');
+        const row = await server.stores.subdomain.create({
+            userId: owner.userId,
+            subdomain: sub,
+        });
+        const app = await createApp(owner.actor, {
+            index_url: `https://${sub}.site.puter.localhost/`,
+        });
+        await server.stores.subdomain.deleteByUuid(
+            String((row as { uuid: string }).uuid),
+            { userId: owner.userId },
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(stranger.actor, () =>
+            callRoute(
+                'get',
+                '/apps/:name',
+                makeReq({ params: { name: app.name }, actor: stranger.actor }),
+                res,
+            ),
+        );
+        const body = captured.body as Record<string, unknown>;
+        expect(body.index_url).toBeUndefined();
+        expect(body.privateAccess).toMatchObject({ hasAccess: false });
+    });
 });
 
 // ── POST /query/app ─────────────────────────────────────────────────

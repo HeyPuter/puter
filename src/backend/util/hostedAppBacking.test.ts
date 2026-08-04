@@ -20,6 +20,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
     buildHostedBackingDenial,
+    buildHostedSubdomainIndexUrlCandidates,
     extractPuterHostedSubdomain,
     getPuterHostedDomains,
     hostedIndexUrlBackingIsUnavailable,
@@ -64,6 +65,59 @@ describe('getPuterHostedDomains', () => {
                 static_hosting_domain_alt: 42 as unknown as string,
             }),
         ).toEqual([]);
+    });
+});
+
+describe('buildHostedSubdomainIndexUrlCandidates', () => {
+    it('covers every hosting domain, protocol and path variant', () => {
+        const candidates = buildHostedSubdomainIndexUrlCandidates('myapp', {
+            static_hosting_domain: 'puter.site',
+            protocol: 'https:',
+        });
+        expect(candidates).toEqual(
+            expect.arrayContaining([
+                'https://myapp.puter.site',
+                'https://myapp.puter.site/',
+                'https://myapp.puter.site/index.html',
+                'http://myapp.puter.site',
+                'http://myapp.puter.site/',
+                'http://myapp.puter.site/index.html',
+            ]),
+        );
+        // Nothing beyond the three path shapes the app write path accepts.
+        expect(candidates).toHaveLength(6);
+    });
+
+    it('keeps both the ported and bare host for dev configs', () => {
+        const candidates = buildHostedSubdomainIndexUrlCandidates('dev', {
+            static_hosting_domain: 'site.puter.localhost:4100',
+            protocol: 'http',
+        });
+        expect(candidates).toContain('http://dev.site.puter.localhost:4100/');
+        expect(candidates).toContain('http://dev.site.puter.localhost/');
+    });
+
+    it('spans the alt and private hosting domains', () => {
+        const candidates = buildHostedSubdomainIndexUrlCandidates('x', CONFIG);
+        expect(candidates).toContain('https://x.puter.site/');
+        expect(candidates).toContain('https://x.site.puter.localhost/');
+        expect(candidates).toContain('https://x.private.puter.localhost/');
+    });
+
+    it('normalizes the name and refuses unusable input', () => {
+        expect(
+            buildHostedSubdomainIndexUrlCandidates('  MyApp  ', {
+                static_hosting_domain: 'puter.site',
+            }),
+        ).toContain('https://myapp.puter.site/');
+        expect(buildHostedSubdomainIndexUrlCandidates('', CONFIG)).toEqual([]);
+        expect(buildHostedSubdomainIndexUrlCandidates(null, CONFIG)).toEqual(
+            [],
+        );
+        expect(buildHostedSubdomainIndexUrlCandidates(42, CONFIG)).toEqual([]);
+        // No hosting domain configured — nothing can be hosted, so nothing
+        // is reserved.
+        expect(buildHostedSubdomainIndexUrlCandidates('x', {})).toEqual([]);
     });
 });
 

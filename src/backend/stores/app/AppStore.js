@@ -254,10 +254,18 @@ export class AppStore extends PuterStore {
      * Find the oldest app whose `index_url` matches one of `candidates`. Used
      * by the driver to detect duplicate puter-hosted index_url rows
      * (origin-bootstrap apps + same-owner duplicates) so they can be merged on
-     * `create` / `update`. Returns the minimal row shape needed by the merge
-     * path; falsy when nothing matches.
+     * `create` / `update`, and by the subdomain driver to refuse a name another
+     * user's app still points at. Returns the minimal row shape needed by the
+     * merge path; falsy when nothing matches.
+     *
+     * `excludeOwnerUserId` skips rows owned by that user; unowned rows
+     * (origin-bootstrap apps) still match, since their launch origin is no less
+     * takeover-sensitive for having no owner.
      */
-    async findByIndexUrlCandidates(candidates, { excludeAppId } = {}) {
+    async findByIndexUrlCandidates(
+        candidates,
+        { excludeAppId, excludeOwnerUserId } = {},
+    ) {
         if (!Array.isArray(candidates) || candidates.length === 0) return null;
         const placeholders = candidates.map(() => '?').join(', ');
         const params = [...candidates];
@@ -265,6 +273,10 @@ export class AppStore extends PuterStore {
         if (Number.isInteger(excludeAppId) && excludeAppId > 0) {
             sql += ' AND `id` != ?';
             params.push(excludeAppId);
+        }
+        if (Number.isInteger(excludeOwnerUserId) && excludeOwnerUserId > 0) {
+            sql += ' AND (`owner_user_id` IS NULL OR `owner_user_id` != ?)';
+            params.push(excludeOwnerUserId);
         }
         sql += ' ORDER BY `timestamp` ASC, `id` ASC LIMIT 1';
         const rows = await this.clients.db.read(sql, params);
