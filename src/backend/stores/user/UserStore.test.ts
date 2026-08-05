@@ -55,6 +55,95 @@ describe('UserStore', () => {
         expect(typeof cachedUser?.requires_email_confirmation).toBe('boolean');
     });
 
+    it('stops resolving an email the account no longer holds', async () => {
+        const username = `us-${Math.random().toString(36).slice(2, 10)}`;
+        const oldEmail = `${username}-old@test.local`;
+        const newEmail = `${username}-new@test.local`;
+        const user = await server.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: oldEmail,
+        });
+
+        // Warm the by-email key, then move the account to a new address.
+        expect((await server.stores.user.getByEmail(oldEmail))?.id).toBe(
+            user.id,
+        );
+        await server.stores.user.update(user.id, {
+            email: newEmail,
+            clean_email: newEmail,
+        });
+
+        // The old address is no longer this account's — a cached copy of the
+        // pre-update row answering for it is what let a replaced email keep
+        // working as a login.
+        expect(await server.stores.user.getByEmail(oldEmail)).toBeNull();
+        expect((await server.stores.user.getByEmail(newEmail))?.id).toBe(
+            user.id,
+        );
+    });
+
+    it('stops resolving a username the account no longer holds', async () => {
+        const oldUsername = `us-${Math.random().toString(36).slice(2, 10)}`;
+        const newUsername = `${oldUsername}-renamed`;
+        const user = await server.stores.user.create({
+            username: oldUsername,
+            uuid: uuidv4(),
+            password: null,
+            email: `${oldUsername}@test.local`,
+        });
+
+        expect((await server.stores.user.getByUsername(oldUsername))?.id).toBe(
+            user.id,
+        );
+        await server.stores.user.update(user.id, { username: newUsername });
+
+        expect(await server.stores.user.getByUsername(oldUsername)).toBeNull();
+        expect((await server.stores.user.getByUsername(newUsername))?.id).toBe(
+            user.id,
+        );
+    });
+
+    it('stops resolving an email revoked from a competing account', async () => {
+        const shared = `shared-${Math.random().toString(36).slice(2, 10)}@test.local`;
+        const makeClaimant = async () => {
+            const username = `uc-${Math.random().toString(36).slice(2, 10)}`;
+            const claimant = await server.stores.user.create({
+                username,
+                uuid: uuidv4(),
+                password: null,
+                email: shared,
+                clean_email: shared,
+            });
+            await server.stores.user.update(claimant.id, {
+                email_confirmed: true,
+            });
+            return claimant;
+        };
+
+        const loser = await makeClaimant();
+        const winner = await makeClaimant();
+
+        // Warm the loser's cache entries before its claim is revoked.
+        expect((await server.stores.user.getById(loser.id))?.email).toBe(
+            shared,
+        );
+
+        await server.stores.user.unconfirmOthersByEmail(
+            winner.id,
+            shared,
+            shared,
+        );
+
+        const strippedLoser = await server.stores.user.getById(loser.id);
+        expect(strippedLoser?.email).toBeNull();
+        expect(strippedLoser?.email_confirmed).toBe(false);
+        expect((await server.stores.user.getByEmail(shared))?.id).toBe(
+            winner.id,
+        );
+    });
+
     it('counts other accounts holding the same phone number', async () => {
         const phone = `+1415555${Math.floor(1000 + Math.random() * 9000)}`;
         const makeUser = async () => {

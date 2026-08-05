@@ -1045,6 +1045,39 @@ describe('OIDCController signup veto (abuse harness)', () => {
         expect(captured.redirectUrl).toContain('message=signup_blocked');
         expect(captured.redirectUrl).not.toContain('request_code');
     });
+
+    it('keeps a veto legible when the listener stamps its own code', async () => {
+        const email = `veto-${Math.random().toString(36).slice(2, 8)}@test.local`;
+        signupValidateOverride = (data) => {
+            if (data.email !== email) return;
+            data.allow = false;
+            data.code = 'email_reputation_too_low';
+            data.trail_id = 'trail-custom-code';
+        };
+        stubIdp(`sub-${Math.random().toString(36).slice(2, 8)}`, email);
+
+        const state = oidc().signState({
+            provider: 'custom',
+            redirect_uri: TEST_ORIGIN + '/',
+        });
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/callback/signup',
+            makeReq({ query: { code: 'c', state } }),
+            res,
+        );
+
+        // A listener code isn't one of the display codes, but the failure
+        // is still a blocked signup — collapsing it to `unauthorized`
+        // would tell the user sign-in broke and bury the Request Code
+        // support needs.
+        expect(captured.redirectUrl).toContain('message=signup_blocked');
+        expect(captured.redirectUrl).not.toContain('message=unauthorized');
+        expect(captured.redirectUrl).toContain(
+            'request_code=trail-custom-code',
+        );
+    });
 });
 
 describe('OIDCController browser binding', () => {

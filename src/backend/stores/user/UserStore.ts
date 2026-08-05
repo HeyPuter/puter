@@ -465,12 +465,36 @@ export class UserStore extends PuterStore {
         const setClause = keys.map((k) => `\`${k}\` = ?`).join(', ');
         const values = keys.map((k) => dbPatch[k]);
 
+        // Identifying columns are themselves cache keys, so changing one
+        // leaves the old key holding a full copy of the pre-update row.
+        // Snapshot the row first so the keys this write retires can be
+        // dropped: otherwise a replaced email keeps resolving to the account
+        // for the rest of the TTL, and login and password recovery accept it
+        // as if it were still the account's address.
+        const touchesIdentity = keys.some((k) =>
+            (USER_ID_PROPERTIES as readonly string[]).includes(k),
+        );
+        const before = touchesIdentity
+            ? await this.getByProperty('id', userId, { force: true })
+            : null;
+
         await this.clients.db.write(
             `UPDATE \`user\` SET ${setClause} WHERE \`id\` = ?`,
             [...values, userId],
         );
 
         const fresh = await this.getByProperty('id', userId, { force: true });
+
+        if (before) {
+            const live = new Set(fresh ? this.#cacheKeysForUser(fresh) : []);
+            const retired = this.#cacheKeysForUser(before).filter(
+                (key) => !live.has(key),
+            );
+            if (retired.length > 0) {
+                await this.publishCacheKeys({ keys: retired, broadcast: true });
+            }
+        }
+
         if (fresh) {
             await this.#refreshCache(fresh);
         } else {
@@ -501,6 +525,15 @@ export class UserStore extends PuterStore {
         email: string,
         cleanEmailValue: string,
     ): Promise<void> {
+        // Read the rows this strips before stripping them: the update goes
+        // straight to SQL, so without their pre-image we don't know which
+        // cache keys it retires — and a cached copy still carries the address
+        // that was just revoked, which would keep answering lookups for it.
+        const stripped = (await this.clients.db.pread(
+            'SELECT * FROM `user` WHERE `id` != ? AND (`email` = ? OR `clean_email` = ?)',
+            [userId, email, cleanEmailValue],
+        )) as Array<Record<string, unknown>>;
+
         await this.clients.db.write(
             `UPDATE \`user\`
                 SET \`email\` = NULL,
@@ -519,6 +552,10 @@ export class UserStore extends PuterStore {
                 cleanEmailValue,
             ],
         );
+
+        for (const row of stripped) {
+            await this.invalidate(this.#normalizeRow(row));
+        }
     }
 
     async invalidate(user: UserRow): Promise<void> {
