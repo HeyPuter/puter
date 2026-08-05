@@ -560,26 +560,19 @@ const UIWindowManageSessions = async function UIWindowManageSessions (options) {
 
                     const anti_csrf = await services.get('anti-csrf').token();
 
-                    // Route access-token rows to the dedicated endpoint
-                    // so `access_token_permissions` is cleared in addition
-                    // to the session row being soft-revoked. Everything
-                    // else (web/app/asset/worker) goes through cascade-
-                    // capable /auth/revoke-session.
-                    const isAccessToken = session.kind === 'access_token';
-                    const url = isAccessToken
-                        ? `${window.api_origin}/auth/revoke-access-token`
-                        : `${window.api_origin}/auth/revoke-session`;
-                    const body = isAccessToken
-                        ? { tokenOrUuid: session.uuid, anti_csrf }
-                        : { uuid: session.uuid, anti_csrf };
-
-                    const resp = await fetch(url, {
+                    // Every kind revokes by session uuid, access tokens
+                    // included: the uuid is what list-sessions gave us, and
+                    // it's the only identifier we hold — the token itself is
+                    // shown once at mint and never again. /auth/revoke-session
+                    // resolves ownership from the row and cascades, and
+                    // clears the token's grants on the way through.
+                    const resp = await fetch(`${window.api_origin}/auth/revoke-session`, {
                         method: 'POST',
                         headers: {
                             Authorization: `Bearer ${puter.authToken}`,
                             'Content-Type': 'application/json',
                         },
-                        body: JSON.stringify(body),
+                        body: JSON.stringify({ uuid: session.uuid, anti_csrf }),
                     });
                     if ( resp.ok ) {
                         // Full reload — cascade may have killed children

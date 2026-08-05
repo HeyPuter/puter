@@ -585,9 +585,21 @@ export class AuthService extends PuterService {
      * Revoke a session by uuid, cascading to any rows whose `parent_session_id`
      * points at it. Used by the manage-sessions UI and by
      * `removeSessionByToken` — semantics are identical.
+     *
+     * This is the revoke path for _every_ session kind, access tokens included:
+     * the uuid is what `listSessions` hands the UI, and ownership is checked
+     * against the row itself by the caller. Their grants are dropped here so
+     * the two entry points leave the same state behind.
      */
     async revokeSession(uuid: string): Promise<void> {
+        // Read first — after the cascade these rows carry `revoked_at` and
+        // no longer count as active.
+        const tokenUids =
+            await this.stores.session.accessTokenUidsForCascade(uuid);
         await this.stores.session.revokeCascade(uuid);
+        for (const tokenUid of tokenUids) {
+            await this.#dropAccessTokenGrants(tokenUid);
+        }
     }
 
     /**
@@ -1545,7 +1557,13 @@ export class AuthService extends PuterService {
 
         // A signature-verified JWT is itself proof of who issued the token —
         // the body's `user_uid` was set by createAccessToken at mint time.
-        // For raw-uuid input we fall back to the persisted authorizer.
+        // For raw-uuid input the session row is the primary authority: a
+        // full-access token carries its grant as a signed claim and writes
+        // no `access_token_permissions` row to resolve against, so reading
+        // ownership from the manifest alone leaves the broadest token we
+        // issue unrevokable. The manifest stays as a fallback for rows that
+        // predate session-backed access tokens.
+        let sessionRow: SessionRow | null = null;
         if (issuerUuidFromJwt !== undefined) {
             if (issuerUuidFromJwt !== actor.user.uuid) {
                 throw new HttpError(404, 'Access token not found', {
@@ -1553,40 +1571,66 @@ export class AuthService extends PuterService {
                 });
             }
         } else {
-            const rows = (await this.clients.db.read(
-                'SELECT `authorizer_user_id` FROM `access_token_permissions` WHERE `token_uid` = ? LIMIT 1',
-                [tokenUid],
-            )) as Array<{ authorizer_user_id?: number | null }>;
-            const ownerId = rows[0]?.authorizer_user_id ?? null;
-            if (ownerId === null || ownerId !== actor.user.id) {
+            sessionRow =
+                await this.stores.session.findActiveByAccessTokenUid(tokenUid);
+            const ownerId =
+                sessionRow?.user_id ??
+                (await this.#accessTokenAuthorizerId(tokenUid));
+            if (ownerId == null || ownerId !== actor.user.id) {
                 throw new HttpError(404, 'Access token not found', {
                     legacyCode: 'not_found',
                 });
             }
         }
 
-        // Permissions rows still DELETE — the "no DELETE on revoke"
-        // rule scoped to the `sessions` table (where the audit trail of
-        // when a session existed/was revoked is load-bearing for forensic
-        // queries and the cascade graph). `access_token_permissions`
-        // rows are the grant manifest for an *active* token; once its
-        // session is soft-revoked, the grants are dead-weight cache
-        // entries that would only confuse `checkMany`. If we later need
-        // permission-grant history for audit, that becomes a
-        // `revoked_at` column on this table, not a behavior change here.
+        await this.#dropAccessTokenGrants(tokenUid);
+
+        if (sessionUidFromJwt) {
+            await this.stores.session.removeByUuid(sessionUidFromJwt);
+        } else {
+            // A v1 JWT carries no `session_uid`, so the row still has to be
+            // found by token identity here.
+            const row =
+                sessionRow ??
+                (await this.stores.session.findActiveByAccessTokenUid(
+                    tokenUid,
+                ));
+            if (row) await this.stores.session.removeByUuid(row.uuid);
+        }
+    }
+
+    /**
+     * Persisted authorizer of an access token, from its grant manifest. Returns
+     * null for a token with no grants — which every full-access token is, so
+     * callers need another source of ownership before treating null as "not
+     * yours".
+     */
+    async #accessTokenAuthorizerId(tokenUid: string): Promise<number | null> {
+        const rows = (await this.clients.db.read(
+            'SELECT `authorizer_user_id` FROM `access_token_permissions` WHERE `token_uid` = ? LIMIT 1',
+            [tokenUid],
+        )) as Array<{ authorizer_user_id?: number | null }>;
+        return rows[0]?.authorizer_user_id ?? null;
+    }
+
+    /**
+     * Drop an access token's grant manifest.
+     *
+     * These rows DELETE rather than soft-revoke — the "no DELETE on revoke"
+     * rule is scoped to the `sessions` table, where the audit trail of when a
+     * session existed and when it died is load-bearing for forensic queries and
+     * the cascade graph. `access_token_permissions` rows are the grant manifest
+     * for an _active_ token; once its session is soft-revoked they are
+     * dead-weight cache entries that would only confuse `checkMany`. If we
+     * later need grant history for audit, that becomes a `revoked_at` column on
+     * this table, not a behavior change here.
+     */
+    async #dropAccessTokenGrants(tokenUid: string): Promise<void> {
         await this.clients.db.write(
             'DELETE FROM `access_token_permissions` WHERE `token_uid` = ?',
             [tokenUid],
         );
         await this.stores.permission.invalidateAccessTokenPerms(tokenUid);
-
-        if (sessionUidFromJwt) {
-            await this.stores.session.removeByUuid(sessionUidFromJwt);
-        } else {
-            const row =
-                await this.stores.session.findActiveByAccessTokenUid(tokenUid);
-            if (row) await this.stores.session.removeByUuid(row.uuid);
-        }
     }
 
     // -- Internals ---------------------------------------------------

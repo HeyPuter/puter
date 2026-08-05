@@ -2340,6 +2340,131 @@ describe('AuthService (integration)', () => {
             );
             expect(after).toBeNull();
         });
+
+        it('revokes a full-access token by raw token_uid, which has no grant rows to resolve against', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const jwt = await authService.createAccessToken(actor, [
+                [FULL_API_ACCESS],
+            ]);
+            const decoded = server.services.token.verify('auth', jwt) as {
+                token_uid: string;
+                session_uid: string;
+            };
+
+            await authService.revokeAccessToken(actor, decoded.token_uid);
+
+            expect(
+                await server.stores.session.getByUuid(decoded.session_uid),
+            ).toBeNull();
+            expect(await authService.authenticateFromToken(jwt)).toBeNull();
+        });
+
+        it('404s when another user names a full-access token by raw token_uid', async () => {
+            const owner = await makeUser();
+            const other = await makeUser();
+            const ownerActor = {
+                user: {
+                    id: owner.id,
+                    uuid: owner.uuid,
+                    username: owner.username,
+                },
+            } as Actor;
+            const otherActor = {
+                user: {
+                    id: other.id,
+                    uuid: other.uuid,
+                    username: other.username,
+                },
+            } as Actor;
+            const jwt = await authService.createAccessToken(ownerActor, [
+                [FULL_API_ACCESS],
+            ]);
+            const decoded = server.services.token.verify('auth', jwt) as {
+                token_uid: string;
+            };
+
+            await expect(
+                authService.revokeAccessToken(otherActor, decoded.token_uid),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            expect(await authService.authenticateFromToken(jwt)).toBeTruthy();
+        });
+    });
+
+    describe('revokeSession on access-token rows', () => {
+        // The manage-sessions UI only ever holds the session uuid — the
+        // token itself is shown once at mint and never again — so revoking
+        // by uuid has to be enough to both kill the token and clear what it
+        // was allowed to do.
+
+        it('stops a full-access token authenticating when revoked by session uuid', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const jwt = await authService.createAccessToken(actor, [
+                [FULL_API_ACCESS],
+            ]);
+            const decoded = server.services.token.verify('auth', jwt) as {
+                session_uid: string;
+            };
+
+            expect(await authService.authenticateFromToken(jwt)).toBeTruthy();
+
+            await authService.revokeSession(decoded.session_uid);
+
+            expect(await authService.authenticateFromToken(jwt)).toBeNull();
+        });
+
+        it('clears the grant manifest of a scoped token revoked by session uuid', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const jwt = await authService.createAccessToken(actor, [
+                [`user:${user.uuid}:email:read`],
+            ]);
+            const decoded = server.services.token.verify('auth', jwt) as {
+                token_uid: string;
+                session_uid: string;
+            };
+
+            await authService.revokeSession(decoded.session_uid);
+
+            const rows = (await server.clients.db.read(
+                'SELECT 1 FROM `access_token_permissions` WHERE `token_uid` = ? LIMIT 1',
+                [decoded.token_uid],
+            )) as unknown[];
+            expect(rows).toHaveLength(0);
+            expect(await authService.authenticateFromToken(jwt)).toBeNull();
+        });
+
+        it('clears grants of token rows parented to a revoked session', async () => {
+            const user = await makeUser();
+            const parent = await server.stores.session.create(user.id, {
+                kind: 'app',
+            });
+            const tokenUid = uuidv4();
+            await server.stores.session.create(user.id, {
+                kind: 'access_token',
+                parent_session_id: parent.uuid,
+                access_token_uid: tokenUid,
+            });
+            await server.clients.db.write(
+                'INSERT INTO `access_token_permissions` (`token_uid`, `authorizer_user_id`, `authorizer_app_id`, `permission`, `extra`) VALUES (?, ?, ?, ?, ?)',
+                [tokenUid, user.id, null, 'driver:test:call', '{}'],
+            );
+
+            await authService.revokeSession(parent.uuid);
+
+            const rows = (await server.clients.db.read(
+                'SELECT 1 FROM `access_token_permissions` WHERE `token_uid` = ? LIMIT 1',
+                [tokenUid],
+            )) as unknown[];
+            expect(rows).toHaveLength(0);
+        });
     });
 
     describe('revokeAllSessions', () => {
