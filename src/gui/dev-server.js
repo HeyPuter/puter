@@ -144,7 +144,7 @@ try {
 
 startServer(1);
 
-app.get(['/', '/app/*splat', '/action/*splat', '/desktop', '/dashboard'], (req, res) => {
+app.get(['/', '/app/*splat', '/action/*splat', '/desktop', '/desktop/app/*splat', '/dashboard'], (req, res) => {
     res.send(generateDevHtml({
         env: env,
         api_origin: apiOrigin,

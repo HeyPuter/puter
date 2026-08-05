@@ -48,13 +48,14 @@ const ALLOWED_ERRORS = [
 ] as const;
 
 // GUI pages an OIDC flow may return to: /desktop, /dashboard, and direct app
-// landings (/app/<name>, mirroring APP_NAME_REGEX in AppDriver). Strict
-// whitelist — never a client-supplied URL (no open redirect).
+// landings (/app/<name> and its desktop-booted twin /desktop/app/<name>,
+// mirroring APP_NAME_REGEX in AppDriver). Strict whitelist — never a
+// client-supplied URL (no open redirect).
 function isWhitelistedReturnPath(path: string): boolean {
     return (
         path === '/desktop' ||
         path === '/dashboard' ||
-        /^\/app\/[a-zA-Z0-9_-]{1,100}$/.test(path)
+        /^(\/desktop)?\/app\/[a-zA-Z0-9_-]{1,100}$/.test(path)
     );
 }
 

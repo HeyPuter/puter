@@ -315,6 +315,49 @@ describe('HomepageController GET /app/:name', () => {
         expect(html).not.toContain('owner_user_id');
     });
 
+    it('serves the same app shell under /desktop/app/:name', async () => {
+        const { userId } = await makeUser();
+        const name = `desk-${Math.random().toString(36).slice(2, 10)}`;
+        await server.stores.app.create(
+            {
+                name,
+                title: 'Desktop App',
+                description: 'opens on the desktop instead of the dashboard',
+                index_url: `https://example.com/${name}/`,
+                approved_for_listing: 1,
+            },
+            { ownerUserId: userId },
+        );
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/desktop/app/:name',
+            makeReq({ params: { name }, path: `/desktop/app/${name}` }),
+            res,
+        );
+
+        expect(captured.statusCode).toBe(200);
+        const html = String(captured.body);
+        expect(html).toMatch(/<!DOCTYPE html>/i);
+        expect(html).toContain('Desktop App');
+    });
+
+    it('returns 404 under /desktop/app/:name when the app is unknown', async () => {
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/desktop/app/:name',
+            makeReq({
+                params: { name: 'no-such-app' },
+                path: '/desktop/app/no-such-app',
+            }),
+            res,
+        );
+        expect(captured.statusCode).toBe(404);
+        expect(String(captured.body)).toMatch(/<!DOCTYPE html>/i);
+    });
+
     it('omits index_url even for a public app — the shell is not the launch authority', async () => {
         const { userId } = await makeUser();
         const name = `pub-${Math.random().toString(36).slice(2, 10)}`;
