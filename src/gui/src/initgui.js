@@ -51,6 +51,7 @@ import {
 import init_device_signals from './helpers/device_signals.js';
 import item_icon from './helpers/item_icon.js';
 import launch_app from './helpers/launch_app.js';
+import { parse_url_paths } from './helpers/url_paths.js';
 import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
 import update_mouse_position from './helpers/update_mouse_position.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
@@ -780,6 +781,9 @@ if (jQuery) {
 // alias, and `/desktop` loads the desktop instead. Direct app landings (`/app/<name>`)
 // open in the dashboard too: the app comes up maximized in-page with the dashboard
 // route slotted underneath (see postAuthActions), so Back minimizes to the dashboard.
+// To land the same app on the desktop instead, prefix the path:
+// `/desktop/app/<name>` doesn't match the dashboard paths below, so it falls
+// through to the desktop.
 // URLs that carry a desktop-only flow keep booting the desktop: auth popups
 // (`?embedded_in_popup=`), app deep links (`?app=`), direct downloads (`?download=`),
 // fullpage mode (`?puter.fullpage=`), and iframe embeds. App metadata like
@@ -991,9 +995,11 @@ window.showTurnstileChallenge = function (options) {
 window.initgui = async function (options) {
     const url = new URL(window.location).href;
     window.url = url;
-    const url_paths = window.location.pathname
-        .split('/')
-        .filter((element) => element);
+    // Route segments with a leading `/desktop` dropped, so the route checks
+    // downstream (app landings, actions) never have to know about the prefix:
+    // `/desktop/app/<name>` opens the app on the desktop the same way
+    // `/app/<name>` opens it in the dashboard.
+    const url_paths = parse_url_paths(window.location.pathname);
     window.url_paths = url_paths;
 
     // GET query params provided

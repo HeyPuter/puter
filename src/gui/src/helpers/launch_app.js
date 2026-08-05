@@ -131,9 +131,12 @@ const launch_app = async (options) => {
         const launchAttributes = {
             'launch.app': options?.name ?? options?.app_obj?.name ?? 'unknown',
             'launch.dashboard_mode': !! window.is_dashboard_mode,
+            // url_paths has the `/desktop` prefix stripped, so this counts the
+            // desktop-booted landing (`/desktop/app/<name>`) as the app URL
+            // it is.
             'launch.from_app_url':
-                typeof window.location?.pathname === 'string'
-                && window.location.pathname.startsWith('/app/'),
+                window.url_paths?.[0]?.toLocaleLowerCase() === 'app'
+                && !! window.url_paths?.[1],
             'launch.has_app_obj': !! options?.app_obj,
         };
         // Exec-service launches never get the IPC listener attached below,
