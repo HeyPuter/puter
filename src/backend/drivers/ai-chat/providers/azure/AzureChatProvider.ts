@@ -31,6 +31,7 @@ import {
     wantsCompaction,
 } from '../../utils/compaction.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
+import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { AZURE_MODELS } from './models.js';
 
@@ -256,10 +257,9 @@ export class AzureChatProvider implements IChatProvider {
                     cached_tokens: cachedTokens,
                 };
 
-                const costsOverrideFromModel = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([k, v]) => {
-                        return [k, v * modelUsed.costs[k]];
-                    }),
+                const costsOverrideFromModel = buildCostsOverride(
+                    trackedUsage,
+                    modelUsed,
                 );
 
                 this.#meteringService.utilRecordUsageObject(
