@@ -217,6 +217,40 @@ describe('ElevenLabsTTSProvider.synthesize argument validation', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
         expect(fetchSpy).not.toHaveBeenCalled();
     });
+
+    it('rejects a model the cost table cannot price, before paying the vendor', async () => {
+        // An unpriced id resolved to a zero rate, which made the credit gate
+        // pass for anyone and recorded the synthesis as free — while the id
+        // was forwarded to the vendor and billed to us.
+        const provider = makeProvider();
+
+        await expect(
+            withTestActor(() =>
+                provider.synthesize({ text: 'hello', model: 'eleven_flash_v2' }),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            fields: { key: 'model', got: 'eleven_flash_v2' },
+        });
+
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(hasCreditsSpy).not.toHaveBeenCalled();
+        expect(incrementUsageSpy).not.toHaveBeenCalled();
+    });
+
+    it('accepts a priced model that the engine listing does not advertise', async () => {
+        const provider = makeProvider();
+        fetchSpy.mockResolvedValueOnce(audioResponse());
+
+        await withTestActor(() =>
+            provider.synthesize({ text: 'hi', model: 'eleven_turbo_v2' }),
+        );
+
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        const [, usageType, , cost] = incrementUsageSpy.mock.calls[0]!;
+        expect(usageType).toBe('elevenlabs:eleven_turbo_v2:character');
+        expect(cost).toBe(ELEVENLABS_TTS_COSTS['eleven_turbo_v2'] * 2);
+    });
 });
 
 // ── Credit gate ─────────────────────────────────────────────────────

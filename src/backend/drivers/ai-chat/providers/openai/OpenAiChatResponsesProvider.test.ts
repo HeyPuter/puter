@@ -445,6 +445,43 @@ describe('OpenAiResponsesChatProvider.complete non-stream output', () => {
         });
     });
 
+    it('bills cached tokens at the input rate when the model prices no cache read', async () => {
+        // gpt-5.4-pro is responses-API-only and its catalogue entry has no
+        // cached_tokens rate. Cached tokens are subtracted out of the input
+        // count, so pricing them at zero bills them nowhere.
+        const pro = OPEN_AI_MODELS.find((m) => m.id === 'gpt-5.4-pro')!;
+        expect(pro.costs.cached_tokens).toBeUndefined();
+
+        const { provider } = makeProvider();
+        responsesCreateMock.mockResolvedValueOnce({
+            output: [{ role: 'assistant' }],
+            output_text: 'cached',
+            usage: {
+                input_tokens: 7761,
+                output_tokens: 20,
+                input_tokens_details: { cached_tokens: 7680 },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gpt-5.4-pro',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const [, , , overrides] = recordSpy.mock.calls[0]!;
+        const inputRate = Number(pro.costs.prompt_tokens);
+        expect(overrides).toEqual({
+            prompt_tokens: (7761 - 7680) * inputRate,
+            completion_tokens: 20 * Number(pro.costs.completion_tokens),
+            cached_tokens: 7680 * inputRate,
+        });
+        expect(
+            (overrides as Record<string, number>).cached_tokens,
+        ).toBeGreaterThan(0);
+    });
+
     it('shapes function_call output items into OpenAI tool_calls on the response', async () => {
         const { provider } = makeProvider();
         responsesCreateMock.mockResolvedValueOnce({

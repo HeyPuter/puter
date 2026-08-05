@@ -97,6 +97,8 @@ export const GEMINI_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 8,
             completion_tokens: 30,
+            // Gemini 2.x grounding is $35 / 1,000 requests
+            grounding_requests: 3_500_000,
         },
         max_tokens: 8192,
     },

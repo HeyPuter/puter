@@ -31,6 +31,7 @@ import {
     wantsCompaction,
 } from '../../utils/compaction.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
+import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from './fileUpload.js';
 import { OPEN_AI_MODELS } from './models.js';
 import type { OpenAiResponsesChatProvider } from './OpenAiChatResponsesProvider.js';
@@ -228,10 +229,9 @@ export class OpenAiChatProvider implements IChatProvider {
                         usage.prompt_tokens_details?.cached_tokens ?? 0,
                 };
 
-                const costsOverrideFromModel = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([k, v]) => {
-                        return [k, v * modelUsed.costs[k]];
-                    }),
+                const costsOverrideFromModel = buildCostsOverride(
+                    trackedUsage,
+                    modelUsed,
                 );
 
                 this.#meteringService.utilRecordUsageObject(
