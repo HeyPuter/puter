@@ -5,6 +5,7 @@ import revokeAppSessions from '../../helpers/revoke_app_sessions.js';
 import { begin_dashboard_tile_launch, settle_dashboard_tile_launch } from '../UIWindow.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
+import { parseRemovedApps, serializeRemovedApps, REMOVED_APPS_KV_KEY } from './removedApps.js';
 
 /** Lowercase app names that must not offer Uninstall in the My Apps tile context menu. */
 const APP_NAMES_NO_UNINSTALL = new Set([
@@ -181,8 +182,10 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
         //
         // A load fetched before the revoke must not apply — it would
         // resurrect the pre-revoke grid. No refetch here either: the
-        // recommended launch list doesn't know about the revoke, so an
-        // immediate reload would just re-add a recommended app's tile.
+        // optimistic splice below already shows the result, and
+        // _setAppRemoved is what keeps later loads (and the next session)
+        // from re-adding a recommended app's tile — the recommended launch
+        // list is global and doesn't know about the revoke.
         // The saved order intentionally keeps the app's name:
         // reconcileAppOrder ignores it while the app is gone and
         // restores its position if it comes back.
@@ -194,6 +197,7 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
         // also consumes the app's URL entry if it owns one).
         $(`.window[data-app="${html_encode(appName)}"]`).close();
         self._invalidateInFlightLoads();
+        self._setAppRemoved(appName, true);
         close();
 
         // A failed revoke must not roll back mid-animation: finishRemoval
@@ -288,6 +292,9 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
             console.error('Failed to uninstall app:', err);
             await removalSettled;
             self._invalidateInFlightLoads();
+            // The uninstall didn't happen — take the name back off the
+            // removed list so the recommended merge can show it again.
+            self._setAppRemoved(appName, false);
             if ( removedApp && ! self._apps.some(a => a.name === appName) ) {
                 self._apps.splice(Math.min(removedIndex, self._apps.length), 0, removedApp);
                 self.renderApps($el_window, { preservePage: true, instant: true });
@@ -1373,6 +1380,36 @@ const TabApps = {
         this._loadPromise = null;
     },
 
+    // Record that the user uninstalled `appName` — or, with removed=false,
+    // that a failed uninstall rolled back. The in-memory record makes this
+    // session's loads filter correctly even while the kv write is still in
+    // flight; the kv record is what makes the uninstall survive a refresh
+    // (see the removedNames filter in _fetchAndRenderApps).
+    _setAppRemoved (appName, removed) {
+        if ( typeof appName !== 'string' || appName.length === 0 ) return;
+        if ( ! this._removedLocal ) this._removedLocal = new Map();
+        this._removedLocal.set(appName, removed);
+
+        // Persist by read-modify-write, serialized on a promise chain so two
+        // quick uninstalls can't interleave their reads and writes. Every
+        // local mutation is replayed onto the freshly read list, so a write
+        // that failed earlier is repaired by the next one, and names added
+        // by another window survive. If the read itself fails, the write is
+        // skipped rather than risk clobbering the stored list with an empty
+        // one — the in-memory record still covers this session, and the
+        // next write retries the lot.
+        this._removedWriteChain = (this._removedWriteChain || Promise.resolve()).then(async () => {
+            const names = parseRemovedApps(await puter.kv.get(REMOVED_APPS_KV_KEY));
+            for ( const [name, isRemoved] of this._removedLocal ) {
+                if ( isRemoved ) names.add(name);
+                else names.delete(name);
+            }
+            await puter.kv.set(REMOVED_APPS_KV_KEY, JSON.stringify(serializeRemovedApps(names)));
+        }).catch(err => {
+            console.error('Failed to persist the uninstalled-apps list:', err);
+        });
+    },
+
     saveOrder () {
         this._hasCustomOrder = true;
         // Merge with the previously saved order so names absent from the
@@ -1468,7 +1505,7 @@ const TabApps = {
                 return { apps: all, complete: true };
             };
 
-            const [installedResult, launchRes, savedOrderRaw] = await Promise.all([
+            const [installedResult, launchRes, savedOrderRaw, removedAppsRaw] = await Promise.all([
                 fetchAllInstalledApps(),
                 fetch(
                     `${window.api_origin}/get-launch-apps?icon_size=128`,
@@ -1478,10 +1515,28 @@ const TabApps = {
                     },
                 ),
                 puter.kv.get(APPS_ORDER_KV_KEY).catch(() => null),
+                puter.kv.get(REMOVED_APPS_KV_KEY).catch(() => null),
             ]);
 
             const installedApps = installedResult.apps;
             const launchData = await launchRes.json();
+
+            // Uninstall only revokes permissions, and the recommended list
+            // is a global hardcoded set that knows nothing about per-user
+            // revokes — without this filter every uninstalled recommended
+            // app resurrects on the next load. Only the recommended merge
+            // is filtered; installedApps is never touched, so an app the
+            // user genuinely (re)installs always shows. The kv snapshot is
+            // overlaid with this session's not-yet-persisted mutations: an
+            // uninstall races its own kv write, and a failed uninstall's
+            // rollback races the removal of that write.
+            const removedNames = parseRemovedApps(removedAppsRaw);
+            if ( this._removedLocal ) {
+                for ( const [name, isRemoved] of this._removedLocal ) {
+                    if ( isRemoved ) removedNames.add(name);
+                    else removedNames.delete(name);
+                }
+            }
 
             // Normalize recommended launch apps to the tile shape. The
             // recent list is deliberately unused: recents are open history,
@@ -1489,14 +1544,16 @@ const TabApps = {
             // showed merely-visited sites as if installed. Anything the user
             // actually uses appears via installedApps (opening an app grants
             // it a permission). Recents still power the Home tab.
-            const launchApps = (launchData.recommended || []).map(app => ({
-                name: app.name,
-                title: app.title,
-                uid: app.uuid || app.uid || null,
-                index_url: app.index_url || null,
-                external: app.external ?? false,
-                iconUrl: app.iconUrl || app.icon || null,
-            }));
+            const launchApps = (launchData.recommended || [])
+                .filter(app => ! removedNames.has(app?.name))
+                .map(app => ({
+                    name: app.name,
+                    title: app.title,
+                    uid: app.uuid || app.uid || null,
+                    index_url: app.index_url || null,
+                    external: app.external ?? false,
+                    iconUrl: app.iconUrl || app.icon || null,
+                }));
 
             // Build seen set from launch apps
             const seen = new Set();
