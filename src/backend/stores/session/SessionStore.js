@@ -375,6 +375,30 @@ export class SessionStore extends PuterStore {
     }
 
     /**
+     * Access-token identities among the rows `revokeCascade(rootUuid)` would
+     * affect — the root itself when it is a token row, plus any token row
+     * parented to it. Callers use these to drop grants that would otherwise
+     * outlive the revoked row. Must be read _before_ the cascade, while the
+     * rows still qualify as active.
+     *
+     * Both identity columns are consulted: v2 rows carry `access_token_uid`
+     * from mint, v1 rows get `legacy_token_uid` backfilled on first verify.
+     */
+    async accessTokenUidsForCascade(rootUuid) {
+        if (!rootUuid) return [];
+        const rows = await this.clients.db.read(
+            "SELECT `access_token_uid`, `legacy_token_uid` FROM `sessions` WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `kind` = 'access_token' AND `revoked_at` IS NULL",
+            [rootUuid, rootUuid],
+        );
+        const uids = [];
+        for (const row of rows) {
+            const uid = row.access_token_uid ?? row.legacy_token_uid;
+            if (uid) uids.push(uid);
+        }
+        return uids;
+    }
+
+    /**
      * Active session row whose access-token identity matches `tokenUid`. Covers
      * both v2 (`access_token_uid` set at mint) and v1 lazy-backfill
      * (`legacy_token_uid` set on first verify) rows so raw-uuid revoke can find
