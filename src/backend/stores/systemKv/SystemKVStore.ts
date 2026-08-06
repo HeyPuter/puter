@@ -55,6 +55,12 @@ export interface KVOpts {
     actor?: Actor;
     /** Optional app uuid override for non-app-scoped actors. */
     appUuid?: string;
+    /**
+     * Namespace override that wins over the actor's own app — how an app
+     * addresses a _different_ app's namespace. Set only by the KV driver, and
+     * only after its cross-app permission check has passed.
+     */
+    namespaceAppUuid?: string;
 }
 
 export interface RecursiveRecord<T> {
@@ -74,11 +80,32 @@ const PATH_CLEANER_REGEX = /[^A-Za-z0-9_]/g;
 const MAX_LIST_OFFSET = 5000;
 const MAX_FILL_PAGES = 10;
 
+/**
+ * Marks an entry private to the app that wrote it. Beside `value`/`ttl`, so
+ * caller data can neither collide with it nor set it.
+ */
+export const KV_PRIVATE_ATTR = 'noShare';
+
 const ttlFilter = (now: number) => ({
     expression: 'attribute_not_exists(#ttlAttr) OR #ttlAttr > :nowTs',
     names: { '#ttlAttr': 'ttl' },
     values: { ':nowTs': now },
 });
+
+/**
+ * Expired entries, plus private ones for a cross-app caller. Filtered in the
+ * query rather than afterwards so `includeTotal`'s COUNT excludes them too — a
+ * total counting rows the caller can't see would leak what the flag hides.
+ */
+const listFilter = (now: number, crossApp: boolean) => {
+    const ttl = ttlFilter(now);
+    if (!crossApp) return ttl;
+    return {
+        expression: `(${ttl.expression}) AND attribute_not_exists(#privAttr)`,
+        names: { ...ttl.names, '#privAttr': KV_PRIVATE_ATTR },
+        values: { ...ttl.values },
+    };
+};
 
 const emptyUsage = (): KVUsage => ({ read: 0, write: 0 });
 
@@ -99,9 +126,15 @@ const addUsage = (a: KVUsage, b: KVUsage): KVUsage => ({
 
 const ensureActor = (opts?: KVOpts): Actor => opts?.actor ?? SYSTEM_ACTOR;
 
-const getNamespace = (actor: Actor, appUuidOverride?: string): string => {
+const isCrossApp = (opts?: KVOpts): boolean => Boolean(opts?.namespaceAppUuid);
+
+const getNamespace = (actor: Actor, opts?: KVOpts): string => {
     if (isSystemActor(actor)) return SYSTEM_NAMESPACE;
-    const appUuid = actor.app?.uid ?? appUuidOverride ?? GLOBAL_APP_KEY;
+    const appUuid =
+        opts?.namespaceAppUuid ??
+        actor.app?.uid ??
+        opts?.appUuid ??
+        GLOBAL_APP_KEY;
     return `v1:${actor.user.uuid}:${appUuid}`;
 };
 
@@ -266,19 +299,48 @@ export class SystemKVStore extends PuterStore {
 
     // -- Public API ---------------------------------------------------
 
+    /**
+     * Refuse a cross-app mutation against a private entry. Not atomic with the
+     * write that follows, so one in-flight write can still land on an entry the
+     * owner flags in between.
+     */
+    async #assertNotPrivate(
+        namespace: string,
+        key: string,
+        opts?: KVOpts,
+    ): Promise<void> {
+        if (!isCrossApp(opts)) return;
+        const response = await this.clients.dynamo.get(this.tableName, {
+            namespace,
+            key,
+        });
+        if (response.Item?.[KV_PRIVATE_ATTR]) {
+            throw new HttpError(
+                403,
+                'kv: this entry is private to the app that wrote it',
+                { legacyCode: 'forbidden' },
+            );
+        }
+    }
+
     async get(
         { key }: { key: string | string[] },
         opts?: KVOpts,
     ): Promise<KVResult<unknown | null | (unknown | null)[]>> {
         const actor = ensureActor(opts);
-        const namespace = getNamespace(actor, opts?.appUuid);
+        const namespace = getNamespace(actor, opts);
+        const crossApp = isCrossApp(opts);
         const multi = Array.isArray(key);
         const keys = multi ? key : [key];
 
         for (const k of keys) assertKey(k);
 
-        let kvEntries: Array<{ key: string; value?: unknown; ttl?: number }> =
-            [];
+        let kvEntries: Array<{
+            key: string;
+            value?: unknown;
+            ttl?: number;
+            noShare?: boolean;
+        }> = [];
         let usage = emptyUsage();
 
         if (multi) {
@@ -306,6 +368,8 @@ export class SystemKVStore extends PuterStore {
             const entry = kvEntries.find((e) => e.key === k);
             if (!entry) return null;
             if (entry.ttl && entry.ttl <= now) return null;
+            // Absent rather than refused: the flag must not confirm the key.
+            if (crossApp && entry.noShare) return null;
             return entry.value ?? null;
         });
 
@@ -317,19 +381,31 @@ export class SystemKVStore extends PuterStore {
             key,
             value,
             expireAt,
-        }: { key: string; value: unknown; expireAt?: number },
+            disableSharing,
+        }: {
+            key: string;
+            value: unknown;
+            expireAt?: number;
+            /**
+             * Mark the entry private. `put` replaces the item, so omitting it
+             * on a later write is how the owner re-shares the entry.
+             */
+            disableSharing?: boolean;
+        },
         opts?: KVOpts,
     ): Promise<KVResult<boolean>> {
         assertKey(key);
         assertValue(value);
         const actor = ensureActor(opts);
-        const namespace = getNamespace(actor, opts?.appUuid);
+        const namespace = getNamespace(actor, opts);
+        await this.#assertNotPrivate(namespace, key, opts);
 
         const response = await this.clients.dynamo.put(this.tableName, {
             namespace,
             key,
             value,
             ttl: expireAt,
+            ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
         });
 
         return {
@@ -366,7 +442,14 @@ export class SystemKVStore extends PuterStore {
         }
 
         const actor = ensureActor(opts);
-        const namespace = getNamespace(actor, opts?.appUuid);
+        const namespace = getNamespace(actor, opts);
+
+        // One private key refuses the batch — no partial success to probe with.
+        if (isCrossApp(opts)) {
+            for (const k of byKey.keys()) {
+                await this.#assertNotPrivate(namespace, k, opts);
+            }
+        }
 
         const putParams = Array.from(byKey.values()).map((item) => ({
             table: this.tableName,
@@ -393,7 +476,8 @@ export class SystemKVStore extends PuterStore {
         opts?: KVOpts,
     ): Promise<KVResult<boolean>> {
         const actor = ensureActor(opts);
-        const namespace = getNamespace(actor, opts?.appUuid);
+        const namespace = getNamespace(actor, opts);
+        await this.#assertNotPrivate(namespace, key, opts);
 
         const response = await this.clients.dynamo.del(this.tableName, {
             namespace,
@@ -403,8 +487,7 @@ export class SystemKVStore extends PuterStore {
             res: true,
             usage: writeUsage(
                 (response.ConsumedCapacity?.CapacityUnits as
-                    | number
-                    | undefined) ?? 1,
+                    number | undefined) ?? 1,
             ),
         };
     }
@@ -435,16 +518,14 @@ export class SystemKVStore extends PuterStore {
             | { key: string; value: unknown }[]
             | {
                   items:
-                      | string[]
-                      | unknown[]
-                      | { key: string; value: unknown }[];
+                      string[] | unknown[] | { key: string; value: unknown }[];
                   cursor?: string;
                   total?: number;
               }
         >
     > {
         const actor = ensureActor(opts);
-        const namespace = getNamespace(actor, opts?.appUuid);
+        const namespace = getNamespace(actor, opts);
 
         const normalizedLimit = normalizeLimit(limit, { label: 'kv: limit' });
         const normalizedOffset = normalizeOffset(offset, {
@@ -508,7 +589,7 @@ export class SystemKVStore extends PuterStore {
                               },
                           }
                         : {}),
-                    filter: ttlFilter(now),
+                    filter: listFilter(now, isCrossApp(opts)),
                     ...(select ? { select } : {}),
                 },
             );
@@ -516,8 +597,7 @@ export class SystemKVStore extends PuterStore {
                 usage,
                 readUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined) ?? 1,
+                        number | undefined) ?? 1,
                 ),
             );
             return response;
@@ -534,8 +614,7 @@ export class SystemKVStore extends PuterStore {
                 const skip = await runQuery(remaining, startKey, 'COUNT');
                 remaining -= Number(skip.Count ?? 0);
                 startKey = skip.LastEvaluatedKey as
-                    | Record<string, unknown>
-                    | undefined;
+                    Record<string, unknown> | undefined;
                 if (!startKey) {
                     exhausted = remaining > 0;
                     break;
@@ -558,8 +637,7 @@ export class SystemKVStore extends PuterStore {
                     >),
                 );
                 nextKey = response.LastEvaluatedKey as
-                    | Record<string, unknown>
-                    | undefined;
+                    Record<string, unknown> | undefined;
                 pages++;
                 if (normalizedLimit === undefined) {
                     // Legacy full listing: follow continuation pages so the
@@ -595,8 +673,7 @@ export class SystemKVStore extends PuterStore {
                 const counted = await runQuery(0, countKey, 'COUNT');
                 total += Number(counted.Count ?? 0);
                 countKey = counted.LastEvaluatedKey as
-                    | Record<string, unknown>
-                    | undefined;
+                    Record<string, unknown> | undefined;
             } while (countKey);
         }
 
@@ -613,7 +690,7 @@ export class SystemKVStore extends PuterStore {
 
     async flush(opts?: KVOpts): Promise<KVResult<boolean>> {
         const actor = ensureActor(opts);
-        const namespace = getNamespace(actor, opts?.appUuid);
+        const namespace = getNamespace(actor, opts);
 
         const response = await this.clients.dynamo.query(this.tableName, {
             namespace,
@@ -654,7 +731,8 @@ export class SystemKVStore extends PuterStore {
     ): Promise<KVResult<void>> {
         assertKey(key);
         const actor = ensureActor(opts);
-        const namespace = getNamespace(actor, opts?.appUuid);
+        const namespace = getNamespace(actor, opts);
+        await this.#assertNotPrivate(namespace, key, opts);
         const usage = await this.rawExpireAt(namespace, key, Number(timestamp));
         return { res: undefined, usage };
     }
@@ -665,7 +743,8 @@ export class SystemKVStore extends PuterStore {
     ): Promise<KVResult<void>> {
         assertKey(key);
         const actor = ensureActor(opts);
-        const namespace = getNamespace(actor, opts?.appUuid);
+        const namespace = getNamespace(actor, opts);
+        await this.#assertNotPrivate(namespace, key, opts);
         const timestamp = Math.floor(Date.now() / 1000) + Number(ttl);
         const usage = await this.rawExpireAt(namespace, key, timestamp);
         return { res: undefined, usage };
@@ -698,7 +777,9 @@ export class SystemKVStore extends PuterStore {
         assertPaths(Object.keys(pathAndAmountMap));
 
         const actor = ensureActor(opts);
-        const namespace = getNamespace(actor, opts?.appUuid);
+        const namespace = getNamespace(actor, opts);
+
+        await this.#assertNotPrivate(namespace, key, opts);
 
         const setStatements = Object.entries(pathAndAmountMap).map(
             ([valPath, _amt], idx) => {
@@ -814,7 +895,9 @@ export class SystemKVStore extends PuterStore {
         assertPaths(Object.keys(pathAndValueMap));
 
         const actor = ensureActor(opts);
-        const namespace = getNamespace(actor, opts?.appUuid);
+        const namespace = getNamespace(actor, opts);
+
+        await this.#assertNotPrivate(namespace, key, opts);
 
         const createPathsUsage = await this.createPaths(
             namespace,
@@ -881,7 +964,9 @@ export class SystemKVStore extends PuterStore {
         assertPaths(paths);
 
         const actor = ensureActor(opts);
-        const namespace = getNamespace(actor, opts?.appUuid);
+        const namespace = getNamespace(actor, opts);
+
+        await this.#assertNotPrivate(namespace, key, opts);
 
         const removeStatements = paths.map((valPath) => {
             return ['value', ...valPath.split('.')]
@@ -918,8 +1003,7 @@ export class SystemKVStore extends PuterStore {
                 res: response.Attributes?.value,
                 usage: writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        | number
-                        | undefined) ?? 1,
+                        number | undefined) ?? 1,
                 ),
             };
         } catch (e) {
@@ -963,7 +1047,8 @@ export class SystemKVStore extends PuterStore {
         assertPaths(Object.keys(pathAndValueMap));
 
         const actor = ensureActor(opts);
-        const namespace = getNamespace(actor, opts?.appUuid);
+        const namespace = getNamespace(actor, opts);
+        await this.#assertNotPrivate(namespace, key, opts);
 
         const createPathsUsage = await this.createPaths(
             namespace,
