@@ -20,6 +20,7 @@ import type {
     Response as ExpressResponse,
 } from 'express';
 import { Actor } from '../../core';
+import type { UsageInput } from '../../services/metering/types';
 import { FSEntry } from '../../stores/fs/FSEntry';
 
 // GUI write events spread an entry plus per-event metadata into `response`.
@@ -305,6 +306,32 @@ export type EventMap = {
     };
     'storage.quota.bonus': { userId: number; extra: number };
 
+    // ---- Metering ----
+    // Recurring charges are pure mechanism here: the metering service knows
+    // when to ask (once per user per month, the first time that month's usage
+    // record is touched) and how to record the answer, and an extension
+    // decides what the account owes. Listeners push onto `charges`; the
+    // service applies them as ordinary usage once every listener has run.
+    // Nothing listening → no charges and no claim is ever taken.
+    //
+    // Emitted after the claim is settled, so a listener that calls back into
+    // metering can't re-trigger it.
+    'metering.monthly.charges': {
+        /**
+         * User-scoped, with no app on it: the account is what recurs, and the
+         * app that happened to trigger the month's first call has nothing to do
+         * with what is owed. Price against what the user owns.
+         */
+        actor: Actor;
+        /** The month being charged for, `YYYY-MM` in UTC. */
+        month: string;
+        /**
+         * Push what the user owes here. Every listener's charges are merged
+         * into one amount map and recorded as a single increment.
+         */
+        charges: UsageInput[];
+    };
+
     // ---- Outer / GUI broadcast ----
     'outer.cacheUpdate': {
         cacheKey: string[];
@@ -482,10 +509,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;

@@ -23,6 +23,13 @@ export const METRICS_PREFIX = 'metering';
 export const POLICY_PREFIX = 'policy';
 /** Dots in usage types are escaped so they don't collide with kv nested paths */
 export const PERIOD_ESCAPE = '_dot_';
+/**
+ * Field on an actor's monthly usage record holding the claim for that month's
+ * recurring charges. Lives on the record itself so every read that already
+ * fetches usage can tell whether the charges are settled without a second
+ * lookup. Must match the `monthlyChargesApplied` member of `UsageByType`.
+ */
+export const MONTHLY_CHARGE_CLAIM = 'monthlyChargesApplied';
 export const DEFAULT_FREE_SUBSCRIPTION = 'user_free';
 export const DEFAULT_TEMP_SUBSCRIPTION = 'temp_free';
 

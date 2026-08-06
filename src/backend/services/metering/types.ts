@@ -32,9 +32,22 @@ export interface UsageRecord {
     units: number;
 }
 
-export type UsageByType = { total: number } & Partial<
-    Record<Exclude<string, 'total'>, UsageRecord>
->;
+/** One metered event: what was used, how much of it, and what it cost. */
+export interface UsageInput {
+    usageType: string;
+    usageAmount: number;
+    costOverride?: number;
+}
+
+export type UsageByType = {
+    total: number;
+    /**
+     * Claim counter for the month's recurring charges — see
+     * `MONTHLY_CHARGE_CLAIM`. Absent until the first read or write of the
+     * month; 1 for whoever claimed it, higher for anyone who raced and lost.
+     */
+    monthlyChargesApplied?: number;
+} & Partial<Record<Exclude<string, 'total'>, UsageRecord>>;
 
 export interface AppTotals {
     total: number;
