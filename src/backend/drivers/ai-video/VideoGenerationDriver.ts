@@ -26,6 +26,7 @@ import type { Actor } from '../../core/actor.js';
 import { PuterDriver } from '../types.js';
 import { secureFetch } from '../../util/secureHttp.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
+import { BytePlusVideoProvider } from './providers/byteplus/BytePlusVideoProvider.js';
 import { GeminiVideoProvider } from './providers/gemini/GeminiVideoProvider.js';
 import { OpenAIVideoProvider } from './providers/openai/OpenAIVideoProvider.js';
 import { TogetherVideoProvider } from './providers/together/TogetherVideoProvider.js';
@@ -57,6 +58,7 @@ export class VideoGenerationDriver extends PuterDriver {
         'openai-video-generation',
         'together-video-generation',
         'gemini-video-generation',
+        'byteplus-video-generation',
     ];
     readonly isDefault = true;
 
@@ -290,6 +292,26 @@ export class VideoGenerationDriver extends PuterDriver {
         if (geminiKey) {
             this.#providers['gemini-video-generation'] =
                 new GeminiVideoProvider({ apiKey: geminiKey }, m);
+        }
+
+        // Falls back to the shared `byteplus` (ai-chat) key; `apiBaseUrl`
+        // selects the ModelArk region, same as the chat provider.
+        const byteplusCfg = (providers['byteplus-video-generation'] ??
+            providers['byteplus']) as Record<string, unknown> | undefined;
+        const byteplusKey = readKey(
+            providers['byteplus-video-generation'],
+            providers['byteplus'],
+        );
+        if (byteplusKey) {
+            this.#providers['byteplus-video-generation'] =
+                new BytePlusVideoProvider(
+                    {
+                        apiKey: byteplusKey,
+                        apiBaseUrl: byteplusCfg?.apiBaseUrl as
+                            string | undefined,
+                    },
+                    m,
+                );
         }
     }
 
