@@ -955,6 +955,40 @@ describe('AuthController.handleLogin', () => {
         expect(isCompleteLoginResponse(res.body)).toBe(true);
     });
 
+    it('refuses an email the account has moved off', async () => {
+        const moverName = `lm_${Math.random().toString(36).slice(2, 10)}`;
+        const oldEmail = `${moverName}-old@test.local`;
+        const newEmail = `${moverName}-new@test.local`;
+        await controller.handleSignup(
+            makeReq({ username: moverName, email: oldEmail, password }),
+            makeRes(),
+        );
+        // Warm the by-email lookup the way a real login would.
+        await controller.handleLogin(
+            makeReq({ email: oldEmail, password }),
+            makeRes(),
+        );
+
+        const mover = await server.stores.user.getByUsername(moverName);
+        await server.stores.user.update(mover!.id, {
+            email: newEmail,
+            clean_email: newEmail,
+        });
+
+        await expect(
+            controller.handleLogin(
+                makeReq({ email: oldEmail, password }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+        const res = makeRes();
+        await controller.handleLogin(
+            makeReq({ email: newEmail, password }),
+            res,
+        );
+        expect(isCompleteLoginResponse(res.body)).toBe(true);
+    });
+
     it('returns 400 when neither username nor email is supplied', async () => {
         await expect(
             controller.handleLogin(makeReq({ password }), makeRes()),
@@ -4128,6 +4162,30 @@ describe('AuthController user-protected mutations (validation paths)', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('change-email: accepts an address that resolves back to the caller', async () => {
+        // `foo+tag@gmail.com` canonicalizes to the caller's own row, so the
+        // collision check has to exclude them — otherwise Puter reports your
+        // own address as already in use and there's no way to set it.
+        const local = `ch_${uniq()}`;
+        const { user, actor } = await makeUserAndActor();
+        await server.stores.user.update(user.id, {
+            email: `${local}@gmail.com`,
+            clean_email: `${local}@gmail.com`,
+            email_confirmed: 1,
+        });
+
+        const res = makeRes();
+        await controller.handleChangeEmail(
+            makeReq({ new_email: `${local}+work@gmail.com` }, { actor }),
+            res,
+        );
+        expect(res.body).toEqual({});
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.unconfirmed_change_email).toBe(`${local}+work@gmail.com`);
     });
 
     it('change-email: stages the new email + token on success', async () => {

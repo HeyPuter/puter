@@ -1004,8 +1004,7 @@ export class AuthController extends PuterController {
                     is_temp: user!.password === null && user!.email === null,
                     ip:
                         (req?.headers?.['x-forwarded-for'] as
-                            | string
-                            | undefined) ||
+                            string | undefined) ||
                         (
                             req as unknown as {
                                 connection?: { remoteAddress?: string };
@@ -2339,15 +2338,18 @@ export class AuthController extends PuterController {
         }
         await this.#validateEmail(new_email);
 
-        // Block if any confirmed account (password or OIDC) already
+        // Block if any OTHER confirmed account (password or OIDC) already
         // owns that email. Match raw + canonical to collapse gmail
-        // aliases.
+        // aliases — which is also why the caller has to be excluded: an
+        // alias of your own current address resolves back to you, and
+        // "already in use" about yourself is nonsense.
         const canonical = cleanEmail(new_email);
         const existing =
             (await this.stores.user.getByEmail(new_email)) ??
             (await this.stores.user.getByCleanEmail(canonical));
         if (
             existing &&
+            existing.id !== req.actor!.user.id &&
             (existing.email_confirmed || existing.password !== null)
         ) {
             throw new HttpError(400, 'This email is already in use.', {

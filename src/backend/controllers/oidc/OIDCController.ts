@@ -47,6 +47,23 @@ const ALLOWED_ERRORS = [
     'signup_blocked',
 ] as const;
 
+/**
+ * Pick the display code for a failed user resolution.
+ *
+ * A `code` is only ever set when the signup-validate harness vetoed the signup,
+ * but the code it stamps comes from an abuse listener and is not drawn from
+ * {@link ALLOWED_ERRORS} — so clamping it directly turns every vetoed OIDC
+ * signup into a bare `unauthorized`, which reads as "sign-in broke" and hides
+ * both the real cause and the Request Code that support looks the decision up
+ * by. Anything unrecognized falls back to the veto's own category instead.
+ */
+function resolutionErrorCode(code: string | undefined): string {
+    if (!code) return 'unauthorized';
+    return (ALLOWED_ERRORS as readonly string[]).includes(code)
+        ? code
+        : 'signup_blocked';
+}
+
 // GUI pages an OIDC flow may return to: /desktop, /dashboard, and direct app
 // landings (/app/<name> and its desktop-booted twin /desktop/app/<name>,
 // mirroring APP_NAME_REGEX in AppDriver). Strict whitelist — never a
@@ -404,7 +421,7 @@ export class OIDCController extends PuterController {
                         origin,
                         'login',
                         'other',
-                        resolved.code ?? 'unauthorized',
+                        resolutionErrorCode(resolved.code),
                         stateDecoded,
                         resolved.requestCode,
                         (p) => this.services.oidc.signPopupReturn(p),
@@ -442,6 +459,7 @@ export class OIDCController extends PuterController {
             const origin = this.config.origin ?? '';
             const result = await this.#processCallback(req, res, 'signup');
             if ('error' in result) {
+                console.warn(`OIDC signup callback error: ${result.error}`);
                 return res.redirect(
                     302,
                     buildErrorRedirectUrl(
@@ -470,7 +488,7 @@ export class OIDCController extends PuterController {
                         origin,
                         'signup',
                         'other',
-                        resolved.code ?? 'unauthorized',
+                        resolutionErrorCode(resolved.code),
                         stateDecoded,
                         resolved.requestCode,
                         (p) => this.services.oidc.signPopupReturn(p),
