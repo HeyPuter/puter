@@ -1348,16 +1348,29 @@ const ipc_listener = async (event, handled) => {
             event.data.options = {};
         }
 
-        // options.permission must be provided and be a string
-        if ( !event.data.options.permission || typeof event.data.options.permission !== 'string' )
+        // One of `permission` (a string) or `permissions` (a non-empty list of
+        // strings) must be provided. The dialog validates the strings
+        // themselves; this only rejects a shape it cannot read.
+        const requested_permissions = Array.isArray(event.data.options.permissions)
+            ? event.data.options.permissions
+            : [event.data.options.permission];
+        if ( requested_permissions.length === 0
+            || requested_permissions.some(p => !p || typeof p !== 'string') )
         {
-            console.error('IPC requestPermission requires parameter { permission }', event.data);
+            console.error('IPC requestPermission requires parameter { permission } or { permissions }', event.data);
             respond(false);
             return;
         }
 
         let granted = await UIPermissionDialog({
-            permission: event.data.options.permission,
+            // Both forms: the dialog reads `permissions`, and `permission` keeps
+            // the single-scope path working for callers (and dialog versions)
+            // that only know the scalar. A multi-scope request with no list
+            // support is refused rather than partially granted.
+            permissions: requested_permissions,
+            permission: requested_permissions.length === 1
+                ? requested_permissions[0]
+                : undefined,
             app_uid: app_uuid,
             app_name: app_name,
         });
