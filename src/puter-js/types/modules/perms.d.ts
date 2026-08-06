@@ -103,4 +103,42 @@ export class Perms {
      * @returns `true` if manage access was granted, `false` otherwise.
      */
     requestManageSubdomains (): Promise<boolean>;
+
+    /**
+     * Request permission to use another app's data: its key-value namespace and
+     * its AppData directory, both scoped to the current user.
+     *
+     * Deleting entries is a separate scope from writing them, so request
+     * `delete` explicitly when the app needs to remove data it did not write.
+     *
+     * @param appIdentifier - The target app's uid, registered name, or an object
+     * carrying either.
+     * @param scopes - `'read' | 'write' | 'delete'` applied to both stores, an
+     * array of `'<store>:<name>'` pairs, or a per-store object.
+     * @returns `true` if the app may now use that data, `false` if denied.
+     */
+    requestAppData (
+        appIdentifier: string | { uid: string } | { name: string },
+        scopes: AppDataScope
+            | AppDataScope[]
+            | `${AppDataStore}:${string}`[]
+            | { kv?: AppDataScope | AppDataScope[], fs?: AppDataScope | AppDataScope[] },
+    ): Promise<boolean>;
 }
+
+/** The stores an `app-data` scope can name. */
+export type AppDataStore = 'kv' | 'fs';
+
+/**
+ * An access class, or a concrete KV operation. Classes are the coarser form:
+ * `read` covers `get`/`list`, `write` covers `set`/`add`/`incr`/`decr`/`update`,
+ * and `delete` covers `del`/`remove`/`expire`/`expireAt`.
+ *
+ * `flush` is deliberately absent — it empties a whole namespace and no scope
+ * reaches it.
+ */
+export type AppDataScope =
+    | 'read' | 'write' | 'delete'
+    | 'get' | 'list'
+    | 'set' | 'add' | 'incr' | 'decr' | 'update'
+    | 'del' | 'remove' | 'expire' | 'expireAt';

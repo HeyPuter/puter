@@ -143,7 +143,24 @@ export interface KVListPage<T = unknown> {
 }
 
 export interface KVOptConfig {
+    /**
+     * Address another app's namespace instead of this app's own. Requires an
+     * `app-data:<appUuid>:kv:<op>` permission, which `puter.perms.requestAppData()`
+     * asks the user for.
+     */
     appUuid?: string;
+    /**
+     * Mark the entry private to this app: invisible and untouchable to any other
+     * app the user later grants access to this namespace.
+     *
+     * Honoured by `set()`, which writes the whole entry — so writing the key
+     * again without the flag makes it shareable. Rejected when combined with
+     * `appUuid`, since only an entry's owner may mark it private.
+     *
+     * Use it for anything another app should never read, such as a cached OAuth
+     * token, since a user granting access cannot see what a namespace holds.
+     */
+    disableSharing?: boolean;
 }
 
 /**

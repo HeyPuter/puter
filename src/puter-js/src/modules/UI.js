@@ -30,6 +30,10 @@ const createDeferred = () => {
 const FILE_SAVE_CANCELLED = Symbol('FILE_SAVE_CANCELLED');
 const FILE_OPEN_CANCELLED = Symbol('FILE_OPEN_CANCELLED');
 
+// A consent prompt covers a handful of scopes at most, and the popup carries
+// them in its URL.
+const MAX_REQUESTED_PERMISSIONS = 16;
+
 // AppConnection provides an API for interacting with another app.
 // It's returned by UI methods, and cannot be constructed directly by user code.
 // For basic usage:
@@ -1371,7 +1375,10 @@ class UI extends EventListener {
      * the request is relayed to the desktop; on the web the permission
      * dialog is shown in a popup window on the Puter origin.
      *
-     * @param {{ permission: string }} options
+     * One prompt may cover several scopes: pass `permissions` instead of
+     * `permission` and the user answers for the whole list at once.
+     *
+     * @param {{ permission?: string, permissions?: string[] }} options
      * @returns {Promise<boolean>} `true` only if the permission was granted.
      */
     async requestPermission (options) {
@@ -1392,8 +1399,17 @@ class UI extends EventListener {
         if ( ! globalThis.open || ! globalThis.document ) {
             return false;
         }
-        const permission = options?.permission;
-        if ( typeof permission !== 'string' || permission === '' ) {
+        // The popup carries the request in its URL, so cap the list: a link is
+        // attacker-supplied, and an unbounded one could stack an unreadable
+        // consent prompt in front of the user (and overflow the URL).
+        const requested = Array.isArray(options?.permissions)
+            ? options.permissions
+            : [options?.permission];
+        if (
+            requested.length === 0 ||
+            requested.length > MAX_REQUESTED_PERMISSIONS ||
+            requested.some(p => typeof p !== 'string' || p === '')
+        ) {
             return false;
         }
 
@@ -1430,7 +1446,12 @@ class UI extends EventListener {
             // two impossible to confuse. The GUI echoes the value back verbatim as
             // a string, which the loose `!=` below compares correctly.
             const msg_id = `${this.#messageID++}-${Math.random().toString(36).slice(2, 10)}`;
-            const url = `${gui_origin}/action/request-permission?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}&permission=${encodeURIComponent(permission)}`;
+            // Repeated `permission=` params rather than a JSON blob, so the GUI
+            // reads a list of plain strings with no parsing step to get wrong.
+            const query = requested
+                .map(p => `permission=${encodeURIComponent(p)}`)
+                .join('&');
+            const url = `${gui_origin}/action/request-permission?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}&${query}`;
 
             // Guards against settling more than once across the message,
             // popup-closed, and dialog-cancel code paths.
