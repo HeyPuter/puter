@@ -60,11 +60,19 @@ import {
     generateDefaultFsentries,
     promoteToVerifiedGroup,
 } from '../../util/userProvisioning.js';
+import {
+    APP_DATA_PERMISSION_PREFIX,
+    appDataSharingAllowed,
+    parseAppDataPermission,
+} from '../../services/permission/appDataScopes.js';
 import { PuterController } from '../types.js';
 
 const USERNAME_REGEX = /^\w{1,}$/;
 const USERNAME_MAX_LENGTH = 45;
 const FINGERPRINT_MAX_LENGTH = 128;
+// One consent prompt covers a handful of scopes at most. The cap keeps a
+// crafted request from turning a single grant call into a bulk write.
+const MAX_PERMISSIONS_PER_REQUEST = 16;
 const DISPATCH_ID_MAX_LENGTH = 128;
 // Default SMS send attempts before the card fallback opens.
 const DEFAULT_CARD_FALLBACK_ATTEMPTS = 2;
@@ -2827,13 +2835,113 @@ export class AuthController extends PuterController {
         return app.uid;
     }
 
+    /**
+     * Resolve the `permission` / `permissions` pair into the list to act on.
+     *
+     * One consent prompt can cover several scopes (read a store, write
+     * another), and a client looping the single form would have to invent its
+     * own partial-failure and rollback handling. Accepting the array keeps that
+     * in one request.
+     */
+    #appPermissionList(body: {
+        permission?: unknown;
+        permissions?: unknown;
+    }): string[] {
+        const { permission, permissions } = body;
+        if (permissions !== undefined && permissions !== null) {
+            if (permission !== undefined && permission !== null) {
+                throw new HttpError(
+                    400,
+                    'Pass `permission` or `permissions`, not both',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            if (!Array.isArray(permissions) || permissions.length === 0) {
+                throw new HttpError(400, 'Invalid `permissions`', {
+                    legacyCode: 'bad_request',
+                });
+            }
+            if (permissions.length > MAX_PERMISSIONS_PER_REQUEST) {
+                throw new HttpError(400, 'Too many `permissions`', {
+                    legacyCode: 'bad_request',
+                });
+            }
+            for (const entry of permissions) {
+                this.#validateAppPermissionParams({ permission: entry });
+                // `*` means "revoke everything" in the scalar form only —
+                // inside a list it would silently widen a targeted request.
+                if (!entry || entry === '*') {
+                    throw new HttpError(400, 'Invalid `permissions`', {
+                        legacyCode: 'bad_request',
+                    });
+                }
+            }
+            return [...new Set(permissions as string[])];
+        }
+        return typeof permission === 'string' && permission ? [permission] : [];
+    }
+
+    /**
+     * Gate a cross-app data grant: the target must exist, must not have opted
+     * out of sharing, and must be named. Also creates the target's AppData
+     * directory for an `fs` scope, since it is only created lazily when the app
+     * first runs — without this a valid grant would 404 until then.
+     */
+    async #prepareAppDataGrant(
+        actor: Actor,
+        permission: string,
+    ): Promise<void> {
+        const parsed = parseAppDataPermission(permission);
+        if (!parsed) {
+            // A bare `app-data` (or one with an empty target) would cover every
+            // app the user has by prefix implication, which no prompt can
+            // describe. Reject rather than treat it as an unrelated permission.
+            if (
+                permission === APP_DATA_PERMISSION_PREFIX ||
+                permission.startsWith(`${APP_DATA_PERMISSION_PREFIX}:`)
+            ) {
+                throw new HttpError(
+                    400,
+                    'Invalid `app-data` permission: missing target app',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            return;
+        }
+
+        const target = await this.stores.app.getByUid(parsed.targetAppUid);
+        if (!target) {
+            throw new HttpError(
+                404,
+                `entity_not_found: app:${parsed.targetAppUid}`,
+                { legacyCode: 'subject_does_not_exist' },
+            );
+        }
+        if (!appDataSharingAllowed(target)) {
+            throw new HttpError(
+                403,
+                'This app does not share its data with other apps',
+                { legacyCode: 'forbidden' },
+            );
+        }
+
+        const username = actor.user?.username;
+        const userId = actor.user?.id;
+        if ((parsed.store === 'fs' || !parsed.store) && username && userId) {
+            await this.services.fs.mkdir(userId, {
+                path: `/${username}/AppData/${parsed.targetAppUid}`,
+                createMissingParents: true,
+            } as never);
+        }
+    }
+
     @Post('/auth/grant-user-app', {
         subdomain: 'api',
         requireUserActor: true,
     })
     async handleGrantUserApp(req: Request, res: Response): Promise<void> {
         let { app_uid } = req.body;
-        const { origin, permission, extra, meta } = req.body;
+        const { origin, permission, permissions, extra, meta } = req.body;
         this.#validateAppPermissionParams({
             app_uid,
             origin,
@@ -2841,21 +2949,30 @@ export class AuthController extends PuterController {
             extra,
             meta,
         });
+        const list = this.#appPermissionList({ permission, permissions });
         if (origin) {
             app_uid = await this.#registeredAppUidFromOrigin(origin);
         }
-        if (!app_uid || !permission) {
+        if (!app_uid || list.length === 0) {
             throw new HttpError(400, 'Missing `app_uid` or `permission`', {
                 legacyCode: 'bad_request',
             });
         }
-        await this.services.permission.grantUserAppPermission(
-            req.actor!,
-            app_uid,
-            permission,
-            extra ?? undefined,
-            meta ?? undefined,
-        );
+
+        // Validate every entry before writing any, so a bad one in the list
+        // cannot leave a partially-granted set behind.
+        for (const entry of list) {
+            await this.#prepareAppDataGrant(req.actor!, entry);
+        }
+        for (const entry of list) {
+            await this.services.permission.grantUserAppPermission(
+                req.actor!,
+                app_uid,
+                entry,
+                extra ?? undefined,
+                meta ?? undefined,
+            );
+        }
         res.json({});
     }
 
@@ -2915,21 +3032,24 @@ export class AuthController extends PuterController {
     })
     async handleRevokeUserApp(req: Request, res: Response): Promise<void> {
         let { app_uid } = req.body;
-        const { origin, permission, meta } = req.body;
+        const { origin, permission, permissions, meta } = req.body;
         this.#validateAppPermissionParams({
             app_uid,
             origin,
             permission,
             meta,
         });
+        const list = this.#appPermissionList({ permission, permissions });
         if (origin) {
             app_uid = await this.#registeredAppUidFromOrigin(origin);
         }
-        if (!app_uid || !permission) {
+        if (!app_uid || list.length === 0) {
             throw new HttpError(400, 'Missing `app_uid` or `permission`', {
                 legacyCode: 'bad_request',
             });
         }
+        // Deliberately not gated by the target's sharing flag: a user must
+        // always be able to withdraw a grant, whatever the target now says.
         if (permission === '*') {
             await this.services.permission.revokeUserAppAll(
                 req.actor!,
@@ -2937,12 +3057,14 @@ export class AuthController extends PuterController {
                 meta ?? undefined,
             );
         } else {
-            await this.services.permission.revokeUserAppPermission(
-                req.actor!,
-                app_uid,
-                permission,
-                meta ?? undefined,
-            );
+            for (const entry of list) {
+                await this.services.permission.revokeUserAppPermission(
+                    req.actor!,
+                    app_uid,
+                    entry,
+                    meta ?? undefined,
+                );
+            }
         }
         res.json({});
     }
@@ -3250,6 +3372,17 @@ export class AuthController extends PuterController {
             app = await this.stores.app.createFromOrigin(app_uid, origin, {
                 ownerUserId,
             });
+            // An origin's uid is a deterministic uuidv5, so a deleted app
+            // reappears here under the identical uid. Withdraw any cross-app
+            // data grants left pointing at it before this new row can inherit
+            // consent the user gave its predecessor. `createFromOrigin` emits no
+            // `app.changed`, so the listener in AppPermissionService never sees
+            // this path.
+            this.clients.event.emit(
+                'app.changed',
+                { app_uid, action: 'created', app },
+                {},
+            );
         }
         if (!app) {
             throw new HttpError(404, `App ${app_uid} does not exist`, {
