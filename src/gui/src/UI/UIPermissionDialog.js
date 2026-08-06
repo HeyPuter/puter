@@ -49,7 +49,8 @@ const LOOKUP_TIMEOUT_MS = 10000;
  * written against, so without one there is nothing to prompt about.
  *
  * @param {Object} options
- * @param {string} options.permission - The permission string being requested.
+ * @param {string} [options.permission] - A single permission string.
+ * @param {string[]} [options.permissions] - Several, answered as one decision.
  * @param {string} [options.app_uid] - UID of the requesting app, if known.
  * @param {string} [options.app_name] - Registered name of the requesting app;
  *   used for display, never as the grant target.
@@ -59,9 +60,18 @@ const LOOKUP_TIMEOUT_MS = 10000;
 async function UIPermissionDialog (options) {
     options = options ?? {};
 
-    if ( ! options.permission || typeof options.permission !== 'string' ) {
+    // One decision can cover several scopes. Normalised here so everything
+    // downstream — the pending key, the dialog body, the grant — sees a list.
+    const permissions = Array.isArray(options.permissions)
+        ? options.permissions
+        : [options.permission];
+    if ( permissions.length === 0
+        || permissions.some(p => ! p || typeof p !== 'string') ) {
         return false;
     }
+    // Sorted so two requests for the same set share one in-flight prompt
+    // regardless of the order the caller listed them in.
+    options = { ...options, permissions: [...permissions].sort() };
 
     // Never prompt the user on behalf of a requester the grant can't name.
     // Only `app_uid` and `origin` are sent to /auth/grant-user-app, so an
@@ -86,7 +96,7 @@ async function UIPermissionDialog (options) {
     // `||`, not `??`: the gate above treats an empty uid as absent, so the key
     // has to fall through to the origin too — otherwise two different origins
     // arriving with a blank uid would share one decision.
-    const pending_key = `${options.app_uid || options.origin || ''}\n${options.permission}`;
+    const pending_key = `${options.app_uid || options.origin || ''}\n${options.permissions.join('\n')}`;
     if ( pending_dialogs.has(pending_key) ) {
         return pending_dialogs.get(pending_key);
     }
@@ -106,7 +116,7 @@ async function UIPermissionDialog (options) {
             // Callers treat this as the user's decision and some of them (the
             // IPC bridge) have no way to answer a rejection, which would leave
             // the requesting app waiting forever. Fail closed instead.
-            console.error('Permission dialog failed', options.permission, e);
+            console.error('Permission dialog failed', options.permissions, e);
             return false;
         } finally {
             release_turn();
@@ -121,30 +131,36 @@ async function UIPermissionDialog (options) {
 }
 
 async function show_permission_dialog (options) {
-    let permission_description;
+    let descriptions;
     try {
-        permission_description = await with_timeout(
-            get_permission_description(options.permission),
+        descriptions = await with_timeout(
+            Promise.all(options.permissions.map(
+                permission => get_permission_description(permission, options),
+            )),
             LOOKUP_TIMEOUT_MS,
             null,
         );
     } catch (e) {
         // Description lookup needs auth/whoami; treat failures as unsupported.
-        console.error('Failed to describe permission', options.permission, e);
+        console.error('Failed to describe permission', options.permissions, e);
         return false;
     }
 
     // Unsupported permission strings are denied silently (existing contract).
     // A lookup that timed out lands here too: nothing to describe, so nothing
     // to prompt about.
-    if ( ! permission_description ) {
+    //
+    // One undescribable scope denies the whole prompt rather than being dropped
+    // from it: a scope the user was never shown must not ride along on an Allow
+    // that described the others.
+    if ( ! descriptions || descriptions.some(d => ! d) ) {
         return false;
     }
 
     const entity = await resolve_requesting_entity(options);
 
     return new Promise((resolve) => {
-        const el_dialog = create_dialog_element(entity, permission_description);
+        const el_dialog = create_dialog_element(entity, descriptions);
         document.body.appendChild(el_dialog);
 
         // Set once a grant request has been sent without the server definitively
@@ -253,7 +269,11 @@ async function show_permission_dialog (options) {
                     body: JSON.stringify({
                         app_uid: options.app_uid,
                         origin: options.origin,
-                        permission: options.permission,
+                        // One request for the whole set: the server validates
+                        // every entry before writing any, so a partial grant
+                        // can't survive a rejected scope — and the
+                        // uncertain-commit handling below stays single-flight.
+                        permissions: options.permissions,
                     }),
                     method: 'POST',
                     ...(controller ? { signal: controller.signal } : {}),
@@ -325,7 +345,7 @@ async function undo_uncertain_grant (options) {
             body: JSON.stringify({
                 app_uid: options.app_uid,
                 origin: options.origin,
-                permission: options.permission,
+                permissions: options.permissions,
             }),
             method: 'POST',
             // In the popup flow the answer is posted and the window closed
@@ -334,7 +354,7 @@ async function undo_uncertain_grant (options) {
             keepalive: true,
         });
     } catch (e) {
-        console.error('Failed to withdraw an uncertain permission grant', e);
+        console.error('Failed to withdraw uncertain permission grants', e);
     }
 }
 
@@ -377,7 +397,7 @@ function with_timeout (promise, ms, fallback) {
  * Builds the dialog DOM from the requesting entity and the permission
  * description. Returns a detached <dialog> element.
  */
-function create_dialog_element (entity, permission_description) {
+function create_dialog_element (entity, descriptions) {
     let h = '';
     h += '<div class="perm-dialog-body">';
 
@@ -398,10 +418,12 @@ function create_dialog_element (entity, permission_description) {
 
     // what is being requested
     h += `<p class="perm-dialog-lead">${i18n('perm_dialog_wants_to')}</p>`;
-    h += '<div class="perm-dialog-permission">';
-    h += `<div class="perm-dialog-perm-icon">${permission_icon_svg(permission_description.icon)}</div>`;
-    h += `<div class="perm-dialog-perm-text">${permission_description.html}</div>`;
-    h += '</div>';
+    for ( const description of descriptions ) {
+        h += '<div class="perm-dialog-permission">';
+        h += `<div class="perm-dialog-perm-icon">${permission_icon_svg(description.icon)}</div>`;
+        h += `<div class="perm-dialog-perm-text">${description.html}</div>`;
+        h += '</div>';
+    }
 
     // error message (hidden until a grant attempt fails)
     h += '<p class="perm-dialog-error" style="display: none;"></p>';
@@ -527,10 +549,12 @@ function permission_icon_svg (icon) {
  * Generates a user-friendly description of a permission string.
  *
  * @param {string} permission - The permission string to describe
+ * @param {Object} [options] - The dialog options, for checks that depend on who
+ * is asking (a request for the requester's own data, for instance).
  * @returns {Promise<{html: string, icon: string} | null>} Description (HTML)
  * and icon key, or null if the permission cannot be requested interactively.
  */
-async function get_permission_description (permission) {
+async function get_permission_description (permission, options = {}) {
     const parts = split_permission(permission);
 
     if ( ['fs', 'thread', 'service', 'driver'].includes(parts[0]) ) {
@@ -618,6 +642,10 @@ async function get_permission_description (permission) {
         }
     }
 
+    if ( parts[0] === 'app-data' ) {
+        return await get_app_data_description(parts, options);
+    }
+
     if ( parts[0] === 'app-root-dir' ) {
         // Format: app-root-dir:<app_uid>:<read|write>
         if ( parts[2] === 'read' ) {
@@ -629,6 +657,97 @@ async function get_permission_description (permission) {
     }
 
     return null;
+}
+
+/**
+ * KV operation, or access class, → the verb the user sees. Deletion is named
+ * explicitly: a scope that can remove another app's entries must not read as
+ * "change".
+ */
+const APP_DATA_VERBS = {
+    read: 'read', get: 'read', list: 'read',
+    write: 'change', set: 'change', add: 'change',
+    incr: 'change', decr: 'change', update: 'change',
+    delete: 'delete', del: 'delete', remove: 'delete',
+    expire: 'delete', expireAt: 'delete',
+};
+
+/**
+ * Look up the app a cross-app request names. Returns null when it does not
+ * exist, so an unresolvable target never reaches the prompt.
+ */
+async function get_app_by_uid (uid) {
+    try {
+        const res = await fetch(`${window.api_origin}/drivers/call`, {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${window.auth_token}`,
+            },
+            body: JSON.stringify({
+                interface: 'puter-apps',
+                driver: 'es:app',
+                method: 'read',
+                args: { uid },
+            }),
+            method: 'POST',
+        });
+        if ( ! res.ok ) return null;
+        const body = await res.json();
+        return body?.result ?? null;
+    } catch (e) {
+        console.error('Failed to look up app', uid, e);
+        return null;
+    }
+}
+
+/**
+ * Describes `app-data:<uid>[:<store>[:<op>]]` — one app using another's data.
+ *
+ * Returns null (which denies without prompting) when there is nothing to ask:
+ * the target is the requester itself, the target does not exist, or its
+ * developer has opted out of sharing. In each case the grant would be refused or
+ * redundant, so a prompt would only mislead.
+ */
+export async function get_app_data_description (parts, options) {
+    const [, target_uid, store, op] = parts;
+    if ( ! target_uid ) return null;
+
+    // An app already reaches its own data; approving that would mean nothing.
+    if ( options.app_uid && target_uid === options.app_uid ) return null;
+
+    const app = await get_app_by_uid(target_uid);
+    if ( ! app ) return null;
+    if ( app.metadata?.share_app_data === false ) return null;
+
+    const app_label = app.title || app.name || target_uid;
+
+    // No op named means every op under it, by prefix implication — so the copy
+    // has to cover deletion too, not just reading and changing.
+    const verb = op ? APP_DATA_VERBS[op] : null;
+    if ( op && ! verb ) return null;
+
+    if ( ! store ) {
+        return {
+            html: i18n('perm_app_data_all', { app: app_label }),
+            icon: 'shield',
+        };
+    }
+    if ( store !== 'kv' && store !== 'fs' ) return null;
+
+    const subject = store === 'fs'
+        ? i18n('perm_app_data_subject_files', { app: app_label })
+        : i18n('perm_app_data_subject_data', { app: app_label });
+
+    if ( ! verb ) {
+        return {
+            html: i18n('perm_app_data_store_all', { subject }),
+            icon: store === 'fs' ? 'folder' : 'shield',
+        };
+    }
+    return {
+        html: i18n(`perm_app_data_${verb}`, { subject }),
+        icon: store === 'fs' ? 'folder' : 'shield',
+    };
 }
 
 /**
