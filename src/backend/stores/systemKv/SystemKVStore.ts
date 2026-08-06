@@ -267,7 +267,10 @@ export class SystemKVStore extends PuterStore {
     // -- Public API ---------------------------------------------------
 
     async get(
-        { key }: { key: string | string[] },
+        {
+            key,
+            consistentRead,
+        }: { key: string | string[]; consistentRead?: boolean },
         opts?: KVOpts,
     ): Promise<KVResult<unknown | null | (unknown | null)[]>> {
         const actor = ensureActor(opts);
@@ -289,10 +292,11 @@ export class SystemKVStore extends PuterStore {
             kvEntries = entries;
             usage = u;
         } else {
-            const response = await this.clients.dynamo.get(this.tableName, {
-                namespace,
-                key,
-            });
+            const response = await this.clients.dynamo.get(
+                this.tableName,
+                { namespace, key },
+                consistentRead,
+            );
             kvEntries = response.Item
                 ? [response.Item as (typeof kvEntries)[number]]
                 : [];

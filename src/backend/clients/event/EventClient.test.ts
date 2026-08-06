@@ -214,6 +214,38 @@ describe('EventClient', () => {
         });
     });
 
+    describe('hasListeners', () => {
+        it('is false for a key nobody subscribed to', () => {
+            expect(target.hasListeners(key)).toBe(false);
+        });
+
+        it('is true for an exact subscriber', () => {
+            target.on(key, vi.fn());
+            expect(target.hasListeners(key)).toBe(true);
+        });
+
+        it('is true when only a wildcard prefix matches', () => {
+            target.on(`${key}.*`, vi.fn());
+            expect(target.hasListeners(`${key}.child.deep`)).toBe(true);
+        });
+
+        it('is true for an extension-registered listener', () => {
+            extensionStore.events[key] = [vi.fn()];
+            try {
+                expect(target.hasListeners(key)).toBe(true);
+            } finally {
+                delete extensionStore.events[key];
+            }
+        });
+
+        it('goes back to false once the last listener is removed', () => {
+            const listener = vi.fn();
+            target.on(key, listener);
+            target.off(key, listener);
+            expect(target.hasListeners(key)).toBe(false);
+        });
+    });
+
     describe('extension-registered listeners', () => {
         afterEach(() => {
             delete extensionStore.events[key];

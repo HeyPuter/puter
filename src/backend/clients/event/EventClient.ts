@@ -130,6 +130,27 @@ export class EventClient extends PuterClient {
     }
 
     /**
+     * Whether anything would run if `key` were emitted, wildcards included.
+     *
+     * For emitters whose work is only worth doing when someone is listening —
+     * gathering the payload costs a round trip, say. Emitting into the void is
+     * otherwise perfectly cheap and doesn't need this.
+     */
+    hasListeners<T extends keyof EventMap>(key: T): boolean {
+        const parts = key.split('.');
+        for (let i = 0; i < parts.length; i++) {
+            const matchKey = (
+                i === parts.length - 1
+                    ? key
+                    : `${parts.slice(0, i + 1).join('.')}.*`
+            ) as ListenKey;
+            if (this.#eventListeners[matchKey]?.length) return true;
+            if (extensionStore.events[matchKey]?.length) return true;
+        }
+        return false;
+    }
+
+    /**
      * Subscribe to an event by exact key OR a wildcard prefix.
      *
      * Wildcards: a key ending in `.*` matches every event whose name starts
