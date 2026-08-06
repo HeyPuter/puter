@@ -120,6 +120,8 @@ if [ "$write_config" = "1" ]; then
 HTTP_PORT=$PUTER_PORT
 # HTTPS_PORT=443     # uncomment after enabling TLS in caddy/Caddyfile
 #                    # (see "Step 3 — TLS" in doc/self-hosting.md)
+PUTER_DOMAIN=$PUTER_DOMAIN
+PUTER_PROTOCOL=$PUTER_PROTOCOL
 
 MARIADB_ROOT_PASSWORD=$MARIADB_ROOT_PASSWORD
 MARIADB_DATABASE=puter
