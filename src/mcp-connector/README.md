@@ -25,6 +25,9 @@ OAuth "Sign in with Puter" flow the Worker hosts itself (see
 | `fs_mkdir` | Create a directory (optionally creating missing parents). |
 | `fs_delete` | Delete a file or directory (recursive by default). |
 | `fs_readdir` | List the entries of a directory. |
+| `fs_copy` | Copy a file or directory to another location. |
+| `fs_move` | Move a file or directory to another location (also renames). |
+| `fs_rename` | Rename a file or directory in place. |
 
 ### Hosting (static websites)
 Publishing a website in Puter means creating a hosting subdomain served at

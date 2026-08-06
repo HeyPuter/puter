@@ -103,6 +103,9 @@ The Puter MCP server exposes the following tools, grouped by category. Each one 
 - `fs_mkdir`: Create a directory, optionally creating missing parents.
 - `fs_stat`: Get metadata (name, size, type, timestamps) for a file or directory.
 - `fs_delete`: Delete a file or directory.
+- `fs_copy`: Copy a file or directory to another location.
+- `fs_move`: Move a file or directory to another location (also renames).
+- `fs_rename`: Rename a file or directory in place.
 
 ### Hosting
 

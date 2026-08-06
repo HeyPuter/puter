@@ -259,6 +259,98 @@ export const TOOLS = [
             return puter.fs.readdir(path);
         },
     },
+    {
+        name: 'fs_copy',
+        description:
+            'Copy a file or directory in Puter to another location. If destination is an existing ' +
+            'directory the item is copied into it under the same name; pass new_name to copy it under a ' +
+            'different name. On a name conflict the copy is auto-renamed ("file (1).txt") unless you pass ' +
+            'overwrite=true. Equivalent to PuterJS puter.fs.copy(source, destination).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                source: { type: 'string', description: `Path of the file or directory to copy. ${HOME_PATH_NOTE}` },
+                destination: {
+                    type: 'string',
+                    description: `Destination directory to copy into (or the full destination path when combined with new_name). ${HOME_PATH_NOTE}`,
+                },
+                new_name: { type: 'string', description: 'Name for the copy at the destination. Defaults to the source name.' },
+                overwrite: { type: 'boolean', default: false, description: 'Overwrite an existing item at the destination.' },
+                dedupe_name: {
+                    type: 'boolean',
+                    default: true,
+                    description: 'Auto-rename the copy instead of failing when the name is taken.',
+                },
+            },
+            required: ['source', 'destination'],
+        },
+        async handler(puter, { source, destination, new_name, overwrite = false, dedupe_name = true }) {
+            return puter.fs.copy(source, destination, {
+                newName: new_name,
+                overwrite,
+                dedupeName: dedupe_name,
+            });
+        },
+    },
+    {
+        name: 'fs_move',
+        description:
+            'Move a file or directory in Puter to another location. If destination is an existing ' +
+            'directory the item is moved into it under the same name; otherwise destination is treated as ' +
+            "the item's new full path (so this also renames). Equivalent to PuterJS " +
+            'puter.fs.move(source, destination).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                source: { type: 'string', description: `Path of the file or directory to move. ${HOME_PATH_NOTE}` },
+                destination: {
+                    type: 'string',
+                    description: `Destination directory to move into, or the item's new full path. ${HOME_PATH_NOTE}`,
+                },
+                new_name: { type: 'string', description: 'Name for the item at the destination. Defaults to the source name.' },
+                overwrite: { type: 'boolean', default: false, description: 'Overwrite an existing item at the destination.' },
+                dedupe_name: {
+                    type: 'boolean',
+                    default: false,
+                    description: 'Auto-rename ("file (1).txt") instead of failing when the name is taken.',
+                },
+                create_missing_parents: {
+                    type: 'boolean',
+                    default: false,
+                    description: 'Create the destination directory (and its parents) if it does not exist.',
+                },
+            },
+            required: ['source', 'destination'],
+        },
+        async handler(puter, {
+            source, destination, new_name, overwrite = false, dedupe_name = false, create_missing_parents = false,
+        }) {
+            return puter.fs.move(source, destination, {
+                newName: new_name,
+                overwrite,
+                dedupeName: dedupe_name,
+                createMissingParents: create_missing_parents,
+            });
+        },
+    },
+    {
+        name: 'fs_rename',
+        description:
+            'Rename a file or directory in Puter in place, keeping it in the same parent directory. To ' +
+            'move an item to a different directory use fs_move instead. Equivalent to PuterJS ' +
+            'puter.fs.rename(path, new_name).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                path: { type: 'string', description: `Path of the file or directory to rename. ${HOME_PATH_NOTE}` },
+                new_name: { type: 'string', description: 'The new name (a bare name, not a path).' },
+            },
+            required: ['path', 'new_name'],
+        },
+        async handler(puter, { path, new_name }) {
+            return puter.fs.rename(path, new_name);
+        },
+    },
 
     // ----- hosting / static websites (puter.hosting) -----------------------
     // In Puter, "hosting" means publishing a static website. Each website lives
