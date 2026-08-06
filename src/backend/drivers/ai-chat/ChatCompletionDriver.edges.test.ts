@@ -48,6 +48,7 @@ import { ChatCompletionDriver } from './ChatCompletionDriver.js';
 import { AzureChatProvider } from './providers/azure/AzureChatProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import { InfronProvider } from './providers/infron/InfronProvider.js';
+import { NeuralwattProvider } from './providers/neuralwatt/NeuralwattProvider.js';
 import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
 import { OpenRouterProvider } from './providers/openrouter/OpenRouterProvider.js';
 import { TogetherAIProvider } from './providers/together/TogetherAIProvider.js';
@@ -72,6 +73,7 @@ const FULL_PROVIDER_CONFIG = {
         'together-ai': { apiKey: 'k' },
         openrouter: { apiKey: 'k', apiBaseUrl: 'https://openrouter.test' },
         infron: { apiKey: 'k' },
+        neuralwatt: { apiKey: 'k' },
         // Suppress auto-discovery of a developer's local Ollama.
         ollama: { enabled: false },
     },
@@ -119,6 +121,9 @@ beforeAll(async () => {
     );
     vi.spyOn(InfronProvider.prototype, 'models').mockResolvedValue(
         aggregatorCatalog('infron-only-model') as never,
+    );
+    vi.spyOn(NeuralwattProvider.prototype, 'models').mockResolvedValue(
+        aggregatorCatalog('neuralwatt-only-model') as never,
     );
     fullDriver = await makeDriver(FULL_PROVIDER_CONFIG);
     fakeOnlyDriver = await makeDriver({
@@ -176,6 +181,7 @@ describe('ChatCompletionDriver provider registration', () => {
             'together-ai',
             'openrouter',
             'infron',
+            'neuralwatt',
             'fake-chat',
         ]) {
             expect(providers).toContain(expected);

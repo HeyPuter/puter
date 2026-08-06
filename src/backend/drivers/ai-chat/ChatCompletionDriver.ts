@@ -41,6 +41,7 @@ import { InfronProvider } from './providers/infron/InfronProvider.js';
 import { MiniMaxProvider } from './providers/minimax/MiniMaxProvider.js';
 import { MistralAIProvider } from './providers/mistral/MistralAiProvider.js';
 import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
+import { NeuralwattProvider } from './providers/neuralwatt/NeuralwattProvider.js';
 import { OllamaChatProvider } from './providers/ollama/OllamaProvider.js';
 import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
 import { OpenAiResponsesChatProvider } from './providers/openai/OpenAiChatResponsesProvider.js';
@@ -999,6 +1000,18 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
+        const neuralwatt = providers['neuralwatt'];
+        const neuralwattKey = readKey(neuralwatt);
+        if (neuralwattKey) {
+            this.#providers['neuralwatt'] = new NeuralwattProvider(
+                {
+                    apiKey: neuralwattKey,
+                    apiBaseUrl: neuralwatt?.apiBaseUrl as string | undefined,
+                },
+                metering,
+            );
+        }
+
         // Fake provider — always available for testing
         this.#providers['fake-chat'] = new FakeChatProvider();
     }
@@ -1006,7 +1019,12 @@ export class ChatCompletionDriver extends PuterDriver {
     // -- Model map ---------------------------------------------------
 
     async #buildModelMap() {
-        const AGGREGATORS = new Set(['together-ai', 'openrouter', 'infron']);
+        const AGGREGATORS = new Set([
+            'together-ai',
+            'openrouter',
+            'infron',
+            'neuralwatt',
+        ]);
 
         for (const providerName in this.#providers) {
             const provider = this.#providers[providerName];
