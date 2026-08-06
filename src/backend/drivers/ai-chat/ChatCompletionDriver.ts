@@ -61,6 +61,10 @@ import {
     normalize_messages,
     normalize_single_message,
 } from './utils/Messages.js';
+import {
+    AGGREGATOR_PROVIDERS,
+    compareModelPreference,
+} from './utils/modelRouting.js';
 import { AIChatStream } from './utils/Streaming.js';
 
 const MAX_FALLBACKS = 4; // includes first attempt
@@ -1019,16 +1023,9 @@ export class ChatCompletionDriver extends PuterDriver {
     // -- Model map ---------------------------------------------------
 
     async #buildModelMap() {
-        const AGGREGATORS = new Set([
-            'together-ai',
-            'openrouter',
-            'infron',
-            'neuralwatt',
-        ]);
-
         for (const providerName in this.#providers) {
             const provider = this.#providers[providerName];
-            const isAggregator = AGGREGATORS.has(providerName);
+            const isAggregator = AGGREGATOR_PROVIDERS.has(providerName);
 
             for (const model of await provider.models()) {
                 model.id = model.id.trim().toLowerCase();
@@ -1058,8 +1055,11 @@ export class ChatCompletionDriver extends PuterDriver {
                             existing !== this.#modelIdMap[model.id]
                         ) {
                             if (existing.some((m) => m.provider === 'gemini')) {
-                                // Gemini exception — let the aggregator
-                                // entry through.
+                                // Gemini is the one vendor whose resold
+                                // duplicates we keep, so a Google outage has
+                                // somewhere to fall back to. Ranking (see
+                                // `compareModelPreference`) keeps the direct
+                                // provider ahead of them.
                                 continue;
                             }
                             skip = true;
@@ -1098,22 +1098,7 @@ export class ChatCompletionDriver extends PuterDriver {
                     }
                 }
 
-                // Sort: together-ai always last; then cheapest input-cost
-                // first; ties break by shorter id (usually the official
-                // name over a long aggregator-qualified one).
-                this.#modelIdMap[model.id].sort((a, b) => {
-                    const aAgg = a.provider === 'together-ai';
-                    const bAgg = b.provider === 'together-ai';
-                    if (aAgg !== bAgg) return aAgg ? 1 : -1;
-                    const aCost = a.costs[
-                        (a.input_cost_key as string) || 'input_tokens'
-                    ] as number;
-                    const bCost = b.costs[
-                        (b.input_cost_key as string) || 'input_tokens'
-                    ] as number;
-                    if (aCost === bCost) return a.id.length - b.id.length;
-                    return aCost - bCost;
-                });
+                this.#modelIdMap[model.id].sort(compareModelPreference);
             }
         }
     }
