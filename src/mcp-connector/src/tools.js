@@ -25,8 +25,12 @@ function bytesToBase64(bytes) {
     return btoa(binary);
 }
 
-/** Normalize puter.fs.read output (a Blob/Response-like) into text or base64. */
-async function decodeReadResult(result, encoding) {
+/**
+ * Normalize puter.fs.read output (a Blob/Response-like) into text or base64,
+ * optionally returning only the byte window [offset, offset + length).
+ */
+async function decodeReadResult(result, encoding, offset, length) {
+    const wantsWindow = offset != null || length != null;
     let bytes;
     if (result instanceof Blob) {
         bytes = new Uint8Array(await result.arrayBuffer());
@@ -35,7 +39,7 @@ async function decodeReadResult(result, encoding) {
     } else if (result instanceof Uint8Array) {
         bytes = result;
     } else if (typeof result === 'string') {
-        if (encoding === 'base64') {
+        if (encoding === 'base64' || wantsWindow) {
             bytes = new TextEncoder().encode(result);
         } else {
             return { content: result, encoding: 'utf8', bytes: result.length };
@@ -48,10 +52,17 @@ async function decodeReadResult(result, encoding) {
         return { content: text, encoding: 'utf8', bytes: text.length };
     }
 
-    if (encoding === 'base64') {
-        return { content: bytesToBase64(bytes), encoding: 'base64', bytes: bytes.length };
+    const totalBytes = bytes.length;
+    if (wantsWindow) {
+        const start = Math.min(offset ?? 0, totalBytes);
+        bytes = bytes.subarray(start, length != null ? start + length : undefined);
     }
-    return { content: new TextDecoder().decode(bytes), encoding: 'utf8', bytes: bytes.length };
+
+    const window = wantsWindow ? { offset: offset ?? 0, total_bytes: totalBytes } : {};
+    if (encoding === 'base64') {
+        return { content: bytesToBase64(bytes), encoding: 'base64', bytes: bytes.length, ...window };
+    }
+    return { content: new TextDecoder().decode(bytes), encoding: 'utf8', bytes: bytes.length, ...window };
 }
 
 // ----- puter.js documentation fetching -------------------------------------
@@ -105,9 +116,62 @@ async function fetchDocText(url) {
     return resp.text();
 }
 
+/** The directory part of a Puter path ('' when the path has no directory part). */
+function parentPath(path) {
+    const trimmed = String(path).replace(/\/+$/, '');
+    const cut = trimmed.lastIndexOf('/');
+    if (cut < 0) return '';
+    return cut === 0 ? '/' : trimmed.slice(0, cut);
+}
+
+/** Whether `path` exists and is a directory. */
+async function isDirectory(puter, path) {
+    if (!path) return false;
+    try {
+        const entry = await puter.fs.stat(path, { returnSize: false });
+        return Boolean(entry && entry.is_dir);
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Create the directory a move will land in, for fs_move's create_missing_parents.
+ * The API's /move requires an existing destination parent, so the directory has
+ * to exist before the call.
+ *
+ * Which directory that is follows the same rule puter.fs.move applies: with an
+ * explicit new_name the destination IS the containing directory, and without one
+ * an existing directory is moved into while anything else is treated as the
+ * item's new full path.
+ */
+async function ensureMoveDestination(puter, destination, newName) {
+    if (newName) {
+        if (!await isDirectory(puter, destination)) {
+            await puter.fs.mkdir(destination, { createMissingParents: true });
+        }
+        return;
+    }
+    if (await isDirectory(puter, destination)) return;
+    const parent = parentPath(destination);
+    if (parent && !await isDirectory(puter, parent)) {
+        await puter.fs.mkdir(parent, { createMissingParents: true });
+    }
+}
+
 // Every Puter path lives under the user's home directory (/<username>). Agents
 // routinely guess bare root paths like "/portfolio/index.html", which do NOT
 // exist — this note steers them to valid forms.
+// Shared by every kv_* tool. The backend pins app-scoped tokens to their own
+// app and ignores the override; only a user token (what this server carries)
+// can point a call at another app's store.
+const KV_APP_UUID_NOTE =
+    'Uid of an app whose store to use instead of your own user-level store ' +
+    '(e.g. "app-1234abcd..." from apps_list). Omit for your own store.';
+
+/** Wrap an app uid as the { optConfig } puter.kv methods take, or nothing. */
+const kvOptConfig = (appUuid) => (appUuid ? { optConfig: { appUuid } } : {});
+
 const HOME_PATH_NOTE =
     'Paths must live under your home directory: use "~/..." or "/<username>/..." ' +
     '(call whoami to get your <username>). Bare root paths like "/portfolio/index.html" are INVALID. Also, don\'t pollute the home directory. Create subpaths and folders for your projects.';
@@ -135,25 +199,28 @@ export const TOOLS = [
         name: 'fs_read_file',
         description:
             'Read the contents of a file in Puter. Returns UTF-8 text by default; ' +
-            'pass encoding="base64" for binary files. Supports optional byte offset/length. ' +
-            'Equivalent to PuterJS puter.fs.read(path).',
+            'pass encoding="base64" for binary files. Pass offset/length to get back only ' +
+            'that byte window — useful for sampling a large file instead of pulling all of ' +
+            'it. When a window is returned, _meta reports total_bytes so you can page through ' +
+            'the rest. Equivalent to PuterJS puter.fs.read(path).',
         inputSchema: {
             type: 'object',
             properties: {
                 path: { type: 'string', description: `File path to read. ${HOME_PATH_NOTE}` },
                 encoding: { type: 'string', enum: ['utf8', 'base64'], default: 'utf8' },
-                offset: { type: 'integer', minimum: 0, description: 'Byte offset to start reading from.' },
-                length: { type: 'integer', minimum: 1, description: 'Maximum number of bytes to read.' },
+                offset: { type: 'integer', minimum: 0, description: 'Byte offset to start from. Defaults to 0.' },
+                length: { type: 'integer', minimum: 1, description: 'Number of bytes to return. Defaults to the rest of the file.' },
             },
             required: ['path'],
         },
         async handler(puter, { path, encoding = 'utf8', offset, length }) {
-            const options = {};
-            if (offset != null) options.offset = offset;
-            if (length != null) options.byte_count = length;
-            const result = await puter.fs.read(path, options);
-            const { content, encoding: enc, bytes } = await decodeReadResult(result, encoding);
-            return { _meta: { encoding: enc, bytes }, text: content };
+            // The window is applied here rather than passed to puter.fs.read: the SDK
+            // sends offset/byte_count as query params and /read only honors a Range
+            // header, so a pass-through would silently return the whole file.
+            const result = await puter.fs.read(path);
+            const decoded = await decodeReadResult(result, encoding, offset, length);
+            const { content, encoding: enc, ...meta } = decoded;
+            return { _meta: { encoding: enc, ...meta }, text: content };
         },
     },
     {
@@ -285,11 +352,16 @@ export const TOOLS = [
             required: ['source', 'destination'],
         },
         async handler(puter, { source, destination, new_name, overwrite = false, dedupe_name = true }) {
-            return puter.fs.copy(source, destination, {
+            const result = await puter.fs.copy(source, destination, {
                 newName: new_name,
                 overwrite,
                 dedupeName: dedupe_name,
             });
+            // puter.fs.copy resolves to the raw API shape ([{ copied: entry }]).
+            // Unwrap it so every fs_* tool answers with the same item shape.
+            const items = (Array.isArray(result) ? result : [result])
+                .map((entry) => (entry && entry.copied) || entry);
+            return items.length === 1 ? items[0] : items;
         },
     },
     {
@@ -297,7 +369,8 @@ export const TOOLS = [
         description:
             'Move a file or directory in Puter to another location. If destination is an existing ' +
             'directory the item is moved into it under the same name; otherwise destination is treated as ' +
-            "the item's new full path (so this also renames). Equivalent to PuterJS " +
+            "the item's new full path (so this also renames). The destination directory must already " +
+            'exist unless you pass create_missing_parents. Equivalent to PuterJS ' +
             'puter.fs.move(source, destination).',
         inputSchema: {
             type: 'object',
@@ -317,7 +390,7 @@ export const TOOLS = [
                 create_missing_parents: {
                     type: 'boolean',
                     default: false,
-                    description: 'Create the destination directory (and its parents) if it does not exist.',
+                    description: 'Create the destination directory (and any missing parents) first. It is left behind if the move itself then fails.',
                 },
             },
             required: ['source', 'destination'],
@@ -325,12 +398,16 @@ export const TOOLS = [
         async handler(puter, {
             source, destination, new_name, overwrite = false, dedupe_name = false, create_missing_parents = false,
         }) {
-            return puter.fs.move(source, destination, {
+            if (create_missing_parents) {
+                await ensureMoveDestination(puter, destination, new_name);
+            }
+            const result = await puter.fs.move(source, destination, {
                 newName: new_name,
                 overwrite,
                 dedupeName: dedupe_name,
-                createMissingParents: create_missing_parents,
             });
+            // As with fs_copy: unwrap the API's { moved: entry } envelope.
+            return (result && result.moved) || result;
         },
     },
     {
@@ -771,6 +848,285 @@ export const TOOLS = [
         },
         async handler(puter, { name }) {
             return puter.apps.checkName(name);
+        },
+    },
+
+    // ----- key-value store (puter.kv) --------------------------------------
+    // Puter's KV store is namespaced per app within each user's account. This
+    // server authenticates with a user token, so by default every tool here
+    // reads and writes the user's own namespace; app_uuid retargets a single
+    // call at one app's store (for example the sandbox-<worker> app a deployed
+    // worker runs as, which is where that worker's own puter.kv data lives).
+    //
+    // Values are stored as JSON, so anything a JSON-RPC argument can express
+    // round-trips: strings, numbers, booleans, null, objects, arrays. Several
+    // tools address into a stored object by "dot path" — "profile.bio" means
+    // the `bio` field of the stored object's `profile` field — with the empty
+    // path "" meaning the value itself.
+    {
+        name: 'kv_get',
+        description:
+            "Read a key from the authenticated user's Puter key-value store. Returns { key, value }, " +
+            'where value is null when the key is not in the store — a stored null reads the same way, ' +
+            'so use kv_list when you need to tell those apart. Equivalent to PuterJS puter.kv.get(key).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                key: { type: 'string', description: 'Key to read (max 1 KB).' },
+                app_uuid: { type: 'string', description: KV_APP_UUID_NOTE },
+            },
+            required: ['key'],
+        },
+        async handler(puter, { key, app_uuid }) {
+            const value = await puter.kv.get({ key, ...kvOptConfig(app_uuid) });
+            // Wrapped in an object because a bare `undefined`/null has no text
+            // form to hand back as tool output.
+            return { key, value: value === undefined ? null : value };
+        },
+    },
+    {
+        name: 'kv_set',
+        description:
+            'Create or overwrite a key in the Puter key-value store. The value is stored as JSON ' +
+            '(string, number, boolean, null, object, or array; max 400 KB). Pass expire_at to have ' +
+            'the key removed at a given time. Equivalent to PuterJS puter.kv.set(key, value).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                key: { type: 'string', description: 'Key to write (max 1 KB).' },
+                value: { description: 'Value to store, as any JSON value (max 400 KB).' },
+                expire_at: {
+                    type: 'integer',
+                    description: 'Unix timestamp in seconds at which the key expires. Omit to keep it indefinitely.',
+                },
+                app_uuid: { type: 'string', description: KV_APP_UUID_NOTE },
+            },
+            required: ['key', 'value'],
+        },
+        async handler(puter, { key, value, expire_at, app_uuid }) {
+            return puter.kv.set({
+                key,
+                value,
+                ...(expire_at != null ? { expireAt: expire_at } : {}),
+                ...kvOptConfig(app_uuid),
+            });
+        },
+    },
+    {
+        name: 'kv_del',
+        description:
+            'Delete a key from the Puter key-value store. Succeeds whether or not the key existed. ' +
+            'Equivalent to PuterJS puter.kv.del(key).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                key: { type: 'string', description: 'Key to delete.' },
+                app_uuid: { type: 'string', description: KV_APP_UUID_NOTE },
+            },
+            required: ['key'],
+        },
+        async handler(puter, { key, app_uuid }) {
+            const ok = await puter.kv.del({ key, ...kvOptConfig(app_uuid) });
+            return { success: ok !== false, deleted: key };
+        },
+    },
+    {
+        name: 'kv_list',
+        description:
+            'List keys in the Puter key-value store, sorted by key. Returns keys only unless ' +
+            'return_values is true. Every page is metered and a full listing reads the whole store, ' +
+            'so narrow it with pattern and/or limit rather than listing everything. Equivalent to ' +
+            'PuterJS puter.kv.list(options).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                pattern: {
+                    type: 'string',
+                    description: 'Prefix filter with an optional trailing "*" ("user:" and "user:*" both match keys starting with "user:"). Defaults to all keys.',
+                },
+                return_values: {
+                    type: 'boolean',
+                    default: false,
+                    description: 'Return { key, value } pairs instead of bare key names.',
+                },
+                limit: { type: 'integer', minimum: 1, description: 'Maximum number of items in this page. Returns a page object with a cursor for the rest.' },
+                cursor: { type: 'string', description: 'Cursor from a previous page.' },
+                offset: {
+                    type: 'integer',
+                    minimum: 0,
+                    description: 'Skip this many items before the page (max 5000; cannot be combined with cursor). Prefer cursor — large offsets get slower and more expensive.',
+                },
+                include_total: { type: 'boolean', default: false, description: 'Include a total count of matching items in the page.' },
+                app_uuid: { type: 'string', description: KV_APP_UUID_NOTE },
+            },
+        },
+        async handler(puter, { pattern, return_values = false, limit, cursor, offset, include_total, app_uuid }) {
+            return puter.kv.list({
+                ...(pattern != null ? { pattern } : {}),
+                returnValues: return_values,
+                ...(limit != null ? { limit } : {}),
+                ...(cursor != null ? { cursor } : {}),
+                ...(offset != null ? { offset } : {}),
+                ...(include_total != null ? { includeTotal: include_total } : {}),
+                ...kvOptConfig(app_uuid),
+            });
+        },
+    },
+    {
+        name: 'kv_incr',
+        description:
+            'Increment a numeric value in the Puter key-value store and return the new value. A key ' +
+            'that does not exist starts at 0. Pass a number to increment the value itself, or an ' +
+            'object mapping dot paths to amounts to bump fields inside a stored object. Equivalent ' +
+            'to PuterJS puter.kv.incr(key, amount).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                key: { type: 'string', description: 'Key to increment.' },
+                amount: {
+                    description: 'Number to add (default 1), or an object like { "stats.views": 2 } mapping dot paths to amounts.',
+                    anyOf: [{ type: 'number' }, { type: 'object', additionalProperties: { type: 'number' } }],
+                },
+                app_uuid: { type: 'string', description: KV_APP_UUID_NOTE },
+            },
+            required: ['key'],
+        },
+        async handler(puter, { key, amount, app_uuid }) {
+            return puter.kv.incr(key, amount, kvOptConfig(app_uuid).optConfig);
+        },
+    },
+    {
+        name: 'kv_decr',
+        description:
+            'Decrement a numeric value in the Puter key-value store and return the new value. A key ' +
+            'that does not exist starts at 0. Pass a number to decrement the value itself, or an ' +
+            'object mapping dot paths to amounts. Equivalent to PuterJS puter.kv.decr(key, amount).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                key: { type: 'string', description: 'Key to decrement.' },
+                amount: {
+                    description: 'Number to subtract (default 1), or an object like { "stats.views": 2 } mapping dot paths to amounts.',
+                    anyOf: [{ type: 'number' }, { type: 'object', additionalProperties: { type: 'number' } }],
+                },
+                app_uuid: { type: 'string', description: KV_APP_UUID_NOTE },
+            },
+            required: ['key'],
+        },
+        async handler(puter, { key, amount, app_uuid }) {
+            return puter.kv.decr(key, amount, kvOptConfig(app_uuid).optConfig);
+        },
+    },
+    {
+        name: 'kv_add',
+        description:
+            'Add to the value already stored at a key and return the updated value — numbers are ' +
+            'summed and arrays are appended to. Pass a plain value to add to the value itself, or an ' +
+            'object mapping dot paths to the values to add at each path. To add an object as a value ' +
+            'rather than as a path map, use kv_update. Equivalent to PuterJS puter.kv.add(key, value).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                key: { type: 'string', description: 'Key to add to.' },
+                value: { description: 'Value to add (default 1). An object is read as a { "dot.path": value } map.' },
+                app_uuid: { type: 'string', description: KV_APP_UUID_NOTE },
+            },
+            required: ['key'],
+        },
+        async handler(puter, { key, value, app_uuid }) {
+            return puter.kv.add(key, value, kvOptConfig(app_uuid).optConfig);
+        },
+    },
+    {
+        name: 'kv_update',
+        description:
+            'Update fields inside the object stored at a key without overwriting the whole value, ' +
+            'returning the updated value. Equivalent to PuterJS puter.kv.update(key, pathAndValueMap).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                key: { type: 'string', description: 'Key to update.' },
+                values: {
+                    type: 'object',
+                    description: 'Maps dot paths to their new values, e.g. { "profile.bio": "hi", "seen": 3 }. The path "" replaces the whole value.',
+                    additionalProperties: true,
+                },
+                ttl: { type: 'integer', minimum: 1, description: 'Optional time-to-live for the key, in seconds.' },
+                app_uuid: { type: 'string', description: KV_APP_UUID_NOTE },
+            },
+            required: ['key', 'values'],
+        },
+        async handler(puter, { key, values, ttl, app_uuid }) {
+            return puter.kv.update({
+                key,
+                pathAndValueMap: values,
+                ...(ttl != null ? { ttl } : {}),
+                ...kvOptConfig(app_uuid),
+            });
+        },
+    },
+    {
+        name: 'kv_remove',
+        description:
+            'Remove one or more fields from the object stored at a key by dot path, returning the ' +
+            'updated value. To delete the key itself use kv_del. Equivalent to PuterJS ' +
+            'puter.kv.remove(key, ...paths).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                key: { type: 'string', description: 'Key to remove fields from.' },
+                paths: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    minItems: 1,
+                    description: 'Dot paths to remove, e.g. ["profile.bio", "seen"].',
+                },
+                app_uuid: { type: 'string', description: KV_APP_UUID_NOTE },
+            },
+            required: ['key', 'paths'],
+        },
+        async handler(puter, { key, paths, app_uuid }) {
+            const optConfig = kvOptConfig(app_uuid).optConfig;
+            // remove() takes the paths as separate arguments, with optConfig
+            // trailing — passing it as undefined would be read as a path.
+            const args = optConfig ? [...paths, optConfig] : paths;
+            return puter.kv.remove(key, ...args);
+        },
+    },
+    {
+        name: 'kv_expire',
+        description:
+            'Set how long a key lives, in seconds from now, after which it is removed. Equivalent to ' +
+            'PuterJS puter.kv.expire(key, ttlSeconds).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                key: { type: 'string', description: 'Key to expire.' },
+                ttl_seconds: { type: 'integer', minimum: 1, description: 'Seconds from now until the key is removed.' },
+                app_uuid: { type: 'string', description: KV_APP_UUID_NOTE },
+            },
+            required: ['key', 'ttl_seconds'],
+        },
+        async handler(puter, { key, ttl_seconds, app_uuid }) {
+            return puter.kv.expire(key, ttl_seconds, kvOptConfig(app_uuid).optConfig);
+        },
+    },
+    {
+        name: 'kv_expire_at',
+        description:
+            'Set the exact time a key is removed, as a Unix timestamp in seconds. Equivalent to ' +
+            'PuterJS puter.kv.expireAt(key, timestampSeconds).',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                key: { type: 'string', description: 'Key to expire.' },
+                timestamp_seconds: { type: 'integer', description: 'Unix timestamp in seconds at which the key is removed.' },
+                app_uuid: { type: 'string', description: KV_APP_UUID_NOTE },
+            },
+            required: ['key', 'timestamp_seconds'],
+        },
+        async handler(puter, { key, timestamp_seconds, app_uuid }) {
+            return puter.kv.expireAt(key, timestamp_seconds, kvOptConfig(app_uuid).optConfig);
         },
     },
 

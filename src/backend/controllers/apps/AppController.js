@@ -100,7 +100,9 @@ export class AppController extends PuterController {
         return d;
     }
 
-    registerRoutes(router) {
+    registerRoutes(
+        /** @type {import('../../core/http/PuterRouter').PuterRouter} */ router,
+    ) {
         // GET /apps — list apps owned by the current user
         router.get(
             '/apps',
@@ -122,8 +124,7 @@ export class AppController extends PuterController {
             '/apps/nameAvailable',
             {
                 subdomain: 'api',
-                requireUserActor: true,
-                allowFullAccessToken: true,
+                requireAuth: true,
             },
             async (req, res) => {
                 const name = req.query?.name;
