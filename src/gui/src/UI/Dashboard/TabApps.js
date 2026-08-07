@@ -67,6 +67,13 @@ const DEEP_LINK_INTRO_POLL_MS = 50;
 // still dissolving so the two halves stay one continuous motion.
 const DEEP_LINK_INTRO_GRID_BEAT_MS = 500;
 const DEEP_LINK_INTRO_CLICK_BEAT_MS = 300;
+// When the tile lives on a later pager page, the intro TRAVELS there
+// visibly (smooth scroll) instead of waking up on page N with no context —
+// the journey itself tells the user where the app lives. Smooth scrollTo
+// has no reliable completion event across engines, so like the drag code's
+// DRAG_FLIP_SETTLE_MS this is an allowance: the scroll's ~450ms plus a
+// rest so the landing reads before the tile pops.
+const DEEP_LINK_INTRO_FLIP_SETTLE_MS = 620;
 
 // Cog on the reorder-mode toggle; _setReorderMode swaps it for "Done" while
 // the mode is on.
@@ -1723,13 +1730,6 @@ const TabApps = {
             const candidate = $el_window.find('.dashboard-section-apps.active .myapps-tile').toArray()
                 .find(el => el.dataset.appName === appName);
             if ( candidate ) {
-                // The tile may sit on a later pager page; flip to it now,
-                // instantly and behind the load-fade, so the grid comes up
-                // already showing the tile the window is about to grow out of.
-                const page = $el_window.find('.myapps-page').index($(candidate).closest('.myapps-page'));
-                if ( page >= 0 && page !== this._page ) {
-                    this.goToPage($el_window, page, false);
-                }
                 const revealed = ! $el_window.find('.myapps-pager').hasClass('myapps-pager-loading');
                 const img = candidate.querySelector('.myapps-tile-icon img');
                 if ( revealed && ( ! img || img.complete ) ) {
@@ -1747,6 +1747,16 @@ const TabApps = {
         // window's morph re-checks tile visibility on its own anyway).
         await sleep(DEEP_LINK_INTRO_GRID_BEAT_MS);
         if ( document.visibilityState === 'hidden' ) return tile;
+        // A tile on a later pager page: travel there visibly, AFTER the
+        // reveal and the grid beat — the grid opens on its familiar first
+        // page and the user watches the flip land on the page the app
+        // actually lives on (which is also where minimize will put it back).
+        const page = $el_window.find('.myapps-page').index($(tile).closest('.myapps-page'));
+        if ( page >= 0 && page !== this._page ) {
+            this.goToPage($el_window, page, true);
+            await sleep(DEEP_LINK_INTRO_FLIP_SETTLE_MS);
+            if ( document.visibilityState === 'hidden' ) return tile;
+        }
         begin_dashboard_tile_launch(tile);
         await sleep(DEEP_LINK_INTRO_CLICK_BEAT_MS);
         return tile;
