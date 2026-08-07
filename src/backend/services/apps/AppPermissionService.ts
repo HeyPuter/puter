@@ -287,7 +287,11 @@ export class AppPermissionService extends PuterService {
                         d.app_uid,
                         'target app deleted',
                     );
-                } else if (d.action === 'created') {
+                } else if (d.action === 'created-from-origin') {
+                    // Only origin-bootstrapped apps can reuse a uid: their uid is
+                    // a uuidv5 of the origin, while `AppStore.create` mints a
+                    // random uuid4. Sweeping every creation would scan the grant
+                    // tables for uids that cannot have stale grants.
                     await this.#withdrawAppDataGrants(
                         d.app_uid,
                         'uid reused by a new app',

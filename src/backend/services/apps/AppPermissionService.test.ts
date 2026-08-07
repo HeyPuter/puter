@@ -798,12 +798,24 @@ describe('AppPermissionService — cross-app grant withdrawal', () => {
         expect(await hasGrant(owner, grantee.id, permission)).toBe(false);
     });
 
-    it('withdraws grants when a uid is reused by a new app', async () => {
+    it('withdraws grants when an origin bootstrap reuses a uid', async () => {
         // An origin-derived uid is regenerated verbatim, so a recreated app
         // must not inherit consent the user gave to its predecessor.
         const { owner, grantee, target, permission } = await setupGrant();
-        await emitAppChanged({ app_uid: target.uid, action: 'created' });
+        await emitAppChanged({
+            app_uid: target.uid,
+            action: 'created-from-origin',
+        });
         expect(await hasGrant(owner, grantee.id, permission)).toBe(false);
+    });
+
+    it('does not sweep on an ordinary app creation', async () => {
+        // `AppStore.create` mints a random uuid4, so a fresh app cannot hold a
+        // uid a deleted one had. Scanning the grant tables here would be work
+        // that can never find anything.
+        const { owner, grantee, target, permission } = await setupGrant();
+        await emitAppChanged({ app_uid: target.uid, action: 'created' });
+        expect(await hasGrant(owner, grantee.id, permission)).toBe(true);
     });
 
     it('withdraws grants when the target stops sharing its data', async () => {

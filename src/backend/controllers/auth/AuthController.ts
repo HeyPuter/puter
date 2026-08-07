@@ -3378,9 +3378,13 @@ export class AuthController extends PuterController {
             // consent the user gave its predecessor. `createFromOrigin` emits no
             // `app.changed`, so the listener in AppPermissionService never sees
             // this path.
+            //
+            // A distinct action, because only *this* path can reuse a uid:
+            // `AppStore.create` mints a random uuid4, which no deleted app can
+            // ever hold again.
             this.clients.event.emit(
                 'app.changed',
-                { app_uid, action: 'created', app },
+                { app_uid, action: 'created-from-origin', app },
                 {},
             );
         }
