@@ -47,7 +47,10 @@ import { PuterServer } from '../../server.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
-import type { WorkerDriver } from './WorkerDriver.js';
+import {
+    INTERNAL_ADMISSION_BYPASS,
+    type WorkerDriver,
+} from './WorkerDriver.js';
 
 const ACCOUNT_ID = 'cf-account';
 const AUTH_KEY = 'cf-auth-key';
@@ -280,6 +283,50 @@ describe('WorkerDriver.create with a configured deploy backend', () => {
             `workers.puter.${name}`,
         );
         expect(Number(row!.root_dir_id)).toBe(secondEntry.id);
+    });
+
+    // Anything pricing workers keys off this event, so a redeploy leaking one
+    // through would bill the user again for a worker they already own.
+    it('announces `worker.create` for a new worker but not for a redeploy', async () => {
+        const { user, actor } = await makeUser();
+        const path = `/${user.username}/worker.js`;
+        await writeSource(actor, user.id, path, 'v1');
+        const name = `announce-${user.username}`;
+
+        const announced: string[] = [];
+        const listener = (_key: unknown, data: { workerName: string }) => {
+            announced.push(data.workerName);
+        };
+        server.clients.event.on(
+            'worker.create',
+            listener as Parameters<typeof server.clients.event.on>[1],
+        );
+
+        try {
+            await inCtx(actor, () =>
+                target.create({ appId: '', workerName: name, filePath: path }),
+            );
+            await inCtx(actor, () =>
+                target.create({ appId: '', workerName: name, filePath: path }),
+            );
+            // The rehydrate shape: an existing worker redeployed past the
+            // admission gates because it is already ours.
+            await inCtx(actor, () =>
+                target.create({
+                    appId: '',
+                    workerName: name,
+                    filePath: path,
+                    [INTERNAL_ADMISSION_BYPASS]: true,
+                }),
+            );
+        } finally {
+            server.clients.event.off(
+                'worker.create',
+                listener as Parameters<typeof server.clients.event.off>[1],
+            );
+        }
+
+        expect(announced).toEqual([name]);
     });
 
     it('rejects a name already taken by another user with 409', async () => {

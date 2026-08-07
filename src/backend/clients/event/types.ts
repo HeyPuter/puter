@@ -332,6 +332,12 @@ export type EventMap = {
         charges: UsageInput[];
     };
 
+    // ---- Workers ----
+    // Only a genuinely new worker. Redeploying an existing name updates its
+    // row instead, and never reaches here — so a listener that prices this
+    // is pricing workers that came into existence, not deploys.
+    'worker.create': { actor: Actor; workerName: string };
+
     // ---- Outer / GUI broadcast ----
     'outer.cacheUpdate': {
         cacheKey: string[];
