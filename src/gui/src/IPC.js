@@ -1354,7 +1354,11 @@ const ipc_listener = async (event, handled) => {
         const requested_permissions = Array.isArray(event.data.options.permissions)
             ? event.data.options.permissions
             : [event.data.options.permission];
+        // Capped to match the server: otherwise the dialog renders every row and
+        // the grant 400s after Allow — consent for something ungrantable.
+        const MAX_REQUESTED_PERMISSIONS = 16;
         if ( requested_permissions.length === 0
+            || requested_permissions.length > MAX_REQUESTED_PERMISSIONS
             || requested_permissions.some(p => !p || typeof p !== 'string') )
         {
             console.error('IPC requestPermission requires parameter { permission } or { permissions }', event.data);

@@ -640,7 +640,7 @@ const en = {
         'perm_app_data_subject_data': "{{app}}'s saved data",
         'perm_app_data_subject_files': "{{app}}'s files",
         'perm_app_data_read': 'read {{subject}}.',
-        'perm_app_data_change': 'change {{subject}}.',
+        'perm_app_data_change': 'read and change {{subject}}.',
         'perm_app_data_delete': 'delete entries from {{subject}}.',
         'perm_app_data_store_all': 'read, change and delete {{subject}}.',
         'perm_app_data_all': "read, change and delete everything {{app}} has saved for you, including any saved logins.",

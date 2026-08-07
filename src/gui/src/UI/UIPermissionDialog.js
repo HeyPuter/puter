@@ -664,6 +664,8 @@ async function get_permission_description (permission, options = {}) {
  * explicitly: a scope that can remove another app's entries must not read as
  * "change".
  */
+// `write` satisfies a read check via the exploder, so its wording names
+// reading too — "change" alone would understate the grant.
 const APP_DATA_VERBS = {
     read: 'read', get: 'read', list: 'read',
     write: 'change', set: 'change', add: 'change',
@@ -734,9 +736,11 @@ export async function get_app_data_description (parts, options) {
     }
     if ( store !== 'kv' && store !== 'fs' ) return null;
 
+    // `false` so only the outer `i18n` encodes: it encodes the whole
+    // interpolated string, so two levels show a literal `&#39;`.
     const subject = store === 'fs'
-        ? i18n('perm_app_data_subject_files', { app: app_label })
-        : i18n('perm_app_data_subject_data', { app: app_label });
+        ? i18n('perm_app_data_subject_files', { app: app_label }, false)
+        : i18n('perm_app_data_subject_data', { app: app_label }, false);
 
     if ( ! verb ) {
         return {
