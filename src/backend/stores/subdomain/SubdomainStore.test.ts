@@ -201,6 +201,34 @@ describe('SubdomainStore app_owner filtering', () => {
             await store.countByUserIdAndPrefix(userId, prefix, { appIds: [] }),
         ).toBe(0);
     });
+
+    it('counts only rows older than `createdBefore`', async () => {
+        const userId = await makeUser();
+        const prefix = `sds-aged-${Math.random().toString(36).slice(2, 6)}.`;
+        const old = await seed(userId, prefix, null);
+        await seed(userId, prefix, null);
+
+        // `ts` defaults to now for both, so one is backdated to put the two
+        // on opposite sides of the cutoff.
+        await server.clients.db.write(
+            'UPDATE `subdomains` SET `ts` = ? WHERE `subdomain` = ?',
+            ['2020-01-15 12:00:00', old],
+        );
+
+        expect(
+            await store.countByUserIdAndPrefix(userId, prefix, {
+                createdBefore: '2020-02-01 00:00:00',
+            }),
+        ).toBe(1);
+        // Older than everything, including the backdated row.
+        expect(
+            await store.countByUserIdAndPrefix(userId, prefix, {
+                createdBefore: '2019-01-01 00:00:00',
+            }),
+        ).toBe(0);
+        // Omitting it stays unfiltered.
+        expect(await store.countByUserIdAndPrefix(userId, prefix)).toBe(2);
+    });
 });
 
 // ── Listing, counting and scoping ───────────────────────────────────

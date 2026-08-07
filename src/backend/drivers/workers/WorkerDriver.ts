@@ -292,6 +292,15 @@ export class WorkerDriver extends PuterDriver {
                 appOwner: appOwnerId,
                 preambleVersion,
             });
+            // Announced against the row rather than the deploy: the row is
+            // what makes the worker ours to keep, and it outlives a failed
+            // deploy. Awaited so a listener has settled before the caller is
+            // told the worker exists; one that throws is logged and ignored.
+            await this.clients.event.emitAndWait(
+                'worker.create',
+                { actor, workerName },
+                {},
+            );
         }
 
         // AppData is keyed by the app the worker authenticates as, so the
