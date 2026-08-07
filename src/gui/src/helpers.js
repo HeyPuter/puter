@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -23,6 +23,7 @@ import item_icon from './helpers/item_icon.js';
 import truncate_filename from './helpers/truncate_filename.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import update_username_in_gui from './helpers/update_username_in_gui.js';
+import { select_uploaded_items } from './helpers/upload_selection.js';
 import mime from './lib/mime.js';
 import path from './lib/path.js';
 import UIAlert from './UI/UIAlert.js';
@@ -31,15 +32,14 @@ import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowProgress from './UI/UIWindowProgress.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 
-// localStorage keys for the GUI session token. v2 is the new key written
-// after the v1→v2 cutover. Reads prefer v2; v1 is only kept to drive the
-// reauth-modal path when a stale legacy session is found.
-window.AUTH_TOKEN_KEY_V1 = 'auth_token';
+// localStorage keys for the GUI session token. The retired key is never read
+// for authentication — a token in that format no longer verifies — only
+// cleared, so it doesn't sit in a browser forever.
 window.AUTH_TOKEN_KEY_V2 = 'auth_token_v2';
+window.AUTH_TOKEN_KEY_RETIRED = 'auth_token';
 
 window.is_auth = () => {
-    const stored = localStorage.getItem(window.AUTH_TOKEN_KEY_V2)
-        || localStorage.getItem(window.AUTH_TOKEN_KEY_V1);
+    const stored = localStorage.getItem(window.AUTH_TOKEN_KEY_V2);
     if ( stored === null || window.auth_token === null )
     {
         return false;
@@ -54,10 +54,10 @@ window.is_auth = () => {
  * Central handler for `401 { code: 'reauth_required' }`.
  *
  * The backend `authProbe` middleware emits this 401 shape whenever a
- * token is legacy/revoked/expired. The GUI must NOT silently logout:
+ * token is retired/revoked/expired. The GUI must NOT silently logout:
  * that loses window/URL state and surprises the user. Instead we:
  *   1. Snapshot enough state to land back where we were after sign-in.
- *   2. Clear both the v1 and v2 token keys.
+ *   2. Clear the token key (and the retired one, if a value lingers).
  *   3. Show a soft modal explaining what happened.
  *   4. Re-open UIWindowLogin, forwarding `auth_id` so temp users can
  *      re-attach to the same identity.
@@ -80,7 +80,7 @@ window.handleReauthRequired = async (signal = {}) => {
         // same modal on the next boot.
         try {
             localStorage.removeItem(window.AUTH_TOKEN_KEY_V2);
-            localStorage.removeItem(window.AUTH_TOKEN_KEY_V1);
+            localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED);
         } catch ( e ) { /* ignore */ }
         window.auth_token = null;
 
@@ -577,12 +577,12 @@ window.refresh_user_data = async (auth_token) => {
     }
 };
 
-window.update_auth_data = async (auth_token, user, api_origin) => {
+window.update_auth_data = async (auth_token, user) => {
     window.auth_token = auth_token;
     // Write the v2 key going forward and clear any lingering v1 key so
     // a single localStorage source-of-truth is used.
     localStorage.setItem(window.AUTH_TOKEN_KEY_V2, auth_token);
-    localStorage.removeItem(window.AUTH_TOKEN_KEY_V1);
+    localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED);
 
     // Set http-only session cookie when user is changing.
     // This ensures user-protected endpoints, which only refer to the http-only cookie,
@@ -603,11 +603,6 @@ window.update_auth_data = async (auth_token, user, api_origin) => {
                 message: `Failed to sync session cookie: ${ e.message}`,
             });
         }
-    }
-
-    if ( api_origin ) {
-        window.api_origin = api_origin;
-        localStorage.setItem('api_origin', api_origin);
     }
 
     // Has username changed?
@@ -744,7 +739,7 @@ window.logout = () => {
     // the backend logout endpoint.
     try {
         localStorage.removeItem(window.AUTH_TOKEN_KEY_V2);
-        localStorage.removeItem(window.AUTH_TOKEN_KEY_V1);
+        localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED);
     } catch ( e ) { /* ignore */ }
     $(document).trigger('logout');
     // document.dispatchEvent(new Event("logout", { bubbles: true}));
@@ -1049,12 +1044,6 @@ window.show_save_account_notice_if_needed = function (message) {
     });
 };
 
-window.onpopstate = (event) => {
-    if ( event.state !== null && event.state.window_id !== null ) {
-        $(`.window[data-id="${event.state.window_id}"]`).focusWindow();
-    }
-};
-
 window.sort_items = (item_container, sort_by, sort_order) => {
     if ( sort_order !== 'asc' && sort_order !== 'desc' )
     {
@@ -1261,19 +1250,29 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
     window.update_explorer_footer_selected_items_count($(dest_container_element).closest('.window'));
 
     let overwrite_all = false;
-    (async () => {
+    // Resolves with the created items' paths once every clipboard entry has
+    // been copied (or skipped/cancelled) — callers may await it to highlight
+    // the new rows, or fire-and-forget it as before.
+    return (async () => {
         let copy_progress_window_init_ts = Date.now();
 
         // only show progress window if it takes longer than 2s to copy
         let progwin;
-        let progwin_timeout = setTimeout(async () => {
+        let latest_status;
+        const arm_progwin = () => setTimeout(async () => {
             progwin = await UIWindowProgress({
                 operation_id: copy_op_id,
                 on_cancel: () => {
                     window.operation_cancelled[copy_op_id] = true;
                 },
             });
-        }, 0);
+            // Opened mid-operation: show the file being copied rather than
+            // the default "Preparing..." status.
+            if ( latest_status ) {
+                progwin.set_status(latest_status);
+            }
+        }, 2000);
+        let progwin_timeout = arm_progwin();
 
         const copied_item_paths = [];
 
@@ -1281,7 +1280,9 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
             let copy_path = window.clipboard[i].path;
             let item_with_same_name_already_exists = true;
             let overwrite = overwrite_all;
-            progwin?.set_status(i18n('copying_file', copy_path));
+            let keep_both = false;
+            latest_status = i18n('copying_file', copy_path);
+            progwin?.set_status(latest_status);
 
             do {
                 if ( overwrite )
@@ -1301,13 +1302,15 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
                         source: copy_path,
                         destination: dest_path,
                         overwrite: overwrite || overwrite_all,
-                        // if user is copying an item to where its source is, change the name so there is no conflict
-                        dedupeName: dest_path === path.dirname(copy_path),
+                        // dedupe when the user chose "Keep Both" on a conflict, or
+                        // when copying an item to where its source is — either way
+                        // the copy gets a "name (1)" style name instead of conflicting
+                        dedupeName: keep_both || dest_path === path.dirname(copy_path),
                     });
 
                     // remove overwritten item from the DOM
                     if ( resp[0].overwritten?.id ) {
-                        $(`.item[data-uid=${resp[0].overwritten.id}]`).removeItems();
+                        $(`.item[data-uid='${resp[0].overwritten.id}']`).removeItems();
                     }
 
                     // copy new path for undo copy
@@ -1317,19 +1320,27 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
                     break;
                 } catch ( err ) {
                     if ( err.code === 'item_with_same_name_exists' ) {
+                        // The operation is paused on user input, so pause the
+                        // progress-window timer too — otherwise "Preparing..."
+                        // pops up on top of the dialog while it waits.
+                        clearTimeout(progwin_timeout);
                         const alert_resp = await UIAlert({
                             message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                             buttons: [
                                 { label: i18n('replace'), type: 'primary', value: 'replace' },
                                 ... (window.clipboard.length > 1) ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
+                                { label: i18n('keep_both'), value: 'keep_both' },
                                 ... (window.clipboard.length > 1) ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
                             ],
                         });
+                        progwin_timeout = arm_progwin();
                         if ( alert_resp === 'replace' ) {
                             overwrite = true;
                         } else if ( alert_resp === 'replace_all' ) {
                             overwrite = true;
                             overwrite_all = true;
+                        } else if ( alert_resp === 'keep_both' ) {
+                            keep_both = true;
                         } else if ( alert_resp === 'skip' || alert_resp === 'cancel' ) {
                             item_with_same_name_already_exists = false;
                         }
@@ -1365,6 +1376,10 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
                 });
             }
         }
+
+        // Resolve with the paths that were actually created so callers can
+        // highlight the new items (a cancelled or skipped item isn't listed).
+        return copied_item_paths;
     })();
 };
 
@@ -1382,14 +1397,21 @@ window.copy_items = function (el_items, dest_path) {
 
         // only show progress window if it takes longer than 2s to copy
         let progwin;
-        let progwin_timeout = setTimeout(async () => {
+        let latest_status;
+        const arm_progwin = () => setTimeout(async () => {
             progwin = await UIWindowProgress({
                 operation_id: copy_op_id,
                 on_cancel: () => {
                     window.operation_cancelled[copy_op_id] = true;
                 },
             });
+            // Opened mid-operation: show the file being copied rather than
+            // the default "Preparing..." status.
+            if ( latest_status ) {
+                progwin.set_status(latest_status);
+            }
         }, 2000);
+        let progwin_timeout = arm_progwin();
 
         const copied_item_paths = [];
 
@@ -1397,7 +1419,9 @@ window.copy_items = function (el_items, dest_path) {
             let copy_path = $(el_items[i]).attr('data-path');
             let item_with_same_name_already_exists = true;
             let overwrite = overwrite_all;
-            progwin?.set_status(i18n('copying_file', copy_path));
+            let keep_both = false;
+            latest_status = i18n('copying_file', copy_path);
+            progwin?.set_status(latest_status);
 
             do {
                 if ( overwrite )
@@ -1414,13 +1438,15 @@ window.copy_items = function (el_items, dest_path) {
                         source: copy_path,
                         destination: dest_path,
                         overwrite: overwrite || overwrite_all,
-                        // if user is copying an item to where the source is, automatically change the name so there is no conflict
-                        dedupeName: dest_path === path.dirname(copy_path),
+                        // dedupe when the user chose "Keep Both" on a conflict, or
+                        // when copying an item to where its source is — either way
+                        // the copy gets a "name (1)" style name instead of conflicting
+                        dedupeName: keep_both || dest_path === path.dirname(copy_path),
                     });
 
                     // remove overwritten item from the DOM
                     if ( resp[0].overwritten?.id ) {
-                        $(`.item[data-uid=${resp.overwritten.id}]`).removeItems();
+                        $(`.item[data-uid='${resp[0].overwritten.id}']`).removeItems();
                     }
 
                     // copy new path for undo copy
@@ -1430,19 +1456,27 @@ window.copy_items = function (el_items, dest_path) {
                     item_with_same_name_already_exists = false;
                 } catch ( err ) {
                     if ( err.code === 'item_with_same_name_exists' ) {
+                        // The operation is paused on user input, so pause the
+                        // progress-window timer too — otherwise "Preparing..."
+                        // pops up on top of the dialog while it waits.
+                        clearTimeout(progwin_timeout);
                         const alert_resp = await UIAlert({
                             message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                             buttons: [
                                 { label: i18n('replace'), type: 'primary', value: 'replace' },
                                 ... (el_items.length > 1) ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
+                                { label: i18n('keep_both'), value: 'keep_both' },
                                 ... (el_items.length > 1) ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
                             ],
                         });
+                        progwin_timeout = arm_progwin();
                         if ( alert_resp === 'replace' ) {
                             overwrite = true;
                         } else if ( alert_resp === 'replace_all' ) {
                             overwrite = true;
                             overwrite_all = true;
+                        } else if ( alert_resp === 'keep_both' ) {
+                            keep_both = true;
                         } else if ( alert_resp === 'skip' || alert_resp === 'cancel' ) {
                             item_with_same_name_already_exists = false;
                         }
@@ -1629,6 +1663,40 @@ window.trigger_download = (paths) => {
 };
 
 /**
+ * Updates every Trash icon in the UI to reflect whether the trash is empty:
+ * the taskbar item, desktop items (and shortcuts to Trash), open explorer
+ * window head icons, and the Dashboard's Files-tab sidebar.
+ *
+ * @param {boolean} is_empty - Whether the trash is empty
+ */
+window.update_trash_icons = function (is_empty) {
+    const icon = is_empty ? window.icons['trash.svg'] : window.icons['trash-full.svg'];
+    $('[data-app="trash"]').find('.taskbar-icon > img').attr('src', icon);
+    $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', icon);
+    $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.window-head-icon').attr('src', icon);
+    $('.directories [data-folder="Trash"] img').attr('src', icon);
+};
+
+/**
+ * Checks whether the trash is empty, updates every Trash icon accordingly,
+ * and notifies the user's other open tabs. Call after operations that change
+ * trash contents without going through window.move_items or
+ * window.empty_trash (e.g. permanent delete, direct restore).
+ *
+ * @returns {Promise<void>}
+ */
+window.refresh_trash_state = async function () {
+    // 'strong' consistency: an 'eventual' stat can be served from the SDK
+    // cache, which is stale right after a trash mutation and — when seeded
+    // by readdir — lacks the `is_empty` field entirely.
+    const trash = await puter.fs.stat({ path: window.trash_path, consistency: 'eventual' });
+    if ( window.socket ) {
+        window.socket.emit('trash.is_empty', { is_empty: trash.is_empty });
+    }
+    window.update_trash_icons(trash.is_empty);
+};
+
+/**
  * Moves the given items to the destination path.
  *
  * @param {HTMLElement[]} el_items - jQuery elements representing the items to move
@@ -1667,14 +1735,21 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
 
     // only show progress window if it takes longer than 2s to move
     let progwin;
-    let progwin_timeout = setTimeout(async () => {
+    let latest_status;
+    const arm_progwin = () => setTimeout(async () => {
         progwin = await UIWindowProgress({
             operation_id: move_op_id,
             on_cancel: () => {
                 window.operation_cancelled[move_op_id] = true;
             },
         });
+        // Opened mid-operation: show the file being moved rather than the
+        // default "Preparing..." status.
+        if ( latest_status ) {
+            progwin.set_status(latest_status);
+        }
     }, 2000);
+    let progwin_timeout = arm_progwin();
 
     // storing moved items for undo ability
     const moved_items = [];
@@ -1698,7 +1773,10 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
 
         // cannot move item to its own path, skip it
         if ( path.dirname($(el_item).attr('data-path')) === dest_path ) {
+            // pause the progress-window timer while waiting for the user
+            clearTimeout(progwin_timeout);
             await UIAlert(`<p>Moving <strong>${html_encode($(el_item).attr('data-name'))}</strong></p>Cannot move item to its current location.`);
+            progwin_timeout = arm_progwin();
 
             continue;
         }
@@ -1706,6 +1784,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
         // if an item with the same name already exists in the destination path
         let item_with_same_name_already_exists = false;
         let overwrite = overwrite_all;
+        let keep_both = false;
         let untrashed_at_least_one_item = false;
 
         // --------------------------------------------------------
@@ -1766,13 +1845,14 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                     }
 
                     // change trash icons to 'trash-full.svg'
-                    $('[data-app="trash"]').find('.taskbar-icon > img').attr('src', window.icons['trash-full.svg']);
-                    $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash-full.svg']);
-                    $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.window-head-icon').attr('src', window.icons['trash-full.svg']);
+                    window.update_trash_icons(false);
                 }
 
                 // moving an item into a trashed directory? deny.
                 else if ( dest_path.startsWith(window.trash_path) ) {
+                    // the pending timer would otherwise open an orphan
+                    // progress window after the operation already bailed
+                    clearTimeout(progwin_timeout);
                     progwin?.close();
                     UIAlert('Cannot move items into a deleted folder.');
                     return;
@@ -1792,13 +1872,17 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 // --------------------------------------------------------
                 // update progress window with current item being moved
                 // --------------------------------------------------------
-                progwin?.set_status(i18n(status_i18n_string, path_to_show_on_progwin));
+                latest_status = i18n(status_i18n_string, path_to_show_on_progwin);
+                progwin?.set_status(latest_status);
 
                 // execute move
                 let resp = await puter.fs.move({
                     source: $(el_item).attr('data-uid'),
                     destination: dest_path,
                     overwrite: overwrite || overwrite_all,
+                    // "Keep Both" conflict resolution: move under a deduped
+                    // "name (1)" style name instead of overwriting
+                    dedupeName: keep_both,
                     newName: new_name,
                     // recycling requires making all missing dirs
                     createMissingParents: recycling,
@@ -1874,7 +1958,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
 
                 // if replacing an existing item, remove the old item that was just replaced
                 if ( resp.overwritten?.id ) {
-                    $(`.item[data-uid=${resp.overwritten.id}]`).removeItems();
+                    $(`.item[data-uid='${resp.overwritten.id}']`).removeItems();
                 }
 
                 // if this is trash, get original name from item metadata
@@ -1950,19 +2034,27 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 if ( err.code === 'item_with_same_name_exists' ) {
                     item_with_same_name_already_exists = true;
 
+                    // The operation is paused on user input, so pause the
+                    // progress-window timer too — otherwise "Preparing..."
+                    // pops up on top of the dialog while it waits.
+                    clearTimeout(progwin_timeout);
                     const alert_resp = await UIAlert({
                         message: `<strong>${html_encode(err.entry_name)}</strong> already exists.`,
                         buttons: [
                             { label: i18n('replace'), type: 'primary', value: 'replace' },
                             ... (el_items.length > 1) ? [{ label: i18n('replace_all'), value: 'replace_all' }] : [],
+                            { label: i18n('keep_both'), value: 'keep_both' },
                             ... (el_items.length > 1) ? [{ label: i18n('skip'), value: 'skip' }] : [{ label: i18n('cancel'), value: 'cancel' }],
                         ],
                     });
+                    progwin_timeout = arm_progwin();
                     if ( alert_resp === 'replace' ) {
                         overwrite = true;
                     } else if ( alert_resp === 'replace_all' ) {
                         overwrite = true;
                         overwrite_all = true;
+                    } else if ( alert_resp === 'keep_both' ) {
+                        keep_both = true;
                     } else if ( alert_resp === 'skip' || alert_resp === 'cancel' ) {
                         item_with_same_name_already_exists = false;
                     }
@@ -1984,15 +2076,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
 
         // check if trash is empty
         if ( untrashed_at_least_one_item ) {
-            const trash = await puter.fs.stat({ path: window.trash_path, consistency: 'eventual' });
-            if ( window.socket ) {
-                window.socket.emit('trash.is_empty', { is_empty: trash.is_empty });
-            }
-            if ( trash.is_empty ) {
-                $('[data-app="trash"]').find('.taskbar-icon > img').attr('src', window.icons['trash.svg']);
-                $(`.item[data-path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
-                $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
-            }
+            await window.refresh_trash_state();
         }
     }
 
@@ -2174,6 +2258,53 @@ window.updateSubdomainsForItems = async function (fsentries, container) {
     }
 };
 
+// This flow owns its own file input rather than borrowing the shell's
+// #upload-file-dialog. That element is shared, and on the dashboard the Files
+// tab assigns an onchange PROPERTY to it — which jQuery's unbind() cannot
+// remove — so a single selection used to fire both handlers and start two
+// concurrent uploads of the same files. When the two destinations coincided
+// (both default to Desktop) the signed batch writes raced and the loser failed
+// with "Entry already exists"; when they differed, the files also landed in
+// the Files tab's directory. A private input keeps the two flows independent.
+let el_upload_dialog_input = null;
+
+// Destination for the pending selection. Module-level rather than captured per
+// call because the input's change handler is bound once, and only one native
+// file dialog can be open at a time — matching the old behaviour, where
+// re-binding meant the most recent caller's target won.
+let upload_dialog_target_path = null;
+
+const get_upload_dialog_input = () => {
+    if ( el_upload_dialog_input?.isConnected ) {
+        return el_upload_dialog_input;
+    }
+
+    el_upload_dialog_input = document.createElement('input');
+    el_upload_dialog_input.type = 'file';
+    el_upload_dialog_input.name = 'file';
+    el_upload_dialog_input.multiple = true;
+    el_upload_dialog_input.style.display = 'none';
+    document.body.appendChild(el_upload_dialog_input);
+
+    el_upload_dialog_input.addEventListener('change', function () {
+        // Snapshot into an array before clearing: `value = ''` empties the live
+        // FileList in place, and upload_items consumes it asynchronously.
+        const files = Array.from(el_upload_dialog_input.files ?? []);
+        el_upload_dialog_input.value = '';
+        if ( files.length === 0 ) {
+            return;
+        }
+        try {
+            window.upload_items(files, upload_dialog_target_path);
+        }
+        catch ( err ) {
+            UIAlert(err.message ?? err);
+        }
+    });
+
+    return el_upload_dialog_input;
+};
+
 /**
  *
  * @param {*} el_target_container
@@ -2181,29 +2312,15 @@ window.updateSubdomainsForItems = async function (fsentries, container) {
  */
 
 window.init_upload_using_dialog = function (el_target_container, target_path = null) {
-    $('#upload-file-dialog').unbind('onchange');
-    $('#upload-file-dialog').unbind('change');
-    $('#upload-file-dialog').unbind('onChange');
+    upload_dialog_target_path = target_path === null
+        ? $(el_target_container).attr('data-path')
+        : path.resolve(target_path);
 
-    target_path = target_path === null ? $(el_target_container).attr('data-path') : path.resolve(target_path);
-    $('#upload-file-dialog').trigger('click');
-    $('#upload-file-dialog').on('change', async function (e) {
-        if ( $('#upload-file-dialog').val() !== '' ) {
-            const files = $('#upload-file-dialog')[0].files;
-            if ( files.length > 0 ) {
-                try {
-                    window.upload_items(files, target_path);
-                }
-                catch ( err ) {
-                    UIAlert(err.message ?? err);
-                }
-                $('#upload-file-dialog').val('');
-            }
-        }
-        else {
-            return;
-        }
-    });
+    const el_input = get_upload_dialog_input();
+    // Clearing before opening lets the same file be picked twice in a row; an
+    // unchanged value fires no change event.
+    el_input.value = '';
+    el_input.click();
 };
 
 window.upload_items = async function (items, dest_path) {
@@ -2273,6 +2390,10 @@ window.upload_items = async function (items, dest_path) {
                     operation: 'upload',
                     data: files,
                 });
+
+                // highlight the uploaded items in the destination
+                select_uploaded_items(dest_path, files);
+
                 // close progress window after a bit of delay for a better UX
                 setTimeout(() => {
                     setTimeout(() => {
@@ -2337,9 +2458,7 @@ window.empty_trash = async function () {
                 window.socket.emit('trash.is_empty', { is_empty: true });
             }
             // use the 'empty trash' icon for Trash
-            $('[data-app="trash"]').find('.taskbar-icon > img').attr('src', window.icons['trash.svg']);
-            $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
-            $(`.window[data-path="${window.trash_path}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
+            window.update_trash_icons(true);
             // remove all items with trash paths
             // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
             $(`.item[data-path^="${window.trash_path}/"]`).removeItems();

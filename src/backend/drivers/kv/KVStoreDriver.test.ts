@@ -23,7 +23,7 @@ describe('KVStoreDriver', () => {
     });
 
     afterAll(async () => {
-        await server.shutdown();
+        await server?.shutdown();
     });
 
     // Each test runs against a unique actor namespace so state from one test
@@ -462,6 +462,23 @@ describe('KVStoreDriver', () => {
                     }),
                 ),
             ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        // A path walking the prototype chain is a client error, not an
+        // opaque 500 out of the document client.
+        it.each([
+            ['incr' as const],
+            ['decr' as const],
+        ])('%s rejects a prototype-walking path as a 400', async (op) => {
+            await expect(
+                inCtx(() =>
+                    target[op]({
+                        key: 'proto-test',
+                        pathAndAmountMap: { 'constructor.prototype.x': 1 },
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+            expect(({} as Record<string, unknown>).x).toBeUndefined();
         });
     });
 

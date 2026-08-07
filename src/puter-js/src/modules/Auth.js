@@ -1,56 +1,47 @@
 import * as utils from '../lib/utils.js';
+import { fetchUrl } from '../lib/networkUtils.js';
+import { PuterModule } from '../lib/PuterModule.js';
 import PuterDialog from './PuterDialog.js';
 import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
 
-class Auth {
+/** @typedef {import('../../types/modules/auth').DetailedAppUsage} DetailedAppUsage */
+/** @typedef {import('../../types/modules/auth').MonthlyUsage} MonthlyUsage */
+/** @typedef {import('../../types/modules/auth').SignInResult} SignInResult */
+/** @typedef {import('../../types/modules/auth').User} User */
+
+/**
+ * The `puter.auth` module. Most Puter methods authenticate on their own; these
+ * are for apps that drive the sign-in flow themselves.
+ */
+class Auth extends PuterModule {
     // Used to generate a unique message id for each message sent to the host environment
     // we start from 1 because 0 is falsy and we want to avoid that for the message id
     #messageID = 1;
 
     /**
-     * Creates a new instance with the given authentication token, API origin, and app ID,
+     * Signs the user in, opening a popup with the appropriate authentication
+     * method. Must be called from a user gesture (such as a click) — without
+     * one, a consent dialog is shown first so the popup can be opened from the
+     * user's click on it. Resolves once the user has signed in.
      *
-     * @class
-     * @param {string} authToken - Token used to authenticate the user.
-     * @param {string} APIOrigin - Origin of the API server. Used to build the API endpoint URLs.
-     * @param {string} appID - ID of the app to use.
-     */
-    constructor (puter) {
-        this.puter = puter;
-        this.authToken = puter.authToken;
-        this.APIOrigin = puter.APIOrigin;
-        this.appID = puter.appID;
-    }
-
-    /**
-     * Sets a new authentication token.
+     * Rejects with `{ error: 'popup_blocked' }` if the browser blocked the
+     * popup, or `{ error: 'auth_window_closed' }` if the user closed it.
      *
-     * @param {string} authToken - The new authentication token.
-     * @memberof [Auth]
-     * @returns {void}
-     */
-    setAuthToken (authToken) {
-        this.authToken = authToken;
-    }
-
-    /**
-     * Sets the API origin.
+     * `request_auth` asks the popup to let the user re-pick their account even
+     * when this site already holds a token for them — the GUI otherwise skips
+     * that prompt for a site it has seen before. Implicit auth (a `puter.*`
+     * call that finds no token) sets it, which is the behaviour its own popup
+     * used to carry as `?request_auth=true`.
      *
-     * @param {string} APIOrigin - The new API origin.
-     * @memberof [Auth]
-     * @returns {void}
+     * @type {(options?: { attempt_temp_user_creation?: boolean, request_auth?: boolean }) => Promise<SignInResult>}
      */
-    setAPIOrigin (APIOrigin) {
-        this.APIOrigin = APIOrigin;
-    }
-
     signIn = (options) => {
         options = options || {};
 
         return new Promise((resolve, reject) => {
             const signinsession = crypto.randomUUID();
             const msg_id = this.#messageID++;
-            const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}`;
+            const url = `${puter.defaultGUIOrigin}/action/sign-in?embedded_in_popup=true&msg_id=${msg_id}${window.crossOriginIsolated ? `&cross_origin_isolated=true&signin_session=${signinsession}` : ''}${options.attempt_temp_user_creation ? '&attempt_temp_user_creation=true' : ''}${options.request_auth ? '&request_auth=true' : ''}`;
 
             // Guards against settling the promise more than once across the
             // message, popup-closed, and dialog-cancel code paths.
@@ -73,7 +64,7 @@ class Auth {
                 (async () => {
                     while (true) {
                         try {
-                            const result = await fetch(`${this.APIOrigin}/login/wait`, {
+                            const result = await fetchUrl(`${this.APIOrigin}/login/wait`, {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json',
@@ -192,6 +183,11 @@ class Auth {
         });
     };
 
+    /**
+     * Whether the user is currently signed in.
+     *
+     * @type {() => boolean}
+     */
     isSignedIn = () => {
         if ( puter.authToken )
         {
@@ -203,6 +199,15 @@ class Auth {
         }
     };
 
+    /**
+     * Returns the signed-in user's basic information. Throws
+     * `{ status: 401, message: 'Unauthorized' }` when no user is signed in.
+     *
+     * @type {{
+     *   (options?: { success?: (value: User) => void, error?: (reason: unknown) => void }): Promise<User>,
+     *   (success: (value: User) => void, error?: (reason: unknown) => void): Promise<User>,
+     * }}
+     */
     getUser = function (...args) {
         if ( ! puter.authToken ) {
             // Fake the server response for backwards compatibility
@@ -235,10 +240,22 @@ class Auth {
         });
     };
 
+    /**
+     * Signs the user out of this app by discarding its auth token.
+     *
+     * @type {() => void}
+     */
     signOut = () => {
         puter.resetAuthToken();
     };
 
+    /**
+     * Returns the signed-in user, straight from `/whoami` with no callback
+     * forms. Rejects with `{ status: 401, message: 'Unauthorized' }` when no
+     * user is signed in.
+     *
+     * @returns {Promise<User>}
+     */
     async whoami () {
         if ( ! this.authToken ) {
             // Fake the server response for backwards compatibility
@@ -249,159 +266,60 @@ class Auth {
             };
         }
 
-        try {
-            const resp = await fetch(`${this.APIOrigin}/whoami`, {
-                headers: {
-                    Authorization: `Bearer ${this.authToken}`,
-                },
-            });
-
-            const result = await resp.json();
-
-            // Log the response
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'auth',
-                    operation: 'whoami',
-                    params: {},
-                    result: result,
-                });
-            }
-
-            return result;
-        } catch ( error ) {
-            // Log the error
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'auth',
-                    operation: 'whoami',
-                    params: {},
-                    error: {
-                        message: error.message || error.toString(),
-                        stack: error.stack,
-                    },
-                });
-            }
-            throw error;
-        }
+        const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
+            includePuterAuth: true,
+            logContext: { service: 'auth', operation: 'whoami', params: {} },
+        });
+        return await resp.json();
     }
 
+    /**
+     * The user's resource usage for the current month, scoped to the calling
+     * app. Amounts are in microcents ($0.01 = 1,000,000).
+     *
+     * @returns {Promise<MonthlyUsage>}
+     */
     async getMonthlyUsage () {
-        try {
-            const resp = await fetch(`${this.APIOrigin}/metering/usage`, {
-                headers: {
-                    Authorization: `Bearer ${this.authToken}`,
-                },
-            });
-
-            const result = await resp.json();
-
-            // Log the response
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'auth',
-                    operation: 'usage',
-                    params: {},
-                    result: result,
-                });
-            }
-
-            return result;
-        } catch ( error ) {
-            // Log the error
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'auth',
-                    operation: 'usage',
-                    params: {},
-                    error: {
-                        message: error.message || error.toString(),
-                        stack: error.stack,
-                    },
-                });
-            }
-            throw error;
-        }
+        const resp = await fetchUrl(`${this.APIOrigin}/metering/usage`, {
+            includePuterAuth: true,
+            logContext: { service: 'auth', operation: 'usage', params: {} },
+        });
+        return await resp.json();
     }
 
+    /**
+     * Per-API usage for one app the user has accessed, scoped to the calling
+     * app. Amounts are in microcents ($0.01 = 1,000,000).
+     *
+     * @param {string} appId
+     * @returns {Promise<DetailedAppUsage>}
+     */
     async getDetailedAppUsage (appId) {
         if ( ! appId ) {
             throw new Error('appId is required');
         }
 
-        try {
-            const resp = await fetch(`${this.APIOrigin}/metering/usage/${appId}`, {
-                headers: {
-                    Authorization: `Bearer ${this.authToken}`,
-                },
-            });
-
-            const result = await resp.json();
-
-            // Log the response
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'auth',
-                    operation: 'detailed_app_usage',
-                    params: { appId },
-                    result: result,
-                });
-            }
-
-            return result;
-        } catch ( error ) {
-            // Log the error
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'auth',
-                    operation: 'detailed_app_usage',
-                    params: { appId },
-                    error: {
-                        message: error.message || error.toString(),
-                        stack: error.stack,
-                    },
-                });
-            }
-            throw error;
-        }
+        const resp = await fetchUrl(`${this.APIOrigin}/metering/usage/${appId}`, {
+            includePuterAuth: true,
+            logContext: { service: 'auth', operation: 'detailed_app_usage', params: { appId } },
+        });
+        return await resp.json();
     }
 
+    /**
+     * Deployment-wide usage totals. The route behind this is administrative,
+     * so an ordinary app's call is rejected — it is deliberately absent from
+     * the public type declarations and the docs.
+     *
+     * @internal
+     * @returns {Promise<{ total: number } & Record<string, unknown>>}
+     */
     async getGlobalUsage () {
-        try {
-            const resp = await fetch(`${this.APIOrigin}/metering/globalUsage`, {
-                headers: {
-                    Authorization: `Bearer ${this.authToken}`,
-                },
-            });
-
-            const result = await resp.json();
-
-            // Log the response
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'auth',
-                    operation: 'global_usage',
-                    params: {},
-                    result: result,
-                });
-            }
-
-            return result;
-        } catch ( error ) {
-            // Log the error
-            if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
-                globalThis.puter.apiCallLogger.logRequest({
-                    service: 'auth',
-                    operation: 'global_usage',
-                    params: {},
-                    error: {
-                        message: error.message || error.toString(),
-                        stack: error.stack,
-                    },
-                });
-            }
-            throw error;
-        }
+        const resp = await fetchUrl(`${this.APIOrigin}/metering/globalUsage`, {
+            includePuterAuth: true,
+            logContext: { service: 'auth', operation: 'global_usage', params: {} },
+        });
+        return await resp.json();
     }
 }
 

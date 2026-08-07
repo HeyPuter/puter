@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -30,22 +30,22 @@ export interface IDynamoConfig {
     endpoint?: string;
     /**
      * Filesystem path for the local dynalite store. Defaults to
-     * `./volatile/runtime/puter-ddb`. Pass `':memory:'` (or set
-     * `inMemory: true`) to run dynalite without persistence — the
-     * recommended setup for unit/integration tests.
+     * `./volatile/runtime/puter-ddb`. Pass `':memory:'` (or set `inMemory:
+     * true`) to run dynalite without persistence — the recommended setup for
+     * unit/integration tests.
      */
     path?: string;
     /**
-     * Run dynalite in-memory with no on-disk state. Equivalent to
-     * `path: ':memory:'`. Intended for tests so each suite gets a
-     * pristine in-process DynamoDB.
+     * Run dynalite in-memory with no on-disk state. Equivalent to `path:
+     * ':memory:'`. Intended for tests so each suite gets a pristine in-process
+     * DynamoDB.
      */
     inMemory?: boolean;
     /**
-     * Create required tables on startup if they don't exist. Off by
-     * default because real-AWS deployments provision tables externally
-     * (Terraform / IaC). Set to `true` when pointing at a local
-     * DynamoDB emulator so self-hosters don't have to bootstrap by hand.
+     * Create required tables on startup if they don't exist. Off by default
+     * because real-AWS deployments provision tables externally (Terraform /
+     * IaC). Set to `true` when pointing at a local DynamoDB emulator so
+     * self-hosters don't have to bootstrap by hand.
      */
     bootstrapTables?: boolean;
 }
@@ -61,23 +61,78 @@ export interface IRedisConfig {
      */
     tls?: boolean;
     /**
-     * Use ioredis-mock instead of a real Redis cluster — fully
-     * in-process, no network. Defaults to `true` when `startupNodes`
-     * is empty (so tests with no redis config get a mock for free).
-     * Intended for unit/integration tests.
+     * Use ioredis-mock instead of a real Redis cluster — fully in-process, no
+     * network. Defaults to `true` when `startupNodes` is empty (so tests with
+     * no redis config get a mock for free). Intended for unit/integration
+     * tests.
      */
     useMock?: boolean;
 }
 
+/**
+ * Alert severity. Ordered `info` < `warning` < `error` < `critical`; each alert
+ * transport takes everything at or above its own `minSeverity`, so the severity
+ * a call site picks is what decides where the alarm lands.
+ */
+export type PagerSeverity = 'critical' | 'error' | 'warning' | 'info';
+
+/** A severity, or `mute` to drop the alarm before any transport sees it. */
+export type SeverityRule = PagerSeverity | 'mute';
+
+export interface IPagerDutyConfig {
+    enabled?: boolean;
+    routingKey?: string;
+    /**
+     * Lowest severity that reaches PagerDuty. Default `warning`, which keeps
+     * `info` alarms out of the paging system entirely.
+     */
+    minSeverity?: PagerSeverity;
+}
+
+export interface ISlackAlertConfig {
+    enabled?: boolean;
+    /** Incoming-webhook URL to post alerts to. */
+    webhookUrl?: string;
+    /** Channel override (e.g. `#alerts`). Defaults to the webhook's own. */
+    channel?: string;
+    /** Bot display name on the posted message. */
+    username?: string;
+    /** Lowest severity posted to Slack. Default `info`. */
+    minSeverity?: PagerSeverity;
+    /**
+     * Highest severity posted to Slack. Defaults to `info` when PagerDuty is
+     * configured — anything that pages belongs in the paging system, not in
+     * chat — and to `critical` (everything) when Slack is the only transport.
+     */
+    maxSeverity?: PagerSeverity;
+    /**
+     * Don't repost the same alarm id within this window. The first occurrence
+     * always posts; repeats inside the window only bump the occurrence count
+     * that the next post reports. Default 15 minutes; `0` disables throttling.
+     */
+    repeatThrottleMs?: number;
+}
+
 export interface IPagerConfig {
-    pagerduty?: {
-        enabled?: boolean;
-        routingKey?: string;
-    };
+    /** Severity used when a call site doesn't pass one. Default `critical`. */
+    defaultSeverity?: PagerSeverity;
+    /**
+     * Operator overrides keyed by alarm id, or by prefix with a trailing `*`
+     * (`cronMonitor:*`). Exact ids beat patterns and the longest matching
+     * prefix wins. Applied after the call site's severity and any known-error
+     * rule, so this is the final say — it can retier or mute a noisy alarm
+     * without a deploy.
+     */
+    severityOverrides?: Record<string, SeverityRule>;
+    pagerduty?: IPagerDutyConfig;
+    slack?: ISlackAlertConfig;
 }
 
 export interface ICfFileCacheConfig {
-    /** POST endpoint that accepts batched `{ site, path }[]` invalidation payloads. */
+    /**
+     * POST endpoint that accepts batched `{ site, path }[]` invalidation
+     * payloads.
+     */
     endpoint: string;
     /** Flush cadence in ms. Default 500. */
     throttle_ms?: number;
@@ -118,9 +173,7 @@ export interface IPreludeConfig {
     apiKey?: string;
     /** Default region for parsing local-format phone numbers (e.g. 'US'). */
     defaultCountry?: string;
-    /**
-     * Per-SMS cost ceiling in EUR.
-     */
+    /** Per-SMS cost ceiling in EUR. */
     maxSmsCostEur?: number;
     /**
      * Verification template id (from the Prelude dashboard) that controls the
@@ -131,14 +184,15 @@ export interface IPreludeConfig {
     templateId?: string;
     /**
      * Alphanumeric Sender ID to brand who the SMS is "from" (e.g. "Puter").
-     * Must be pre-enabled by Prelude and isn't supported by all carriers/regions
-     * (notably US long/short codes). Omit to use Prelude's default sender.
+     * Must be pre-enabled by Prelude and isn't supported by all
+     * carriers/regions (notably US long/short codes). Omit to use Prelude's
+     * default sender.
      */
     senderId?: string;
     /**
      * Channel Prelude prioritizes for delivery. Defaults to 'rcs' (much cheaper
-     * than SMS); Prelude falls back to SMS when RCS isn't reachable. Requires an
-     * RCS agent provisioned in the Prelude account to actually use RCS.
+     * than SMS); Prelude falls back to SMS when RCS isn't reachable. Requires
+     * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
         | 'sms'
@@ -171,13 +225,25 @@ export interface IThumbnailStoreConfig {
  * providers don't have to touch the root type.
  */
 export interface IAIProviderConfig {
-    /** API key. Sole canonical name — drivers no longer accept `secret_key`/`api_key`/`key` aliases. */
+    /**
+     * API key. Sole canonical name — drivers no longer accept
+     * `secret_key`/`api_key`/`key` aliases.
+     */
     apiKey?: string;
-    /** Cloudflare API token (semantically distinct from a regular key). Cloudflare-only. */
+    /**
+     * Cloudflare API token (semantically distinct from a regular key).
+     * Cloudflare-only.
+     */
     apiToken?: string;
-    /** Override the provider's HTTP base URL (OpenRouter, Cloudflare, ElevenLabs, Ollama). */
+    /**
+     * Override the provider's HTTP base URL (OpenRouter, Cloudflare,
+     * ElevenLabs, Ollama).
+     */
     apiBaseUrl?: string;
-    /** Azure AI Foundry deployment endpoint (azure-openai). Required alongside `apiKey`. */
+    /**
+     * Azure AI Foundry deployment endpoint (azure-openai). Required alongside
+     * `apiKey`.
+     */
     apiURL?: string;
     /** Cloudflare account id. */
     accountId?: string;
@@ -195,8 +261,8 @@ export interface IAIProviderConfig {
 
 /**
  * OIDC provider sub-config (google, custom, …). `google` uses discovery, so
- * only `client_id` + `client_secret` are required; custom providers must
- * also supply the three endpoint URLs explicitly.
+ * only `client_id` + `client_secret` are required; custom providers must also
+ * supply the three endpoint URLs explicitly.
  */
 export interface IOIDCProviderConfig {
     client_id?: string;
@@ -251,39 +317,55 @@ export interface IBroadcastPeerConfig {
 export interface IBroadcastConfig {
     peers?: IBroadcastPeerConfig[];
     webhook?: {
-        /** This server's peerId, sent in outbound POSTs as `X-Broadcast-Peer-Id`. */
+        /**
+         * This server's peerId, sent in outbound POSTs as
+         * `X-Broadcast-Peer-Id`.
+         */
         peerId?: string;
         /** Secret used to sign OUTBOUND POSTs. */
         secret?: string;
     };
-    /** Reject webhooks whose timestamp is more than this many seconds in the past. Default 300. */
+    /**
+     * Reject webhooks whose timestamp is more than this many seconds in the
+     * past. Default 300.
+     */
     webhook_replay_window_seconds?: number;
-    /** Time to wait coalescing outbound events into a single peer POST. Default 2000ms. */
+    /**
+     * Time to wait coalescing outbound events into a single peer POST. Default
+     * 2000ms.
+     */
     outbound_flush_ms?: number;
 }
 
-/**
- * Cloudflare Workers deployment config used by `WorkerDriver`.
- */
+/** Cloudflare Workers deployment config used by `WorkerDriver`. */
 export interface IWorkersConfig {
     XAUTHKEY?: string;
     ACCOUNTID?: string;
-    /** Optional dispatch namespace — when set, scripts deploy under `/dispatch/namespaces/<ns>`. */
+    /**
+     * Optional dispatch namespace — when set, scripts deploy under
+     * `/dispatch/namespaces/<ns>`.
+     */
     namespace?: string;
-    /** Base URL included as the `puter_endpoint` binding. Default `https://api.puter.com`. */
+    /**
+     * Base URL included as the `puter_endpoint` binding. Default
+     * `https://api.puter.com`.
+     */
     internetExposedUrl?: string;
-    /** URL returned by `getLoggingUrl()` — surfaced to clients that render worker logs. */
+    /**
+     * URL returned by `getLoggingUrl()` — surfaced to clients that render
+     * worker logs.
+     */
     loggingUrl?: string;
     [key: string]: string | undefined;
 }
 
 /**
- * Optional outbound-fetch proxy used by `secureFetch()` when the backend has
- * to fetch a user-supplied URL (e.g. image-gen `input_image`). Requests get
+ * Optional outbound-fetch proxy used by `secureFetch()` when the backend has to
+ * fetch a user-supplied URL (e.g. image-gen `input_image`). Requests get
  * prefixed with `url` and sent through the Worker with `x-cors-proxy-auth-
- * secret: <secret>`; the Worker authenticates the secret, fetches the real
- * URL, and strips CORS on the response. Unset → fetches go direct (still
- * guarded by the URL/redirect/DNS checks in secureFetch).
+ * secret: <secret>`; the Worker authenticates the secret, fetches the real URL,
+ * and strips CORS on the response. Unset → fetches go direct (still guarded by
+ * the URL/redirect/DNS checks in secureFetch).
  */
 export interface ISecureCorsProxyConfig {
     url: string;
@@ -305,9 +387,9 @@ export interface IServerHealthConfig {
 
 export interface IS3LocalConfig {
     /**
-     * Run fauxqs entirely in-memory: random port on `127.0.0.1`, no
-     * `dataDir` / `s3StorageDir`. Intended for tests so each suite
-     * gets a pristine in-process S3.
+     * Run fauxqs entirely in-memory: random port on `127.0.0.1`, no `dataDir` /
+     * `s3StorageDir`. Intended for tests so each suite gets a pristine
+     * in-process S3.
      */
     inMemory?: boolean;
     host?: string;
@@ -320,11 +402,11 @@ export interface IS3RemoteConfig {
     useCredentialChain?: boolean;
     endpoint: string;
     /**
-     * Endpoint used when generating presigned URLs handed to clients
-     * (browser uploads/downloads). Defaults to `endpoint`. Set this when
-     * the server-side S3 endpoint isn't reachable from the browser — e.g.
-     * self-host with `endpoint: http://s3:9000` (docker-internal) and
-     * `publicEndpoint: http://localhost:9000` (host-published port).
+     * Endpoint used when generating presigned URLs handed to clients (browser
+     * uploads/downloads). Defaults to `endpoint`. Set this when the server-side
+     * S3 endpoint isn't reachable from the browser — e.g. self-host with
+     * `endpoint: http://s3:9000` (docker-internal) and `publicEndpoint:
+     * http://localhost:9000` (host-published port).
      */
     publicEndpoint?: string;
     accessKeyId: string;
@@ -348,16 +430,16 @@ export interface IDatabaseConfig {
     engine: 'sqlite' | 'mysql' | 'postgres';
     // sqlite
     /**
-     * SQLite database file path. Defaults to `':memory:'` (the
-     * better-sqlite3 in-memory mode), which is also what tests should
-     * use. `inMemory: true` is an explicit alias for the same.
+     * SQLite database file path. Defaults to `':memory:'` (the better-sqlite3
+     * in-memory mode), which is also what tests should use. `inMemory: true` is
+     * an explicit alias for the same.
      */
     path?: string;
     /**
-     * Force in-memory SQLite (ignores `path`). Equivalent to
-     * `path: ':memory:'`. Intended for tests so each suite gets a
-     * pristine in-process database. Test utilities also use
-     * `engine: 'postgres'` with `inMemory: true` to run against pgmock.
+     * Force in-memory SQLite (ignores `path`). Equivalent to `path:
+     * ':memory:'`. Intended for tests so each suite gets a pristine in-process
+     * database. Test utilities also use `engine: 'postgres'` with `inMemory:
+     * true` to run against pgmock.
      */
     inMemory?: boolean;
     targetVersion?: number;
@@ -379,11 +461,23 @@ export interface IDatabaseConfig {
         url?: string;
     };
     /**
+     * Server-side execution cap for SELECT statements in ms (mysql engine;
+     * applies to both pools — MySQL only enforces it on SELECTs, so writes are
+     * unaffected). 0 disables. Default 30000.
+     */
+    selectTimeoutMs?: number;
+    /**
+     * Max time to wait for a pooled connection before the query batcher treats
+     * acquisition as failed, in ms (mysql engine). 0 disables the bound.
+     * Default 5000.
+     */
+    acquireTimeoutMs?: number;
+    /**
      * Ordered list of directories whose `.sql` files are run sequentially at
      * server start (mysql/postgres engines). Numbered migration filenames sort
      * numerically; directories are processed in array order. Files MUST be
-     * idempotent — there is no per-file applied-state tracking.
-     * Relative paths resolve from `process.cwd()`.
+     * idempotent — there is no per-file applied-state tracking. Relative paths
+     * resolve from `process.cwd()`.
      */
     migrationPaths?: string[];
 }
@@ -423,8 +517,8 @@ export interface IDevWatcherConfig {
         env?: Record<string, string>;
     }>;
     /**
-     * Optional webpack watcher entries.
-     * Omit to use the built-in GUI/puter.js watchers.
+     * Optional webpack watcher entries. Omit to use the built-in GUI/puter.js
+     * watchers.
      */
     webpack?: Array<{
         name?: string;
@@ -438,19 +532,25 @@ export interface IDevWatcherConfig {
  * mandatory fields (only `port` + `extensions`) are pulled out of the
  * `Partial<...>` below and listed after it.
  *
- * When adding a new config field, declare it here with a doc comment so
- * there's a single discoverable reference for every config-driven switch.
+ * When adding a new config field, declare it here with a doc comment so there's
+ * a single discoverable reference for every config-driven switch.
  *
- * One value, one location: each setting lives at exactly one key. There are
- * no legacy aliases or fallback paths — older configs that relied on them
- * need to migrate.
+ * One value, one location: each setting lives at exactly one key. There are no
+ * legacy aliases or fallback paths — older configs that relied on them need to
+ * migrate.
  */
 interface IConfigOptional {
     // -- Environment / identity --------------------------------------
 
-    /** Environment marker. `dev` disables blocked-email checks, opens auto-browser, etc. */
+    /**
+     * Environment marker. `dev` disables blocked-email checks, opens
+     * auto-browser, etc.
+     */
     env: 'dev' | 'prod';
-    /** Free-form name of the config profile (e.g. `oss-default`). Surfaced in logs. */
+    /**
+     * Free-form name of the config profile (e.g. `oss-default`). Surfaced in
+     * logs.
+     */
     config_name: string;
     /**
      * Console output format. `json` replaces the global console so every call
@@ -462,20 +562,35 @@ interface IConfigOptional {
     log_format: 'json' | 'text';
     /** Server version. Falls back to `npm_package_version`. */
     version: string;
-    /** Stable identity for this server node. Enables pager alerts + graceful shutdown delay. */
+    /**
+     * Stable identity for this server node. Enables pager alerts + graceful
+     * shutdown delay.
+     */
     serverId: string;
 
     // -- Networking / URLs -------------------------------------------
 
-    /** Protocol used for the externally-visible origin ('http' or 'https'). Default: 'http'. */
+    /**
+     * Protocol used for the externally-visible origin ('http' or 'https').
+     * Default: 'http'.
+     */
     protocol: string;
     /** Primary domain for Puter (e.g., `puter.localhost`, `puter.com`). */
     domain: string;
-    /** Externally-visible port. Defaults to `port`. Behind a reverse proxy, set this to the public port. */
+    /**
+     * Externally-visible port. Defaults to `port`. Behind a reverse proxy, set
+     * this to the public port.
+     */
     pub_port: number;
-    /** Fully-qualified externally-visible URL (protocol + domain + port). Computed from `protocol`/`domain`/`pub_port` if unset. */
+    /**
+     * Fully-qualified externally-visible URL (protocol + domain + port).
+     * Computed from `protocol`/`domain`/`pub_port` if unset.
+     */
     origin: string;
-    /** Public base URL for the API subdomain, e.g. `https://api.puter.com`. Used to build signed URLs. */
+    /**
+     * Public base URL for the API subdomain, e.g. `https://api.puter.com`. Used
+     * to build signed URLs.
+     */
     api_base_url: string;
     /** Static hosting domain for user sites (e.g., `puter.site`). */
     static_hosting_domain: string;
@@ -487,19 +602,17 @@ interface IConfigOptional {
     private_app_hosting_domain_alt: string;
     /**
      * Groups of equivalent app index_url hosts. Each group lists hosts that
-     * should resolve to the same canonical app: `appUidFromOrigin` looks up
-     * any DB row whose `index_url` is one of the group's hosts and returns
-     * that row's UID for every host in the group.
+     * should resolve to the same canonical app: `appUidFromOrigin` looks up any
+     * DB row whose `index_url` is one of the group's hosts and returns that
+     * row's UID for every host in the group.
      *
      * Hosts listed here are also reserved — `apps.create` / `apps.update`
-     * reject any attempt to register a different app under one of these
-     * hosts, so the group is owned by exactly one app row.
+     * reject any attempt to register a different app under one of these hosts,
+     * so the group is owned by exactly one app row.
      *
-     * Entries are bare hosts (no scheme), lowercased. Example:
-     *   [
-     *     ["camera.puter.com", "camera.puter.site", "camera.ca"],
-     *     ["player.puter.com", "player.puter.site"],
-     *   ]
+     * Entries are bare hosts (no scheme), lowercased. Example: [
+     * ["camera.puter.com", "camera.puter.site", "camera.ca"],
+     * ["player.puter.com", "player.puter.site"], ]
      */
     app_origin_aliases?: string[][];
     /** When true, accept any Host header value. Dev/testing only. */
@@ -517,10 +630,10 @@ interface IConfigOptional {
      * `X-Forwarded-For`. Set to the number of reverse-proxy hops in front of
      * the server (e.g. `1` for a single Cloudflare or nginx hop, `2` for
      * Cloudflare → ALB → app), or to a CIDR / IP / list of trusted proxy
-     * addresses. `false` (default) disables XFF parsing — `req.ip` returns
-     * the direct socket peer, which is the safe choice when no proxy is in
-     * front. Never set to `true` in production: it trusts *every* hop and
-     * makes XFF forgeable. See https://expressjs.com/en/guide/behind-proxies.html.
+     * addresses. `false` (default) disables XFF parsing — `req.ip` returns the
+     * direct socket peer, which is the safe choice when no proxy is in front.
+     * Never set to `true` in production: it trusts _every_ hop and makes XFF
+     * forgeable. See https://expressjs.com/en/guide/behind-proxies.html.
      */
     trust_proxy: boolean | number | string | string[];
     /** Don't launch browser when starting. */
@@ -528,8 +641,8 @@ interface IConfigOptional {
     /** Disable dev-time frontend webpack watchers. */
     no_devwatch: boolean;
     /**
-     * Skip first-boot bootstrap of the `admin` user and the credentials
-     * banner that DefaultUserService prints. Intended for tests.
+     * Skip first-boot bootstrap of the `admin` user and the credentials banner
+     * that DefaultUserService prints. Intended for tests.
      */
     no_default_user: boolean;
     /**
@@ -543,37 +656,22 @@ interface IConfigOptional {
 
     // -- Auth / session ----------------------------------------------
 
-    /**
-     * Legacy HMAC secret for v1 JWTs. New tokens are always signed with
-     * `jwt_secret_v2`; this value is verify-only and accepted as long as
-     * `allow_v1_tokens` is true (flipped off to retire v1).
-     */
-    jwt_secret: string;
-    /** HMAC secret used to sign and verify v2 auth JWTs (`kid: 'v2'`). */
+    /** HMAC secret used to sign and verify auth JWTs (`kid: 'v2'`). */
     jwt_secret_v2: string;
     /**
-     * When false, v1 tokens (no `kid` header) are rejected at verify.
-     * Default true during the v1→v2 migration window.
+     * Optional extra `Origin` header values allowed to call the routes that
+     * hand back a session credential (`/login`, `/signup`,
+     * `/session/sync-cookie` — see `guiOriginGate`). The main `origin` is
+     * always allowed, and callers with no `Origin` at all (CLI, mobile,
+     * server-side, tests) are never gated.
+     *
+     * Only for deployments that genuinely serve their GUI from a different
+     * origin than `config.origin`. Do NOT list loopback origins in production:
+     * `http://localhost:4000` is not an authenticatable origin, it's whatever
+     * is listening on that port on the visitor's machine. A local GUI should
+     * obtain its token via the AuthMe flow instead.
      */
-    allow_v1_tokens: boolean;
-    /**
-     * When false, `POST /auth/migrate-token` returns 410 Gone for v1
-     * `app-under-user` tokens. App-token migration is retired ahead
-     * of access-token migration — keeping these on separate flags
-     * lets ops kill apps first and keep API-key migration on
-     * indefinitely. Default true.
-     */
-    allow_v1_app_migration: boolean;
-    /**
-     * Optional explicit allowlist of `Origin` header values that are
-     * trusted by `POST /auth/migrate-token` to receive the
-     * `puter_token_v2` companion cookie. The main `origin` is always
-     * trusted. The token exchange itself is open to any browser origin
-     * (the v1 bearer token is the credential); this list only gates
-     * cookie issuance, so attacker pages can't plant a session cookie
-     * on the GUI origin.
-     */
-    allow_migrate_token_origins?: string[];
+    allow_gui_origins?: string[];
     /** HMAC secret for signed file URLs (/file, /writeFile, /sign). */
     url_signature_secret: string;
     /** Name of the session cookie the auth probe reads. */
@@ -605,25 +703,25 @@ interface IConfigOptional {
      */
     always_require_card_verification: boolean;
     /**
-     * Let a user who keeps getting blocked on SMS phone verification fall
-     * back to credit-card verification, which clears the phone gate (and the
-     * card gate too, when one is set). Off by default.
+     * Let a user who keeps getting blocked on SMS phone verification fall back
+     * to credit-card verification, which clears the phone gate (and the card
+     * gate too, when one is set). Off by default.
      *
-     * The fallback opens after `after_attempts` SMS *send* attempts inside
-     * the send rate-limit window — successful sends count too, so a user who
+     * The fallback opens after `after_attempts` SMS _send_ attempts inside the
+     * send rate-limit window — successful sends count too, so a user who
      * receives codes fine can still choose the card path after that many
      * requests. This trades the phone signal for a card signal; it does NOT
-     * guarantee SMS actually failed. Once open, the fallback stays open for
-     * 24 hours so the user can finish the card flow. Requires a payments
-     * extension to run the actual card check.
+     * guarantee SMS actually failed. Once open, the fallback stays open for 24
+     * hours so the user can finish the card flow. Requires a payments extension
+     * to run the actual card check.
      */
     phone_verification_card_fallback: {
         enabled: boolean;
         /**
-         * SMS send attempts (within the send rate-limit window) before the
-         * card fallback opens. Defaults to 2 when omitted. Values above the
-         * send route's rate limit (10/hour) are clamped down to it — requests
-         * past the route limit never reach the attempt counter, so a higher
+         * SMS send attempts (within the send rate-limit window) before the card
+         * fallback opens. Defaults to 2 when omitted. Values above the send
+         * route's rate limit (10/hour) are clamped down to it — requests past
+         * the route limit never reach the attempt counter, so a higher
          * threshold could never be crossed.
          */
         after_attempts?: number;
@@ -635,9 +733,15 @@ interface IConfigOptional {
 
     // -- Groups / provisioning ---------------------------------------
 
-    /** UID of the persistent group that non-temp users are enrolled in at signup. */
+    /**
+     * UID of the persistent group that non-temp users are enrolled in at
+     * signup.
+     */
     default_user_group: string;
-    /** UID of the persistent group that temporary users are enrolled in at signup. */
+    /**
+     * UID of the persistent group that temporary users are enrolled in at
+     * signup.
+     */
     default_temp_group: string;
     /** When true, ACL grants read/list/see on `/<user>/Public` to any actor. */
     enable_public_folders: boolean;
@@ -682,9 +786,10 @@ interface IConfigOptional {
     rate_limit: {
         /**
          * Rate limiter backend selection.
-         *   - `memory`: per-node in-memory counters.
-         *   - `redis`:  sorted-sets in Redis — shared state across nodes (default).
-         *   - `kv`:     per-hit rows in the system KV store (DynamoDB), with TTL.
+         *
+         * - `memory`: per-node in-memory counters.
+         * - `redis`: sorted-sets in Redis — shared state across nodes (default).
+         * - `kv`: per-hit rows in the system KV store (DynamoDB), with TTL.
          */
         backend?: 'memory' | 'redis' | 'kv';
     };
@@ -719,9 +824,7 @@ interface IConfigOptional {
     gui_assets_root: string;
     /** Which profile in `puter-gui.json` to load. Default: `development`. */
     gui_profile: string;
-    /**
-     * Map of built-in app name → local directory served at `/builtin/<name>`.
-     */
+    /** Map of built-in app name → local directory served at `/builtin/<name>`. */
     builtin_apps: Record<string, string>;
     /** Force the bundled GUI even in dev. Default: false. */
     use_bundled_gui: boolean;
@@ -729,16 +832,25 @@ interface IConfigOptional {
     gui_bundle: string;
     /** Override the GUI CSS path when bundled. Default: `/dist/bundle.min.css`. */
     gui_css: string;
-    /** Override the puter.js preload URL when bundled. Default: `https://js.puter.com/v2/`. */
+    /**
+     * Override the puter.js preload URL when bundled. Default:
+     * `https://js.puter.com/v2/`.
+     */
     gui_puterjs_bundle: string;
-    /** Free-form bag of values passed through to the client-side `gui()` function. */
+    /**
+     * Free-form bag of values passed through to the client-side `gui()`
+     * function.
+     */
     gui_params: IGuiParams;
     /**
      * Absolute path to the directory holding native app bundles, each in a
      * subdirectory matching its subdomain (e.g. `<root>/editor/`).
      */
     native_apps_root: string;
-    /** Absolute path to a directory holding `puter.js`/`putility.js` version bundles. */
+    /**
+     * Absolute path to a directory holding `puter.js`/`putility.js` version
+     * bundles.
+     */
     client_libs_root: string;
     /** Path to the puter-js SDK root (serves `/sdk/*` and `/puter.js/v{1,2}`). */
     puterjs_root: string;
@@ -752,8 +864,8 @@ interface IConfigOptional {
      * Server-only by default. Flags are surfaced to clients via `/whoami` only
      * if their key is on the allowlist in `extensions/whoami.ts`
      * (`CLIENT_VISIBLE_FEATURE_FLAGS`). New flags should be assumed internal —
-     * add them to the allowlist explicitly if (and only if) the client needs
-     * to read them.
+     * add them to the allowlist explicitly if (and only if) the client needs to
+     * read them.
      */
     feature_flags: Record<string, boolean | string | number>;
     /** Blocked email TLDs / domains — checked in `prod` only. */
@@ -787,9 +899,9 @@ interface IConfigOptional {
 export interface IExtensionConfig {
     /**
      * Open index signature so config reads of extension-only keys return
-     * `unknown` (not a type error). Extensions that declare-merge concrete
-     * keys (`myExt?: { foo: string }`) override this for the named key —
-     * the concrete property type wins over the index signature.
+     * `unknown` (not a type error). Extensions that declare-merge concrete keys
+     * (`myExt?: { foo: string }`) override this for the named key — the
+     * concrete property type wins over the index signature.
      */
     [key: string]: unknown;
 }

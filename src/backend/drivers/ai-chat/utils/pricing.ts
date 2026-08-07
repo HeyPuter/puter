@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import type { ModelCost } from '../types.js';
+import type { IChatModel, ModelCost } from '../types.js';
 
 const CENTS_PER_USD = 100;
 const MTOK = 1_000_000;
@@ -38,3 +38,52 @@ export const usdPerMToken = (
     completion_tokens: outputUsd * CENTS_PER_USD,
     cached_tokens: cachedReadUsd * CENTS_PER_USD,
 });
+
+const isRate = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isFinite(value);
+
+/**
+ * Prices a tracked-usage object against a model's cost table.
+ *
+ * A usage key the model doesn't price falls back to the model's output rate
+ * when it is output-denominated and its input rate otherwise — never to zero.
+ * Pricing an unpriced key at zero gives the unit away, and a provider that
+ * subtracts cached tokens out of the prompt count has already removed them from
+ * the key that would otherwise have caught them. The fallback mirrors the rate
+ * resolution behind the reported `usd_cents`, so the ledger and the figure
+ * quoted to the caller agree.
+ */
+export const buildCostsOverride = (
+    trackedUsage: Record<string, number>,
+    model: IChatModel,
+): Record<string, number> => {
+    const inputKey =
+        (model.input_cost_key as string | undefined) ?? 'input_tokens';
+    const outputKey =
+        (model.output_cost_key as string | undefined) ?? 'output_tokens';
+
+    const costs = model.costs ?? {};
+    const inputRate = isRate(costs[inputKey]) ? costs[inputKey] : undefined;
+    const outputRate = isRate(costs[outputKey]) ? costs[outputKey] : undefined;
+
+    const isOutputKey = (key: string) =>
+        key === outputKey ||
+        key === 'output_tokens' ||
+        key === 'completion_tokens' ||
+        key === 'thinking_tokens';
+
+    const overrides: Record<string, number> = {};
+    for (const [key, amount] of Object.entries(trackedUsage)) {
+        // `tokens` is a scale descriptor ("costs expressed per N tokens"),
+        // not a per-unit rate.
+        if (key === 'tokens') continue;
+
+        const rate = isRate(costs[key])
+            ? costs[key]
+            : ((isOutputKey(key) ? outputRate : inputRate) ?? 0);
+
+        overrides[key] = amount * rate;
+    }
+
+    return overrides;
+};

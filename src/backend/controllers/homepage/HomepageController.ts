@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -20,6 +20,7 @@
 import express from 'express';
 import path from 'node:path';
 import { PuterController } from '../types.js';
+import { toAppShellView } from '../../util/appShellView.js';
 import type { PuterRouter } from '../../core/http/PuterRouter';
 import type {
     PuterHomepageService,
@@ -32,8 +33,8 @@ import type {
  * under `<gui_assets_root>/src` for non-dist/src paths (images, fonts, lib
  * files referenced from the shell).
  *
- * All root-subdomain-only. Registered last in the controller list so the
- * static catch-all doesn't shadow specific API routes.
+ * All root-subdomain-only. Registered last in the controller list so the static
+ * catch-all doesn't shadow specific API routes.
  */
 export class HomepageController extends PuterController {
     registerRoutes(router: PuterRouter) {
@@ -90,8 +91,14 @@ export class HomepageController extends PuterController {
         router.get('/@:username', {}, (req, res) => sendShell(req, res));
 
         // -- /app/:name - app metadata baked into the shell ----------
+        // `/desktop/app/:name` is the same landing booted on the desktop
+        // instead of the dashboard; the GUI strips the prefix and treats the
+        // rest of the path identically, so both render the same shell.
 
-        router.get('/app/:name', {}, async (req, res) => {
+        const sendAppShell = async (
+            req: express.Request,
+            res: express.Response,
+        ) => {
             const name = String(req.params.name ?? '');
             const app = name ? await this.stores.app.getByName(name) : null;
 
@@ -101,6 +108,12 @@ export class HomepageController extends PuterController {
                         ? safeJsonParse(app.metadata)
                         : (app.metadata as Record<string, unknown> | null)) ??
                     {};
+                // Never bake the raw store row into the shell — it exposes
+                // `index_url`, `owner_user_id`, and moderation flags. The
+                // shell only needs a preview; the GUI re-reads the app
+                // through the apps driver before launching, and that read is
+                // where the entitlement gate and hosted-backing guard run.
+                const clientApp = toAppShellView(app);
                 await sendShell(req, res, {
                     title: String(app.title ?? name),
                     description: String(app.description ?? ''),
@@ -110,7 +123,7 @@ export class HomepageController extends PuterController {
                         typeof metadata.social_image === 'string'
                             ? metadata.social_image
                             : undefined,
-                    app: app as Record<string, unknown>,
+                    app: clientApp as Record<string, unknown>,
                 });
                 return;
             }
@@ -123,7 +136,10 @@ export class HomepageController extends PuterController {
                     ? name.charAt(0).toUpperCase() + name.slice(1)
                     : 'Puter',
             });
-        });
+        };
+
+        router.get('/app/:name', {}, sendAppShell);
+        router.get('/desktop/app/:name', {}, sendAppShell);
 
         // -- /show/* - launch explorer with the requested file path --
 

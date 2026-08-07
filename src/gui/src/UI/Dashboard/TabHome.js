@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -18,6 +18,11 @@
  */
 
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
+
+// How long a completed usage load stays fresh enough to skip a repeat. Long
+// enough to absorb the init/onActivate/routing burst on a single dashboard
+// open, short enough that a user watching the panel still sees movement.
+const USAGE_REFRESH_DEBOUNCE_MS = 5_000;
 
 function buildRecentAppsHTML() {
     let h = '';
@@ -73,7 +78,8 @@ function buildUsageHTML() {
     // Your Plan section
     h +=
         '<div class="bento-usage-section bento-usage-card bento-plan-section">';
-    h += '<a href="#" class="bento-usage-card-header bento-plan-header" data-target-tab="usage">';
+    h +=
+        '<a href="#" class="bento-usage-card-header bento-plan-header" data-target-tab="usage">';
     h += `<h3>${i18n('your_plan')}</h3>`;
     h += '<span class="bento-usage-card-arrow">›</span>';
     h += '</a>';
@@ -123,6 +129,26 @@ function buildUsageHTML() {
 
     h += '</div>';
     return h;
+}
+
+// Trial end date in two lengths: `short` for the badge, `long` for the
+// sentence under it. Returns null when the subscription carries no end date,
+// so callers fall back to unqualified "Free trial" wording.
+function formatTrialEnd(trialEndsAt) {
+    if (!Number.isFinite(trialEndsAt)) return null;
+    const date = new Date(trialEndsAt);
+    if (Number.isNaN(date.getTime())) return null;
+    return {
+        short: date.toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+        }),
+        long: date.toLocaleDateString(undefined, {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+        }),
+    };
 }
 
 const TabHome = {
@@ -204,8 +230,10 @@ const TabHome = {
         h += '</div>';
 
         // Open Desktop card (spans full width, links to the desktop interface)
-        h += '<a href="/desktop" target="_blank" rel="noopener" class="bento-card bento-desktop allow-native-ctxmenu">';
-        h += '<div class="bento-card-fancy-icon bento-card-fancy-icon-desktop">';
+        h +=
+            '<a href="/desktop" target="_blank" rel="noopener" class="bento-card bento-desktop allow-native-ctxmenu">';
+        h +=
+            '<div class="bento-card-fancy-icon bento-card-fancy-icon-desktop">';
         h +=
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>';
         h += '</div>';
@@ -233,7 +261,10 @@ const TabHome = {
         //   2. Visibility / focus — user returning to puter (e.g. from
         //      Stripe Customer Portal in another tab). Portal mutations
         //      bypass our dispatch, so we re-pull state + broadcast.
-        const refresh = () => this.loadUsageData($el_window);
+        // Deliberate refreshes (subscription changed, returning from the
+        // billing portal) must bypass the freshness window — they exist to
+        // replace state we already know is stale.
+        const refresh = () => this.loadUsageData($el_window, { force: true });
         const refreshAndBroadcast = async () => {
             // Pull fresh whoami, then broadcast. The dispatched event is handled
             // by the `refresh` listener below, so we don't call refresh() here —
@@ -244,7 +275,7 @@ const TabHome = {
             try {
                 await Promise.race([
                     window.refresh_user_data?.(puter.authToken),
-                    new Promise(resolve => setTimeout(resolve, 8000)),
+                    new Promise((resolve) => setTimeout(resolve, 8000)),
                 ]);
             } catch {}
             try {
@@ -266,7 +297,8 @@ const TabHome = {
             refreshAndBroadcast();
         };
         const onVisibility = () => {
-            if (document.visibilityState === 'visible') scheduleRefreshAndBroadcast();
+            if (document.visibilityState === 'visible')
+                scheduleRefreshAndBroadcast();
         };
         document.addEventListener('visibilitychange', onVisibility);
         window.addEventListener('focus', scheduleRefreshAndBroadcast);
@@ -346,7 +378,36 @@ const TabHome = {
             .html(buildRecentAppsHTML());
     },
 
-    async loadUsageData($el_window) {
+    // `init()` runs for every tab and `onActivate()` fires again for the
+    // active one (and again on back/forward routing), so a single dashboard
+    // open lands here several times in quick succession — each pass costing
+    // three API calls that compete for connections with whatever app is
+    // launching. Concurrent callers share one in-flight load, and repeats
+    // arriving while the data is still fresh are dropped.
+    //
+    // `force` bypasses the freshness window for the callers that exist
+    // precisely to pull new state (subscription change, returning from the
+    // billing portal) — those must never be served a cached decision.
+    async loadUsageData($el_window, { force = false } = {}) {
+        if (this._usageLoadInFlight) return this._usageLoadInFlight;
+        if (
+            !force &&
+            this._usageLoadedAt &&
+            Date.now() - this._usageLoadedAt < USAGE_REFRESH_DEBOUNCE_MS
+        ) {
+            return;
+        }
+
+        this._usageLoadInFlight = this._loadUsageDataUncached($el_window);
+        try {
+            return await this._usageLoadInFlight;
+        } finally {
+            this._usageLoadInFlight = null;
+            this._usageLoadedAt = Date.now();
+        }
+    },
+
+    async _loadUsageDataUncached($el_window) {
         // Load plan data — fetch live from /marketplace/subscriptions/current
         // rather than reading `window.user.subscription` (which is set once
         // from whoami at page-load and goes stale after subscribe / portal
@@ -370,25 +431,31 @@ const TabHome = {
 
             const pastDue =
                 !!subscription && subscription.status === 'past_due';
+            const trialing =
+                !!subscription && subscription.status === 'trialing';
             // `past_due` keeps benefits during Stripe's dunning window, so
             // it still counts as having a plan — we just flag it.
             const hasSubscription =
                 !!subscription &&
                 (subscription.status === 'active' ||
-                    subscription.status === 'trialing' ||
+                    trialing ||
                     subscription.status === 'cancel_pending' ||
                     pastDue);
             const planName = subscription?.tier || 'free';
+            const trialEnds = trialing
+                ? formatTrialEnd(subscription.trialEndsAt)
+                : null;
 
             $el_window.find('.bento-plan-name').text(i18n(planName));
 
             // Reset state-dependent classes / warning each (re)render.
             const $badge = $el_window
                 .find('.bento-plan-badge')
-                .removeClass('active free past-due');
+                .removeClass('active free past-due trial');
             const $warning = $el_window
                 .find('.bento-plan-warning')
                 .hide()
+                .removeClass('info')
                 .text('');
 
             if (hasSubscription) {
@@ -398,6 +465,24 @@ const TabHome = {
                         .text(
                             'Your last payment failed. Update your payment method to keep your subscription — access will be revoked shortly.',
                         )
+                        .show();
+                } else if (trialing) {
+                    // A trial grants the full tier and then continues as a paid
+                    // plan, so say when that happens and where to opt out.
+                    $badge
+                        .text(
+                            trialEnds
+                                ? `Free trial — ends ${trialEnds.short}`
+                                : 'Free trial',
+                        )
+                        .addClass('trial');
+                    $warning
+                        .text(
+                            trialEnds
+                                ? `Your free trial ends on ${trialEnds.long}, after which the plan continues at the usual monthly price. Cancel any time before then under Billing.`
+                                : 'When your free trial ends the plan continues at the usual monthly price. Cancel any time before then under Billing.',
+                        )
+                        .addClass('info')
                         .show();
                 } else {
                     $badge.text('Current').addClass('active');
@@ -427,7 +512,9 @@ const TabHome = {
         try {
             const res = await puter.fs.space();
             // Guard capacity 0 — 0/0 would render literally as "NaN%".
-            let usage_percentage = res.capacity ? ((res.used / res.capacity) * 100).toFixed(0) : '0';
+            let usage_percentage = res.capacity
+                ? ((res.used / res.capacity) * 100).toFixed(0)
+                : '0';
             usage_percentage = usage_percentage > 100 ? 100 : usage_percentage;
 
             let general_used = res.used;
@@ -455,36 +542,50 @@ const TabHome = {
         // Load monthly usage data
         try {
             const res = await puter.auth.getMonthlyUsage();
-            let monthlyAllowance = res.allowanceInfo?.monthUsageAllowance;
-            // Actual month-to-date spend. `allowanceInfo.remaining` folds
-            // purchased credits into the remaining pool, so `allowance -
-            // remaining` turns negative once a user has credits. Use the
-            // reported usage total instead.
-            let totalUsage = res.usage?.total ?? 0;
-            let totalUsagePercentage = monthlyAllowance
-                ? Math.min(100, (totalUsage / monthlyAllowance) * 100).toFixed(0)
-                : '0';
+            const monthlyAllowance =
+                res.allowanceInfo?.monthUsageAllowance || 0;
+            // Actual month-to-date spend.
+            const totalUsage = res.usage?.total ?? 0;
+            // Purchased credits extend the monthly allowance. `remaining` is the
+            // server-netted pool (allowance-left + purchased-left, with any
+            // overage already charged to credits), so subtracting the allowance
+            // portion back out isolates the purchased-credit balance — no
+            // double-counting of the overage.
+            const remaining = res.allowanceInfo?.remaining ?? 0;
+            const remainingPurchased = Math.max(
+                0,
+                remaining - Math.max(0, monthlyAllowance - totalUsage),
+            );
+            // Capacity grows by whatever purchased credit is left; net usage
+            // (spend minus that credit) drives the percentage, so unused credit
+            // reads as a negative "usage" against the monthly allowance.
+            const capacity = monthlyAllowance + remainingPurchased;
+            const netUsage = totalUsage - remainingPurchased;
+            const rawPercentage = monthlyAllowance
+                ? (netUsage / monthlyAllowance) * 100
+                : 0;
+            // Text may go negative (surplus credit) but never above 100%; the
+            // bar fill is clamped to [0, 100].
+            const displayPercentage = Math.round(Math.min(100, rawPercentage));
+            const barPercentage = Math.max(0, Math.min(100, rawPercentage));
 
             $el_window
                 .find('.bento-resources-used')
                 .text(
                     `${window.number_format(totalUsage / 100_000_000, { decimals: 2, prefix: '$' })} Used`,
                 );
-            $el_window
-                .find('.bento-resources-capacity')
-                .text(
-                    window.number_format(monthlyAllowance / 100_000_000, {
-                        decimals: 2,
-                        prefix: '$',
-                    }),
-                );
+            $el_window.find('.bento-resources-capacity').text(
+                window.number_format(capacity / 100_000_000, {
+                    decimals: 2,
+                    prefix: '$',
+                }),
+            );
             $el_window
                 .find('.bento-resources-percent')
-                .text(`${totalUsagePercentage}%`);
+                .text(`${displayPercentage}%`);
             $el_window.find('.bento-resources-bar').css({
-                width: `${totalUsagePercentage}%`,
-                'background-color':
-                    window.usage_bar_color(totalUsagePercentage),
+                width: `${barPercentage}%`,
+                'background-color': window.usage_bar_color(barPercentage),
             });
         } catch (e) {
             console.error('Failed to load monthly usage data:', e);

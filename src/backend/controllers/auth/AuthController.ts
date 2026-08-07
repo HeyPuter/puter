@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -107,14 +107,13 @@ const RESERVED_USERNAMES = new Set([
  * Auth controller — login/logout, permission grants/revokes, session
  * management, OTP, and permission checks.
  *
- * Routes are declared via decorators (@Get/@Post on each handler). The
- * five `/user-protected/*` and `/user-protected/delete-own-user` routes
- * also need a per-instance `createUserProtectedGate(...)` middleware
- * built from `this.config / this.stores / this.services`, which can't
- * live in a static decorator literal — those are wired imperatively in
- * the `registerRoutes` override below. The override also re-runs the
- * default decorator-walker logic so the rest of the routes register
- * normally.
+ * Routes are declared via decorators (@Get/@Post on each handler). The five
+ * `/user-protected/*` and `/user-protected/delete-own-user` routes also need a
+ * per-instance `createUserProtectedGate(...)` middleware built from
+ * `this.config / this.stores / this.services`, which can't live in a static
+ * decorator literal — those are wired imperatively in the `registerRoutes`
+ * override below. The override also re-runs the default decorator-walker logic
+ * so the rest of the routes register normally.
  */
 @Controller('')
 export class AuthController extends PuterController {
@@ -133,6 +132,31 @@ export class AuthController extends PuterController {
                 legacyCode: 'bad_request',
             });
         }
+
+        // Browser-only gate. The session id is client-chosen and travels in a
+        // link, so it is not a secret — the `Origin` header is what actually
+        // says who is asking, and only a browser is prevented from lying about
+        // it. A caller with no `Origin` (curl, a server-side fetch) could
+        // otherwise collect a token minted for someone else's app just by
+        // knowing the id.
+        //
+        // `"null"` is rejected too: sandboxed iframes and `file://` documents
+        // serialise their opaque origin that way, and two *unrelated* opaque
+        // origins would compare equal to each other.
+        const reqOrigin = req.headers.origin;
+        if (!reqOrigin || reqOrigin === 'null') {
+            throw new HttpError(403, 'Origin not allowed', {
+                legacyCode: 'forbidden',
+            });
+        }
+
+        // The app identity this caller is allowed to collect a token for,
+        // derived from the browser-attested header rather than anything in
+        // the request body — so no client, honest or not, can influence the
+        // comparison made after the token arrives.
+        const expectedAppUid =
+            await this.services.auth.appUidFromOrigin(reqOrigin);
+
         const { resolve, promise } = Promise.withResolvers<void>();
 
         let token: string | null = null;
@@ -153,12 +177,56 @@ export class AuthController extends PuterController {
             });
         }
 
+        // Audience check. The postMessage hand-off this relay stands in for
+        // is origin-bound for free — it posts with `targetOrigin`, so a page
+        // can only ever receive a token minted for *itself*. Delivering
+        // server-side dropped that binding; this restores it. Without it a
+        // popup talked into minting for app X (see `trustsOpenerOriginParam`
+        // in the GUI) hands X's token to whoever holds the session id.
+        if (!this.#tokenIsForApp(token, expectedAppUid)) {
+            // Deliberately the same 408 the no-token path returns: a caller
+            // learns only that nothing arrived for them, not that a token
+            // for a different app went past.
+            throw new HttpError(408, 'Request timeout.', {
+                legacyCode: 'request_timeout',
+            });
+        }
+
         res.json({
             auth_token: token,
         });
     }
+
+    /**
+     * Whether a relayed token is an app-under-user token minted for
+     * `expectedAppUid`. Verifies the signature — an unverified decode would let
+     * a caller relay a token whose claims it wrote itself.
+     */
+    #tokenIsForApp(token: string, expectedAppUid: string): boolean {
+        try {
+            const payload = this.services.token.verify<{
+                type?: string;
+                app_uid?: string;
+            }>('auth', token);
+            return (
+                payload.type === 'app-under-user' &&
+                !!payload.app_uid &&
+                payload.app_uid === expectedAppUid
+            );
+        } catch {
+            // Malformed, expired, or signed with a key we don't hold.
+            return false;
+        }
+    }
     @Post('/login/set', {
         subdomain: ['api'],
+        // Unauthenticated fan-out to every `/login/wait` listener on the
+        // session id. A legitimate popup posts here exactly once per sign-in,
+        // so a generous per-IP cap costs honest traffic nothing while denying
+        // an attacker unbounded attempts to land a token on a guessed id.
+        rateLimit: [
+            { scope: 'login-set', limit: 60, window: 15 * 60_000, key: 'ip' },
+        ],
     })
     async loginSet(req: Request, res: Response) {
         const { session, auth_token } = req.body;
@@ -182,6 +250,11 @@ export class AuthController extends PuterController {
     // -- Login -------------------------------------------------------
 
     @Post('/login', {
+        // Returns a full session token in the response body. Reflected CORS
+        // would otherwise let any page trade a password for that token and
+        // read it — third-party sign-in goes through `puter.auth.signIn()`,
+        // whose popup runs on this origin and yields an app-scoped token.
+        guiOriginOnly: true,
         captcha: true,
         // Two limits: per-fingerprint keeps users behind a shared IP
         // (offices, campuses) from throttling each other, while the
@@ -298,6 +371,8 @@ export class AuthController extends PuterController {
     // -- Login: OTP verification -------------------------------------
 
     @Post('/login/otp', {
+        // Second leg of `/login` — also completes into `#completeLogin`.
+        guiOriginOnly: true,
         captcha: true,
         rateLimit: [
             { scope: 'login-otp', limit: 15, window: 30 * 60_000 },
@@ -362,6 +437,8 @@ export class AuthController extends PuterController {
     // -- Login: recovery code ----------------------------------------
 
     @Post('/login/recovery-code', {
+        // Second leg of `/login` — also completes into `#completeLogin`.
+        guiOriginOnly: true,
         captcha: true,
         rateLimit: [
             { scope: 'login-recovery', limit: 10, window: 60 * 60_000 },
@@ -439,6 +516,9 @@ export class AuthController extends PuterController {
     // -- Signup ------------------------------------------------------
 
     @Post('/signup', {
+        // Completes into `#completeLogin`, so it hands back a session token
+        // exactly like `/login`. Same reasoning.
+        guiOriginOnly: true,
         captcha: true,
         rateLimit: [
             { scope: 'signup', limit: 10, window: 15 * 60_000 },
@@ -962,10 +1042,10 @@ export class AuthController extends PuterController {
         antiCsrf: true,
     })
     async handleLogout(req: Request, res: Response): Promise<void> {
-        // Clear the session cookie + the v2 migrate-token companion
-        // cookie (set after `/auth/migrate-token` for app-under-user
-        // iframes). authProbe reads `puter_token_v2` as a fallback, so
-        // a stale value would re-authenticate the next request.
+        // Clear the session cookie + `puter_token_v2`. Nothing issues the
+        // latter any more (it came from the retired token migration), but
+        // authProbe still reads it as a fallback, so a value left in a
+        // browser would re-authenticate the next request.
         res.clearCookie(this.config.cookie_name ?? 'puter_token');
         res.clearCookie('puter_token_v2');
         // Drop any step-up elevation too, so it can't reactivate on a shared
@@ -1140,10 +1220,10 @@ export class AuthController extends PuterController {
      * single greppable line tying that id to the real reason (so support can
      * look it up in CloudWatch with the id the user quotes), stores the same
      * record in KV under `sms-send-error:<error_id>` for a week (the admin
-     * abuse page looks it up there without needing log access), and returns
-     * the `HttpError` with the id attached as `error_id` for the GUI to
-     * surface. The phone number is deliberately omitted from the log line and
-     * the KV record (PII); the user + country are enough to correlate.
+     * abuse page looks it up there without needing log access), and returns the
+     * `HttpError` with the id attached as `error_id` for the GUI to surface.
+     * The phone number is deliberately omitted from the log line and the KV
+     * record (PII); the user + country are enough to correlate.
      */
     private async smsSendError(
         statusCode: number,
@@ -1650,11 +1730,11 @@ export class AuthController extends PuterController {
 
     /**
      * Start card verification for the calling user. Pure mechanism: the
-     * endpoint emits `puter.card-verification.setup` and a payments
-     * extension fills in the client credentials — the OSS backend holds
-     * no provider knowledge or config. Phone verification (when required)
-     * must be completed first; the ordering is enforced here so a client
-     * can't skip the cheaper gate.
+     * endpoint emits `puter.card-verification.setup` and a payments extension
+     * fills in the client credentials — the OSS backend holds no provider
+     * knowledge or config. Phone verification (when required) must be completed
+     * first; the ordering is enforced here so a client can't skip the cheaper
+     * gate.
      */
     @Post('/card-verification/setup', {
         subdomain: ['api', ''],
@@ -1765,9 +1845,9 @@ export class AuthController extends PuterController {
     }
 
     /**
-     * Complete card verification. The client confirms the setup intent with
-     * the payment provider directly, then posts the resulting id here; the
-     * payments extension checks it (and applies its own abuse limits) via
+     * Complete card verification. The client confirms the setup intent with the
+     * payment provider directly, then posts the resulting id here; the payments
+     * extension checks it (and applies its own abuse limits) via
      * `puter.card-verification.confirm`. On success the gate clears exactly
      * like `/confirm-phone` clears the phone gate.
      */
@@ -2258,15 +2338,18 @@ export class AuthController extends PuterController {
         }
         await this.#validateEmail(new_email);
 
-        // Block if any confirmed account (password or OIDC) already
+        // Block if any OTHER confirmed account (password or OIDC) already
         // owns that email. Match raw + canonical to collapse gmail
-        // aliases.
+        // aliases — which is also why the caller has to be excluded: an
+        // alias of your own current address resolves back to you, and
+        // "already in use" about yourself is nonsense.
         const canonical = cleanEmail(new_email);
         const existing =
             (await this.stores.user.getByEmail(new_email)) ??
             (await this.stores.user.getByCleanEmail(canonical));
         if (
             existing &&
+            existing.id !== req.actor!.user.id &&
             (existing.email_confirmed || existing.password !== null)
         ) {
             throw new HttpError(400, 'This email is already in use.', {
@@ -2672,12 +2755,95 @@ export class AuthController extends PuterController {
         res.json({});
     }
 
+    /**
+     * Shared input validation for the user-app grant/revoke handlers, which
+     * accept a caller-supplied `origin` as an alternative to `app_uid`. All
+     * parameters are optional-but-typed: presence is enforced by the handlers'
+     * own `app_uid`/`permission` checks after origin resolution.
+     *
+     * These are bounded only against absurd input. The width of the column a
+     * permission lands in is enforced by the permission service instead, on the
+     * _rewritten_ string: `fs:/path:mode` is rewritten to `fs:<uuid>:mode`
+     * before it is stored, so a deep path is a ~45-character row and must not
+     * be rejected for the length of the path the caller typed.
+     */
+    #validateAppPermissionParams(params: {
+        app_uid?: unknown;
+        origin?: unknown;
+        permission?: unknown;
+        extra?: unknown;
+        meta?: unknown;
+    }): void {
+        const MAX_LEN = 4096;
+        for (const key of ['app_uid', 'origin', 'permission'] as const) {
+            const value = params[key];
+            if (value === undefined || value === null) continue;
+            if (typeof value !== 'string' || value.length > MAX_LEN) {
+                throw new HttpError(400, `Invalid \`${key}\``, {
+                    legacyCode: 'bad_request',
+                });
+            }
+        }
+        // `extra` and `meta` are forwarded into the audit row and read as
+        // objects downstream. A non-object would fault *after* the grant is
+        // committed, so reject it up front. `null` is treated as absent, the
+        // same as the string parameters above.
+        for (const key of ['extra', 'meta'] as const) {
+            const value = params[key];
+            if (value === undefined || value === null) continue;
+            if (typeof value !== 'object' || Array.isArray(value)) {
+                throw new HttpError(400, `Invalid \`${key}\``, {
+                    legacyCode: 'bad_request',
+                });
+            }
+        }
+    }
+
+    /**
+     * Resolves a caller-supplied `origin` to the uid of a _registered_ app.
+     *
+     * `appUidFromOrigin` synthesises a deterministic `app-<uuidv5>` uid for an
+     * origin that has no app row yet, and the permission services resolve their
+     * identifier as uid-_or-name_. Passing a synthetic uid straight through
+     * would therefore let whoever registered an app under that literal name
+     * collect a grant the user made to the origin — the uid is derived from a
+     * published namespace constant, so it can be computed and squatted offline.
+     * Only a uid that names an existing app row is accepted.
+     *
+     * An `origin` supplied alongside an `app_uid` takes precedence over it (see
+     * the grant/revoke handlers). The origin is what a consent prompt shows the
+     * user, so it — not a uid travelling beside it — has to decide who receives
+     * the grant; otherwise a caller could name one app on screen and grant to
+     * another. No caller sends both with different intent.
+     */
+    async #registeredAppUidFromOrigin(origin: string): Promise<string> {
+        const uid = await this.services.auth.appUidFromOrigin(origin);
+        const app = await this.stores.app.getByUid(uid);
+        if (!app) {
+            throw new HttpError(404, `entity_not_found: app:${uid}`, {
+                legacyCode: 'subject_does_not_exist',
+            });
+        }
+        return app.uid;
+    }
+
     @Post('/auth/grant-user-app', {
         subdomain: 'api',
         requireUserActor: true,
     })
     async handleGrantUserApp(req: Request, res: Response): Promise<void> {
-        const { app_uid, permission, extra, meta } = req.body;
+        let { app_uid } = req.body;
+        const { origin, permission, extra, meta } = req.body;
+        this.#validateAppPermissionParams({
+            app_uid,
+            origin,
+            permission,
+            extra,
+            meta,
+        });
+        if (origin) {
+            app_uid = await this.#registeredAppUidFromOrigin(origin);
+        }
         if (!app_uid || !permission) {
             throw new HttpError(400, 'Missing `app_uid` or `permission`', {
                 legacyCode: 'bad_request',
@@ -2687,8 +2853,8 @@ export class AuthController extends PuterController {
             req.actor!,
             app_uid,
             permission,
-            extra,
-            meta,
+            extra ?? undefined,
+            meta ?? undefined,
         );
         res.json({});
     }
@@ -2748,7 +2914,17 @@ export class AuthController extends PuterController {
         requireUserActor: true,
     })
     async handleRevokeUserApp(req: Request, res: Response): Promise<void> {
-        const { app_uid, permission, meta } = req.body;
+        let { app_uid } = req.body;
+        const { origin, permission, meta } = req.body;
+        this.#validateAppPermissionParams({
+            app_uid,
+            origin,
+            permission,
+            meta,
+        });
+        if (origin) {
+            app_uid = await this.#registeredAppUidFromOrigin(origin);
+        }
         if (!app_uid || !permission) {
             throw new HttpError(400, 'Missing `app_uid` or `permission`', {
                 legacyCode: 'bad_request',
@@ -2758,14 +2934,14 @@ export class AuthController extends PuterController {
             await this.services.permission.revokeUserAppAll(
                 req.actor!,
                 app_uid,
-                meta,
+                meta ?? undefined,
             );
         } else {
             await this.services.permission.revokeUserAppPermission(
                 req.actor!,
                 app_uid,
                 permission,
-                meta,
+                meta ?? undefined,
             );
         }
         res.json({});
@@ -2908,7 +3084,15 @@ export class AuthController extends PuterController {
         let { app_uid } = req.body;
         const { origin, permission, extra, meta } = req.body;
         if (origin && !app_uid) {
-            app_uid = await this.services.auth.appUidFromOrigin(origin);
+            // Registered apps only, for the same reason the user-app handlers
+            // insist on it: a synthesised `app-<uuidv5(origin)>` is resolved
+            // downstream as uid-*or-name*, so it would land on whoever
+            // registered an app under that literal name. A dev-app grant is
+            // scanned with the issuer's authority for anyone running as that
+            // app, so that hands this user's permission to the squatter.
+            // Without a squatter the synthetic uid resolves to nothing and
+            // this 404s regardless, so nothing legitimate changes.
+            app_uid = await this.#registeredAppUidFromOrigin(origin);
         }
         if (!app_uid || !permission) {
             throw new HttpError(400, 'Missing `app_uid` or `permission`', {
@@ -2933,7 +3117,8 @@ export class AuthController extends PuterController {
         let { app_uid } = req.body;
         const { origin, permission, meta } = req.body;
         if (origin && !app_uid) {
-            app_uid = await this.services.auth.appUidFromOrigin(origin);
+            // Registered apps only — see handleGrantDevApp.
+            app_uid = await this.#registeredAppUidFromOrigin(origin);
         }
         if (!app_uid || !permission) {
             throw new HttpError(400, 'Missing `app_uid` or `permission`', {
@@ -2946,13 +3131,14 @@ export class AuthController extends PuterController {
                 app_uid,
                 meta,
             );
+        } else {
+            await this.services.permission.revokeDevAppPermission(
+                req.actor!,
+                app_uid,
+                permission,
+                meta,
+            );
         }
-        await this.services.permission.revokeDevAppPermission(
-            req.actor!,
-            app_uid,
-            permission,
-            meta,
-        );
         res.json({});
     }
 
@@ -2968,17 +3154,22 @@ export class AuthController extends PuterController {
 
         const [appPerms, userPermsOut, userPermsIn] = await Promise.all([
             db.read(
-                'SELECT `app_uid`, `permission`, `extra` FROM `user_to_app_permissions` WHERE `user_id` = ?',
+                // The permissions table stores the numeric `app_id` FK; the
+                // public shape exposes the app's `uid`.
+                'SELECT a.`uid` AS app_uid, p.`permission`, p.`extra` ' +
+                    'FROM `user_to_app_permissions` p ' +
+                    'JOIN `apps` a ON a.`id` = p.`app_id` ' +
+                    'WHERE p.`user_id` = ?',
                 [userId],
             ),
             db.read(
                 'SELECT u.`username`, p.`permission`, p.`extra` FROM `user_to_user_permissions` p ' +
-                    'JOIN `user` u ON u.`id` = p.`target_user_id` WHERE p.`issuer_user_id` = ?',
+                    'JOIN `user` u ON u.`id` = p.`holder_user_id` WHERE p.`issuer_user_id` = ?',
                 [userId],
             ),
             db.read(
                 'SELECT u.`username`, p.`permission`, p.`extra` FROM `user_to_user_permissions` p ' +
-                    'JOIN `user` u ON u.`id` = p.`issuer_user_id` WHERE p.`target_user_id` = ?',
+                    'JOIN `user` u ON u.`id` = p.`issuer_user_id` WHERE p.`holder_user_id` = ?',
                 [userId],
             ),
         ]);
@@ -3052,16 +3243,22 @@ export class AuthController extends PuterController {
 
         let app = await this.stores.app.getByUid(app_uid);
         if (!app && resolvedFromOrigin) {
-            app = await this.stores.app.createFromOrigin(app_uid, origin);
+            // Hosted-subdomain origins get the site owner stamped as the
+            // app's creator at bootstrap; external origins stay unowned.
+            const ownerUserId =
+                await this.services.auth.subdomainOwnerIdFromOrigin(origin);
+            app = await this.stores.app.createFromOrigin(app_uid, origin, {
+                ownerUserId,
+            });
         }
         if (!app) {
             throw new HttpError(404, `App ${app_uid} does not exist`, {
                 legacyCode: 'not_found',
             });
         }
-        // Grant the app-is-authenticated flag
+
         const userPermGrantPromise =
-            await this.services.permission.grantUserAppPermission(
+            this.services.permission.grantUserAppPermission(
                 req.actor!,
                 app_uid,
                 'flag:app-is-authenticated',
@@ -3069,7 +3266,7 @@ export class AuthController extends PuterController {
                 {},
             );
 
-        const token = await this.services.auth.getUserAppToken(
+        const tokenPromise = this.services.auth.getUserAppToken(
             req.actor!,
             app_uid,
         );
@@ -3096,7 +3293,11 @@ export class AuthController extends PuterController {
             }
         })();
 
-        await Promise.all([userPermGrantPromise, missingFSPathPromise]);
+        const [, token] = await Promise.all([
+            userPermGrantPromise,
+            tokenPromise,
+            missingFSPathPromise,
+        ]);
 
         try {
             const a = app as {
@@ -3163,84 +3364,6 @@ export class AuthController extends PuterController {
     }
 
     // -- Access tokens -----------------------------------------------
-
-    async handleMigrateToken(req: Request, res: Response): Promise<void> {
-        // 1. Browser-only gate. No Origin header → reject (server-side
-        // callers should re-auth properly). The exchange itself is open
-        // to any browser origin: puter.js apps live on arbitrary
-        // third-party domains, the v1 bearer token is the credential,
-        // and cookies are never read here — so a hostile page learns
-        // nothing it doesn't already hold. Origin *trust* only decides
-        // whether the `puter_token_v2` companion cookie is set below.
-        const reqOrigin = req.headers.origin;
-        if (!reqOrigin) {
-            throw new HttpError(403, 'Origin not allowed', {
-                legacyCode: 'forbidden',
-            });
-        }
-
-        // 2. Extract token. Header takes precedence so body-capture logs
-        // (if any) never see the credential.
-        const authHeader = req.headers.authorization;
-        const headerToken =
-            typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
-                ? authHeader.slice('Bearer '.length).trim()
-                : null;
-        const bodyToken =
-            typeof req.body?.token === 'string' ? req.body.token.trim() : null;
-        const v1Token = headerToken || bodyToken;
-        if (!v1Token) {
-            throw new HttpError(400, 'Missing token', {
-                legacyCode: 'bad_request',
-            });
-        }
-
-        const result = await this.services.auth.migrateLegacyToken(v1Token, {
-            ip: req.ip,
-            userAgent:
-                typeof req.headers['user-agent'] === 'string'
-                    ? req.headers['user-agent']
-                    : undefined,
-        });
-        // `puter_token_v2` is the cookie companion to v2 app tokens —
-        // it lets the GUI's cookie-only middleware authenticate
-        // subsequent same-origin calls without the client forwarding
-        // Authorization headers. Issuing it is gated on the trusted
-        // origin allowlist: an arbitrary attacker page must not be able
-        // to plant a session cookie on the GUI origin (login CSRF).
-        // Untrusted origins still get the token in the JSON body — the
-        // cookie is only consumed same-origin (see authProbe) so they
-        // lose nothing. Access tokens are programmatic (no browser
-        // cookie surface) so we deliberately skip them here.
-        if (
-            result.kind === 'app' &&
-            this.#isMigrateTokenOriginAllowed(reqOrigin)
-        ) {
-            res.cookie('puter_token_v2', result.token, {
-                ...sessionCookieFlags(this.config),
-                httpOnly: true,
-            });
-        }
-        res.json(result);
-    }
-
-    #isMigrateTokenOriginAllowed(origin: string): boolean {
-        // Origin headers and config values both reach us in inconsistent
-        // shapes (trailing slash, mixed case from misconfigured deploys,
-        // stray whitespace from JSON config edits). Normalize both sides
-        // before equality so a `config.origin` with a trailing slash
-        // doesn't reject every same-origin browser call.
-        const normalize = (raw: string | undefined): string =>
-            (raw ?? '').trim().replace(/\/+$/, '').toLowerCase();
-        const incoming = normalize(origin);
-        if (!incoming) return false;
-        if (incoming === normalize(this.config.origin)) return true;
-        const allowlist = (
-            this.config as { allow_migrate_token_origins?: string[] }
-        ).allow_migrate_token_origins;
-        if (!Array.isArray(allowlist)) return false;
-        return allowlist.some((entry) => normalize(entry) === incoming);
-    }
 
     @Post('/auth/create-access-token', {
         subdomain: 'api',
@@ -3603,10 +3726,24 @@ export class AuthController extends PuterController {
     }
 
     @Get('/session/sync-cookie', {
+        // Installs the session cookie. Only page script on our own origin
+        // should be able to ask for that (the `tokenSource` check below is the
+        // companion rule: the token has to come from an Authorization header,
+        // not a URL).
+        guiOriginOnly: true,
         requireUserActor: true,
         allowUnconfirmed: true,
     })
     async handleSessionSyncCookie(req: Request, res: Response): Promise<void> {
+        // This route installs a session cookie, so the token has to come from
+        // page script on our own origin rather than from the URL.
+        if (req.tokenSource !== 'header') {
+            throw new HttpError(
+                401,
+                'This endpoint requires an Authorization header.',
+                { legacyCode: 'token_auth_failed' },
+            );
+        }
         if (!req.actor?.session?.uid) {
             res.status(400).end();
             return;
@@ -3958,19 +4095,6 @@ export class AuthController extends PuterController {
             },
             (req, res) => this.handleRenameSession(req, res),
         );
-
-        router.post(
-            '/auth/migrate-token',
-            {
-                rateLimit: {
-                    scope: 'migrate-token',
-                    limit: 20,
-                    window: 15 * 60_000,
-                    key: 'ip',
-                },
-            },
-            (req, res) => this.handleMigrateToken(req, res),
-        );
     }
 
     // -- Private helpers ----------------------------------------------
@@ -4046,10 +4170,10 @@ export class AuthController extends PuterController {
     }
 
     /**
-     * Config-blocklist + extension-driven email validation.
-     * Config blocklist (suffix match on cleaned email) blocks first; then
-     * the `email.validate` event lets extensions (abuse) reject.
-     * Throws HttpError(400) on rejection.
+     * Config-blocklist + extension-driven email validation. Config blocklist
+     * (suffix match on cleaned email) blocks first; then the `email.validate`
+     * event lets extensions (abuse) reject. Throws HttpError(400) on
+     * rejection.
      */
     async #validateEmail(email: string): Promise<void> {
         if (
@@ -4094,9 +4218,9 @@ export class AuthController extends PuterController {
 
     /**
      * Per-IP enumeration clamp on `auth_id`-bearing auth requests. Separate
-     * from the route-level rate limit so a tighter ceiling applies only to
-     * the path that takes a uuid hint from the body — the normal login
-     * path stays at its more generous limit.
+     * from the route-level rate limit so a tighter ceiling applies only to the
+     * path that takes a uuid hint from the body — the normal login path stays
+     * at its more generous limit.
      */
     async #checkAuthIdRateLimit(req: Request): Promise<void> {
         const ip = req.ip || req.socket?.remoteAddress || 'unknown';
@@ -4114,12 +4238,11 @@ export class AuthController extends PuterController {
     }
 
     /**
-     * Extract the `auth_id` claim from a client-supplied reauth_token.
-     * Returns null when no token was supplied. Throws on invalid/expired
-     * tokens. The reauth_token is a server-signed JWT minted by the
-     * authProbe at 401 time — accepting only the signed envelope (vs. a
-     * raw UUID) means a leaked auth_id alone can't attach a session to
-     * an existing account.
+     * Extract the `auth_id` claim from a client-supplied reauth_token. Returns
+     * null when no token was supplied. Throws on invalid/expired tokens. The
+     * reauth_token is a server-signed JWT minted by the authProbe at 401 time —
+     * accepting only the signed envelope (vs. a raw UUID) means a leaked
+     * auth_id alone can't attach a session to an existing account.
      */
     #extractAuthIdFromReauthToken(suppliedToken: unknown): string | null {
         if (suppliedToken === undefined || suppliedToken === null) return null;
@@ -4133,18 +4256,17 @@ export class AuthController extends PuterController {
     }
 
     /**
-     * Enforce a verified `auth_id` against the user the credential flow
-     * has resolved. Caller has already extracted `auth_id` from the
-     * server-signed reauth_token (or from an OTP-flow JWT). When the GUI
-     * is forced through reauth, the 401 response embeds the reauth_token;
-     * the client echoes it back so we can confirm the second login lands
-     * on the same user row — critical for temp users, where a fresh
-     * signup would otherwise mint a new account and strand their files.
+     * Enforce a verified `auth_id` against the user the credential flow has
+     * resolved. Caller has already extracted `auth_id` from the server-signed
+     * reauth_token (or from an OTP-flow JWT). When the GUI is forced through
+     * reauth, the 401 response embeds the reauth_token; the client echoes it
+     * back so we can confirm the second login lands on the same user row —
+     * critical for temp users, where a fresh signup would otherwise mint a new
+     * account and strand their files.
      *
-     * No `authId` supplied → no-op (normal login). Unknown `authId` →
-     * 404 (mirrors username-not-found, avoids being an enumeration
-     * oracle). Mismatch against the resolved user → 409
-     * (`auth_id_mismatch`).
+     * No `authId` supplied → no-op (normal login). Unknown `authId` → 404
+     * (mirrors username-not-found, avoids being an enumeration oracle).
+     * Mismatch against the resolved user → 409 (`auth_id_mismatch`).
      */
     async #enforceAuthIdMatch(
         req: Request,

@@ -7,6 +7,29 @@
 export const $SCOPE = '9a9c83a4-7897-43a0-93b9-53217b84fde6';
 
 /**
+ * Copy a key onto a rebuilt object as an own data property.
+ *
+ * Both sides of this bridge rebuild objects out of values the *other*
+ * document sent, so `result[key] = value` is not safe: a message carrying a
+ * literal `__proto__` key would hit `Object.prototype`'s setter and swap the
+ * prototype of the object we hand to our own caller, making it look like it
+ * has properties it was never sent. `defineProperty` always writes data.
+ *
+ * @param {Record<string, unknown>} target
+ * @param {string} key
+ * @param {unknown} value
+ * @returns {void}
+ */
+const defineOwn = (target, key, value) => {
+    Object.defineProperty(target, key, {
+        value,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+    });
+};
+
+/**
  * The CallbackManager is used to manage callbacks for RPCs.
  * It is used by the dehydrator and hydrator to store and retrieve
  * the functions that are being called remotely.
@@ -59,8 +82,8 @@ export class Dehydrator {
             return value.map(this.dehydrate_value_.bind(this));
         } else if ( typeof value === 'object' && value !== null ) {
             const result = {};
-            for ( const key in value ) {
-                result[key] = this.dehydrate_value_(value[key]);
+            for ( const key of Object.keys(value) ) {
+                defineOwn(result, key, this.dehydrate_value_(value[key]));
             }
             return result;
         } else {
@@ -94,8 +117,8 @@ export class Hydrator {
             return value.map(this.hydrate_value_.bind(this));
         } else if ( typeof value === 'object' && value !== null ) {
             const result = {};
-            for ( const key in value ) {
-                result[key] = this.hydrate_value_(value[key]);
+            for ( const key of Object.keys(value) ) {
+                defineOwn(result, key, this.hydrate_value_(value[key]));
             }
             return result;
         }

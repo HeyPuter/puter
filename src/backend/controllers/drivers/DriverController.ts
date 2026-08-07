@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { metrics } from '@opentelemetry/api';
 import type { Request, Response } from 'express';
 import { actorUid } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
@@ -31,6 +32,7 @@ import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { DriverMeta } from '../../drivers/meta.js';
 import {
     isDriverStreamResult,
+    resolveCallableMethods,
     resolveDriverMeta,
     resolveDriverMethodConcurrent,
     resolveDriverMethodRateLimit,
@@ -42,6 +44,17 @@ import { withSpan } from '../../util/span.js';
 import { PuterController } from '../types.js';
 
 type DriverInstance = WithLifecycle & Record<string, unknown>;
+
+// Every driver call is timed here already, for the lifecycle events below.
+// Recording the same number as a histogram makes the per-interface latency
+// distribution available downstream; which interfaces are worth keeping is a
+// collector-side decision, not one made here, so this deliberately records
+// everything and lets the export pipeline drop what it doesn't want.
+const meter = metrics.getMeter('puter-backend');
+const driverCallDuration = meter.createHistogram('driver.call.duration', {
+    description: 'Wall time of a driver method call',
+    unit: 'ms',
+});
 
 const extractUpstreamStatus = (e: {
     status?: number;
@@ -115,15 +128,23 @@ const translateProviderError = (err: unknown): unknown => {
 
 @Controller('/drivers')
 export class DriverController extends PuterController {
-    /** iface → Map<driverName, driverInstance> */
+    /** Iface → Map<driverName, driverInstance> */
     #drivers = new Map<string, Map<string, DriverInstance>>();
-    /** iface → default driver name */
+    /** Iface → default driver name */
     #defaults = new Map<string, string>();
     /**
-     * driver instance → resolved meta. Cached so the per-call rate-limit
-     * lookup doesn't have to walk prototype chains on every request.
+     * Driver instance → resolved meta. Cached so the per-call rate-limit lookup
+     * doesn't have to walk prototype chains on every request.
      */
     #meta = new WeakMap<DriverInstance, DriverMeta>();
+    /**
+     * Driver instance → the set of method names callable via `/drivers/call`.
+     * Resolved once at registration (server startup) via
+     * `resolveCallableMethods`; the request path only does a `Set.has` lookup.
+     * This is what stops framework/lifecycle methods (`onServerStart`, etc.)
+     * and `Object.prototype` members from being invoked by remote callers.
+     */
+    #callableMethods = new WeakMap<DriverInstance, Set<string>>();
 
     constructor(...args: ConstructorParameters<typeof PuterController>) {
         super(...args);
@@ -202,14 +223,19 @@ export class DriverController extends PuterController {
             );
         }
 
-        const fn = driver[method];
-        if (typeof fn !== 'function') {
+        // Only methods in the pre-resolved callable set are dispatchable.
+        // This excludes framework/lifecycle hooks (onServerStart, etc.),
+        // inherited base methods, and Object.prototype members, none of
+        // which are part of any interface's RPC contract.
+        const callable = this.#callableMethods.get(driver);
+        if (!callable?.has(method)) {
             throw new HttpError(
                 404,
                 `Method '${method}' not found on driver '${ifaceName}'`,
                 { legacyCode: 'not_found' },
             );
         }
+        const fn = driver[method];
 
         // Resolve the concrete driver name for permission keys, falling
         // back through prototype metadata → instance field → requested name.
@@ -222,7 +248,7 @@ export class DriverController extends PuterController {
 
         const driverMeta = this.#meta.get(driver);
 
-        // Drivers flagged `noUserSession` (the AI drivers) refuse the bare
+        // Drivers flagged `noUserSession` refuse the bare
         // account-session ("root") token: callers must present an app or
         // worker token, or an API token minted from the dashboard. This is
         // the per-driver counterpart of the `noUserSession` route option —
@@ -414,6 +440,11 @@ export class DriverController extends PuterController {
                 () => (fn as (...x: unknown[]) => any).call(driver, args),
             );
         } catch (e) {
+            driverCallDuration.record(Date.now() - startedAt, {
+                driver: ifaceName,
+                'driver.method': method,
+                outcome: 'error',
+            });
             this.clients.event?.emit(
                 `driver.${ifaceName}.${method}.error`,
                 {
@@ -431,6 +462,15 @@ export class DriverController extends PuterController {
             );
             throw translateProviderError(e);
         }
+
+        // Same window the span and the lifecycle events measure: for streamed
+        // results this is stream start, not stream drain. Worth remembering
+        // when reading AI latency — it is time-to-first-token, not total.
+        driverCallDuration.record(Date.now() - startedAt, {
+            driver: ifaceName,
+            'driver.method': method,
+            outcome: 'ok',
+        });
         this.clients.event?.emit(
             `driver.${ifaceName}.${method}.after`,
             {
@@ -513,10 +553,15 @@ export class DriverController extends PuterController {
         // Cache the resolved meta so the request hot-path can read the
         // per-method rate-limit spec without re-walking the prototype.
         this.#meta.set(instance, meta);
-        // Register each alias pointing at the same instance. Legacy puter-js
-        // calls that pass a provider id in the `driver` slot (e.g. the TTS
-        // module sends `aws-polly` / `openai-tts` / `elevenlabs-tts` instead
-        // of the unified `ai-tts`) resolve here; the handler sets
+        // Resolve the callable RPC surface once, at startup. The request
+        // path checks membership against this set instead of reflecting on
+        // the live instance, so lifecycle hooks / inherited framework
+        // methods can never be dispatched.
+        this.#callableMethods.set(instance, resolveCallableMethods(instance));
+        // Register each alias pointing at the same instance. Calls that pass
+        // a provider id in the `driver` slot (e.g. `aws-polly` or
+        // `openai-tts` instead of the unified `ai-tts`, as SDK bundles
+        // predating the unified drivers do) resolve here; the handler sets
         // Context.driverName to the alias so the method can route to the
         // right internal provider.
         for (const alias of meta.aliases) {

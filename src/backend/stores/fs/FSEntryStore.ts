@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -58,8 +58,8 @@ const DEFAULT_DB_CHUNK_CONCURRENCY = 4;
 
 /**
  * Store backing the `fsentries` table. Owns DB CRUD over filesystem entries,
- * Redis caching keyed by uuid/path/id, and pending-upload-session state in
- * the system KV store. Constructed by the store registry; depends on `kv`.
+ * Redis caching keyed by uuid/path/id, and pending-upload-session state in the
+ * system KV store. Constructed by the store registry; depends on `kv`.
  */
 export class FSEntryStore extends PuterStore {
     declare protected stores: LayerInstances<typeof puterStores>;
@@ -971,12 +971,10 @@ export class FSEntryStore extends PuterStore {
     }
 
     /**
-     * Recursive-CTE lineage resolver. Returns the entry at `path`, or null
-     * if any segment is unresolvable. On success, backfills the `path`
-     * column on every row in the lineage (one UPDATE per row, gated on
-     * `path IS NULL OR path != expected` so we don't write the same value
-     * back on warm rows).
-     *
+     * Recursive-CTE lineage resolver. Returns the entry at `path`, or null if
+     * any segment is unresolvable. On success, backfills the `path` column on
+     * every row in the lineage (one UPDATE per row, gated on `path IS NULL OR
+     * path != expected` so we don't write the same value back on warm rows).
      */
     async #resolveEntryByPathLineage(
         normalizedPath: string,
@@ -1061,22 +1059,22 @@ export class FSEntryStore extends PuterStore {
 
     /**
      * Upward-walk variant of the lineage resolver. Used by uuid/id lookups
-     * where we already have the row but its `path` column is NULL — same
-     * legacy state the path-based resolver heals from the other direction.
+     * where we already have the row but its `path` column is NULL — same legacy
+     * state the path-based resolver heals from the other direction.
      *
-     * Walks `parent_uid` chains from the entry up to the home row
-     * (`parent_uid IS NULL`), then reuses `#backfillLineagePaths` to write
-     * the correct `path` on every ancestor + the entry itself. Returns the
-     * re-fetched target entry so the caller doesn't need a second query.
+     * Walks `parent_uid` chains from the entry up to the home row (`parent_uid
+     * IS NULL`), then reuses `#backfillLineagePaths` to write the correct
+     * `path` on every ancestor + the entry itself. Returns the re-fetched
+     * target entry so the caller doesn't need a second query.
      *
-     * Returns null if the chain is broken (an intermediate `parent_uid`
-     * doesn't resolve to a row) — those rows are unrecoverable from this
-     * direction and the caller should fall back to whatever degraded
-     * behaviour it had before.
+     * Returns null if the chain is broken (an intermediate `parent_uid` doesn't
+     * resolve to a row) — those rows are unrecoverable from this direction and
+     * the caller should fall back to whatever degraded behaviour it had
+     * before.
      *
-     * Same security posture as `#resolveEntryByPathLineage`: this method
-     * only resolves + heals data, it does not authorize access. Callers
-     * still gate via ACL on the returned entry.
+     * Same security posture as `#resolveEntryByPathLineage`: this method only
+     * resolves + heals data, it does not authorize access. Callers still gate
+     * via ACL on the returned entry.
      */
     async #healEntryPathByLineageUp(
         targetUuid: string,
@@ -1143,9 +1141,9 @@ export class FSEntryStore extends PuterStore {
      * Heal in place: for every entry in `entries` whose `path` column is NULL
      * (legacy rows that pre-date the path-cache write), run the lineage-up
      * resolver and replace the slot with the healed entry. Heals run in
-     * parallel — typical workloads have zero such rows so the loop is a
-     * no-op; rare bursts (a freshly migrated account) only pay one
-     * recursive-CTE round-trip per row instead of N sequential.
+     * parallel — typical workloads have zero such rows so the loop is a no-op;
+     * rare bursts (a freshly migrated account) only pay one recursive-CTE
+     * round-trip per row instead of N sequential.
      *
      * Mutates the array in place.
      */
@@ -1276,11 +1274,10 @@ export class FSEntryStore extends PuterStore {
     }
 
     /**
-     * Batched lookup by id. Dedupes input ids, reads cache via per-id GETs,
-     * and resolves remaining misses with a single
-     * `SELECT … WHERE id IN (…)` per chunk. Use this in place of
-     * `Promise.all(ids.map(getEntryById))` to avoid one connection per row
-     * on large id sets.
+     * Batched lookup by id. Dedupes input ids, reads cache via per-id GETs, and
+     * resolves remaining misses with a single `SELECT … WHERE id IN (…)` per
+     * chunk. Use this in place of `Promise.all(ids.map(getEntryById))` to avoid
+     * one connection per row on large id sets.
      *
      * Missing ids (no DB row) are simply absent from the returned map.
      */
@@ -2272,13 +2269,13 @@ export class FSEntryStore extends PuterStore {
     /**
      * Create a single non-file entry: directory, shortcut, or symlink.
      *
-     * Unlike `batchCreateEntries` (which is geared to S3-backed files),
-     * these rows carry no bucket metadata. The caller is responsible for
-     * parent/name conflict resolution — this method assumes the parent
-     * exists and the target name is free.
+     * Unlike `batchCreateEntries` (which is geared to S3-backed files), these
+     * rows carry no bucket metadata. The caller is responsible for parent/name
+     * conflict resolution — this method assumes the parent exists and the
+     * target name is free.
      *
-     * Returns the inserted entry with a refreshed row read. Throws 409 on
-     * a unique-key collision (caller should pre-check and dedupe).
+     * Returns the inserted entry with a refreshed row read. Throws 409 on a
+     * unique-key collision (caller should pre-check and dedupe).
      */
     async createNonFileEntry(input: {
         userId: number;
@@ -2374,8 +2371,8 @@ export class FSEntryStore extends PuterStore {
     }
 
     /**
-     * Update accessed/modified/created timestamps in place. Used by `touch`
-     * for entries that already exist.
+     * Update accessed/modified/created timestamps in place. Used by `touch` for
+     * entries that already exist.
      */
     async touchEntryTimestamps(
         uuid: string,
@@ -2409,11 +2406,19 @@ export class FSEntryStore extends PuterStore {
             `UPDATE fsentries SET ${assignments.join(', ')} WHERE uuid = ?`,
             [...values, uuid],
         );
-        const entry = await this.getEntryByUuid(uuid);
-        if (!entry)
+        // Re-read the row itself rather than going through `getEntryByUuid`:
+        // that read is cache-first and would hand back the pre-touch
+        // timestamps (and then re-cache them for another TTL).
+        const refreshedRows = (await this.clients.db.tryHardRead(
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid = ? LIMIT 1`,
+            [uuid],
+        )) as unknown as FSEntryRow[];
+        const refreshedRow = refreshedRows[0];
+        if (!refreshedRow)
             throw new HttpError(404, 'Entry not found after touch', {
                 legacyCode: 'not_found',
             });
+        const entry = this.#mapFSEntryRow(refreshedRow);
         await this.#invalidateEntryCache(entry);
         await this.#writeEntryToCache(entry);
         return entry;
@@ -2480,8 +2485,7 @@ export class FSEntryStore extends PuterStore {
         } = {},
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
         const payload = decodeCursor(options.cursor) as
-            | { v: unknown; id: number; s?: string; o?: string }
-            | undefined;
+            { v: unknown; id: number; s?: string; o?: string } | undefined;
 
         const requestedSort = options.sortBy ?? null;
         const requestedOrder = options.sortOrder ?? null;
@@ -2630,6 +2634,88 @@ export class FSEntryStore extends PuterStore {
         return Number(rows[0]?.n ?? 0);
     }
 
+    // Slashes in a path — the depth marker. Paths are absolute and carry no
+    // trailing slash, so a direct child of `/u/foo` (2 slashes) is `/u/foo/x`
+    // (3 slashes): its depth relative to the prefix is 1.
+    #slashCount(value: string): number {
+        let count = 0;
+        for (let i = 0; i < value.length; i++) {
+            if (value[i] === '/') count++;
+        }
+        return count;
+    }
+
+    /**
+     * Cursor-paginated descendants of a directory, limited to `maxDepth` levels
+     * below the prefix. Prefix + user_id scan (same index as
+     * `listDescendantsByPath`) with a portable slash-count depth filter. Keyset
+     * pagination on `path ASC` — path is unique per user, so no id tiebreaker.
+     */
+    async listDescendantsPage(
+        userId: number,
+        pathPrefix: string,
+        options: { limit?: number; cursor?: string | null; maxDepth: number },
+    ): Promise<{ entries: FSEntry[]; cursor?: string }> {
+        const normalizedPrefix = this.#normalizePath(pathPrefix);
+        if (normalizedPrefix === '/') {
+            throw new HttpError(400, 'Refusing to list descendants of root', {
+                legacyCode: 'bad_request',
+            });
+        }
+        const likePattern = `${this.#escapeLikePattern(normalizedPrefix)}/%`;
+        const maxSlashes =
+            this.#slashCount(normalizedPrefix) + Math.max(1, options.maxDepth);
+        const limit = normalizeLimit(options.limit, { cap: 10_000 }) ?? 1000;
+
+        const payload = decodeCursor(options.cursor) as
+            { p: string } | undefined;
+        const seek = payload ? 'AND path > ?' : '';
+        const params: unknown[] = payload
+            ? [userId, likePattern, maxSlashes, payload.p, limit + 1]
+            : [userId, likePattern, maxSlashes, limit + 1];
+
+        const rows = (await this.clients.db.read(
+            `SELECT ${this.#selectFsentriesColumns()}
+             FROM fsentries
+             WHERE user_id = ? AND path LIKE ? ESCAPE '!'
+               AND (LENGTH(path) - LENGTH(REPLACE(path, '/', ''))) <= ? ${seek}
+             ORDER BY path ASC
+             LIMIT ?`,
+            params,
+        )) as unknown as FSEntryRow[];
+
+        const hasMore = rows.length > limit;
+        const pageRows = hasMore ? rows.slice(0, limit) : rows;
+        const entries = await this.#finalizeChildEntries(pageRows);
+
+        let cursor: string | undefined;
+        if (hasMore) {
+            const last = pageRows[pageRows.length - 1]!;
+            cursor = encodeCursor({ p: last.path });
+        }
+
+        return { entries, ...(cursor ? { cursor } : {}) };
+    }
+
+    async countDescendantsToDepth(
+        userId: number,
+        pathPrefix: string,
+        maxDepth: number,
+    ): Promise<number> {
+        const normalizedPrefix = this.#normalizePath(pathPrefix);
+        if (normalizedPrefix === '/') return 0;
+        const likePattern = `${this.#escapeLikePattern(normalizedPrefix)}/%`;
+        const maxSlashes =
+            this.#slashCount(normalizedPrefix) + Math.max(1, maxDepth);
+        const rows = (await this.clients.db.read(
+            `SELECT COUNT(*) AS n FROM fsentries
+             WHERE user_id = ? AND path LIKE ? ESCAPE '!'
+               AND (LENGTH(path) - LENGTH(REPLACE(path, '/', ''))) <= ?`,
+            [userId, likePattern, maxSlashes],
+        )) as unknown as { n: number | string }[];
+        return Number(rows[0]?.n ?? 0);
+    }
+
     // Sum of sizes under a path (inclusive). Files only — dirs have null size.
     // NOTE: linear scan under the path prefix index; optimize later if it
     // becomes hot (e.g., incremental size counters or materialized totals).
@@ -2746,6 +2832,17 @@ export class FSEntryStore extends PuterStore {
             return existing;
         }
 
+        // A path-changing patch (rename, move) must also drop the OLD path's
+        // cache key — invalidating only the updated entry leaves
+        // `prodfsv2:fsentry:path:any:<old path>` serving the pre-update entry
+        // for the full TTL. That stale hit made a paste right after renaming
+        // the occupant report a phantom name conflict, and accepting the
+        // Replace it offered deleted the renamed file (the stale entry
+        // carries its uuid). Read the pre-update entry so its keys can be
+        // invalidated alongside the new ones.
+        const previous =
+            patch.path !== undefined ? await this.getEntryByUuid(uuid) : null;
+
         await this.clients.db.write(
             `UPDATE fsentries SET ${assignments.join(', ')} WHERE uuid = ?`,
             [...values, uuid],
@@ -2762,6 +2859,9 @@ export class FSEntryStore extends PuterStore {
             });
         }
         const updated = this.#mapFSEntryRow(row);
+        if (previous && previous.path !== updated.path) {
+            await this.#invalidateEntryCache(previous);
+        }
         await this.#invalidateEntryCache(updated);
         await this.#writeEntryToCache(updated);
         return updated;

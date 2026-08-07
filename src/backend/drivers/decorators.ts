@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -30,19 +30,20 @@ import {
     type DriverRateLimitConfig,
 } from './meta';
 
-/**
- * Options for the `@Driver` class decorator.
- */
+/** Options for the `@Driver` class decorator. */
 export interface DriverOptions {
-    /** Unique name for this implementation within its interface. Defaults to the class name. */
+    /**
+     * Unique name for this implementation within its interface. Defaults to the
+     * class name.
+     */
     name?: string;
     /** When true, this driver is the default for its interface. */
     default?: boolean;
     /**
-     * Rate-limit policy. Each driver method can declare its own limit /
-     * window / storage backend; methods not listed inherit `default`,
-     * and undeclared methods fall through to the global driver default
-     * (600/min in `checkDriverRateLimit`).
+     * Rate-limit policy. Each driver method can declare its own limit / window
+     * / storage backend; methods not listed inherit `default`, and undeclared
+     * methods fall through to the global driver default (600/min in
+     * `checkDriverRateLimit`).
      *
      * ```ts
      * @Driver('puter-kvstore', {
@@ -58,9 +59,9 @@ export interface DriverOptions {
      */
     rateLimit?: DriverRateLimitConfig;
     /**
-     * Concurrent in-flight policy. Same envelope as `rateLimit` minus
-     * `window`. Adds `bySubscription` to scale the cap by subscription
-     * tier (`SubscriptionPolicy.id` from MeteringService).
+     * Concurrent in-flight policy. Same envelope as `rateLimit` minus `window`.
+     * Adds `bySubscription` to scale the cap by subscription tier
+     * (`SubscriptionPolicy.id` from MeteringService).
      *
      * ```ts
      * @Driver('puter-chat-completion', {
@@ -77,14 +78,14 @@ export interface DriverOptions {
      * })
      * ```
      *
-     * Methods that don't appear in either `default` or `methods` are
-     * unbounded — matching today's behaviour where nothing is gated.
+     * Methods that don't appear in either `default` or `methods` are unbounded
+     * — matching today's behaviour where nothing is gated.
      */
     concurrent?: DriverConcurrentConfig;
     /**
-     * When true, `/drivers/call` rejects bare account-session ("root")
-     * tokens for this driver — callers need an app/worker token or a
-     * dashboard-minted API token. See `DriverMeta.noUserSession`.
+     * When true, `/drivers/call` rejects bare account-session ("root") tokens
+     * for this driver — callers need an app/worker token or a dashboard-minted
+     * API token. See `DriverMeta.noUserSession`.
      */
     noUserSession?: boolean;
 }
@@ -93,10 +94,12 @@ export interface DriverOptions {
 type AnyCtor = new (...args: any[]) => any;
 
 /**
- * Class decorator that marks a driver implementation and records its
- * interface + name on the prototype.
+ * Class decorator that marks a driver implementation and records its interface
+ *
+ * - Name on the prototype.
  *
  * Equivalent imperative approach (no decorator needed):
+ *
  * ```ts
  * class MyDriver extends PuterDriver {
  *     readonly driverInterface = 'puter-chat-completion';
@@ -106,6 +109,7 @@ type AnyCtor = new (...args: any[]) => any;
  * ```
  *
  * Usage:
+ *
  * ```ts
  * @Driver('puter-chat-completion', { name: 'openai-completion', default: true })
  * class OpenAIChatDriver extends PuterDriver {

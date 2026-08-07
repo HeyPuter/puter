@@ -16,6 +16,10 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
      *   implicit-auth URL), skips the `puter.token` message handling and
      *   `puterAuthState` bookkeeping (the caller owns the auth result), and
      *   reports cancellation through `options.onCancel`.
+     * @param {string} [options.popupName] - Window name for the popup. Give
+     *   each concurrent launcher a distinct name: `window.open()` reuses a
+     *   window that already carries the requested name, so sharing one name
+     *   navigates (and hijacks) a popup another pending flow is waiting on.
      * @param {Function} [options.onLaunch] - Called with the opened popup
      *   window (or null if the browser blocked it) right after launch.
      * @param {Function} [options.onCancel] - Called when the user dismisses
@@ -528,7 +532,7 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
         // Wire the "Continue" button to open the auth popup. Opening here is
         // safe from being popup-blocked because it happens inside a click.
         this.shadowRoot.querySelector('#launch-auth-popup')?.addEventListener('click', () => {
-            const popup = openAuthPopup(this.#popupURL());
+            const popup = this.#openPopup();
             // Pinned as the expected event.source in messageListener.
             this.authPopup = popup;
 
@@ -551,11 +555,33 @@ class PuterDialog extends (globalThis.HTMLElement || Object) { // It will fall b
         // Add event listeners for cancel and close buttons
         this.shadowRoot.querySelector('#launch-auth-popup-cancel')?.addEventListener('click', this.cancelListener);
         this.shadowRoot.querySelector('.close-btn')?.addEventListener('click', this.cancelListener);
+
+        // Escape dismisses a modal <dialog> natively, which would otherwise
+        // remove the dialog from view without telling the caller — leaving the
+        // promise behind it pending forever. `cancel` fires only for that
+        // user-initiated dismissal; a programmatic `close()` (how launching the
+        // popup dismisses this dialog) fires `close` alone, so the launch path
+        // is unaffected.
+        this.shadowRoot.querySelector('dialog')?.addEventListener('cancel', (e) => {
+            e.preventDefault();
+            this.cancelListener();
+        });
+    }
+
+    /**
+     * Opens the popup under the caller's window name when one was given, so
+     * concurrent launchers don't reuse (and steal) each other's window.
+     * @returns {Window|null}
+     */
+    #openPopup () {
+        return this.options.popupName
+            ? openAuthPopup(this.#popupURL(), this.options.popupName)
+            : openAuthPopup(this.#popupURL());
     }
 
     open () {
         if ( hasUserActivation() ) {
-            const popup = openAuthPopup(this.#popupURL());
+            const popup = this.#openPopup();
             // Pinned as the expected event.source in messageListener.
             this.authPopup = popup;
             if ( this.options.popupURL && typeof this.options.onLaunch === 'function' ) {

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -24,6 +24,7 @@ import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { Actor } from '../../core/actor.js';
 import { PuterDriver } from '../types.js';
+import { secureFetch } from '../../util/secureHttp.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { GeminiVideoProvider } from './providers/gemini/GeminiVideoProvider.js';
 import { OpenAIVideoProvider } from './providers/openai/OpenAIVideoProvider.js';
@@ -48,7 +49,6 @@ const DEFAULT_PROVIDER = 'openai-video-generation';
  */
 export class VideoGenerationDriver extends PuterDriver {
     readonly driverInterface = 'puter-video-generation';
-    readonly noUserSession = true;
     readonly driverName = 'ai-video';
     // puter-js's `txt2vid` can pass a provider id via `options.driver`, so
     // alias all provider ids here. `generate` falls back to
@@ -400,7 +400,14 @@ export class VideoGenerationDriver extends PuterDriver {
                 contentType = header.match(/data:(.*?);/)?.[1] ?? 'video/mp4';
                 buffer = Buffer.from(result.substring(commaIdx + 1), 'base64');
             } else {
-                const response = await fetch(result);
+                // Provider-minted URL, but fetched with the same SSRF guards
+                // as the input paths: it reaches an unauthenticated GET whose
+                // body lands in the user's filesystem. skipProxy because
+                // generated media is ours to download directly, not user
+                // input to screen.
+                const response = await secureFetch(result, {
+                    skipProxy: true,
+                });
                 if (!response.ok) {
                     throw new HttpError(
                         502,

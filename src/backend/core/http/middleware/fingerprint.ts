@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -53,17 +53,18 @@ function readDeviceFingerprint(req: {
 
 /**
  * Stamp request-scoped fingerprints onto `req` so any downstream gate, handler,
- * or service (via the ALS `Context.get('req')`) can read them without recomputing:
+ * or service (via the ALS `Context.get('req')`) can read them without
+ * recomputing:
  *
- *   - `req.networkFingerprint` — always set; a coarse IP+headers hash (the
- *     anchor of the rate limiter's default key). Server-derived, so it can't be
- *     forged away, but it's coarse (shared behind NAT/VPN, rotates with UA).
- *   - `req.deviceFingerprint` — set only when the client supplied a well-shaped
- *     device fingerprint (ThumbmarkJS hash) in the body or the
- *     `x-puter-device-fingerprint` header; `undefined` otherwise. Client-supplied
- *     and spoofable, but stable per real device across IP rotation. The rate
- *     limiter's 'fingerprint' strategy appends it to the network hash so each
- *     device behind a shared network gets its own bucket.
+ * - `req.networkFingerprint` — always set; a coarse IP+headers hash (the anchor
+ *   of the rate limiter's default key). Server-derived, so it can't be forged
+ *   away, but it's coarse (shared behind NAT/VPN, rotates with UA).
+ * - `req.deviceFingerprint` — set only when the client supplied a well-shaped
+ *   device fingerprint (ThumbmarkJS hash) in the body or the
+ *   `x-puter-device-fingerprint` header; `undefined` otherwise. Client-supplied
+ *   and spoofable, but stable per real device across IP rotation. The rate
+ *   limiter's 'fingerprint' strategy appends it to the network hash so each
+ *   device behind a shared network gets its own bucket.
  *
  * Install AFTER the body parsers (so the body fingerprint is readable) and
  * before `requestContext` (so the snapshot into ALS already carries them).

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -48,8 +48,8 @@ const CODEC_CONTENT_TYPES: Record<string, string> = {
 };
 
 /**
- * xAI (Grok) TTS provider. Calls the xAI /v1/tts REST endpoint.
- * Returns audio as a DriverStreamResult.
+ * XAI (Grok) TTS provider. Calls the xAI /v1/tts REST endpoint. Returns audio
+ * as a DriverStreamResult.
  */
 export class XAITTSProvider extends TTSProvider {
     readonly providerName = 'xai';

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -73,6 +73,7 @@ const en = {
         confirm_code_2fa_instruction: 'Enter the 6-digit code from your authenticator app.',
         confirm_code_2fa_submit_btn: 'Submit',
         confirm_code_2fa_title: 'Enter 2FA Code',
+        confirm_continue_as: 'Continue as <strong>{{username}}</strong>?<p>This link signs you in to that account. Anything you create — files, uploads, chats — will be saved there and visible to whoever owns it. Only continue if the account is yours.</p>',
         confirm_delete_multiple_items: 'Are you sure you want to permanently delete these items?',
         confirm_delete_single_item: 'Do you want to permanently delete this item?',
         confirm_open_apps_log_out: 'You have open apps. Are you sure you want to log out?',
@@ -171,6 +172,7 @@ const en = {
         item: 'item',
         items_in_trash_cannot_be_renamed: 'This item can\'t be renamed because it\'s in the trash. To rename this item, first drag it out of the Trash.',
         jpeg_image: 'JPEG image',
+        keep_both: 'Keep Both',
         keep_in_taskbar: 'Keep in Taskbar',
         language: 'Language',
         license: 'License',
@@ -180,6 +182,7 @@ const en = {
         log_in: 'Log In',
         log_into_another_account_anyway: 'Log into another account anyway',
         log_out: 'Log Out',
+        logging_in_as: 'Logging in as <strong>{{identity}}</strong>',
         looks_good: 'Looks good!',
         manage_sessions: 'Manage Sessions',
         modified: 'Modified',
@@ -404,6 +407,7 @@ const en = {
         ui_session_last_active: 'Last active',
         ui_toggle_session_children: 'Toggle child sessions',
         undo: 'Undo',
+        uninstall_sessions_failed: '%% was uninstalled, but its existing sign-in could not be ended. You can revoke it under Settings → Security → Manage Sessions.',
         unlimited: 'Unlimited',
         unzip: 'Unzip',
         unzipping: 'Unzipping %strong%',
@@ -633,6 +637,9 @@ const en = {
         'perm_subdomains_write': 'manage your subdomains',
         'perm_app_root_dir_read': 'read the root directory of one of your apps',
         'perm_app_root_dir_write': 'read and write to the root directory of one of your apps',
+        'perm_dialog_wants_to': 'wants permission to',
+        'perm_dialog_footnote': 'You can change this anytime in Settings.',
+        'perm_dialog_error': 'Something went wrong. Please try again.',
 
         'error_user_or_path_not_found': 'User or path not found.',
         'error_invalid_username': 'Invalid username.',
@@ -676,6 +683,20 @@ const en = {
         authorization_cancelled: 'Authorization Cancelled',
         authorization_cancelled_desc: 'You have declined the authorization request.',
         authorization_cancelled_message: 'The app will not receive access to your account. You can close this window safely.',
+
+        // AuthMe dialog — full account session grant (opt-in, type-to-confirm)
+        authme_full_token_title: 'Full Account Access',
+        authme_full_token_request: 'An app is requesting a token that can do anything you can.',
+        shared_full_token: 'A full account session',
+        shared_full_token_item_files: 'Read, change, and delete all of your files',
+        shared_full_token_item_account: 'Change your password, email address, and two-factor settings',
+        shared_full_token_item_act: 'Act as you on Puter until you revoke it',
+        shared_full_token_note: 'This is not a restricted API token. Only continue if you started this yourself and completely trust the destination above. You can revoke it under Settings → Security → Manage sessions.',
+        authme_full_token_confirm_label: 'Type {{phrase}} below to give {{host}} full access to the account {{username}}.',
+        authme_full_token_confirm_label_no_user: 'Type {{phrase}} below to give {{host}} full access to your account.',
+        authme_full_token_confirm_phrase: 'grant full access',
+        remote_backend_signin_failed: 'Could not sign in to {{origin}}. Reload this page to try again, or check that you are signed in at {{origin}}.',
+        authme_bad_redirect_url: 'This authorization request was cancelled because its destination is not a valid web address. Nothing has been shared with it.',
     },
 };
 

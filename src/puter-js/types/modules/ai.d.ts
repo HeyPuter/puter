@@ -133,6 +133,8 @@ export interface Img2TxtOptions {
     source?: string | File | Blob;
     provider?: string;
     testMode?: boolean;
+    /** `snake_case` spelling of `testMode`, forwarded to the driver as-is. */
+    test_mode?: boolean;
     model?: string;
     pages?: number[];
     includeImageBase64?: boolean;
@@ -266,11 +268,11 @@ export interface Txt2SpeechOptions {
     text?: string;
     /** Language code. For AWS Polly defaults to `'en-US'`; for xAI a BCP-47 code defaulting to `'en'` (supports `'auto'`). */
     language?: string;
-    /** Voice ID used for synthesis (provider-specific). Defaults to `'Joanna'` (aws-polly), `'alloy'` (openai), `'21m00Tcm4TlvDq8ikWAM'` (elevenlabs), `'Kore'` (gemini), `'eve'` (xai). */
+    /** Voice ID used for synthesis (provider-specific). Defaults to `'Joanna'` (aws-polly), `'alloy'` (openai), `'21m00Tcm4TlvDq8ikWAM'` (elevenlabs), `'Kore'` (gemini), `'eve'` (xai), `'geffen_32'` (speechify). */
     voice?: string;
     /** AWS Polly synthesis engine: `'standard'` (default), `'neural'`, `'long-form'`, or `'generative'`. */
     engine?: string;
-    /** TTS provider: `'aws-polly'` (default), `'openai'`, `'elevenlabs'`, `'gemini'`, or `'xai'`. */
+    /** TTS provider: `'aws-polly'` (default), `'openai'`, `'elevenlabs'`, `'gemini'`, `'xai'`, or `'speechify'`. Common aliases (`'eleven'`, `'google'`, `'grok'`, `'polly'`, `'simba'`, …) resolve to these. */
     provider?: string;
     /** Model identifier (provider-specific). */
     model?: string;
@@ -289,7 +291,7 @@ export interface Txt2SpeechOptions {
 }
 
 export interface ListTTSEnginesOptions {
-    /** TTS provider to query. Defaults to `'aws-polly'`. */
+    /** TTS provider to query. Defaults to `'aws-polly'`; `'all'` returns every provider's engines. */
     provider?: string;
 }
 
@@ -306,7 +308,7 @@ export interface TTSEngine {
 }
 
 export interface ListTTSVoicesOptions {
-    /** TTS provider to query. Defaults to `'aws-polly'`. */
+    /** TTS provider to query. Defaults to `'aws-polly'`; `'all'` returns every provider's voices. */
     provider?: string;
     /** Engine/model filter (provider-specific, ignored by some providers). */
     engine?: string;
@@ -410,7 +412,9 @@ export interface Speech2SpeechOptions {
     file?: string | File | Blob;
     provider?: string;
     model?: string;
+    model_id?: string;
     voice?: string;
+    voice_id?: string;
     output_format?: string;
     voice_settings?: Record<string, unknown>;
     seed?: number;
@@ -419,6 +423,17 @@ export interface Speech2SpeechOptions {
     optimize_streaming_latency?: number;
     enable_logging?: boolean;
     test_mode?: boolean;
+
+    // camelCase aliases, mapped onto the snake_case names above before the
+    // request goes out. The snake_case spelling wins when both are given.
+    modelId?: string;
+    voiceId?: string;
+    outputFormat?: string;
+    voiceSettings?: Record<string, unknown>;
+    fileFormat?: string;
+    removeBackgroundNoise?: boolean;
+    optimizeStreamingLatency?: number;
+    enableLogging?: boolean;
 }
 
 export class AI {
@@ -432,13 +447,13 @@ export class AI {
     chat (prompt: string, imageURL: string | File, options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
     chat (prompt: string, imageURLArray: string[], options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
 
-    chat (prompt: string, options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
-    chat (prompt: string, imageURL: string | File, options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
-    chat (prompt: string, imageURLArray: string[], options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
+    chat (prompt: string, options: StreamingChatOptions, testMode?: boolean): Promise<AsyncIterable<ChatResponseChunk>>;
+    chat (prompt: string, imageURL: string | File, options: StreamingChatOptions, testMode?: boolean): Promise<AsyncIterable<ChatResponseChunk>>;
+    chat (prompt: string, imageURLArray: string[], options: StreamingChatOptions, testMode?: boolean): Promise<AsyncIterable<ChatResponseChunk>>;
 
     chat (messages: ChatMessage[], testMode?: boolean): Promise<ChatResponse>;
     chat (messages: ChatMessage[], options: ChatOptions, testMode?: boolean): Promise<ChatResponse>;
-    chat (messages: ChatMessage[], options: StreamingChatOptions, testMode?: boolean): AsyncIterable<ChatResponseChunk>;
+    chat (messages: ChatMessage[], options: StreamingChatOptions, testMode?: boolean): Promise<AsyncIterable<ChatResponseChunk>>;
 
     img2txt (source: string | File | Blob, testMode?: boolean): Promise<string>;
     img2txt (source: string | File | Blob, options: Img2TxtOptions, testMode?: boolean): Promise<string>;

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -25,7 +25,6 @@ import { ImageGenerationDriver } from './ai-image/ImageGenerationDriver.js';
 import { OCRDriver } from './ai-ocr/OCRDriver.js';
 import { VoiceChangerDriver } from './ai-speech2speech/VoiceChangerDriver.js';
 import { SpeechToTextDriver } from './ai-speech2txt/SpeechToTextDriver.js';
-import { XAISpeechToTextDriver } from './ai-speech2txt/XAISpeechToTextDriver.js';
 import { TTSDriver } from './ai-tts/TTSDriver.js';
 import { VideoGenerationDriver } from './ai-video/VideoGenerationDriver.js';
 import { AppDriver } from './apps/AppDriver.js';
@@ -136,7 +135,6 @@ describe.each([
     ['TTSDriver', () => new TTSDriver(...fake())],
     ['VoiceChangerDriver', () => new VoiceChangerDriver(...fake())],
     ['SpeechToTextDriver', () => new SpeechToTextDriver(...fake())],
-    ['XAISpeechToTextDriver', () => new XAISpeechToTextDriver(...fake())],
     ['OCRDriver', () => new OCRDriver(...fake())],
 ])('AI driver — %s', (_name, build) => {
     const m = meta(build());
@@ -151,11 +149,11 @@ describe.each([
         expect(m.concurrent).toBe(AI_CONCURRENT);
     });
 
-    it('refuses bare account-session ("root") tokens', () => {
-        // AI calls need a delegated credential — an app/worker token or a
-        // dashboard-minted API token. `DriverController` enforces this off
-        // the meta flag; dropping it silently reopens session-token AI use.
-        expect(m.noUserSession).toBe(true);
+    it('accepts bare account-session ("root") tokens', () => {
+        // Privileged ("godmode") apps run on the user's own session token
+        // rather than an app token, so the AI drivers can't distinguish
+        // them from a browser session and have to admit both.
+        expect(m.noUserSession).toBe(false);
     });
 });
 
@@ -172,17 +170,16 @@ describe('non-AI drivers — session tokens stay allowed', () => {
 
 // ── Iface coordination cross-check ──────────────────────────────────
 
-describe('puter-speech2txt — sibling drivers share the bucket', () => {
-    // Both speech2txt impls register on the same interface. The
-    // controller keys rate/concurrent by (iface, method, user) — so as
-    // long as they hold the same policy reference, switching providers
-    // mid-session can't dodge the cap.
-    it('SpeechToText and XAISpeechToText carry identical policies', () => {
-        const a = meta(new SpeechToTextDriver(...fake()));
-        const b = meta(new XAISpeechToTextDriver(...fake()));
-        expect(a.interfaceName).toBe('puter-speech2txt');
-        expect(b.interfaceName).toBe('puter-speech2txt');
-        expect(a.rateLimit).toBe(b.rateLimit);
-        expect(a.concurrent).toBe(b.concurrent);
+describe('puter-speech2txt — one driver covers every provider', () => {
+    // A single driver serves the interface, so the controller's
+    // (iface, method, user) bucket already spans every provider and
+    // switching providers mid-session can't dodge the cap.
+    it('answers to the legacy per-provider driver names', () => {
+        const m = meta(new SpeechToTextDriver(...fake()));
+        expect(m.interfaceName).toBe('puter-speech2txt');
+        expect(m.driverName).toBe('ai-speech2txt');
+        expect(m.aliases).toEqual(
+            expect.arrayContaining(['openai-speech2txt', 'xai-speech2txt']),
+        );
     });
 });

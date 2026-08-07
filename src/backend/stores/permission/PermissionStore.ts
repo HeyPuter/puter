@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -86,7 +86,8 @@ export interface AuditEntry {
 }
 
 /**
- * PermissionStore owns the *persistence* side of permissions:
+ * PermissionStore owns the _persistence_ side of permissions:
+ *
  * - SQL CRUD + audit inserts for all permission tables
  * - Flat KV reads/writes under `PERM_KEY_PREFIX` (system namespace)
  * - Redis scan-cache get/set/invalidate
@@ -130,10 +131,10 @@ export class PermissionStore extends PuterStore {
     /**
      * Write a single flat user-to-user permission entry to KV.
      *
-     * `opts.expireAt` (epoch seconds) marks the entry as a derived cache
-     * warm rather than an authoritative grant: warms self-expire so a warm
-     * that raced a concurrent revoke cannot re-materialize the grant
-     * indefinitely. Grant-path writes omit it and are permanent.
+     * `opts.expireAt` (epoch seconds) marks the entry as a derived cache warm
+     * rather than an authoritative grant: warms self-expire so a warm that
+     * raced a concurrent revoke cannot re-materialize the grant indefinitely.
+     * Grant-path writes omit it and are permanent.
      */
     async setFlatUserPerm(
         holderUserId: number,
@@ -423,8 +424,8 @@ export class PermissionStore extends PuterStore {
     // -- SQL: user-to-group permissions ------------------------------
 
     /**
-     * Reads group permissions granted to groups the user is a member of, for
-     * a given set of permission strings. Result already joined against
+     * Reads group permissions granted to groups the user is a member of, for a
+     * given set of permission strings. Result already joined against
      * `jct_user_group` so callers don't need group membership resolution.
      */
     async readUserGroupPerms(

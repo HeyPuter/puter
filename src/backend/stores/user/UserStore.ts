@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -23,12 +23,12 @@ import { PuterStore } from '../types';
 
 /**
  * Canonical user row. Typed fields cover everything auth/acl/quota code
- * actually reads; `[k: string]: unknown` keeps the escape hatch for
- * lesser-used columns the store doesn't surface yet.
+ * actually reads; `[k: string]: unknown` keeps the escape hatch for lesser-used
+ * columns the store doesn't surface yet.
  *
  * Note: `suspended` / `email_confirmed` / `requires_email_confirmation` come
- * off the DB as MySQL TINYINT or SQLite INTEGER — 0 or 1. We coerce to
- * booleans in `#normalizeRow` so downstream code gets consistent types.
+ * off the DB as MySQL TINYINT or SQLite INTEGER — 0 or 1. We coerce to booleans
+ * in `#normalizeRow` so downstream code gets consistent types.
  */
 export interface UserRow {
     id: number;
@@ -37,7 +37,10 @@ export interface UserRow {
     email?: string | null;
     /** True when an admin has suspended the account. */
     suspended?: boolean;
-    /** When the account was suspended, as unix seconds; null while not suspended. */
+    /**
+     * When the account was suspended, as unix seconds; null while not
+     * suspended.
+     */
     suspended_at?: number | null;
     /** True when the user has confirmed the email currently on file. */
     email_confirmed?: boolean;
@@ -58,9 +61,9 @@ export interface UserRow {
 }
 
 /**
- * Identifying properties the store will look users up by. Adding a new
- * property is as simple as adding a key here — lookups + cache fan-out
- * follow automatically.
+ * Identifying properties the store will look users up by. Adding a new property
+ * is as simple as adding a key here — lookups + cache fan-out follow
+ * automatically.
  */
 export const USER_ID_PROPERTIES = ['id', 'uuid', 'username', 'email'] as const;
 export type UserIdProperty = (typeof USER_ID_PROPERTIES)[number];
@@ -128,11 +131,12 @@ const assertLatin1Writable = (fields: Record<string, unknown>): void => {
  * over property-indexed lookups and thin `user`-table accessors.
  *
  * Intentionally NOT folded in:
+ *
  * - `generate_default_fsentries` (filesystem concern; belongs with FS)
  * - `whoami.get_details` enrichment (service-level, not store)
- * - runtime identifying-property registration — the identifying properties
- *   are declared inline in `USER_ID_PROPERTIES`; callers that need more
- *   add the property to that tuple.
+ * - Runtime identifying-property registration — the identifying properties are
+ *   declared inline in `USER_ID_PROPERTIES`; callers that need more add the
+ *   property to that tuple.
  */
 export class UserStore extends PuterStore {
     // -- Reads --------------------------------------------------------
@@ -167,10 +171,9 @@ export class UserStore extends PuterStore {
 
     /**
      * Batched lookup by id. Dedupes input ids, reads cache via a pipelined
-     * MGET, and resolves remaining misses with a single
-     * `SELECT … WHERE id IN (…)` per chunk. Use this in place of
-     * `Promise.all(ids.map(getById))` to avoid one connection per row on
-     * large id sets.
+     * MGET, and resolves remaining misses with a single `SELECT … WHERE id IN
+     * (…)` per chunk. Use this in place of `Promise.all(ids.map(getById))` to
+     * avoid one connection per row on large id sets.
      *
      * Missing ids (no DB row) are simply absent from the returned map.
      */
@@ -236,14 +239,14 @@ export class UserStore extends PuterStore {
     }
 
     /**
-     * Look up a user by the canonical `clean_email` column. Used by signup
-     * and OIDC link flows to collapse gmail-style aliases (`foo.bar+tag@…`)
-     * to the same account.
+     * Look up a user by the canonical `clean_email` column. Used by signup and
+     * OIDC link flows to collapse gmail-style aliases (`foo.bar+tag@…`) to the
+     * same account.
      *
-     * Not cached — `clean_email` isn't an identifying property and callers
-     * use this for duplicate detection at write time, which needs fresh
-     * reads. Rehydrates through `getById` so the caller gets a normalized
-     * row (and warms the id-keyed cache for subsequent reads).
+     * Not cached — `clean_email` isn't an identifying property and callers use
+     * this for duplicate detection at write time, which needs fresh reads.
+     * Rehydrates through `getById` so the caller gets a normalized row (and
+     * warms the id-keyed cache for subsequent reads).
      */
     async getByCleanEmail(cleanEmailValue: string): Promise<UserRow | null> {
         if (!cleanEmailValue) return null;
@@ -258,11 +261,11 @@ export class UserStore extends PuterStore {
     }
 
     /**
-     * Count accounts other than `excludeUserId` whose confirmed `phone`
-     * equals this number. Backs the cap on live accounts per phone number
-     * (the row is deleted with the account, so this only counts accounts
-     * that still exist — recycling velocity is rate-limited separately by
-     * the abuse policy's KV log).
+     * Count accounts other than `excludeUserId` whose confirmed `phone` equals
+     * this number. Backs the cap on live accounts per phone number (the row is
+     * deleted with the account, so this only counts accounts that still exist —
+     * recycling velocity is rate-limited separately by the abuse policy's KV
+     * log).
      *
      * Not cached — like `getByCleanEmail`, callers use this for duplicate
      * detection at write time, which needs fresh reads.
@@ -281,9 +284,9 @@ export class UserStore extends PuterStore {
     }
 
     /**
-     * Generic property lookup. Fast-path reads redis first (cache is
-     * multi-key — every identifying property points at the same serialized
-     * row). On miss, falls back to DB and backfills the cache.
+     * Generic property lookup. Fast-path reads redis first (cache is multi-key
+     * — every identifying property points at the same serialized row). On miss,
+     * falls back to DB and backfills the cache.
      *
      * `force: true` bypasses cache both on read and on replication.
      */
@@ -332,15 +335,15 @@ export class UserStore extends PuterStore {
     // -- Writes -------------------------------------------------------
 
     /**
-     * Merge-update a user's `metadata` JSON blob. Reads current value,
-     * applies `Object.assign` semantics, and writes back. Invalidates
-     * every cache key pointing at this user on success.
+     * Merge-update a user's `metadata` JSON blob. Reads current value, applies
+     * `Object.assign` semantics, and writes back. Invalidates every cache key
+     * pointing at this user on success.
      */
     /**
      * Create a new user row.
      *
-     * Returns the created user (by id). Password must already be hashed.
-     * Pass `null` for temporary users (no email, no password).
+     * Returns the created user (by id). Password must already be hashed. Pass
+     * `null` for temporary users (no email, no password).
      */
     async create(fields: {
         username: string;
@@ -436,9 +439,9 @@ export class UserStore extends PuterStore {
     /**
      * Update arbitrary user fields by id. Invalidates cache on write.
      *
-     * Only pass whitelisted columns — this uses string interpolation for
-     * column names for ergonomic call sites. Never take column names from
-     * request bodies.
+     * Only pass whitelisted columns — this uses string interpolation for column
+     * names for ergonomic call sites. Never take column names from request
+     * bodies.
      */
     async update(
         userId: number,
@@ -462,12 +465,36 @@ export class UserStore extends PuterStore {
         const setClause = keys.map((k) => `\`${k}\` = ?`).join(', ');
         const values = keys.map((k) => dbPatch[k]);
 
+        // Identifying columns are themselves cache keys, so changing one
+        // leaves the old key holding a full copy of the pre-update row.
+        // Snapshot the row first so the keys this write retires can be
+        // dropped: otherwise a replaced email keeps resolving to the account
+        // for the rest of the TTL, and login and password recovery accept it
+        // as if it were still the account's address.
+        const touchesIdentity = keys.some((k) =>
+            (USER_ID_PROPERTIES as readonly string[]).includes(k),
+        );
+        const before = touchesIdentity
+            ? await this.getByProperty('id', userId, { force: true })
+            : null;
+
         await this.clients.db.write(
             `UPDATE \`user\` SET ${setClause} WHERE \`id\` = ?`,
             [...values, userId],
         );
 
         const fresh = await this.getByProperty('id', userId, { force: true });
+
+        if (before) {
+            const live = new Set(fresh ? this.#cacheKeysForUser(fresh) : []);
+            const retired = this.#cacheKeysForUser(before).filter(
+                (key) => !live.has(key),
+            );
+            if (retired.length > 0) {
+                await this.publishCacheKeys({ keys: retired, broadcast: true });
+            }
+        }
+
         if (fresh) {
             await this.#refreshCache(fresh);
         } else {
@@ -498,6 +525,15 @@ export class UserStore extends PuterStore {
         email: string,
         cleanEmailValue: string,
     ): Promise<void> {
+        // Read the rows this strips before stripping them: the update goes
+        // straight to SQL, so without their pre-image we don't know which
+        // cache keys it retires — and a cached copy still carries the address
+        // that was just revoked, which would keep answering lookups for it.
+        const stripped = (await this.clients.db.pread(
+            'SELECT * FROM `user` WHERE `id` != ? AND (`email` = ? OR `clean_email` = ?)',
+            [userId, email, cleanEmailValue],
+        )) as Array<Record<string, unknown>>;
+
         await this.clients.db.write(
             `UPDATE \`user\`
                 SET \`email\` = NULL,
@@ -516,6 +552,10 @@ export class UserStore extends PuterStore {
                 cleanEmailValue,
             ],
         );
+
+        for (const row of stripped) {
+            await this.invalidate(this.#normalizeRow(row));
+        }
     }
 
     async invalidate(user: UserRow): Promise<void> {

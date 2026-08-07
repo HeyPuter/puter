@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -45,8 +45,8 @@ export interface IExtensionClientInstances {
     /**
      * Optional ClickHouse analytics client. Absent by default — a production
      * deployment registers it via an extension to speed up the app-stats path
-     * at scale (see {@link ClickhouseClient}). Always branch on its presence
-     * and fall back to SQL.
+     * at scale (see {@link ClickhouseClient}). Always branch on its presence and
+     * fall back to SQL.
      */
     clickhouse?: ClickhouseClient;
 }

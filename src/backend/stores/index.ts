@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -20,6 +20,7 @@
 import { AppStore } from './app/AppStore.js';
 import { FSEntryStore } from './fs/FSEntryStore.js';
 import { GroupStore } from './group/GroupStore.js';
+import { MeteringBufferStore } from './metering/MeteringBufferStore.js';
 import { NotificationStore } from './notification/NotificationStore.js';
 import { OIDCStore } from './oidc/OIDCStore.js';
 import { PermissionStore } from './permission/PermissionStore.js';
@@ -35,12 +36,13 @@ import type { IPuterStoreRegistry } from './types.js';
  * Populate `IPuterStoreInstances` (declared in `./types`) with the concrete
  * types of built-in stores. Done via declaration merging instead of
  * `LayerInstances<typeof puterStores>` because every concrete store extends
- * `PuterStore`, whose `protected stores` field references this type — a
- * direct `typeof puterStores` lookup would self-cycle.
+ * `PuterStore`, whose `protected stores` field references this type — a direct
+ * `typeof puterStores` lookup would self-cycle.
  */
 declare module './types.js' {
     interface IPuterStoreInstances {
         kv: SystemKVStore;
+        meteringBuffer: MeteringBufferStore;
         user: UserStore;
         app: AppStore;
         fsEntry: FSEntryStore;
@@ -57,6 +59,8 @@ declare module './types.js' {
 
 // Ordering matters: stores declared later see earlier ones as peers.
 // PermissionStore depends on `kv`, so `kv` must come first.
+// MeteringBufferStore sits in front of `kv` for metering counters, so it too
+// has to come after it.
 // UserStore / AppStore are leaves (db + redis only); sit early so other
 // stores/services can lean on them for cached lookups.
 // FSEntryStore depends on `kv` (pending-upload sessions live there).
@@ -64,6 +68,7 @@ declare module './types.js' {
 // SessionStore / ShareStore are leaves — only use clients.db.
 export const puterStores = {
     kv: SystemKVStore,
+    meteringBuffer: MeteringBufferStore,
     user: UserStore,
     app: AppStore,
     fsEntry: FSEntryStore,

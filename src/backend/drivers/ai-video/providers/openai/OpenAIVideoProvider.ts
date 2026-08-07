@@ -1,20 +1,21 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import OpenAI from 'openai';
@@ -22,6 +23,7 @@ import { Context } from '../../../../core/context.js';
 import { HttpError } from '../../../../core/http/HttpError.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { IGenerateVideoParams, IVideoModel } from '../../types.js';
+import { capSecondsToRemainingCredits } from '../../creditCap.js';
 import { VideoProvider } from '../VideoProvider.js';
 import { OPENAI_VIDEO_MODELS, OPENAI_VIDEO_ALLOWED_SECONDS } from './models.js';
 import { Readable } from 'stream';
@@ -102,24 +104,28 @@ export class OpenAIVideoProvider extends VideoProvider {
             );
         }
 
-        const estimatedUnits =
-            this.#parseSeconds(normalizedSeconds) ?? DEFAULT_DURATION_SECONDS;
         const actor = Context.get('actor');
         const costInMicroCents = costPerSecondCents * 1_000_000;
-        const usageAllowed = await this.#meteringService.hasEnoughCredits(
+
+        // Clamp the clip to what the actor's remaining credit buys rather than
+        // rejecting the whole request — a 12s Sora 2 Pro clip is $8.40, so
+        // all-or-nothing leaves the entire request cost as slop above budget.
+        const estimatedUnits = await capSecondsToRemainingCredits({
+            metering: this.#meteringService,
             actor,
-            costInMicroCents * estimatedUnits,
-        );
-        if (!usageAllowed) {
-            throw new HttpError(402, 'Insufficient funds', {
-                legacyCode: 'insufficient_funds',
-            });
-        }
+            perSecondMicroCents: costInMicroCents,
+            requestedSeconds:
+                this.#parseSeconds(normalizedSeconds) ??
+                DEFAULT_DURATION_SECONDS,
+            allowedSeconds:
+                selectedModel.durationSeconds ?? OPENAI_VIDEO_ALLOWED_SECONDS,
+            modelId: selectedModel.id,
+        });
 
         const createParams: OpenAI.VideoCreateParams = {
             prompt,
             model: selectedModel.id,
-            seconds: normalizedSeconds as OpenAI.VideoSeconds,
+            seconds: String(estimatedUnits) as OpenAI.VideoSeconds,
             size: normalizedSize as OpenAI.VideoSize,
         };
 

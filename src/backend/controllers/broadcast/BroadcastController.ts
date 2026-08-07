@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -27,20 +27,19 @@ import { PuterController } from '../types.js';
  *
  * The route is intentionally a thin shell: parse the four custom
  * `X-Broadcast-*` headers, hand the raw body + parsed body off to
- * `BroadcastService.verifyAndEmit()`, and translate its structured
- * result into HTTP. All the cryptography, replay protection, and
- * event-bus dispatch live in the service so they're reusable from
- * tests / direct callers.
+ * `BroadcastService.verifyAndEmit()`, and translate its structured result into
+ * HTTP. All the cryptography, replay protection, and event-bus dispatch live in
+ * the service so they're reusable from tests / direct callers.
  *
- * Mounted with `subdomain: '*'` (any host) because peers reach the
- * webhook through the ALB DNS, not the public `api.<domain>` subdomain,
- * so the host header can be an internal ALB hostname rather than
- * `api.<domain>` or `<domain>`. Authentication is via the HMAC +
- * peer-id + nonce triple, not the host.
+ * Mounted with `subdomain: '*'` (any host) because peers reach the webhook
+ * through the ALB DNS, not the public `api.<domain>` subdomain, so the host
+ * header can be an internal ALB hostname rather than `api.<domain>` or
+ * `<domain>`. Authentication is via the HMAC + peer-id + nonce triple, not the
+ * host.
  *
- * `req.rawBody` is captured by the global JSON parser and is what the
- * HMAC verifies against — do NOT switch this route to a custom body
- * parser without preserving the raw bytes.
+ * `req.rawBody` is captured by the global JSON parser and is what the HMAC
+ * verifies against — do NOT switch this route to a custom body parser without
+ * preserving the raw bytes.
  */
 @Controller('/broadcast')
 export class BroadcastController extends PuterController {

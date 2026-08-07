@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -18,6 +18,7 @@
  */
 
 import type { Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../actor';
@@ -259,6 +260,46 @@ describe('createAuthProbe — token extraction precedence', () => {
             }),
         );
         expect(stub.seenTokens).toEqual(['hs-tok']);
+    });
+});
+
+describe('createAuthProbe — tokenSource', () => {
+    const cases: Array<[string, Parameters<typeof makeReq>[0]]> = [
+        ['body', { body: { auth_token: 'tok' } }],
+        ['header', { headers: { authorization: 'Bearer tok' } }],
+        ['x-api-key', { headers: { 'x-api-key': 'tok' } }],
+        ['cookie', { cookieHeader: 'puter_token=tok' }],
+        ['query', { query: { auth_token: 'tok' } }],
+        ['handshake', { handshakeQuery: { auth_token: 'tok' } }],
+    ];
+
+    const actor: Actor = { user: { uuid: 'u-1' } };
+
+    it.each(cases)('records %s', async (expected, init) => {
+        const stub = makeStubAuth(actor);
+        const probe = createAuthProbe({
+            authService: stub.service,
+            cookieName: 'puter_token',
+        });
+        const { req } = await runProbe(probe, makeReq(init));
+        expect(req.tokenSource).toBe(expected);
+    });
+
+    it('is left unset when no token is presented', async () => {
+        const stub = makeStubAuth(actor);
+        const probe = createAuthProbe({ authService: stub.service });
+        const { req } = await runProbe(probe, makeReq({}));
+        expect(req.tokenSource).toBeUndefined();
+    });
+
+    it('is left unset when the token fails to authenticate', async () => {
+        const stub = makeStubAuth(null);
+        const probe = createAuthProbe({ authService: stub.service });
+        const { req } = await runProbe(
+            probe,
+            makeReq({ headers: { authorization: 'Bearer tok' } }),
+        );
+        expect(req.tokenSource).toBeUndefined();
     });
 });
 
@@ -659,6 +700,71 @@ describe('createAuthProbe — reauth signal', () => {
         }
     });
 
+    it('collapses repeat reauth lines for the same auth_id to one', async () => {
+        const stub = makeStubAuth();
+        const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+        try {
+            const probe = createAuthProbe({ authService: stub.service });
+            for (let i = 0; i < 5; i++) {
+                stub.setNextResult({
+                    reauth: { reason: 'token_v1', auth_id: 'u-noisy' },
+                });
+                await runProbe(
+                    probe,
+                    makeReq({ headers: { authorization: 'Bearer tok' } }),
+                );
+            }
+            const reauthCalls = infoSpy.mock.calls.filter((args) =>
+                String(args[0]).startsWith('[auth-v2] reauth'),
+            );
+            expect(reauthCalls).toHaveLength(1);
+        } finally {
+            infoSpy.mockRestore();
+        }
+    });
+
+    it('still logs separately for a different auth_id', async () => {
+        const stub = makeStubAuth();
+        const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+        try {
+            const probe = createAuthProbe({ authService: stub.service });
+            for (const authId of ['u-a', 'u-b']) {
+                stub.setNextResult({
+                    reauth: { reason: 'token_v1', auth_id: authId },
+                });
+                await runProbe(
+                    probe,
+                    makeReq({ headers: { authorization: 'Bearer tok' } }),
+                );
+            }
+            const reauthCalls = infoSpy.mock.calls.filter((args) =>
+                String(args[0]).startsWith('[auth-v2] reauth'),
+            );
+            expect(reauthCalls).toHaveLength(2);
+        } finally {
+            infoSpy.mockRestore();
+        }
+    });
+
+    it('does not sign a reauth token until something reads it', async () => {
+        const stub = makeStubAuth();
+        stub.setNextResult({
+            reauth: { reason: 'token_v1', auth_id: 'u-lazy' },
+        });
+        const signSpy = vi.spyOn(stub.service, 'signReauthToken');
+        const { req } = await runProbe(
+            createAuthProbe({ authService: stub.service }),
+            makeReq({ headers: { authorization: 'Bearer tok' } }),
+        );
+
+        expect(signSpy).not.toHaveBeenCalled();
+        expect(req.requiresReauth?.reauth_token).toBeTruthy();
+        expect(signSpy).toHaveBeenCalledTimes(1);
+        // Memoized — a second read must not re-sign.
+        void req.requiresReauth?.reauth_token;
+        expect(signSpy).toHaveBeenCalledTimes(1);
+    });
+
     it('does not emit a reauth log line on a healthy v2 verify', async () => {
         const stub = makeStubAuth({ user: { uuid: 'u-1' } });
         const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
@@ -723,11 +829,30 @@ describe('createAuthProbe (integration) — real session token → real actor', 
         expect(req.tokenAuthFailed).toBeUndefined();
     });
 
-    it('sets tokenAuthFailed=true for a syntactically valid but garbage token', async () => {
+    it('asks a garbage token to reauth rather than failing it outright', async () => {
+        // Nothing without `kid: 'v2'` can be verified since v1 was retired, so
+        // an unrecognizable token reads as "your token is from before the
+        // cutover" — the client gets `reauth_required` and can sign in again,
+        // instead of a bare token-failure 401 it can't act on.
         const probe = createAuthProbe({ authService });
         const { req } = await runProbe(
             probe,
             makeReq({ headers: { authorization: 'Bearer not-a-real-jwt' } }),
+        );
+        expect(req.actor).toBeUndefined();
+        expect(req.requiresReauth?.reason).toBe('token_v1');
+    });
+
+    it('sets tokenAuthFailed=true for a v2 token signed with the wrong secret', async () => {
+        // The remaining `invalid` path: routed to the v2 secret by its `kid`,
+        // and rejected there.
+        const forged = jwt.sign({ type: 'session', user_uid: 'nope' }, 'wrong', {
+            keyid: 'v2',
+        });
+        const probe = createAuthProbe({ authService });
+        const { req } = await runProbe(
+            probe,
+            makeReq({ headers: { authorization: `Bearer ${forged}` } }),
         );
         expect(req.actor).toBeUndefined();
         expect(req.tokenAuthFailed).toBe(true);

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -28,8 +28,9 @@ const ALLOWED_SORT_ORDER = ['asc', 'desc'];
  * Desktop/UI preference routes.
  *
  * Two categories:
- *   - User-level: desktop background, taskbar items (UserStore)
- *   - Folder-level: layout, sort_by/sort_order (fsentries table)
+ *
+ * - User-level: desktop background, taskbar items (UserStore)
+ * - Folder-level: layout, sort_by/sort_order (fsentries table)
  */
 export class DesktopController extends PuterController {
     constructor(config, clients, stores, services) {
@@ -195,16 +196,15 @@ export class DesktopController extends PuterController {
     // -- Helpers ------------------------------------------------------
 
     /**
-     * Update columns on an actor-owned fsentry. Accepts either `item_uid`
-     * (fast path) or `item_path` (path lookups in FSEntryStore now have
-     * a recursive-CTE fallback for legacy rows with a NULL `path` column,
-     * so this works for old accounts too).
+     * Update columns on an actor-owned fsentry. Accepts either `item_uid` (fast
+     * path) or `item_path` (path lookups in FSEntryStore now have a
+     * recursive-CTE fallback for legacy rows with a NULL `path` column, so this
+     * works for old accounts too).
      *
-     * Ownership: `entry.user_id === actor.user.id`. Kept as added
-     * validation against bad paths — the previous "drop user_id entirely"
-     * theory turned out to be wrong (the actual legacy issue was NULL
-     * paths, not user_id drift), so this filter doesn't lock out old
-     * accounts in practice.
+     * Ownership: `entry.user_id === actor.user.id`. Kept as added validation
+     * against bad paths — the previous "drop user_id entirely" theory turned
+     * out to be wrong (the actual legacy issue was NULL paths, not user_id
+     * drift), so this filter doesn't lock out old accounts in practice.
      */
     async #updateFSEntry(actor, { item_uid, item_path }, patch) {
         if (!item_uid && !item_path) {

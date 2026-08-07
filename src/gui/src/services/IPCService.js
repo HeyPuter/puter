@@ -44,29 +44,36 @@ export class IPCService extends Service {
     `;
 
     async _init () {
-        this.connections_ = {};
+        // A Map, not an object: lookups are keyed by a uuid an app sends us
+        // (`messageToApp`), and on a plain object `constructor`/`__proto__`
+        // would resolve to an `Object.prototype` member — which we would then
+        // both treat as a live connection and write our cached instance onto.
+        // Matches ProcessService's uuid registries.
+        this.connections_ = new Map();
     }
 
     add_connection ({ source, target }) {
         const uuid = window.uuidv4();
         const r_uuid = window.uuidv4();
-        const forward = this.connections_[uuid] = {
+        const forward = {
             source,
             target,
             uuid: uuid,
             reverse: r_uuid,
         };
-        const backward = this.connections_[r_uuid] = {
+        const backward = {
             source: target,
             target: source,
             uuid: r_uuid,
             reverse: uuid,
         };
+        this.connections_.set(uuid, forward);
+        this.connections_.set(r_uuid, backward);
         return { forward, backward };
     }
 
     get_connection (uuid) {
-        const entry = this.connections_[uuid];
+        const entry = this.connections_.get(uuid);
         if ( ! entry ) return;
         if ( entry.object ) return entry.object;
         return entry.object = new InternalConnection(entry, this.context);

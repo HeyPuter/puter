@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -23,11 +23,11 @@ import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
 import type { PermissionService } from '../permission/PermissionService.js';
 
 /**
- * Synthesize the listing for the virtual root `/`. There is no fsentry row
- * at `/` — instead root is a virtual aggregate of user-directory entries
- * the actor can see: the actor's own home plus any other users' homes
- * granted via permission issuers (i.e. users that have shared something
- * with this actor). Mirrors v1's `LLListUsers`.
+ * Synthesize the listing for the virtual root `/`. There is no fsentry row at
+ * `/` — instead root is a virtual aggregate of user-directory entries the actor
+ * can see: the actor's own home plus any other users' homes granted via
+ * permission issuers (i.e. users that have shared something with this actor).
+ * Mirrors v1's `LLListUsers`.
  */
 export async function listRootEntries(
     actor: Actor,

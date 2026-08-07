@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -26,13 +26,13 @@ import { PuterController } from '../types.js';
 // const SHARE_TOKEN_EXPIRY = '14d';
 
 /**
- * Share link endpoints — check, apply, and request access to pending
- * shares. The main `POST /share` creation endpoint is also here.
+ * Share link endpoints — check, apply, and request access to pending shares.
+ * The main `POST /share` creation endpoint is also here.
  *
- * Shares are permission grants addressed to an email. When the
- * recipient doesn't have a Puter account yet, the share row lives in
- * the `share` table until they sign up and apply it. When they DO have
- * an account, permissions are granted immediately and no row is stored.
+ * Shares are permission grants addressed to an email. When the recipient
+ * doesn't have a Puter account yet, the share row lives in the `share` table
+ * until they sign up and apply it. When they DO have an account, permissions
+ * are granted immediately and no row is stored.
  */
 export class ShareController extends PuterController {
     registerRoutes(_router: PuterRouter): void {

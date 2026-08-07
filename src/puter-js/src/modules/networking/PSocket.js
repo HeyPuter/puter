@@ -1,4 +1,5 @@
 import EventListener from '../../lib/EventListener.js';
+import { fetchUrl } from '../../lib/networkUtils.js';
 import { errors } from './parsers.js';
 import { PWispHandler } from './PWispHandler.js';
 const texten = new TextEncoder();
@@ -9,9 +10,20 @@ export let wispInfo = {
     handler: undefined,
 };
 
+/** @typedef {import('../../../types/modules/networking').SocketEvent} SocketEvent */
+
+/**
+ * A raw TCP socket in the browser, tunnelled over the Wisp relay. Construct it
+ * with `puter.net.Socket(hostname, port)`; the connection is established
+ * asynchronously, so write once `'open'` has fired.
+ */
 export class PSocket extends EventListener {
     _events = new Map();
     _streamID;
+    /**
+     * @param {string} host hostname or IP address of the server to connect to
+     * @param {number} port port to connect to on that server
+     */
     constructor (host, port) {
         super(['data', 'drain', 'open', 'error', 'close', 'tlsdata', 'tlsopen', 'tlsclose']);
 
@@ -27,10 +39,10 @@ export class PSocket extends EventListener {
             }
             if ( ! wispInfo.handler ) {
                 // first launch -- lets init the socket
-                const { token: wispToken, server: wispServer } = (await (await fetch(`${puter.APIOrigin }/wisp/relay-token/create`, {
+                const { token: wispToken, server: wispServer } = (await (await fetchUrl(`${puter.APIOrigin }/wisp/relay-token/create`, {
                     method: 'POST',
+                    includePuterAuth: !! puter.authToken,
                     headers: {
-                        Authorization: puter.authToken ? `Bearer ${puter.authToken}` : '',
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({}),
@@ -38,9 +50,17 @@ export class PSocket extends EventListener {
 
                 wispInfo.handler = new PWispHandler(wispServer, wispToken);
                 // Wait for websocket to fully open
-                await new Promise((res, req) => {
-                    wispInfo.handler.onReady = res;
-                });
+                try {
+                    await new Promise((res, rej) => {
+                        wispInfo.handler.onReady = res;
+                        wispInfo.handler.onError = rej;
+                    });
+                } catch (e) {
+                    // Drop the dead handler so the next socket redials instead
+                    // of registering streams on a relay that never opened.
+                    wispInfo.handler = undefined;
+                    throw e;
+                }
             }
 
             const callbacks = {
@@ -62,17 +82,38 @@ export class PSocket extends EventListener {
                 this.emit('open', undefined);
             }, 0);
 
-        })();
+        })().catch((e) => {
+            // Nothing awaits this body, so a failure to connect has to reach
+            // the caller as an 'error' event rather than an unhandled rejection.
+            this.emit('error', e instanceof Error ? e : new Error(String(e)));
+            this.emit('close', true);
+        });
     }
+    /**
+     * Registers a handler for a socket event, the same as `on`.
+     *
+     * @param {...unknown} args a `(event, handler)` pair
+     * @returns {void}
+     */
     addListener (...args) {
         this.on(...args);
     }
+
+    /**
+     * Writes data to the socket, invoking `callback` once it has been handed
+     * to the relay. Throws if `data` is not a string, `ArrayBuffer`, or typed
+     * array.
+     *
+     * @param {ArrayBuffer | ArrayBufferView | string} data
+     * @param {() => void} [callback]
+     * @returns {void}
+     */
     write (data, callback) {
         if ( data.buffer ) { // TypedArray
             wispInfo.handler.write(this._streamID, data);
             if ( callback ) callback();
         } else if ( data.resize ) { // ArrayBuffer
-            data.write(this._streamID, new Uint8Array(data));
+            wispInfo.handler.write(this._streamID, new Uint8Array(data));
             if ( callback ) callback();
         } else if ( typeof (data) === 'string' ) {
             wispInfo.handler.write(this._streamID, texten.encode(data));
@@ -81,6 +122,11 @@ export class PSocket extends EventListener {
             throw new Error('Invalid data type (not TypedArray, ArrayBuffer or String!!)');
         }
     }
+    /**
+     * Closes the TCP connection.
+     *
+     * @returns {void}
+     */
     close () {
         wispInfo.handler.close(this._streamID);
     }

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -32,9 +32,7 @@ const USER_UUID = 'a1111111-1111-1111-1111-111111111111';
 
 function tokenService(): TokenService {
     const config = {
-        jwt_secret: 'test-v1-secret',
         jwt_secret_v2: V2_SECRET,
-        allow_v1_tokens: true,
     } as ConstructorParameters<typeof TokenService>[0];
     const svc = new TokenService(
         config,

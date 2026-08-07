@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -18,6 +18,7 @@
  */
 
 import UIDashboard from './UI/Dashboard/UIDashboard.js';
+import TabApps from './UI/Dashboard/TabApps.js';
 import UIAlert from './UI/UIAlert.js';
 import UIComponentWindow from './UI/UIComponentWindow.js';
 import UIDesktop from './UI/UIDesktop.js';
@@ -31,15 +32,27 @@ import UIWindowCardVerificationRequired from './UI/UIWindowCardVerificationRequi
 import UIWindowLogin from './UI/UIWindowLogin.js';
 import UIWindowLoginInProgress from './UI/UIWindowLoginInProgress.js';
 import UIWindowNewPassword from './UI/UIWindowNewPassword.js';
-import UIWindowRequestPermission from './UI/UIWindowRequestPermission.js';
+import UIPermissionDialog from './UI/UIPermissionDialog.js';
 import UIWindowSaveAccount from './UI/UIWindowSaveAccount.js';
 import UIWindowSessionList from './UI/UIWindowSessionList.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
 import UIWindowRecoverPassword from './UI/UIWindowRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
 import create_access_token from './helpers/create_access_token.js';
+import create_gui_token from './helpers/create_gui_token.js';
+import {
+    authmeRequestUrl,
+    authmeReturnUrl,
+    fullTokenAllowed,
+    isDeliverableRedirect,
+    shouldUseRemoteAuthme,
+    urlTokenParam,
+    wantsFullToken,
+} from './util/authmeGrant.js';
 import init_device_signals from './helpers/device_signals.js';
 import item_icon from './helpers/item_icon.js';
+import launch_app from './helpers/launch_app.js';
+import { parse_url_paths } from './helpers/url_paths.js';
 import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
 import update_mouse_position from './helpers/update_mouse_position.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
@@ -53,38 +66,84 @@ import { LaunchOnInitService } from './services/LaunchOnInitService.js';
 import { LocaleService } from './services/LocaleService.js';
 import { ProcessService } from './services/ProcessService.js';
 import { ThemeService } from './services/ThemeService.js';
-import { privacy_aware_path } from './util/desktop.js';
+// Curried: takes `{ window }` and returns the path mapper. Import under a
+// factory name so a bare `privacy_aware_path(path)` call in this module can't
+// silently resolve to the factory — use `window.privacy_aware_path` instead.
+import { privacy_aware_path as privacy_aware_path_factory } from './util/desktop.js';
+import { resolveAPIOrigin } from './util/apiOrigin.js';
+import { deliversTokenToOpener } from './util/popupAuth.js';
+import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
 
 const postAuthActions = async (action) => {
+    // Set when a popup's user-app token exchange fails. The exchange is what
+    // bootstraps the app row a permission grant is written against, so an
+    // action that depends on it has to report failure rather than prompt.
+    let token_exchange_failed = false;
     // -------------------------------------------------------------------------------------
     // Action: AuthMe — redirect to a third-party URL with the user's auth token
     // -------------------------------------------------------------------------------------
     if ( action === 'authme' ) {
         const redirectURL = window.url_query_params.get('redirectURL');
+        // Refuse an undeliverable destination before the dialog, not after:
+        // `javascript:` and `data:` targets execute in *this* document when
+        // assigned to `location`, which would be script execution on the
+        // account origin rather than a redirect. See `isDeliverableRedirect`.
+        if ( redirectURL && ! isDeliverableRedirect(redirectURL) ) {
+            await UIAlert({ message: i18n('authme_bad_redirect_url') });
+            return;
+        }
+        // A full account session is only ever *offered* when the caller names
+        // it. Without `token_type=session` this flow can hand over nothing but
+        // the restricted API token, so an ordinary AuthMe link can't be
+        // dressed up into a session grant by whoever crafted it.
+        //
+        // Naming it isn't sufficient either: the session grade is only offered
+        // to a loopback destination, the one setup it exists for. Anywhere
+        // else falls back to the restricted token — see `fullTokenAllowed`.
+        const wants_full_token = fullTokenAllowed(
+            window.url_query_params,
+            redirectURL,
+        );
+        if ( wantsFullToken(window.url_query_params) && ! wants_full_token ) {
+            console.warn(
+                '[authme] token_type=session ignored for a non-loopback ' +
+                'destination; granting the restricted API token instead.',
+            );
+        }
         if ( redirectURL ) {
             const approved = await UIWindowAuthMe({
                 redirect_url: redirectURL,
+                full_token: wants_full_token,
             });
             if ( approved ) {
-                // Hand the app a named, revocable full-API-access
-                // token instead of the raw GUI/session token: it can
-                // use the whole API but can't manage the account.
+                // Default: a named, revocable full-API-access token rather
+                // than the raw GUI/session token — it can use the whole API
+                // but can't manage the account.
+                //
+                // `token_type=session` (approved via type-to-confirm) hands
+                // over a GUI token instead. That exists for a locally served
+                // GUI pointed at a remote backend: `/login` only accepts its
+                // own origin, so this is the sanctioned way for a dev GUI to
+                // get a session — the password is still only ever typed here.
                 let host = '';
                 try { host = new URL(redirectURL).host; } catch ( e ) { /* ignore */ }
                 let token;
                 try {
-                    token = await create_access_token({
-                        label: host
-                            ? `${i18n('token_label_external_app')} (${host})`
-                            : i18n('token_label_external_app'),
-                    });
+                    token = wants_full_token
+                        ? await create_gui_token()
+                        : await create_access_token({
+                            label: host
+                                ? `${i18n('token_label_external_app')} (${host})`
+                                : i18n('token_label_external_app'),
+                        });
                 } catch ( e ) {
                     await UIAlert({ message: e?.message ?? String(e) });
                     return;
                 }
-                const url = new URL(redirectURL);
-                url.searchParams.set('token', token);
-                window.location.href = url.href;
+                window.location.href = authmeReturnUrl(
+                    redirectURL,
+                    token,
+                ).href;
                 return;
             }
         }
@@ -115,18 +174,171 @@ const postAuthActions = async (action) => {
     // Dashboard mode
     // -------------------------------------------------------------------------------------
     else if ( window.is_dashboard_mode ) {
-        UIDashboard();
+        const el_dashboard_promise = UIDashboard();
+        // Direct landing on /app/<name>: open the app in the dashboard the
+        // same way a tile launch does. The dashboard's route is slotted
+        // underneath first (replaceState) and the launch re-claims
+        // /app/<name> as a real history entry, so Back minimizes to the
+        // dashboard exactly like an in-dashboard launch. (`?c` suppresses
+        // the auto-launch, mirroring the desktop URL-launch flow.)
+        if ( window.url_paths[0]?.toLocaleLowerCase() === 'app'
+            && window.url_paths[1]
+            && ! window.url_query_params.has('c') ) {
+            const app_name = window.url_paths[1];
+            // any query param that doesn't start with 'puter.' is passed
+            // through to the app (mirrors the desktop URL-launch flow)
+            const app_query_params = {};
+            for ( const [key, value] of window.url_query_params ) {
+                if ( ! key.startsWith('puter.') ) {
+                    app_query_params[key] = value;
+                }
+            }
+            let posargs;
+            if ( app_query_params.posargs ) {
+                try {
+                    posargs = JSON.parse(app_query_params.posargs);
+                } catch (e) {
+                    // malformed posargs: launch without them
+                }
+            }
+            // The server titles /app/<name> pages after the app, so the
+            // launch's lazy base-title capture would keep the app's name
+            // forever — preset the title to fall back to when the app's
+            // history entry is popped.
+            window.dashboard_base_title = i18n('window_title_puter');
+            // ...and make it the DOCUMENT title before the replaceState
+            // below commits the dashboard's own entry. Chrome stamps a
+            // session entry with the document title current at commit and
+            // shows that stored title in the tab strip whenever a traversal
+            // lands on the entry — so with the server's app-name title
+            // still in place, closing the app (whose close consumes the
+            // /app/<name> entry via history.back()) left the tab named
+            // after an app that was no longer on screen: the popstate
+            // handler's document.title reset updates the DOM title, but the
+            // tab strip keeps displaying the entry's stored one.
+            document.title = window.dashboard_base_title;
+            window.history.replaceState(null, '', '/');
+            // Resolve the app's info NOW, in parallel with the tile wait
+            // below, so the intro never delays the launch's own server
+            // round-trip; the result is handed to launch_app as app_obj (the
+            // same object its own fetch would produce). A failed prefetch
+            // hands nothing over — launch_app refetches and fails exactly
+            // the way it always did.
+            const app_info_promise = puter.apps.get(app_name, { icon_size: 64 })
+                .catch(() => null);
+            (async () => {
+                // If the app already has a tile in the Apps tab, play the
+                // whole click→morph→open sequence a real tile click plays —
+                // paced so it can be followed: the grid appears, a beat, the
+                // tile visibly acknowledges (icon ghost), a beat, and the
+                // window grows out of its slot — so the landing tells the
+                // user what is being opened and where minimize puts it back.
+                // No tile (not installed, grid too slow, apps fetch failed,
+                // animations off): the launch proceeds immediately with the
+                // plain fade, as before. The intro also steps aside on its
+                // own: user input skips its remaining beats, and once this
+                // account has watched it a few times the beats collapse for
+                // good (see beginDeepLinkLaunch).
+                let tile = null;
+                try {
+                    const el_dashboard = await el_dashboard_promise;
+                    tile = await TabApps.beginDeepLinkLaunch(app_name, $(el_dashboard));
+                } catch ( _e ) {
+                    // No dashboard window — no intro; still launch.
+                }
+                const app_obj = await app_info_promise;
+                launch_app({
+                    name: app_name,
+                    maximized: true,
+                    params: app_query_params,
+                    readURL: window.url_query_params.get('readURL'),
+                    ...(app_obj ? { app_obj } : {}),
+                    ...(posargs ? {
+                        args: {
+                            command_line: { args: posargs },
+                        },
+                    } : {}),
+                    window_options: { morph_from_dashboard_tile: true },
+                }).catch((err) => {
+                    console.error(`Failed to launch ${app_name} from URL:`, err);
+                }).finally(() => {
+                    TabApps.settleDeepLinkLaunch(app_name, tile);
+                });
+            })();
+        }
     }
     // -------------------------------------------------------------------------------------
     // If embedded in a popup, send the token to the opener and close the popup
     // -------------------------------------------------------------------------------------
     else {
         let msg_id = window.url_query_params.get('msg_id');
-        let isolated = window.url_query_params.get("cross_origin_isolated") === 'true';
+        // `cross_origin_isolated` routes the token to the opener through
+        // `/login/set`, which `/login/wait` then hands to anyone holding the
+        // session id. That is a sign-in mechanism, so it is gated by the same
+        // rule as the postMessage hand-off below — otherwise adding one query
+        // parameter to a `request-permission` URL turns the permission prompt
+        // into a token grant, and skips the prompt entirely.
+        let isolated = window.url_query_params.get("cross_origin_isolated") === 'true'
+            && deliversTokenToOpener(action);
         let session = window.url_query_params.get('signin_session');
+
+        // Signing the opener in is something the user has to have asked for.
+        // The gates upstream record that decision — picking an account,
+        // finishing signup, or already holding a token for this opener — and
+        // a first visit that mints a throwaway temp user has no existing
+        // account to hand over. Without this check the hand-off below runs
+        // unconditionally, so a popup that showed the user nothing still
+        // ended in a token: dismissing the account picker skipped only the
+        // early exchange, not the delivery.
+        //
+        // Scoped to the popups whose whole purpose is signing in. The
+        // file-picker actions also reach the hand-off, but they answer for
+        // themselves — they have their own dialogs and never show an account
+        // picker, so requiring one here would just break them.
+        const is_signin_popup = !action || action === 'sign-in';
+        const consented =
+            window.popup_signin_consent ||
+            (window.attempt_temp_user_creation && window.first_visit_ever);
+        if (is_signin_popup && !consented) {
+            console.error(
+                'popup sign-in was not consented to; not delivering a token',
+            );
+            if (isolated) {
+                window.close();
+                window.open('', '_self').close();
+                return;
+            }
+            window.opener?.postMessage({
+                msg: 'puter.token',
+                success: false,
+                token: null,
+                msg_id: msg_id,
+            }, window.openerOrigin);
+            window.close();
+            window.open('', '_self').close();
+            return;
+        }
+
         if (isolated) {
             try {
                 const data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
+                // Same two failure modes the postMessage path below guards
+                // against: `getUserAppToken` reports a network failure by
+                // returning null, and an HTTP failure (a blocked origin, an
+                // unparseable origin, a 5xx) by returning the parsed *error*
+                // body — truthy, but carrying no token. Without this check the
+                // missing token is handed to `/login/set`, which rejects it as
+                // a 400, and every distinct cause — including the ones that
+                // only occur on a deployment with a populated origin blocklist
+                // — collapses into the same unattributable alert below.
+                if ( ! data?.token ) {
+                    const detail = data?.code
+                        ? `${data.code}: ${data.message ?? ''}`
+                        : 'no response';
+                    throw new Error(
+                        `user-app token exchange returned no token (${detail})`,
+                    );
+                }
                 const resp = await fetch(`${window.api_origin}/login/set`, {
                     method: 'POST',
                     headers: {
@@ -150,20 +362,35 @@ const postAuthActions = async (action) => {
             }
             return;
         } else {
+            const deliver_token_to_opener = deliversTokenToOpener(action);
             try {
                 let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
+                // `getUserAppToken` reports a network failure by returning
+                // null, and an HTTP failure (a blocked origin, a 5xx) by
+                // returning the parsed *error* body — which is truthy but
+                // carries no token. Both mean the exchange did not happen, so
+                // say what went wrong instead of handing the opener an
+                // `undefined` token and, for actions that depend on the app row
+                // this bootstraps, prompting for a grant that could only fail.
+                if ( ! data?.token ) {
+                    throw new Error('user-app token exchange returned no token');
+                }
                 // This is an implicit app and the app_uid is sent back from the server
                 // we cache it here so that we can use it later
                 window.host_app_uid = data.app_uid;
-                // send token to parent
-                window.opener.postMessage({
-                    msg: 'puter.token',
-                    success: true,
-                    token: data.token,
-                    app_uid: data.app_uid,
-                    username: window.user.username,
-                    msg_id: msg_id,
-                }, window.openerOrigin);
+                // send token to parent. The opener is unreachable when it is
+                // cross-origin isolated (COOP severs the relationship); those
+                // flows learn the outcome server-side instead.
+                if ( deliver_token_to_opener ) {
+                    window.opener?.postMessage({
+                        msg: 'puter.token',
+                        success: true,
+                        token: data.token,
+                        app_uid: data.app_uid,
+                        username: window.user.username,
+                        msg_id: msg_id,
+                    }, window.openerOrigin);
+                }
                 // close popup
                 if ( !action || action === 'sign-in' ) {
                     window.close();
@@ -171,22 +398,42 @@ const postAuthActions = async (action) => {
                 }
             } catch ( err ) {
                 // send error to parent
-                window.opener.postMessage({
-                    msg: 'puter.token',
-                    success: false,
-                    token: null,
-                    msg_id: msg_id,
-                }, window.openerOrigin);
-                // close popup
-                window.close();
-                window.open('', '_self').close();
+                if ( deliver_token_to_opener ) {
+                    window.opener?.postMessage({
+                        msg: 'puter.token',
+                        success: false,
+                        token: null,
+                        msg_id: msg_id,
+                    }, window.openerOrigin);
+                    // close popup
+                    window.close();
+                    window.open('', '_self').close();
+                } else {
+                    // The requester is waiting on a decision, not a token, so
+                    // closing here would leave it with no answer at all. Record
+                    // the failure and let the action below report a denial and
+                    // close — the exchange is what bootstraps the app row a
+                    // grant needs, so there is nothing to prompt about.
+                    console.error('token exchange failed before permission prompt', err);
+                    token_exchange_failed = true;
+                }
             }
         }
 
         let app_uid;
 
         if ( window.openerOrigin ) {
-            app_uid = await window.getAppUIDFromOrigin(window.openerOrigin);
+            try {
+                // `getAppUIDFromOrigin` reports failure by resolving to a
+                // null/undefined uid, not by throwing — so check the value,
+                // and on either failure mode keep the host_app_uid set by
+                // the token exchange above, which resolved the same origin.
+                const resolved_app_uid = await window.getAppUIDFromOrigin(window.openerOrigin);
+                app_uid = resolved_app_uid ?? window.host_app_uid;
+            } catch (e) {
+                console.error('getAppUIDFromOrigin failed', e);
+                app_uid = window.host_app_uid;
+            }
             window.host_app_uid = app_uid;
         }
 
@@ -332,7 +579,7 @@ const postAuthActions = async (action) => {
                                         metadataURL: file_signature.metadata_url,
                                         type: file_signature.type,
                                         uid: file_signature.uid,
-                                        path: privacy_aware_path(res.path),
+                                        path: window.privacy_aware_path(res.path),
                                     },
                                 }, '*');
 
@@ -392,6 +639,81 @@ const postAuthActions = async (action) => {
                     },
                 });
             });
+        }
+    }
+
+    // -------------------------------------------------------------------------------------
+    // Action: Request Permission — show the permission dialog and report the user's
+    // decision back to the opener (popup flow) or the parent frame (iframe embed).
+    // Runs post-auth so signed-out users go through sign-in/signup first.
+    // -------------------------------------------------------------------------------------
+    if ( action === 'request-permission' ) {
+        const permission = window.url_query_params.get('permission');
+        const msg_id = window.url_query_params.get('msg_id');
+        // Browser-attested only: `openerOrigin` is the referrer, or the opener's
+        // own reply to the `requestOrigin` handshake. There is deliberately no
+        // query-string fallback — the origin is the requester's identity, naming
+        // who the dialog attributes the request to and picking the app the grant
+        // is written against, so a link must not get to state it. That is the
+        // same rule that keeps `app_uid` out of this URL, and the SDK never sends
+        // an origin either. Without one there is nothing to prompt about and the
+        // denial below is reported as usual.
+        const origin = window.openerOrigin;
+
+        // Whatever happens, the requester must get an answer and the popup
+        // must close — otherwise the popup wedges open with the caller's
+        // promise pending until the user closes it by hand.
+        let granted = false;
+        try {
+            // Prompting is pointless when the app row a grant needs was never
+            // bootstrapped — "Allow" could only fail. Report the denial.
+            if ( token_exchange_failed ) {
+                throw new Error('token exchange failed; not prompting');
+            }
+            // The requesting app is identified by its origin, and only the
+            // server turns that origin into a grant target. No uid is sent
+            // from here: a uid from the query string is chosen by whoever
+            // opened this page, and even a uid resolved through
+            // `getAppUIDFromOrigin` is unsafe to forward, because an origin
+            // with no app row of its own resolves to a *synthetic*
+            // `app-<uuidv5(origin)>`. The grant endpoint resolves `app_uid`
+            // as uid-or-name, so forwarding that synthetic uid would hand
+            // the grant to whoever registered an app under that literal
+            // name. Passing the origin instead makes the server resolve the
+            // same origin the dialog displayed, and reject it outright
+            // unless it names an app that really exists.
+            granted = await UIPermissionDialog({
+                permission: permission,
+                origin: origin,
+            });
+        } catch (e) {
+            console.error('request-permission action failed', e);
+        }
+
+        // `postMessage` throws a SyntaxError on a targetOrigin that isn't a
+        // parseable URL, and `origin` is caller-supplied — an unparseable one
+        // would take out the answer *and* the close below.
+        let target_origin = '*';
+        try {
+            target_origin = origin ? new URL(origin).origin : '*';
+        } catch (e) {
+            console.error('request-permission: unusable origin', origin);
+        }
+        const messageTarget = window.embedded_in_popup ? window.opener : window.parent;
+        try {
+            messageTarget?.postMessage({
+                msg: 'permissionGranted',
+                granted: granted === true,
+                original_msg_id: msg_id,
+            }, target_origin);
+        } catch (e) {
+            console.error('request-permission: could not answer the requester', e);
+        }
+
+        // The popup exists only to host this dialog; close it once answered.
+        if ( window.embedded_in_popup ) {
+            window.close();
+            window.open('', '_self').close();
         }
     }
 };
@@ -503,10 +825,17 @@ if (jQuery) {
 
 // are we in dashboard mode?
 // The dashboard is the default interface at the root path; `/dashboard` is kept as an
-// alias, and `/desktop` loads the desktop instead. Root URLs that carry a desktop-only
-// flow keep booting the desktop: auth popups (`?embedded_in_popup=`), app deep links
-// (`?app=`), direct downloads (`?download=`), fullpage mode (`?puter.fullpage=`), and
-// iframe embeds.
+// alias, and `/desktop` loads the desktop instead. Direct app landings (`/app/<name>`)
+// open in the dashboard too: the app comes up maximized in-page with the dashboard
+// route slotted underneath (see postAuthActions), so Back minimizes to the dashboard.
+// To land the same app on the desktop instead, prefix the path:
+// `/desktop/app/<name>` doesn't match the dashboard paths below, so it falls
+// through to the desktop.
+// URLs that carry a desktop-only flow keep booting the desktop: auth popups
+// (`?embedded_in_popup=`), app deep links (`?app=`), direct downloads (`?download=`),
+// fullpage mode (`?puter.fullpage=`), and iframe embeds. App metadata like
+// fullpage_on_landing does NOT opt a landing out of the dashboard; it only affects
+// boots that still go through the desktop flow.
 {
     const pathname = window.location.pathname;
     const search_params = new URLSearchParams(window.location.search);
@@ -523,7 +852,8 @@ if (jQuery) {
         search_params.has('download');
     const is_dashboard_alias =
         pathname === '/dashboard' || pathname === '/dashboard/';
-    if (is_dashboard_alias || (pathname === '/' && !needs_desktop_at_root)) {
+    const is_app_landing = /^\/app\/[^/]+\/?$/.test(pathname);
+    if (is_dashboard_alias || ((pathname === '/' || is_app_landing) && !needs_desktop_at_root)) {
         window.is_dashboard_mode = true;
         window.dashboard_initial_route = parseDashboardRoute();
     }
@@ -712,10 +1042,15 @@ window.showTurnstileChallenge = function (options) {
 window.initgui = async function (options) {
     const url = new URL(window.location).href;
     window.url = url;
-    const url_paths = window.location.pathname
-        .split('/')
-        .filter((element) => element);
+    // Route segments with a leading `/desktop` dropped, so the route checks
+    // downstream (app landings, actions) never have to know about the prefix:
+    // `/desktop/app/<name>` opens the app on the desktop the same way
+    // `/app/<name>` opens it in the dashboard.
+    const url_paths = parse_url_paths(window.location.pathname);
     window.url_paths = url_paths;
+
+    // GET query params provided
+    window.url_query_params = new URLSearchParams(window.location.search);
 
     // Install device signal helpers; collection is lazy. The fingerprint is
     // on by default (gui_params.thumbmarkEnabled = false kills it); the Prelude
@@ -728,11 +1063,25 @@ window.initgui = async function (options) {
     if (window.auth_token && puter.authToken !== window.auth_token) {
         puter.setAuthToken(window.auth_token);
     }
-    // update SDK if api_origin is different from the one in the SDK
-    if (window.api_origin && puter.APIOrigin !== window.api_origin) {
-        puter.setAPIOrigin(
-            localStorage.getItem('api_origin') || window.api_origin,
-        );
+    // Point the SDK at this deployment's own API. Anywhere but a Puter served
+    // off the developer's own machine, that is the only origin we'll use — see
+    // resolveAPIOrigin for why, and for the dev flow that is the exception.
+    if (window.api_origin) {
+        const api_origin = resolveAPIOrigin({
+            configuredOrigin: window.api_origin,
+            guiOrigin: window.location.origin,
+            urlOrigin: window.url_query_params.get('api_origin'),
+            storedOrigin: localStorage.getItem('api_origin'),
+        });
+        if (api_origin === window.api_origin) {
+            localStorage.removeItem('api_origin');
+        } else {
+            // Sticks for the rest of the session: only the boot that carried
+            // the parameter has it in the URL.
+            localStorage.setItem('api_origin', api_origin);
+            window.api_origin = api_origin;
+        }
+        if (puter.APIOrigin !== api_origin) puter.setAPIOrigin(api_origin);
     }
 
     // Print the version to the console
@@ -781,9 +1130,6 @@ window.initgui = async function (options) {
         '<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">',
     );
 
-    // GET query params provided
-    window.url_query_params = new URLSearchParams(window.location.search);
-
     // will hold the result of the whoami API call
     let whoami;
 
@@ -799,6 +1145,11 @@ window.initgui = async function (options) {
     } else if (window.url_query_params.has('action')) {
         action = window.url_query_params.get('action').toLowerCase();
     }
+    // Published for the windows that open mid-flow and have to know what this
+    // page is for — the login/signup windows consult it before offering a
+    // federated sign-in hop that would navigate the popup away and lose the
+    // action. See util/popupAuth.js.
+    window.gui_action = action;
 
     //--------------------------------------------------------------------------------------
     // Determine if we are in full-page mode
@@ -835,14 +1186,14 @@ window.initgui = async function (options) {
         if (r.ok) {
             const { token } = await r.json();
             window.auth_token = token;
-            // Write the v2 key; drop legacy v1 key.
+            // Write the current key; drop any value under the retired one.
             localStorage.setItem(
                 window.AUTH_TOKEN_KEY_V2 || 'auth_token_v2',
                 token,
             );
             try {
                 localStorage.removeItem(
-                    window.AUTH_TOKEN_KEY_V1 || 'auth_token',
+                    window.AUTH_TOKEN_KEY_RETIRED || 'auth_token',
                 );
             } catch (e) {
                 /* ignore */
@@ -889,14 +1240,26 @@ window.initgui = async function (options) {
     if (window.embedded_in_popup) {
         $('body').addClass('embedded-in-popup');
 
-        // determine the origin of the opener (preserved across OIDC redirect via URL param, else referrer or messaging)
-        const openerOriginFromUrl =
-            window.url_query_params.get('opener_origin');
-        if (openerOriginFromUrl) {
-            window.openerOrigin = openerOriginFromUrl;
-        } else {
-            window.openerOrigin = document.referrer;
-        }
+        // Determine the origin of the opener. This is the one assignment that
+        // matters: the token exchange, `checkUserSiteRelationship`,
+        // `getAppUIDFromOrigin` and both `postMessage` targets all read
+        // `window.openerOrigin`, so every one of them is only as trustworthy
+        // as this line.
+        //
+        // An OIDC redirect drops `document.referrer` — it returns the popup
+        // with the *provider* as referrer — so the opener's origin has to
+        // survive the hop. It does, inside the signed `state`, but the backend
+        // used to flatten it into a bare `opener_origin` parameter: a URL
+        // built from a verified state is byte-identical to one anybody can
+        // type, and the popup believed both. Now the return leg carries a
+        // signed proof, redeemed here for the value the server actually
+        // attested. Everything else falls back to browser-attested sources.
+        window.oidcPopupReturn = await verifyOidcPopupReturn(
+            window.url_query_params.get('opener_state'),
+            window.url_query_params.get('msg_id'),
+        );
+        window.openerOrigin =
+            window.oidcPopupReturn?.opener_origin || document.referrer;
         if (!window.openerOrigin) {
             try {
                 window.openerOrigin = await requestOpenerOrigin();
@@ -907,6 +1270,35 @@ window.initgui = async function (options) {
 
         // this is the referrer in terms of user acquisition
         window.referrerStr = window.openerOrigin;
+
+        // Tell a request-permission opener that this popup can reach it. Sent
+        // here, before any sign-in gate, because the SDK reads its absence as
+        // "the opener link was severed by COOP" — where a close means the
+        // prompt is still live in a window that cannot answer, and the decision
+        // has to be read back from the server rather than reported as a denial.
+        // A gate that delayed this would make abandoning sign-in look severed.
+        // Carries no token: see util/popupAuth.js for what a permission popup
+        // may hand its opener.
+        if (action === 'request-permission') {
+            try {
+                window.opener?.postMessage(
+                    {
+                        msg: 'permissionPromptReady',
+                        original_msg_id:
+                            window.url_query_params.get('msg_id'),
+                    },
+                    new URL(window.openerOrigin).origin,
+                );
+            } catch (e) {
+                // An unparseable opener origin, or an opener that went away.
+                // The requester falls back to reading the decision from the
+                // server, so this must not take the popup down with it.
+                console.error(
+                    'request-permission: could not announce the popup',
+                    e,
+                );
+            }
+        }
 
         if (
             action === 'sign-in' &&
@@ -925,10 +1317,19 @@ window.initgui = async function (options) {
                     },
                 })
             ) {
+                // Completing signup in a sign-in popup is the user asking to
+                // be signed in to the opener.
+                window.popup_signin_consent = true;
                 await window.getUserAppToken(window.openerOrigin);
             }
         } else if (
-            action === 'sign-in' &&
+            // An action-less popup is a sign-in popup — `postAuthActions`
+            // already treats it as one when it decides to close the window,
+            // and it ends in the same token hand-off. It has to reach the
+            // same account picker too: leaving it out meant the one popup
+            // shape that shows the user nothing was also the one that minted
+            // a token for the opener without being asked.
+            (action === 'sign-in' || !action) &&
             window.is_auth() &&
             !(window.attempt_temp_user_creation && window.first_visit_ever)
         ) {
@@ -947,8 +1348,13 @@ window.initgui = async function (options) {
                 console.error("error in 'sign-in' flow", e);
             }
 
-            if (window.url_query_params.get('oidc_login') === 'true') {
-                // OIDC login just completed in popup — skip session list and finish the flow
+            // An OIDC login that just completed may skip the account picker —
+            // the user chose their account at the provider moments ago. That
+            // comes from the same signed proof as the opener's origin, rather
+            // than the `oidc_login` query parameter it used to be read from:
+            // as a bare parameter anyone could write it, and it suppresses the
+            // one prompt standing between a link and a token.
+            if (window.oidcPopupReturn?.oidc_login) {
                 picked_a_user_for_sdk_login = true;
                 await window.getUserAppToken(window.openerOrigin);
             } else {
@@ -964,6 +1370,12 @@ window.initgui = async function (options) {
                     await window.getUserAppToken(window.openerOrigin);
                 }
             }
+            // Picking an account here *is* the consent to sign the opener in.
+            // `postAuthActions` runs later and unconditionally, so it needs to
+            // know whether that decision was ever made — dismissing the picker
+            // has to mean the opener gets nothing, not just that the early
+            // token exchange was skipped.
+            window.popup_signin_consent = !!picked_a_user_for_sdk_login;
         }
     }
 
@@ -1000,6 +1412,9 @@ window.initgui = async function (options) {
     // Early check for fullpage mode from app metadata
     // If the user navigated to /app/<app_name> and the app has fullpage_on_landing,
     // set fullpage mode now so we can skip loading the desktop background and items.
+    // Dashboard mode never reaches the fetch (it sets is_fullpage_mode itself): app
+    // landings open in the dashboard regardless of fullpage_on_landing — the flag only
+    // matters for the boots that still go through the desktop flow (embeds, popups).
     //--------------------------------------------------------------------------------------
     if (
         !window.is_fullpage_mode &&
@@ -1029,35 +1444,9 @@ window.initgui = async function (options) {
     }
 
     //--------------------------------------------------------------------------------------
-    // Action: Request Permission
-    //--------------------------------------------------------------------------------------
-    if (action === 'request-permission') {
-        let app_uid = window.url_query_params.get('app_uid');
-        let origin =
-            window.openerOrigin ?? window.url_query_params.get('origin');
-        let permission = window.url_query_params.get('permission');
-
-        let granted = await UIWindowRequestPermission({
-            app_uid: app_uid,
-            origin: origin,
-            permission: permission,
-        });
-
-        let messageTarget = window.embedded_in_popup
-            ? window.opener
-            : window.parent;
-        messageTarget.postMessage(
-            {
-                msg: 'permissionGranted',
-                granted: granted,
-            },
-            origin,
-        );
-    }
-    //--------------------------------------------------------------------------------------
     // Action: Password recovery
     //--------------------------------------------------------------------------------------
-    else if (action === 'set-new-password') {
+    if (action === 'set-new-password') {
         let user = window.url_query_params.get('user');
         let token = window.url_query_params.get('token');
 
@@ -1108,6 +1497,13 @@ window.initgui = async function (options) {
         opts.send_confirmation_code = true;
         await UIWindowSignup(Object.keys(opts).length ? opts : undefined);
     }
+    // Which URL parameter (if any) is carrying a token to sign in with —
+    // `auth_token`, or `token` when returning from a remote backend's AuthMe.
+    const url_token_param = urlTokenParam(
+        window.url_query_params,
+        shouldUseRemoteAuthme(window.gui_origin, window.location.origin),
+    );
+
     // -------------------------------------------------------------------------------------
     // If in embedded in a popup, it is important to check whether the opener app has a relationship with the user
     // if yes, we need to get the user app token and send it to the opener
@@ -1131,21 +1527,34 @@ window.initgui = async function (options) {
                 has_head: false,
                 cover_page: true,
             });
+            if (picked_a_user_for_sdk_login) {
+                window.popup_signin_consent = true;
+            }
+        }
+
+        // An opener the user has already signed in to before does not need to
+        // be re-approved on every visit — that grant is what
+        // `checkUserSiteRelationship` reports. This is also what keeps the
+        // file-picker and permission popups, which never show an account
+        // picker, from being blocked by the gate in `postAuthActions`.
+        if (window.userAppToken) {
+            window.popup_signin_consent = true;
         }
     }
     // -------------------------------------------------------------------------------------
-    // `auth_token` provided in URL, use it to log in
+    // A token provided in the URL, use it to log in. `auth_token` normally;
+    // `token` as well when a locally served GUI is returning from the remote
+    // backend's AuthMe flow, which is the name AuthMe hands back.
     // -------------------------------------------------------------------------------------
-    else if (window.url_query_params.has('auth_token')) {
-        let query_param_auth_token = window.url_query_params.get('auth_token');
-        let api_origin;
+    else if (url_token_param) {
+        let query_param_auth_token =
+            window.url_query_params.get(url_token_param);
 
-        // check if we have api_origin in the URL query params
-        if (window.url_query_params.has('api_origin')) {
-            api_origin = window.url_query_params.get('api_origin');
-            puter.setAPIOrigin(api_origin);
-        }
+        const previous_auth_token = window.auth_token;
 
+        // The token is resolved against our own API origin — deliberately not
+        // one named by the same URL that carried the token, which would leave
+        // the identity we're about to render up to whoever wrote the link.
         puter.setAuthToken(query_param_auth_token);
 
         try {
@@ -1154,6 +1563,31 @@ window.initgui = async function (options) {
             if (e.status === 401) {
                 window.logout();
                 return;
+            }
+        }
+
+        // Confirm the identity before adopting a token that came from the
+        // URL. Every other path into `update_auth_data` is an account the
+        // user picked in the UI, so those don't ask.
+        if (whoami && (!window.user || window.user.uuid !== whoami.uuid)) {
+            const proceed = await UIAlert({
+                type: 'confirm',
+                // `false` — UIAlert encodes the message itself.
+                message: i18n(
+                    'confirm_continue_as',
+                    { username: whoami.username },
+                    false,
+                ),
+                buttons: [
+                    { label: i18n('continue'), value: true, type: 'primary' },
+                    { label: i18n('cancel'), value: false, type: 'secondary' },
+                ],
+            });
+            if (!proceed) {
+                // Back to whatever session was already here; normal boot
+                // picks up below.
+                puter.setAuthToken(previous_auth_token);
+                whoami = null;
             }
         }
 
@@ -1208,15 +1642,22 @@ window.initgui = async function (options) {
             // show login progress window
             UIWindowLoginInProgress({ user_info: whoami });
             // update auth data
-            await window.update_auth_data(
-                query_param_auth_token,
-                whoami,
-                api_origin,
-            );
+            await window.update_auth_data(query_param_auth_token, whoami);
+            // The token landed and `whoami` accepted it — let a later sign-out
+            // in this tab hand off to AuthMe again (see the remote-backend
+            // branch below).
+            try {
+                sessionStorage.removeItem('puter.authme_redirect_attempted');
+            } catch (e) { /* sessionStorage unavailable */ }
         }
-        // remove auth_token from URL, keeping the current path (e.g. `/` or `/desktop`)
-        // and hash (dashboard tab links like /#usage)
-        window.history.pushState(
+        // remove the token from URL, keeping the current path (e.g. `/` or
+        // `/desktop`) and hash (dashboard tab links like /#usage).
+        //
+        // `replaceState`, not `pushState`: pushing leaves the token-bearing URL
+        // as the previous history entry, so Back returns to a URL containing a
+        // live credential (and it stays in session restore). Replacing drops it
+        // from this tab's history instead of merely navigating away from it.
+        window.history.replaceState(
             null,
             document.title,
             window.location.pathname + window.location.hash,
@@ -1334,7 +1775,9 @@ window.initgui = async function (options) {
         window.user = null;
         localStorage.removeItem('user');
         window.auth_token = null;
-        localStorage.removeItem('auth_token');
+        // `window.logout()` above already cleared the current key; this drops
+        // any value left under the retired one.
+        localStorage.removeItem(window.AUTH_TOKEN_KEY_RETIRED || 'auth_token');
 
         // close all windows
         $('.window').close();
@@ -1488,6 +1931,47 @@ window.initgui = async function (options) {
         !window.is_auth() &&
         (!window.first_visit_ever || window.disable_temp_users)
     ) {
+        // `npm start --server=<remote>` serves this GUI locally while pointing
+        // `gui_origin` at a remote Puter. There is nothing here to log into:
+        // `/login` accepts only its own origin, because it answers with a full
+        // session token and reflected CORS would otherwise let any page read
+        // one. So hand off to the remote's AuthMe flow — the password is typed
+        // on the real origin, and we come back with a token in the URL.
+        if (shouldUseRemoteAuthme(window.gui_origin, window.location.origin)) {
+            // One attempt per tab. A token that comes back but fails `whoami`
+            // would otherwise bounce us straight back out again forever.
+            const ATTEMPTED_KEY = 'puter.authme_redirect_attempted';
+            let attempted = false;
+            try {
+                attempted = sessionStorage.getItem(ATTEMPTED_KEY) === '1';
+                sessionStorage.setItem(ATTEMPTED_KEY, '1');
+            } catch (e) {
+                // sessionStorage unavailable — fall through and redirect once.
+            }
+            if (!attempted) {
+                window.location.href = authmeRequestUrl(
+                    window.gui_origin,
+                    window.location.origin + window.location.pathname,
+                    { fullToken: true },
+                ).href;
+                return;
+            }
+            // Second pass in this tab: something came back but didn't
+            // authenticate us. Clear the flag before reporting, so a reload
+            // gets one fresh attempt instead of being stuck on this alert
+            // forever — the guard exists to stop an *automatic* loop, and an
+            // automatic return only happens when a token was handed back.
+            try {
+                sessionStorage.removeItem(ATTEMPTED_KEY);
+            } catch (e) { /* sessionStorage unavailable */ }
+            await UIAlert({
+                message: i18n('remote_backend_signin_failed', {
+                    origin: window.gui_origin,
+                }),
+            });
+            return;
+        }
+
         const needs_action = action === 'authme' || action === 'copyauth';
         const reload_on_success = needs_action;
         if (window.logged_in_users.length > 0) {
@@ -1618,30 +2102,61 @@ window.initgui = async function (options) {
                             let spinner_duration = Date.now() - spinner_init_ts;
 
                             (async () => {
-                                let msg_id =
-                                    window.url_query_params.get('msg_id');
-                                let data = await window.getUserAppToken(
-                                    new URL(window.openerOrigin).origin,
-                                );
-                                // This is an implicit app and the app_uid is sent back from the server
-                                // we cache it here so that we can use it later
-                                window.host_app_uid = data.app_uid;
-                                // send token to parent
-                                window.opener.postMessage(
-                                    {
-                                        msg: 'puter.token',
-                                        success: true,
-                                        msg_id: msg_id,
-                                        token: data.token,
-                                        username: window.user.username,
-                                        app_uid: data.app_uid,
-                                    },
-                                    window.openerOrigin,
-                                );
-                                // close popup
-                                if (!action || action === 'sign-in') {
-                                    window.close();
-                                    window.open('', '_self').close();
+                                let closing = false;
+                                try {
+                                    let msg_id =
+                                        window.url_query_params.get('msg_id');
+                                    let data = await window.getUserAppToken(
+                                        new URL(window.openerOrigin).origin,
+                                    );
+                                    // A network failure here returns null and
+                                    // an HTTP failure returns the parsed error
+                                    // body, neither of which carries a token;
+                                    // the reads below would fault or hand the
+                                    // opener an `undefined` token.
+                                    if (!data?.token) {
+                                        throw new Error(
+                                            'user-app token exchange returned no token',
+                                        );
+                                    }
+                                    // This is an implicit app and the app_uid is sent back from the server
+                                    // we cache it here so that we can use it later
+                                    window.host_app_uid = data.app_uid;
+                                    // send token to parent
+                                    if (deliversTokenToOpener(action)) {
+                                        window.opener?.postMessage(
+                                            {
+                                                msg: 'puter.token',
+                                                success: true,
+                                                msg_id: msg_id,
+                                                token: data.token,
+                                                username: window.user.username,
+                                                app_uid: data.app_uid,
+                                            },
+                                            window.openerOrigin,
+                                        );
+                                    }
+                                    // close popup
+                                    if (!action || action === 'sign-in') {
+                                        closing = true;
+                                        window.close();
+                                        window.open('', '_self').close();
+                                    }
+                                } catch (err) {
+                                    console.error(
+                                        'popup token exchange failed',
+                                        err,
+                                    );
+                                } finally {
+                                    // Actions that keep the popup open still
+                                    // have work to do after this wait, and the
+                                    // sleep below only ends it when the spinner
+                                    // was up for under 2s — so this has to run
+                                    // on the failure paths too, or the popup
+                                    // wedges on the spinner forever.
+                                    if (!closing) {
+                                        resolve();
+                                    }
                                 }
                             })();
                             if (spinner_duration < 2000) {
@@ -1675,32 +2190,61 @@ window.initgui = async function (options) {
                             },
                         });
 
-                        (async () => {
-                            let msg_id = window.url_query_params.get('msg_id');
-                            let data = await window.getUserAppToken(
-                                new URL(window.openerOrigin).origin,
-                            );
-                            // This is an implicit app and the app_uid is sent back from the server
-                            // we cache it here so that we can use it later
-                            window.host_app_uid = data.app_uid;
-                            // send token to parent
-                            window.opener.postMessage(
-                                {
-                                    msg: 'puter.token',
-                                    success: true,
-                                    msg_id: msg_id,
-                                    token: data.token,
-                                    username: window.user.username,
-                                    app_uid: data.app_uid,
-                                },
-                                window.openerOrigin,
-                            );
-                            // close popup
-                            if (!action || action === 'sign-in') {
-                                window.close();
-                                window.open('', '_self').close();
-                            }
-                        })();
+                        // Popup-only: it posts to `window.opener` and closes the
+                        // window. On a normal page `window.openerOrigin` is
+                        // undefined and `new URL(undefined)` would throw into
+                        // nothing.
+                        if (window.embedded_in_popup)
+                            (async () => {
+                                try {
+                                    let msg_id =
+                                        window.url_query_params.get('msg_id');
+                                    let data = await window.getUserAppToken(
+                                        new URL(window.openerOrigin).origin,
+                                    );
+                                    if (!data?.token) {
+                                        throw new Error(
+                                            'user-app token exchange returned no token',
+                                        );
+                                    }
+                                    // This is an implicit app and the app_uid is sent back from the server
+                                    // we cache it here so that we can use it later
+                                    window.host_app_uid = data.app_uid;
+                                    // send token to parent
+                                    if (deliversTokenToOpener(action)) {
+                                        window.opener?.postMessage(
+                                            {
+                                                msg: 'puter.token',
+                                                success: true,
+                                                msg_id: msg_id,
+                                                token: data.token,
+                                                username: window.user.username,
+                                                app_uid: data.app_uid,
+                                            },
+                                            window.openerOrigin,
+                                        );
+                                    }
+                                } catch (err) {
+                                    console.error(
+                                        'popup token exchange failed after manual signup',
+                                        err,
+                                    );
+                                }
+                                // close popup
+                                if (!action || action === 'sign-in') {
+                                    window.close();
+                                    window.open('', '_self').close();
+                                    return;
+                                }
+                                // Every other action is handled by
+                                // `postAuthActions`, which only runs off the
+                                // `login` event on this path — without it the
+                                // popup sits blank and the requester is never
+                                // answered.
+                                document.dispatchEvent(
+                                    new Event('login', { bubbles: true }),
+                                );
+                            })();
                     } else if (err_obj.code === 'signup_blocked') {
                         // Hide any captcha modal
                         $('.captcha-modal').hide();
@@ -1759,6 +2303,13 @@ window.initgui = async function (options) {
     // `login` event handler
     // --------------------------------------------------------------------------------------
     $(document).on('login', async (e) => {
+        // Reaching this in a popup means the user just entered credentials in
+        // a window the opener asked for — that is the consent `postAuthActions`
+        // looks for. The account-picker gate upstream never runs on this path:
+        // it only applies to a popup that was already signed in at boot.
+        if (window.embedded_in_popup) {
+            window.popup_signin_consent = true;
+        }
         // close all windows
         $('.window').close();
 
@@ -2022,7 +2573,7 @@ $(document).on('contextmenu', '.disable-context-menu', function (e) {
 });
 
 // util/desktop.js
-window.privacy_aware_path = privacy_aware_path({ window });
+window.privacy_aware_path = privacy_aware_path_factory({ window });
 
 $(window).on('system-logout-event', function () {
     // Clear cookie

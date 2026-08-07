@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -18,8 +18,8 @@
  */
 
 import jwt from 'jsonwebtoken';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Actor } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -240,17 +240,29 @@ describe('AuthService (integration)', () => {
             });
         });
 
-        it('returns { invalid } for a malformed token', async () => {
+        it('returns { reauth: token_v1 } for a token that is not v2', async () => {
+            // Since v1 was retired nothing but `kid: 'v2'` can verify, so an
+            // unrecognizable token is answered with "sign in again" rather than
+            // a bare failure the client can't act on.
             const result = await authService.authenticate('not-a-jwt');
+            expect(result.actor).toBeUndefined();
+            expect(result.reauth?.reason).toBe('token_v1');
+        });
+
+        it('returns { invalid } for a v2-routed token with a bad signature', async () => {
+            const forged = jwt.sign({ t: 's', uu: 'nope' }, 'wrong-secret', {
+                keyid: 'v2',
+            });
+            const result = await authService.authenticate(forged);
             expect(result.invalid).toBe(true);
             expect(result.actor).toBeUndefined();
             expect(result.reauth).toBeUndefined();
         });
 
-        it('overlays reauth.token_v1 onto the actor when the token verifies via the legacy secret', async () => {
-            // Hand-mint a v1-shape token with the legacy secret (no kid).
-            // Compress the same way TokenService does so it round-trips
-            // after verify.
+        it('a v1-signed session token resolves no actor, only a reauth signal', async () => {
+            // The user's row and session are perfectly healthy; it is the token
+            // format that is retired, so the answer is "sign in again" and
+            // never an authenticated actor.
             const user = await makeUser();
             const { session } = await authService.createSessionToken(user, {});
             const legacyJwt = jwt.sign(
@@ -269,10 +281,11 @@ describe('AuthService (integration)', () => {
                 'dev-jwt-secret-change-me',
             );
             const result = await authService.authenticate(legacyJwt);
-            // The actor is resolved (row exists and is active) AND the
-            // reauth signal fires so SDK clients migrate.
-            expect(result.actor?.user.uuid).toBe(user.uuid);
+            expect(result.actor).toBeUndefined();
             expect(result.reauth?.reason).toBe('token_v1');
+            // The advisory hint still comes off the unverified payload, so the
+            // client can re-attach to the same identity.
+            expect(result.reauth?.auth_id).toBe(user.uuid);
         });
 
         // ── App-under-user verify path ─────────────────────────────
@@ -285,13 +298,7 @@ describe('AuthService (integration)', () => {
             const uid = `app-${uuidv4()}`;
             await server.clients.db.write(
                 'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
-                [
-                    uid,
-                    `n-${uid}`,
-                    `t-${uid}`,
-                    `https://${uid}.example/`,
-                    1,
-                ],
+                [uid, `n-${uid}`, `t-${uid}`, `https://${uid}.example/`, 1],
             );
             return uid;
         };
@@ -301,16 +308,19 @@ describe('AuthService (integration)', () => {
             const appUid = await makeApp();
             const appToken = await authService.getUserAppToken(
                 {
-                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
                 } as Actor,
                 appUid,
             );
             // Pull the session_uid claim out of the JWT so we revoke
             // the exact row the verify path will look up.
-            const decoded = server.services.token.verify(
-                'auth',
-                appToken,
-            ) as { session_uid: string };
+            const decoded = server.services.token.verify('auth', appToken) as {
+                session_uid: string;
+            };
             await server.stores.session.removeByUuid(decoded.session_uid);
 
             const result = await authService.authenticate(appToken);
@@ -326,14 +336,17 @@ describe('AuthService (integration)', () => {
             const appUid = await makeApp();
             const appToken = await authService.getUserAppToken(
                 {
-                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
                 } as Actor,
                 appUid,
             );
-            const decoded = server.services.token.verify(
-                'auth',
-                appToken,
-            ) as { session_uid: string };
+            const decoded = server.services.token.verify('auth', appToken) as {
+                session_uid: string;
+            };
             await server.clients.db.write(
                 'UPDATE `sessions` SET `expires_at` = ? WHERE `uuid` = ?',
                 [Math.floor(Date.now() / 1000) - 60, decoded.session_uid],
@@ -360,7 +373,11 @@ describe('AuthService (integration)', () => {
             // identity isn't what this test exercises.
             const accessToken = await authService.createAccessToken(
                 {
-                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
                 } as Actor,
                 [[`user:${user.uuid}:email:read`]],
             );
@@ -385,7 +402,11 @@ describe('AuthService (integration)', () => {
             // check only fires when expires_at is non-NULL.
             const accessToken = await authService.createAccessToken(
                 {
-                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
                 } as Actor,
                 [[`user:${user.uuid}:email:read`]],
                 { expiresIn: '1h' },
@@ -423,7 +444,10 @@ describe('AuthService (integration)', () => {
             // Tokens differ — session vs. GUI type.
             expect(out.token).not.toBe(out.gui_token);
 
-            const sessionDecoded = server.services.token.verify('auth', out.token) as {
+            const sessionDecoded = server.services.token.verify(
+                'auth',
+                out.token,
+            ) as {
                 type: string;
             };
             expect(sessionDecoded.type).toBe('session');
@@ -474,7 +498,11 @@ describe('AuthService (integration)', () => {
         it('is a no-op on a token whose type is neither session nor gui', async () => {
             const otpJwt = server.services.token.sign(
                 'auth',
-                { type: 'access-token', token_uid: uuidv4(), user_uid: uuidv4() },
+                {
+                    type: 'access-token',
+                    token_uid: uuidv4(),
+                    user_uid: uuidv4(),
+                },
                 { expiresIn: '5m' },
             );
             await expect(
@@ -692,7 +720,10 @@ describe('AuthService (integration)', () => {
             // rows created above stamped `last_activity = now`.
             const future = Math.floor(Date.now() / 1000) + 60_000;
             await server.stores.session.updateActivity(olderUuid, future);
-            await server.stores.session.updateActivity(newerUuid, future + 1000);
+            await server.stores.session.updateActivity(
+                newerUuid,
+                future + 1000,
+            );
             const actor = {
                 user: { id: user.id, uuid: user.uuid, username: user.username },
                 session: { uid: currentUuid },
@@ -745,9 +776,7 @@ describe('AuthService (integration)', () => {
             // boundary across `describe`s they should be empty for a
             // fresh uuid.)
             void store; // intentional no-op — kept as a docstring anchor
-            await server.clients.redis.del(
-                `sessions:v2:uuid:${sessionUuid}`,
-            );
+            await server.clients.redis.del(`sessions:v2:uuid:${sessionUuid}`);
         };
 
         const readRawRow = async (uuid: string) => {
@@ -811,14 +840,17 @@ describe('AuthService (integration)', () => {
             );
             const appToken = await authService.getUserAppToken(
                 {
-                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
                 } as Actor,
                 appUid,
             );
-            const decoded = server.services.token.verify(
-                'auth',
-                appToken,
-            ) as { session_uid: string };
+            const decoded = server.services.token.verify('auth', appToken) as {
+                session_uid: string;
+            };
             await ageSessionForTouch(decoded.session_uid);
 
             await authService.authenticate(appToken, {
@@ -835,7 +867,11 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const accessToken = await authService.createAccessToken(
                 {
-                    user: { id: user.id, uuid: user.uuid, username: user.username },
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
                 } as Actor,
                 [[`user:${user.uuid}:email:read`]],
                 { expiresIn: '1h' },
@@ -969,7 +1005,7 @@ describe('AuthService (integration)', () => {
     });
 
     describe('createWorkerSessionToken / createWorkerAppToken', () => {
-        // The test config's v2 jwt_secret is the source of truth for
+        // The test config's `jwt_secret_v2` is the source of truth for
         // verifying claims; go through TokenService to mirror how
         // production decodes the same tokens.
         const decodeAuth = (token: string): Record<string, unknown> => {
@@ -1168,9 +1204,9 @@ describe('AuthService (integration)', () => {
                 appUid,
                 `wk-${Math.random().toString(36).slice(2, 8)}-b`,
             );
-            expect((decodeAuth(a) as { session_uid: string }).session_uid).not.toBe(
-                (decodeAuth(b) as { session_uid: string }).session_uid,
-            );
+            expect(
+                (decodeAuth(a) as { session_uid: string }).session_uid,
+            ).not.toBe((decodeAuth(b) as { session_uid: string }).session_uid);
         });
 
         it('createWorkerAppToken refuses an actor with no user (403)', async () => {
@@ -1189,11 +1225,7 @@ describe('AuthService (integration)', () => {
                 user: { id: user.id, uuid: user.uuid, username: user.username },
             } as Actor;
             await expect(
-                authService.createWorkerAppToken(
-                    actor,
-                    `app-${uuidv4()}`,
-                    '',
-                ),
+                authService.createWorkerAppToken(actor, `app-${uuidv4()}`, ''),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
 
@@ -1212,6 +1244,141 @@ describe('AuthService (integration)', () => {
             ).rejects.toMatchObject({
                 statusCode: 403,
                 legacyCode: 'forbidden',
+            });
+        });
+
+        // An app may delegate a worker token to an app it created, which is
+        // what gives each generated project its own namespace. Everything
+        // else stays as strict as interactive delegation.
+        describe('delegation to a created app', () => {
+            const makeApp = async (
+                label: string,
+                ownerUserId: number,
+                appOwner?: number,
+            ) => {
+                const name = `${label}-${Math.random().toString(36).slice(2, 8)}`;
+                return await server.stores.app.create(
+                    {
+                        name,
+                        title: name,
+                        index_url: `https://${name}.example.com/`,
+                    },
+                    { ownerUserId, appOwner },
+                );
+            };
+
+            const appActorFor = (
+                user: { id: number; uuid: string; username: string },
+                app: { uid: string; id: number },
+            ) =>
+                ({
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
+                    app: { uid: app.uid, id: app.id },
+                }) as Actor;
+
+            it('mints a token scoped to an app the caller created', async () => {
+                const user = await makeUser();
+                const builder = await makeApp('builder', user.id);
+                const generated = await makeApp(
+                    'generated',
+                    user.id,
+                    builder.id,
+                );
+
+                const token = await authService.createWorkerAppToken(
+                    appActorFor(user, builder),
+                    generated.uid,
+                    'wk-generated',
+                );
+
+                // The whole point: the worker authenticates as the generated
+                // app, not as the builder that deployed it.
+                const decoded = decodeAuth(token);
+                expect(decoded.app_uid).toBe(generated.uid);
+                expect(decoded.user_uid).toBe(user.uuid);
+                expect(decoded.worker).toBe(true);
+            });
+
+            it('refuses an app the caller did not create (403)', async () => {
+                const user = await makeUser();
+                const builder = await makeApp('builder', user.id);
+                const unrelated = await makeApp('unrelated', user.id);
+
+                await expect(
+                    authService.createWorkerAppToken(
+                        appActorFor(user, builder),
+                        unrelated.uid,
+                        'wk-unrelated',
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+            });
+
+            it('refuses a created app owned by a different user (403)', async () => {
+                const user = await makeUser();
+                const stranger = await makeUser();
+                const builder = await makeApp('builder', user.id);
+                const strangersApp = await makeApp(
+                    'strangers',
+                    stranger.id,
+                    builder.id,
+                );
+
+                await expect(
+                    authService.createWorkerAppToken(
+                        appActorFor(user, builder),
+                        strangersApp.uid,
+                        'wk-stranger',
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+            });
+
+            it('still refuses an access-token actor (403)', async () => {
+                const user = await makeUser();
+                const target = await makeApp('target', user.id);
+                const actor = {
+                    user: {
+                        id: user.id,
+                        uuid: user.uuid,
+                        username: user.username,
+                    },
+                    accessToken: {
+                        uid: uuidv4(),
+                        issuer: { user },
+                        fullAccess: true,
+                    },
+                } as unknown as Actor;
+
+                await expect(
+                    authService.createWorkerAppToken(
+                        actor,
+                        target.uid,
+                        'wk-token',
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+            });
+
+            it('leaves interactive app-token delegation strict', async () => {
+                const user = await makeUser();
+                const builder = await makeApp('builder', user.id);
+                const generated = await makeApp(
+                    'generated',
+                    user.id,
+                    builder.id,
+                );
+
+                // getUserAppToken mints a credential that acts as the app in
+                // full; the created-app allowance is deliberately not extended
+                // to it.
+                await expect(
+                    authService.getUserAppToken(
+                        appActorFor(user, builder),
+                        generated.uid,
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
             });
         });
 
@@ -1345,6 +1512,91 @@ describe('AuthService (integration)', () => {
             await expect(
                 authService.appUidFromOrigin(origin),
             ).rejects.toMatchObject({ statusCode: 400 });
+        });
+    });
+
+    describe('subdomainOwnerIdFromOrigin', () => {
+        // Test servers inherit the four hosting domains (production:
+        // puter.site / puter.host / puter.app / puter.dev) from
+        // config.default.json.
+        it.each([
+            'site.puter.localhost',
+            'host.puter.localhost',
+            'app.puter.localhost',
+            'dev.puter.localhost',
+        ])(
+            'returns the subdomain owner for an origin under %s',
+            async (hostingDomain) => {
+                const user = await makeUser();
+                const subdomain = `own-${Math.random().toString(36).slice(2, 10)}`;
+                await server.stores.subdomain.create({
+                    userId: user.id,
+                    subdomain,
+                });
+                await expect(
+                    authService.subdomainOwnerIdFromOrigin(
+                        `https://${subdomain}.${hostingDomain}`,
+                    ),
+                ).resolves.toBe(user.id);
+            },
+        );
+
+        it('matches a hosted origin that carries an explicit port', async () => {
+            const user = await makeUser();
+            const subdomain = `own-${Math.random().toString(36).slice(2, 10)}`;
+            await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain,
+            });
+            await expect(
+                authService.subdomainOwnerIdFromOrigin(
+                    `http://${subdomain}.site.puter.localhost:4100`,
+                ),
+            ).resolves.toBe(user.id);
+        });
+
+        it('returns null for an origin outside the hosting domains', async () => {
+            await expect(
+                authService.subdomainOwnerIdFromOrigin(
+                    `https://external-${uuidv4()}.example.com`,
+                ),
+            ).resolves.toBeNull();
+        });
+
+        it('returns null for a subdomain of the main domain', async () => {
+            // `<sub>.puter.localhost` sits under the main `domain`, not a
+            // hosting domain — no owner resolves even when a subdomain row
+            // with the same name exists.
+            const user = await makeUser();
+            const subdomain = `own-${Math.random().toString(36).slice(2, 10)}`;
+            await server.stores.subdomain.create({
+                userId: user.id,
+                subdomain,
+            });
+            await expect(
+                authService.subdomainOwnerIdFromOrigin(
+                    `https://${subdomain}.puter.localhost`,
+                ),
+            ).resolves.toBeNull();
+        });
+
+        it('returns null for an unregistered subdomain and for the apex host', async () => {
+            await expect(
+                authService.subdomainOwnerIdFromOrigin(
+                    `https://ghost-${uuidv4().slice(0, 8)}.site.puter.localhost`,
+                ),
+            ).resolves.toBeNull();
+            await expect(
+                authService.subdomainOwnerIdFromOrigin(
+                    'https://site.puter.localhost',
+                ),
+            ).resolves.toBeNull();
+        });
+
+        it('returns null for an unparseable origin', async () => {
+            await expect(
+                authService.subdomainOwnerIdFromOrigin('not-a-url'),
+            ).resolves.toBeNull();
         });
     });
 
@@ -1513,7 +1765,11 @@ describe('AuthService (integration)', () => {
             } as Actor;
             const actor = {
                 user: { id: user.id, uuid: user.uuid, username: user.username },
-                accessToken: { uid: `tok-${uuidv4()}`, issuer, authorized: null },
+                accessToken: {
+                    uid: `tok-${uuidv4()}`,
+                    issuer,
+                    authorized: null,
+                },
             } as Actor;
             await expect(
                 authService.getUserAppToken(actor, `app-${uuidv4()}`),
@@ -1814,8 +2070,7 @@ describe('AuthService (integration)', () => {
             const fullJwt = await authService.createAccessToken(userActor, [
                 [FULL_API_ACCESS],
             ]);
-            const fullActor =
-                await authService.authenticateFromToken(fullJwt);
+            const fullActor = await authService.authenticateFromToken(fullJwt);
             expect(fullActor).toBeTruthy();
             // The signed claim is surfaced on the actor — this flag is what the
             // resource gate and the permission scan both key off.
@@ -1986,7 +2241,8 @@ describe('AuthService (integration)', () => {
                 sessionUuid,
                 host: 'host.example',
             });
-            const decoded = await authService.verifyPublicHostedActorToken(token);
+            const decoded =
+                await authService.verifyPublicHostedActorToken(token);
             expect(decoded.authId).toBe(user.uuid);
         });
 
@@ -2024,11 +2280,9 @@ describe('AuthService (integration)', () => {
             ).rejects.toMatchObject({ statusCode: 401 });
         });
 
-        it('v1 hosted-asset token verifies with legacy:true while allow_v1_tokens is on', async () => {
-            // Hand-mint a v1-shape hosted-asset token signed with the
-            // legacy secret. v1 compression uses the same short keys but
-            // no `kid` header, so TokenService.verify routes it to the
-            // legacy secret and tags the result `legacy: true`.
+        it('a v1-signed hosted-asset cookie no longer verifies', async () => {
+            // The gate treats this as a stale cookie and re-mints under v2, so
+            // the only requirement here is that it does not verify.
             const user = await makeUser();
             const appUid = `app-${uuidv4()}`;
             const v1Token = jwt.sign(
@@ -2045,9 +2299,9 @@ describe('AuthService (integration)', () => {
                 },
                 'dev-jwt-secret-change-me',
             );
-            const decoded = await authService.verifyPrivateAssetToken(v1Token);
-            expect(decoded.legacy).toBe(true);
-            expect(decoded.userUid).toBe(user.uuid);
+            await expect(
+                authService.verifyPrivateAssetToken(v1Token),
+            ).rejects.toThrow();
         });
     });
 
@@ -2086,6 +2340,131 @@ describe('AuthService (integration)', () => {
             );
             expect(after).toBeNull();
         });
+
+        it('revokes a full-access token by raw token_uid, which has no grant rows to resolve against', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const jwt = await authService.createAccessToken(actor, [
+                [FULL_API_ACCESS],
+            ]);
+            const decoded = server.services.token.verify('auth', jwt) as {
+                token_uid: string;
+                session_uid: string;
+            };
+
+            await authService.revokeAccessToken(actor, decoded.token_uid);
+
+            expect(
+                await server.stores.session.getByUuid(decoded.session_uid),
+            ).toBeNull();
+            expect(await authService.authenticateFromToken(jwt)).toBeNull();
+        });
+
+        it('404s when another user names a full-access token by raw token_uid', async () => {
+            const owner = await makeUser();
+            const other = await makeUser();
+            const ownerActor = {
+                user: {
+                    id: owner.id,
+                    uuid: owner.uuid,
+                    username: owner.username,
+                },
+            } as Actor;
+            const otherActor = {
+                user: {
+                    id: other.id,
+                    uuid: other.uuid,
+                    username: other.username,
+                },
+            } as Actor;
+            const jwt = await authService.createAccessToken(ownerActor, [
+                [FULL_API_ACCESS],
+            ]);
+            const decoded = server.services.token.verify('auth', jwt) as {
+                token_uid: string;
+            };
+
+            await expect(
+                authService.revokeAccessToken(otherActor, decoded.token_uid),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            expect(await authService.authenticateFromToken(jwt)).toBeTruthy();
+        });
+    });
+
+    describe('revokeSession on access-token rows', () => {
+        // The manage-sessions UI only ever holds the session uuid — the
+        // token itself is shown once at mint and never again — so revoking
+        // by uuid has to be enough to both kill the token and clear what it
+        // was allowed to do.
+
+        it('stops a full-access token authenticating when revoked by session uuid', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const jwt = await authService.createAccessToken(actor, [
+                [FULL_API_ACCESS],
+            ]);
+            const decoded = server.services.token.verify('auth', jwt) as {
+                session_uid: string;
+            };
+
+            expect(await authService.authenticateFromToken(jwt)).toBeTruthy();
+
+            await authService.revokeSession(decoded.session_uid);
+
+            expect(await authService.authenticateFromToken(jwt)).toBeNull();
+        });
+
+        it('clears the grant manifest of a scoped token revoked by session uuid', async () => {
+            const user = await makeUser();
+            const actor = {
+                user: { id: user.id, uuid: user.uuid, username: user.username },
+            } as Actor;
+            const jwt = await authService.createAccessToken(actor, [
+                [`user:${user.uuid}:email:read`],
+            ]);
+            const decoded = server.services.token.verify('auth', jwt) as {
+                token_uid: string;
+                session_uid: string;
+            };
+
+            await authService.revokeSession(decoded.session_uid);
+
+            const rows = (await server.clients.db.read(
+                'SELECT 1 FROM `access_token_permissions` WHERE `token_uid` = ? LIMIT 1',
+                [decoded.token_uid],
+            )) as unknown[];
+            expect(rows).toHaveLength(0);
+            expect(await authService.authenticateFromToken(jwt)).toBeNull();
+        });
+
+        it('clears grants of token rows parented to a revoked session', async () => {
+            const user = await makeUser();
+            const parent = await server.stores.session.create(user.id, {
+                kind: 'app',
+            });
+            const tokenUid = uuidv4();
+            await server.stores.session.create(user.id, {
+                kind: 'access_token',
+                parent_session_id: parent.uuid,
+                access_token_uid: tokenUid,
+            });
+            await server.clients.db.write(
+                'INSERT INTO `access_token_permissions` (`token_uid`, `authorizer_user_id`, `authorizer_app_id`, `permission`, `extra`) VALUES (?, ?, ?, ?, ?)',
+                [tokenUid, user.id, null, 'driver:test:call', '{}'],
+            );
+
+            await authService.revokeSession(parent.uuid);
+
+            const rows = (await server.clients.db.read(
+                'SELECT 1 FROM `access_token_permissions` WHERE `token_uid` = ? LIMIT 1',
+                [tokenUid],
+            )) as unknown[];
+            expect(rows).toHaveLength(0);
+        });
     });
 
     describe('revokeAllSessions', () => {
@@ -2101,7 +2480,10 @@ describe('AuthService (integration)', () => {
             const user = await makeUser();
             const otherDevice = await authService.createSessionToken(user, {});
             const otherUuid = (otherDevice.session as { uuid: string }).uuid;
-            const currentDevice = await authService.createSessionToken(user, {});
+            const currentDevice = await authService.createSessionToken(
+                user,
+                {},
+            );
             const currentUuid = (currentDevice.session as { uuid: string })
                 .uuid;
             const actor = {
@@ -2116,14 +2498,15 @@ describe('AuthService (integration)', () => {
                 await server.stores.session.getByUuid(currentUuid),
             ).toBeTruthy();
             // Other device's session is gone.
-            expect(
-                await server.stores.session.getByUuid(otherUuid),
-            ).toBeNull();
+            expect(await server.stores.session.getByUuid(otherUuid)).toBeNull();
         });
 
         it('with includeCurrent=true also revokes the caller', async () => {
             const user = await makeUser();
-            const currentDevice = await authService.createSessionToken(user, {});
+            const currentDevice = await authService.createSessionToken(
+                user,
+                {},
+            );
             const currentUuid = (currentDevice.session as { uuid: string })
                 .uuid;
             const actor = {
@@ -2159,9 +2542,7 @@ describe('AuthService (integration)', () => {
             } as unknown as Actor);
 
             // Web is gone, app survives.
-            expect(
-                await server.stores.session.getByUuid(webUuid),
-            ).toBeNull();
+            expect(await server.stores.session.getByUuid(webUuid)).toBeNull();
             const appSession = await server.stores.session.getOrCreateApp(
                 user.id,
                 appUid,
@@ -2176,7 +2557,10 @@ describe('AuthService (integration)', () => {
             } as Actor;
             const appUid = `app-${uuidv4()}`;
             const appToken = await authService.getUserAppToken(actor, appUid);
-            const appDecoded = server.services.token.verify('auth', appToken) as {
+            const appDecoded = server.services.token.verify(
+                'auth',
+                appToken,
+            ) as {
                 session_uid: string;
             };
 
@@ -2193,214 +2577,110 @@ describe('AuthService (integration)', () => {
             ).toBeNull();
         });
     });
+});
 
-    // ── migrate-token ───────────────────────────────────────────────
+// -- Origin alias groups ----------------------------------------------
 
-    describe('migrateLegacyToken', () => {
-        // Hand-mint v1 tokens using the same compression dict the
-        // TokenService's verify path will decompress against.
+describe('AuthService.appUidFromOrigin — aliased hosts', () => {
+    let server: PuterServer;
+    let authService: AuthService;
 
-        const encodeUuid = (u: string): string =>
-            Buffer.from(u.replace(/-/g, ''), 'hex').toString('base64');
+    beforeAll(async () => {
+        server = await setupTestServer({
+            app_origin_aliases: [
+                ['beta.example.com', 'ALPHA.example.com', ' beta.example.com '],
+                // Malformed entries must be skipped, not brick resolution.
+                'not-a-group',
+                [],
+                [42, '   '],
+            ],
+        } as never);
+        authService = server.services.auth as unknown as AuthService;
+    }, 60_000);
 
-        const signV1AccessToken = (opts: {
-            tokenUid: string;
-            userUid: string;
-            appUid?: string;
-        }): string => {
-            const payload: Record<string, unknown> = {
-                t: 't',
-                token_uid: opts.tokenUid,
-                uu: encodeUuid(opts.userUid),
-            };
-            if (opts.appUid) {
-                payload.au = encodeUuid(
-                    opts.appUid.startsWith('app-')
-                        ? opts.appUid.slice('app-'.length)
-                        : opts.appUid,
-                );
-            }
-            return jwt.sign(payload, 'dev-jwt-secret-change-me');
-        };
+    afterAll(async () => {
+        await server?.shutdown();
+    }, 60_000);
 
-        const signV1AppToken = (opts: {
-            userUid: string;
-            appUid: string;
-        }): string => {
-            const stripped = opts.appUid.startsWith('app-')
-                ? opts.appUid.slice('app-'.length)
-                : opts.appUid;
-            return jwt.sign(
-                {
-                    t: 'au',
-                    uu: encodeUuid(opts.userUid),
-                    au: encodeUuid(stripped),
-                },
-                'dev-jwt-secret-change-me',
-            );
-        };
+    it('collapses every member of a group onto one app uid', async () => {
+        const alpha = await authService.appUidFromOrigin(
+            'https://alpha.example.com',
+        );
+        const beta = await authService.appUidFromOrigin(
+            'https://beta.example.com',
+        );
+        // Case-insensitively too — config is normalized on read.
+        const shouty = await authService.appUidFromOrigin(
+            'https://BETA.example.com',
+        );
+        // Regression: the canonical member must land on the same uid as the
+        // aliases that redirect onto it, so the alias origin has to be
+        // normalized exactly the way a bare origin is.
+        expect(beta).toBe(alpha);
+        expect(shouty).toBe(alpha);
+    });
 
-        const signV1SessionToken = (opts: {
-            userUid: string;
-            sessionUuid: string;
-        }): string =>
-            jwt.sign(
-                {
-                    t: 's',
-                    u: encodeUuid(opts.sessionUuid),
-                    uu: encodeUuid(opts.userUid),
-                },
-                'dev-jwt-secret-change-me',
-            );
+    it('leaves hosts outside every group on their own uid', async () => {
+        const grouped = await authService.appUidFromOrigin(
+            'https://alpha.example.com',
+        );
+        const ungrouped = await authService.appUidFromOrigin(
+            'https://gamma.example.com',
+        );
+        expect(ungrouped).not.toBe(grouped);
+    });
 
-        it('migrates a v1 access-token to a v2 token preserving token_uid', async () => {
-            const user = await makeUser();
-            const tokenUid = uuidv4();
-            const v1 = signV1AccessToken({
-                tokenUid,
-                userUid: user.uuid,
-            });
+    it('keeps distinct ports distinct — the group names bare hosts', async () => {
+        // `alpha.example.com:8080` is not a group member, so it canonicalizes
+        // on its hostname instead and keeps the port in the resolved uid.
+        const withPort = await authService.appUidFromOrigin(
+            'https://alpha.example.com:8080',
+        );
+        const withoutPort = await authService.appUidFromOrigin(
+            'https://alpha.example.com',
+        );
+        expect(withPort).not.toBe(withoutPort);
+    });
+});
 
-            const result = await authService.migrateLegacyToken(v1);
+describe('AuthService.subdomainOwnerIdFromOrigin — edge cases', () => {
+    let server: PuterServer;
+    let authService: AuthService;
 
-            expect(result.kind).toBe('access_token');
-            expect(result.auth_id).toBe(user.uuid);
-            expect(typeof result.session_uid).toBe('string');
+    beforeAll(async () => {
+        server = await setupTestServer();
+        authService = server.services.auth as unknown as AuthService;
+    }, 60_000);
 
-            // v2 token re-verifies and carries the same token_uid +
-            // a fresh session_uid.
-            const decoded = server.services.token.verify('auth', result.token) as {
-                type: string;
-                token_uid: string;
-                session_uid: string;
-                user_uid: string;
-            };
-            expect(decoded.type).toBe('access-token');
-            expect(decoded.token_uid).toBe(tokenUid);
-            expect(decoded.user_uid).toBe(user.uuid);
-            expect(decoded.session_uid).toBe(result.session_uid);
-        });
+    afterAll(async () => {
+        await server?.shutdown();
+    }, 60_000);
 
-        it('access-token migration is idempotent (same session_uid on retry)', async () => {
-            const user = await makeUser();
-            const tokenUid = uuidv4();
-            const v1 = signV1AccessToken({ tokenUid, userUid: user.uuid });
+    it('returns null for an unparseable origin', async () => {
+        expect(await authService.subdomainOwnerIdFromOrigin('nope')).toBeNull();
+    });
 
-            const first = await authService.migrateLegacyToken(v1);
-            const second = await authService.migrateLegacyToken(v1);
+    it('returns null for the hosting domain apex itself', async () => {
+        expect(
+            await authService.subdomainOwnerIdFromOrigin(
+                'https://site.puter.localhost',
+            ),
+        ).toBeNull();
+    });
 
-            expect(first.session_uid).toBe(second.session_uid);
-        });
+    it('returns null for an origin outside every hosting domain', async () => {
+        expect(
+            await authService.subdomainOwnerIdFromOrigin(
+                'https://elsewhere.example.com',
+            ),
+        ).toBeNull();
+    });
 
-        it('migrates a v1 app-under-user token to a v2 token', async () => {
-            const user = await makeUser();
-            const appUid = `app-${uuidv4()}`;
-            const v1 = signV1AppToken({
-                userUid: user.uuid,
-                appUid,
-            });
-
-            const result = await authService.migrateLegacyToken(v1);
-
-            expect(result.kind).toBe('app');
-            expect(result.auth_id).toBe(user.uuid);
-            const decoded = server.services.token.verify('auth', result.token) as {
-                type: string;
-                app_uid: string;
-                user_uid: string;
-                session_uid: string;
-            };
-            expect(decoded.type).toBe('app-under-user');
-            expect(decoded.app_uid).toBe(appUid);
-            expect(decoded.user_uid).toBe(user.uuid);
-            expect(decoded.session_uid).toBe(result.session_uid);
-        });
-
-        it('app-token migration is idempotent on (user_id, app_uid)', async () => {
-            const user = await makeUser();
-            const appUid = `app-${uuidv4()}`;
-            const v1a = signV1AppToken({ userUid: user.uuid, appUid });
-            const v1b = signV1AppToken({ userUid: user.uuid, appUid });
-
-            const first = await authService.migrateLegacyToken(v1a);
-            const second = await authService.migrateLegacyToken(v1b);
-
-            expect(first.session_uid).toBe(second.session_uid);
-        });
-
-        it('returns 409 reauth_required for v1 session tokens', async () => {
-            const user = await makeUser();
-            const v1 = signV1SessionToken({
-                userUid: user.uuid,
-                sessionUuid: uuidv4(),
-            });
-
-            await expect(
-                authService.migrateLegacyToken(v1),
-            ).rejects.toMatchObject({
-                statusCode: 409,
-                code: 'reauth_required',
-            });
-        });
-
-        it('rejects v2 tokens with 401 (nothing to migrate)', async () => {
-            const user = await makeUser();
-            const v2 = await authService.createAccessToken(
-                {
-                    user: { id: user.id, uuid: user.uuid, username: user.username },
-                } as Actor,
-                [[`user:${user.uuid}:email:read`]],
-            );
-            await expect(
-                authService.migrateLegacyToken(v2),
-            ).rejects.toMatchObject({ statusCode: 401 });
-        });
-
-        it('rejects garbage tokens with 401', async () => {
-            await expect(
-                authService.migrateLegacyToken('not-a-jwt'),
-            ).rejects.toMatchObject({ statusCode: 401 });
-        });
-
-        it('returns 410 for app tokens when allow_v1_app_migration=false', async () => {
-            // Use a scoped server with the flag flipped — toggling
-            // `this.config` on the shared server would race with other
-            // tests.
-            const scopedServer = await setupTestServer({
-                allow_v1_app_migration: false,
-            } as never);
-            try {
-                const scopedAuth = scopedServer.services.auth as unknown as
-                    AuthService;
-                const user = await scopedServer.stores.user.create({
-                    username: `mt-${uuidv4().slice(0, 8)}`,
-                    uuid: uuidv4(),
-                    password: null,
-                    email: `mt-${uuidv4().slice(0, 8)}@test.local`,
-                    free_storage: 100 * 1024 * 1024,
-                    requires_email_confirmation: false,
-                });
-                const appUid = `app-${uuidv4()}`;
-                const v1App = signV1AppToken({
-                    userUid: user.uuid,
-                    appUid,
-                });
-                await expect(
-                    scopedAuth.migrateLegacyToken(v1App),
-                ).rejects.toMatchObject({
-                    statusCode: 410,
-                    code: 'app_migration_disabled',
-                });
-                // Access-token migration stays on regardless.
-                const v1AccessToken = signV1AccessToken({
-                    tokenUid: uuidv4(),
-                    userUid: user.uuid,
-                });
-                const ok = await scopedAuth.migrateLegacyToken(v1AccessToken);
-                expect(ok.kind).toBe('access_token');
-            } finally {
-                await scopedServer.shutdown();
-            }
-        });
+    it('returns null for an unregistered subdomain under a hosting domain', async () => {
+        expect(
+            await authService.subdomainOwnerIdFromOrigin(
+                `https://never-made-${uuidv4()}.site.puter.localhost`,
+            ),
+        ).toBeNull();
     });
 });

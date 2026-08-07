@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -53,9 +53,9 @@ const rejectAuth = (req: Request): HttpError => {
 };
 
 /**
- * Skip this route entirely (via `next('route')`) when the request's
- * leftmost subdomain doesn't match. This *isn't* a rejection — it lets
- * a different route matcher handle the request.
+ * Skip this route entirely (via `next('route')`) when the request's leftmost
+ * subdomain doesn't match. This _isn't_ a rejection — it lets a different route
+ * matcher handle the request.
  */
 export const subdomainGate = (allowed: string | string[]): RequestHandler => {
     const allowList = Array.isArray(allowed) ? allowed : [allowed];
@@ -106,9 +106,9 @@ export const requireAuthGate = (): RequestHandler => {
 };
 
 /**
- * Reject app-under-user and access-token actors with 403. Use on endpoints
- * that should only be exercised by a human session — settings changes,
- * admin-style actions on the user's own account.
+ * Reject app-under-user and access-token actors with 403. Use on endpoints that
+ * should only be exercised by a human session — settings changes, admin-style
+ * actions on the user's own account.
  *
  * `allowFullAccess` (set per-route via the `allowFullAccessToken` route option)
  * relaxes ONLY the access-token half: a full-access ("personal access token")
@@ -150,18 +150,18 @@ export const requireUserActorGate = (
 };
 
 /**
- * Reject bare user-session actors — the "root" credential a browser session
- * (or `/login`) holds, with no app and no access token in play. Use on API
- * surfaces that must only be driven by a delegated credential: an app or
- * worker token, or an API token minted from the dashboard. The point is that
- * a leaked-or-copied session token (full account control) shouldn't double
- * as an AI/API credential; users are pushed to mint a revocable token
- * instead.
+ * Reject bare user-session actors — the "root" credential a browser session (or
+ * `/login`) holds, with no app and no access token in play. Use on API surfaces
+ * that must only be driven by a delegated credential: an app or worker token,
+ * or an API token minted from the dashboard. The point is that a
+ * leaked-or-copied session token (full account control) shouldn't double as an
+ * AI/API credential; users are pushed to mint a revocable token instead.
  *
  * This gate only rejects the bare-session shape. Which delegated credentials
  * are acceptable is decided by the gates it composes with (`requireUserActor`
- * + `allowFullAccessToken` to also keep apps out, `requireNonAccessTokenGate`
- * for scoped tokens, etc.).
+ *
+ * - `allowFullAccessToken` to also keep apps out, `requireNonAccessTokenGate` for
+ *   scoped tokens, etc.).
  */
 export const assertNotUserSession = (
     actor: Pick<Actor, 'app' | 'accessToken' | 'session'> | null | undefined,
@@ -233,24 +233,24 @@ export const requireNonAccessTokenGate = (): RequestHandler => {
 export const DEFAULT_ADMIN_USERNAMES = ['admin', 'system'] as const;
 
 /**
- * Reject unless `actor.user.username` matches `admin`, `system`, or one of
- * the supplied extras. Extras are *additional* allowed users on top of the
- * built-in pair, not a replacement for it.
+ * Reject unless `actor.user.username` matches `admin`, `system`, or one of the
+ * supplied extras. Extras are _additional_ allowed users on top of the built-in
+ * pair, not a replacement for it.
  *
- * Also requires a *root token* — an actor with no app anywhere in its token
+ * Also requires a _root token_ — an actor with no app anywhere in its token
  * chain (see `effectiveActorApp`) — so a third-party app an admin has
  * authorized can't reach admin endpoints on the admin's behalf. The one
  * exception is `appGated`: on a route that is also appId-gated
  * (`allowedAppIds`), a direct app-under-user actor is deferred to
  * `allowedAppIdsGate`, so the net effect there is "a root token OR a token
- * scoped to an allowed app". Access tokens issued through an app are
- * rejected even then — `allowedAppIdsGate` only sees top-level `actor.app`
- * and would otherwise wave them through.
+ * scoped to an allowed app". Access tokens issued through an app are rejected
+ * even then — `allowedAppIdsGate` only sees top-level `actor.app` and would
+ * otherwise wave them through.
  *
- * Implies `requireAuth`. Does *not* imply `requireUserActor` — a root token
- * still includes an admin's full-access personal access token, not only
- * browser sessions; combine with `requireUserActor` explicitly if a route
- * must be restricted to browser sessions.
+ * Implies `requireAuth`. Does _not_ imply `requireUserActor` — a root token
+ * still includes an admin's full-access personal access token, not only browser
+ * sessions; combine with `requireUserActor` explicitly if a route must be
+ * restricted to browser sessions.
  */
 export const adminOnlyGate = (
     extras: readonly string[] = [],
@@ -296,8 +296,8 @@ export const adminOnlyGate = (
  * `strict_email_verification_required` config so self-hosted deployments
  * without email delivery don't brick their own filesystem routes.
  *
- * Reads `req.actor?.user?.email_confirmed`, which is present on both
- * user-only and app-under-user actors, so it works for either shape.
+ * Reads `req.actor?.user?.email_confirmed`, which is present on both user-only
+ * and app-under-user actors, so it works for either shape.
  */
 export const requireVerifiedGate = (strictFlag: boolean): RequestHandler => {
     return (req, _res, next) => {
@@ -321,9 +321,9 @@ export const requireVerifiedGate = (strictFlag: boolean): RequestHandler => {
  * GUI modal.
  *
  * Runs on every authenticated route by default; routes that set
- * `allowUnconfirmed: true` opt out (the verification endpoints themselves,
- * plus essential flows like whoami / logout / save-account so a pending
- * account can still reach the screens that clear the gate).
+ * `allowUnconfirmed: true` opt out (the verification endpoints themselves, plus
+ * essential flows like whoami / logout / save-account so a pending account can
+ * still reach the screens that clear the gate).
  *
  * Returns 403 with a per-gate legacy code (`email_confirmation_required` /
  * `phone_verification_required` / `card_verification_required`) so clients can
@@ -405,8 +405,8 @@ export const assertNotSuspended = (
  * App-under-user actors are permitted iff `actor.app.uid` is in the allowList;
  * non-app actors are rejected.
  *
- * Implies `requireAuth`. Doesn't pair sensibly with `requireUserActor`
- * (a user-only actor has no app), but if both are set we reject loudly here.
+ * Implies `requireAuth`. Doesn't pair sensibly with `requireUserActor` (a
+ * user-only actor has no app), but if both are set we reject loudly here.
  */
 export const allowedAppIdsGate = (
     allowedAppUids: readonly string[],

@@ -1,25 +1,26 @@
 import kvjs from '@heyputer/kv.js';
 import APICallLogger from './lib/APICallLogger.js';
+import { fetchUrl } from './lib/networkUtils.js';
 import { isStoredTokenUsableForOrigin } from './lib/authTokenOrigin.js';
-import path from './lib/path.js';
+import path from 'path-browserify';
 import localStorageMemory from './lib/polyfills/localStorage.js';
 import xhrshim from './lib/polyfills/xhrshim.js';
 import * as utils from './lib/utils.js';
-import AI from './modules/AI.js';
-import Apps from './modules/Apps.js';
+import { AI } from './modules/ai/index.js';
+import { Apps } from './modules/apps/index.js';
 import Auth from './modules/Auth.js';
 import { Debug } from './modules/Debug.js';
 import Drivers from './modules/Drivers.js';
 import Email from './modules/Email.js';
 import { PuterJSFileSystemModule } from './modules/FileSystem/index.js';
 import FSItem from './modules/FSItem.js';
-import Hosting from './modules/Hosting.js';
-import KV from './modules/KV.js';
+import { Hosting } from './modules/hosting/index.js';
+import { KV } from './modules/kv/index.js';
 import { PSocket } from './modules/networking/PSocket.js';
 import { PTLSSocket } from './modules/networking/PTLS.js';
 import { pFetch } from './modules/networking/requests.js';
-import OS from './modules/OS.js';
-import Perms from './modules/Perms.js';
+import { OS } from './modules/os/index.js';
+import { Perms } from './modules/perms/index.js';
 import PuterDialog from './modules/PuterDialog.js';
 import UI from './modules/UI.js';
 import Util from './modules/Util.js';
@@ -94,15 +95,13 @@ class Lock {
 //       (using defaultGUIOrigin breaks locally-hosted apps)
 const PROD_ORIGIN = 'https://puter.com';
 
-// localStorage keys for the auth token. v1 is the legacy key. v2 is
-// the new key written after the token rotation in the v1→v2 cutover.
-// Reads prefer v2; v1 is only consulted to drive the silent-migration
-// path (access_token / app kinds) or — for kind='web' — to fail over
-// to the interactive reauth flow.
-const STORAGE_KEY_V1 = 'puter.auth.token';
+// localStorage key for the auth token. The retired key below is never read —
+// only deleted, so a token from before the format change doesn't linger in a
+// visitor's browser (see `discardRetiredAuthToken_`).
 const STORAGE_KEY_V2 = 'puter.auth.token.v2';
-// Records the API origin a stored v2 token was minted against. A stored token
-// is only ever replayed to this origin, so a URL-controlled `puter.api_origin`
+const STORAGE_KEY_V1 = 'puter.auth.token';
+// Records the API origin a stored token was minted against. A stored token is
+// only ever replayed to this origin, so a URL-controlled `puter.api_origin`
 // can't harvest a previously-stored token and forward it to a foreign origin.
 const STORAGE_KEY_ORIGIN_V2 = 'puter.auth.token.origin.v2';
 
@@ -110,15 +109,88 @@ const puterInit = function () {
     'use strict';
 
     class Puter {
-        // The environment that the SDK is running in. Can be 'gui', 'app' or 'web'.
-        // 'gui' means the SDK is running in the Puter GUI, i.e. Puter.com.
-        // 'app' means the SDK is running as a Puter app, i.e. within an iframe in the Puter GUI.
-        // 'web' means the SDK is running in a 3rd-party website.
+        /**
+         * The environment that the SDK is running in.
+         *
+         * `gui` means the SDK is running in the Puter GUI, i.e. Puter.com.
+         * `app` means it is running as a Puter app, i.e. within an iframe in
+         * the Puter GUI. `web` means it is running in a 3rd-party website.
+         *
+         * @type {import('../types/shared').PuterEnvironment}
+         */
         env;
+
+        /**
+         * Arguments the host environment launched this app with.
+         *
+         * @type {Record<string, unknown>}
+         */
+        args = {};
+
+        /**
+         * The token the SDK authenticates API calls with, if any.
+         *
+         * @type {string | null}
+         */
+        authToken = null;
+
+        /**
+         * Origin every API call is sent to.
+         *
+         * @type {string}
+         */
+        APIOrigin;
+
+        /**
+         * Tool schemas this app exposes to `puter.ai`.
+         *
+         * @type {import('../types/shared').ToolSchema[]}
+         */
+        tools = [];
+
+        // The modules, declared here rather than left to inference because
+        // `initSubmodules` assigns them outside the constructor, which would
+        // otherwise make every one of them possibly-undefined for consumers.
+        // Each type comes from the module's own public export, so the
+        // implementation stays the source of truth.
+
+        /** @type {InstanceType<typeof Util>} */
+        util;
+        /** @type {InstanceType<typeof Auth>} */
+        auth;
+        /** @type {InstanceType<typeof OS>} */
+        os;
+        /** @type {InstanceType<typeof PuterJSFileSystemModule>} */
+        fs;
+        /** @type {InstanceType<typeof UI>} */
+        ui;
+        /** @type {InstanceType<typeof Hosting>} */
+        hosting;
+        /** @type {InstanceType<typeof Apps>} */
+        apps;
+        /** @type {InstanceType<typeof AI>} */
+        ai;
+        /** @type {InstanceType<typeof KV>} */
+        kv;
+        /** @type {InstanceType<typeof Email>} */
+        email;
+        /** @type {InstanceType<typeof Perms>} */
+        perms;
+        /** @type {InstanceType<typeof Drivers>} */
+        drivers;
+        /** @type {InstanceType<typeof Debug>} */
+        debug;
+        /** @type {InstanceType<typeof Peer>} */
+        peer;
+        /** @type {InstanceType<typeof WorkersHandler>} */
+        workers;
+        /** @type {typeof path} */
+        path;
 
         #defaultAPIOrigin = 'https://api.puter.com';
         #defaultGUIOrigin = 'https://puter.com';
 
+        /** @returns {string} */
         get defaultAPIOrigin() {
             return (
                 globalThis.PUTER_API_ORIGIN ||
@@ -130,6 +202,7 @@ const puterInit = function () {
             this.#defaultAPIOrigin = v;
         }
 
+        /** @returns {string} */
         get defaultGUIOrigin() {
             return (
                 globalThis.PUTER_ORIGIN ||
@@ -141,12 +214,17 @@ const puterInit = function () {
             this.#defaultGUIOrigin = v;
         }
 
-        // An optional callback when the user is authenticated. This can be set by the app using the SDK.
+        /**
+         * Called once the user is authenticated. Set by the app using the SDK.
+         *
+         * @type {((user: Record<string, unknown>) => void) | undefined}
+         */
         onAuth;
 
         /**
-         * State object to keep track of the authentication request status.
-         * This is used to prevent multiple authentication popups from showing up by different parts of the app.
+         * State object to keep track of the authentication request status. This
+         * is used to prevent multiple authentication popups from showing up by
+         * different parts of the app.
          */
         puterAuthState = {
             isPromptOpen: false,
@@ -172,6 +250,11 @@ const puterInit = function () {
         // else replays after it resolves.
         _reauthInflight = null;
 
+        // Subscribers to token / API origin changes. Modules read both live
+        // off this instance, so this is only for the few that hold an open
+        // connection and have to rebuild it.
+        _authStateListeners = new Set();
+
         // debug flag
         debugMode = false;
 
@@ -182,39 +265,41 @@ const puterInit = function () {
          * Puter.js Modules
          *
          * These are the modules you see on docs.puter.com; for example:
-         * - puter.fs
-         * - puter.kv
-         * - puter.ui
          *
-         * initSubmodules is called from the constructor of this class.
+         * - Puter.fs
+         * - Puter.kv
+         * - Puter.ui
+         *
+         * InitSubmodules is called from the constructor of this class.
          */
-        initSubmodules = function () {
+        initSubmodules() {
             // Util
             this.util = new Util();
 
-            this.registerModule('auth', Auth);
-            this.registerModule('os', OS);
-            this.registerModule('fs', PuterJSFileSystemModule);
-            this.registerModule('ui', UI, {
+            this.auth = this.registerModule('auth', Auth);
+            this.os = this.registerModule('os', OS);
+            this.fs = this.registerModule('fs', PuterJSFileSystemModule);
+            this.ui = this.registerModule('ui', UI, {
                 appInstanceID: this.appInstanceID,
                 parentInstanceID: this.parentInstanceID,
             });
-            this.registerModule('hosting', Hosting);
-            this.registerModule('apps', Apps);
-            this.registerModule('ai', AI);
-            this.registerModule('kv', KV);
-            this.registerModule('email', Email);
-            this.registerModule('perms', Perms);
-            this.registerModule('drivers', Drivers);
-            this.registerModule('debug', Debug);
-            this.registerModule('peer', Peer);
+            this.hosting = this.registerModule('hosting', Hosting);
+            this.apps = this.registerModule('apps', Apps);
+            this.ai = this.registerModule('ai', AI);
+            this.kv = this.registerModule('kv', KV);
+            this.email = this.registerModule('email', Email);
+            this.perms = this.registerModule('perms', Perms);
+            this.drivers = this.registerModule('drivers', Drivers);
+            this.debug = this.registerModule('debug', Debug);
+            this.peer = this.registerModule('peer', Peer);
+            this.workers = this.registerModule('workers', WorkersHandler);
 
             // Path
             this.path = path;
 
             // Register web components for standalone UI fallback
             registerComponents();
-        };
+        }
 
         normalizeAuthTokenCandidate = function (tokenCandidate) {
             if (typeof tokenCandidate !== 'string') return null;
@@ -350,9 +435,6 @@ const puterInit = function () {
             this._cache = new kvjs({ dbName: 'puter_cache' });
             this._opscache = new kvjs();
 
-            // "modules" in puter.js are external interfaces for the developer
-            this.modules_ = [];
-
             // Holds the query parameters found in the current URL
             let URLParams = new URLSearchParams(globalThis.location?.search);
 
@@ -485,6 +567,18 @@ const puterInit = function () {
                 enabled: false, // Disabled by default
             });
 
+            // `/rao` state, set up before the environment branches below
+            // because those call setAuthToken, which requests `/rao`.
+            // Lock to prevent multiple requests to `/rao`
+            this.lock_rao_ = new Lock();
+            // Promise that resolves when it's okay to request `/rao`
+            this.p_can_request_rao_ = Promise.resolve();
+            // Flag that indicates if a request to `/rao` has been made
+            this.rao_requested_ = false;
+            // The in-flight boot `/whoami`, awaited by anything that wants the
+            // cached user without issuing its own request.
+            this.whoamiCache_ = null;
+
             // === Start :: Modules === //
 
             // The SDK is running in the Puter GUI (i.e. 'gui')
@@ -502,14 +596,8 @@ const puterInit = function () {
                 );
                 try {
                     let selectedAuthToken = bootstrapAuthToken;
-                    let needsSilentMigration = false;
                     if (bootstrapAuthToken) {
-                        // URL-param tokens may still be v1 (host apps that
-                        // haven't rebuilt yet). Set immediately so submodules
-                        // can run, then attempt silent migration in the
-                        // background.
                         this.setAuthToken(bootstrapAuthToken);
-                        needsSilentMigration = true;
                     } else {
                         // No token in the URL — fall back to a stored token,
                         // but ONLY if it is allowed for the current API origin.
@@ -517,46 +605,29 @@ const puterInit = function () {
                         // stored token must be bound to (and matched against) the
                         // origin it was minted for. A custom (non-default) origin
                         // additionally requires an explicit binding; an unbound
-                        // legacy token is only honored against the default origin.
+                        // token is only honored against the default origin.
                         const boundOrigin = this.normalizeStringCandidate(
                             localStorage.getItem(STORAGE_KEY_ORIGIN_V2),
                         );
-                        const v2 = this.normalizeAuthTokenCandidate(
+                        const storedToken = this.normalizeAuthTokenCandidate(
                             localStorage.getItem(STORAGE_KEY_V2),
                         );
-                        // v1 (legacy) tokens never carry an origin binding.
-                        const v1 = v2
-                            ? null
-                            : this.normalizeAuthTokenCandidate(
-                                  localStorage.getItem(STORAGE_KEY_V1),
-                              );
-                        const storedToken = v2 ?? v1;
                         if (
                             storedToken &&
-                            this._storedTokenUsableForCurrentOrigin(
-                                v2 ? boundOrigin : null,
-                            )
+                            this._storedTokenUsableForCurrentOrigin(boundOrigin)
                         ) {
                             this.setAuthToken(storedToken);
                             selectedAuthToken = storedToken;
-                            if (v1) needsSilentMigration = true;
                         } else if (storedToken) {
                             // A token exists but is not valid for this API
                             // origin (a URL-supplied custom/attacker origin, or
-                            // an unbound legacy token against a custom origin).
-                            // Treat as unauthenticated and force a reauth for
-                            // this origin instead of replaying the token.
+                            // an unbound token against a custom origin). Treat
+                            // as unauthenticated and force a reauth for this
+                            // origin instead of replaying the token.
                             this._needsOriginReauth = {
                                 reason: 'api_origin_mismatch',
                             };
                         }
-                    }
-                    if (needsSilentMigration && selectedAuthToken) {
-                        // Fire-and-forget. On success, setAuthToken inside the
-                        // migration helper updates submodules with the v2
-                        // token. On failure the next 401 reauth_required
-                        // triggers the interactive flow.
-                        this._silentMigrateV1Token(selectedAuthToken);
                     }
                     const tokenAppID =
                         this.getAppIDFromAuthToken(selectedAuthToken);
@@ -593,26 +664,10 @@ const puterInit = function () {
                 // initialize submodules
                 this.initSubmodules();
                 try {
-                    // Prefer the v2 storage key. Fall back to v1 and
-                    // run a silent migration in the background.
-                    const v2 = this.normalizeAuthTokenCandidate(
+                    const storedToken = this.normalizeAuthTokenCandidate(
                         localStorage.getItem(STORAGE_KEY_V2),
                     );
-                    if (v2) {
-                        this.setAuthToken(v2);
-                    } else {
-                        const v1 = this.normalizeAuthTokenCandidate(
-                            localStorage.getItem(STORAGE_KEY_V1),
-                        );
-                        if (v1) {
-                            this.setAuthToken(v1);
-                            // For kind='access_token' the backend will swap
-                            // this for a v2 token. For kind='web' it'll
-                            // refuse (409) and the next request bounces us
-                            // through the reauth popup.
-                            this._silentMigrateV1Token(v1);
-                        }
-                    }
+                    if (storedToken) this.setAuthToken(storedToken);
                     // if appID is already set in localStorage, then we don't need to show the dialog
                     if (!this.appID && localStorage.getItem('puter.app.id')) {
                         this.setAppID(localStorage.getItem('puter.app.id'));
@@ -637,12 +692,23 @@ const puterInit = function () {
                 this.initSubmodules();
             }
 
+            // Wherever tokens are stored, a value under the retired key is
+            // dead weight — drop it even when there's no new token to write
+            // over it (`setAuthToken` handles that case).
+            if (this.env === 'web' || this.env === 'app') {
+                this.discardRetiredAuthToken_();
+            }
+
             // Add prefix logger (needed to happen after modules are initialized)
             (async () => {
                 try {
-                    const whoami = await this.auth.whoami();
+                    // Reuses the boot `/whoami` rather than issuing a second
+                    // one. Nothing to prefix with when there's no token (or the
+                    // lookup failed), same as when this awaited its own call.
+                    const whoami = await this.whoamiCache_;
+                    if (!whoami) return;
                     const prefix = `[${
-                        whoami?.app_name ?? this.appInstanceID ?? 'HOST'
+                        whoami.app_name ?? this.appInstanceID ?? 'HOST'
                     }]`;
                     logger = logger.fields({ prefix });
                     this.logger = logger;
@@ -656,22 +722,23 @@ const puterInit = function () {
                 }
             })();
 
-            // Lock to prevent multiple requests to `/rao`
-            this.lock_rao_ = new Lock();
-            // Promise that resolves when it's okay to request `/rao`
-            this.p_can_request_rao_ = Promise.resolve();
-            // Flag that indicates if a request to `/rao` has been made
-            this.rao_requested_ = false;
-
+            /** @type {import('../types/modules/networking').Networking} */
             this.net = {
+                /**
+                 * Mints a relay URL (server + single-use token) for speaking
+                 * the Wisp v1 protocol directly, which is what the sockets
+                 * below do for you.
+                 *
+                 * @returns {Promise<string>}
+                 */
                 generateWispV1URL: async () => {
                     const { token: wispToken, server: wispServer } = await (
-                        await fetch(
+                        await fetchUrl(
                             `${this.APIOrigin}/wisp/relay-token/create`,
                             {
                                 method: 'POST',
+                                includePuterAuth: true,
                                 headers: {
-                                    Authorization: `Bearer ${this.authToken}`,
                                     'Content-Type': 'application/json',
                                 },
                                 body: JSON.stringify({}),
@@ -686,8 +753,6 @@ const puterInit = function () {
                 },
                 fetch: pFetch,
             };
-
-            this.workers = new WorkersHandler(this.authToken);
 
             // Initialize network connectivity monitoring and cache purging
             this.initNetworkMonitoring();
@@ -715,44 +780,115 @@ const puterInit = function () {
                 return;
             }
 
-            let had_error = false;
             try {
-                const resp = await fetch(`${this.APIOrigin}/rao`, {
+                const resp = await fetchUrl(`${this.APIOrigin}/rao`, {
                     method: 'POST',
+                    includePuterAuth: true,
                     headers: {
-                        Authorization: `Bearer ${this.authToken}`,
                         Origin: location.origin, // This is ignored in the browser but needed for workers and nodejs
                     },
+                    // Recording an app open is ours, not the user's: a stale
+                    // token must not turn a page load into a sign-in prompt.
+                    interactiveReauth: false,
                 });
+                // Set inside the lock: a caller parked on `p_can_request_rao_`
+                // acquires it the moment this releases, and would otherwise
+                // record the same open a second time.
+                this.rao_requested_ = true;
                 return await resp.json();
             } catch (e) {
-                had_error = true;
                 console.error(e);
             } finally {
                 this.lock_rao_.release();
             }
-            if (!had_error) {
-                this.rao_requested_ = true;
+        }
+
+        /**
+         * @returns {Promise<import('../types/modules/auth').User | null>} The
+         *   cached user, or null when there was no token, the token was
+         *   rejected, or the request failed.
+         * @internal
+         * Populates `puter.whoami` for callers that read the cached user
+         * synchronously. Non-interactive for the same reason as `/rao`: this
+         * runs on every load without the user asking, so a stale token must not
+         * raise sign-in UI. Callers that need a definite answer (and the prompt
+         * that comes with it) use `puter.auth.getUser()`.
+         *
+         * Uses `fetchUrl` rather than `this.auth` because `setAuthToken` runs
+         * before `initSubmodules` in the app environment, and carries the token
+         * explicitly because `includePuterAuth` reads `globalThis.puter`, which
+         * isn't assigned until the constructor returns.
+         */
+        async cacheWhoami_() {
+            if (!this.authToken) return null;
+            try {
+                const resp = await fetchUrl(`${this.APIOrigin}/whoami`, {
+                    authToken: this.authToken,
+                    interactiveReauth: false,
+                    logContext: {
+                        service: 'auth',
+                        operation: 'whoami',
+                        params: {},
+                    },
+                });
+                if (!resp.ok) return null;
+                this.whoami = await resp.json();
+                return this.whoami;
+            } catch (e) {
+                // Best-effort cache — a network failure leaves it unset.
+                return null;
             }
         }
 
+        /**
+         * Instantiates a module, registers it for auth/origin updates, and
+         * hands it back for the caller to attach. Assigning the result to a
+         * named property rather than having this write `this[name]` is what
+         * keeps each module's type visible to consumers of the SDK.
+         *
+         * @template T
+         * @param {string} name
+         * @param {new (
+         *     puter: Puter,
+         *     parameters: Record<string, unknown>,
+         * ) => T} cls
+         * @param {Record<string, unknown>} [parameters]
+         * @returns {T}
+         */
         registerModule(name, cls, parameters = {}) {
             const instance = new cls(this, parameters);
             instance.puter = this;
-            this.modules_.push(name);
             this[name] = instance;
             if (instance._init) instance._init({ puter: this });
+            return instance;
         }
 
-        updateSubmodules() {
-            // Update submodules with new auth token and API origin
-            for (const name of this.modules_) {
-                if (!this[name]) continue;
-                this[name]?.setAuthToken?.(this.authToken);
-                this[name]?.setAPIOrigin?.(this.APIOrigin);
+        /**
+         * Subscribes to auth token / API origin changes. Modules read both live
+         * off this instance, so this is only needed by the ones holding a
+         * connection that has to be rebuilt.
+         *
+         * @param {() => void} listener
+         * @returns {() => void} Unsubscribes the listener.
+         */
+        onAuthStateChanged(listener) {
+            this._authStateListeners.add(listener);
+            return () => this._authStateListeners.delete(listener);
+        }
+
+        _emitAuthStateChanged() {
+            for (const listener of this._authStateListeners) {
+                try {
+                    listener();
+                } catch (error) {
+                    if (this.debugMode) {
+                        console.error('Auth state listener failed', error);
+                    }
+                }
             }
         }
 
+        /** @param {string} appID */
         setAppID = function (appID) {
             // save to localStorage
             try {
@@ -765,6 +901,7 @@ const puterInit = function () {
             this.appDataPath = appID ? `~/AppData/${appID}` : undefined;
         };
 
+        /** @param {string} authToken */
         setAuthToken = function (authToken) {
             const normalizedAuthToken =
                 this.normalizeAuthTokenCandidate(authToken);
@@ -794,9 +931,8 @@ const puterInit = function () {
                         localStorage.removeItem(STORAGE_KEY_V2);
                         localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
                     }
-                    // Always clear the legacy v1 key on a write — once we
-                    // have a v2 token, the v1 one must not linger or it
-                    // would be picked up by older code paths.
+                    // Clear the retired key on every write, so a stale value
+                    // never outlives the token that replaced it.
                     localStorage.removeItem(STORAGE_KEY_V1);
                 } catch (error) {
                     // Handle the error here
@@ -808,25 +944,23 @@ const puterInit = function () {
                 // check and update gui fs cache regularly
                 setInterval(puter.checkAndUpdateGUIFScache, 10000);
             }
-            // reinitialize submodules
-            this.updateSubmodules();
+            this._emitAuthStateChanged();
 
             // rao
             this.request_rao_();
 
             // perform whoami and cache results
-            this.getUser().then((user) => {
-                this.whoami = user;
-            });
+            this.whoamiCache_ = this.cacheWhoami_();
         };
 
         /**
          * Decides whether a stored token may be attached to requests for the
          * current API origin.
-         *   - A bound token may only ever be replayed to the exact origin it
-         *     was minted against.
-         *   - An unbound (legacy) token is only honored against the default API
-         *     origin — never against a URL-supplied custom `puter.api_origin`.
+         *
+         * - A bound token may only ever be replayed to the exact origin it was
+         *   minted against.
+         * - An unbound (legacy) token is only honored against the default API
+         *   origin — never against a URL-supplied custom `puter.api_origin`.
          */
         _storedTokenUsableForCurrentOrigin = function (boundOrigin) {
             return isStoredTokenUsableForOrigin({
@@ -836,10 +970,10 @@ const puterInit = function () {
             });
         };
 
+        /** @param {string} APIOrigin */
         setAPIOrigin = function (APIOrigin) {
             this.APIOrigin = APIOrigin;
-            // reinitialize submodules
-            this.updateSubmodules();
+            this._emitAuthStateChanged();
         };
 
         runWhenPuterHappensCallbacks = function () {
@@ -864,14 +998,15 @@ const puterInit = function () {
             }
         };
 
-        resetAuthToken = function () {
-            if (this.env === 'worker' || this.env === 'service-worker') {
-                throw new Error(
-                    'Sign out is not permitted from WebWorkers or ServiceWorkers',
-                );
-            }
+        /**
+         * Forget the current token, in memory and (on a 3rd-party site or an
+         * app) in localStorage. Callers own the surrounding policy — emitting
+         * events, driving reauth — this only drops the value.
+         *
+         * @private
+         */
+        _clearAuthToken = function () {
             this.authToken = null;
-            // If the SDK is running on a 3rd-party site or an app, then save the authToken in localStorage
             if (this.env === 'web' || this.env === 'app') {
                 try {
                     localStorage.removeItem(STORAGE_KEY_V2);
@@ -882,27 +1017,37 @@ const puterInit = function () {
                     console.error('Error accessing localStorage:', error);
                 }
             }
-            // reinitialize submodules
-            this.updateSubmodules();
+        };
+
+        resetAuthToken = function () {
+            if (this.env === 'web-worker' || this.env === 'service-worker') {
+                throw new Error(
+                    'Sign out is not permitted from WebWorkers or ServiceWorkers',
+                );
+            }
+            this._clearAuthToken();
+            this._emitAuthStateChanged();
         };
 
         /**
-         * Reauth coordinator. Called by the network layer (lib/utils.js)
-         * when the backend returns
-         * `401 { code: 'reauth_required', reason, auth_id }`.
+         * Reauth coordinator. Called by the network layer (lib/utils.js) when
+         * the backend returns `401 { code: 'reauth_required', reason, auth_id
+         * }`.
          *
          * Behavior is environment-specific:
-         *   - `web` / `app`: clear the stored token, emit an event, and
-         *     drive the existing puter.com login popup. Returns a promise
-         *     that resolves when the user signs in (so callers can replay)
-         *     or rejects if reauth fails / is canceled.
-         *   - `gui`: no-op — the GUI environment renders its own modal
-         *     and host code is responsible for the flow.
-         *   - workers / nodejs: there's no UI surface to drive, so reject
-         *     with a structured error and let worker code react.
+         *
+         * - `web` / `app`: clear the stored token, emit an event, and drive the
+         *   existing puter.com login popup. Returns a promise that resolves
+         *   when the user signs in (so callers can replay) or rejects if reauth
+         *   fails / is canceled.
+         * - `gui`: no-op — the GUI environment renders its own modal and host
+         *   code is responsible for the flow.
+         * - Workers / nodejs: there's no UI surface to drive, so reject with a
+         *   structured error and let worker code react.
          *
          * Idempotent: parallel callers share a single in-flight promise.
-         * @param {{ reason?: string, auth_id?: string }} signal
+         *
+         * @param {{ reason?: string; auth_id?: string }} signal
          */
         triggerReauth = async function (signal = {}) {
             const { reason, auth_id } = signal;
@@ -914,17 +1059,8 @@ const puterInit = function () {
             // Drop the stored token immediately so a failed/canceled reauth
             // doesn't leave a poisoned value in localStorage. The new token
             // (if reauth succeeds) is written by setAuthToken downstream.
-            this.authToken = null;
-            if (this.env === 'web' || this.env === 'app') {
-                try {
-                    localStorage.removeItem(STORAGE_KEY_V2);
-                    localStorage.removeItem(STORAGE_KEY_ORIGIN_V2);
-                    localStorage.removeItem(STORAGE_KEY_V1);
-                } catch (e) {
-                    console.error('Error accessing localStorage:', e);
-                }
-            }
-            this.updateSubmodules();
+            this._clearAuthToken();
+            this._emitAuthStateChanged();
 
             this._reauthInflight = (async () => {
                 if (this.env === 'gui') {
@@ -1005,6 +1141,35 @@ const puterInit = function () {
             }
         };
 
+        /**
+         * @param {{
+         *     reason?: string;
+         *     auth_id?: string;
+         *     sentToken?: string;
+         * }} signal
+         * @internal
+         * The non-interactive half of the reauth policy, called by the network
+         * layer (lib/networkUtils.js) when a request the user didn't initiate
+         * comes back `401 { code: 'reauth_required' | 'token_auth_failed' }`.
+         *
+         * Boot-time telemetry and cache warmers run on every page load, so
+         * escalating their 401 to `triggerReauth` puts a sign-in popup (or the
+         * consent dialog, when there's no user activation to open one with) in
+         * front of a visitor who did nothing but load the page. Instead: forget
+         * the dead token and announce it, leaving the prompt to the next call
+         * the user actually makes.
+         *
+         * `sentToken` is the token the failed request carried. A reauth may have
+         * completed while it was in flight, so a token that no longer matches is
+         * left alone rather than signing the user back out.
+         */
+        dropStaleAuthToken = function ({ reason, auth_id, sentToken } = {}) {
+            if (sentToken && sentToken !== this.authToken) return;
+            this._emitReauthEvent({ reason, auth_id });
+            this._clearAuthToken();
+            this._emitAuthStateChanged();
+        };
+
         _emitReauthEvent = function ({ reason, auth_id }) {
             try {
                 const handlers =
@@ -1024,8 +1189,8 @@ const puterInit = function () {
         };
 
         /**
-         * Register a listener for SDK events. Used by host apps to react
-         * to `puter.auth.reauth_required`.
+         * Register a listener for SDK events. Used by host apps to react to
+         * `puter.auth.reauth_required`.
          */
         on = function (eventName, handler) {
             if (!this.eventHandlers[eventName])
@@ -1042,56 +1207,17 @@ const puterInit = function () {
         };
 
         /**
-         * Best-effort silent v1→v2 token migration via the backend
-         * `/auth/migrate-token` endpoint. Used at boot
-         * when only a legacy `puter.auth.token` is present; on success the
-         * v2 token is set via setAuthToken (which clears the v1 key).
-         *
-         * Returns true on successful migration, false otherwise.
-         * Failures fall through to the existing 401-reauth path: any
-         * subsequent API call against the v1 token will receive a
-         * `reauth_required` and route through triggerReauth.
+         * @internal
+         * Delete a token left behind under the retired `puter.auth.token` key.
+         * The backend no longer honors that format, so a visitor holding one is
+         * simply signed out — sending it would only earn a 401, and leaving it
+         * in storage would keep tempting later readers.
          */
-        _silentMigrateV1Token = async function (v1Token) {
-            if (!v1Token) return false;
+        discardRetiredAuthToken_ = function () {
             try {
-                // The `puter_token_v2` companion cookie set by this
-                // endpoint is only consumed by same-origin requests to
-                // the GUI origin, and the main domain doesn't serve
-                // credentialed CORS — `include` from a third-party app
-                // origin fails the preflight outright. Only ask for
-                // credentials when we're actually on the GUI origin;
-                // everywhere else the JSON token response is all we need.
-                const sameOrigin =
-                    globalThis.location?.origin === this.defaultGUIOrigin;
-                const resp = await fetch(
-                    `${this.defaultGUIOrigin}/auth/migrate-token`,
-                    {
-                        method: 'POST',
-                        headers: {
-                            Authorization: `Bearer ${v1Token}`,
-                            'Content-Type': 'application/json',
-                        },
-                        credentials: sameOrigin ? 'include' : 'omit',
-                        body: JSON.stringify({}),
-                    },
-                );
-                if (!resp.ok) {
-                    // 409 = backend refuses silent migration for this kind
-                    // (web sessions). Any caller will then 401 reauth_required
-                    // and the interactive flow takes over.
-                    return false;
-                }
-                const data = await resp.json().catch(() => null);
-                const token = data?.token;
-                if (typeof token === 'string' && token.length > 0) {
-                    this.setAuthToken(token);
-                    return true;
-                }
-                return false;
+                localStorage.removeItem(STORAGE_KEY_V1);
             } catch (e) {
-                // Network errors etc. — fall back to reauth on next 401.
-                return false;
+                // No storage to clean up.
             }
         };
 
@@ -1114,13 +1240,16 @@ const puterInit = function () {
         };
 
         /**
-         * A function that generates a domain-safe name by combining a random adjective, a random noun, and a random number (between 0 and 9999).
-         * The result is returned as a string with components separated by hyphens.
-         * It is useful when you need to create unique identifiers that are also human-friendly.
+         * A function that generates a domain-safe name by combining a random
+         * adjective, a random noun, and a random number (between 0 and 9999).
+         * The result is returned as a string with components separated by
+         * hyphens. It is useful when you need to create unique identifiers that
+         * are also human-friendly.
          *
-         * @param {string} [separateWith='-'] - The character to use to separate the components of the generated name.
-         * @returns {string} A unique, hyphen-separated string comprising of an adjective, a noun, and a number.
-         *
+         * @param {string} [separateWith='-'] - The character to use to separate
+         *   the components of the generated name. Default is `'-'`
+         * @returns {string} A unique, hyphen-separated string comprising of an
+         *   adjective, a noun, and a number.
          */
         randName = function (separateWith = '-') {
             const first_adj = [
@@ -1344,9 +1473,9 @@ const puterInit = function () {
 
         /**
          * Configures API call logging settings
-         * @param {Object} config - Configuration options for API call logging
-         * @param {boolean} config.enabled - Enable/disable API call logging
-         * @param {boolean} config.enabled - Enable/disable API call logging
+         *
+         * @param {import('../types/shared').APILoggingConfig} [config]
+         * @returns {this}
          */
         configureAPILogging = function (config = {}) {
             if (this.apiCallLogger) {
@@ -1357,7 +1486,9 @@ const puterInit = function () {
 
         /**
          * Enables API call logging with optional configuration
-         * @param {Object} config - Optional configuration to apply when enabling
+         *
+         * @param {import('../types/shared').APILoggingConfig} [config]
+         * @returns {this}
          */
         enableAPILogging = function (config = {}) {
             if (this.apiCallLogger) {
@@ -1368,6 +1499,8 @@ const puterInit = function () {
 
         /**
          * Disables API call logging
+         *
+         * @returns {this}
          */
         disableAPILogging = function () {
             if (this.apiCallLogger) {
@@ -1377,7 +1510,9 @@ const puterInit = function () {
         };
 
         /**
-         * Initializes network connectivity monitoring to purge cache when connection is lost
+         * Initializes network connectivity monitoring to purge cache when
+         * connection is lost
+         *
          * @private
          */
         initNetworkMonitoring = function () {
@@ -1426,8 +1561,9 @@ const puterInit = function () {
         };
 
         /**
-         * Prints a styled CTA in the browser console encouraging developers
-         * to publish their app on the Puter App Store.
+         * Prints a styled CTA in the browser console encouraging developers to
+         * publish their app on the Puter App Store.
+         *
          * @private
          */
         printDevCTA = function () {
@@ -1466,6 +1602,7 @@ const puterInit = function () {
          * loaded directly from the file:// protocol. Runs once on load (when
          * the DOM is ready) so the developer is told to use a web server
          * immediately, instead of only when an action triggers the auth flow.
+         *
          * @private
          */
         warnUnsupportedProtocol = function () {
@@ -1495,6 +1632,7 @@ const puterInit = function () {
 
         /**
          * Checks and updates the GUI FS cache for most-commonly used paths
+         *
          * @private
          */
         checkAndUpdateGUIFScache = function () {
@@ -1504,6 +1642,13 @@ const puterInit = function () {
             if (!puter.whoami) return;
 
             let username = puter.whoami.username;
+
+            // Nothing awaits these refreshes, so a path the user doesn't
+            // have — or any transient failure — must not escape as an
+            // unhandled rejection.
+            const warm = (refresh) => {
+                refresh.catch(() => {});
+            };
 
             // common paths
             let home_path = `/${username}`;
@@ -1517,7 +1662,7 @@ const puterInit = function () {
                     `/${username} item is not cached, refetching cache`,
                 );
                 // fetch home
-                puter.fs.stat(home_path);
+                warm(puter.fs.stat(home_path));
             }
             // item:Desktop
             if (!puter._cache.get(`item:${desktop_path}`)) {
@@ -1525,7 +1670,7 @@ const puterInit = function () {
                     `/${username}/Desktop item is not cached, refetching cache`,
                 );
                 // fetch desktop
-                puter.fs.stat(desktop_path);
+                warm(puter.fs.stat(desktop_path));
             }
             // item:Documents
             if (!puter._cache.get(`item:${documents_path}`)) {
@@ -1533,7 +1678,7 @@ const puterInit = function () {
                     `/${username}/Documents item is not cached, refetching cache`,
                 );
                 // fetch documents
-                puter.fs.stat(documents_path);
+                warm(puter.fs.stat(documents_path));
             }
             // item:Public
             if (!puter._cache.get(`item:${public_path}`)) {
@@ -1541,14 +1686,14 @@ const puterInit = function () {
                     `/${username}/Public item is not cached, refetching cache`,
                 );
                 // fetch public
-                puter.fs.stat(public_path);
+                warm(puter.fs.stat(public_path));
             }
 
             // readdir:Home
             if (!puter._cache.get(`readdir:${home_path}`)) {
                 console.log(`/${username} is not cached, refetching cache`);
                 // fetch home
-                puter.fs.readdir(home_path);
+                warm(puter.fs.readdir(home_path));
             }
             // readdir:Desktop
             if (!puter._cache.get(`readdir:${desktop_path}`)) {
@@ -1556,7 +1701,7 @@ const puterInit = function () {
                     `/${username}/Desktop is not cached, refetching cache`,
                 );
                 // fetch desktop
-                puter.fs.readdir(desktop_path);
+                warm(puter.fs.readdir(desktop_path));
             }
             // readdir:Documents
             if (!puter._cache.get(`readdir:${documents_path}`)) {
@@ -1564,7 +1709,7 @@ const puterInit = function () {
                     `/${username}/Documents is not cached, refetching cache`,
                 );
                 // fetch documents
-                puter.fs.readdir(documents_path);
+                warm(puter.fs.readdir(documents_path));
             }
             // readdir:Public
             if (!puter._cache.get(`readdir:${public_path}`)) {
@@ -1572,7 +1717,7 @@ const puterInit = function () {
                     `/${username}/Public is not cached, refetching cache`,
                 );
                 // fetch public
-                puter.fs.readdir(public_path);
+                warm(puter.fs.readdir(public_path));
             }
         };
     }
@@ -1589,10 +1734,7 @@ export default puter;
 globalThis.puter = puter;
 puter.runWhenPuterHappensCallbacks();
 
-puter.tools = [];
-/**
- * @type {{messageTarget: Window}}
- */
+/** @type {{ messageTarget: Window }} */
 const puterParent = puter.ui.parentApp();
 globalThis.puterParent = puterParent;
 if (puterParent) {
@@ -1611,7 +1753,18 @@ if (puterParent) {
             console.log('xecuting tools');
             /**
              * Puter tools format
-             * @type {[{exec: Function, function: {description: string, name: string, parameters: {properties: any, required: Array<string>}, type: string}}]}
+             *
+             * @type {[
+             *     {
+             *         exec: Function;
+             *         function: {
+             *             description: string;
+             *             name: string;
+             *             parameters: { properties: any; required: string[] };
+             *             type: string;
+             *         };
+             *     },
+             * ]}
              */
             const [tool] = puter.tools.filter(
                 (e) => e.function.name === event.toolName,
@@ -1641,7 +1794,6 @@ globalThis.addEventListener &&
                 '*',
             );
         } else if (event.data.msg === 'puter.token') {
-            // puterDialog.close();
             // Set the authToken property
             puter.setAuthToken(event.data.token);
             // update appID only when token does not include app identity
@@ -1654,12 +1806,8 @@ globalThis.addEventListener &&
                     puter.setAppID(fallbackAppID);
                 }
             }
-            // Remove the event listener to avoid memory leaks
-            // window.removeEventListener('message', messageListener);
 
             puter.puterAuthState.authGranted = true;
-            // Resolve the promise
-            // resolve();
 
             // Call onAuth callback
             if (puter.onAuth && typeof puter.onAuth === 'function') {

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -26,12 +26,12 @@ import { PuterController } from '../types.js';
 import { PEER_COSTS } from './costs.js';
 
 /**
- * Constant-time secret comparison for the internal-auth header. HMAC both
- * sides under a random per-process key to a fixed 32-byte digest first:
- * this avoids leaking length via an early-return and sidesteps
- * `timingSafeEqual`'s equal-length requirement for arbitrary-length
- * inputs. The key need not persist — it only has to be unknown to the
- * attacker for the duration of the comparison.
+ * Constant-time secret comparison for the internal-auth header. HMAC both sides
+ * under a random per-process key to a fixed 32-byte digest first: this avoids
+ * leaking length via an early-return and sidesteps `timingSafeEqual`'s
+ * equal-length requirement for arbitrary-length inputs. The key need not
+ * persist — it only has to be unknown to the attacker for the duration of the
+ * comparison.
  */
 const COMPARE_KEY = randomBytes(32);
 const secretsEqual = (a: string, b: string): boolean => {
@@ -41,8 +41,8 @@ const secretsEqual = (a: string, b: string): boolean => {
 };
 
 /**
- * Encode a UUID (or `app-<uuid>` UID) as base64url with no padding.
- * Strips an `app-` prefix and dashes, then reinterprets the hex bytes.
+ * Encode a UUID (or `app-<uuid>` UID) as base64url with no padding. Strips an
+ * `app-` prefix and dashes, then reinterprets the hex bytes.
  */
 const uuidToBase64url = (uuid: string): string =>
     Buffer.from(uuid.replace(/^app-/, '').replaceAll('-', ''), 'hex').toString(
@@ -50,8 +50,8 @@ const uuidToBase64url = (uuid: string): string =>
     );
 
 /**
- * Decode a base64url-encoded hex UUID back to dashed form.
- * Returns null if the input doesn't decode to exactly 16 bytes.
+ * Decode a base64url-encoded hex UUID back to dashed form. Returns null if the
+ * input doesn't decode to exactly 16 bytes.
  */
 const base64urlToUuid = (encoded: string): string | null => {
     try {
@@ -72,8 +72,8 @@ const base64urlToUuid = (encoded: string): string | null => {
 /**
  * Build the customIdentifier sent to Cloudflare for credential generation.
  * Shape: `<user-b64>` for user actors, `<user-b64>:<app-b64>` for
- * app-under-user actors. Cloudflare echoes this back in usage records,
- * letting us attribute egress to the originating user (and app, if any).
+ * app-under-user actors. Cloudflare echoes this back in usage records, letting
+ * us attribute egress to the originating user (and app, if any).
  */
 const actorToTurnIdentifier = (actor: Actor): string => {
     const userPart = uuidToBase64url(actor.user.uuid);
@@ -84,12 +84,11 @@ const actorToTurnIdentifier = (actor: Actor): string => {
 /**
  * Peer controller — WebRTC signalling info + TURN credential generation.
  *
- * Config shape:
- *   config.peers.signaller_url  — WebRTC signaller URL
- *   config.peers.fallback_ice   — fallback ICE server list
- *   config.peers.turn.cloudflare_turn_service_id
- *   config.peers.turn.cloudflare_turn_api_token
- *   config.peers.turn.ttl       — credential TTL (default 86400)
+ * Config shape: config.peers.signaller_url — WebRTC signaller URL
+ * config.peers.fallback_ice — fallback ICE server list
+ * config.peers.turn.cloudflare_turn_service_id
+ * config.peers.turn.cloudflare_turn_api_token config.peers.turn.ttl —
+ * credential TTL (default 86400)
  */
 export class PeerController extends PuterController {
     override getReportedCosts(): Record<string, unknown>[] {
@@ -175,10 +174,12 @@ export class PeerController extends PuterController {
         res.json({ ttl, iceServers: data.iceServers });
     };
 
-    /** POST /turn/ingest-usage — internal-only TURN egress metering.
-     * an external service that knows the usage information from cloudflare will send it to us here.
-     * Meters each record directly against the owning user via `services.metering.incrementUsage`
-     * multiplied by turn:egress-bytes cost. */
+    /**
+     * POST /turn/ingest-usage — internal-only TURN egress metering. an external
+     * service that knows the usage information from cloudflare will send it to
+     * us here. Meters each record directly against the owning user via
+     * `services.metering.incrementUsage` multiplied by turn:egress-bytes cost.
+     */
     #ingestUsage = async (req: Request, res: Response): Promise<void> => {
         const cfg = this.config.peers;
         if (!cfg || !cfg.internal_auth_secret) {

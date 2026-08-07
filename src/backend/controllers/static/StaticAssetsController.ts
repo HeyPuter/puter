@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -26,15 +26,13 @@ import type { PuterRouter } from '../../core/http/PuterRouter';
 /**
  * Static asset routes.
  *
- *   /puter.js/v1, /puter.js/v2          → any subdomain
- *   /v1, /v2, /putility/v1              → js subdomain
- *   /sdk/*                              → root subdomain — puter-js bundle
- *   /dist/*, /src/*, /assets/*          → root subdomain
+ * /puter.js/v1, /puter.js/v2 → any subdomain /v1, /v2, /putility/v1 → js
+ * subdomain /sdk/* → root subdomain — puter-js bundle /dist/_, /src/_,
+ * /assets/* → root subdomain
  *
- * Each block depends on its config root (`client_libs_root`,
- * `gui_assets_root`, `puterjs_root`). When unset, that block is skipped —
- * deployments that don't ship the libs or the GUI just don't get those
- * routes.
+ * Each block depends on its config root (`client_libs_root`, `gui_assets_root`,
+ * `puterjs_root`). When unset, that block is skipped — deployments that don't
+ * ship the libs or the GUI just don't get those routes.
  */
 export class StaticAssetsController extends PuterController {
     registerRoutes(router: PuterRouter) {

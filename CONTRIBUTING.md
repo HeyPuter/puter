@@ -16,6 +16,8 @@ Add tests for new behavior, endpoints, or bug fixes. If something's genuinely ha
 
 Match the shape of similar code already in the repo. [doc/architecture.md](doc/architecture.md) is the source of truth for layers, wiring, and naming. If you think a pattern is wrong, raise it — don't quietly diverge.
 
+In plain-JS files, typing is encouraged via JSDoc `@type` annotations using the TypeScript type system, with `@typedef` for shared shapes. Don't type API surfaces as `unknown` or untyped `...args` unless the values are passed through transparently to an upstream layer that owns their type.
+
 ## 3. Don't expose system or user information
 
 Scan your diff for stray logs, debug routes, internal paths, secrets, tokens, or user data in errors/responses. When in doubt, return less. Flag any auth, permission, or data-export changes in the PR description.
@@ -26,9 +28,9 @@ For private security reports, see [SECURITY.md](SECURITY.md).
 
 Don't commit code you couldn't have written, debugged, or defended yourself. Read the diff, run it, and be ready to explain it in review.
 
-## 5. Update docs for API changes
+## 5. Adding or changing APIs
 
-If you change puter-js APIs (drivers or endpoints used by puter-js), update [developer docs](src/docs/). puter-js itself may also need updating.
+If you add or change a public API (an endpoint, driver method, or puter-js method), follow [doc/contributing-apis.md](doc/contributing-apis.md) — backward compatibility, [developer docs](src/docs/), types, and tests all move in the same PR.
 
 ## 6. Boy Scout Rule — leave it 1% better
 

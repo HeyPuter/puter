@@ -1,10 +1,16 @@
 ---
 title: puter.perms.requestReadPictures()
 description: Request read access to the user's Pictures folder.
-platforms: [apps]
+platforms: [websites, apps]
 ---
 
 Request read access to the user's Pictures folder. If the user has already granted this permission the user will not be prompted and the path will be returned. If the user grants permission the path will be returned. If the user does not allow access `undefined` will be returned.
+
+On a website, sign the user in to your site first with [`puter.auth.signIn()`](/Auth/signIn/). This method reads the signed-in user's identity before it can prompt, so for a signed-out visitor it rejects with `Unauthorized` and no prompt is shown. Answering a permission prompt does not by itself sign the user in to your site, so guard the call:
+
+```js
+if (!puter.authToken) await puter.auth.signIn();
+```
 
 ## Syntax
 

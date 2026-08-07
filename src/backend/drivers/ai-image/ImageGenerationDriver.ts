@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -25,6 +25,7 @@ import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { Actor } from '../../core/actor.js';
 import { PuterDriver } from '../types.js';
+import { secureFetch } from '../../util/secureHttp.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { CloudflareImageProvider } from './providers/cloudflare/CloudflareImageProvider.js';
 import { GeminiImageProvider } from './providers/gemini/GeminiImageProvider.js';
@@ -37,17 +38,16 @@ import type { IGenerateParams, IImageModel, IImageProvider } from './types.js';
 /**
  * Driver implementing the `puter-image-generation` interface.
  *
- * Manages multiple upstream providers and routes `generate()` calls
- * based on the requested model. Mirrors ChatCompletionDriver's pattern:
- * providers are instantiated from config on boot, a model map is built
- * from each provider's declared models, and calls are dispatched.
+ * Manages multiple upstream providers and routes `generate()` calls based on
+ * the requested model. Mirrors ChatCompletionDriver's pattern: providers are
+ * instantiated from config on boot, a model map is built from each provider's
+ * declared models, and calls are dispatched.
  *
- * Output is a URL string (web URL or data URI) — no streaming, no
- * TypedValue wrapper.
+ * Output is a URL string (web URL or data URI) — no streaming, no TypedValue
+ * wrapper.
  */
 export class ImageGenerationDriver extends PuterDriver {
     readonly driverInterface = 'puter-image-generation';
-    readonly noUserSession = true;
     readonly driverName = 'ai-image';
     // puter-js's `txt2img` falls through `options.driver` into the
     // driver-name slot (e.g. `xai-image-generation`), so alias all provider
@@ -393,7 +393,11 @@ export class ImageGenerationDriver extends PuterDriver {
                 header.match(/data:(.*?);/)?.[1] ?? 'application/octet-stream';
             buffer = Buffer.from(result.substring(commaIdx + 1), 'base64');
         } else {
-            const response = await fetch(result);
+            // Provider-minted URL, but fetched with the same SSRF guards as
+            // the input paths: it reaches an unauthenticated GET whose body
+            // lands in the user's filesystem. skipProxy because generated
+            // media is ours to download directly, not user input to screen.
+            const response = await secureFetch(result, { skipProxy: true });
             if (!response.ok) {
                 throw new HttpError(
                     502,

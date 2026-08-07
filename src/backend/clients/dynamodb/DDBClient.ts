@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -453,6 +453,7 @@ export class DDBClient extends PuterClient {
             return;
         }
 
+        let alreadyExisted = false;
         try {
             const client = await this.#getDocumentClient();
             await client.send(new CreateTableCommand(params));
@@ -460,14 +461,33 @@ export class DDBClient extends PuterClient {
             if ((error as Error)?.name !== 'ResourceInUseException') {
                 throw error;
             }
+            alreadyExisted = true;
         }
 
-        if (ttlAttribute) {
-            await this.#deleteExpiredItems(
-                params.TableName!,
-                params.KeySchema!,
-                ttlAttribute,
-            );
+        // Only sweep a table that was already there. `CreateTable` returns
+        // while the table is still CREATING, so scanning it right away races
+        // its transition to ACTIVE and intermittently throws
+        // `ResourceNotFoundException` — and a table we just created holds no
+        // items to expire anyway.
+        if (ttlAttribute && alreadyExisted) {
+            try {
+                await this.#deleteExpiredItems(
+                    params.TableName!,
+                    params.KeySchema!,
+                    ttlAttribute,
+                );
+            } catch (error) {
+                // The sweep is opportunistic cleanup, so a table that isn't
+                // queryable yet must never fail boot. Emulators differ on
+                // whether `CreateTable` reports an existing table as in-use,
+                // which can still land us here on a CREATING table.
+                if ((error as Error)?.name !== 'ResourceNotFoundException') {
+                    throw error;
+                }
+                console.warn(
+                    `[ddb] skipped TTL sweep for ${params.TableName}: table not queryable yet`,
+                );
+            }
         }
     }
 

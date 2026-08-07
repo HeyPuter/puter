@@ -1,20 +1,21 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -41,7 +42,27 @@ import {
 const CF_BASE_URL = 'https://api.cloudflare.com/client/v4/accounts';
 const WORKER_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
 const MAX_WORKERS_PER_USER = 100;
+
+/**
+ * Opt-in key for `create()` that skips the admission checks a _new_ worker has
+ * to clear — the per-user limit and the verified-email gate — for a worker that
+ * already exists and cleared them when it was first created. Re-running
+ * admission on an existing worker can only take a working worker away from its
+ * owner.
+ *
+ * Deliberately a symbol, not a named field: driver arguments arrive as parsed
+ * JSON from the caller and are passed through untouched, and `JSON.parse` can
+ * never produce a symbol-keyed property. Only in-process code holding this
+ * import can set it. A string key here would be a privilege-escalation hole.
+ */
+export const INTERNAL_ADMISSION_BYPASS = Symbol(
+    'workers.internalAdmissionBypass',
+);
 const MAX_SOURCE_SIZE = 10 * 1024 * 1024; // 10 MB
+// How far to scan an app's child apps when resolving which workers it may
+// see. A user is capped at MAX_WORKERS_PER_USER workers, so only that many
+// child apps can actually own one; the ceiling is generous slack over that.
+const CHILD_APP_SCAN_LIMIT = 1000;
 let USE_LOCAL_WORKERD = false;
 
 // -- Preamble --------------------------------------------------------
@@ -94,14 +115,15 @@ export function getWorkerPreamble(): string {
 }
 
 /**
- * Driver exposing the `workers` interface — Cloudflare Workers
- * deployment, lifecycle, and file-path queries.
+ * Driver exposing the `workers` interface — Cloudflare Workers deployment,
+ * lifecycle, and file-path queries.
  *
- * Each "worker" is a JS file in the user's Puter FS, deployed to
- * Cloudflare Workers. A corresponding `subdomains` row with subdomain
+ * Each "worker" is a JS file in the user's Puter FS, deployed to Cloudflare
+ * Workers. A corresponding `subdomains` row with subdomain
  * `workers.puter.<name>` ties the worker to its source file.
  *
- * Config: `config.workers.{XAUTHKEY, ACCOUNTID, namespace?, internetExposedUrl?, loggingUrl?}`.
+ * Config: `config.workers.{XAUTHKEY, ACCOUNTID, namespace?,
+ * internetExposedUrl?, loggingUrl?}`.
  */
 export class WorkerDriver extends PuterDriver {
     readonly driverInterface = 'workers';
@@ -110,6 +132,7 @@ export class WorkerDriver extends PuterDriver {
     readonly isDefault = true;
 
     #cfBaseUrl = '';
+    #hotReloadSubscribed = false;
 
     static currentPreambleVersion(): string | null {
         return preambleVersion;
@@ -140,9 +163,11 @@ export class WorkerDriver extends PuterDriver {
         workerName: string;
         filePath: string;
         authorization?: string;
+        [INTERNAL_ADMISSION_BYPASS]?: boolean;
     }): Promise<unknown> {
         const actor = this.#requireActor();
-        this.#requireVerified(actor);
+        const skipAdmission = args[INTERNAL_ADMISSION_BYPASS] === true;
+        if (!skipAdmission) this.#requireVerified(actor);
         const workerName = String(args.workerName ?? '').toLowerCase();
         const filePath = String(args.filePath ?? '');
         const appId = args.appId || actor.app?.uid;
@@ -162,15 +187,34 @@ export class WorkerDriver extends PuterDriver {
             );
         }
         this.#rejectReserved(workerName);
-        this.#requireCfConfig();
         const subdomainName = `${WORKER_SUBDOMAIN_PREFIX}${workerName}`;
 
-        // Quota check — count existing workers.puter.* subdomains owned by user
-        const existingWorkers =
-            await this.stores.subdomain.listByUserIdAndPrefix(
-                actor.user.id,
-                WORKER_SUBDOMAIN_PREFIX,
+        // Authorization runs ahead of the infrastructure check so "you may not
+        // target that app" / "that name is taken" don't hide behind a 503 on
+        // installs without Cloudflare configured. Both are reads — nothing is
+        // written before #requireCfConfig.
+        const boundApp = await this.#resolveWorkerAppBinding(actor, appId);
+        const existingSub =
+            await this.stores.subdomain.getBySubdomain(subdomainName);
+        if (existingSub) {
+            await this.#checkWorkerWriteAccess(
+                existingSub,
+                actor,
+                409,
+                'Worker name is already in use',
+                'conflict',
             );
+        }
+
+        this.#requireCfConfig();
+
+        // Quota check — count existing workers.puter.* subdomains owned by user
+        const existingWorkers = skipAdmission
+            ? []
+            : await this.stores.subdomain.listByUserIdAndPrefix(
+                  actor.user.id,
+                  WORKER_SUBDOMAIN_PREFIX,
+              );
         if (existingWorkers.length >= MAX_WORKERS_PER_USER) {
             throw new HttpError(
                 403,
@@ -179,46 +223,18 @@ export class WorkerDriver extends PuterDriver {
             );
         }
 
-        // If tied to an app, verify ownership and get an app-scoped
-        // worker token. Worker tokens use `kind='worker'` so they don't
-        // collide with any interactive `kind='app'` session for the
-        // same (user, app); the long expiry (WORKER_WINDOW_SECONDS)
-        // means the worker doesn't have to re-mint on a clock cadence.
+        // If tied to an app, get an app-scoped worker token. Worker tokens
+        // use `kind='worker'` so they don't collide with any interactive
+        // `kind='app'` session for the same (user, app); the long expiry
+        // (WORKER_WINDOW_SECONDS) means the worker doesn't have to re-mint
+        // on a clock cadence.
         let authorization = undefined;
-        let appOwnerId = actor.app?.id ?? undefined;
-        if (appId) {
-            if (actor.app && actor.app.uid !== appId) {
-                throw new HttpError(
-                    403,
-                    'Cannot deploy worker for another app',
-                    { legacyCode: 'forbidden' },
-                );
-            }
-            const ownerApp = await this.stores.app.getByUid(appId);
-            appOwnerId = ownerApp?.id ?? actor.app?.id;
+        const appOwnerId = boundApp?.id;
+        if (boundApp) {
             authorization = await this.services.auth.createWorkerAppToken(
                 actor,
-                appId,
+                boundApp.uid,
                 workerName,
-            );
-        }
-        if (!authorization && actor.app?.uid) {
-            authorization = await this.services.auth.createWorkerAppToken(
-                actor,
-                actor.app.uid,
-                workerName,
-            );
-        }
-
-        const existingSub =
-            await this.stores.subdomain.getBySubdomain(subdomainName);
-        if (existingSub) {
-            this.#checkWorkerWriteAccess(
-                existingSub,
-                actor,
-                409,
-                'Worker name is already in use',
-                'conflict',
             );
         }
         if (!authorization) {
@@ -278,9 +294,11 @@ export class WorkerDriver extends PuterDriver {
             });
         }
 
-        if (appId) {
+        // AppData is keyed by the app the worker authenticates as, so the
+        // directory has to follow the binding rather than the caller.
+        if (boundApp) {
             await this.services.fs.mkdir(actor.user.id!, {
-                path: `/${actor.user.username}/AppData/${appId}`,
+                path: `/${actor.user.username}/AppData/${boundApp.uid}`,
                 createMissingParents: true,
             });
         }
@@ -302,21 +320,24 @@ export class WorkerDriver extends PuterDriver {
             throw new HttpError(400, 'Missing `workerName`', {
                 legacyCode: 'bad_request',
             });
-        this.#requireCfConfig();
 
+        // Same ordering as create: resolve who owns the worker before
+        // reporting on the deploy backend.
         const subdomainName = `${WORKER_SUBDOMAIN_PREFIX}${workerName}`;
         const row = await this.stores.subdomain.getBySubdomain(subdomainName);
         if (!row)
             throw new HttpError(404, 'Worker not found', {
                 legacyCode: 'not_found',
             });
-        this.#checkWorkerWriteAccess(
+        await this.#checkWorkerWriteAccess(
             row,
             actor,
             403,
             'This is not your worker',
             'forbidden',
         );
+
+        this.#requireCfConfig();
 
         const cfResult = await this.#cfDelete(workerName);
         await this.stores.subdomain.deleteByUuid(row.uuid, {
@@ -348,6 +369,12 @@ export class WorkerDriver extends PuterDriver {
             includeTotal;
         const pageSize = limit ?? 500;
 
+        // An app sees the workers it deployed under itself and under the apps
+        // it created (the sandboxed ones) — the same set it may manage.
+        const managedAppIds = actor.app
+            ? await this.#managedAppIds(actor)
+            : undefined;
+
         let rows: SubdomainRow[];
         let cursor: string | undefined;
         if (typeof workerName === 'string' && workerName.length > 0) {
@@ -360,7 +387,7 @@ export class WorkerDriver extends PuterDriver {
                 actor.user.id,
                 WORKER_SUBDOMAIN_PREFIX,
                 {
-                    ...(actor.app ? { appId: actor.app.id } : {}),
+                    ...(managedAppIds ? { appIds: managedAppIds } : {}),
                     ...(paginated
                         ? {
                               limit: pageSize + 1,
@@ -391,9 +418,13 @@ export class WorkerDriver extends PuterDriver {
         rows = rows.filter((r) => {
             return r.user_id === actor.user.id;
         });
-        if (actor.app) {
+        if (managedAppIds) {
             rows = rows.filter((r) => {
-                return r.app_owner === actor.app?.id;
+                return (
+                    r.app_owner !== null &&
+                    r.app_owner !== undefined &&
+                    managedAppIds.includes(Number(r.app_owner))
+                );
             });
         }
 
@@ -427,7 +458,7 @@ export class WorkerDriver extends PuterDriver {
             total = await this.stores.subdomain.countByUserIdAndPrefix(
                 actor.user.id,
                 WORKER_SUBDOMAIN_PREFIX,
-                actor.app ? { appId: actor.app.id } : {},
+                managedAppIds ? { appIds: managedAppIds } : {},
             );
         }
 
@@ -565,18 +596,19 @@ export class WorkerDriver extends PuterDriver {
         }
     }
 
-    #checkWorkerWriteAccess(
+    async #checkWorkerWriteAccess(
         row: SubdomainRow,
         actor: Actor & { user: { id: number } },
         errorStatus: number,
         errorMessage: string,
         errorLegacyCode: LegacyErrorCodes,
-    ): void {
-        if (Number(row.user_id) !== actor.user.id) {
-            throw new HttpError(errorStatus, errorMessage, {
+    ): Promise<void> {
+        const deny = () =>
+            new HttpError(errorStatus, errorMessage, {
                 legacyCode: errorLegacyCode,
             });
-        }
+
+        if (Number(row.user_id) !== actor.user.id) throw deny();
 
         if (!actor.app) return;
 
@@ -585,11 +617,98 @@ export class WorkerDriver extends PuterDriver {
             row.app_owner === null || row.app_owner === undefined
                 ? null
                 : Number(row.app_owner);
-        if (!actorAppId || workerAppOwnerId !== actorAppId) {
-            throw new HttpError(errorStatus, errorMessage, {
-                legacyCode: errorLegacyCode,
+        if (!actorAppId || workerAppOwnerId === null) throw deny();
+        if (workerAppOwnerId === actorAppId) return;
+
+        // A worker bound to an app the caller created stays manageable by its
+        // creator — otherwise an app could deploy a sandboxed worker and then
+        // be locked out of redeploying or destroying it.
+        if (!(await this.#appIsOwnedByActorApp(workerAppOwnerId, actor)))
+            throw deny();
+    }
+
+    /**
+     * The app a worker deployed by `actor` should authenticate as, or null for
+     * a user-scoped worker. `requestedAppUid` is the caller-supplied binding
+     * (`appId`), which defaults to the caller's own app.
+     *
+     * An app actor may name its own app, or an app it created for this user
+     * (`apps.app_owner`) — the sandbox case, which gives each generated project
+     * its own KV/AppData namespace. Root sessions keep their existing reach
+     * over any app.
+     */
+    async #resolveWorkerAppBinding(
+        actor: Actor & { user: { id: number } },
+        requestedAppUid?: string,
+    ): Promise<{ uid: string; id?: number } | null> {
+        // Self-binding, either implicit or named. Not every actor shape carries
+        // `app.id`, so fall back to a lookup rather than leaving the subdomain
+        // row unowned.
+        const selfBinding = async () => ({
+            uid: actor.app!.uid,
+            id:
+                actor.app!.id ??
+                (await this.stores.app.getByUid(actor.app!.uid))?.id,
+        });
+        if (!requestedAppUid) {
+            return actor.app?.uid ? await selfBinding() : null;
+        }
+        if (actor.app?.uid === requestedAppUid) {
+            return await selfBinding();
+        }
+
+        const app = await this.stores.app.getByUid(requestedAppUid);
+        if (!actor.app) {
+            // Root session: unchanged: bind to whatever it names. An unknown
+            // uid still mints a token, as it did before, and simply leaves the
+            // subdomain row unowned by any app.
+            return { uid: requestedAppUid, id: app?.id };
+        }
+
+        if (!app || !(await this.#appIsOwnedByActorApp(app.id, actor))) {
+            throw new HttpError(403, 'Cannot deploy worker for another app', {
+                legacyCode: 'forbidden',
             });
         }
+        return { uid: app.uid, id: app.id };
+    }
+
+    /**
+     * Whether `appId` is an app the actor's app created for this same user.
+     * Mirrors `AppDriver.#checkWriteAccess` — both halves matter: `app_owner`
+     * alone would let an app reach a namesake row owned by a different user.
+     */
+    async #appIsOwnedByActorApp(
+        appId: number,
+        actor: Actor & { user: { id: number } },
+    ): Promise<boolean> {
+        if (!actor.app?.id) return false;
+        const app = await this.stores.app.getById(appId);
+        if (!app) return false;
+        return (
+            Number(app.app_owner) === Number(actor.app.id) &&
+            Number(app.owner_user_id) === Number(actor.user.id)
+        );
+    }
+
+    /**
+     * App ids whose workers the caller may see and manage: its own, plus every
+     * app it created for this user. Only meaningful for app actors — a root
+     * session sees all of its own workers.
+     */
+    async #managedAppIds(
+        actor: Actor & { user: { id: number } },
+    ): Promise<number[]> {
+        if (!actor.app?.id) return [];
+        const children = await this.stores.app.list({
+            appOwner: actor.app.id,
+            ownerUserId: actor.user.id,
+            limit: CHILD_APP_SCAN_LIMIT,
+        });
+        return [
+            actor.app.id,
+            ...children.map((app: { id: number }) => Number(app.id)),
+        ];
     }
 
     #workerConfig(): NonNullable<typeof this.config.workers> {
@@ -599,8 +718,8 @@ export class WorkerDriver extends PuterDriver {
     /**
      * Mirror of the HTTP-layer `requireVerifiedGate` on /delete-site — only
      * active when `strict_email_verification_required` is truthy, so self-
-     * hosted installs without SMTP aren't bricked. Applied at the driver
-     * level so /drivers/call can't bypass the gate the HTTP route enforces.
+     * hosted installs without SMTP aren't bricked. Applied at the driver level
+     * so /drivers/call can't bypass the gate the HTTP route enforces.
      */
     #requireVerified(actor: Actor): void {
         assertVerifiedEmail(
@@ -622,6 +741,11 @@ export class WorkerDriver extends PuterDriver {
 
     #subscribeHotReload(): void {
         if (!this.#cfBaseUrl && !USE_LOCAL_WORKERD) return;
+        // Idempotent: re-entry (e.g. a second onServerStart) must not stack
+        // duplicate listeners — each duplicate would multiply redeploys on
+        // every user's worker-source save.
+        if (this.#hotReloadSubscribed) return;
+        this.#hotReloadSubscribed = true;
 
         this.clients.event.on(
             'fs.write.file',

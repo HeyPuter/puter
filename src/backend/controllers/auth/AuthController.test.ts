@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -31,13 +31,14 @@
 
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { EventClient } from '../../clients/event/EventClient.js';
 import type { Actor } from '../../core/actor.js';
-import { runWithContext } from '../../core/context.js';
+import { Context, runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { requireUserActorGate } from '../../core/http/middleware/gates.js';
+import type { TokenSource } from '../../core/http/types.js';
 import { PuterServer } from '../../server.js';
 import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -228,6 +229,7 @@ const makeReq = (
     extra: Partial<{
         actor: Actor;
         token: string;
+        tokenSource: TokenSource;
         headers: Record<string, unknown>;
         ip: string;
         params: Record<string, string>;
@@ -241,6 +243,7 @@ const makeReq = (
     params: extra.params ?? {},
     actor: extra.actor,
     token: extra.token,
+    tokenSource: extra.tokenSource,
 });
 
 // PermissionService-backed handlers (grants, get-user-app-token) call
@@ -952,6 +955,40 @@ describe('AuthController.handleLogin', () => {
         expect(isCompleteLoginResponse(res.body)).toBe(true);
     });
 
+    it('refuses an email the account has moved off', async () => {
+        const moverName = `lm_${Math.random().toString(36).slice(2, 10)}`;
+        const oldEmail = `${moverName}-old@test.local`;
+        const newEmail = `${moverName}-new@test.local`;
+        await controller.handleSignup(
+            makeReq({ username: moverName, email: oldEmail, password }),
+            makeRes(),
+        );
+        // Warm the by-email lookup the way a real login would.
+        await controller.handleLogin(
+            makeReq({ email: oldEmail, password }),
+            makeRes(),
+        );
+
+        const mover = await server.stores.user.getByUsername(moverName);
+        await server.stores.user.update(mover!.id, {
+            email: newEmail,
+            clean_email: newEmail,
+        });
+
+        await expect(
+            controller.handleLogin(
+                makeReq({ email: oldEmail, password }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 404 });
+        const res = makeRes();
+        await controller.handleLogin(
+            makeReq({ email: newEmail, password }),
+            res,
+        );
+        expect(isCompleteLoginResponse(res.body)).toBe(true);
+    });
+
     it('returns 400 when neither username nor email is supplied', async () => {
         await expect(
             controller.handleLogin(makeReq({ password }), makeRes()),
@@ -1385,6 +1422,10 @@ describe('AuthController account-lifecycle route gating', () => {
 
 // ── Token grants: user → user / app / group ─────────────────────────
 
+// Mirrors AuthService's namespace for origin-derived app uids, so a test can
+// compute the uid an origin would synthesise without an app row.
+const APP_ORIGIN_UUID_NAMESPACE = '33de3768-8ee0-43e9-9e73-db192b97a5d8';
+
 describe('AuthController grant flows', () => {
     let issuer: { id: number; uuid: string; username: string; email: string };
     let target: { id: number; uuid: string; username: string; email: string };
@@ -1529,6 +1570,454 @@ describe('AuthController grant flows', () => {
         ).toContain(permission);
     });
 
+    it('grant-user-app: resolves `origin` to the app when app_uid is omitted', async () => {
+        // The GUI permission dialog and puter.perms.grantOrigin() identify
+        // third-party sites by origin rather than app uid.
+        const appName = `tg-origin-${uuidv4()}`;
+        const origin = `https://${appName}.example.test`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestGrantOriginApp',
+                index_url: `${origin}/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const permission = `service:tg-origin-app:ii:read`;
+        const res = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { origin, permission, extra: {} },
+                    { actor: issuerActor },
+                ),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+
+        const rows = await server.clients.db.read(
+            'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                'JOIN `apps` a ON a.`id` = p.`app_id` ' +
+                'WHERE p.`user_id` = ? AND a.`uid` = ?',
+            [issuer.id, app.uid],
+        );
+        expect(
+            (rows as Array<{ permission: string }>).map((r) => r.permission),
+        ).toContain(permission);
+    });
+
+    it('revoke-user-app: resolves `origin` to the app when app_uid is omitted', async () => {
+        // Mirrors the grant-by-origin path: grant via origin, then revoke via
+        // origin, and assert the permission row is gone.
+        const appName = `tr-origin-${uuidv4()}`;
+        const origin = `https://${appName}.example.test`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestRevokeOriginApp',
+                index_url: `${origin}/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const permission = `service:tr-origin-app:ii:read`;
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { origin, permission, extra: {} },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            ),
+        );
+
+        const res = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq({ origin, permission }, { actor: issuerActor }),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+
+        const rows = await server.clients.db.read(
+            'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                'JOIN `apps` a ON a.`id` = p.`app_id` ' +
+                'WHERE p.`user_id` = ? AND a.`uid` = ?',
+            [issuer.id, app.uid],
+        );
+        expect(
+            (rows as Array<{ permission: string }>).map((r) => r.permission),
+        ).not.toContain(permission);
+    });
+
+    it('grant-user-app: 400 on non-string or oversized origin/app_uid/permission', async () => {
+        const cases = [
+            { origin: { host: 'evil' }, permission: 'service:x:ii:read' },
+            { origin: 'https://a.test', permission: ['service:x:ii:read'] },
+            { app_uid: 12345, permission: 'service:x:ii:read' },
+            { origin: `https://${'a'.repeat(5000)}.test`, permission: 'service:x:ii:read' },
+        ];
+        for (const body of cases) {
+            await expect(
+                controller.handleGrantUserApp(
+                    makeReq(body, { actor: issuerActor }),
+                    makeRes(),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+    });
+
+    it('grant/revoke-user-app: an unregistered `origin` cannot be redirected onto an app squatting its synthetic uid', async () => {
+        // `appUidFromOrigin` synthesises `app-<uuidv5(origin)>` when no app row
+        // matches the origin, and the permission services resolve their
+        // identifier as uid-*or-name*. The namespace is a source constant, so
+        // the synthetic uid is computable offline — if it were passed straight
+        // through, registering an app under that literal *name* would collect
+        // grants the user made to the origin.
+        const origin = `https://unregistered-${uuidv4()}.example`;
+        const syntheticUid = `app-${uuidv5(origin, APP_ORIGIN_UUID_NAMESPACE)}`;
+        const squatter = await server.stores.app.create(
+            {
+                name: syntheticUid,
+                title: 'Squatter',
+                index_url: 'https://squatter.example/index.html',
+            },
+            { ownerUserId: target.id },
+        );
+
+        const permission = 'service:squat:ii:read';
+        for (const handler of [
+            'handleGrantUserApp',
+            'handleRevokeUserApp',
+        ] as const) {
+            await expect(
+                inCtx(issuerActor, () =>
+                    controller[handler](
+                        makeReq(
+                            { origin, permission, extra: {} },
+                            { actor: issuerActor },
+                        ),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        }
+
+        const rows = await server.clients.db.read(
+            'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                'WHERE p.`user_id` = ? AND p.`app_id` = ?',
+            [issuer.id, squatter.id],
+        );
+        expect(rows).toEqual([]);
+    });
+
+    it('grant/revoke-user-app: an `app_uid` sent beside an `origin` cannot redirect the grant away from that origin', async () => {
+        // The origin is what a consent prompt shows the user, so it has to
+        // decide who receives the grant. Resolving `origin` only when
+        // `app_uid` was absent left the squatter guard bypassable by simply
+        // sending both: the uid won, and it is resolved as uid-*or-name*, so
+        // the synthetic `app-<uuidv5(origin)>` of an unregistered origin landed
+        // on whoever registered an app under that literal name.
+        const origin = `https://unregistered-${uuidv4()}.example`;
+        const syntheticUid = `app-${uuidv5(origin, APP_ORIGIN_UUID_NAMESPACE)}`;
+        const squatter = await server.stores.app.create(
+            {
+                name: syntheticUid,
+                title: 'SquatterBesideOrigin',
+                index_url: 'https://squatter-beside-origin.example/index.html',
+            },
+            { ownerUserId: target.id },
+        );
+
+        const permission = 'service:squat-beside:ii:read';
+        for (const handler of [
+            'handleGrantUserApp',
+            'handleRevokeUserApp',
+        ] as const) {
+            await expect(
+                inCtx(issuerActor, () =>
+                    controller[handler](
+                        makeReq(
+                            {
+                                app_uid: syntheticUid,
+                                origin,
+                                permission,
+                                extra: {},
+                            },
+                            { actor: issuerActor },
+                        ),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        }
+
+        const rows = await server.clients.db.read(
+            'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                'WHERE p.`user_id` = ? AND p.`app_id` = ?',
+            [issuer.id, squatter.id],
+        );
+        expect(rows).toEqual([]);
+    });
+
+    it('grant-user-app: a registered `origin` beside an unrelated `app_uid` grants to the origin, not the uid', async () => {
+        // Same precedence rule, on the path where the origin does resolve: the
+        // uid travelling beside it must not steer the grant somewhere else.
+        const appName = `tp-origin-${uuidv4()}`;
+        const origin = `https://${appName}.example.test`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestPrecedenceOriginApp',
+                index_url: `${origin}/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const other = await server.stores.app.create(
+            {
+                name: `tp-other-${uuidv4()}`,
+                title: 'TestPrecedenceOtherApp',
+                index_url: `https://tp-other-${uuidv4()}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+
+        const permission = 'service:tp-origin:ii:read';
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: other.uid, origin, permission, extra: {} },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            ),
+        );
+
+        const granted = async (appId: number) =>
+            (
+                (await server.clients.db.read(
+                    'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                        'WHERE p.`user_id` = ? AND p.`app_id` = ?',
+                    [issuer.id, appId],
+                )) as Array<{ permission: string }>
+            ).map((r) => r.permission);
+        expect(await granted(app.id)).toContain(permission);
+        expect(await granted(other.id)).not.toContain(permission);
+    });
+
+    it('grant-user-app: 400 on a non-object `extra`/`meta` instead of committing then faulting', async () => {
+        // These are forwarded into the audit row and read as objects
+        // downstream, so a bad value used to surface as a 500 *after* the
+        // grant row was already written.
+        const appName = `tm-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestMetaApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+        const permission = 'service:tm-app:ii:read';
+        for (const body of [
+            { app_uid: app.uid, permission, meta: 'nope' },
+            { app_uid: app.uid, permission, meta: [1, 2] },
+            { app_uid: app.uid, permission, extra: 'nope' },
+        ]) {
+            await expect(
+                inCtx(issuerActor, () =>
+                    controller.handleGrantUserApp(
+                        makeReq(body, { actor: issuerActor }),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+
+        // `null` means "absent", matching how the string params are treated,
+        // and must succeed rather than fault after the write.
+        const res = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission, extra: null, meta: null },
+                    { actor: issuerActor },
+                ),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+    });
+
+    it('grant-user-app: 400 on a `permission` wider than the column it lands in', async () => {
+        // 300 chars is under the 4096 input cap but over `varchar(255)`, so it
+        // used to reach the INSERT and fault on MySQL/Postgres. The check runs
+        // after the rewrite, so this has to be a permission no rewriter
+        // shortens — and it has to reject before the app is resolved, since
+        // this uid names no app.
+        await expect(
+            inCtx(issuerActor, () =>
+                controller.handleGrantUserApp(
+                    makeReq(
+                        {
+                            app_uid: `app-${uuidv4()}`,
+                            permission: `service:${'a'.repeat(300)}:ii:read`,
+                        },
+                        { actor: issuerActor },
+                    ),
+                    makeRes(),
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('grant-user-app: an oversized permission that a rewriter shortens is accepted', async () => {
+        // The width that matters is the rewritten string's, not the caller's.
+        // In production this is `fs:/deep/path:read` collapsing to
+        // `fs:<uuid>:read` — a ~45-char row however deep the path is. Measuring
+        // the raw input instead rejected grants whose stored value was
+        // comfortably inside the column, and the permission dialog dead-ended
+        // on "please try again" for any deeply nested file. Exercised here
+        // through a rewriter of our own, since the real fs rewriter resolves
+        // the path through the fsentry store and this suite has no entries.
+        const appName = `tlp-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestLongPathApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+
+        const prefix = `tlprw-${uuidv4()}`;
+        const longPermission = `${prefix}:${'a'.repeat(300)}:read`;
+        const shortPermission = `${prefix}:${uuidv4()}:read`;
+        expect(longPermission.length).toBeGreaterThan(255);
+        expect(shortPermission.length).toBeLessThanOrEqual(255);
+        server.services.permission.registerRewriter({
+            id: `test-shorten-${prefix}`,
+            matches: (permission: string) => permission === longPermission,
+            rewrite: async () => shortPermission,
+        });
+
+        const res = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: longPermission },
+                    { actor: issuerActor },
+                ),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+
+        const storedPermissions = async () =>
+            (
+                (await server.clients.db.read(
+                    'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                        'WHERE p.`user_id` = ? AND p.`app_id` = ?',
+                    [issuer.id, app.id],
+                )) as Array<{ permission: string }>
+            ).map((r) => r.permission);
+        // What landed in the column is the short, rewritten form.
+        expect(await storedPermissions()).toContain(shortPermission);
+
+        // Revoke has to accept the same string grant did, or the dialog's
+        // withdrawal of an uncertain grant can never undo one of these.
+        const revokeRes = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: longPermission },
+                    { actor: issuerActor },
+                ),
+                revokeRes,
+            ),
+        );
+        expect(revokeRes.body).toEqual({});
+        expect(await storedPermissions()).not.toContain(shortPermission);
+    });
+
+    it('revoke-user-app: undoes a grant whose rewrite only resolves while granting', async () => {
+        // `app-root-dir:<uid>:<mode>` is a pseudo-permission: its rewriter
+        // resolves it to a real `fs:<root_uid>:<mode>` only while a user-app
+        // grant is being written, and deliberately resolves to a match-nothing
+        // sentinel at every other time so a scan can't match through the fs
+        // path. Revoke shares that rewrite, so it used to aim the DELETE at the
+        // sentinel and silently remove nothing — leaving the fs permission live
+        // while the caller was told the revoke succeeded. The permission
+        // dialog's withdrawal of an uncertain grant runs through exactly this
+        // path, so a user who answered "Don't Allow" kept the grant.
+        //
+        // Modelled with a rewriter of our own, shaped like the real one: the
+        // production rewriter resolves an app's root dir through the subdomain
+        // and fsentry stores, and this suite has neither.
+        const appName = `tard-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'TestAppRootDirApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: issuer.id },
+        );
+
+        const prefix = `tardrw-${uuidv4()}`;
+        const pseudoPermission = `${prefix}:${app.uid}:write`;
+        const resolvedPermission = `fs:${uuidv4()}:write`;
+        const NOTHING = 'nothing-in-particular';
+        server.services.permission.registerRewriter({
+            id: `test-grant-only-${prefix}`,
+            matches: (permission: string) => permission.startsWith(`${prefix}:`),
+            // The real rewriter's condition, verbatim.
+            rewrite: async (permission: string) =>
+                Context.get('is_grant_user_app_permission')
+                    ? resolvedPermission
+                    : NOTHING,
+        });
+
+        const storedPermissions = async () =>
+            (
+                (await server.clients.db.read(
+                    'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                        'WHERE p.`user_id` = ? AND p.`app_id` = ?',
+                    [issuer.id, app.id],
+                )) as Array<{ permission: string }>
+            ).map((r) => r.permission);
+
+        await inCtx(issuerActor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: pseudoPermission },
+                    { actor: issuerActor },
+                ),
+                makeRes(),
+            ),
+        );
+        // The grant stored the *resolved* permission, not the pseudo one.
+        expect(await storedPermissions()).toContain(resolvedPermission);
+
+        const revokeRes = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleRevokeUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: pseudoPermission },
+                    { actor: issuerActor },
+                ),
+                revokeRes,
+            ),
+        );
+        expect(revokeRes.body).toEqual({});
+        // Revoking by the same string the caller granted has to remove the row
+        // that grant actually wrote.
+        expect(await storedPermissions()).not.toContain(resolvedPermission);
+        // And it must not have written the sentinel as a row of its own.
+        expect(await storedPermissions()).not.toContain(NOTHING);
+    });
+
     it('grant-user-group: 404 when the group does not exist', async () => {
         await expect(
             controller.handleGrantUserGroup(
@@ -1611,6 +2100,59 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
         };
         expect(decoded.user_uid).toBe(user.uuid);
         expect(decoded.app_uid).toBe(app.uid);
+    });
+
+    // This handler sits in the app-launch critical path. The permission
+    // grant, the token mint, and the AppData mkdir are mutually independent,
+    // so they must overlap rather than run as three serial round trips —
+    // awaiting any one of them before starting the others silently triples
+    // the latency with every test still passing.
+    it('runs the permission grant, token mint and AppData mkdir concurrently', async () => {
+        const order: string[] = [];
+        const defer = <T,>(label: string, value: T) => {
+            order.push(`${label}:start`);
+            return new Promise<T>((resolve) =>
+                setTimeout(() => {
+                    order.push(`${label}:end`);
+                    resolve(value);
+                }, 20),
+            );
+        };
+
+        const permSpy = vi
+            .spyOn(server.services.permission, 'grantUserAppPermission')
+            .mockImplementation(() => defer('grant', undefined as never));
+        const tokenSpy = vi
+            .spyOn(server.services.auth, 'getUserAppToken')
+            .mockImplementation(() => defer('token', 'signed.jwt.value'));
+        const mkdirSpy = vi
+            .spyOn(server.services.fs, 'mkdir')
+            .mockImplementation(() => defer('mkdir', undefined as never));
+
+        try {
+            await inCtx(actor, () =>
+                controller.handleGetUserAppToken(
+                    makeReq({ app_uid: app.uid }, { actor }),
+                    makeRes(),
+                ),
+            );
+        } finally {
+            permSpy.mockRestore();
+            tokenSpy.mockRestore();
+            mkdirSpy.mockRestore();
+        }
+
+        // All three must be in flight before any of them settles.
+        const firstEnd = order.findIndex((e) => e.endsWith(':end'));
+        const starts = order.slice(0, firstEnd);
+        expect(starts).toHaveLength(3);
+        expect(starts).toEqual(
+            expect.arrayContaining([
+                'grant:start',
+                'token:start',
+                'mkdir:start',
+            ]),
+        );
     });
 
     it('after get-user-app-token, check-app reports authenticated:true and returns a token', async () => {
@@ -1724,9 +2266,49 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
         );
         const body = res.body as { token: string; app_uid: string };
         expect(body.app_uid).toMatch(/^app-/);
-        // A bootstrap app row was created for that origin.
+        // A bootstrap app row was created for that origin. External
+        // origins have no hosted subdomain, so no owner is stamped.
         const bootstrapped = await server.stores.app.getByUid(body.app_uid);
         expect(bootstrapped).toBeTruthy();
+        expect(bootstrapped?.owner_user_id ?? null).toBeNull();
+    });
+
+    it('stamps the hosted-subdomain owner as the bootstrap app creator', async () => {
+        // Test config inherits `static_hosting_domain: site.puter.localhost`
+        // from config.default.json. The subdomain belongs to a different
+        // user than the visitor minting the token — the app must be owned
+        // by the site owner, not the visitor.
+        const ownerName = `so_${uuidv4().slice(0, 8)}`;
+        await controller.handleSignup(
+            makeReq({
+                username: ownerName,
+                email: `${ownerName}@test.local`,
+                password: 'correct-horse-battery',
+            }),
+            makeRes(),
+        );
+        const owner = await server.stores.user.getByUsername(ownerName);
+        expect(owner!.id).not.toBe(user.id);
+        const subdomain = `sd-${uuidv4().slice(0, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner!.id,
+            subdomain,
+        });
+
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleGetUserAppToken(
+                makeReq(
+                    { origin: `https://${subdomain}.site.puter.localhost` },
+                    { actor },
+                ),
+                res,
+            ),
+        );
+        const body = res.body as { token: string; app_uid: string };
+        const bootstrapped = await server.stores.app.getByUid(body.app_uid);
+        expect(bootstrapped).toBeTruthy();
+        expect(bootstrapped?.owner_user_id).toBe(owner!.id);
     });
 });
 
@@ -3582,6 +4164,30 @@ describe('AuthController user-protected mutations (validation paths)', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('change-email: accepts an address that resolves back to the caller', async () => {
+        // `foo+tag@gmail.com` canonicalizes to the caller's own row, so the
+        // collision check has to exclude them — otherwise Puter reports your
+        // own address as already in use and there's no way to set it.
+        const local = `ch_${uniq()}`;
+        const { user, actor } = await makeUserAndActor();
+        await server.stores.user.update(user.id, {
+            email: `${local}@gmail.com`,
+            clean_email: `${local}@gmail.com`,
+            email_confirmed: 1,
+        });
+
+        const res = makeRes();
+        await controller.handleChangeEmail(
+            makeReq({ new_email: `${local}+work@gmail.com` }, { actor }),
+            res,
+        );
+        expect(res.body).toEqual({});
+        const after = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(after!.unconfirmed_change_email).toBe(`${local}+work@gmail.com`);
+    });
+
     it('change-email: stages the new email + token on success', async () => {
         const { user, actor } = await makeUserAndActor();
         const newEmail = `ch_${uniq()}@test.local`;
@@ -3920,25 +4526,88 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
         ]);
     });
 
-    it('list-permissions: handler runs and returns shape (the source SQL references `app_uid` and may throw on real installs — we catch and assert either branch)', async () => {
-        const { actor } = await makeUserAndActor();
+    it('list-permissions: returns the shape and includes a user→app grant with its app_uid', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const app = await server.stores.app.create(
+            {
+                name: `tl-${uuidv4()}`,
+                title: 'TestListPermsApp',
+                index_url: 'https://list-perms.example.test/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+        const permission = 'service:tl-app:ii:read';
+        await inCtx(actor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission, extra: {} },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        );
+
+        // A user→user grant must show up under `myself_to_user` for the
+        // issuer and `user_to_myself` for the holder. Grants gate on
+        // `manage:<permission>`, so bootstrap that flag first (mirrors the
+        // grant-user-user persistence test).
+        const { user: holder, actor: holderActor } = await makeUserAndActor();
+        const userPermission = 'service:tl-user:ii:read';
+        await server.stores.permission.setFlatUserPerm(
+            user.id,
+            `manage:${userPermission}`,
+            {
+                permission: `manage:${userPermission}`,
+                deleted: false,
+                issuer_user_id: user.id,
+            } as never,
+        );
+        await inCtx(actor, () =>
+            controller.handleGrantUserUser(
+                makeReq(
+                    {
+                        target_username: holder.username,
+                        permission: userPermission,
+                        extra: {},
+                    },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        );
+
         const res = makeRes();
-        try {
-            await controller.handleListPermissions(makeReq({}, { actor }), res);
-            const body = res.body as {
-                myself_to_app: unknown[];
-                myself_to_user: unknown[];
-                user_to_myself: unknown[];
-            };
-            expect(Array.isArray(body.myself_to_app)).toBe(true);
-            expect(Array.isArray(body.myself_to_user)).toBe(true);
-            expect(Array.isArray(body.user_to_myself)).toBe(true);
-        } catch (e) {
-            // The current schema uses `app_id` in user_to_app_permissions.
-            // If the SQL fails because of the schema mismatch, surface the
-            // error message clearly so future fixes flip this branch off.
-            expect((e as Error).message).toMatch(/app_uid|no such column/);
-        }
+        await controller.handleListPermissions(makeReq({}, { actor }), res);
+        const body = res.body as {
+            myself_to_app: Array<{ app_uid: string; permission: string }>;
+            myself_to_user: Array<{ user: string; permission: string }>;
+            user_to_myself: unknown[];
+        };
+        expect(Array.isArray(body.user_to_myself)).toBe(true);
+        expect(body.myself_to_app).toContainEqual(
+            expect.objectContaining({ app_uid: app.uid, permission }),
+        );
+        expect(body.myself_to_user).toContainEqual(
+            expect.objectContaining({
+                user: holder.username,
+                permission: userPermission,
+            }),
+        );
+
+        const holderRes = makeRes();
+        await controller.handleListPermissions(
+            makeReq({}, { actor: holderActor }),
+            holderRes,
+        );
+        expect(
+            (holderRes.body as { user_to_myself: Array<{ user: string; permission: string }> })
+                .user_to_myself,
+        ).toContainEqual(
+            expect.objectContaining({
+                user: user.username,
+                permission: userPermission,
+            }),
+        );
     });
 });
 
@@ -4107,6 +4776,174 @@ describe('AuthController dev-app permission flows', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('grant/revoke-dev-app: an unregistered `origin` cannot be redirected onto an app squatting its synthetic uid', async () => {
+        // Same hole the user-app handlers close: `appUidFromOrigin`
+        // synthesises `app-<uuidv5(origin)>` for an origin with no app row,
+        // and the permission services resolve their identifier as
+        // uid-*or-name*. A dev-app grant is scanned with the *issuer's*
+        // authority for anyone running as that app, so landing one on a
+        // squatter hands over this user's permission. Without a squatter the
+        // origin 404s anyway, so requiring a registered app costs nothing.
+        const { user, actor } = await makeUserAndActor();
+        const origin = `https://unregistered-dev-${uuidv4()}.example`;
+        const syntheticUid = `app-${uuidv5(origin, APP_ORIGIN_UUID_NAMESPACE)}`;
+        const squatter = await server.stores.app.create(
+            {
+                name: syntheticUid,
+                title: 'DevSquatter',
+                index_url: 'https://dev-squatter.example/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+
+        const permission = 'service:dev-squat:ii:read';
+        // Let the grant past `canManagePermission`, so a failure here can only
+        // be the app-resolution guard rather than a missing manage right.
+        await server.stores.permission.setFlatUserPerm(
+            user.id,
+            `manage:${permission}`,
+            {
+                permission: `manage:${permission}`,
+                deleted: false,
+                issuer_user_id: user.id,
+            } as never,
+        );
+
+        for (const handler of [
+            'handleGrantDevApp',
+            'handleRevokeDevApp',
+        ] as const) {
+            await expect(
+                inCtx(actor, () =>
+                    controller[handler](
+                        makeReq({ origin, permission }, { actor }),
+                        makeRes(),
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        }
+
+        const rows = await server.clients.db.read(
+            'SELECT `permission` FROM `dev_to_app_permissions` ' +
+                'WHERE `user_id` = ? AND `app_id` = ?',
+            [user.id, squatter.id],
+        );
+        expect(rows).toEqual([]);
+    });
+
+    it('grant-dev-app: a registered `origin` still resolves to its app', async () => {
+        // The guard above must not cost the legitimate case: an origin that
+        // really does name an app still grants to it.
+        const { user, actor } = await makeUserAndActor();
+        const appName = `dev-origin-${uuidv4()}`;
+        const origin = `https://${appName}.example.test`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'DevOriginApp',
+                index_url: `${origin}/index.html`,
+            },
+            { ownerUserId: user.id },
+        );
+
+        const permission = 'service:dev-origin:ii:read';
+        await server.stores.permission.setFlatUserPerm(
+            user.id,
+            `manage:${permission}`,
+            {
+                permission: `manage:${permission}`,
+                deleted: false,
+                issuer_user_id: user.id,
+            } as never,
+        );
+
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleGrantDevApp(
+                makeReq({ origin, permission }, { actor }),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+
+        const rows = (await server.clients.db.read(
+            'SELECT `permission` FROM `dev_to_app_permissions` ' +
+                'WHERE `user_id` = ? AND `app_id` = ?',
+            [user.id, app.id],
+        )) as Array<{ permission: string }>;
+        expect(rows.map((r) => r.permission)).toContain(permission);
+    });
+
+    it('revoke-dev-app: `*` revokes everything exactly once', async () => {
+        // The `*` arm used to fall through: after `revokeDevAppAll` the
+        // handler also ran `revokeDevAppPermission(…, '*')` — a no-op DELETE
+        // for a row named literally `*` plus a second `revoke` audit entry.
+        // The user-app twin if/elses the two arms; this pins the parity.
+        const { user, actor } = await makeUserAndActor();
+        const appName = `dev-star-${uuidv4()}`;
+        const app = await server.stores.app.create(
+            {
+                name: appName,
+                title: 'DevStarApp',
+                index_url: `https://${appName}.example.test/index.html`,
+            },
+            { ownerUserId: user.id },
+        );
+
+        const permission = 'service:dev-star:ii:read';
+        await server.stores.permission.setFlatUserPerm(
+            user.id,
+            `manage:${permission}`,
+            {
+                permission: `manage:${permission}`,
+                deleted: false,
+                issuer_user_id: user.id,
+            } as never,
+        );
+        await inCtx(actor, () =>
+            controller.handleGrantDevApp(
+                makeReq({ app_uid: app.uid, permission }, { actor }),
+                makeRes(),
+            ),
+        );
+
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleRevokeDevApp(
+                makeReq({ app_uid: app.uid, permission: '*' }, { actor }),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+
+        const rows = await server.clients.db.read(
+            'SELECT `permission` FROM `dev_to_app_permissions` ' +
+                'WHERE `user_id` = ? AND `app_id` = ?',
+            [user.id, app.id],
+        );
+        expect(rows).toEqual([]);
+
+        // The audit write is fire-and-forget, so wait for it to land — and
+        // then a beat longer, since the defect here is a *second* row.
+        let audits: Array<{ permission: string; action: string }> = [];
+        const readAudits = async () =>
+            (await server.clients.db.read(
+                'SELECT `permission`, `action` ' +
+                    'FROM `audit_dev_to_app_permissions` ' +
+                    'WHERE `user_id_keep` = ? AND `app_id_keep` = ? ' +
+                    "AND `action` = 'revoke'",
+                [user.id, app.id],
+            )) as Array<{ permission: string; action: string }>;
+        for (let i = 0; i < 100 && audits.length === 0; i++) {
+            audits = await readAudits();
+            if (audits.length === 0)
+                await new Promise((r) => setTimeout(r, 10));
+        }
+        await new Promise((r) => setTimeout(r, 50));
+        audits = await readAudits();
+        expect(audits).toEqual([{ permission: '*', action: 'revoke' }]);
     });
 });
 
@@ -4422,7 +5259,10 @@ describe('AuthController.handleGetGuiToken + handleSessionSyncCookie', () => {
         const { user, actor } = await makeUserAndActor();
         // No session → 400.
         const r1 = makeRes();
-        await controller.handleSessionSyncCookie(makeReq({}, { actor }), r1);
+        await controller.handleSessionSyncCookie(
+            makeReq({}, { actor, tokenSource: 'header' }),
+            r1,
+        );
         expect(r1.statusCode).toBe(400);
 
         // Bound session → 204 with the session cookie set.
@@ -4438,11 +5278,42 @@ describe('AuthController.handleGetGuiToken + handleSessionSyncCookie', () => {
 
         const r2 = makeRes();
         await controller.handleSessionSyncCookie(
-            makeReq({}, { actor: sessionedActor }),
+            makeReq({}, { actor: sessionedActor, tokenSource: 'header' }),
             r2,
         );
         expect(r2.statusCode).toBe(204);
         expect(r2.cookies['puter_auth_token']).toBeDefined();
+    });
+
+    it('session/sync-cookie: refuses a token that arrived anywhere but the Authorization header', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const sessionRes = await server.services.auth.createSessionToken(
+            user,
+            {},
+        );
+        const sessionUid = (sessionRes.session as { uuid: string }).uuid;
+        const sessionedActor = {
+            ...actor,
+            session: { uid: sessionUid },
+        } as Actor;
+
+        for (const tokenSource of [
+            'query',
+            'cookie',
+            'body',
+            'x-api-key',
+            'handshake',
+            undefined,
+        ] as (TokenSource | undefined)[]) {
+            const res = makeRes();
+            await expect(
+                controller.handleSessionSyncCookie(
+                    makeReq({}, { actor: sessionedActor, tokenSource }),
+                    res,
+                ),
+            ).rejects.toMatchObject({ statusCode: 401 });
+            expect(res.cookies['puter_auth_token']).toBeUndefined();
+        }
     });
 });
 
@@ -5455,7 +6326,7 @@ describe('AuthController.handleGetGuiToken / handleSessionSyncCookie additional 
 
         const res = makeRes();
         await controller.handleSessionSyncCookie(
-            makeReq({}, { actor: sessionedActor }),
+            makeReq({}, { actor: sessionedActor, tokenSource: 'header' }),
             res,
         );
         expect(res.statusCode).toBe(404);
@@ -5568,237 +6439,6 @@ describe('AuthController.handleRevokeSession additional branches', () => {
     });
 });
 
-// ── handleMigrateToken ──────────────────────────────────────────────
-
-describe('AuthController.handleMigrateToken', () => {
-    const TEST_ORIGIN = 'https://migrate.test.local';
-
-    // PuterServer keeps config in a private field (#config), so we go
-    // through the controller — IController stores it as `protected
-    // config` which TS marks but JS doesn't enforce, and the controller
-    // is the actual consumer of #isMigrateTokenOriginAllowed anyway.
-    const controllerConfig = () =>
-        (controller as { config: Record<string, unknown> }).config;
-
-    // Mints a v1-shaped JWT signed under the test server's legacy
-    // secret. The body matches what migrateLegacyToken expects per
-    // `decoded.type`.
-    const mintV1Token = (payload: Record<string, unknown>): string => {
-        const legacy = controllerConfig().jwt_secret as string | undefined;
-        if (!legacy) throw new Error('test config missing jwt_secret');
-        return jwt.sign(payload, legacy);
-    };
-
-    beforeAll(() => {
-        // Make the origin allow-check pass for these tests. We mutate
-        // the live config because setupTestServer is shared across the
-        // file; the original value is undefined (default config has no
-        // `origin`) so we don't need to restore.
-        controllerConfig().origin = TEST_ORIGIN;
-    });
-
-    it('rejects when the Origin header is missing', async () => {
-        await expect(
-            controller.handleMigrateToken(makeReq({}), makeRes()),
-        ).rejects.toMatchObject({ statusCode: 403 });
-    });
-
-    it('allows the exchange from an unlisted origin (apps live on arbitrary domains)', async () => {
-        // puter.js apps run on any third-party domain; the v1 bearer
-        // token is the credential, so the exchange itself is not
-        // origin-gated — only cookie issuance is (next test).
-        const { user } = await makeUserAndActor();
-        const v1 = mintV1Token({
-            type: 'access-token',
-            token_uid: uuidv4(),
-            user_uid: user.uuid,
-        });
-        const res = makeRes();
-        await controller.handleMigrateToken(
-            makeReq(
-                {},
-                {
-                    headers: {
-                        origin: 'https://some-app.example',
-                        authorization: `Bearer ${v1}`,
-                    },
-                },
-            ),
-            res,
-        );
-        expect((res.body as { kind: string }).kind).toBe('access_token');
-        expect((res.body as { token: string }).token).toBeTruthy();
-    });
-
-    it('does NOT set the puter_token_v2 cookie for an app token from an untrusted origin', async () => {
-        // Cookie planting on the GUI origin is what the allowlist
-        // prevents: an attacker page may exchange a token it already
-        // holds, but must not be able to set a session cookie.
-        const { user } = await makeUserAndActor();
-        const appUid = `app-${uuidv4()}`;
-        const v1 = mintV1Token({
-            type: 'app-under-user',
-            user_uid: user.uuid,
-            app_uid: appUid,
-        });
-        const res = makeRes();
-        await controller.handleMigrateToken(
-            makeReq(
-                {},
-                {
-                    headers: {
-                        origin: 'https://some-app.example',
-                        authorization: `Bearer ${v1}`,
-                    },
-                },
-            ),
-            res,
-        );
-        expect((res.body as { kind: string }).kind).toBe('app');
-        expect((res.body as { token: string }).token).toBeTruthy();
-        expect(res.cookies.puter_token_v2).toBeUndefined();
-    });
-
-    it('normalizes trailing slash on the request Origin (B4)', async () => {
-        // The Origin header per spec doesn't carry a trailing slash, but
-        // a misconfigured proxy or a deployment with config.origin
-        // ending in `/` would otherwise force every call to reject.
-        const { user } = await makeUserAndActor();
-        const v1 = mintV1Token({
-            type: 'access-token',
-            token_uid: uuidv4(),
-            user_uid: user.uuid,
-        });
-        const res = makeRes();
-        await controller.handleMigrateToken(
-            makeReq(
-                {},
-                {
-                    headers: {
-                        origin: `${TEST_ORIGIN}/`, // trailing slash
-                        authorization: `Bearer ${v1}`,
-                    },
-                },
-            ),
-            res,
-        );
-        expect((res.body as { kind: string }).kind).toBe('access_token');
-    });
-
-    it('normalizes case on the request Origin (B4)', async () => {
-        const { user } = await makeUserAndActor();
-        const v1 = mintV1Token({
-            type: 'access-token',
-            token_uid: uuidv4(),
-            user_uid: user.uuid,
-        });
-        const res = makeRes();
-        await controller.handleMigrateToken(
-            makeReq(
-                {},
-                {
-                    headers: {
-                        origin: TEST_ORIGIN.toUpperCase(),
-                        authorization: `Bearer ${v1}`,
-                    },
-                },
-            ),
-            res,
-        );
-        expect((res.body as { kind: string }).kind).toBe('access_token');
-    });
-
-    it('returns 409 reauth_required for v1 web/session tokens', async () => {
-        // Web tokens never migrate silently — they always go through
-        // the interactive reauth flow. The body code is what puter.js /
-        // GUI key on; the 409 status is what tells SDK code "this
-        // isn't a generic auth failure, route through reauth".
-        const { user } = await makeUserAndActor();
-        const v1 = mintV1Token({
-            type: 'session',
-            user_uid: user.uuid,
-            uuid: uuidv4(),
-        });
-        await expect(
-            controller.handleMigrateToken(
-                makeReq(
-                    {},
-                    {
-                        headers: {
-                            origin: TEST_ORIGIN,
-                            authorization: `Bearer ${v1}`,
-                        },
-                    },
-                ),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({
-            statusCode: 409,
-            code: 'reauth_required',
-        });
-    });
-
-    it('does NOT set the puter_token_v2 cookie when migrating an access token (B3)', async () => {
-        // Access tokens are programmatic — they ride in Authorization
-        // headers, not browser cookies. Setting a cookie here would
-        // confuse cookie-only middleware downstream.
-        const { user } = await makeUserAndActor();
-        const v1 = mintV1Token({
-            type: 'access-token',
-            token_uid: uuidv4(),
-            user_uid: user.uuid,
-        });
-        const res = makeRes();
-        await controller.handleMigrateToken(
-            makeReq(
-                {},
-                {
-                    headers: {
-                        origin: TEST_ORIGIN,
-                        authorization: `Bearer ${v1}`,
-                    },
-                },
-            ),
-            res,
-        );
-        expect(res.cookies.puter_token_v2).toBeUndefined();
-        expect((res.body as { kind: string }).kind).toBe('access_token');
-        expect((res.body as { token: string }).token).toBeTruthy();
-    });
-
-    it('sets the puter_token_v2 cookie when migrating an app-under-user token (B3)', async () => {
-        // App tokens DO get a cookie companion — the app runs inside an
-        // iframe in the GUI, and the GUI's cookie-only middleware
-        // authenticates subsequent calls from the iframe via the cookie
-        // rather than the client having to plumb Authorization through
-        // every request.
-        const { user } = await makeUserAndActor();
-        const appUid = `app-${uuidv4()}`;
-        const v1 = mintV1Token({
-            type: 'app-under-user',
-            user_uid: user.uuid,
-            app_uid: appUid,
-        });
-        const res = makeRes();
-        await controller.handleMigrateToken(
-            makeReq(
-                {},
-                {
-                    headers: {
-                        origin: TEST_ORIGIN,
-                        authorization: `Bearer ${v1}`,
-                    },
-                },
-            ),
-            res,
-        );
-        expect((res.body as { kind: string }).kind).toBe('app');
-        const cookie = res.cookies.puter_token_v2;
-        expect(cookie).toBeDefined();
-        expect(cookie.value).toBe((res.body as { token: string }).token);
-        expect(cookie.opts?.httpOnly).toBe(true);
-    });
-});
 
 // -- auth_id preservation on forced re-login --
 
@@ -6106,5 +6746,164 @@ describe('AuthController auth_id preservation on reauth', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 429 });
+    });
+});
+
+// ── Popup sign-in relay (/login/wait + /login/set) ──────────────────
+
+/**
+ * The relay stands in for the popup's `postMessage` hand-off on
+ * cross-origin-isolated openers, where COOP has severed `window.opener`.
+ * postMessage is audience-bound for free (it posts with `targetOrigin`);
+ * these tests pin the equivalent binding on the server-side path, since the
+ * session id is a link-borne value and not a secret.
+ */
+describe('AuthController.loginWait audience binding', () => {
+    const OPENER = 'https://opener.test';
+
+    /** Mint a real app-under-user token for `origin`, as the popup would. */
+    const mintAppToken = async (actor: Actor, origin: string) => {
+        const res = makeRes();
+        await inCtx(actor, () =>
+            controller.handleGetUserAppToken(makeReq({ origin }, { actor }), res),
+        );
+        return (res.body as { token: string }).token;
+    };
+
+    /**
+     * Start a wait, then relay `token` into it. The handler resolves the
+     * origin (async, DB-backed) before subscribing, so the emit is retried
+     * until the wait settles rather than fired after a fixed sleep.
+     */
+    const waitWithRelay = async (
+        session: string,
+        headers: Record<string, unknown>,
+        token: string | null,
+    ) => {
+        const res = makeRes();
+        const waiting = controller.loginWait(makeReq({ session }, { headers }), res);
+        const settled = waiting.then(
+            () => 'ok' as const,
+            (e: unknown) => e,
+        );
+
+        if (token !== null) {
+            let done = false;
+            settled.then(() => {
+                done = true;
+            });
+            for (let i = 0; i < 100 && !done; i++) {
+                await controller.loginSet(
+                    makeReq({ session, auth_token: token }),
+                    makeRes(),
+                );
+                await new Promise((r) => setTimeout(r, 10));
+            }
+        }
+        return { res, outcome: await settled };
+    };
+
+    it('returns the token when the caller Origin matches the app it was minted for', async () => {
+        const { actor } = await makeUserAndActor();
+        const token = await mintAppToken(actor, OPENER);
+
+        const { res, outcome } = await waitWithRelay(
+            uuidv4(),
+            { origin: OPENER },
+            token,
+        );
+        expect(outcome).toBe('ok');
+        expect((res.body as { auth_token: string }).auth_token).toBe(token);
+    });
+
+    it('withholds a token minted for a different app from a mismatched Origin', async () => {
+        const { actor } = await makeUserAndActor();
+        // The attack: the popup was talked into minting for OPENER, but the
+        // party holding the session id is somewhere else entirely.
+        const token = await mintAppToken(actor, OPENER);
+
+        const { res, outcome } = await waitWithRelay(
+            uuidv4(),
+            { origin: 'https://evil.test' },
+            token,
+        );
+        // Same 408 the empty path returns — a mismatched caller must not be
+        // able to tell "nothing arrived" from "something arrived for someone
+        // else".
+        expect(outcome).toMatchObject({ statusCode: 408 });
+        expect(res.body).toBeUndefined();
+    });
+
+    it('rejects a caller that sends no Origin header', async () => {
+        // curl and any server-side fetch land here. Without this the session
+        // id alone — which travels in a link — would be enough to collect.
+        await expect(
+            controller.loginWait(makeReq({ session: uuidv4() }, {}), makeRes()),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('rejects the opaque "null" origin', async () => {
+        // Sandboxed iframes and file:// documents both serialise to "null",
+        // so honouring it would make two unrelated opaque origins equal.
+        await expect(
+            controller.loginWait(
+                makeReq({ session: uuidv4() }, { headers: { origin: 'null' } }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('still rejects a malformed session id before looking at Origin', async () => {
+        await expect(
+            controller.loginWait(
+                makeReq(
+                    { session: 'not-a-uuid' },
+                    { headers: { origin: OPENER } },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('withholds a token that is not an app-under-user token', async () => {
+        // A session/GUI token relayed through here would sign the opener in
+        // as the user outright, not as the app.
+        const username = `relay_${uniq()}`;
+        const loginRes = makeRes();
+        await controller.handleSignup(
+            makeReq({
+                username,
+                email: `${username}@test.local`,
+                password: 'correct-horse-battery',
+            }),
+            loginRes,
+        );
+        const guiToken = (loginRes.body as { token: string }).token;
+
+        const { res, outcome } = await waitWithRelay(
+            uuidv4(),
+            { origin: OPENER },
+            guiToken,
+        );
+        expect(outcome).toMatchObject({ statusCode: 408 });
+        expect(res.body).toBeUndefined();
+    });
+
+    it('withholds a token with a valid shape but a forged signature', async () => {
+        const { actor } = await makeUserAndActor();
+        const real = await mintAppToken(actor, OPENER);
+        const forged = jwt.sign(
+            jwt.decode(real) as object,
+            'not-the-server-secret',
+            { keyid: 'v2' },
+        );
+
+        const { res, outcome } = await waitWithRelay(
+            uuidv4(),
+            { origin: OPENER },
+            forged,
+        );
+        expect(outcome).toMatchObject({ statusCode: 408 });
+        expect(res.body).toBeUndefined();
     });
 });

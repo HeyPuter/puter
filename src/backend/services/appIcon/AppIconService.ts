@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -33,18 +33,18 @@ const SIZED_ICON_FILENAME = (uid: string, size: number) => `${uid}-${size}.png`;
 /**
  * App icon generation service.
  *
- *   1. On boot: ensures `/system/app_icons/` exists (owned by admin/system user)
- *      and that the `puter-app-icons` subdomain points at it. Icons are then
- *      served through Puter's regular hosting path
- *      (`https://puter-app-icons.<hosting-domain>/<uid>-<size>.png`) —
- *      no custom route, no custom S3 plumbing.
- *   2. On `app.new-icon` event: decodes the data URL, resizes via sharp to
- *      the 6 standard sizes, and writes the PNGs into that directory via
- *      FSService. The write populates the CDN-backed subdomain
- *      automatically because `puter-app-icons` is a regular hosted site.
- *   3. Once the original is persisted, the app's `icon` column is rewritten
- *      from the data URL to the canonical endpoint URL so later reads
- *      don't re-ship the base64 payload.
+ * 1. On boot: ensures `/system/app_icons/` exists (owned by admin/system user) and
+ *    that the `puter-app-icons` subdomain points at it. Icons are then served
+ *    through Puter's regular hosting path
+ *    (`https://puter-app-icons.<hosting-domain>/<uid>-<size>.png`) — no custom
+ *    route, no custom S3 plumbing.
+ * 2. On `app.new-icon` event: decodes the data URL, resizes via sharp to the 6
+ *    standard sizes, and writes the PNGs into that directory via FSService. The
+ *    write populates the CDN-backed subdomain automatically because
+ *    `puter-app-icons` is a regular hosted site.
+ * 3. Once the original is persisted, the app's `icon` column is rewritten from the
+ *    data URL to the canonical endpoint URL so later reads don't re-ship the
+ *    base64 payload.
  */
 export class AppIconService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
@@ -98,7 +98,10 @@ export class AppIconService extends PuterService {
         );
     }
 
-    /** Public: canonical URL for an app's icon at a given size (CDN/subdomain-backed). */
+    /**
+     * Public: canonical URL for an app's icon at a given size
+     * (CDN/subdomain-backed).
+     */
     getIconUrl(appUid: string, size: number): string | null {
         const base = this.#iconsBaseUrl();
         if (!base) return null;
@@ -106,7 +109,10 @@ export class AppIconService extends PuterService {
         return `${base}/${SIZED_ICON_FILENAME(normalized, size)}`;
     }
 
-    /** Public: URL of the un-resized original PNG (no size suffix) on the subdomain. */
+    /**
+     * Public: URL of the un-resized original PNG (no size suffix) on the
+     * subdomain.
+     */
     getOriginalIconUrl(appUid: string): string | null {
         const base = this.#iconsBaseUrl();
         if (!base) return null;
@@ -115,8 +121,8 @@ export class AppIconService extends PuterService {
     }
 
     /**
-     * Pick the best subdomain URL to redirect an icon request at. Falls back
-     * to the un-resized original when the sized variant hasn't been generated
+     * Pick the best subdomain URL to redirect an icon request at. Falls back to
+     * the un-resized original when the sized variant hasn't been generated
      * (e.g. apps imported with an HTTP icon URL that predates the sharp
      * pipeline), preventing 404s on `<uid>-<size>.png`.
      */
@@ -156,11 +162,11 @@ export class AppIconService extends PuterService {
     // -- Bootstrap ---------------------------------------------------
 
     /**
-     * Public so `DefaultUserService` can call it immediately after it
-     * creates the admin user on first boot — otherwise we'd lose the
-     * race (AppIconService is registered BEFORE DefaultUserService and
-     * its own `onServerStart` runs when no admin exists yet). Idempotent:
-     * safe to call repeatedly.
+     * Public so `DefaultUserService` can call it immediately after it creates
+     * the admin user on first boot — otherwise we'd lose the race
+     * (AppIconService is registered BEFORE DefaultUserService and its own
+     * `onServerStart` runs when no admin exists yet). Idempotent: safe to call
+     * repeatedly.
      */
     async ensureIconsDirectory(): Promise<void> {
         // The admin user owns the icons directory. DefaultUserService

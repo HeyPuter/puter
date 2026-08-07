@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -41,8 +41,10 @@ export interface KVUsage {
     write: number;
 }
 
-/** Standard return envelope: `res` is the operation result, `usage` is the
- *  DynamoDB consumed capacity so callers can meter if they choose to. */
+/**
+ * Standard return envelope: `res` is the operation result, `usage` is the
+ * DynamoDB consumed capacity so callers can meter if they choose to.
+ */
 export interface KVResult<T> {
     res: T;
     usage: KVUsage;
@@ -117,7 +119,73 @@ const assertKey = (key: string): void => {
     }
 };
 
-const assertValueSize = (value: unknown): void => {
+/**
+ * Object keys we refuse to store or to walk, anywhere in a value or a document
+ * path.
+ *
+ * `__proto__` is the prototype-pollution vector: any code that walks a
+ * caller-supplied path (`createPaths` below, and every future traversal) would
+ * step onto `Object.prototype` and write there. It also can't round-trip — the
+ * AWS document client unmarshalls maps with plain assignment, so a stored
+ * `__proto__` attribute comes back as the object's prototype instead of as
+ * data. `constructor`/`prototype` are the second hop of the same walk, and a
+ * map holding a `constructor` key fails the document client's own "is this a
+ * plain object" test, which surfaces as an opaque 500 rather than a client
+ * error.
+ */
+const UNSAFE_OBJECT_KEYS: ReadonlySet<string> = new Set([
+    '__proto__',
+    'constructor',
+    'prototype',
+]);
+
+const unsafeKeyError = (key: string, subject: string): HttpError =>
+    new HttpError(400, `kv: ${subject} \`${key}\` is not allowed`, {
+        legacyCode: 'bad_request',
+    });
+
+/**
+ * Reject a caller-supplied document path (`a.b.c`, optionally with `[0]` list
+ * indexes) whose segments would walk onto the prototype chain.
+ */
+const assertPath = (valPath: string): void => {
+    if (typeof valPath !== 'string')
+        throw new HttpError(400, 'kv: path must be a string', {
+            legacyCode: 'bad_request',
+        });
+    for (const chunk of valPath.split('.')) {
+        const name = chunk.split(/\[\d*\]/g)[0];
+        if (UNSAFE_OBJECT_KEYS.has(name))
+            throw unsafeKeyError(name, 'path segment');
+    }
+};
+
+const assertPaths = (paths: string[]): void => {
+    for (const valPath of paths) assertPath(valPath);
+};
+
+/**
+ * Walk a value about to be stored and reject unsafe keys. Iterative so a deeply
+ * nested value can't blow the stack; own keys only, matching what the document
+ * client actually marshalls.
+ */
+const assertSafeValueKeys = (value: unknown): void => {
+    const stack: unknown[] = [value];
+    while (stack.length > 0) {
+        const current = stack.pop();
+        if (!current || typeof current !== 'object') continue;
+        if (Array.isArray(current)) {
+            stack.push(...current);
+            continue;
+        }
+        for (const [k, v] of Object.entries(current)) {
+            if (UNSAFE_OBJECT_KEYS.has(k)) throw unsafeKeyError(k, 'value key');
+            stack.push(v);
+        }
+    }
+};
+
+const assertValue = (value: unknown): void => {
     const size = Buffer.byteLength(JSON.stringify(value ?? null), 'utf8');
     if (size > MAX_VALUE_BYTES) {
         throw new HttpError(
@@ -126,6 +194,7 @@ const assertValueSize = (value: unknown): void => {
             { legacyCode: 'bad_request' },
         );
     }
+    assertSafeValueKeys(value);
 };
 
 const normalizePattern = (pattern?: string): string | undefined => {
@@ -170,8 +239,8 @@ const cleanAttrName = (chunk: string): string =>
  *
  * Every method returns `{ res, usage }` — `res` is the operation result,
  * `usage` is the DynamoDB consumed capacity split into read/write units so
- * callers can meter at the driver level when needed. No metering happens
- * inside the store itself.
+ * callers can meter at the driver level when needed. No metering happens inside
+ * the store itself.
  *
  * If `opts.actor` is omitted, operations are scoped to the system namespace.
  */
@@ -198,7 +267,10 @@ export class SystemKVStore extends PuterStore {
     // -- Public API ---------------------------------------------------
 
     async get(
-        { key }: { key: string | string[] },
+        {
+            key,
+            consistentRead,
+        }: { key: string | string[]; consistentRead?: boolean },
         opts?: KVOpts,
     ): Promise<KVResult<unknown | null | (unknown | null)[]>> {
         const actor = ensureActor(opts);
@@ -220,10 +292,11 @@ export class SystemKVStore extends PuterStore {
             kvEntries = entries;
             usage = u;
         } else {
-            const response = await this.clients.dynamo.get(this.tableName, {
-                namespace,
-                key,
-            });
+            const response = await this.clients.dynamo.get(
+                this.tableName,
+                { namespace, key },
+                consistentRead,
+            );
             kvEntries = response.Item
                 ? [response.Item as (typeof kvEntries)[number]]
                 : [];
@@ -252,7 +325,7 @@ export class SystemKVStore extends PuterStore {
         opts?: KVOpts,
     ): Promise<KVResult<boolean>> {
         assertKey(key);
-        assertValueSize(value);
+        assertValue(value);
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts?.appUuid);
 
@@ -288,7 +361,7 @@ export class SystemKVStore extends PuterStore {
         for (const item of items) {
             const k = String(item.key);
             assertKey(k);
-            assertValueSize(item.value);
+            assertValue(item.value);
             byKey.set(k, {
                 key: k,
                 value: item.value,
@@ -613,7 +686,7 @@ export class SystemKVStore extends PuterStore {
         KVResult<T extends { '': number } ? number : RecursiveRecord<number>>
     > {
         assertKey(key);
-        if (!pathAndAmountMap)
+        if (!pathAndAmountMap || Object.keys(pathAndAmountMap).length === 0)
             throw new HttpError(400, 'kv: incr requires pathAndAmountMap', {
                 legacyCode: 'bad_request',
             });
@@ -626,6 +699,7 @@ export class SystemKVStore extends PuterStore {
                 { legacyCode: 'bad_request' },
             );
         }
+        assertPaths(Object.keys(pathAndAmountMap));
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts?.appUuid);
@@ -739,8 +813,9 @@ export class SystemKVStore extends PuterStore {
             });
         }
         for (const val of Object.values(pathAndValueMap)) {
-            assertValueSize(val);
+            assertValue(val);
         }
+        assertPaths(Object.keys(pathAndValueMap));
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts?.appUuid);
@@ -807,6 +882,7 @@ export class SystemKVStore extends PuterStore {
                 legacyCode: 'bad_request',
             });
         }
+        assertPaths(paths);
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts?.appUuid);
@@ -886,8 +962,9 @@ export class SystemKVStore extends PuterStore {
             });
         }
         for (const val of Object.values(pathAndValueMap)) {
-            assertValueSize(val);
+            assertValue(val);
         }
+        assertPaths(Object.keys(pathAndValueMap));
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts?.appUuid);
@@ -1029,14 +1106,16 @@ export class SystemKVStore extends PuterStore {
     /**
      * Ensure each intermediate map layer exists for a set of nested paths.
      * Returns write units consumed. DDB can't set nested paths on missing
-     * parents in one expression, so we walk the layers and
-     * `SET ... if_not_exists(..., {})` each one.
+     * parents in one expression, so we walk the layers and `SET ...
+     * if_not_exists(..., {})` each one.
      */
     private async createPaths(
         namespace: string,
         key: string,
         pathList: string[],
     ): Promise<number> {
+        assertPaths(pathList);
+
         const nestedMapValue = (() => {
             const valueRoot: Record<string, unknown> = {};
             let hasPaths = false;
@@ -1047,12 +1126,12 @@ export class SystemKVStore extends PuterStore {
                 let cursor: Record<string, unknown> = valueRoot;
                 for (let i = 0; i < chunks.length - 1; i++) {
                     const chunk = chunks[i];
-                    const existing = cursor[chunk];
-                    if (
-                        !existing ||
-                        typeof existing !== 'object' ||
-                        Array.isArray(existing)
-                    ) {
+                    // Own properties only: an inherited hit here would mean
+                    // walking (and then writing to) the prototype chain.
+                    const existing = Object.hasOwn(cursor, chunk)
+                        ? cursor[chunk]
+                        : undefined;
+                    if (!isPlainObject(existing)) {
                         cursor[chunk] = {};
                     }
                     cursor = cursor[chunk] as Record<string, unknown>;

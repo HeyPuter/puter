@@ -30,7 +30,7 @@ Additional settings for the OCR request. Available options depend on the provide
 
 | Option | Type | Description |
 |--------|------|-------------|
-| `provider` | `String` | The OCR backend to use. `'aws-textract'` (default) \| `'mistral'` |
+| `provider` | `String` | The OCR backend to use. `'aws-textract'` (default) \| `'mistral'`. Aliases `'aws'`, `'textract'` and `'mistral-ocr'` are also accepted; anything else is rejected with a `bad_request` error |
 | `model` | `String` | OCR model to use (provider-specific) |
 | `testMode` | `Boolean` | When `true`, returns a sample response without using credits. Defaults to `false` |
 

@@ -33,6 +33,7 @@ An object with the following properties:
 - `sortOrder` (String) (optional) - `asc` or `desc`. Default is `asc`.
 - `cursor` (String | null) (optional) - Opts into paginated results. Pass `null` for the first page, then the `cursor` from each page to fetch the next one. The cursor pins the sort, so later pages must not request a different `sortBy`/`sortOrder`.
 - `includeTotal` (Boolean) (optional) - If `true`, the paginated result includes a `total` count of all entries in the directory.
+- `stream` (Boolean) (optional) - If `true`, the method returns an async iterator of page objects instead of a promise, for use with `for await ... of`. Combine with `limit` to control the page size, or `cursor` to resume from a previous page. Cannot be combined with `offset`. With `includeTotal`, only the first page carries `total`.
 
 ## Return value
 
@@ -44,7 +45,17 @@ When the request includes `cursor` (even `null`) or `includeTotal`, the promise 
 - `cursor` (String) (optional): Present while more pages exist; pass it to the next call.
 - `total` (Number) (optional): Total entry count, present when `includeTotal` was set.
 
-Requests without pagination params keep returning the full listing as a plain array, so existing code is unaffected.
+Requests without pagination params keep returning the full listing as a plain array, so existing code is unaffected — under the hood the SDK now fetches it page by page.
+
+With `stream: true`, the method returns an async iterator of page objects instead:
+
+```js
+for await (const page of puter.fs.readdir({ path: './large-dir', stream: true })) {
+    for (const item of page.items) {
+        console.log(item.name);
+    }
+}
+```
 
 ## Examples
 

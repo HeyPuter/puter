@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -23,8 +23,8 @@ import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
 
 /**
- * WISP relay token controller — create and verify short-lived JWT tokens
- * for the WISP network proxy.
+ * WISP relay token controller — create and verify short-lived JWT tokens for
+ * the WISP network proxy.
  *
  * Config: `config.wisp.server` — WISP relay server address.
  */

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -27,6 +27,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import { runWithContext } from '../../core/context.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
@@ -329,6 +330,77 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
         expect(decoded).toMatchObject({ referrer: 'http://ref.test' });
     });
 
+    it('bakes a whitelisted return_to (/app/<name>) into the state redirect_uri', async () => {
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/:provider/start',
+            makeReq({
+                params: { provider: 'custom' },
+                query: { return_to: '/app/my-App_2' },
+            }),
+            res,
+        );
+        const state = new URL(captured.redirectUrl ?? '').searchParams.get(
+            'state',
+        );
+        const decoded = oidc().verifyState(state!);
+        expect(String(decoded?.redirect_uri)).toBe(
+            `${TEST_ORIGIN}/app/my-App_2`,
+        );
+    });
+
+    it('bakes a whitelisted desktop app landing (/desktop/app/<name>) into the state redirect_uri', async () => {
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/:provider/start',
+            makeReq({
+                params: { provider: 'custom' },
+                query: { return_to: '/desktop/app/my-App_2' },
+            }),
+            res,
+        );
+        const state = new URL(captured.redirectUrl ?? '').searchParams.get(
+            'state',
+        );
+        const decoded = oidc().verifyState(state!);
+        expect(String(decoded?.redirect_uri)).toBe(
+            `${TEST_ORIGIN}/desktop/app/my-App_2`,
+        );
+    });
+
+    it('ignores a non-whitelisted return_to', async () => {
+        const bad_values = [
+            '/app/evil/extra',
+            '/app/',
+            '/app/name?x=1',
+            '//evil.test',
+            '/settings',
+            `/app/${'a'.repeat(101)}`,
+            '/desktop/app/evil/extra',
+            '/desktop/app/',
+            '/dashboard/app/name',
+        ];
+        for (const return_to of bad_values) {
+            const { res, captured } = makeRes();
+            await callRoute(
+                'get',
+                '/auth/oidc/:provider/start',
+                makeReq({
+                    params: { provider: 'custom' },
+                    query: { return_to },
+                }),
+                res,
+            );
+            const state = new URL(
+                captured.redirectUrl ?? '',
+            ).searchParams.get('state');
+            const decoded = oidc().verifyState(state!);
+            expect(String(decoded?.redirect_uri)).toBe(TEST_ORIGIN);
+        }
+    });
+
     it('signs revalidate-flow state with user_uuid + flow=revalidate', async () => {
         const userUuid = uuidv4();
         const { res, captured } = makeRes();
@@ -621,6 +693,76 @@ describe('OIDCController login callback', () => {
         expect(captured.cookies).toHaveLength(0);
     });
 
+    it('redirects back to an /app/<name> landing after sign-in', async () => {
+        const state = oidc().signState({
+            provider: 'custom',
+            redirect_uri: `${TEST_ORIGIN}/app/some-app`,
+        });
+        vi.spyOn(oidc(), 'exchangeCodeForTokens').mockResolvedValue({
+            access_token: 'access',
+            id_token: 'id',
+        } as never);
+        vi.spyOn(oidc(), 'getUserInfo').mockResolvedValue({
+            sub: `sub-${Math.random().toString(36).slice(2, 8)}`,
+            email: `oidc-${Math.random().toString(36).slice(2, 8)}@test.local`,
+            email_verified: true,
+        } as never);
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/callback/login',
+            makeReq({ query: { code: 'c', state } }),
+            res,
+        );
+        expect(captured.cookies).toHaveLength(1);
+        expect(captured.redirectUrl).toBe(`${TEST_ORIGIN}/app/some-app`);
+    });
+
+    it('keeps an /app/<name> landing in the error redirect (suspended user)', async () => {
+        const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
+        const email = `sus-app-${Math.random().toString(36).slice(2, 8)}@test.local`;
+        const created = await runWithContext(
+            { req: makeReq({}) },
+            () =>
+                oidc().createUserFromOIDC('custom', {
+                    sub,
+                    email,
+                    email_verified: true,
+                }),
+        );
+        expect(created.success).toBe(true);
+        await server.stores.user.update(created.user!.id, { suspended: 1 });
+
+        const state = oidc().signState({
+            provider: 'custom',
+            redirect_uri: `${TEST_ORIGIN}/app/some-app`,
+        });
+        vi.spyOn(oidc(), 'exchangeCodeForTokens').mockResolvedValue({
+            access_token: 'access',
+            id_token: 'id',
+        } as never);
+        vi.spyOn(oidc(), 'getUserInfo').mockResolvedValue({
+            sub,
+            email,
+            email_verified: true,
+        } as never);
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/callback/login',
+            makeReq({ query: { code: 'c', state } }),
+            res,
+        );
+        expect(captured.redirectStatus).toBe(302);
+        const url = new URL(captured.redirectUrl ?? '');
+        expect(url.pathname).toBe('/app/some-app');
+        expect(url.searchParams.get('auth_error')).toBe('1');
+        expect(url.searchParams.get('action')).toBe('login');
+        expect(captured.cookies).toHaveLength(0);
+    });
+
     it('appends oidc_login=true and uses popup-style URL when state is from a popup flow', async () => {
         const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
         const email = `oidc-${Math.random().toString(36).slice(2, 8)}@test.local`;
@@ -902,6 +1044,39 @@ describe('OIDCController signup veto (abuse harness)', () => {
 
         expect(captured.redirectUrl).toContain('message=signup_blocked');
         expect(captured.redirectUrl).not.toContain('request_code');
+    });
+
+    it('keeps a veto legible when the listener stamps its own code', async () => {
+        const email = `veto-${Math.random().toString(36).slice(2, 8)}@test.local`;
+        signupValidateOverride = (data) => {
+            if (data.email !== email) return;
+            data.allow = false;
+            data.code = 'email_reputation_too_low';
+            data.trail_id = 'trail-custom-code';
+        };
+        stubIdp(`sub-${Math.random().toString(36).slice(2, 8)}`, email);
+
+        const state = oidc().signState({
+            provider: 'custom',
+            redirect_uri: TEST_ORIGIN + '/',
+        });
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/callback/signup',
+            makeReq({ query: { code: 'c', state } }),
+            res,
+        );
+
+        // A listener code isn't one of the display codes, but the failure
+        // is still a blocked signup — collapsing it to `unauthorized`
+        // would tell the user sign-in broke and bury the Request Code
+        // support needs.
+        expect(captured.redirectUrl).toContain('message=signup_blocked');
+        expect(captured.redirectUrl).not.toContain('message=unauthorized');
+        expect(captured.redirectUrl).toContain(
+            'request_code=trail-custom-code',
+        );
     });
 });
 
@@ -1474,5 +1649,100 @@ describe('OIDCController GET /auth/revalidate-done', () => {
         expect(body).toContain('puter-revalidate-done');
         // The configured origin is JSON-stringified into the inline script.
         expect(body).toContain(JSON.stringify(TEST_ORIGIN));
+    });
+});
+
+// ── POST /auth/oidc/verify-popup-return ─────────────────────────────
+
+/**
+ * The proof exists because the popup return leg states two things the popup
+ * cannot check — the opener's origin and that a login completed — and a URL
+ * built from a verified `state` is byte-identical to one anybody can type.
+ * The opener's origin picks the app a token is minted for, so it has to be
+ * attested rather than read.
+ */
+describe('OIDCController POST /auth/oidc/verify-popup-return', () => {
+    const redeem = async (opener_state: unknown) => {
+        const { res, captured } = makeRes();
+        await callRoute(
+            'post',
+            '/auth/oidc/verify-popup-return',
+            makeReq({ body: { opener_state } }),
+            res,
+        );
+        return captured;
+    };
+
+    it('hands back what a genuine proof attests', async () => {
+        const proof = server.services.oidc.signPopupReturn({
+            opener_origin: 'https://opener.test',
+            msg_id: '77',
+            oidc_login: true,
+        });
+        const captured = await redeem(proof);
+        expect(captured.body).toEqual({
+            opener_origin: 'https://opener.test',
+            msg_id: '77',
+            oidc_login: true,
+        });
+    });
+
+    it('rejects a proof signed with someone else’s key', async () => {
+        // The whole point: only the server can mint one of these.
+        const forged = jwt.sign(
+            { opener_origin: 'https://console.puter.com', oidc_login: true },
+            'not-the-server-secret',
+            { keyid: 'v2' },
+        );
+        await expect(
+            callRoute(
+                'post',
+                '/auth/oidc/verify-popup-return',
+                makeReq({ body: { opener_state: forged } }),
+                makeRes().res,
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects an expired proof', async () => {
+        // Comfortably past `TokenService`'s 30s clock tolerance — the proof is
+        // redeemed on the very next request, so a stale one is never genuine.
+        const stale = server.services.token.sign(
+            'oidc-state',
+            { opener_origin: 'https://opener.test', oidc_login: true },
+            { expiresIn: -600 },
+        );
+        await expect(
+            callRoute(
+                'post',
+                '/auth/oidc/verify-popup-return',
+                makeReq({ body: { opener_state: stale } }),
+                makeRes().res,
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects a missing or non-string proof', async () => {
+        for (const bad of [undefined, null, '', 42, {}]) {
+            await expect(
+                callRoute(
+                    'post',
+                    '/auth/oidc/verify-popup-return',
+                    makeReq({ body: { opener_state: bad } }),
+                    makeRes().res,
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+    });
+
+    it('reports oidc_login false when the proof does not claim a login', async () => {
+        // The error leg mints one of these: a real return, but nothing was
+        // signed in on it, so it must not suppress the account picker.
+        const proof = server.services.oidc.signPopupReturn({
+            opener_origin: 'https://opener.test',
+            msg_id: '77',
+            oidc_login: false,
+        });
+        expect((await redeem(proof)).body).toMatchObject({ oidc_login: false });
     });
 });

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -18,7 +18,7 @@
  */
 
 import { Agent as UndiciAgent } from 'undici';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { configContainer } from '../exports.js';
 import {
     isPublicResolvedAddress,
@@ -26,7 +26,7 @@ import {
     validateUrlNoIP,
 } from './secureHttp.js';
 
-vi.mock('node:dns', async importOriginal => {
+vi.mock('node:dns', async (importOriginal) => {
     const actual = await importOriginal<typeof import('node:dns')>();
     const PRIVATE_HOSTS: Record<string, string> = {
         'resolves-private.test': '10.0.0.1',
@@ -228,5 +228,152 @@ describe('secureHttp resolved address validation', () => {
         ]) {
             expect(isPublicResolvedAddress(address)).toBe(false);
         }
+    });
+});
+
+describe('secureFetch transport behaviour', () => {
+    it('returns data: URIs directly without resolving or proxying', async () => {
+        // Nothing to resolve and nothing to protect — the guard must not
+        // reject its own inline payloads.
+        const res = await secureFetch('data:text/plain;base64,aGVsbG8=');
+        expect(res.status).toBe(200);
+        expect(await res.text()).toBe('hello');
+    });
+
+    it('reports a non-IP string as not-public rather than throwing', () => {
+        expect(isPublicResolvedAddress('not-an-ip')).toBe(false);
+        expect(isPublicResolvedAddress('example.com')).toBe(false);
+        expect(isPublicResolvedAddress('')).toBe(false);
+    });
+
+    it('surfaces an ordinary DNS failure instead of an SSRF refusal', async () => {
+        await expect(
+            secureFetch('http://this-host-does-not-resolve.invalid/'),
+        ).rejects.toSatisfy((e: unknown) => {
+            const err = e as Error & { cause?: Error };
+            return !/private or reserved/.test(
+                err.cause?.message ?? err.message,
+            );
+        });
+    });
+
+    describe('through a configured CORS proxy', () => {
+        let server: import('node:http').Server;
+        let port: number;
+        let lastRequest: {
+            url?: string;
+            secret?: string | string[];
+        } = {};
+        let respond: (res: import('node:http').ServerResponse) => void;
+
+        beforeAll(async () => {
+            const http = await import('node:http');
+            server = http.createServer((req, res) => {
+                lastRequest = {
+                    url: req.url,
+                    secret: req.headers['x-cors-proxy-auth-secret'],
+                };
+                respond(res);
+            });
+            await new Promise<void>((resolve) =>
+                server.listen(0, '127.0.0.1', () => resolve()),
+            );
+            port = (server.address() as import('node:net').AddressInfo).port;
+        });
+
+        afterAll(async () => {
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+        });
+
+        const withProxy = async <T>(fn: () => Promise<T>): Promise<T> => {
+            configContainer.secureCorsProxy = {
+                url: `http://127.0.0.1:${port}/?url=`,
+                secret: 'proxy-secret',
+            };
+            try {
+                return await fn();
+            } finally {
+                delete configContainer.secureCorsProxy;
+            }
+        };
+
+        it('rewrites the URL through the proxy and attaches the auth secret', async () => {
+            respond = (res) => {
+                res.writeHead(200, { 'content-type': 'text/plain' });
+                res.end('proxied body');
+            };
+
+            const res = await withProxy(() =>
+                secureFetch('https://upstream.test/thing?a=1'),
+            );
+
+            expect(res.status).toBe(200);
+            expect(await res.text()).toBe('proxied body');
+            expect(lastRequest.secret).toBe('proxy-secret');
+            expect(lastRequest.url).toBe(
+                '/?url=https://upstream.test/thing?a=1',
+            );
+        });
+
+        it('honours skipProxy so internal calls stay direct', async () => {
+            // With the proxy bypassed the original host is resolved locally
+            // again, so an unresolvable host fails at DNS rather than
+            // reaching the proxy server.
+            respond = (res) => res.end('should not be reached');
+            await withProxy(async () => {
+                await expect(
+                    secureFetch('http://this-host-does-not-resolve.invalid/', {
+                        skipProxy: true,
+                    }),
+                ).rejects.toThrow();
+            });
+        });
+
+        it('rejects a 3xx response rather than following it', async () => {
+            respond = (res) => {
+                res.writeHead(302, { location: 'http://169.254.169.254/' });
+                res.end();
+            };
+
+            await withProxy(async () => {
+                await expect(
+                    secureFetch('https://upstream.test/redirects'),
+                ).rejects.toMatchObject({
+                    statusCode: 400,
+                    legacyCode: 'bad_request',
+                });
+                await expect(
+                    secureFetch('https://upstream.test/redirects'),
+                ).rejects.toThrow('http://169.254.169.254/');
+            });
+        });
+
+        it('names the target as unknown when a 3xx carries no Location', async () => {
+            respond = (res) => {
+                res.writeHead(304);
+                res.end();
+            };
+
+            await withProxy(async () => {
+                await expect(
+                    secureFetch('https://upstream.test/no-location'),
+                ).rejects.toThrow(
+                    'redirects are not allowed (target: unknown)',
+                );
+            });
+        });
+
+        it('passes 2xx and 4xx responses through untouched', async () => {
+            respond = (res) => {
+                res.writeHead(404);
+                res.end('nope');
+            };
+
+            const res = await withProxy(() =>
+                secureFetch('https://upstream.test/missing'),
+            );
+            expect(res.status).toBe(404);
+            expect(await res.text()).toBe('nope');
+        });
     });
 });

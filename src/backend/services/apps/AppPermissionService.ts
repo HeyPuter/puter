@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -34,8 +34,8 @@ import { PuterService } from '../types.js';
  * `subdomains-of-user:*`, and `app-root-dir:*` namespaces.
  *
  * Ports three v1 services (ProtectedAppService, AppPermissionService, the
- * app-root-dir arm of AppService) into one domain-scoped service. Nothing
- * here needs to live beyond init — the registrations are stateless.
+ * app-root-dir arm of AppService) into one domain-scoped service. Nothing here
+ * needs to live beyond init — the registrations are stateless.
  */
 export class AppPermissionService extends PuterService {
     declare protected stores: LayerInstances<typeof puterStores>;
@@ -119,8 +119,10 @@ export class AppPermissionService extends PuterService {
         });
 
         // -- app-root-dir:<app_uid>:<mode> → fs:<root_uid>:<mode> -------
-        // Only rewrites during an explicit `grantUserAppPermission` (see
-        // PermissionService for the context flag). During scans we return
+        // Only rewrites while a user-app permission row is being written or
+        // removed — `grantUserAppPermission` / `revokeUserAppPermission`, which
+        // both set the context flag (see PermissionService) precisely so the
+        // revoke names the row the grant wrote. During scans we return
         // PERMISSION_FOR_NOTHING_IN_PARTICULAR so `check(actor, 'app-root-dir:…')`
         // never accidentally matches through the fs-permission path.
         permissions.registerRewriter({
@@ -207,11 +209,11 @@ export class AppPermissionService extends PuterService {
      * subdomain out of `app.index_url` and looking up the matching subdomain
      * row.
      *
-     * v1 first consulted `subdomains.associated_app_id` for a direct
-     * binding — that column was user-writable without an ownership check,
-     * so trusting it let any user point an arbitrary app's "root dir" at
-     * their own subdomain. The column is no longer authoritative; the
-     * `index_url`-derived lookup below is the only path.
+     * V1 first consulted `subdomains.associated_app_id` for a direct binding —
+     * that column was user-writable without an ownership check, so trusting it
+     * let any user point an arbitrary app's "root dir" at their own subdomain.
+     * The column is no longer authoritative; the `index_url`-derived lookup
+     * below is the only path.
      */
     async #resolveAppRootDirId(app: {
         id: number;

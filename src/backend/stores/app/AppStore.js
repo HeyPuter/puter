@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -26,10 +26,10 @@ import { validateUrl } from '../../util/validation.js';
 /**
  * Persistence + cache for the `apps` table.
  *
- * CRUD over app rows with multi-key caching (uid, name, id). No
- * validation or permission logic — those live in AppDriver. Callers
- * that need enforcement should go through the driver; callers that
- * just need data (internal services) can hit the store directly.
+ * CRUD over app rows with multi-key caching (uid, name, id). No validation or
+ * permission logic — those live in AppDriver. Callers that need enforcement
+ * should go through the driver; callers that just need data (internal services)
+ * can hit the store directly.
  */
 
 const CACHE_KEY_PREFIX = 'apps';
@@ -39,6 +39,14 @@ const LIST_CACHE_TRACKER_KEY = `${LIST_CACHE_KEY_PREFIX}:keys`;
 const LIST_CACHE_TTL_SECONDS = 15 * 60;
 const FILETYPE_CACHE_KEY_PREFIX = 'apps:by-filetype';
 const FILETYPE_CACHE_TTL_SECONDS = 60;
+// Filetype associations are matched against the bare lowercase extension
+// (see SuggestedAppsService), but clients historically stored whatever the
+// developer typed — `.docx` was common. Canonicalize on write and tolerate
+// the dotted legacy form on read.
+const normalizeFiletype = (type) =>
+    typeof type === 'string'
+        ? type.trim().toLowerCase().replace(/^\.+/, '')
+        : '';
 const APP_ID_PROPERTIES = ['id', 'uid', 'name'];
 // Old-name redirect window. After this many months an entry in
 // `old_app_names` is considered stale and is deleted on the next read
@@ -108,6 +116,8 @@ const READ_ONLY_COLUMNS = new Set([
     'protected',
     'is_private',
 ]);
+// Unique-key columns `#getManyByProperty` may build an IN-list against.
+const BATCH_LOOKUP_COLUMNS = new Set(['id', 'uid']);
 const APP_BOOLEAN_COLUMNS = new Set([
     'godmode',
     'maximize_on_start',
@@ -133,67 +143,90 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Batched lookup by id. Dedupes input ids, reads cache via a pipelined
-     * MGET, and resolves remaining misses with a single
-     * `SELECT … WHERE id IN (…)` per chunk. Use this in place of
-     * `Promise.all(ids.map(getById))` to avoid one connection per row on
-     * large id sets.
+     * Batched lookup by id. Use this in place of `Promise.all(ids.map(
+     * getById))` to avoid one connection per row on large id sets.
      *
      * Missing ids (no DB row) are simply absent from the returned map.
      */
     async getByIds(ids) {
+        return this.#getManyByProperty('id', ids);
+    }
+
+    /**
+     * Batched lookup by uid — the uid-keyed twin of `getByIds`, for callers
+     * that hold uids (recent-opens lists, launch metadata).
+     *
+     * Missing uids (no DB row) are simply absent from the returned map.
+     */
+    async getByUids(uids) {
+        return this.#getManyByProperty('uid', uids);
+    }
+
+    /**
+     * Shared engine behind `getByIds` / `getByUids`. Dedupes input values,
+     * reads cache via a pipelined MGET, and resolves remaining misses with a
+     * single `SELECT … WHERE <prop> IN (…)` per chunk. The returned map is
+     * keyed by `prop`'s value.
+     */
+    async #getManyByProperty(prop, values) {
+        // `prop` is interpolated into SQL, so it may only ever be one of the
+        // unique-key columns this store owns — never caller-supplied.
+        if (!BATCH_LOOKUP_COLUMNS.has(prop)) {
+            throw new Error(`AppStore: unsupported batch lookup key ${prop}`);
+        }
+
         const result = new Map();
-        const uniqueIds = [
+        const uniqueValues = [
             ...new Set(
-                (Array.isArray(ids) ? ids : []).filter(
-                    (id) => id !== null && id !== undefined,
+                (Array.isArray(values) ? values : []).filter(
+                    (value) => value !== null && value !== undefined,
                 ),
             ),
         ];
-        if (uniqueIds.length === 0) return result;
+        if (uniqueValues.length === 0) return result;
 
-        const missingIds = [];
+        const missingValues = [];
         try {
             const pipeline = this.clients.redis.pipeline();
-            for (const id of uniqueIds) {
-                pipeline.get(this.#cacheKey('id', id));
+            for (const value of uniqueValues) {
+                pipeline.get(this.#cacheKey(prop, value));
             }
             const cacheResults = (await pipeline.exec()) ?? [];
-            for (let i = 0; i < uniqueIds.length; i++) {
-                const id = uniqueIds[i];
+            for (let i = 0; i < uniqueValues.length; i++) {
+                const value = uniqueValues[i];
                 const raw = cacheResults[i]?.[1];
                 if (typeof raw === 'string') {
                     try {
-                        result.set(id, JSON.parse(raw));
+                        result.set(value, JSON.parse(raw));
                         continue;
                     } catch {
                         // Fall through to DB on any parse failure.
                     }
                 }
-                missingIds.push(id);
+                missingValues.push(value);
             }
         } catch {
-            missingIds.push(...uniqueIds);
+            missingValues.push(...uniqueValues);
         }
 
         for (
             let offset = 0;
-            offset < missingIds.length;
+            offset < missingValues.length;
             offset += BULK_QUERY_CHUNK_SIZE
         ) {
-            const chunk = missingIds.slice(
+            const chunk = missingValues.slice(
                 offset,
                 offset + BULK_QUERY_CHUNK_SIZE,
             );
             const placeholders = chunk.map(() => '?').join(', ');
             const rows = await this.clients.db.read(
-                `SELECT * FROM \`apps\` WHERE \`id\` IN (${placeholders})`,
+                `SELECT * FROM \`apps\` WHERE \`${prop}\` IN (${placeholders})`,
                 chunk,
             );
             for (const row of rows) {
                 const app = this.#normalizeRow(row);
                 if (!app) continue;
-                result.set(app.id, app);
+                result.set(app[prop], app);
                 this.#writeCache(app).catch(() => {});
             }
         }
@@ -218,13 +251,21 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Find the oldest app whose `index_url` matches one of `candidates`.
-     * Used by the driver to detect duplicate puter-hosted index_url rows
-     * (origin-bootstrap apps + same-owner duplicates) so they can be
-     * merged on `create` / `update`. Returns the minimal row shape
-     * needed by the merge path; falsy when nothing matches.
+     * Find the oldest app whose `index_url` matches one of `candidates`. Used
+     * by the driver to detect duplicate puter-hosted index_url rows
+     * (origin-bootstrap apps + same-owner duplicates) so they can be merged on
+     * `create` / `update`, and by the subdomain driver to refuse a name another
+     * user's app still points at. Returns the minimal row shape needed by the
+     * merge path; falsy when nothing matches.
+     *
+     * `excludeOwnerUserId` skips rows owned by that user; unowned rows
+     * (origin-bootstrap apps) still match, since their launch origin is no less
+     * takeover-sensitive for having no owner.
      */
-    async findByIndexUrlCandidates(candidates, { excludeAppId } = {}) {
+    async findByIndexUrlCandidates(
+        candidates,
+        { excludeAppId, excludeOwnerUserId } = {},
+    ) {
         if (!Array.isArray(candidates) || candidates.length === 0) return null;
         const placeholders = candidates.map(() => '?').join(', ');
         const params = [...candidates];
@@ -233,16 +274,20 @@ export class AppStore extends PuterStore {
             sql += ' AND `id` != ?';
             params.push(excludeAppId);
         }
+        if (Number.isInteger(excludeOwnerUserId) && excludeOwnerUserId > 0) {
+            sql += ' AND (`owner_user_id` IS NULL OR `owner_user_id` != ?)';
+            params.push(excludeOwnerUserId);
+        }
         sql += ' ORDER BY `timestamp` ASC, `id` ASC LIMIT 1';
         const rows = await this.clients.db.read(sql, params);
         return rows[0] ?? null;
     }
 
     /**
-     * Set `owner_user_id` on an app row only if it has no current owner.
-     * Used by the merge path to claim ownership of an origin-bootstrap
-     * app row (auto-created with no owner) before merging into it.
-     * Returns true iff the row was modified.
+     * Set `owner_user_id` on an app row only if it has no current owner. Used
+     * by the merge path to claim ownership of an origin-bootstrap app row
+     * (auto-created with no owner) before merging into it. Returns true iff the
+     * row was modified.
      */
     async claimOwnership(appId, userId) {
         if (!Number.isInteger(appId) || appId <= 0) return false;
@@ -262,15 +307,15 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * List apps with optional filters. Returns raw normalised rows —
-     * the driver is responsible for permission filtering + icon URL
-     * resolution when serving to clients.
+     * List apps with optional filters. Returns raw normalised rows — the driver
+     * is responsible for permission filtering + icon URL resolution when
+     * serving to clients.
      *
      * @param {object} filters
      * @param {number} [filters.ownerUserId] — only apps owned by this user
      * @param {number} [filters.appOwner] — only apps created by another app
      * @param {string} [filters.name] — exact name match
-     * @param {number} [filters.limit=500]
+     * @param {number} [filters.limit=500] Default is `500`
      */
     async list(filters = {}) {
         const where = [];
@@ -361,18 +406,17 @@ export class AppStore extends PuterStore {
     /**
      * Create a new app row.
      *
-     * `fields` is the post-validation column map from the driver.
-     * `ownerUserId` and `appOwner` come in as a separate arg rather
-     * than living on `fields` so user-derived patches can never fake
-     * ownership — the store's READ_ONLY_COLUMNS filter would strip
-     * them from `fields` anyway; putting them here makes the
-     * privileged contract obvious at the call site.
+     * `fields` is the post-validation column map from the driver. `ownerUserId`
+     * and `appOwner` come in as a separate arg rather than living on `fields`
+     * so user-derived patches can never fake ownership — the store's
+     * READ_ONLY_COLUMNS filter would strip them from `fields` anyway; putting
+     * them here makes the privileged contract obvious at the call site.
      *
      * Returns the created app row.
      */
     async create(
         fields,
-        /** @type {{ownerUserId?: number, appOwner?: number}} */
+        /** @type {{ ownerUserId?: number; appOwner?: number }} */
         { ownerUserId, appOwner = null } = {},
     ) {
         if (typeof ownerUserId !== 'number') {
@@ -409,14 +453,21 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Create an origin-bootstrap app row for `origin` with the
-     * deterministic `uid` (UUIDv5 of origin). No owner — the row stays
-     * unclaimed until a developer registers an app for the same origin
-     * and AppDriver's merge path takes ownership. Marker shape
-     * (`name === uid && title === uid` + description prefix) is what
+     * Create an origin-bootstrap app row for `origin` with the deterministic
+     * `uid` (UUIDv5 of origin). `ownerUserId` is a privileged arg (same
+     * contract as `create`) — callers pass the hosted-subdomain owner so the
+     * site owner is the app's creator from the first minted token. Without one
+     * the row stays unclaimed until a developer registers an app for the same
+     * origin and AppDriver's merge path takes ownership. Marker shape (`name
+     * === uid && title === uid` + description prefix) is what
      * `#isOriginBootstrapApp` checks.
      */
-    async createFromOrigin(uid, origin) {
+    async createFromOrigin(
+        uid,
+        origin,
+        /** @type {{ ownerUserId?: number | null }} */
+        { ownerUserId = null } = {},
+    ) {
         // Bootstrap apps persist `origin` straight into `index_url`, which is
         // later loaded as `iframe.src`. Enforce the same http(s) scheme
         // allow-list as the AppDriver create/update path so a caller-supplied
@@ -429,7 +480,10 @@ export class AppStore extends PuterStore {
             title: uid,
             description: `App created from origin ${origin}`,
             index_url: origin,
-            owner_user_id: null,
+            owner_user_id:
+                Number.isInteger(ownerUserId) && ownerUserId > 0
+                    ? ownerUserId
+                    : null,
         };
 
         const columns = ['uid', ...Object.keys(fields)];
@@ -517,12 +571,12 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Record `oldName` as a redirect to the app identified by `appUid`.
-     * The (app_uid, name) tuple is unique in `old_app_names`, so the
-     * upsert refreshes the timestamp when the same app re-records the
-     * same previous name (which happens whenever a user renames back
-     * and forth) — that resets the TTL clock so the redirect stays live
-     * for another {@link OLD_APP_NAME_TTL_MONTHS} months.
+     * Record `oldName` as a redirect to the app identified by `appUid`. The
+     * (app_uid, name) tuple is unique in `old_app_names`, so the upsert
+     * refreshes the timestamp when the same app re-records the same previous
+     * name (which happens whenever a user renames back and forth) — that resets
+     * the TTL clock so the redirect stays live for another
+     * {@link OLD_APP_NAME_TTL_MONTHS} months.
      */
     async #recordOldAppName(appUid, oldName) {
         if (!appUid || typeof oldName !== 'string' || oldName.length === 0) {
@@ -540,10 +594,10 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Drop every `old_app_names` row for `name`. Called whenever a name
-     * is freshly claimed in `apps` (create or rename-into) so the
-     * authoritative live row isn't shadowed by a stale redirect that
-     * pointed `name` at some prior owner.
+     * Drop every `old_app_names` row for `name`. Called whenever a name is
+     * freshly claimed in `apps` (create or rename-into) so the authoritative
+     * live row isn't shadowed by a stale redirect that pointed `name` at some
+     * prior owner.
      */
     async #clearOldAppNamesForName(name) {
         if (typeof name !== 'string' || name.length === 0) return;
@@ -554,8 +608,8 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Delete an app row. Also deletes its filetype associations.
-     * Invalidates cache.
+     * Delete an app row. Also deletes its filetype associations. Invalidates
+     * cache.
      */
     async delete(appId) {
         const app = await this.getById(appId);
@@ -583,9 +637,9 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Batch sibling of {@link getFiletypeAssociations} — one query for many
-     * app ids, returns `Map<appId, string[]>` (every requested id is
-     * present, with `[]` for apps that have no associations).
+     * Batch sibling of {@link getFiletypeAssociations} — one query for many app
+     * ids, returns `Map<appId, string[]>` (every requested id is present, with
+     * `[]` for apps that have no associations).
      */
     async getFiletypeAssociationsByIds(appIds) {
         const ids = Array.isArray(appIds)
@@ -617,7 +671,9 @@ export class AppStore extends PuterStore {
         // reads inside the TTL window hit redis. `setFiletypeAssociations`
         // invalidates the affected extension explicitly so changes show up
         // immediately.
-        const cacheKey = `${FILETYPE_CACHE_KEY_PREFIX}:${extension}`;
+        const ext = normalizeFiletype(extension);
+        if (!ext) return [];
+        const cacheKey = `${FILETYPE_CACHE_KEY_PREFIX}:${ext}`;
         try {
             const cached = await this.clients.redis.get(cacheKey);
             if (cached) {
@@ -628,13 +684,22 @@ export class AppStore extends PuterStore {
             // Fall through to DB on any cache failure.
         }
 
+        // Rows written before writes were canonicalized may carry a leading
+        // dot (`.docx`); match both forms so they work without a migration.
         const rows = await this.clients.db.read(
             `SELECT a.* FROM \`apps\` a
              INNER JOIN \`app_filetype_association\` fa ON fa.\`app_id\` = a.\`id\`
-             WHERE fa.\`type\` = ?`,
-            [extension],
+             WHERE fa.\`type\` IN (?, ?)`,
+            [ext, `.${ext}`],
         );
-        const apps = rows.map((r) => this.#normalizeRow(r));
+        // An app associated under both forms joins to two rows.
+        const seenIds = new Set();
+        const apps = [];
+        for (const row of rows) {
+            if (seenIds.has(row.id)) continue;
+            seenIds.add(row.id);
+            apps.push(this.#normalizeRow(row));
+        }
 
         this.clients.redis
             .set(
@@ -666,7 +731,16 @@ export class AppStore extends PuterStore {
         // Replace-all semantics. Capture the previous extension set so we
         // can drop their cached app lists in addition to the new ones.
         const previous = await this.getFiletypeAssociations(appId);
-        const newTypes = Array.isArray(types) ? types : [];
+        // Canonicalize before storing — readers match on the bare lowercase
+        // extension. Dedupe after normalizing: '.docx' and 'docx' in the
+        // same call are one association, not two rows.
+        const newTypes = [
+            ...new Set(
+                (Array.isArray(types) ? types : [])
+                    .map(normalizeFiletype)
+                    .filter(Boolean),
+            ),
+        ];
 
         // DELETE + multi-row INSERT in one transactional batch — partial
         // success would otherwise leave the row's filetype set in a state
@@ -688,7 +762,11 @@ export class AppStore extends PuterStore {
         }
         await this.clients.db.batchWrite(entries);
 
-        const affected = new Set([...previous, ...newTypes]);
+        // Cache keys are always the canonical form — normalize `previous`
+        // too, since pre-existing rows may be stored dotted.
+        const affected = new Set(
+            [...previous.map(normalizeFiletype), ...newTypes].filter(Boolean),
+        );
         if (affected.size === 0) return;
         const keys = [...affected].map(
             (t) => `${FILETYPE_CACHE_KEY_PREFIX}:${t}`,
@@ -765,10 +843,10 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Resolve an app by a previously-used name via `old_app_names`.
-     * Lazy-GCs entries older than {@link OLD_APP_NAME_TTL_MONTHS}: a
-     * cutoff DELETE runs before the JOIN, so an expired redirect is
-     * removed and the lookup returns null on the very same call.
+     * Resolve an app by a previously-used name via `old_app_names`. Lazy-GCs
+     * entries older than {@link OLD_APP_NAME_TTL_MONTHS}: a cutoff DELETE runs
+     * before the JOIN, so an expired redirect is removed and the lookup returns
+     * null on the very same call.
      */
     async #resolveByOldName(name) {
         const cutoffClause = this.clients.db.case({
@@ -969,9 +1047,9 @@ export class AppStore extends PuterStore {
     /**
      * Batched, cached all-time { open_count, user_count } for a set of apps.
      *
-     * Flow: pipelined redis MGET → on miss, one ClickHouse (or MySQL) query
-     * for all misses at once → backfill cache. Apps with no rows in
-     * `app_opens` resolve to zero counts. Returns `Map<uid, stats>`.
+     * Flow: pipelined redis MGET → on miss, one ClickHouse (or MySQL) query for
+     * all misses at once → backfill cache. Apps with no rows in `app_opens`
+     * resolve to zero counts. Returns `Map<uid, stats>`.
      */
     async getAppsStats(appUids) {
         const uids = Array.isArray(appUids)
@@ -1040,16 +1118,16 @@ export class AppStore extends PuterStore {
     }
 
     /**
-     * Detailed / period-filtered / grouped stats for a single app.
-     * Deliberately uncached — UI-driven, rarely repeated with the exact same
-     * args, and ClickHouse is fast enough at interactive latency.
+     * Detailed / period-filtered / grouped stats for a single app. Deliberately
+     * uncached — UI-driven, rarely repeated with the exact same args, and
+     * ClickHouse is fast enough at interactive latency.
      *
      * @param {object} [options]
      * @param {string} [options.period='all'] — today, yesterday, 7d, 30d,
      *   this_week, last_week, this_month, last_month, this_year, last_year,
-     *   12m, all
+     *   12m, all. Default is `'all'`
      * @param {string} [options.grouping] — hour, day, week, month, year
-     * @param {number|string|Date} [options.createdAt] — app creation ts;
+     * @param {number | string | Date} [options.createdAt] — app creation ts;
      *   used to bound the `all` period
      */
     async getAppStatsDetailed(appUid, options = {}) {

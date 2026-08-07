@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -82,6 +82,30 @@ const READ_ONLY_COLUMNS = new Set([
     'database_id',
 ]);
 
+/**
+ * Build the `app_owner` predicate shared by the prefix list/count queries.
+ * `appIds` is the multi-app form (an app plus the apps it created); an empty
+ * array means "no app may own these rows", which must match nothing rather than
+ * degrade to an unfiltered query.
+ */
+const appOwnerCondition = ({
+    appId,
+    appIds,
+}: {
+    appId?: number;
+    appIds?: number[];
+}): { condition: string; values: unknown[] } | null => {
+    if (appIds) {
+        if (appIds.length === 0) return { condition: '1 = 0', values: [] };
+        return {
+            condition: `\`app_owner\` IN (${appIds.map(() => '?').join(', ')})`,
+            values: appIds,
+        };
+    }
+    if (appId) return { condition: '`app_owner` = ?', values: [appId] };
+    return null;
+};
+
 const CACHE_KEY_PREFIX = 'subdomains';
 const CACHE_TTL_SECONDS = 60 * 60;
 // Sentinel so 404s on the same public subdomain don't hit the DB repeatedly.
@@ -115,10 +139,10 @@ export class SubdomainStore extends PuterStore {
 
     /**
      * Pass `primary: true` for read-after-write lookups (e.g. checking a
-     * subdomain that may have been created moments ago): it skips the
-     * cache — which may hold a stale negative marker — and reads the
-     * primary instead of a possibly-lagging replica. The result still
-     * refreshes the cache, healing any stale marker.
+     * subdomain that may have been created moments ago): it skips the cache —
+     * which may hold a stale negative marker — and reads the primary instead of
+     * a possibly-lagging replica. The result still refreshes the cache, healing
+     * any stale marker.
      */
     async getBySubdomain(
         subdomain: string,
@@ -146,19 +170,30 @@ export class SubdomainStore extends PuterStore {
             : await this.clients.db.read(sql, [subdomain]);
         const row = (rows[0] as unknown as SubdomainRow | undefined) ?? null;
 
+        // These writes are fire-and-forget, so a mutation that lands between
+        // the SELECT above and the SET below would otherwise be overwritten
+        // by the row we just read — stranding the pre-write row in cache for
+        // the full TTL (an hour of a site serving its old root_dir after
+        // `hosting.update`). A replica read is not authoritative, so it only
+        // *populates* an absent key (`NX`) and can never clobber a fresher
+        // write. A `primary` read is read-after-write on the primary, so it
+        // writes through — that's what heals a stale negative marker.
+        const populate = (value: string, ttlSeconds: number) =>
+            (primary
+                ? this.clients.redis.set(cacheKey, value, 'EX', ttlSeconds)
+                : this.clients.redis.set(
+                      cacheKey,
+                      value,
+                      'EX',
+                      ttlSeconds,
+                      'NX',
+                  )
+            ).catch(() => {});
+
         if (row) {
-            this.clients.redis
-                .set(cacheKey, JSON.stringify(row), 'EX', CACHE_TTL_SECONDS)
-                .catch(() => {});
+            populate(JSON.stringify(row), CACHE_TTL_SECONDS);
         } else {
-            this.clients.redis
-                .set(
-                    cacheKey,
-                    NEGATIVE_CACHE_MARKER,
-                    'EX',
-                    NEGATIVE_CACHE_TTL_SECONDS,
-                )
-                .catch(() => {});
+            populate(NEGATIVE_CACHE_MARKER, NEGATIVE_CACHE_TTL_SECONDS);
         }
         return row;
     }
@@ -322,6 +357,7 @@ export class SubdomainStore extends PuterStore {
         prefix: string,
         extra: {
             appId?: number;
+            appIds?: number[];
             limit?: number;
             offset?: number;
             afterId?: number;
@@ -331,9 +367,10 @@ export class SubdomainStore extends PuterStore {
 
         const conditions = ['`user_id` = ?', '`subdomain` LIKE ?'];
         const values: unknown[] = [userId, `${prefix}%`];
-        if (extra.appId) {
-            conditions.push('`app_owner` = ?');
-            values.push(extra.appId);
+        const appOwnerFilter = appOwnerCondition(extra);
+        if (appOwnerFilter) {
+            conditions.push(appOwnerFilter.condition);
+            values.push(...appOwnerFilter.values);
         }
         if (extra.afterId !== undefined) {
             conditions.push('`id` > ?');
@@ -356,15 +393,16 @@ export class SubdomainStore extends PuterStore {
     async countByUserIdAndPrefix(
         userId: number,
         prefix: string,
-        extra: { appId?: number } = {},
+        extra: { appId?: number; appIds?: number[] } = {},
     ): Promise<number> {
         if (!userId || prefix == null) return 0;
 
         const conditions = ['`user_id` = ?', '`subdomain` LIKE ?'];
         const values: unknown[] = [userId, `${prefix}%`];
-        if (extra.appId) {
-            conditions.push('`app_owner` = ?');
-            values.push(extra.appId);
+        const appOwnerFilter = appOwnerCondition(extra);
+        if (appOwnerFilter) {
+            conditions.push(appOwnerFilter.condition);
+            values.push(...appOwnerFilter.values);
         }
         const rows = await this.clients.db.read(
             `SELECT COUNT(*) AS n FROM \`subdomains\` WHERE ${conditions.join(' AND ')}`,
@@ -375,7 +413,16 @@ export class SubdomainStore extends PuterStore {
 
     // -- Writes -------------------------------------------------------
 
-    /** @param {{ userId: number, subdomain: string, rootDirId?: number|null, associatedAppId?: number|null, appOwner?: number|null, preambleVersion?: string|null }} opts */
+    /**
+     * @param {{
+     *     userId: number;
+     *     subdomain: string;
+     *     rootDirId?: number | null;
+     *     associatedAppId?: number | null;
+     *     appOwner?: number | null;
+     *     preambleVersion?: string | null;
+     * }} opts
+     */
     async create({
         userId,
         subdomain,

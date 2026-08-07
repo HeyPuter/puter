@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -47,6 +47,35 @@ const ALLOWED_ERRORS = [
     'signup_blocked',
 ] as const;
 
+/**
+ * Pick the display code for a failed user resolution.
+ *
+ * A `code` is only ever set when the signup-validate harness vetoed the signup,
+ * but the code it stamps comes from an abuse listener and is not drawn from
+ * {@link ALLOWED_ERRORS} — so clamping it directly turns every vetoed OIDC
+ * signup into a bare `unauthorized`, which reads as "sign-in broke" and hides
+ * both the real cause and the Request Code that support looks the decision up
+ * by. Anything unrecognized falls back to the veto's own category instead.
+ */
+function resolutionErrorCode(code: string | undefined): string {
+    if (!code) return 'unauthorized';
+    return (ALLOWED_ERRORS as readonly string[]).includes(code)
+        ? code
+        : 'signup_blocked';
+}
+
+// GUI pages an OIDC flow may return to: /desktop, /dashboard, and direct app
+// landings (/app/<name> and its desktop-booted twin /desktop/app/<name>,
+// mirroring APP_NAME_REGEX in AppDriver). Strict whitelist — never a
+// client-supplied URL (no open redirect).
+function isWhitelistedReturnPath(path: string): boolean {
+    return (
+        path === '/desktop' ||
+        path === '/dashboard' ||
+        /^(\/desktop)?\/app\/[a-zA-Z0-9_-]{1,100}$/.test(path)
+    );
+}
+
 function buildErrorRedirectUrl(
     origin: string,
     sourceFlow: string,
@@ -54,6 +83,11 @@ function buildErrorRedirectUrl(
     message: string,
     stateDecoded?: Record<string, unknown>,
     requestCode?: string,
+    // Signs the popup-return proof. Passed in because this is a module-level
+    // helper with no access to services; omitted by callers that have no
+    // state to attest (the proof is simply absent then, and the popup falls
+    // back to its browser-attested sources).
+    signPopupReturn?: (payload: Record<string, unknown>) => string,
 ): string {
     const targetFlow =
         OIDC_ERROR_REDIRECT_MAP[sourceFlow]?.[errorCondition] ?? sourceFlow;
@@ -61,6 +95,20 @@ function buildErrorRedirectUrl(
     const clamped = (ALLOWED_ERRORS as readonly string[]).includes(message)
         ? message
         : 'unauthorized';
+
+    // Land back on the whitelisted page the flow started from (e.g. an
+    // /app/<name> landing) so the retry — and the eventual success — keeps
+    // the user's destination. redirect_uri comes from the signed state and
+    // was built server-side, but re-check the path against the whitelist.
+    let pagePath = '/';
+    if (typeof stateDecoded?.redirect_uri === 'string') {
+        try {
+            const statePath = new URL(stateDecoded.redirect_uri).pathname;
+            if (isWhitelistedReturnPath(statePath)) pagePath = statePath;
+        } catch {
+            // unparsable redirect_uri: fall back to the root page
+        }
+    }
 
     let params: URLSearchParams;
     if (stateDecoded?.embedded_in_popup && stateDecoded?.msg_id != null) {
@@ -74,6 +122,19 @@ function buildErrorRedirectUrl(
         if (stateDecoded?.opener_origin) {
             params.set('opener_origin', String(stateDecoded.opener_origin));
         }
+        // Same reasoning as the success leg: the popup cannot tell a verified
+        // `opener_origin` from a typed one, so attest it. The error leg is a
+        // real return from the provider too — the flow failed, not the hop.
+        if (signPopupReturn) {
+            params.set(
+                'opener_state',
+                signPopupReturn({
+                    opener_origin: stateDecoded?.opener_origin ?? null,
+                    msg_id: stateDecoded?.msg_id ?? null,
+                    oidc_login: false,
+                }),
+            );
+        }
     } else {
         params = new URLSearchParams({
             action: targetFlow,
@@ -84,7 +145,7 @@ function buildErrorRedirectUrl(
     if (requestCode) {
         params.set('request_code', requestCode);
     }
-    return `${base}/?${params.toString()}`;
+    return `${base}${pagePath}?${params.toString()}`;
 }
 
 function appendQueryParam(url: string, key: string, value: string): string {
@@ -101,8 +162,8 @@ function constantTimeEqual(a: string, b: string): boolean {
 }
 
 /**
- * True iff `target` parses as a URL whose origin equals `origin`. Used to
- * clamp OIDC redirect targets — `startsWith` would accept
+ * True iff `target` parses as a URL whose origin equals `origin`. Used to clamp
+ * OIDC redirect targets — `startsWith` would accept
  * `https://puter.com.evil.com` against `https://puter.com`.
  */
 function isSameOrigin(target: string, origin: string): boolean {
@@ -120,6 +181,51 @@ function isSameOrigin(target: string, origin: string): boolean {
  */
 export class OIDCController extends PuterController {
     registerRoutes(router: PuterRouter): void {
+        // -- POST /auth/oidc/verify-popup-return ---------------------
+        // Public — hand back the facts a popup-return proof attests to.
+        //
+        // A sign-in popup returning from a provider is told the opener's
+        // origin and that a login completed. It cannot check either: the
+        // values arrive as query parameters, and a URL built from a verified
+        // `state` looks exactly like one an attacker typed. The opener's
+        // origin decides which app a token gets minted for, so the popup
+        // redeems the signed proof here instead of believing the raw
+        // parameters.
+        //
+        // Unauthenticated on purpose — it reveals nothing the caller did not
+        // already hand over, and a forged or expired proof yields nothing.
+
+        router.post(
+            '/auth/oidc/verify-popup-return',
+            {
+                subdomain: 'api',
+                rateLimit: {
+                    scope: 'oidc-verify-popup-return',
+                    limit: 60,
+                    window: 60_000,
+                },
+            },
+            async (req: Request, res: Response) => {
+                const proof = req.body?.opener_state;
+                if (typeof proof !== 'string' || !proof) {
+                    throw new HttpError(400, 'Missing `opener_state`', {
+                        legacyCode: 'bad_request',
+                    });
+                }
+                const decoded = this.services.oidc.verifyPopupReturn(proof);
+                if (!decoded) {
+                    throw new HttpError(400, 'Invalid `opener_state`', {
+                        legacyCode: 'bad_request',
+                    });
+                }
+                res.json({
+                    opener_origin: decoded.opener_origin ?? null,
+                    msg_id: decoded.msg_id ?? null,
+                    oidc_login: decoded.oidc_login === true,
+                });
+            },
+        );
+
         // -- GET /auth/oidc/providers --------------------------------
         // Public — list enabled provider IDs for the frontend.
 
@@ -166,15 +272,15 @@ export class OIDCController extends PuterController {
 
                 let appRedirectUri = flowRedirects[flow] ?? (origin || '/');
 
-                // Optional GUI return path so login started from /desktop or
-                // /dashboard lands back there. Strict whitelist — never a
-                // client-supplied URL (no open redirect).
+                // Optional GUI return path so login started from /desktop,
+                // /dashboard, or an /app/<name> landing lands back there.
                 const rawReturnTo = Array.isArray(req.query.return_to)
                     ? req.query.return_to[0]
                     : req.query.return_to;
                 if (
                     (flow === 'login' || flow === 'signup') &&
-                    (rawReturnTo === '/desktop' || rawReturnTo === '/dashboard')
+                    typeof rawReturnTo === 'string' &&
+                    isWhitelistedReturnPath(rawReturnTo)
                 ) {
                     appRedirectUri = `${origin}${rawReturnTo}`;
                 }
@@ -315,9 +421,10 @@ export class OIDCController extends PuterController {
                         origin,
                         'login',
                         'other',
-                        resolved.code ?? 'unauthorized',
+                        resolutionErrorCode(resolved.code),
                         stateDecoded,
                         resolved.requestCode,
+                        (p) => this.services.oidc.signPopupReturn(p),
                     ),
                 );
             }
@@ -335,6 +442,8 @@ export class OIDCController extends PuterController {
                         'other',
                         'account_suspended',
                         stateDecoded,
+                        undefined,
+                        (p) => this.services.oidc.signPopupReturn(p),
                     ),
                 );
             }
@@ -350,6 +459,7 @@ export class OIDCController extends PuterController {
             const origin = this.config.origin ?? '';
             const result = await this.#processCallback(req, res, 'signup');
             if ('error' in result) {
+                console.warn(`OIDC signup callback error: ${result.error}`);
                 return res.redirect(
                     302,
                     buildErrorRedirectUrl(
@@ -378,9 +488,10 @@ export class OIDCController extends PuterController {
                         origin,
                         'signup',
                         'other',
-                        resolved.code ?? 'unauthorized',
+                        resolutionErrorCode(resolved.code),
                         stateDecoded,
                         resolved.requestCode,
+                        (p) => this.services.oidc.signPopupReturn(p),
                     ),
                 );
             }
@@ -395,6 +506,8 @@ export class OIDCController extends PuterController {
                         'other',
                         'account_suspended',
                         stateDecoded,
+                        undefined,
+                        (p) => this.services.oidc.signPopupReturn(p),
                     ),
                 );
             }
@@ -497,13 +610,14 @@ if (window.opener) {
 
     /**
      * Resolve an OIDC callback to a Puter user. In order:
-     *   1. Existing link on (provider, sub) → that user.
-     *   2. Email matches an existing account whose email is CONFIRMED →
-     *      link (provider, sub) to that user.
-     *   3. Email matches an account whose email is UNCONFIRMED → refuse.
-     *      We don't know who owns an unconfirmed address, so linking would
-     *      let whoever controls the OIDC identity hijack a pending signup.
-     *   4. Otherwise create a new user and link.
+     *
+     * 1. Existing link on (provider, sub) → that user.
+     * 2. Email matches an existing account whose email is CONFIRMED → link
+     *    (provider, sub) to that user.
+     * 3. Email matches an account whose email is UNCONFIRMED → refuse. We don't
+     *    know who owns an unconfirmed address, so linking would let whoever
+     *    controls the OIDC identity hijack a pending signup.
+     * 4. Otherwise create a new user and link.
      *
      * Step 2 also requires `email_verified !== false` on the OIDC side,
      * otherwise a malicious IdP could claim someone else's email.
@@ -673,6 +787,22 @@ if (window.opener) {
 
         if (stateDecoded.embedded_in_popup) {
             target = appendQueryParam(target, 'oidc_login', 'true');
+            // `opener_origin` and `oidc_login` reach the popup as bare query
+            // parameters, which say nothing about where they came from: the
+            // URL a verified state produces is byte-identical to one anybody
+            // can type. The popup treats the opener's origin as the app
+            // identity to mint a token for, so it needs the integrity this
+            // state already carries — re-signed here, at the one point where
+            // the round trip is known to have actually happened.
+            target = appendQueryParam(
+                target,
+                'opener_state',
+                this.services.oidc.signPopupReturn({
+                    opener_origin: stateDecoded.opener_origin ?? null,
+                    msg_id: stateDecoded.msg_id ?? null,
+                    oidc_login: true,
+                }),
+            );
         }
 
         if (extraQueryParams) {

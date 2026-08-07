@@ -1,6 +1,6 @@
 # Self-Hosting Puter
 
-`docker-compose.yml` brings up Puter **plus every external service it needs** — MariaDB, Valkey, DynamoDB-local, RustFS S3, nginx — wired together. Closest thing to a production deployment you can self-manage on a single host.
+`docker-compose.yml` brings up Puter **plus every external service it needs** — MariaDB, Valkey, DynamoDB-local, RustFS S3, Caddy — wired together. Closest thing to a production deployment you can self-manage on a single host.
 
 ## One-line installer (recommended)
 
@@ -8,7 +8,7 @@
 curl -fsSL https://raw.githubusercontent.com/HeyPuter/puter/main/install.sh | sh
 ```
 
-Generates secrets, writes `.env` + `puter/config/config.json`, downloads `docker-compose.yml` from the OSS repo, and runs `docker compose up -d`. Re-running is safe — it won't overwrite existing config (set `PUTER_FORCE=1` to rotate). Use the manual steps below if you want to inspect or tweak each step yourself.
+Generates secrets, writes `.env` + `puter/config/config.json`, downloads `docker-compose.yml` + `caddy/Caddyfile` from the OSS repo, and runs `docker compose up -d`. Re-running is safe — it won't overwrite existing config (set `PUTER_FORCE=1` to rotate). Use the manual steps below if you want to inspect or tweak each step yourself.
 
 ## Requirements
 
@@ -20,7 +20,7 @@ Generates secrets, writes `.env` + `puter/config/config.json`, downloads `docker
 
 | Container       | Image                    | Role                                                       |
 | --------------- | ------------------------ | ---------------------------------------------------------- |
-| `puter-nginx`   | `nginx:1.27-alpine`      | Reverse proxy on 80 (and 443 if TLS); forwards to Puter    |
+| `puter-caddy`   | `caddy:2.11-alpine`      | Reverse proxy on 80 (and 443 if TLS); forwards to Puter    |
 | `puter`         | `ghcr.io/heyputer/puter` | The app                                                    |
 | `puter-mariadb` | `mariadb:11`             | SQL database — schema applied automatically on first boot  |
 | `puter-valkey`  | `valkey/valkey:8-alpine` | Redis-compatible cache + rate-limiter                      |
@@ -47,7 +47,6 @@ State lives under `./puter/data/<service>/`.
 MARIADB_ROOT_PASSWORD=$(openssl rand -hex 32)
 MARIADB_PASSWORD=$(openssl rand -hex 32)
 S3_SECRET_KEY=$(openssl rand -hex 32)
-JWT_SECRET=$(openssl rand -hex 64)
 JWT_SECRET_V2=$(openssl rand -hex 64)
 URL_SIGNATURE_SECRET=$(openssl rand -hex 64)
 
@@ -65,7 +64,7 @@ S3_SECRET_KEY=$S3_SECRET_KEY
 S3_BUCKET=puter-local
 EOF
 
-mkdir -p puter/config puter/data puter/tls
+mkdir -p puter/config puter/data puter/data/caddy puter/tls
 cat > puter/config/config.json <<EOF
 {
     "domain": "puter.localhost",
@@ -78,9 +77,7 @@ cat > puter/config/config.json <<EOF
     "private_app_hosting_domain": "app.puter.localhost",
     "private_app_hosting_domain_alt": "dev.puter.localhost",
 
-    "jwt_secret": "$JWT_SECRET",
     "jwt_secret_v2": "$JWT_SECRET_V2",
-    "allow_v1_tokens": true,
     "url_signature_secret": "$URL_SIGNATURE_SECRET",
 
     "database": {
@@ -134,21 +131,21 @@ Replace `puter.localhost`, `site.puter.localhost`, `host.puter.localhost`, `dev.
 
 Why these knobs:
 
-- `jwt_secret` + `jwt_secret_v2` — Puter signs new auth tokens with `jwt_secret_v2` (v2 token format, `kid: 'v2'` JWT header). `jwt_secret` is verify-only and lets tokens minted before this version (cookies still in users' browsers, stored API tokens) keep working. `allow_v1_tokens: true` keeps that fallback enabled. Fresh installs can leave it as-is; future versions will flip the flag to `false` and retire `jwt_secret` entirely once legacy tokens have drained.
+- `jwt_secret_v2` — the HMAC secret Puter signs and verifies auth tokens with (`kid: 'v2'` JWT header). The pre-v2 token format is retired: a token signed with the old `jwt_secret` no longer verifies, and holders are asked to sign in again. If you are upgrading from a release that had `jwt_secret`, drop it from your config — it is ignored.
 - `env: "prod"` — the bundled `config.default.json` ships with `env: "dev"` (matches the source-tree `npm run start:gui` workflow, which expects webpack-dev-server emitting a CSS manifest). Self-host runs against pre-built static bundles, so `env: "prod"` makes the homepage emit the `/dist/bundle.min.css` `<link>` tag instead of waiting on a manifest that doesn't exist.
 - `database.migrationPaths` — Puter applies the bundled MySQL/MariaDB schema on boot. The migration files are idempotent, so it is safe to leave this configured across restarts.
 - `dynamo.bootstrapTables: true` — Puter creates its KV table on boot. **Only set against a local emulator**, never real AWS.
 - `dynamo.aws` keys are dummies; DynamoDB-local doesn't validate them but the AWS SDK requires _something_. **Note:** DynamoDB uses `access_key` / `secret_key` (snake_case); S3 below uses `accessKeyId` / `secretAccessKey` (camelCase). Not interchangeable.
 - `providers.ollama.enabled: false` — Puter auto-probes a local Ollama at `127.0.0.1:11434` by default; without one running you'd see `ECONNREFUSED` on every boot. To run a bundled Ollama, see [Optional: local LLM (Ollama)](#optional-local-llm-ollama) below.
 - `s3.s3Config.forcePathStyle: true` — RustFS / MinIO / fauxqs need path-style URLs (`<endpoint>/<bucket>`). Real AWS S3 wants virtual-hosted (`<bucket>.<endpoint>`) — drop this flag (or set `false`) when you swap to real S3.
-- `s3.s3Config.publicEndpoint` — `endpoint` (`http://s3:9000`) only resolves inside the docker network; presigned upload/download URLs handed to the browser need a host-reachable URL. nginx routes the `s3.<domain>` subdomain to RustFS internally and preserves the Host header end-to-end (required for S3 signature validation), so the browser hits the same port/protocol as the rest of the app — no separate published port, no mixed-content surprises when you turn on TLS. Switch to `https://s3.<your-domain>` once you enable TLS in Step 3. Real AWS S3 doesn't need this — its endpoint is already public; drop the field entirely.
-- `trust_proxy: 1` — nginx terminates TLS and forwards `X-Forwarded-For`. Without this, `req.ip` is the docker-network address of the nginx container instead of the real client IP, which breaks rate limiting and IP-based audit logs. `1` = one trusted hop (nginx). Bump to `2` if you put Cloudflare in front of nginx; never set `true` (it trusts every hop and makes XFF forgeable).
+- `s3.s3Config.publicEndpoint` — `endpoint` (`http://s3:9000`) only resolves inside the docker network; presigned upload/download URLs handed to the browser need a host-reachable URL. Caddy routes the `s3.<domain>` subdomain to RustFS internally and preserves the Host header end-to-end (required for S3 signature validation), so the browser hits the same port/protocol as the rest of the app — no separate published port, no mixed-content surprises when you turn on TLS. Switch to `https://s3.<your-domain>` once you enable TLS in Step 3. Real AWS S3 doesn't need this — its endpoint is already public; drop the field entirely.
+- `trust_proxy: 1` — Caddy terminates TLS and forwards `X-Forwarded-For`. Without this, `req.ip` is the docker-network address of the Caddy container instead of the real client IP, which breaks rate limiting and IP-based audit logs. `1` = one trusted hop (Caddy). Bump to `2` if you put Cloudflare in front of Caddy; never set `true` (it trusts every hop and makes XFF forgeable).
 
 > If you ever change `MARIADB_PASSWORD` after first boot, `.env` alone won't update MariaDB — its credentials are baked into `./puter/data/mariadb/` on first init. Either rotate the password inside MariaDB by hand or `docker compose down && rm -rf ./puter/data/mariadb` to start fresh.
 
 ## Step 2 — Point DNS at the server \[Optional\]
 
-In your DNS provider, add records for the main domain plus the subdomains Puter and nginx route on (`api.*`, `site.*`, `app.*`, `s3.*`):
+In your DNS provider, add records for the main domain plus the subdomains Puter and Caddy route on (`api.*`, `site.*`, `app.*`, `s3.*`):
 
 ```
 A      puter.localhost          → <your server's public IP>
@@ -163,7 +160,7 @@ A      dev.puter.localhost      → <your server's public IP>
 A      *.dev.puter.localhost    → <your server's public IP>
 ```
 
-The wildcards are required — Puter routes via subdomains (`api.*`, `app.*`, etc.) and nginx routes browser S3 traffic via `s3.*` to RustFS.
+The wildcards are required — Puter routes via subdomains (`api.*`, `app.*`, etc.) and Caddy routes browser S3 traffic via `s3.*` to RustFS.
 
 ## Step 3 — TLS (recommended for public installs) \[Optional\]
 
@@ -182,13 +179,15 @@ sudo certbot certonly --manual --preferred-challenges dns \
 
 The cert needs to cover `*.puter.localhost` so that `s3.puter.localhost` (browser S3 endpoint), plus Puter's own `api.*` / `app.*` subdomains, all validate.
 
+> **Why not Caddy's automatic HTTPS?** Caddy issues certs over ACME by itself, but only for hostnames it knows up front, and only over HTTP-01 with the stock image. Puter serves every user's site and app on a subdomain it invents at runtime (`<name>.site.<domain>`, `<name>.app.<domain>`), which needs a **wildcard** cert — and wildcards require DNS-01, which requires a DNS-provider plugin that isn't in `caddy:2.11-alpine`. So `caddy/Caddyfile` sets `auto_https off` and reads the cert you supply below. If you'd rather have Caddy manage certs, build an image with the plugin for your DNS provider (`xcaddy build --with github.com/caddy-dns/<provider>`) and swap the `tls` line for a `tls { dns <provider> … }` block.
+
 Drop the resulting `fullchain.pem` and `privkey.pem` into `./puter/tls/`.
 
-**Wire nginx to use them:**
+**Wire Caddy to use them:**
 
-1. Open [nginx/nginx.conf](../nginx/nginx.conf), uncomment **both** `# server { listen 443 ssl … }` blocks (one for `s3.*`, one for the catch-all).
-2. (Optional) Replace the body of the port-80 blocks with `return 301 https://$host$request_uri;` to force HTTPS everywhere.
-3. In [docker-compose.yml](../docker-compose.yml), uncomment the `443:443` port mapping under the `nginx` service.
+1. Open [caddy/Caddyfile](../caddy/Caddyfile) and uncomment the `# :443 { … }` block at the bottom.
+2. (Optional but recommended) Replace the plain `:80 { import puter_routes }` block with the `redir` version shown alongside it, to force HTTPS everywhere.
+3. In [docker-compose.yml](../docker-compose.yml), uncomment the `443:443` port mapping under the `caddy` service.
 4. In `.env`, uncomment `HTTPS_PORT=443`.
 5. In `config.json`, switch:
     ```json
@@ -201,9 +200,9 @@ Drop the resulting `fullchain.pem` and `privkey.pem` into `./puter/tls/`.
 
 ## Running behind your own reverse proxy
 
-The bundled `puter-nginx` mirrors production and is the supported default — it terminates TLS (Step 3) and forwards every Host to Puter. But plenty of self-hosters already run their own edge proxy (Caddy, Traefik, HAProxy, a cloud load balancer, another nginx). You can put Puter behind it instead; Puter doesn't terminate TLS itself in any setup, so "your proxy does TLS" is just a matter of pointing it at the Puter container and getting a handful of details right.
+The bundled `puter-caddy` mirrors production and is the supported default — it terminates TLS (Step 3) and forwards every Host to Puter. But plenty of self-hosters already run their own edge proxy (Traefik, nginx, HAProxy, a cloud load balancer, another Caddy). You can put Puter behind it instead; Puter doesn't terminate TLS itself in any setup, so "your proxy does TLS" is just a matter of pointing it at the Puter container and getting a handful of details right.
 
-You can keep the bundled nginx as the single hop your proxy talks to, or bypass it and forward straight to the Puter container on port `4100` (uncomment the `4100:4100` mapping under the `puter` service in [docker-compose.yml](../docker-compose.yml), or attach your proxy to the compose network). Either works — what matters is the rules below.
+You can keep the bundled Caddy as the single hop your proxy talks to, or bypass it and forward straight to the Puter container on port `4100` (uncomment the `4100:4100` mapping under the `puter` service in [docker-compose.yml](../docker-compose.yml), or attach your proxy to the compose network). Either works — what matters is the rules below.
 
 **The rules that actually matter** (getting any of these wrong is what causes the redirect loops and "Invalid Host header" failures people hit):
 
@@ -219,13 +218,15 @@ You can keep the bundled nginx as the single hop your proxy talks to, or bypass 
     - `X-Forwarded-For` — the real client IP (rate limiting + audit logs).
     - `Upgrade` / `Connection` — passed through for WebSocket / socket.io upgrades, or the realtime connection silently fails.
 
-5. **Set `trust_proxy` to the number of hops in front of Puter.** One external proxy talking directly to Puter → `"trust_proxy": 1` (installer: `PUTER_TRUST_PROXY=1`). A second proxy in front (e.g. Cloudflare → your proxy → Puter) → `2`. This is the count of proxies between the client and Puter, **including** the bundled nginx if you keep it. Too low and `req.ip` becomes a proxy address (breaks rate limiting); never set `true` (it trusts every hop and makes `X-Forwarded-For` forgeable).
+5. **Set `trust_proxy` to the number of hops in front of Puter.** One external proxy talking directly to Puter → `"trust_proxy": 1` (installer: `PUTER_TRUST_PROXY=1`). A second proxy in front (e.g. Cloudflare → your proxy → Puter) → `2`. This is the count of proxies between the client and Puter, **including** the bundled Caddy if you keep it. Too low and `req.ip` becomes a proxy address (breaks rate limiting); never set `true` (it trusts every hop and makes `X-Forwarded-For` forgeable).
 
 6. **Route the wildcard to Puter.** Your proxy must forward `*.<domain>` (covering `api.*`, `app.*`, and `s3.<domain>`) and `*.site.<domain>` (and any other hosting domains) to Puter — same wildcard DNS as Step 2. Puter does the per-subdomain routing internally; the proxy just needs to hand it the traffic with the Host intact.
 
 With those in place the rest of the stack is unchanged — `docker compose up -d` as below.
 
 ## Step 4 — Bring it up
+
+Both [docker-compose.yml](../docker-compose.yml) and [caddy/Caddyfile](../caddy/Caddyfile) need to sit next to your `.env` — clone the repo, or copy those two paths out of it. The Caddyfile is bind-mounted read-only; if it's missing, Docker creates a *directory* at that path and `puter-caddy` dies with "not a directory".
 
 ```bash
 docker compose up -d
@@ -469,7 +470,7 @@ Migrations re-apply idempotently across pulls. Volumes are preserved.
 
 ## Troubleshooting
 
-**Site loads but I get "Bad Gateway" / nginx errors.**
+**Site loads but I get a 502 / "Bad Gateway" from Caddy.**
 The puter container failed to come up. `docker compose logs puter` will tell you which dependency rejected it (most often DB password mismatch between `.env` and `config.json`).
 
 **Login screen says "admin password not set".**

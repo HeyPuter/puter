@@ -1,4 +1,8 @@
+import { PuterModule } from '../lib/PuterModule.js';
 import * as utils from '../lib/utils.js';
+
+/** @typedef {import('../../types/modules/email').EmailSendOptions} EmailSendOptions */
+/** @typedef {import('../../types/modules/email').EmailSendResult} EmailSendResult */
 
 /**
  * Restricted outbound email (the `puter-email` driver interface).
@@ -33,58 +37,34 @@ import * as utils from '../lib/utils.js';
  * their copy — retry with just those addresses); the call only rejects
  * when no recipient could be delivered.
  */
-class Email {
+class Email extends PuterModule {
     /**
-     * @class
-     * @param {object} puter - The parent puter instance.
-     */
-    constructor(puter) {
-        this.puter = puter;
-        this.authToken = puter.authToken;
-        this.APIOrigin = puter.APIOrigin;
-        this.appID = puter.appID;
-    }
-
-    /**
-     * Sets a new authentication token.
+     * Sends one email. The positional form is shorthand for a plain-text body;
+     * everything else (html, cc/bcc, attachments, `emailAccessToken`) goes
+     * through the options form.
      *
-     * @param {string} authToken - The new authentication token.
-     * @returns {void}
+     * @type {{
+     *   (to: string | string[], subject: string, body: string): Promise<EmailSendResult>,
+     *   (options: EmailSendOptions): Promise<EmailSendResult>,
+     * }}
      */
-    setAuthToken(authToken) {
-        this.authToken = authToken;
-    }
-
-    /**
-     * Sets the API origin.
-     *
-     * @param {string} APIOrigin - The new API origin.
-     * @returns {void}
-     */
-    setAPIOrigin(APIOrigin) {
-        this.APIOrigin = APIOrigin;
-    }
-
-    send = utils.make_driver_method(
-        ['to', 'subject', 'body'],
-        'puter-email',
-        undefined,
-        'send',
-        {
-            preprocess: (args) => {
-                // `body` is positional-call sugar for `text`.
-                if (
-                    args.body !== undefined &&
-                    args.text === undefined &&
-                    args.html === undefined
-                ) {
-                    args.text = args.body;
-                }
-                delete args.body;
-                return args;
-            },
+    send = utils.makeDriverMethod({
+        iface: 'puter-email',
+        method: 'send',
+        argNames: ['to', 'subject', 'body'],
+        preprocess: (args) => {
+            // `body` is positional-call sugar for `text`.
+            if (
+                args.body !== undefined &&
+                args.text === undefined &&
+                args.html === undefined
+            ) {
+                args.text = args.body;
+            }
+            delete args.body;
+            return args;
         },
-    );
+    });
 }
 
 export default Email;

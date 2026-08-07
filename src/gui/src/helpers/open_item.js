@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -24,6 +24,24 @@ import launch_app from './launch_app.js';
 import path from '../lib/path.js';
 import item_icon from './item_icon.js';
 
+// Files whose app launch is still in flight, by file uid. Between the click
+// and the window's creation there is nothing in the DOM to restore, so a
+// re-click during that stretch would mint a duplicate instance — mark the
+// launch and swallow re-clicks instead (same idea as TabApps._launchingApps).
+// Entries carry a timestamp so a launch that dies without settling (an
+// unexpected throw before launch_app is reached) can't swallow clicks forever.
+const launching_file_uids = new Map();
+const LAUNCH_GUARD_TTL = 15000;
+const file_launch_in_flight = (uid) => {
+    const ts = launching_file_uids.get(uid);
+    if ( ! ts ) return false;
+    if ( Date.now() - ts > LAUNCH_GUARD_TTL ) {
+        launching_file_uids.delete(uid);
+        return false;
+    }
+    return true;
+};
+
 const open_item = async function (options) {
     let el_item = options.item;
     const $el_parent_window = $(el_item).closest('.window');
@@ -35,6 +53,10 @@ const open_item = async function (options) {
     const shortcut_to_path = $(el_item).attr('data-shortcut_to_path');
     const associated_app_name = $(el_item).attr('data-associated_app_name');
     const file_uid = $(el_item).attr('data-uid');
+    // Normalized identity of the file being opened (shortcuts resolve to
+    // their target) — matched against the data-file_uid that launch_app
+    // stamps on app windows.
+    const target_file_uid = (!is_dir && uid) ? String(uid).toLowerCase() : null;
 
     //----------------------------------------------------------------
     // Is this an app shortcut?
@@ -235,16 +257,40 @@ Please try recreating the link.`);
         }
     }
     //----------------------------------------------------------------
+    // Dashboard: is this file already open in an app window? In
+    // dashboard mode there is no taskbar — the file's row is where a
+    // user goes looking for a window they minimized — so restore that
+    // window (edits intact) instead of minting a second instance.
+    //----------------------------------------------------------------
+    else if ( window.is_dashboard_mode && !associated_app_name && target_file_uid
+        && ($(`.window[data-file_uid="${html_encode(target_file_uid)}"]`).length || file_launch_in_flight(target_file_uid)) ) {
+        const $win = $(`.window[data-file_uid="${html_encode(target_file_uid)}"]`).last();
+        // No window yet means the first click's launch is still in
+        // flight — swallow the re-click instead of duplicating it.
+        if ( $win.length ) {
+            const minimized = $win.attr('data-is_minimized');
+            if ( minimized === '1' || minimized === 'true' ) {
+                $win.showWindow();
+            } else {
+                $win.focusWindow();
+            }
+        }
+    }
+    //----------------------------------------------------------------
     // Does the user have a preference for this file type?
     //----------------------------------------------------------------
     else if ( !associated_app_name && !is_dir && window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`] ) {
-        launch_app({
+        const launch_promise = launch_app({
             name: window.user_preferences[`default_apps${path.extname(item_path).toLowerCase()}`],
             file_path: item_path,
             window_title: path.basename(item_path),
-            maximized: options.maximized,
+            maximized: options.maximized ?? window.is_dashboard_mode,
             file_uid: file_uid,
         });
+        if ( target_file_uid ) {
+            launching_file_uids.set(target_file_uid, Date.now());
+            launch_promise.finally(() => launching_file_uids.delete(target_file_uid));
+        }
     }
     //----------------------------------------------------------------
     // Is there an app associated with this item?
@@ -252,6 +298,7 @@ Please try recreating the link.`);
     else if ( associated_app_name !== '' ) {
         launch_app({
             name: associated_app_name,
+            maximized: options.maximized ?? window.is_dashboard_mode,
         });
     }
     //----------------------------------------------------------------
@@ -289,6 +336,11 @@ Please try recreating the link.`);
         const fsuid = uid.toLowerCase();
         let open_item_meta;
 
+        // The stretch from here to the launch is where a re-click would
+        // find no window to restore yet — mark the file as launching so
+        // the dashboard reuse branch above swallows re-clicks meanwhile.
+        if ( target_file_uid ) launching_file_uids.set(target_file_uid, Date.now());
+
         // get all info needed to open an item
         try {
             open_item_meta = await $.ajax({
@@ -320,6 +372,8 @@ Please try recreating the link.`);
         // download
         //---------------------------------------------
         if ( suggested_apps.length === 0 ) {
+            // Not launching after all — lift the in-flight guard.
+            if ( target_file_uid ) launching_file_uids.delete(target_file_uid);
             //---------------------------------------------
             // If .zip file, unzip it
             //---------------------------------------------
@@ -355,16 +409,17 @@ Please try recreating the link.`);
         // First suggested app is default app to open this item
         //---------------------------------------------
         else {
-            launch_app({
+            const launch_promise = launch_app({
                 name: suggested_apps[0].name,
                 token: open_item_meta.token,
                 file_path: item_path,
                 app_obj: suggested_apps[0],
                 window_title: path.basename(item_path),
                 file_uid: fsuid,
-                maximized: options.maximized,
+                maximized: options.maximized ?? window.is_dashboard_mode,
                 file_signature: open_item_meta.signature,
             });
+            if ( target_file_uid ) launch_promise.finally(() => launching_file_uids.delete(target_file_uid));
         }
     }
 };

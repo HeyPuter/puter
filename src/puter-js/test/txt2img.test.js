@@ -1,9 +1,25 @@
 /* eslint-disable */
 // TODO: Make these more compatible with eslint
 
+// The image driver has no test mode — every generation here is billed — so
+// all tests pin the cheapest model at minimal quality. The model is passed
+// explicitly because the driver's no-model default doesn't resolve when
+// called through the `ai-image` driver name (the SDK's default route).
+const IMG_TEST_OPTIONS = { model: "gpt-image-1-mini", quality: "low" };
+
+// The test page runs as an app-scoped actor, so `puter_output_path` writes
+// must stay inside the app's own AppData directory; paths outside it are
+// (correctly) denied. These build AppData-rooted paths in each shape.
+const appDataPathTilde = function(filename) {
+    return `${puter.appDataPath || '~'}/${filename}`;
+};
+const appDataPathAbsolute = function(username, filename) {
+    return appDataPathTilde(filename).replace('~', `/${username}`);
+};
+
 // Core test functions for txt2img functionality
 const testTxt2ImgBasicCore = async function() {
-    const result = await puter.ai.txt2img("A red circle on a white background", true);
+    const result = await puter.ai.txt2img("A red circle on a white background", IMG_TEST_OPTIONS);
 
     assert(result instanceof Image, "txt2img should return an Image object");
     assert(result !== null, "txt2img should not return null");
@@ -25,7 +41,7 @@ const testTxt2ImgBasicCore = async function() {
 
 const testTxt2ImgWithOptionsCore = async function() {
     const result = await puter.ai.txt2img("A blue square", {
-        test_mode: true,
+        ...IMG_TEST_OPTIONS,
     });
 
     assert(result instanceof Image, "txt2img with options should return an Image object");
@@ -41,7 +57,7 @@ const testTxt2ImgWithOptionsCore = async function() {
 const testTxt2ImgObjectSyntaxCore = async function() {
     const result = await puter.ai.txt2img({
         prompt: "A green triangle",
-        test_mode: true,
+        ...IMG_TEST_OPTIONS,
     });
 
     assert(result instanceof Image, "txt2img object syntax should return an Image object");
@@ -55,7 +71,7 @@ const testTxt2ImgPuterOutputPathCore = async function() {
     const outputPath = `test_output_${Date.now()}.png`;
 
     const result = await puter.ai.txt2img("A yellow star on black background", {
-        test_mode: true,
+        ...IMG_TEST_OPTIONS,
         puter_output_path: outputPath,
     });
 
@@ -75,10 +91,10 @@ const testTxt2ImgPuterOutputPathCore = async function() {
 
 const testTxt2ImgPuterOutputPathAbsoluteCore = async function() {
     const user = await puter.auth.getUser();
-    const outputPath = `/${user.username}/test_output_abs_${Date.now()}.png`;
+    const outputPath = appDataPathAbsolute(user.username, `test_output_abs_${Date.now()}.png`);
 
     const result = await puter.ai.txt2img("A purple diamond", {
-        test_mode: true,
+        ...IMG_TEST_OPTIONS,
         puter_output_path: outputPath,
     });
 
@@ -96,10 +112,10 @@ const testTxt2ImgPuterOutputPathAbsoluteCore = async function() {
 };
 
 const testTxt2ImgPuterOutputPathHomeTildeCore = async function() {
-    const outputPath = `~/test_output_tilde_${Date.now()}.png`;
+    const outputPath = appDataPathTilde(`test_output_tilde_${Date.now()}.png`);
 
     const result = await puter.ai.txt2img("An orange hexagon", {
-        test_mode: true,
+        ...IMG_TEST_OPTIONS,
         puter_output_path: outputPath,
     });
 
@@ -123,7 +139,7 @@ const testTxt2ImgPuterOutputPathPermissionDeniedCore = async function() {
     let caughtError = null;
     try {
         await puter.ai.txt2img("A test image", {
-            test_mode: true,
+            ...IMG_TEST_OPTIONS,
             puter_output_path: "/some_other_user/no_access/image.png",
         });
     } catch (error) {
@@ -154,7 +170,7 @@ const testTxt2ImgPuterOutputPathPermissionDeniedCore = async function() {
 window.txt2imgTests = [
     {
         name: "testTxt2ImgBasic",
-        description: "Test basic text-to-image generation with test mode and verify Image object structure",
+        description: "Test basic text-to-image generation (billed, cheapest model) and verify Image object structure",
         test: async function() {
             try {
                 await testTxt2ImgBasicCore();

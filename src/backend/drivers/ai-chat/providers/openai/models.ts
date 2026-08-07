@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -582,46 +582,6 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         max_tokens: 100000,
     },
     {
-        puterId: 'openai:openai/o1-mini',
-        id: 'o1-mini',
-        modalities: { input: ['text'], output: ['text'] },
-        open_weights: false,
-        tool_call: false,
-        knowledge: '2023-09',
-        release_date: '2024-09-12',
-        aliases: ['openai/o1-mini'],
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 110,
-            completion_tokens: 440,
-        },
-        context: 128_000,
-        max_tokens: 65536,
-    },
-    {
-        puterId: 'openai:openai/o1-pro',
-        id: 'o1-pro',
-        modalities: { input: ['text', 'image'], output: ['text'] },
-        open_weights: false,
-        tool_call: true,
-        knowledge: '2023-09',
-        release_date: '2025-03-19',
-        aliases: ['openai/o1-pro'],
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 15000,
-            completion_tokens: 60000,
-        },
-        context: 200_000,
-        max_tokens: 100000,
-    },
-    {
         puterId: 'openai:openai/o3',
         id: 'o3',
         modalities: { input: ['text', 'image'], output: ['text'] },
@@ -766,21 +726,6 @@ export const OPEN_AI_MODELS: IChatModel[] = [
             completion_tokens: 40,
         },
         context: 1_047_576,
-        max_tokens: 32768,
-    },
-    {
-        puterId: 'openai:openai/gpt-4.5-preview',
-        id: 'gpt-4.5-preview',
-        aliases: ['openai/gpt-4.5-preview'],
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 7500,
-            completion_tokens: 15000,
-        },
-        context: 128_000,
         max_tokens: 32768,
     },
 ];

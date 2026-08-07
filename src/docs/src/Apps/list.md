@@ -31,6 +31,8 @@ An object containing the following properties:
 
 - `includeTotal` (optional): If `true`, the paginated result includes a `total` count of the user's apps.
 
+- `stream` (optional): If `true`, the method returns an async iterator of page objects instead of a promise, for use with `for await ... of`. Combine with `limit` to control the page size, or `cursor` to resume from a previous page. Cannot be combined with `offset`. With `includeTotal`, only the first page carries `total`.
+
 ## Return value
 
 A `Promise` that will resolve to an array of all [`App`](/Objects/app/) objects belonging to the user that this app has access to.
@@ -41,7 +43,17 @@ When the request includes `cursor` (even `null`), `offset`, or `includeTotal`, t
 - `cursor` (String) (optional): Present while more pages exist; pass it to the next call.
 - `total` (Number) (optional): Total app count, present when `includeTotal` was set.
 
-Requests without pagination params keep returning the full list as a plain array, so existing code is unaffected.
+Requests without pagination params keep returning the full list as a plain array, so existing code is unaffected — under the hood the SDK now fetches it page by page.
+
+With `stream: true`, the method returns an async iterator of page objects instead:
+
+```js
+for await (const page of puter.apps.list({ stream: true })) {
+    for (const app of page.items) {
+        console.log(app.name);
+    }
+}
+```
 
 ## Examples
 

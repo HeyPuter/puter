@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -21,7 +21,11 @@ import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentation
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-grpc';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
 import { resourceFromAttributes } from '@opentelemetry/resources';
-import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+import {
+    AggregationType,
+    PeriodicExportingMetricReader,
+    type ViewOptions,
+} from '@opentelemetry/sdk-metrics';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import {
     ParentBasedSampler,
@@ -35,6 +39,34 @@ import {
 const endpoint =
     process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? 'http://localhost:4317';
 const sampleRatio = Number(process.env.OTEL_TRACE_SAMPLE_RATIO ?? 0.05);
+
+/**
+ * Latency histograms default to explicit buckets, which some backends can only
+ * represent as a min/max/sum/count summary — enough for an average, not enough
+ * for a percentile. Exponential histograms carry their bucket distribution, so
+ * a backend that understands them can answer percentile queries.
+ *
+ * Off by default because whether that survives the export path depends on the
+ * receiving end, and losing the summary would be worse than not having
+ * percentiles. Enable per deployment once verified.
+ */
+const percentileViews: ViewOptions[] =
+    process.env.OTEL_EXPONENTIAL_HISTOGRAMS === 'true'
+        ? [
+              'driver.call.duration',
+              'http.server.duration',
+              'http.server.request.duration',
+          ].map((instrumentName) => ({
+              instrumentName,
+              aggregation: {
+                  type: AggregationType.EXPONENTIAL_HISTOGRAM as const,
+                  // 160 buckets covers microseconds to minutes at the default
+                  // scale; the cost is per-series memory in the process, not
+                  // anything downstream.
+                  options: { recordMinMax: true, maxSize: 160 },
+              },
+          }))
+        : [];
 
 const sdk = new NodeSDK({
     resource: resourceFromAttributes({
@@ -51,6 +83,7 @@ const sdk = new NodeSDK({
         exporter: new OTLPMetricExporter({ url: endpoint }),
         exportIntervalMillis: 60_000,
     }),
+    views: percentileViews,
     instrumentations: [
         getNodeAutoInstrumentations({
             // Too noisy — every file read / dns lookup becomes a span.

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -47,6 +47,7 @@ import {
     requireVerifiedGate,
     subdomainGate,
 } from './core/http/middleware/gates';
+import { guiOriginGate } from './core/http/middleware/originGate';
 import { createStepUpGate } from './core/http/middleware/stepUpSession';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
 import {
@@ -85,6 +86,7 @@ import { puterStores } from './stores';
 import type {
     IConfig,
     LayerInstances,
+    PagerSeverity,
     WithControllerRegistration,
     WithLifecycle,
 } from './types';
@@ -331,10 +333,10 @@ export class PuterServer {
     /**
      * Register every rate-limit backend whose dependency is available, so
      * routes / drivers can mix and match per call. `config.rate_limit.backend`
-     * selects the *default* applied when a caller doesn't specify a
-     * backend; it's no longer an exclusive choice. A typo or missing
-     * dependency for the chosen default falls back to memory with a
-     * warning so boot doesn't break.
+     * selects the _default_ applied when a caller doesn't specify a backend;
+     * it's no longer an exclusive choice. A typo or missing dependency for the
+     * chosen default falls back to memory with a warning so boot doesn't
+     * break.
      */
     #configureRateLimiter() {
         // Default to `redis` — the redis client is always present (falls
@@ -367,14 +369,15 @@ export class PuterServer {
     }
 
     /**
-     * Install always-on middleware on the express app, in the order they
-     * must run at request time. Ordering note:
-     *   - `express.json` must run before `authProbe` so `req.body.auth_token`
-     *     is readable.
-     *   - `authProbe` never rejects; it only populates `req.actor` if a valid
-     *     token is present.
-     *   - Per-route gate middleware (requireAuth, adminOnly, ...) lands in
-     *     `#materializeRoute` as those options ship.
+     * Install always-on middleware on the express app, in the order they must
+     * run at request time. Ordering note:
+     *
+     * - `express.json` must run before `authProbe` so `req.body.auth_token` is
+     *   readable.
+     * - `authProbe` never rejects; it only populates `req.actor` if a valid token
+     *   is present.
+     * - Per-route gate middleware (requireAuth, adminOnly, ...) lands in
+     *   `#materializeRoute` as those options ship.
      */
     #installGlobalMiddleware() {
         this.#app.use(cookieParser());
@@ -703,15 +706,18 @@ export class PuterServer {
 
     /**
      * Install end-of-pipeline middleware. Order matters:
-     *   1. The 404 catch-all runs only when no earlier route matched, so it
-     *      must be installed *after* every controller + extension route.
-     *   2. The error handler is the express terminal — it catches everything
-     *      thrown by routes, gates, and the 404 above. Express 5 auto-forwards
-     *      thrown errors (sync and async), so handlers can `throw new HttpError(...)`
-     *      without `next(err)` ceremony.
+     *
+     * 1. The 404 catch-all runs only when no earlier route matched, so it must be
+     *    installed _after_ every controller + extension route.
+     * 2. The error handler is the express terminal — it catches everything thrown
+     *    by routes, gates, and the 404 above. Express 5 auto-forwards thrown
+     *    errors (sync and async), so handlers can `throw new HttpError(...)`
+     *    without `next(err)` ceremony.
      */
     #installTerminalMiddleware() {
-        this.#app.use(createNotFoundHandler());
+        this.#app.use(
+            createNotFoundHandler({ guiDomain: this.#config.domain }),
+        );
         this.#app.use(
             createErrorHandler({
                 onError: (err, req) => {
@@ -723,25 +729,29 @@ export class PuterServer {
                     // instead of N pages.
                     //
                     // FORCED_ALERT_CODES override the 5xx-only rule: a
-                    // status < 500 still pages if its legacyCode is in
-                    // the set. Use this for things we want to know about
+                    // status < 500 still alarms if its legacyCode is in
+                    // the map. Use this for things we want to know about
                     // even though we expose them as 4xx to users (e.g.
-                    // sustained upstream provider rate limits).
+                    // sustained upstream provider rate limits). They are
+                    // not our own crashes, so each maps to the severity it
+                    // deserves rather than paging.
                     //
                     // SKIP_ALERT_PREFIXES override the 5xx rule the other
                     // direction: an error tagged as caused by an upstream
                     // provider or a misbehaving client gets exposed to
-                    // the user but does not page.
-                    const FORCED_ALERT_CODES = new Set([
-                        'upstream_rate_limited',
-                        'upstream_auth_failed',
+                    // the user but does not alarm at all.
+                    const FORCED_ALERT_CODES = new Map<string, PagerSeverity>([
+                        ['upstream_rate_limited', 'info'],
+                        // Our credentials for a provider stopped working —
+                        // everything through it fails until someone looks.
+                        ['upstream_auth_failed', 'warning'],
                     ]);
                     const SKIP_ALERT_PREFIXES = /^(upstream_|client_)/;
                     const isHttp = isHttpError(err);
                     const status = isHttp ? err.statusCode : 500;
                     const legacyCode = isHttp ? (err.legacyCode ?? '') : '';
-                    const forced = FORCED_ALERT_CODES.has(legacyCode);
-                    if (!forced) {
+                    const forcedSeverity = FORCED_ALERT_CODES.get(legacyCode);
+                    if (!forcedSeverity) {
                         if (status < 500) return;
                         if (SKIP_ALERT_PREFIXES.test(legacyCode)) return;
                     }
@@ -768,6 +778,12 @@ export class PuterServer {
                             route: routePath,
                             actor: req.actor,
                         },
+                        // An unhandled server error is the one thing that
+                        // still pages on-call.
+                        forcedSeverity ?? 'critical',
+                        // The id pins route + error signature, so repeats are
+                        // the same fault and belong on one incident.
+                        { dedup: true },
                     );
                 },
             }),
@@ -775,11 +791,11 @@ export class PuterServer {
     }
 
     /**
-     * Walk a controller's declared routes (via `PuterRouter`) and register
-     * each one against the underlying express app. Per-route option → middleware
-     * translation lives here — when we add auth/subdomain/body-parsing
-     * options, they get wired in at this single point without touching any
-     * controller call site.
+     * Walk a controller's declared routes (via `PuterRouter`) and register each
+     * one against the underlying express app. Per-route option → middleware
+     * translation lives here — when we add auth/subdomain/body-parsing options,
+     * they get wired in at this single point without touching any controller
+     * call site.
      */
     #registerControllerRoutes(
         controllerName: string,
@@ -838,6 +854,15 @@ export class PuterServer {
                 }
                 next();
             });
+        }
+
+        // 1b. Origin gate. Runs before auth, rate limiting, and captcha so an
+        // off-origin caller is rejected on the header alone — it never reaches
+        // the credential comparison, and it can't burn another request's rate
+        // limit budget on the way. Unauthenticated by nature: the routes that
+        // opt in are the ones that *hand out* a credential.
+        if (opts.guiOriginOnly) {
+            mwChain.push(guiOriginGate(this.#config));
         }
 
         // 2. Auth gates. Implication graph:
@@ -1316,8 +1341,8 @@ export class PuterServer {
     #prepareShutdownHooksRan = false;
 
     /**
-     * Run every layer's `onServerPrepareShutdown` exactly once, whichever
-     * of `prepareShutdown()` / `shutdown()` gets there first.
+     * Run every layer's `onServerPrepareShutdown` exactly once, whichever of
+     * `prepareShutdown()` / `shutdown()` gets there first.
      */
     async #runPrepareShutdownHooks() {
         if (this.#prepareShutdownHooksRan) return;

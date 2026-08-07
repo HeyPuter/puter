@@ -206,6 +206,24 @@ describe('GeminiChatProvider.complete request shape', () => {
         expect(args.temperature).toBe(0.4);
     });
 
+    it('forwards temperature 0 and max_tokens 0 instead of dropping them', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gemini-2.5-flash',
+                messages: [{ role: 'user', content: 'hello' }],
+                max_tokens: 0,
+                temperature: 0,
+            }),
+        );
+
+        const [args] = createMock.mock.calls[0]!;
+        expect(args.max_completion_tokens).toBe(0);
+        expect(args.temperature).toBe(0);
+    });
+
     it('omits max_completion_tokens and temperature when caller did not supply them', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
@@ -379,6 +397,49 @@ describe('GeminiChatProvider.complete non-stream output', () => {
             thinking_tokens: 0,
             grounding_requests: 0,
         });
+    });
+
+    it('bills cached tokens at the input rate when the model prices no cache read', async () => {
+        // gemini-2.0-flash-lite's catalogue entry has no cached_tokens rate.
+        // Cached tokens are subtracted out of prompt_tokens, so pricing them
+        // at zero bills them nowhere.
+        const lite = GEMINI_MODELS.find(
+            (m) => m.id === 'gemini-2.0-flash-lite',
+        )!;
+        expect(lite.costs.cached_tokens).toBeUndefined();
+
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'cached', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 3000,
+                completion_tokens: 40,
+                prompt_tokens_details: { cached_tokens: 2900 },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gemini-2.0-flash-lite',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const [, , , overrides] = recordSpy.mock.calls[0]!;
+        const inputRate = Number(lite.costs.prompt_tokens);
+        expect(overrides).toMatchObject({
+            prompt_tokens: (3000 - 2900) * inputRate,
+            completion_tokens: 40 * Number(lite.costs.completion_tokens),
+            cached_tokens: 2900 * inputRate,
+        });
+        expect(
+            (overrides as Record<string, number>).cached_tokens,
+        ).toBeGreaterThan(0);
     });
 
     it('zeroes cached_tokens when prompt_tokens_details is missing', async () => {
@@ -574,6 +635,46 @@ describe('GeminiChatProvider.complete grounding request metering', () => {
         expect(usage.grounding_requests).toBe(1);
         expect(overrides!.grounding_requests).toBe(
             1 * Number(flash.costs.grounding_requests),
+        );
+    });
+
+    it('charges every grounding-capable model the per-generation request fee', async () => {
+        // Flash-Lite serves grounded requests like the rest of its
+        // generation; without its own rate the fee fell through to the input
+        // token rate, which is several orders of magnitude below list.
+        const lite = GEMINI_MODELS.find(
+            (m) => m.id === 'gemini-2.0-flash-lite',
+        )!;
+        expect(lite.costs.grounding_requests).toBe(3_500_000);
+
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: {
+                        content: 'result',
+                        role: 'assistant',
+                        extra_content: {
+                            grounding_metadata: { web_search_queries: ['foo'] },
+                        },
+                    },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 5 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'gemini-2.0-flash-lite',
+                messages: [{ role: 'user', content: 'search for foo' }],
+            }),
+        );
+
+        const [usage, , , overrides] = recordSpy.mock.calls[0]!;
+        expect(usage.grounding_requests).toBe(1);
+        expect(overrides!.grounding_requests).toBe(
+            Number(lite.costs.grounding_requests),
         );
     });
 

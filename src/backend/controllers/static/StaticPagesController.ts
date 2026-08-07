@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -24,15 +24,13 @@ import { promoteToVerifiedGroup } from '../../util/userProvisioning.js';
 /**
  * One-off user-facing pages.
  *
- *   /robots.txt               — static text
- *   /sitemap.xml              — docs + approved apps
- *   /unsubscribe              — toggles `user.unsubscribed` from an email link
- *   /confirm-email-by-token   — email-link confirmation flow (distinct from
- *                               the POST /confirm-email JSON API used by the
- *                               in-app code-entry form)
+ * /robots.txt — static text /sitemap.xml — docs + approved apps /unsubscribe —
+ * toggles `user.unsubscribed` from an email link /confirm-email-by-token —
+ * email-link confirmation flow (distinct from the POST /confirm-email JSON API
+ * used by the in-app code-entry form)
  *
- * All root-subdomain-only, all unauthenticated (the confirm/unsubscribe
- * tokens in the query string are the auth).
+ * All root-subdomain-only, all unauthenticated (the confirm/unsubscribe tokens
+ * in the query string are the auth).
  */
 export class StaticPagesController extends PuterController {
     registerRoutes(router: PuterRouter) {

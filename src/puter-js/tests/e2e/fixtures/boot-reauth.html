@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>puter-js test fixture: boot reauth</title>
+    <style>
+        body { font-family: system-ui, sans-serif; padding: 16px; }
+        button { padding: 8px 12px; font-size: 14px; }
+        .ready #status { color: green; }
+    </style>
+</head>
+<body>
+    <h1>puter-js boot reauth fixture</h1>
+    <p id="status">Loading puter.js…</p>
+
+    <!-- A call the user asks for, to check prompting still happens. -->
+    <button id="kv-get" disabled>KV get</button>
+
+    <script>
+        // Point the SDK at the local Puter instance (env=web).
+        window.PUTER_ORIGIN = 'http://puter.localhost:4100';
+        // Must be the real api subdomain: the SDK sends credentialed CORS
+        // requests, and only the api host answers with
+        // Access-Control-Allow-Credentials.
+        window.PUTER_API_ORIGIN = 'http://api.puter.localhost:4100';
+    </script>
+    <script src="/dist/puter.dev.js"></script>
+    <script>
+        const statusEl = document.getElementById('status');
+
+        function ready() {
+            document.body.classList.add('ready');
+            statusEl.textContent = `Ready (env=${puter.env})`;
+            document.getElementById('kv-get').disabled = false;
+        }
+
+        function waitForPuter() {
+            if (window.puter && puter.kv) ready();
+            else setTimeout(waitForPuter, 50);
+        }
+        waitForPuter();
+
+        document.getElementById('kv-get').addEventListener('click', () => {
+            puter.kv.get('boot-reauth-probe').catch(() => {});
+        });
+    </script>
+</body>
+</html>

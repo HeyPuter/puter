@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -39,8 +39,8 @@ const ELEVENLABS_TTS_MODELS = [
 ];
 
 /**
- * ElevenLabs TTS provider. Uses the ElevenLabs REST API to synthesize
- * speech and returns audio as a DriverStreamResult.
+ * ElevenLabs TTS provider. Uses the ElevenLabs REST API to synthesize speech
+ * and returns audio as a DriverStreamResult.
  */
 export class ElevenLabsTTSProvider extends TTSProvider {
     readonly providerName = 'elevenlabs';
@@ -216,12 +216,28 @@ export class ElevenLabsTTSProvider extends TTSProvider {
 
         const voiceId = voiceArg || this.defaultVoiceId;
         const modelId = modelArg || DEFAULT_MODEL;
+
+        // Gate on the cost table rather than the advertised model list: an id
+        // we can't price is an id we can't bill for, and the vendor bills us
+        // for it either way.
+        if (!Object.hasOwn(ELEVENLABS_TTS_COSTS, modelId)) {
+            const expected = Object.keys(ELEVENLABS_TTS_COSTS);
+            throw new HttpError(
+                400,
+                `Invalid model: ${modelId}. Expected: ${expected.join(', ')}`,
+                {
+                    legacyCode: 'field_invalid',
+                    fields: { key: 'model', expected, got: modelId },
+                },
+            );
+        }
+
         const desiredFormat =
             output_format || response_format || DEFAULT_OUTPUT_FORMAT;
 
         const actor = Context.get('actor')!;
         const usageKey = `elevenlabs:${modelId}:character`;
-        const ucentsPerChar = ELEVENLABS_TTS_COSTS[modelId] ?? 0;
+        const ucentsPerChar = ELEVENLABS_TTS_COSTS[modelId];
         const totalCost = ucentsPerChar * text.length;
 
         const usageAllowed = await this.meteringService.hasEnoughCredits(

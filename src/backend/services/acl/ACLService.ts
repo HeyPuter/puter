@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -32,11 +32,11 @@ import { HttpError } from '../../core/http/HttpError.js';
  * Thin, filesystem-agnostic view of a resource for ACL checks.
  *
  * Callers construct a descriptor from whatever entry metadata they already
- * have; ACL does not depend on the filesystem layer. FSController does
- * exactly this (see its `resourceDescriptor` in `#assertWriteAccess`).
+ * have; ACL does not depend on the filesystem layer. FSController does exactly
+ * this (see its `resourceDescriptor` in `#assertWriteAccess`).
  *
- * `resolveAncestors()` MUST return the chain starting with the resource
- * itself and ending at the direct child of root. Empty means "root".
+ * `resolveAncestors()` MUST return the chain starting with the resource itself
+ * and ending at the direct child of root. Empty means "root".
  */
 export interface ResourceDescriptor {
     path: string;
@@ -84,15 +84,15 @@ const PUBLIC_READ_MODES: ReadonlyArray<AclMode> = Object.freeze([
  *
  * Design notes:
  *
- * - **No FSNode dependency.** Callers pass a `ResourceDescriptor` duck type
- *   (`{ path, resolveAncestors() }`). This lets ACL live as a service
- *   without pulling in the filesystem layer (which would create a circular
+ * - **No FSNode dependency.** Callers pass a `ResourceDescriptor` duck type (`{
+ *   path, resolveAncestors() }`). This lets ACL live as a service without
+ *   pulling in the filesystem layer (which would create a circular
  *   dependency).
  * - **No route registration.** The service is pure; a controller exposes
  *   `/acl/stat-user-user` and `/acl/set-user-user`.
  *
- * Tree-walks are done via `resolveAncestors()`, which returns a
- * pre-resolved ancestor chain from the caller's FS layer.
+ * Tree-walks are done via `resolveAncestors()`, which returns a pre-resolved
+ * ancestor chain from the caller's FS layer.
  */
 export class ACLService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
@@ -100,7 +100,8 @@ export class ACLService extends PuterService {
     // -- Public API ---------------------------------------------------
 
     /**
-     * Returns true iff `actor` is allowed to perform `mode` access on `resource`.
+     * Returns true iff `actor` is allowed to perform `mode` access on
+     * `resource`.
      */
     async check(
         actor: Actor,
@@ -249,8 +250,8 @@ export class ACLService extends PuterService {
     }
 
     /**
-     * When a check fails, return a user-safe error: 404 if the actor can't
-     * even `see` the resource (don't leak existence), 403 otherwise.
+     * When a check fails, return a user-safe error: 404 if the actor can't even
+     * `see` the resource (don't leak existence), 403 otherwise.
      */
     async getSafeAclError(
         actor: Actor,
@@ -296,13 +297,25 @@ export class ACLService extends PuterService {
         const out: StatPermissionsResult = {};
         const ancestors = await resource.resolveAncestors();
         for (const ancestor of ancestors) {
-            const prefix = PermissionUtil.join('fs', ancestor.uid);
-            const perms =
-                await this.services.permission.queryIssuerHolderPermissionsByPrefix(
-                    issuer,
-                    holder,
-                    prefix,
-                );
+            // Both namespaces: a `manage:fs:<uid>` grant lives outside the
+            // `fs:<uid>` prefix, and `setUserUser` relies on seeing it —
+            // otherwise downgrading a manage share to a weaker mode leaves
+            // the manage grant in place.
+            const prefixes = [
+                PermissionUtil.join('fs', ancestor.uid),
+                PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', ancestor.uid),
+            ];
+            const perms = (
+                await Promise.all(
+                    prefixes.map((prefix) =>
+                        this.services.permission.queryIssuerHolderPermissionsByPrefix(
+                            issuer,
+                            holder,
+                            prefix,
+                        ),
+                    ),
+                )
+            ).flat();
             if (perms.length > 0) out[ancestor.path] = perms;
         }
         return out;
@@ -310,11 +323,11 @@ export class ACLService extends PuterService {
 
     /**
      * Grant `mode` on `resource` from `issuer` to `holder`, clearing any
-     * existing different-mode grants on the same node. No-op if the same
-     * mode (or, with `onlyIfHigher`, a higher mode) is already present.
+     * existing different-mode grants on the same node. No-op if the same mode
+     * (or, with `onlyIfHigher`, a higher mode) is already present.
      *
-     * Returns `false` when no write was necessary; `true` when a grant
-     * (and possibly revokes) were issued.
+     * Returns `false` when no write was necessary; `true` when a grant (and
+     * possibly revokes) were issued.
      */
     async setUserUser(
         issuer: Actor,

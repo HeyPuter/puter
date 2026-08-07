@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -43,9 +43,8 @@ import type { IConfig } from '../../types.js';
 /**
  * Shared helpers used by the legacy FS route shims (LegacyFSController).
  *
- * Legacy clients speak snake_case and expect specific response shapes —
- * these helpers encapsulate that translation so the route handlers stay
- * terse.
+ * Legacy clients speak snake_case and expect specific response shapes — these
+ * helpers encapsulate that translation so the route handlers stay terse.
  */
 
 // -- Body parsing -----------------------------------------------------
@@ -220,15 +219,15 @@ export async function assertAccess(
 }
 
 /**
- * Authorize creation of a new entry at `targetPath`. The standard rule is
- * write on the parent, but we also allow it when the actor has explicit
- * write on the target itself — this covers an app creating its own
- * `/<user>/AppData/<app_uid>` folder (parent `AppData` is off-limits, but
- * the target is the app's own subtree per ACLService's short-circuit) and
- * shares granted directly on a not-yet-created path.
+ * Authorize creation of a new entry at `targetPath`. The standard rule is write
+ * on the parent, but we also allow it when the actor has explicit write on the
+ * target itself — this covers an app creating its own
+ * `/<user>/AppData/<app_uid>` folder (parent `AppData` is off-limits, but the
+ * target is the app's own subtree per ACLService's short-circuit) and shares
+ * granted directly on a not-yet-created path.
  *
- * On failure, delegates to `assertAccess` on the parent so the error
- * shape stays identical to the previous parent-only check.
+ * On failure, delegates to `assertAccess` on the parent so the error shape
+ * stays identical to the previous parent-only check.
  */
 export async function assertCanCreate(
     aclService: ACLService,
@@ -272,20 +271,21 @@ const toIntBool = (v: unknown): number => (v ? 1 : 0);
 /**
  * Convert an AppStore-normalized app row into the v1 `associated_app` shape
  * embedded in legacy FS entries. Booleans round-trip back to integers (0/1)
- * because the v1 wire contract emits them that way and existing clients key
- * off it. Other columns pass through as-is — `metadata` is already parsed.
+ * because the v1 wire contract emits them that way and existing clients key off
+ * it. Other columns pass through as-is — `metadata` is already parsed.
  *
- * Two redactions, because `associatedAppId` can name an app the actor does
- * not own (the column is client-writable display metadata, never trusted for
- * authz — see FSController) and may point cross-tenant:
- *   - Owner identifiers (`owner_user_id`, `app_owner`) are never emitted —
- *     they're internal user references with no client-side display use.
- *   - For private or protected apps, the direct hosting URL and launch
- *     capability flags (`index_url`, `godmode`, `maximize_on_start`,
- *     `background`, `metadata`) are dropped. This mirrors AppDriver, which
- *     withholds `index_url` from callers without read entitlement. Display
- *     fields (name, icon, title) still pass through so the GUI can label the
- *     file's associated app.
+ * Two redactions, because `associatedAppId` can name an app the actor does not
+ * own (the column is client-writable display metadata, never trusted for authz
+ * — see FSController) and may point cross-tenant:
+ *
+ * - Owner identifiers (`owner_user_id`, `app_owner`) are never emitted — they're
+ *   internal user references with no client-side display use.
+ * - For private or protected apps, the direct hosting URL and launch capability
+ *   flags (`index_url`, `godmode`, `maximize_on_start`, `background`,
+ *   `metadata`) are dropped. This mirrors AppDriver, which withholds
+ *   `index_url` from callers without read entitlement. Display fields (name,
+ *   icon, title) still pass through so the GUI can label the file's associated
+ *   app.
  */
 function mapAppForLegacyAssociatedApp(
     app: Record<string, unknown>,
@@ -319,13 +319,15 @@ function mapAppForLegacyAssociatedApp(
 /**
  * Batch-load `associated_app` payloads for a set of entries. Dedupes app ids
  * across the input, hands them to `AppStore.getByIds` (one pipelined Redis
- * MGET + a single `id IN (…)` query for any cache misses), and returns a map
- * keyed by app id holding the v1-shaped embed. Callers pass the result to
- * `toLegacyEntry` via `opts.appsById` so each entry hydrates without a
- * second round-trip.
+ * MGET
  *
- * Empty input short-circuits — readdir on a directory of plain files makes
- * zero extra calls.
+ * - A single `id IN (…)` query for any cache misses), and returns a map keyed by
+ *   app id holding the v1-shaped embed. Callers pass the result to
+ *   `toLegacyEntry` via `opts.appsById` so each entry hydrates without a second
+ *   round-trip.
+ *
+ * Empty input short-circuits — readdir on a directory of plain files makes zero
+ * extra calls.
  */
 export async function loadLegacyAssociatedApps(
     appStore: AppRowLookup,
@@ -348,12 +350,55 @@ export async function loadLegacyAssociatedApps(
 }
 
 /**
- * Produce the snake_case entry shape legacy clients expect. If `thumbnail`
- * is set, asks the thumbnail extension (via `thumbnail.read` event) to swap
- * an S3 URL for a signed one. Pass `fsEntryStore`/`userStore` to hydrate
- * `is_empty` (directories) and `owner` — both are required fields per
- * the legacy stat contract but need extra DB lookups. Pass `appsById`
- * (built via `loadLegacyAssociatedApps`) to populate `associated_app`.
+ * The v1 `type` field: a MIME content-type (e.g. "image/png; charset=utf-8")
+ * for files, or "folder" for directories. The GUI's icon lookup keys off
+ * `type.startsWith('image/')`, so a bare extension breaks icon selection.
+ */
+export function fsEntryMimeType(entry: {
+    isDir: boolean;
+    name: string;
+}): string | null {
+    return entry.isDir ? 'folder' : contentTypeFromMime(entry.name) || null;
+}
+
+/**
+ * Swap an S3 thumbnail key for a signed URL via the thumbnail extension
+ * (`thumbnail.read` event). Returns the input unchanged when there's no
+ * thumbnail or no event client; returns null if signing yields nothing.
+ */
+export async function signEntryThumbnail(
+    eventClient: EventClient | undefined,
+    uuid: string,
+    thumbnail: string | null,
+): Promise<string | null> {
+    if (
+        typeof thumbnail !== 'string' ||
+        thumbnail.length === 0 ||
+        !eventClient
+    ) {
+        return thumbnail ?? null;
+    }
+    const thumbnailEntry = { uuid, thumbnail };
+    try {
+        // emitAndWait — listener mutates `thumbnail` on the payload; plain
+        // `emit` is fire-and-forget and would drop the rewrite.
+        await eventClient.emitAndWait('thumbnail.read', thumbnailEntry, {});
+    } catch {
+        // ignore — non-critical.
+    }
+    return typeof thumbnailEntry.thumbnail === 'string' &&
+        thumbnailEntry.thumbnail.length > 0
+        ? thumbnailEntry.thumbnail
+        : null;
+}
+
+/**
+ * Produce the snake_case entry shape legacy clients expect. If `thumbnail` is
+ * set, asks the thumbnail extension (via `thumbnail.read` event) to swap an S3
+ * URL for a signed one. Pass `fsEntryStore`/`userStore` to hydrate `is_empty`
+ * (directories) and `owner` — both are required fields per the legacy stat
+ * contract but need extra DB lookups. Pass `appsById` (built via
+ * `loadLegacyAssociatedApps`) to populate `associated_app`.
  */
 export async function toLegacyEntry(
     eventClient: EventClient | undefined,
@@ -367,13 +412,7 @@ export async function toLegacyEntry(
     } = {},
 ): Promise<Record<string, unknown>> {
     const dirname = pathPosix.dirname(entry.path);
-    // v1 contract: `type` is a MIME content-type (e.g. "image/png; charset=utf-8")
-    // for files, or "folder" for directories. The GUI's icon lookup does
-    // `type.startsWith('image/')` etc., so a bare extension breaks every
-    // banner that falls through the name-extension ladder in item_icon.js.
-    const mimeType = entry.isDir
-        ? 'folder'
-        : contentTypeFromMime(entry.name) || null;
+    const mimeType = fsEntryMimeType(entry);
 
     const pathComponents = entry.path.split('/');
     const appdata_app =
@@ -444,28 +483,11 @@ export async function toLegacyEntry(
     }
 
     // Let the thumbnail extension swap an s3:// key for a signed URL.
-    if (
-        typeof response.thumbnail === 'string' &&
-        (response.thumbnail as string).length > 0 &&
-        eventClient
-    ) {
-        const thumbnailEntry = {
-            uuid: entry.uuid,
-            thumbnail: response.thumbnail as string,
-        };
-        try {
-            // emitAndWait — listener mutates `thumbnail` on the payload;
-            // plain `emit` is fire-and-forget and would drop the rewrite.
-            await eventClient.emitAndWait('thumbnail.read', thumbnailEntry, {});
-        } catch {
-            // ignore — non-critical.
-        }
-        response.thumbnail =
-            typeof thumbnailEntry.thumbnail === 'string' &&
-            thumbnailEntry.thumbnail.length > 0
-                ? thumbnailEntry.thumbnail
-                : null;
-    }
+    response.thumbnail = await signEntryThumbnail(
+        eventClient,
+        entry.uuid,
+        response.thumbnail as string | null,
+    );
 
     return response;
 }
@@ -475,8 +497,8 @@ export { normalizeAbsolutePath };
 // -- Signing ---------------------------------------------------------
 
 /**
- * Pull the signing config off the app config. Throws if either value is
- * missing — these are required for signed URL routes to function.
+ * Pull the signing config off the app config. Throws if either value is missing
+ * — these are required for signed URL routes to function.
  */
 export function signingConfigFromAppConfig(config: IConfig): SigningConfig {
     const secret = config.url_signature_secret;
@@ -498,9 +520,7 @@ export function signingConfigFromAppConfig(config: IConfig): SigningConfig {
     return { secret, apiBaseUrl };
 }
 
-/**
- * Convenience wrapper: turn an FSEntry into a signed-file response object.
- */
+/** Convenience wrapper: turn an FSEntry into a signed-file response object. */
 export function signEntry(
     entry: {
         uuid: string;

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -601,7 +601,7 @@ describe('SubdomainDriver.delete', () => {
 // an `index_url` match against the subdomain's host variants.
 
 const createAppWithIndexUrl = async (
-    ownerUserId: number,
+    ownerUserId: number | null,
     indexUrl: string,
     opts: { isPrivate?: boolean } = {},
 ): Promise<{ id: number; uid: string }> => {
@@ -625,6 +625,104 @@ const createAppWithIndexUrl = async (
     )[0] as { id: number; uid: string };
     return row;
 };
+
+// ── Launch-origin takeover on re-registration ──────────────────────
+//
+// Deleting a hosted subdomain leaves the app row's `index_url` pointing
+// at the freed name. The GUI launcher appends `puter.auth.token` to that
+// URL, so whoever registers the name next would receive launch tokens
+// for the original app. `create` therefore refuses a name another user's
+// app still references — while leaving the app's own owner free to
+// re-create it.
+
+describe('SubdomainDriver.create launch-origin reservation', () => {
+    it("refuses a name another user's app still points at", async () => {
+        const victim = await makeUser();
+        const attacker = await makeUser();
+        const sub = uniqueSubdomain('freed');
+
+        await createAppWithIndexUrl(
+            victim.userId,
+            `http://${sub}.site.puter.localhost/`,
+        );
+
+        await expect(
+            withActor(attacker.actor, () =>
+                driver.create({
+                    object: {
+                        subdomain: sub,
+                        root_dir: `/${attacker.actor.user!.username}/Public`,
+                    },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 409 });
+        expect(await server.stores.subdomain.getBySubdomain(sub)).toBeFalsy();
+    });
+
+    it('refuses a name an unowned origin-bootstrapped app points at', async () => {
+        const attacker = await makeUser();
+        const sub = uniqueSubdomain('orphan');
+
+        await createAppWithIndexUrl(
+            null,
+            `http://${sub}.site.puter.localhost`,
+        );
+
+        await expect(
+            withActor(attacker.actor, () =>
+                driver.create({
+                    object: {
+                        subdomain: sub,
+                        root_dir: `/${attacker.actor.user!.username}/Public`,
+                    },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('lets the referencing app owner re-create the name', async () => {
+        const owner = await makeUser();
+        const sub = uniqueSubdomain('recreate');
+
+        await createAppWithIndexUrl(
+            owner.userId,
+            `http://${sub}.site.puter.localhost/`,
+        );
+
+        const created = (await withActor(owner.actor, () =>
+            driver.create({
+                object: {
+                    subdomain: sub,
+                    root_dir: `/${owner.actor.user!.username}/Public`,
+                },
+            }),
+        )) as Record<string, unknown>;
+        expect(created.subdomain).toBe(sub);
+    });
+
+    it('leaves names no app references claimable', async () => {
+        const other = await makeUser();
+        const claimant = await makeUser();
+        const sub = uniqueSubdomain('unrelated');
+
+        // Same owner, unrelated host: the reservation keys off the name,
+        // not off the existence of other people's apps.
+        await createAppWithIndexUrl(
+            other.userId,
+            'https://elsewhere.example.test/',
+        );
+
+        const created = (await withActor(claimant.actor, () =>
+            driver.create({
+                object: {
+                    subdomain: sub,
+                    root_dir: `/${claimant.actor.user!.username}/Public`,
+                },
+            }),
+        )) as Record<string, unknown>;
+        expect(created.subdomain).toBe(sub);
+    });
+});
 
 describe('SubdomainDriver associated_app derivation', () => {
     it('ignores `associated_app_uid` on create and derives null when no app matches', async () => {
@@ -706,10 +804,14 @@ describe('SubdomainDriver associated_app derivation', () => {
     });
 
     it("does not derive an `associated_app` for another user's app at the same host", async () => {
-        // The core IDOR: attacker (a) sets up a subdomain whose host
-        // matches the index_url of a victim's (b) private app. Even on
-        // exact index_url match, the ownership filter must reject the
-        // app from another user's account.
+        // The core IDOR: attacker (a) holds a subdomain whose host matches
+        // the index_url of a victim's (b) private app. Even on exact
+        // index_url match, the ownership filter must reject the app from
+        // another user's account.
+        //
+        // `create` now refuses that pairing outright (see the launch-origin
+        // reservation above), so the row is planted through the store — this
+        // is the legacy-data shape the derive filter still has to handle.
         const a = await makeUser();
         const b = await makeUser();
         const sub = uniqueSubdomain('idor');
@@ -720,15 +822,15 @@ describe('SubdomainDriver associated_app derivation', () => {
             { isPrivate: true },
         );
 
-        const created = (await withActor(a.actor, () =>
-            driver.create({
-                object: {
-                    subdomain: sub,
-                    root_dir: `/${a.actor.user!.username}/Public`,
-                },
-            }),
+        const row = await server.stores.subdomain.create({
+            userId: a.userId,
+            subdomain: sub,
+        });
+
+        const read = (await withActor(a.actor, () =>
+            driver.read({ uid: (row as { uuid: string }).uuid }),
         )) as Record<string, unknown>;
 
-        expect(created.associated_app).toBeNull();
+        expect(read.associated_app).toBeNull();
     });
 });

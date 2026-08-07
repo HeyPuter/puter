@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -24,6 +24,8 @@ import UIWindowPhoneVerificationRequired from './UIWindowPhoneVerificationRequir
 import UIWindowCardVerificationRequired from './UIWindowCardVerificationRequired.js';
 import UIWindowLogin from './UIWindowLogin.js';
 import { KNOWN_OIDC_PROVIDERS, OIDC_GENERIC_PROVIDER_ICON, humanizeOidcProviderId } from '../util/openid.js';
+import { offersFederatedSignInInPopup } from '../util/popupAuth.js';
+import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/auth_redirect.js';
 
 function UIWindowSignup(options) {
     options = options ?? {};
@@ -31,6 +33,11 @@ function UIWindowSignup(options) {
     options.has_head = options.has_head ?? true;
     options.send_confirmation_code = options.send_confirmation_code ?? false;
     options.show_close_button = options.show_close_button ?? true;
+    if (options.redirect_url === undefined) {
+        // stay on the page the signup started from (e.g. an /app/<name>
+        // landing), with standalone auth pages going to the root dashboard
+        options.redirect_url = get_auth_redirect_url();
+    }
 
     return new Promise(async (resolve) => {
         const internal_id = window.uuidv4();
@@ -216,6 +223,17 @@ function UIWindowSignup(options) {
 
                 (async () => {
                     try {
+                        // A federated hop navigates this popup away and the
+                        // provider returns it as a plain sign-in popup, losing
+                        // whatever the popup was opened to do — and, for a
+                        // permission prompt, handing the opener a token instead
+                        // of a decision. Don't offer it there.
+                        if (
+                            window.embedded_in_popup &&
+                            !offersFederatedSignInInPopup(window.gui_action)
+                        ) {
+                            return;
+                        }
                         const res = await fetch(
                             `${window.api_origin}/auth/oidc/providers`,
                         );
@@ -230,11 +248,8 @@ function UIWindowSignup(options) {
                                 .on('click', function () {
                                     let url = `${window.gui_origin}/auth/oidc/${provider}/start?flow=signup`;
                                     // return to the interface the signup started from (backend whitelists the path)
-                                    const return_to = window.location.pathname;
-                                    if (
-                                        return_to === '/desktop' ||
-                                        return_to === '/dashboard'
-                                    ) {
+                                    const return_to = get_oidc_return_to();
+                                    if (return_to) {
                                         url += `&return_to=${encodeURIComponent(return_to)}`;
                                     }
                                     const referrer =
@@ -559,8 +574,29 @@ function UIWindowSignup(options) {
 
                         if (options.reload_on_success) {
                             window.onbeforeunload = null;
-                            // either options.redirect_url or the current page
-                            const redirectUrl = options.redirect_url || '/';
+                            // Signup can interrupt a direct app landing (the
+                            // login cover page's "Sign up", the session
+                            // picker's "Create Account", the
+                            // must_login_or_signup fallback) — landing on '/'
+                            // afterwards would silently drop the app the URL
+                            // asked for, so app landings are preserved and
+                            // the reloaded boot replays them, launch and
+                            // dashboard intro included (the query string is
+                            // deliberately left behind, mirroring login's
+                            // credential-leak hygiene). Every other route
+                            // keeps the historical '/' — notably
+                            // /action/signup, where coming back to the same
+                            // path would just show this window again.
+                            const on_app_landing =
+                                /^\/(?:desktop\/)?app\/[^/]+\/?$/.test(
+                                    window.location.pathname,
+                                );
+                            const redirectUrl =
+                                options.redirect_url ||
+                                (on_app_landing
+                                    ? window.location.origin +
+                                      window.location.pathname
+                                    : '/');
                             window.location.replace(redirectUrl);
                         } else {
                             resolve(email_verified);

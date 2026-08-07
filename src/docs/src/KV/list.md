@@ -37,8 +37,9 @@ An object with the following optional properties:
 - `limit` (Number): Maximum number of items to return in a single call.
 - `cursor` (String): A pagination cursor from a previous call. Pass the `cursor` value returned by the previous page to fetch the next one.
 - `offset` (Number): Skips the given number of items before the page starts. Not recommended — requests get slower and more expensive the larger the offset; prefer `cursor`. Maximum `5000`, and cannot be combined with `cursor`.
-- `includeTotal` (Boolean): If `true`, the result includes a `total` count of every item matching the query (across all pages). Computing the total costs more the more items you have, so request it on the first page only rather than on every page.
+- `includeTotal` (Boolean): If `true`, the result includes a `total` count of every item matching the query (across all pages). The count is metered and its cost grows with the size of your store — request it once (on the first page) and avoid it in hot paths. If you only need to know whether more pages exist, check for `cursor` instead of counting.
 - `fetchUntilFull` (Boolean): A page can come back with fewer than `limit` items even when more exist (for example when expired keys are excluded). If `true`, the page is filled up to `limit` items when possible. Requires `limit`.
+- `stream` (Boolean): If `true`, the method returns an async iterator of [`KVListPage`](/Objects/kvlistpage) objects instead of a promise, for use with `for await ... of`. Combine with `limit` to control the page size, or `cursor` to resume from a previous page. Cannot be combined with `offset`. With `includeTotal`, only the first page carries `total`.
 
 ## Return value
 
@@ -51,6 +52,18 @@ A `Promise` that will resolve to either:
 If the user has no keys, the array will be empty.
 
 When paginating, iterate until the result has no `cursor` — a page may hold fewer than `limit` items while more pages still exist.
+
+Full (non-paginated) listings keep resolving to a plain array, so existing code is unaffected — under the hood the SDK now fetches them page by page. They still read the entire store, though: every page is metered, so on large stores a bare `list()` gets slow and costly (the SDK logs a one-time console warning when a full listing spans multiple pages). Prefer `stream: true` or explicit `limit`/`cursor` pages, and narrow the scan with a `pattern`.
+
+With `stream: true`, the method returns an async iterator of [`KVListPage`](/Objects/kvlistpage) objects instead:
+
+```js
+for await (const page of puter.kv.list({ pattern: 'log:*', stream: true })) {
+    for (const key of page.items) {
+        console.log(key);
+    }
+}
+```
 
 ## Examples
 

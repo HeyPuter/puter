@@ -1,4 +1,4 @@
-import type { RequestCallbacks } from '../shared.d.ts';
+import type { ListPage, ListStreamOptions, RequestCallbacks } from '../shared.d.ts';
 import type { FSItem } from './fs-item.d.ts';
 
 /**
@@ -98,6 +98,14 @@ export interface ReaddirOptions extends RequestCallbacks<FSItem[]> {
     no_thumbs?: boolean;
     no_assocs?: boolean;
     consistency?: 'strong' | 'eventual';
+    /** Maximum number of entries to return. */
+    limit?: number;
+    /** Skips the given number of entries. Prefer `cursor` for paging through large directories. */
+    offset?: number;
+    /** Sort field. Default is `name`. */
+    sortBy?: 'name' | 'modified' | 'type' | 'size';
+    /** Sort direction. Default is `asc`. */
+    sortOrder?: 'asc' | 'desc';
 }
 
 /**
@@ -154,6 +162,36 @@ export interface UploadOptions extends RequestCallbacks<FSItem | FSItem[]> {
     start?: () => void;
     progress?: (operationId: string, progress: number) => void;
     abort?: (operationId: string) => void;
+}
+
+/**
+ * One operation's outcome inside a failed upload: either a failed operation
+ * (`error: true`, with its own `status`, `message`, and `code`) or the
+ * `FSItem` a successful operation produced.
+ */
+export type UploadOperationResult =
+    | { error: true; status?: number; message?: string; code?: string; [key: string]: unknown }
+    | FSItem;
+
+/**
+ * The rejection value of `upload()` when the batch request itself completed
+ * but one or more of its operations failed.
+ */
+export interface UploadBatchError {
+    message: string;
+    /**
+     * `batch_upload_failed` when nothing was written, `batch_upload_partially_failed`
+     * when only some operations failed, and `batch_upload_no_results` when the server
+     * reported success without saying what it wrote.
+     */
+    code: 'batch_upload_failed' | 'batch_upload_partially_failed' | 'batch_upload_no_results';
+    status: number;
+    /** Every operation's result, in the order the operations were sent. */
+    results: UploadOperationResult[];
+    /** Just the operations that failed. */
+    failedItems: UploadOperationResult[];
+    failedCount: number;
+    totalCount: number;
 }
 
 /**
@@ -238,7 +276,10 @@ export class FS {
      * (files and directories) within the specified directory.
      * If `path` is not absolute, it is resolved relative to the app's root directory.
      */
+    readdir (options: ReaddirOptions & ListStreamOptions): AsyncIterableIterator<ListPage<FSItem>>;
+    readdir (options: ReaddirOptions & { includeTotal?: boolean } & ({ cursor: string | null } | { includeTotal: true })): Promise<ListPage<FSItem>>;
     readdir (options: ReaddirOptions): Promise<FSItem[]>;
+    readdir (path: string, options: ReaddirOptions, success?: (value: FSItem[]) => void, error?: (reason: unknown) => void): Promise<FSItem[]>;
     readdir (path: string, success?: (value: FSItem[]) => void, error?: (reason: unknown) => void): Promise<FSItem[]>;
 
     /**
@@ -262,6 +303,9 @@ export class FS {
      * Uploads local items to the Puter filesystem. Resolves to a single `FSItem` if `items`
      * contains one item, or an array of `FSItem` objects if it contains multiple items.
      * If `dirPath` is not set, items are uploaded to the app's root directory.
+     * Rejects if any part of the upload failed — the promise never resolves to a mix
+     * of items and errors. On the batch-endpoint path (`nodejs`, `workers`) the
+     * rejection value is an `UploadBatchError`.
      */
     upload (items: UploadItems, dirPath?: string, options?: UploadOptions): Promise<FSItem | FSItem[]>;
 
@@ -284,4 +328,10 @@ export class FS {
      * Defaults to `'24h'`.
      */
     getReadURL (path: string, expiresIn?: string | number): Promise<string>;
+
+    /**
+     * Revokes a URL produced by `getReadURL`, or the access token / token UUID
+     * behind it. Resolves once the URL no longer grants read access.
+     */
+    revokeReadURL (urlOrTokenOrUuid: string): Promise<void>;
 }

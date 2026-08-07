@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -27,8 +27,8 @@ import { loadFileInput } from '../util/fileInput.js';
 import { VOICE_CHANGER_COSTS } from './costs.js';
 
 /**
- * Driver implementing `puter-speech2speech` — voice changer. Currently a
- * single provider (ElevenLabs).
+ * Driver implementing `puter-speech2speech` — voice changer. Currently a single
+ * provider (ElevenLabs).
  */
 
 const DEFAULT_MODEL = 'eleven_multilingual_sts_v2';
@@ -37,8 +37,11 @@ const DEFAULT_OUTPUT_FORMAT = 'mp3_44100_128';
 const SAMPLE_AUDIO_URL = 'https://puter-sample-data.puter.site/tts_example.mp3';
 const MAX_AUDIO_FILE_SIZE = 25 * 1024 * 1024;
 
+const PROVIDERS = ['elevenlabs'] as const;
+
 interface ConvertArgs {
     audio: unknown;
+    provider?: string;
     voice?: string;
     voice_id?: string;
     voiceId?: string;
@@ -57,8 +60,9 @@ interface ConvertArgs {
 
 export class VoiceChangerDriver extends PuterDriver {
     readonly driverInterface = 'puter-speech2speech';
-    readonly noUserSession = true;
-    readonly driverName = 'elevenlabs-voice-changer';
+    readonly driverName = 'ai-speech2speech';
+    // Older SDK bundles name the provider in the driver slot.
+    readonly driverAliases = ['elevenlabs-voice-changer'];
     readonly isDefault = true;
 
     // Shared AI policy — see `drivers/util/aiLimits.ts` for the tier table.
@@ -104,6 +108,23 @@ export class VoiceChangerDriver extends PuterDriver {
     async convert(
         args: ConvertArgs,
     ): Promise<DriverStreamResult | { url: string; content_type: string }> {
+        // Only one provider exists today, but naming a different one should
+        // fail loudly rather than quietly convert with this one.
+        if (
+            args.provider &&
+            !PROVIDERS.includes(
+                args.provider
+                    .trim()
+                    .toLowerCase() as (typeof PROVIDERS)[number],
+            )
+        ) {
+            throw new HttpError(
+                400,
+                `Speech-to-speech provider not found: ${args.provider}. Available: ${PROVIDERS.join(', ')}`,
+                { legacyCode: 'bad_request' },
+            );
+        }
+
         if (args.test_mode) {
             return { url: SAMPLE_AUDIO_URL, content_type: 'audio/mpeg' };
         }

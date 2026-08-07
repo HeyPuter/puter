@@ -128,6 +128,7 @@ beforeAll(async () => {
             },
             gemini: { apiKey: 'gem-key' },
             xai: { apiKey: 'xai-key' },
+            speechify: { apiKey: 'speechify-key' },
         },
     } as never);
     driver = server.drivers.aiTts as unknown as TTSDriver;
@@ -191,6 +192,7 @@ describe('TTSDriver provider registration', () => {
             'elevenlabs',
             'gemini',
             'openai',
+            'speechify',
             'xai',
         ]);
     });
@@ -243,6 +245,28 @@ describe('TTSDriver.synthesize provider routing', () => {
         expect(openaiSpeechCreateMock).not.toHaveBeenCalled();
     });
 
+    it('routes via legacy driverAlias (speechify-tts → speechify)', async () => {
+        fetchSpy.mockResolvedValueOnce(
+            new Response(
+                JSON.stringify({
+                    audio_data: Buffer.from('audio').toString('base64'),
+                    audio_format: 'mp3',
+                }),
+                { status: 200, headers: { 'content-type': 'application/json' } },
+            ),
+        );
+
+        await withDriverName('speechify-tts', () =>
+            driver.synthesize({ text: 'hi' }),
+        );
+
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        expect(String(fetchSpy.mock.calls[0]![0])).toBe(
+            'https://api.speechify.ai/v1/audio/speech',
+        );
+        expect(openaiSpeechCreateMock).not.toHaveBeenCalled();
+    });
+
     it('routes via legacy driverAlias (aws-polly → aws-polly)', async () => {
         pollyDispatch();
 
@@ -257,12 +281,81 @@ describe('TTSDriver.synthesize provider routing', () => {
         expect(openaiSpeechCreateMock).not.toHaveBeenCalled();
     });
 
-    it('defaults to openai when no provider hint is supplied (preferred first)', async () => {
-        openaiSpeechCreateMock.mockResolvedValueOnce(openaiAudioResponse());
+    it('defaults to aws-polly when no provider hint is supplied', async () => {
+        pollyDispatch();
 
         await withActor(() => driver.synthesize({ text: 'hi' }));
 
+        const synthCalls = pollySendMock.mock.calls.filter(
+            ([cmd]) => cmd.constructor.name === 'SynthesizeSpeechCommand',
+        );
+        expect(synthCalls).toHaveLength(1);
+        expect(openaiSpeechCreateMock).not.toHaveBeenCalled();
+    });
+
+    it.each(['speechify', 'speechify-tts', 'simba'])(
+        'resolves the %s alias to the speechify provider',
+        async (provider) => {
+            fetchSpy.mockResolvedValueOnce(
+                new Response(
+                    JSON.stringify({
+                        audio_data: Buffer.from('audio').toString('base64'),
+                        audio_format: 'mp3',
+                    }),
+                    {
+                        status: 200,
+                        headers: { 'content-type': 'application/json' },
+                    },
+                ),
+            );
+
+            await withActor(() => driver.synthesize({ text: 'hi', provider }));
+
+            expect(String(fetchSpy.mock.calls[0]![0])).toMatch(
+                /api\.speechify\.ai/,
+            );
+            expect(openaiSpeechCreateMock).not.toHaveBeenCalled();
+        },
+    );
+
+    it('resolves provider aliases', async () => {
+        fetchSpy.mockResolvedValueOnce(
+            new Response('audio', {
+                status: 200,
+                headers: { 'content-type': 'audio/mpeg' },
+            }),
+        );
+
+        await withActor(() =>
+            driver.synthesize({ text: 'hi', provider: '11labs' }),
+        );
+
+        expect(String(fetchSpy.mock.calls[0]![0])).toMatch(
+            /api\.elevenlabs\.io\/v1\/text-to-speech\//,
+        );
+        expect(openaiSpeechCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('treats an engine that names a provider as the provider', async () => {
+        openaiSpeechCreateMock.mockResolvedValueOnce(openaiAudioResponse());
+
+        await withActor(() => driver.synthesize({ text: 'hi', engine: 'openai' }));
+
         expect(openaiSpeechCreateMock).toHaveBeenCalledTimes(1);
+        // The alias selected the provider; it is not carried on as a model.
+        expect(openaiSpeechCreateMock.mock.calls[0][0].model).toBe(
+            'gpt-4o-mini-tts',
+        );
+    });
+
+    it('maps `engine` onto `model` for the model-based providers', async () => {
+        openaiSpeechCreateMock.mockResolvedValueOnce(openaiAudioResponse());
+
+        await withActor(() =>
+            driver.synthesize({ text: 'hi', provider: 'openai', engine: 'tts-1' }),
+        );
+
+        expect(openaiSpeechCreateMock.mock.calls[0][0].model).toBe('tts-1');
     });
 
     it('throws 400 when the named provider is not registered', async () => {
@@ -280,7 +373,7 @@ describe('TTSDriver.synthesize provider routing', () => {
 // ── list_voices / list_engines aggregation ─────────────────────────
 
 describe('TTSDriver list_voices / list_engines', () => {
-    it('list_voices() aggregates across providers when no filter is supplied', async () => {
+    it("list_voices({ provider: 'all' }) aggregates across providers", async () => {
         // Provider listVoices methods that touch the network: ElevenLabs
         // (fetch) and AWS Polly (DescribeVoices). Wire both up.
         fetchSpy.mockResolvedValueOnce(
@@ -288,13 +381,14 @@ describe('TTSDriver list_voices / list_engines', () => {
         );
         pollyDispatch();
 
-        const voices = await driver.list_voices();
+        const voices = await driver.list_voices({ provider: 'all' });
         const providers = new Set(voices.map((v) => v.provider));
         // OpenAI, Gemini, xAI, AWS Polly are all hard-coded catalogs; we
         // expect those at minimum (ElevenLabs returned an empty list).
         expect(providers.has('openai')).toBe(true);
         expect(providers.has('gemini')).toBe(true);
         expect(providers.has('xai')).toBe(true);
+        expect(providers.has('speechify')).toBe(true);
         expect(providers.has('aws-polly')).toBe(true);
     });
 
@@ -306,13 +400,23 @@ describe('TTSDriver list_voices / list_engines', () => {
         }
     });
 
-    it('list_voices({ provider }) returns empty when the provider is not registered', async () => {
-        const voices = await driver.list_voices({ provider: 'nope' });
-        expect(voices).toEqual([]);
+    it('list_voices({ provider }) throws 400 when the provider is unknown', async () => {
+        await expect(driver.list_voices({ provider: 'nope' })).rejects.toMatchObject(
+            { statusCode: 400 },
+        );
     });
 
-    it('list_engines() aggregates engines across providers and namespaces them', async () => {
-        const engines = await driver.list_engines();
+    it('list_voices() defaults to aws-polly', async () => {
+        pollyDispatch();
+        const voices = await driver.list_voices();
+        expect(voices.length).toBeGreaterThan(0);
+        for (const voice of voices) {
+            expect(voice.provider).toBe('aws-polly');
+        }
+    });
+
+    it("list_engines({ provider: 'all' }) aggregates engines across providers", async () => {
+        const engines = await driver.list_engines({ provider: 'all' });
         const ids = engines.map((e) => e.id);
         // Some signature engines from each provider.
         expect(ids).toEqual(
@@ -321,6 +425,7 @@ describe('TTSDriver list_voices / list_engines', () => {
                 'eleven_multilingual_v2', // elevenlabs
                 'gemini-2.5-flash-preview-tts',
                 'xai-tts',
+                'simba-3.2', // speechify
                 'standard', // aws-polly
             ]),
         );
@@ -350,6 +455,7 @@ describe('TTSDriver.getReportedCosts', () => {
                 'driver:aiTts/aws-polly',
                 'driver:aiTts/gemini',
                 'driver:aiTts/xai',
+                'driver:aiTts/speechify',
             ]),
         );
     });

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -75,6 +75,11 @@ export class SystemController extends PuterController {
                 process.env.npm_package_version ??
                 'unknown';
             const parts = String(version).split('.');
+            // Deploy-constant, and callers poll it. Cache per-client only:
+            // a shared cache could pin one region's `location` for everyone,
+            // and the short window still bounds how long a client can miss a
+            // new deploy.
+            res.setHeader('Cache-Control', 'private, max-age=60');
             res.json({
                 version,
                 major: parts[0] ? Number(parts[0]) : null,

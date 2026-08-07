@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -28,10 +28,10 @@ const ACTIVE_DOCUMENT_CONTENT_TYPE =
 
 /**
  * For file-serving endpoints that echo an uploader-controlled content type
- * inline: when the type is one a browser executes as a document, apply the
- * same sandbox CSP used for app icons so embedded scripts can't run with
- * the serving origin. No-op for inert types (images, audio, octet-stream),
- * so `<img>`/download/range consumers are unaffected.
+ * inline: when the type is one a browser executes as a document, apply the same
+ * sandbox CSP used for app icons so embedded scripts can't run with the serving
+ * origin. No-op for inert types (images, audio, octet-stream), so
+ * `<img>`/download/range consumers are unaffected.
  *
  * Returns true if the sandbox header was applied (useful for tests/logging).
  */

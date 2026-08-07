@@ -587,6 +587,39 @@ describe('OCRDriver.recognize (mistral)', () => {
 
 // ── Default provider selection ──────────────────────────────────────
 
+describe('OCRDriver provider aliases', () => {
+    it.each([
+        ['aws', 'textract'],
+        ['textract', 'textract'],
+        ['aws-textract', 'textract'],
+        ['mistral', 'mistral'],
+        ['mistral-ocr', 'mistral'],
+    ])('routes provider %s to the %s backend', async (provider, expected) => {
+        const { actor } = await makeUser();
+        textractSendMock.mockResolvedValueOnce({
+            Blocks: [{ BlockType: 'PAGE' }],
+        });
+        mistralOcrProcessMock.mockResolvedValueOnce({
+            pages: [{ index: 0, markdown: 'hi' }],
+        });
+
+        await withActor(actor, () =>
+            driver.recognize({
+                source: dataUrl(Buffer.from('img'), 'image/png'),
+                provider,
+            }),
+        );
+
+        if (expected === 'textract') {
+            expect(textractSendMock).toHaveBeenCalledTimes(1);
+            expect(mistralOcrProcessMock).not.toHaveBeenCalled();
+        } else {
+            expect(mistralOcrProcessMock).toHaveBeenCalledTimes(1);
+            expect(textractSendMock).not.toHaveBeenCalled();
+        }
+    });
+});
+
 describe('OCRDriver default provider selection', () => {
     it('defaults to aws-textract when both providers are configured', async () => {
         const { actor } = await makeUser();

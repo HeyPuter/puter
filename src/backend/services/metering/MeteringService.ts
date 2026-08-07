@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -27,11 +27,18 @@ import {
     DEFAULT_TEMP_SUBSCRIPTION,
     GLOBAL_APP_KEY,
     METRICS_PREFIX,
+    MONTHLY_CHARGE_CLAIM,
     PERIOD_ESCAPE,
     POLICY_PREFIX,
     UNLIMITED_SUBSCRIPTION,
 } from './consts';
-import type { AppTotals, UsageAddons, UsageByType, UsageRecord } from './types';
+import type {
+    AppTotals,
+    UsageAddons,
+    UsageByType,
+    UsageInput,
+    UsageRecord,
+} from './types';
 import { toMicroCents } from './utils';
 
 import { SUB_POLICIES } from '../../data/subPolicies/index.js';
@@ -44,31 +51,74 @@ export type SubscriptionResolver = (
     actor: Actor,
 ) => Promise<string | null | undefined> | string | null | undefined;
 
-interface UsageInput {
-    usageType: string;
-    usageAmount: number;
-    costOverride?: number;
+// -- Helpers ----------------------------------------------------------
+
+/**
+ * How an actor is named in metering alarms. Email is what someone reading the
+ * alert actually needs to find the account; username and uuid are fallbacks for
+ * actors that have no email (temp accounts).
+ */
+function actorLabel(actor: Actor): string {
+    return (
+        actor.user?.email ??
+        actor.user?.username ??
+        actor.user?.uuid ??
+        'unknown-user'
+    );
 }
 
 // -- MeteringService --------------------------------------------------
 
 /**
- * Tracks per-actor and global usage, and exposes subscription/addon lookup.
- * All metering data is persisted under the system namespace via
- * `stores.kv` (SystemKVStore)
+ * Tracks per-actor and global usage, and exposes subscription/addon lookup. All
+ * metering data is persisted under the system namespace via `stores.kv`
+ * (SystemKVStore)
  *
- * Callers (typically drivers or controllers) pass the user-scoped actor in; we fan that
- * out into several aggregated KV records.
+ * Callers (typically drivers or controllers) pass the user-scoped actor in; we
+ * fan that out into several aggregated KV records.
  */
 export class MeteringService extends PuterService {
+    /**
+     * How wide the global and per-app aggregates are spread. These are counters
+     * many actors increment at once, so spreading them keeps any single record
+     * from being written by everyone — including from several deployments
+     * concurrently, where writes to one record can otherwise lose an increment.
+     * The width is why reading an aggregate has to sum every shard.
+     */
     static GLOBAL_SHARD_COUNT = 10000;
     static APP_SHARD_COUNT = 10000;
+
     static MAX_GLOBAL_USAGE_PER_MINUTE = toMicroCents(0.2);
+
+    /**
+     * Share of the allowance past which an approximate running total is no
+     * longer good enough to decide on.
+     */
+    static PRECISION_THRESHOLD = 0.9;
+
+    /**
+     * How many actors this deployment remembers as settled for the month. The
+     * claim in the KV store is what makes monthly charges once-only; this
+     * memory only saves the round trip that would discover that, so forgetting
+     * it costs a claim write and nothing else.
+     */
+    static MONTHLY_CHARGE_MEMO_LIMIT = 100_000;
 
     private rateCheckTimer: ReturnType<typeof setInterval> | null = null;
     private extraPolicies: SubscriptionPolicy[] = [];
     private subscriptionResolvers: SubscriptionResolver[] = [];
     private defaultSubscriptionResolvers: SubscriptionResolver[] = [];
+
+    /** Actors settled for `settledMonth`; see MONTHLY_CHARGE_MEMO_LIMIT. */
+    private settledMonth: string | null = null;
+    private settledActors = new Set<string>();
+    /**
+     * Actors with a claim in flight. Unlike `settledActors` this is never
+     * dropped early, because it is what stops a second claim inside the first:
+     * applying the charges goes back through `batchIncrementUsages`, which
+     * arrives here again for the same actor and month.
+     */
+    private claimsInFlight = new Set<string>();
 
     // -- Lifecycle ----------------------------------------------------
 
@@ -107,7 +157,7 @@ export class MeteringService extends PuterService {
     }
 
     /**
-     * Register a resolver that maps an actor to a *default* subscription id,
+     * Register a resolver that maps an actor to a _default_ subscription id,
      * used when no explicit subscription is set. First non-empty wins.
      */
     registerDefaultSubscriptionResolver(fn: SubscriptionResolver): void {
@@ -157,7 +207,7 @@ export class MeteringService extends PuterService {
         if (costOverrideRaw && costOverrideRaw < 0) {
             this.clients.alarm.create(
                 `metering unexpected negative cost access to: ${usageType}`,
-                'negative cost abuse vector!',
+                `negative cost abuse vector! (${actorLabel(actor)})`,
                 {
                     userId: actor.user?.uuid,
                     username: actor.user?.username,
@@ -167,6 +217,7 @@ export class MeteringService extends PuterService {
                     usageAmount,
                     costOverride,
                 },
+                'info',
             );
         }
 
@@ -193,17 +244,15 @@ export class MeteringService extends PuterService {
             };
 
             const actorUsageKey = `${METRICS_PREFIX}:actor:${userId}:${currentMonth}`;
-            const actorUsagesPromise = this.stores.kv
-                .incr({
-                    key: actorUsageKey,
-                    pathAndAmountMap,
-                })
-                .then((r) => r.res as unknown as UsageByType);
+            const actorUsagesPromise = this.stores.meteringBuffer.incr({
+                key: actorUsageKey,
+                pathAndAmountMap,
+            });
 
             // Aux writes — fire and forget
             this.handleAuxPromise(
                 `puterConsumption ${userId}/${appId}`,
-                this.stores.kv.incr({
+                this.stores.meteringBuffer.incrAux({
                     key: this.globalUsageKey(userId, appId, currentMonth),
                     pathAndAmountMap,
                 }),
@@ -211,7 +260,7 @@ export class MeteringService extends PuterService {
 
             this.handleAuxPromise(
                 `actorAppUsage ${userId}/${appId}`,
-                this.stores.kv.incr({
+                this.stores.meteringBuffer.incrAux({
                     key: `${METRICS_PREFIX}:actor:${userId}:app:${appId}:${currentMonth}`,
                     pathAndAmountMap,
                 }),
@@ -220,7 +269,7 @@ export class MeteringService extends PuterService {
             if (appId !== GLOBAL_APP_KEY) {
                 this.handleAuxPromise(
                     `appUsage ${appId}/${userId}`,
-                    this.stores.kv.incr({
+                    this.stores.meteringBuffer.incrAux({
                         key: this.appUsageKey(appId, userId, currentMonth),
                         pathAndAmountMap,
                     }),
@@ -229,7 +278,7 @@ export class MeteringService extends PuterService {
 
             this.handleAuxPromise(
                 `actorAppTotals ${userId}`,
-                this.stores.kv.incr({
+                this.stores.meteringBuffer.incrAux({
                     key: `${METRICS_PREFIX}:actor:${userId}:apps:${currentMonth}`,
                     pathAndAmountMap: {
                         [`${appId}.total`]: totalCost,
@@ -238,12 +287,18 @@ export class MeteringService extends PuterService {
                 }),
             );
 
-            const [actorUsages, actorSubscription, actorAddons] =
+            const [usageResult, actorSubscription, actorAddons] =
                 await Promise.all([
                     actorUsagesPromise,
                     this.getActorSubscription(actor),
                     this.getActorAddons(actor),
                 ]);
+
+            const actorUsages = await this.exactUsageNearAllowance(
+                actorUsageKey,
+                usageResult,
+                actorSubscription.monthUsageAllowance,
+            );
 
             await this.maybeConsumeAddonCredits(
                 userId,
@@ -265,7 +320,13 @@ export class MeteringService extends PuterService {
                 costOverride,
             });
 
-            return actorUsages;
+            return (
+                (await this.applyMonthlyCharges(
+                    actor,
+                    currentMonth,
+                    actorUsages,
+                )) ?? actorUsages
+            );
         } catch (e) {
             console.error('[metering] incrementUsage failed', {
                 actor,
@@ -274,7 +335,7 @@ export class MeteringService extends PuterService {
                 error: e,
             });
             this.clients.alarm.create(
-                `metering service error for user: ${actor.user?.username} app: ${actor.app?.uid}`,
+                `metering service error for user: ${actorLabel(actor)} app: ${actor.app?.uid}`,
                 (e as Error).message,
                 {
                     userId: actor.user?.uuid,
@@ -286,6 +347,7 @@ export class MeteringService extends PuterService {
                     usageAmount,
                     costOverride,
                 },
+                'info',
             );
             return { total: 0 } as UsageByType;
         }
@@ -324,7 +386,7 @@ export class MeteringService extends PuterService {
                 if (costOverrideRaw && costOverrideRaw < 0) {
                     this.clients.alarm.create(
                         `metering unexpected negative cost access to: ${usageType}`,
-                        'negative cost abuse vector!',
+                        `negative cost abuse vector! (${actorLabel(actor)})`,
                         {
                             userId: actor.user?.uuid,
                             username: actor.user?.username,
@@ -335,6 +397,7 @@ export class MeteringService extends PuterService {
                             costOverride,
                             costOverrideRaw,
                         },
+                        'info',
                     );
                 }
 
@@ -351,41 +414,44 @@ export class MeteringService extends PuterService {
                     (aggregated[`${escaped}.count`] || 0) + 1;
             }
 
+            // Every usage entry may be skipped (zero amount or missing type);
+            // an empty map would build an invalid `SET ` update expression.
+            if (Object.keys(aggregated).length === 0)
+                return { total: 0 } as UsageByType;
+
             const appId = actor.app?.uid || GLOBAL_APP_KEY;
             const userId = actor.user.uuid!;
 
             const actorUsageKey = `${METRICS_PREFIX}:actor:${userId}:${currentMonth}`;
-            const actorUsagesPromise = this.stores.kv
-                .incr({
-                    key: actorUsageKey,
-                    pathAndAmountMap: aggregated,
-                })
-                .then((r) => r.res as unknown as UsageByType);
+            const actorUsagesPromise = this.stores.meteringBuffer.incr({
+                key: actorUsageKey,
+                pathAndAmountMap: aggregated,
+            });
 
             this.handleAuxPromise(
                 `puterConsumption ${userId}/${appId}`,
-                this.stores.kv.incr({
+                this.stores.meteringBuffer.incrAux({
                     key: this.globalUsageKey(userId, appId, currentMonth),
                     pathAndAmountMap: aggregated,
                 }),
             );
             this.handleAuxPromise(
                 `actorAppUsage ${userId}/${appId}`,
-                this.stores.kv.incr({
+                this.stores.meteringBuffer.incrAux({
                     key: `${METRICS_PREFIX}:actor:${userId}:app:${appId}:${currentMonth}`,
                     pathAndAmountMap: aggregated,
                 }),
             );
             this.handleAuxPromise(
                 `appUsage ${appId}/${userId}`,
-                this.stores.kv.incr({
+                this.stores.meteringBuffer.incrAux({
                     key: this.appUsageKey(appId, userId, currentMonth),
                     pathAndAmountMap: aggregated,
                 }),
             );
             this.handleAuxPromise(
                 `actorAppTotals ${userId}`,
-                this.stores.kv.incr({
+                this.stores.meteringBuffer.incrAux({
                     key: `${METRICS_PREFIX}:actor:${userId}:apps:${currentMonth}`,
                     pathAndAmountMap: {
                         [`${appId}.total`]: totalBatchCost,
@@ -394,12 +460,18 @@ export class MeteringService extends PuterService {
                 }),
             );
 
-            const [actorUsages, actorSubscription, actorAddons] =
+            const [usageResult, actorSubscription, actorAddons] =
                 await Promise.all([
                     actorUsagesPromise,
                     this.getActorSubscription(actor),
                     this.getActorAddons(actor),
                 ]);
+
+            const actorUsages = await this.exactUsageNearAllowance(
+                actorUsageKey,
+                usageResult,
+                actorSubscription.monthUsageAllowance,
+            );
 
             await this.maybeConsumeAddonCredits(
                 userId,
@@ -419,7 +491,13 @@ export class MeteringService extends PuterService {
                 batchUsages: usages,
             });
 
-            return actorUsages;
+            return (
+                (await this.applyMonthlyCharges(
+                    actor,
+                    currentMonth,
+                    actorUsages,
+                )) ?? actorUsages
+            );
         } catch (e) {
             console.error('[metering] batchIncrementUsages failed', {
                 actor,
@@ -427,7 +505,7 @@ export class MeteringService extends PuterService {
                 error: e,
             });
             this.clients.alarm.create(
-                `metering service error for user: ${actor.user?.username} app: ${actor.app?.uid}`,
+                `metering service error for user: ${actorLabel(actor)} app: ${actor.app?.uid}`,
                 (e as Error).message,
                 {
                     userId: actor.user?.uuid,
@@ -438,6 +516,7 @@ export class MeteringService extends PuterService {
                     actor,
                     batchUsages: usages,
                 },
+                'info',
             );
             return { total: 0 } as UsageByType;
         }
@@ -464,11 +543,22 @@ export class MeteringService extends PuterService {
             `${METRICS_PREFIX}:actor:${actor.user.uuid}:apps:${currentMonth}`,
         ];
 
-        const { res } = await this.stores.kv.get({ key: keys });
+        const { res } = await this.stores.meteringBuffer.get({ key: keys });
         const [usage, appTotals] = (res ?? []) as [
             UsageByType | null,
             Record<string, AppTotals> | null,
         ];
+
+        // Reading the month is one of the two things that settles its
+        // recurring charges. The per-app breakdown is written by the same
+        // increment but read above it, so it picks them up a read later than
+        // the total does.
+        const charged = await this.applyMonthlyCharges(
+            actor,
+            currentMonth,
+            usage,
+        );
+        const resolvedUsage = charged ?? usage ?? ({ total: 0 } as UsageByType);
 
         const appId = actor.app?.uid;
         if (appTotals && appId) {
@@ -486,16 +576,10 @@ export class MeteringService extends PuterService {
                 }
             });
             if (others) filtered['others'] = others;
-            return {
-                usage: usage || ({ total: 0 } as UsageByType),
-                appTotals: filtered,
-            };
+            return { usage: resolvedUsage, appTotals: filtered };
         }
 
-        return {
-            usage: usage || ({ total: 0 } as UsageByType),
-            appTotals: appTotals || {},
-        };
+        return { usage: resolvedUsage, appTotals: appTotals || {} };
     }
 
     async setActorCurrentMonthUsageTotal(
@@ -526,7 +610,9 @@ export class MeteringService extends PuterService {
         const appId = actor.app?.uid || GLOBAL_APP_KEY;
         const actorUsageKey = `${METRICS_PREFIX}:actor:${userId}:${currentMonth}`;
 
-        const { res: current } = await this.stores.kv.get({
+        // Setting an absolute total is only meaningful against an exact
+        // starting point, so this one reads through everything pending.
+        const { res: current } = await this.stores.meteringBuffer.readExact({
             key: actorUsageKey,
         });
         const currentTotal = (current as UsageByType | null)?.total ?? 0;
@@ -544,26 +630,29 @@ export class MeteringService extends PuterService {
         };
 
         const updated = (
-            await this.stores.kv.incr({ key: actorUsageKey, pathAndAmountMap })
+            await this.stores.meteringBuffer.incr({
+                key: actorUsageKey,
+                pathAndAmountMap,
+            })
         ).res as unknown as UsageByType;
 
         this.handleAuxPromise(
             `puterConsumption ${userId}/${appId}`,
-            this.stores.kv.incr({
+            this.stores.meteringBuffer.incrAux({
                 key: this.globalUsageKey(userId, appId, currentMonth),
                 pathAndAmountMap,
             }),
         );
         this.handleAuxPromise(
             `actorAppUsage ${userId}/${appId}`,
-            this.stores.kv.incr({
+            this.stores.meteringBuffer.incrAux({
                 key: `${METRICS_PREFIX}:actor:${userId}:app:${appId}:${currentMonth}`,
                 pathAndAmountMap,
             }),
         );
         this.handleAuxPromise(
             `actorAppTotals ${userId}`,
-            this.stores.kv.incr({
+            this.stores.meteringBuffer.incrAux({
                 key: `${METRICS_PREFIX}:actor:${userId}:apps:${currentMonth}`,
                 pathAndAmountMap: {
                     [`${appId}.total`]: delta,
@@ -605,7 +694,7 @@ export class MeteringService extends PuterService {
 
         const currentMonth = this.monthYearString();
         const key = `${METRICS_PREFIX}:actor:${actor.user.uuid}:app:${resolvedAppId}:${currentMonth}`;
-        const { res } = await this.stores.kv.get({ key });
+        const { res } = await this.stores.meteringBuffer.get({ key });
         return (res as UsageByType) || ({ total: 0 } as UsageByType);
     }
 
@@ -719,7 +808,7 @@ export class MeteringService extends PuterService {
 
         const currentMonth = this.monthYearString();
         const key = `${METRICS_PREFIX}:actor:${actor.user.uuid}:app:${appId}:${currentMonth}`;
-        const { res } = await this.stores.kv.get({ key });
+        const { res } = await this.stores.meteringBuffer.get({ key });
         return (res ?? { total: 0 }) as UsageByType;
     }
 
@@ -782,7 +871,8 @@ export class MeteringService extends PuterService {
     }
 
     /**
-     * Randomized shard key to spread writes across the global consumption bucket.
+     * Randomized shard key to spread writes across the global consumption
+     * bucket.
      */
     private globalUsageKey(
         userId: string,
@@ -806,6 +896,29 @@ export class MeteringService extends PuterService {
         return `${METRICS_PREFIX}:app:${appId}:${hash}:${currentMonth}`;
     }
 
+    /**
+     * Well under the allowance an approximate running total leads to the same
+     * decisions as an exact one, so it isn't worth paying for precision. Close
+     * to the limit it is — that's where the decisions below actually turn on
+     * the number.
+     */
+    private async exactUsageNearAllowance(
+        key: string,
+        usage: { res: unknown; exact: boolean },
+        monthUsageAllowance: number,
+    ): Promise<UsageByType> {
+        const approximate = usage.res as UsageByType;
+        if (usage.exact || !(monthUsageAllowance > 0)) return approximate;
+        if (
+            (approximate.total || 0) <
+            monthUsageAllowance * MeteringService.PRECISION_THRESHOLD
+        )
+            return approximate;
+
+        const { res } = await this.stores.meteringBuffer.readExact({ key });
+        return (res as UsageByType) ?? approximate;
+    }
+
     private handleAuxPromise(label: string, promise: Promise<unknown>): void {
         promise.catch((e: Error) => {
             console.warn(
@@ -827,6 +940,132 @@ export class MeteringService extends PuterService {
             }
         }
         return null;
+    }
+
+    // -- Internals: monthly charges -----------------------------------
+
+    /**
+     * Charges that recur monthly are applied the first time an actor touches
+     * the month rather than swept for on a schedule: an actor who never comes
+     * back is never looked at, and the work lands on the one request that was
+     * already reading or writing that month's record anyway.
+     *
+     * `usage` is the record the caller has in hand. Once it carries the claim
+     * this costs nothing at all, which is the case for every request but the
+     * first. Returns the usage including the charges when this call is the one
+     * that applied them, and null otherwise — including on failure, since a
+     * charge that couldn't be applied shouldn't take the request down with it.
+     */
+    private async applyMonthlyCharges(
+        actor: Actor,
+        currentMonth: string,
+        usage: UsageByType | null,
+    ): Promise<UsageByType | null> {
+        const userId = actor?.user?.uuid;
+        if (!userId || isSystemActor(actor)) return null;
+        if (!this.clients.event.hasListeners('metering.monthly.charges'))
+            return null;
+
+        // Scoped to the month as well as the actor: a claim in flight across
+        // midnight says nothing about the month that just started.
+        const claimId = `${userId}:${currentMonth}`;
+        // Checked before anything that can be forgotten, and answered with
+        // null rather than the running claim — a caller that awaited it could
+        // be the claim itself, one frame down.
+        if (this.claimsInFlight.has(claimId)) return null;
+
+        if (usage?.[MONTHLY_CHARGE_CLAIM]) {
+            this.rememberSettled(claimId, currentMonth);
+            return null;
+        }
+        if (this.isSettled(claimId, currentMonth)) return null;
+
+        // Nothing awaits between the check and the add, so two callers can't
+        // both get past it.
+        this.claimsInFlight.add(claimId);
+        try {
+            return await this.claimAndCharge(actor, userId, currentMonth);
+        } finally {
+            this.claimsInFlight.delete(claimId);
+        }
+    }
+
+    /**
+     * Take the month's claim, and if it was ours, ask what the user owes and
+     * record it.
+     *
+     * The claim goes straight to the KV store rather than through the metering
+     * buffer: the buffer answers from this deployment's own view, and the point
+     * of this counter is to be the one value every deployment agrees on.
+     * Exactly one caller anywhere sees it come back as 1.
+     */
+    private async claimAndCharge(
+        actor: Actor,
+        userId: string,
+        currentMonth: string,
+    ): Promise<UsageByType | null> {
+        let claim: number;
+        try {
+            const { res } = await this.stores.kv.incr({
+                key: `${METRICS_PREFIX}:actor:${userId}:${currentMonth}`,
+                pathAndAmountMap: { [MONTHLY_CHARGE_CLAIM]: 1 },
+            });
+            claim = Number(
+                (res as Record<string, unknown>)?.[MONTHLY_CHARGE_CLAIM] ?? 0,
+            );
+        } catch (e) {
+            // Unclaimed, so the next request retries. Charging late beats
+            // charging never, and beats failing the request outright.
+            console.warn(
+                `[metering] monthly charge claim failed for ${userId}: ${(e as Error).message}`,
+            );
+            return null;
+        }
+
+        this.rememberSettled(`${userId}:${currentMonth}`, currentMonth);
+        // Every attempt bumps the counter, so exactly one caller anywhere ever
+        // reads 1 back. Everyone else lost the race and must not charge.
+        if (claim !== 1) return null;
+
+        // The account owes this, not whichever app happened to make the first
+        // call of the month. Dropping the app bills it to the user's own
+        // bucket instead of landing it in that app's usage — which its
+        // developer reads — and hands listeners a subject they can price
+        // against what the user owns.
+        const userActor: Actor = { user: actor.user };
+
+        const charges: UsageInput[] = [];
+        await this.clients.event.emitAndWait(
+            'metering.monthly.charges',
+            { actor: userActor, month: currentMonth, charges },
+            {},
+        );
+
+        const valid = charges.filter(
+            (charge) =>
+                charge?.usageType && Number.isFinite(charge.usageAmount),
+        );
+        if (valid.length === 0) return null;
+        // One call, so every charge is folded into a single amount map and
+        // settles as one write however many listeners contributed.
+        return this.batchIncrementUsages(userActor, valid);
+    }
+
+    private rememberSettled(claimId: string, month: string): void {
+        if (this.settledMonth !== month) {
+            this.settledMonth = month;
+            this.settledActors.clear();
+        }
+        if (
+            this.settledActors.size >= MeteringService.MONTHLY_CHARGE_MEMO_LIMIT
+        ) {
+            this.settledActors.clear();
+        }
+        this.settledActors.add(claimId);
+    }
+
+    private isSettled(claimId: string, month: string): boolean {
+        return this.settledMonth === month && this.settledActors.has(claimId);
     }
 
     private async maybeConsumeAddonCredits(
@@ -883,30 +1122,40 @@ export class MeteringService extends PuterService {
         // No metered allowance to exceed (e.g. unlimited policies) — nothing to flag.
         if (!(allowance > 0)) return;
 
-        const previousUsage = actorUsages.total - incrementCost;
-        const allowedMultiple = Math.floor(actorUsages.total / allowance);
-        const previousMultiple = Math.floor(previousUsage / allowance);
+        // Purchased credit extends the budget: the actor is only genuinely
+        // "over" once they've burned through the monthly allowance AND every
+        // purchased credit. Measure usage net of the purchased credit so the
+        // allowance multiples below are counted from the point that whole budget
+        // is exhausted rather than from zero — otherwise a user actively
+        // spending down a large credit balance trips the alarm on every
+        // allowance-sized expense the moment the credit runs dry. (Purchased
+        // credit is a lifetime balance, so in the month it finally runs out this
+        // also grants a small grace window before paging.)
+        const purchasedCredits = actorAddons.purchasedCredits || 0;
+        const consumedPurchaseCredits =
+            actorAddons.consumedPurchaseCredits || 0;
+        const netUsage = actorUsages.total - purchasedCredits;
+        const previousNetUsage = netUsage - incrementCost;
 
-        // Only alarm if the actor was ALREADY at or past their allowance before
-        // this expense arrived. A single large request that jumps past the limit
-        // in one shot (previous usage still under the allowance) is legitimate
-        // and shouldn't page.
-        const wasAlreadyOverLimit = previousUsage >= allowance;
+        const currentMultiple = Math.floor(netUsage / allowance);
+        const previousMultiple = Math.floor(previousNetUsage / allowance);
+
+        // Only alarm if the actor was ALREADY past their full budget (allowance
+        // + purchased credit) before this expense arrived. A single large
+        // request that jumps past the limit in one shot (net usage still under
+        // the allowance beforehand) is legitimate and shouldn't page.
+        const wasAlreadyOverLimit = previousNetUsage >= allowance;
         // And only when this expense crosses into a new whole multiple of the
-        // allowance (2x, 3x, …) rather than on every expense once over — that
-        // first-over multiple is 2x, since being already over means the previous
-        // multiple was at least 1.
-        const crossedMultiple = previousMultiple < allowedMultiple;
-        const hasNoAddonCredit =
-            (actorAddons.purchasedCredits || 0) <=
-            (actorAddons.consumedPurchaseCredits || 0);
+        // allowance beyond that budget. Being already over means the previous
+        // multiple was at least 1, so the first multiple that fires is 2x — i.e.
+        // usage has reached (purchased credit + 2 x the monthly allowance).
+        const crossedMultiple = previousMultiple < currentMultiple;
 
-        if (!(wasAlreadyOverLimit && crossedMultiple && hasNoAddonCredit))
-            return;
+        if (!(wasAlreadyOverLimit && crossedMultiple)) return;
 
         this.clients.alarm.create(
-            `metering usage exceeded by user: ${actor.user?.username}`,
-            `Actor ${userId} has exceeded their usage allowance significantly`,
+            `metering usage exceeded by user: ${actorLabel(actor)}`,
+            `${actorLabel(actor)} (${userId}) has exceeded their usage allowance significantly`,
             {
                 userId: actor.user?.uuid,
                 username: actor.user?.username,
@@ -918,9 +1167,12 @@ export class MeteringService extends PuterService {
                 batchUsages: ctx.batchUsages,
                 totalUsage: actorUsages.total,
                 monthUsageAllowance: actorSubscription.monthUsageAllowance,
+                purchasedCredits,
+                consumedPurchaseCredits,
             },
-            // Expected-but-worth-tracking signal — record/de-dupe it but don't page on-call.
-            'warning',
+            // One account outspending its allowance is a thing to look at, not
+            // an incident — a record in the alerts channel is enough.
+            'info',
         );
     }
 
@@ -954,6 +1206,9 @@ export class MeteringService extends PuterService {
                         maxAllowedPerMinute:
                             MeteringService.MAX_GLOBAL_USAGE_PER_MINUTE,
                     },
+                    // Fleet-wide spend running away — worth someone's attention
+                    // the same day, but it isn't an outage.
+                    'warning',
                 );
             }
         }

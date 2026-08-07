@@ -31,21 +31,21 @@ import {
     wantsCompaction,
 } from '../../utils/compaction.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
+import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from './fileUpload.js';
 import { OPEN_AI_MODELS } from './models.js';
 import type { OpenAiResponsesChatProvider } from './OpenAiChatResponsesProvider.js';
 
 /**
- * OpenAICompletionService class provides an interface to OpenAI's chat completion API.
- * Extends BaseService to handle chat completions, message moderation, token counting,
- * and streaming responses. Implements the puter-chat-completion interface and manages
- * OpenAI API interactions with support for multiple models including GPT-4 variants.
- * Handles usage tracking, spending records, and content moderation.
+ * OpenAICompletionService class provides an interface to OpenAI's chat
+ * completion API. Extends BaseService to handle chat completions, message
+ * moderation, token counting, and streaming responses. Implements the
+ * puter-chat-completion interface and manages OpenAI API interactions with
+ * support for multiple models including GPT-4 variants. Handles usage tracking,
+ * spending records, and content moderation.
  */
 export class OpenAiChatProvider implements IChatProvider {
-    /**
-     * @type {import('openai').OpenAI}
-     */
+    /** @type {import('openai').OpenAI} */
     #openAi: OpenAI;
 
     #defaultModel = 'gpt-5-nano';
@@ -79,7 +79,8 @@ export class OpenAiChatProvider implements IChatProvider {
 
     /**
      * Returns an array of available AI models with their pricing information.
-     * Each model object includes an ID and cost details (currency, tokens, input/output rates).
+     * Each model object includes an ID and cost details (currency, tokens,
+     * input/output rates).
      */
     models() {
         return OPEN_AI_MODELS.filter((e) => !e.responses_api_only);
@@ -192,8 +193,10 @@ export class OpenAiChatProvider implements IChatProvider {
             messages: messages,
             model: modelUsed.id,
             ...(tools ? { tools } : {}),
-            ...(max_tokens ? { max_completion_tokens: max_tokens } : {}),
-            ...(temperature ? { temperature } : {}),
+            ...(max_tokens !== undefined
+                ? { max_completion_tokens: max_tokens }
+                : {}),
+            ...(temperature !== undefined ? { temperature } : {}),
             stream: !!stream,
             ...(stream
                 ? {
@@ -226,10 +229,9 @@ export class OpenAiChatProvider implements IChatProvider {
                         usage.prompt_tokens_details?.cached_tokens ?? 0,
                 };
 
-                const costsOverrideFromModel = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([k, v]) => {
-                        return [k, v * modelUsed.costs[k]];
-                    }),
+                const costsOverrideFromModel = buildCostsOverride(
+                    trackedUsage,
+                    modelUsed,
                 );
 
                 this.#meteringService.utilRecordUsageObject(

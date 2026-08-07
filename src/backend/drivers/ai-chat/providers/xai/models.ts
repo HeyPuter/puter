@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -41,48 +41,6 @@ export const XAI_MODELS: IChatModel[] = [
             cached_tokens: 50,
         },
         max_tokens: 30_000,
-    },
-    {
-        puterId: 'x-ai:x-ai/grok-beta',
-        id: 'grok-beta',
-        modalities: { input: ['text'], output: ['text'] },
-        open_weights: false,
-        tool_call: true,
-        knowledge: '2024-08',
-        release_date: '2024-11-01',
-        name: 'Grok Beta',
-        aliases: ['x-ai/grok-beta'],
-        context: 131072,
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 500,
-            completion_tokens: 1500,
-        },
-        max_tokens: 131072,
-    },
-    {
-        puterId: 'x-ai:x-ai/grok-vision-beta',
-        id: 'grok-vision-beta',
-        modalities: { input: ['text', 'image'], output: ['text'] },
-        open_weights: false,
-        tool_call: true,
-        knowledge: '2024-08',
-        release_date: '2024-11-01',
-        name: 'Grok Vision Beta',
-        aliases: ['x-ai/grok-vision-beta'],
-        context: 8192,
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 500,
-            completion_tokens: 1500,
-        },
-        max_tokens: 8192,
     },
     {
         puterId: 'x-ai:x-ai/grok-3',
@@ -173,29 +131,6 @@ export const XAI_MODELS: IChatModel[] = [
             cached_tokens: 15,
         },
         max_tokens: 131072,
-    },
-    {
-        puterId: 'x-ai:x-ai/grok-2-vision',
-        id: 'grok-2-vision',
-        modalities: { input: ['text', 'image'], output: ['text'] },
-        open_weights: false,
-        tool_call: true,
-        knowledge: '2024-08',
-        release_date: '2024-08-20',
-        name: 'Grok 2 Vision',
-        aliases: ['x-ai/grok-2-vision'],
-        context: 8192,
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 200,
-            completion_tokens: 1000,
-            // No cache supported
-            cached_tokens: 0,
-        },
-        max_tokens: 8192,
     },
     {
         puterId: 'x-ai:x-ai/grok-4.3',
@@ -440,28 +375,5 @@ export const XAI_MODELS: IChatModel[] = [
             cached_tokens: 75,
         },
         max_tokens: 256_000,
-    },
-    {
-        puterId: 'x-ai:x-ai/grok-2-vision-1212',
-        id: 'grok-2-vision-1212',
-        modalities: { input: ['text', 'image'], output: ['text'] },
-        open_weights: false,
-        tool_call: true,
-        knowledge: '2024-08',
-        release_date: '2024-08-20',
-        name: 'Grok 2 Vision (1212)',
-        aliases: ['x-ai/grok-2-vision-1212'],
-        context: 32_768,
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 200,
-            completion_tokens: 1000,
-            // No cache supported
-            cached_tokens: 0,
-        },
-        max_tokens: 32_768,
     },
 ];

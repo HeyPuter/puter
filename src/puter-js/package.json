@@ -1,7 +1,7 @@
 {
     "name": "@heyputer/puter.js",
-    "version": "2.5.4",
-    "description": "Puter.js - A JavaScript library for interacting with Puter services.",
+    "version": "2.6.0",
+    "description": "Puter.js gives you auth, cloud storage, database, AI, and more through a single JavaScript library. It is the go-to backend for AI-generated apps.",
     "homepage": "https://docs.puter.com",
     "main": "src/index.js",
     "types": "./index.d.ts",
@@ -51,6 +51,8 @@
     },
     "dependencies": {
         "@heyputer/kv.js": "^0.2.1",
-        "open": "^10.2.0"
+        "open": "^10.2.0",
+        "path-browserify": "1.0.1",
+        "socket.io-client": "4.7.2"
     }
 }

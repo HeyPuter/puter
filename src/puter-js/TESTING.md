@@ -120,8 +120,8 @@ By default, video and trace are saved **only on failure**. `test:e2e:record` ena
 `globalSetup` runs at the start of the test run:
 
 1. Direct `POST /login` from Node with the admin credentials → JWT token.
-2. Probes `window.api_origin` from Puter (server-templated) so we can pass it through.
-3. Opens chromium once and navigates to `puter.localhost:4100/?auth_token=<token>&api_origin=<origin>`. Puter's `initgui` auth_token handler runs the full auth setup: `puter.setAuthToken`, `puter.setAPIOrigin`, `/session/sync-cookie`, `update_auth_data`.
+2. Probes `window.api_origin` from Puter (server-templated) so the SDK's adopted origin can be asserted — the GUI always uses its own API origin and will not take one from the URL.
+3. Opens chromium once and navigates to `puter.localhost:4100/?auth_token=<token>`, then accepts the "Continue as \<username\>?" confirmation the auth_token handler shows before adopting a token from a URL. Puter's `initgui` auth_token handler then runs the full auth setup: `puter.setAuthToken`, `/session/sync-cookie`, `update_auth_data`.
 4. Saves cookies + localStorage to `tests/e2e/.auth/state.json` (gitignored, cached for 24h).
 
 Every test context loads with that `storageState` → already signed in as admin → no per-test `/login`, no `/signup`, no rate limits.

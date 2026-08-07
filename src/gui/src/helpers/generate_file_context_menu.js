@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -338,17 +338,7 @@ const generate_file_context_menu = async function (options) {
 
                 if ( (alert_resp) === 'Delete' ) {
                     await window.delete_item(el_item);
-                    // check if trash is empty
-                    const trash = await puter.fs.stat({ path: window.trash_path, consistency: 'eventual' });
-                    // update other clients
-                    if ( window.socket ) {
-                        window.socket.emit('trash.is_empty', { is_empty: trash.is_empty });
-                    }
-                    // update this client
-                    if ( trash.is_empty ) {
-                        $(`.item[data-path="${window.trash_path}" i], .item[data-shortcut_to_path="${window.trash_path}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
-                        $(`.window[data-path="${window.trash_path}"]`).find('.window-head-icon').attr('src', window.icons['trash.svg']);
-                    }
+                    await window.refresh_trash_state();
                 }
             },
         });

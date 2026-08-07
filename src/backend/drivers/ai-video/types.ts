@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -17,9 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-/**
- * Types for the `puter-video-generation` driver interface.
- */
+/** Types for the `puter-video-generation` driver interface. */
 
 export interface IVideoModel {
     id: string;

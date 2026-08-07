@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -37,9 +37,11 @@ import { DeepSeekProvider } from './providers/deepseek/DeepSeekProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import { GeminiChatProvider } from './providers/gemini/GeminiChatProvider.js';
 import { GroqAIProvider } from './providers/groq/GroqAIProvider.js';
+import { InfronProvider } from './providers/infron/InfronProvider.js';
 import { MiniMaxProvider } from './providers/minimax/MiniMaxProvider.js';
 import { MistralAIProvider } from './providers/mistral/MistralAiProvider.js';
 import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
+import { NeuralwattProvider } from './providers/neuralwatt/NeuralwattProvider.js';
 import { OllamaChatProvider } from './providers/ollama/OllamaProvider.js';
 import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
 import { OpenAiResponsesChatProvider } from './providers/openai/OpenAiChatResponsesProvider.js';
@@ -59,6 +61,10 @@ import {
     normalize_messages,
     normalize_single_message,
 } from './utils/Messages.js';
+import {
+    AGGREGATOR_PROVIDERS,
+    compareModelPreference,
+} from './utils/modelRouting.js';
 import { AIChatStream } from './utils/Streaming.js';
 
 const MAX_FALLBACKS = 4; // includes first attempt
@@ -72,13 +78,13 @@ type ProviderAttempt = {
 };
 
 /**
- * Capture what an upstream provider gave us so the classifier downstream
- * can decide a user-facing status code instead of always returning 500.
+ * Capture what an upstream provider gave us so the classifier downstream can
+ * decide a user-facing status code instead of always returning 500.
  *
- * OpenAI-SDK-based providers throw `APIError` with `.status` and a
- * structured `.error` body — pull both. For arbitrary errors we fall
- * back to the message and a status sniff so providers that throw plain
- * `Error("... 503 ...")` strings still classify correctly.
+ * OpenAI-SDK-based providers throw `APIError` with `.status` and a structured
+ * `.error` body — pull both. For arbitrary errors we fall back to the message
+ * and a status sniff so providers that throw plain `Error("... 503 ...")`
+ * strings still classify correctly.
  */
 const toAttempt = (
     modelId: string,
@@ -126,11 +132,12 @@ const isUpstream5xx = (a: ProviderAttempt) =>
  * Map an exhausted fallback chain to a single user-facing HttpError.
  *
  * Per-class rules (see also alarm gate in server.ts):
- *  - all rate-limited → 429 `upstream_rate_limited` (paged: forced alert)
- *  - all auth failures → 500 `upstream_auth_failed` (paged: our config)
- *  - all upstream 5xx → 400 `upstream_provider_unavailable` (no page)
- *  - all upstream 4xx (other) → 400 `upstream_bad_request` (no page)
- *  - mixed → 400 `upstream_failed` (no page)
+ *
+ * - All rate-limited → 429 `upstream_rate_limited` (paged: forced alert)
+ * - All auth failures → 500 `upstream_auth_failed` (paged: our config)
+ * - All upstream 5xx → 400 `upstream_provider_unavailable` (no page)
+ * - All upstream 4xx (other) → 400 `upstream_bad_request` (no page)
+ * - Mixed → 400 `upstream_failed` (no page)
  */
 const classifyAttempts = (attempts: ProviderAttempt[]): HttpError => {
     const fields = { attempts };
@@ -196,16 +203,15 @@ const classifyAttempts = (attempts: ProviderAttempt[]): HttpError => {
 /**
  * Driver implementing the `puter-chat-completion` interface.
  *
- * Manages multiple upstream providers (Claude, OpenAI, …) and handles
- * model resolution, provider routing, fallback on failure, and message
- * normalisation. Each provider is a plain `IChatProvider` — the driver
- * instantiates them from config on boot.
+ * Manages multiple upstream providers (Claude, OpenAI, …) and handles model
+ * resolution, provider routing, fallback on failure, and message normalisation.
+ * Each provider is a plain `IChatProvider` — the driver instantiates them from
+ * config on boot.
  *
  * Providers handle their own metering internally.
  */
 export class ChatCompletionDriver extends PuterDriver {
     readonly driverInterface = 'puter-chat-completion';
-    readonly noUserSession = true;
     readonly driverName = 'ai-chat';
     readonly isDefault = true;
 
@@ -986,6 +992,30 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
+        const infron = providers['infron'];
+        const infronKey = readKey(infron);
+        if (infronKey) {
+            this.#providers['infron'] = new InfronProvider(
+                {
+                    apiKey: infronKey,
+                    apiBaseUrl: infron?.apiBaseUrl as string | undefined,
+                },
+                metering,
+            );
+        }
+
+        const neuralwatt = providers['neuralwatt'];
+        const neuralwattKey = readKey(neuralwatt);
+        if (neuralwattKey) {
+            this.#providers['neuralwatt'] = new NeuralwattProvider(
+                {
+                    apiKey: neuralwattKey,
+                    apiBaseUrl: neuralwatt?.apiBaseUrl as string | undefined,
+                },
+                metering,
+            );
+        }
+
         // Fake provider — always available for testing
         this.#providers['fake-chat'] = new FakeChatProvider();
     }
@@ -993,11 +1023,9 @@ export class ChatCompletionDriver extends PuterDriver {
     // -- Model map ---------------------------------------------------
 
     async #buildModelMap() {
-        const AGGREGATORS = new Set(['together-ai', 'openrouter']);
-
         for (const providerName in this.#providers) {
             const provider = this.#providers[providerName];
-            const isAggregator = AGGREGATORS.has(providerName);
+            const isAggregator = AGGREGATOR_PROVIDERS.has(providerName);
 
             for (const model of await provider.models()) {
                 model.id = model.id.trim().toLowerCase();
@@ -1027,8 +1055,11 @@ export class ChatCompletionDriver extends PuterDriver {
                             existing !== this.#modelIdMap[model.id]
                         ) {
                             if (existing.some((m) => m.provider === 'gemini')) {
-                                // Gemini exception — let the aggregator
-                                // entry through.
+                                // Gemini is the one vendor whose resold
+                                // duplicates we keep, so a Google outage has
+                                // somewhere to fall back to. Ranking (see
+                                // `compareModelPreference`) keeps the direct
+                                // provider ahead of them.
                                 continue;
                             }
                             skip = true;
@@ -1067,22 +1098,7 @@ export class ChatCompletionDriver extends PuterDriver {
                     }
                 }
 
-                // Sort: together-ai always last; then cheapest input-cost
-                // first; ties break by shorter id (usually the official
-                // name over a long aggregator-qualified one).
-                this.#modelIdMap[model.id].sort((a, b) => {
-                    const aAgg = a.provider === 'together-ai';
-                    const bAgg = b.provider === 'together-ai';
-                    if (aAgg !== bAgg) return aAgg ? 1 : -1;
-                    const aCost = a.costs[
-                        (a.input_cost_key as string) || 'input_tokens'
-                    ] as number;
-                    const bCost = b.costs[
-                        (b.input_cost_key as string) || 'input_tokens'
-                    ] as number;
-                    if (aCost === bCost) return a.id.length - b.id.length;
-                    return aCost - bCost;
-                });
+                this.#modelIdMap[model.id].sort(compareModelPreference);
             }
         }
     }

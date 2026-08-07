@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -17,13 +17,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { v4 as uuidv4 } from 'uuid';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { PuterServer } from '../../server';
 import type { IConfig } from '../../types';
 import {
     POSTGRES_TEST_MIGRATIONS_PATH,
     setupTestServer,
 } from '../../testUtil.js';
+import type { AppIconService } from './AppIconService.js';
 
 const APP_ICONS_SUBDOMAIN = 'puter-app-icons';
 
@@ -46,7 +48,7 @@ describe('AppIconService.ensureIconsDirectory', () => {
                 migrationPaths: [POSTGRES_TEST_MIGRATIONS_PATH],
             },
         } as unknown as IConfig);
-    }, 180_000); // pgmock boot + migrations is slow
+    }, 480_000); // pgmock boot + migrations is slow, and slower still under a loaded suite
 
     afterAll(async () => {
         await server?.shutdown();

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -28,6 +28,7 @@ import {
     handle_completion_output,
     process_input_messages,
 } from '../../utils/OpenAIUtil.js';
+import { buildCostsOverride } from '../../utils/pricing.js';
 import { GEMINI_MODELS } from './models.js';
 
 export class GeminiChatProvider implements IChatProvider {
@@ -83,8 +84,10 @@ export class GeminiChatProvider implements IChatProvider {
             messages: messages,
             model: modelUsed.id,
             ...(tools ? { tools } : {}),
-            ...(max_tokens ? { max_completion_tokens: max_tokens } : {}),
-            ...(temperature ? { temperature } : {}),
+            ...(max_tokens !== undefined
+                ? { max_completion_tokens: max_tokens }
+                : {}),
+            ...(temperature !== undefined ? { temperature } : {}),
             stream,
             ...(stream
                 ? {
@@ -140,10 +143,9 @@ export class GeminiChatProvider implements IChatProvider {
                             : 0,
                 };
 
-                const costsOverrideFromModel = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([k, v]) => {
-                        return [k, v * (modelUsed.costs[k] ?? 0)];
-                    }),
+                const costsOverrideFromModel = buildCostsOverride(
+                    trackedUsage,
+                    modelUsed,
                 );
                 this.meteringService.utilRecordUsageObject(
                     trackedUsage,

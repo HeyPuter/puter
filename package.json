@@ -1,6 +1,6 @@
 {
   "name": "puter.com",
-  "version": "2.5.1",
+  "version": "26.07",
   "author": "Puter Technologies Inc.",
   "license": "AGPL-3.0-only",
   "description": "Desktop environment in the browser!",
@@ -40,6 +40,7 @@
     "license-check-and-add": "^4.0.5",
     "nodemon": "^3.1.0",
     "prettier": "^3.8.3",
+    "prettier-plugin-jsdoc": "^1.8.1",
     "simple-git": "^3.32.3",
     "typescript": "^5.4.5",
     "uglify-js": "^3.17.4",
@@ -50,8 +51,8 @@
     "yaml": "^2.8.1"
   },
   "scripts": {
-    "test:backend": "npm run setupExtensions && vitest run --config src/backend/vitest.config.ts ",
-    "test:backend:postgres": "npm run setupExtensions && PUTER_TEST_DB_ENGINE=postgres vitest run --config src/backend/vitest.config.ts ",
+    "test:backend": "npm run setupExtensions && npm run build:workerLib && vitest run --config src/backend/vitest.config.ts ",
+    "test:backend:postgres": "npm run setupExtensions && npm run build:workerLib && PUTER_TEST_DB_ENGINE=postgres vitest run --config src/backend/vitest.config.ts ",
     "test:puterjs": "npm run setupExtensions && vitest run --config src/puter-js/tests/api/vitest.config.ts",
     "test:puterjs:node": "npm run test:puterjs -- src/puter-js/tests/api/runners/node.test.ts",
     "test:puterjs:browser": "npm run test:puterjs -- src/puter-js/tests/api/runners/browser.test.ts",
@@ -59,8 +60,7 @@
     "test:puterjs:coverage": "npm run build:workerLib:coverage && npm run setupExtensions && rm -rf src/puter-js/coverage && PUTER_COVERAGE=1 vitest run --config src/puter-js/tests/api/vitest.config.ts && node ./tools/puterjsCoverageReport.mjs",
     "build:workerLib:coverage": "cd src/puter-js && npm run build:coverage && cd ../worker && npm run build",
     "start:gui": "nodemon --exec \"node dev-server.js\" ",
-    "start": "node --enable-source-maps -r ./dist/src/backend/telemetry.js ./dist/src/backend/index.js",
-    "prestart": "npm run setupExtensions && npm run build:ts",
+    "start": "node ./tools/start.mjs",
     "dev": "npm start",
     "build": "npm run setupExtensions && npm run build:ts && cd src/gui && node ./build.js && cd ../puter-js && npm run build",
     "build:workerLib": "cd src/puter-js && npm run build && cd ../worker && npm run build",

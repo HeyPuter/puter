@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -23,6 +23,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
+import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { signFile } from '../../util/fileSigning.js';
@@ -927,6 +928,87 @@ describe('LegacyFSController.copy', () => {
         // The entry must still exist — the ghost handler must NOT have run.
         expect(await server.stores.fsEntry.getEntryByPath(src)).not.toBeNull();
     });
+
+    it('surfaces a name collision, then reports and removes the replaced entry on overwrite', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const src = `/${username}/Documents/dup.txt`;
+        const existing = `/${username}/Pictures/dup.txt`;
+        for ( const p of [src, existing] ) {
+            await withActor(actor, () =>
+                controller.touch(
+                    makeReq({ body: { path: p }, actor }),
+                    makeRes().res,
+                ),
+            );
+        }
+
+        // Without overwrite: the v1 conflict contract the GUI's
+        // replace/skip prompts key on.
+        await expect(
+            withActor(actor, () =>
+                controller.copy(
+                    makeReq({
+                        body: {
+                            source: src,
+                            destination: `/${username}/Pictures`,
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 409,
+            legacyCode: 'item_with_same_name_exists',
+            fields: { entry_name: 'dup.txt' },
+        });
+
+        const replaced = (await server.stores.fsEntry.getEntryByPath(
+            existing,
+        ))!;
+
+        // With overwrite: the replaced entry rides along in the response
+        // (so the caller can drop its row) and item.removed tells every
+        // other client to do the same — without it they keep a ghost row
+        // until the directory is re-listed.
+        const emitSpy = vi.spyOn(server.clients.event, 'emit');
+        let body: Array<{
+            copied: { path: string };
+            overwritten?: { id: string };
+        }>;
+        let removedCall: (typeof emitSpy.mock.calls)[number] | undefined;
+        try {
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.copy(
+                    makeReq({
+                        body: {
+                            source: src,
+                            destination: `/${username}/Pictures`,
+                            overwrite: true,
+                        },
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+            body = captured.body as typeof body;
+            removedCall = emitSpy.mock.calls.find(
+                ([eventName]) => eventName === 'outer.gui.item.removed',
+            );
+        } finally {
+            emitSpy.mockRestore();
+        }
+
+        expect(body[0].copied.path).toBe(existing);
+        expect(body[0].overwritten?.id).toBe(replaced.uuid);
+        expect(removedCall).toBeTruthy();
+        const removedPayload = removedCall?.[1] as {
+            response?: { uid?: string };
+        };
+        expect(removedPayload.response?.uid).toBe(replaced.uuid);
+    });
 });
 
 // ── move ────────────────────────────────────────────────────────────
@@ -1002,6 +1084,89 @@ describe('LegacyFSController.move', () => {
 
         const body = captured.body as { moved: { path: string } };
         expect(body.moved.path).toBe(`/${username}/Pictures/bar`);
+    });
+
+    it('surfaces a name collision, then reports and removes the replaced entry on overwrite', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const src = `/${username}/Documents/clash.txt`;
+        const existing = `/${username}/Pictures/clash.txt`;
+        for ( const p of [src, existing] ) {
+            await withActor(actor, () =>
+                controller.touch(
+                    makeReq({ body: { path: p }, actor }),
+                    makeRes().res,
+                ),
+            );
+        }
+
+        // Without overwrite: the v1 conflict contract the GUI's
+        // replace/skip prompts key on.
+        await expect(
+            withActor(actor, () =>
+                controller.move(
+                    makeReq({
+                        body: {
+                            source: src,
+                            destination: `/${username}/Pictures`,
+                        },
+                        actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 409,
+            legacyCode: 'item_with_same_name_exists',
+            fields: { entry_name: 'clash.txt' },
+        });
+
+        const replaced = (await server.stores.fsEntry.getEntryByPath(
+            existing,
+        ))!;
+
+        // With overwrite: the replaced entry rides along in the response
+        // (so the caller can drop its row) and item.removed tells every
+        // other client to do the same — without it they keep a ghost row
+        // until the directory is re-listed.
+        const emitSpy = vi.spyOn(server.clients.event, 'emit');
+        let body: {
+            moved: { path: string };
+            old_path: string;
+            overwritten?: { id: string };
+        };
+        let removedCall: (typeof emitSpy.mock.calls)[number] | undefined;
+        try {
+            const { res, captured } = makeRes();
+            await withActor(actor, () =>
+                controller.move(
+                    makeReq({
+                        body: {
+                            source: src,
+                            destination: `/${username}/Pictures`,
+                            overwrite: true,
+                        },
+                        actor,
+                    }),
+                    res,
+                ),
+            );
+            body = captured.body as typeof body;
+            removedCall = emitSpy.mock.calls.find(
+                ([eventName]) => eventName === 'outer.gui.item.removed',
+            );
+        } finally {
+            emitSpy.mockRestore();
+        }
+
+        expect(body.old_path).toBe(src);
+        expect(body.moved.path).toBe(existing);
+        expect(body.overwritten?.id).toBe(replaced.uuid);
+        expect(removedCall).toBeTruthy();
+        const removedPayload = removedCall?.[1] as {
+            response?: { uid?: string };
+        };
+        expect(removedPayload.response?.uid).toBe(replaced.uuid);
     });
 });
 
@@ -2741,5 +2906,234 @@ describe('LegacyFSController.updateFsentryThumbnail', () => {
         );
         const body = captured.body as { thumbnail: string };
         expect(typeof body.thumbnail).toBe('string');
+    });
+
+    // The write ACL here covers the entry being annotated, not whatever the
+    // thumbnail string points at. A storage pointer stored verbatim is later
+    // presigned (and deleted) by the thumbnails extension using the server's
+    // own credentials, so the owner of one file could name another user's
+    // object — an fs object's key is its fsentry uuid — and have the server
+    // read or destroy it. Only inline image data is accepted.
+    it.each([
+        ['an s3:// pointer', 's3://puter-local/00000000-0000-4000-8000-000000000000'],
+        ['an https URL', 'https://cdn.example.com/x.png'],
+        ['a bare object key', 'thumbnails/whatever'],
+    ])('rejects %s instead of storing it verbatim', async (_label, thumbnail) => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const target = `/${username}/Documents/thumbme3-${uuidv4()}.txt`;
+        await withActor(actor, () =>
+            controller.touch(
+                makeReq({
+                    body: { path: target, set_modified_to_now: true },
+                    actor,
+                }),
+                makeRes().res,
+            ),
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(target);
+
+        const { res } = makeRes();
+        await expect(
+            withActor(actor, () =>
+                controller.updateFsentryThumbnail(
+                    makeReq({
+                        body: { uid: entry!.uuid, thumbnail },
+                        actor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        const after = await server.stores.fsEntry.getEntryByUuid(entry!.uuid);
+        expect(after?.thumbnail ?? null).toBeNull();
+    });
+});
+
+// ── GET /get-launch-apps ────────────────────────────────────────────
+//
+// `recent` is a launch-metadata producer: it returns `index_url` for
+// apps the user has opened before. The taskbar happens to launch these
+// by name (so AppDriver's hosted-backing guard applies), but the field
+// is served regardless, so the guard is applied here too.
+
+describe('LegacyFSController GET /get-launch-apps', () => {
+    const hostedUrl = (sub: string) => `https://${sub}.site.puter.localhost/`;
+
+    // The route is an inline lambda in `registerRoutes`, so pull it off a
+    // freshly-registered router rather than calling a named method.
+    const getLaunchAppsHandler = () => {
+        const router = new PuterRouter();
+        (
+            controller as unknown as {
+                registerRoutes: (r: PuterRouter) => void;
+            }
+        ).registerRoutes(router);
+        const route = router.routes.find(
+            (r) => r.method === 'get' && r.path === '/get-launch-apps',
+        );
+        if (!route) throw new Error('No GET /get-launch-apps route');
+        return route.handler;
+    };
+
+    const recordOpen = async (userId: number, appUid: string) => {
+        await server.clients.db.write(
+            'INSERT INTO `app_opens` (`app_uid`, `user_id`, `ts`) VALUES (?, ?, ?)',
+            [appUid, userId, Math.floor(Date.now() / 1000)],
+        );
+    };
+
+    const fetchRecent = async (
+        actor: Actor,
+    ): Promise<Array<Record<string, unknown>>> => {
+        const { res, captured } = makeRes();
+        await withActor(actor, async () => {
+            await getLaunchAppsHandler()(makeReq({ actor }), res, () => {
+                throw new Error('handler called next() unexpectedly');
+            });
+        });
+        return (captured.body as { recent: Array<Record<string, unknown>> })
+            .recent;
+    };
+
+    const makeHostedApp = async (userId: number, sub: string) => {
+        const name = `launch-${Math.random().toString(36).slice(2, 10)}`;
+        const app = await server.stores.app.create(
+            { name, title: 'Launchable', index_url: hostedUrl(sub) },
+            { ownerUserId: userId },
+        );
+        return app as { uid: string };
+    };
+
+    it('returns index_url while the hosted subdomain is owned', async () => {
+        const { actor, userId } = await makeUser();
+        const sub = `live-${Math.random().toString(36).slice(2, 10)}`;
+        await server.stores.subdomain.create({ userId, subdomain: sub });
+        const app = await makeHostedApp(userId, sub);
+        await recordOpen(userId, app.uid);
+
+        const entry = (await fetchRecent(actor)).find(
+            (a) => a.uuid === app.uid,
+        );
+        expect(entry).toBeDefined();
+        expect(String(entry?.index_url)).toContain(sub);
+        expect(entry?.privateAccess).toBeUndefined();
+    });
+
+    it('nulls index_url and denies launch once the subdomain is deleted', async () => {
+        const { actor, userId } = await makeUser();
+        const sub = `gone-${Math.random().toString(36).slice(2, 10)}`;
+        const row = await server.stores.subdomain.create({
+            userId,
+            subdomain: sub,
+        });
+        const app = await makeHostedApp(userId, sub);
+        await recordOpen(userId, app.uid);
+
+        await server.stores.subdomain.deleteByUuid(
+            String((row as { uuid: string }).uuid),
+            { userId },
+        );
+
+        const entry = (await fetchRecent(actor)).find(
+            (a) => a.uuid === app.uid,
+        );
+        expect(entry).toBeDefined();
+        expect(entry?.index_url).toBeNull();
+        expect(entry?.privateAccess).toMatchObject({
+            hasAccess: false,
+            reason: 'hosted_backing_unavailable',
+        });
+    });
+
+    it('nulls index_url once the subdomain is reclaimed by another user', async () => {
+        const owner = await makeUser();
+        const attacker = await makeUser();
+        const sub = `reclaim-${Math.random().toString(36).slice(2, 10)}`;
+        const row = await server.stores.subdomain.create({
+            userId: owner.userId,
+            subdomain: sub,
+        });
+        const app = await makeHostedApp(owner.userId, sub);
+        await recordOpen(owner.userId, app.uid);
+
+        await server.stores.subdomain.deleteByUuid(
+            String((row as { uuid: string }).uuid),
+            { userId: owner.userId },
+        );
+        await server.stores.subdomain.create({
+            userId: attacker.userId,
+            subdomain: sub,
+        });
+
+        const entry = (await fetchRecent(owner.actor)).find(
+            (a) => a.uuid === app.uid,
+        );
+        expect(entry?.index_url).toBeNull();
+        expect(entry?.privateAccess).toMatchObject({
+            hasAccess: false,
+            reason: 'hosted_backing_unavailable',
+        });
+    });
+
+    it('fails closed when the subdomain lookup errors', async () => {
+        const { actor, userId } = await makeUser();
+        const sub = `flaky-${Math.random().toString(36).slice(2, 10)}`;
+        await server.stores.subdomain.create({ userId, subdomain: sub });
+        const app = await makeHostedApp(userId, sub);
+        await recordOpen(userId, app.uid);
+
+        const spy = vi
+            .spyOn(server.stores.subdomain, 'getBySubdomain')
+            .mockRejectedValue(new Error('db down'));
+        try {
+            const entry = (await fetchRecent(actor)).find(
+                (a) => a.uuid === app.uid,
+            );
+            expect(entry?.index_url).toBeNull();
+        } finally {
+            spy.mockRestore();
+        }
+    });
+
+    it('leaves non-hosted index_urls untouched', async () => {
+        const { actor, userId } = await makeUser();
+        const name = `ext-${Math.random().toString(36).slice(2, 10)}`;
+        const app = (await server.stores.app.create(
+            {
+                name,
+                title: 'External',
+                index_url: 'https://dev-owned-domain.example/',
+            },
+            { ownerUserId: userId },
+        )) as { uid: string };
+        await recordOpen(userId, app.uid);
+
+        const entry = (await fetchRecent(actor)).find(
+            (a) => a.uuid === app.uid,
+        );
+        expect(entry?.index_url).toBe('https://dev-owned-domain.example/');
+        expect(entry?.privateAccess).toBeUndefined();
+    });
+
+    // The rows are fetched in one batched lookup, which returns a map — the
+    // handler has to re-impose the recency order the uid list carries.
+    it('preserves the most-recent-first order of the underlying uid list', async () => {
+        const { actor, userId } = await makeUser();
+        const first = await makeHostedApp(userId, 'unregistered-a');
+        const second = await makeHostedApp(userId, 'unregistered-b');
+        const third = await makeHostedApp(userId, 'unregistered-c');
+
+        await recordOpen(userId, first.uid);
+        await recordOpen(userId, second.uid);
+        await recordOpen(userId, third.uid);
+
+        const recentUids = await server.stores.app.getRecentAppOpens(userId, {
+            limit: 10,
+        });
+        const returned = (await fetchRecent(actor)).map((a) => a.uuid);
+
+        expect(returned).toEqual(recentUids);
     });
 });

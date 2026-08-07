@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -30,11 +30,20 @@ export type ReplicateImageModel = IImageModel & {
     costs_go_fast?: Record<string, number>;
     /** Cost maps keyed by Leonardo `generation_mode`; falls back to `costs`. */
     costs_by_generation_mode?: Record<string, Record<string, number>>;
-    /** Whitelist of caller-supplied params (canonical names) that are forwarded to Replicate. */
+    /**
+     * Whitelist of caller-supplied params (canonical names) that are forwarded
+     * to Replicate.
+     */
     allowed_params?: string[];
-    /** Renames canonical param keys to the model's native API names (e.g. `steps` → `num_inference_steps`). */
+    /**
+     * Renames canonical param keys to the model's native API names (e.g.
+     * `steps` → `num_inference_steps`).
+     */
     param_aliases?: Record<string, string>;
-    /** Per-key value transforms (default + suffix) applied after `param_aliases`. */
+    /**
+     * Per-key value transforms (default + suffix) applied after
+     * `param_aliases`.
+     */
     param_transforms?: Record<string, { suffix?: string; default?: unknown }>;
 };
 

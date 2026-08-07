@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -276,6 +276,113 @@ describe('HomepageController GET /app/:name', () => {
         const html = String(captured.body);
         expect(html).toMatch(/<!DOCTYPE html>/i);
         expect(html).toContain('Cool App');
+    });
+
+    it('does not leak a private app index_url or owner id to an anonymous visitor', async () => {
+        const { userId } = await makeUser();
+        const name = `priv-${Math.random().toString(36).slice(2, 10)}`;
+        const secretUrl = `https://secret-${name}.example.com/`;
+        // `is_private` is a READ_ONLY_COLUMN, so it can't be set through the
+        // store's create/update allow-list — insert the private row directly.
+        await server.clients.db.write(
+            `INSERT INTO \`apps\` (\`uid\`, \`name\`, \`title\`, \`description\`, \`index_url\`, \`owner_user_id\`, \`is_private\`)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [
+                `app-${uuidv4()}`,
+                name,
+                'Private App',
+                'a private app row',
+                secretUrl,
+                userId,
+                1,
+            ],
+        );
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app/:name',
+            makeReq({ params: { name }, path: `/app/${name}` }),
+            res,
+        );
+
+        expect(captured.statusCode).toBe(200);
+        const html = String(captured.body);
+        // Public meta (title) is fine to render...
+        expect(html).toContain('Private App');
+        // ...but the private hosting URL and owner id must be redacted.
+        expect(html).not.toContain(secretUrl);
+        expect(html).not.toContain('owner_user_id');
+    });
+
+    it('serves the same app shell under /desktop/app/:name', async () => {
+        const { userId } = await makeUser();
+        const name = `desk-${Math.random().toString(36).slice(2, 10)}`;
+        await server.stores.app.create(
+            {
+                name,
+                title: 'Desktop App',
+                description: 'opens on the desktop instead of the dashboard',
+                index_url: `https://example.com/${name}/`,
+                approved_for_listing: 1,
+            },
+            { ownerUserId: userId },
+        );
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/desktop/app/:name',
+            makeReq({ params: { name }, path: `/desktop/app/${name}` }),
+            res,
+        );
+
+        expect(captured.statusCode).toBe(200);
+        const html = String(captured.body);
+        expect(html).toMatch(/<!DOCTYPE html>/i);
+        expect(html).toContain('Desktop App');
+    });
+
+    it('returns 404 under /desktop/app/:name when the app is unknown', async () => {
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/desktop/app/:name',
+            makeReq({
+                params: { name: 'no-such-app' },
+                path: '/desktop/app/no-such-app',
+            }),
+            res,
+        );
+        expect(captured.statusCode).toBe(404);
+        expect(String(captured.body)).toMatch(/<!DOCTYPE html>/i);
+    });
+
+    it('omits index_url even for a public app — the shell is not the launch authority', async () => {
+        const { userId } = await makeUser();
+        const name = `pub-${Math.random().toString(36).slice(2, 10)}`;
+        const indexUrl = `https://public-${name}.example.com/`;
+        await server.stores.app.create(
+            { name, title: 'Public App', index_url: indexUrl },
+            { ownerUserId: userId },
+        );
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app/:name',
+            makeReq({ params: { name }, path: `/app/${name}` }),
+            res,
+        );
+
+        expect(captured.statusCode).toBe(200);
+        const html = String(captured.body);
+        expect(html).toContain('Public App');
+        // The GUI re-reads the app through the driver before launching, which
+        // is where the entitlement gate and hosted-backing guard run. Baking
+        // a launch URL into server-rendered HTML buys nothing and costs the
+        // lookups those guards require.
+        expect(html).not.toContain(indexUrl);
     });
 });
 

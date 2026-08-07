@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -24,9 +24,9 @@ import type { Cluster } from 'ioredis';
 /**
  * Redis-backed WebDAV lock store.
  *
- * Two key families:
- *   `dav:lock:<token>` → JSON `{ path, lockScope, lockType }` (per-token metadata)
- *   `dav:locks:<path>` → JSON `{ <token>: { lockScope, lockType }, ... }` (per-path map)
+ * Two key families: `dav:lock:<token>` → JSON `{ path, lockScope, lockType }`
+ * (per-token metadata) `dav:locks:<path>` → JSON `{ <token>: { lockScope,
+ * lockType }, ... }` (per-path map)
  *
  * Both keys share the same TTL so they expire together.
  */
@@ -124,8 +124,8 @@ export async function refreshLock(
 }
 
 /**
- * Get all active locks on a path, including inherited locks from
- * ancestor directories.
+ * Get all active locks on a path, including inherited locks from ancestor
+ * directories.
  */
 export async function getFileLocks(
     redis: Cluster,
@@ -151,9 +151,7 @@ export async function getFileLocks(
     return results;
 }
 
-/**
- * Verify a lock token is still valid and return its metadata.
- */
+/** Verify a lock token is still valid and return its metadata. */
 export async function getLockIfValid(
     redis: Cluster,
     lockToken: string,
@@ -169,8 +167,8 @@ export async function getLockIfValid(
 }
 
 /**
- * Check whether the caller has write permission under WebDAV locking
- * rules. Returns true if the write is allowed.
+ * Check whether the caller has write permission under WebDAV locking rules.
+ * Returns true if the write is allowed.
  */
 export async function hasWritePermission(
     redis: Cluster,
@@ -217,8 +215,8 @@ async function getPathLockMap(
 }
 
 /**
- * Extract a lock token from the `If` or `Lock-Token` header.
- * Formats: `(<urn:uuid:...>)` or `<urn:uuid:...>` or just `urn:uuid:...`
+ * Extract a lock token from the `If` or `Lock-Token` header. Formats:
+ * `(<urn:uuid:...>)` or `<urn:uuid:...>` or just `urn:uuid:...`
  */
 export function extractLockToken(header: string | undefined): string | null {
     if (!header) return null;

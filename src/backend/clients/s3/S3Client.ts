@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -184,8 +184,8 @@ export class S3Client extends PuterClient {
     // ------------------------------------------------------------------
 
     /**
-     * Get (or create) an S3Client for the given region.
-     * Clients are cached per-region for connection reuse.
+     * Get (or create) an S3Client for the given region. Clients are cached
+     * per-region for connection reuse.
      */
     get(
         region = this.config.s3_region || this.config.region || 'us-west-2',
@@ -213,10 +213,10 @@ export class S3Client extends PuterClient {
 
     /**
      * Client used to generate browser-facing presigned URLs. When
-     * `s3Config.publicEndpoint` is set, this returns a client bound to
-     * that endpoint — its signatures resolve against the public host
-     * the browser will actually hit. When unset, falls back to the
-     * regular client (prod behavior: one public endpoint everywhere).
+     * `s3Config.publicEndpoint` is set, this returns a client bound to that
+     * endpoint — its signatures resolve against the public host the browser
+     * will actually hit. When unset, falls back to the regular client (prod
+     * behavior: one public endpoint everywhere).
      */
     getForPresign(
         region = this.config.s3_region || this.config.region || 'us-west-2',

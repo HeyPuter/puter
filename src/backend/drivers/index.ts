@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -22,7 +22,6 @@ import { ImageGenerationDriver } from './ai-image/ImageGenerationDriver';
 import { OCRDriver } from './ai-ocr/OCRDriver';
 import { VoiceChangerDriver } from './ai-speech2speech/VoiceChangerDriver';
 import { SpeechToTextDriver } from './ai-speech2txt/SpeechToTextDriver';
-import { XAISpeechToTextDriver } from './ai-speech2txt/XAISpeechToTextDriver';
 import { TTSDriver } from './ai-tts/TTSDriver';
 import { VideoGenerationDriver } from './ai-video/VideoGenerationDriver';
 import { AppDriver } from './apps/AppDriver.js';
@@ -43,7 +42,6 @@ export const puterDrivers = {
     aiVideo: VideoGenerationDriver,
     aiSpeech2Speech: VoiceChangerDriver,
     aiSpeech2Txt: SpeechToTextDriver,
-    aiSpeech2TxtXai: XAISpeechToTextDriver,
     aiOcr: OCRDriver,
     apps: AppDriver,
     subdomains: SubdomainDriver,

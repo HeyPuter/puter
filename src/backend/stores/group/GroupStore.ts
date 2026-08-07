@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -43,8 +43,8 @@ const PUBLIC_GROUPS_CACHE_TTL_SECONDS = 10 * 60;
  * Persistence layer for persistent user groups.
  *
  * Owns CRUD over the `group` table and the `jct_user_group` junction table,
- * plus a per-process redis cache for the (small, frequently-read) set of
- * public groups (the hardcoded default user + temp groups from config).
+ * plus a per-process redis cache for the (small, frequently-read) set of public
+ * groups (the hardcoded default user + temp groups from config).
  *
  * Returns plain rows. Callers that need the members of a group can call
  * `listMemberUsernames(uid)` explicitly.
@@ -88,8 +88,8 @@ export class GroupStore extends PuterStore {
     }
 
     /**
-     * Lists the two default public groups (user + temp). Redis-cached for
-     * 60s per-process. Falls back to DB on cache miss or decode failure.
+     * Lists the two default public groups (user + temp). Redis-cached for 60s
+     * per-process. Falls back to DB on cache miss or decode failure.
      */
     async listPublicGroups(): Promise<GroupRow[]> {
         const userGroupUid = this.config.default_user_group;
@@ -143,9 +143,9 @@ export class GroupStore extends PuterStore {
     }
 
     /**
-     * UUIDs of a group's members — used to bump each member's permission
-     * cache generation when a group grant changes, so the grant/revoke
-     * takes effect for members without waiting for the cache TTL.
+     * UUIDs of a group's members — used to bump each member's permission cache
+     * generation when a group grant changes, so the grant/revoke takes effect
+     * for members without waiting for the cache TTL.
      */
     async listMemberUserUuids(uid: string): Promise<string[]> {
         const rows = await this.clients.db.read(
@@ -200,7 +200,10 @@ export class GroupStore extends PuterStore {
         return uid;
     }
 
-    /** Adds users (by username) to the group identified by `uid`. No-op if `usernames` is empty. */
+    /**
+     * Adds users (by username) to the group identified by `uid`. No-op if
+     * `usernames` is empty.
+     */
     async addUsers(uid: string, usernames: string[]): Promise<void> {
         if (usernames.length === 0) return;
         const placeholders = `(${usernames.map(() => '?').join(', ')})`;
@@ -213,7 +216,10 @@ export class GroupStore extends PuterStore {
         );
     }
 
-    /** Removes users (by username) from the group identified by `uid`. No-op if `usernames` is empty. */
+    /**
+     * Removes users (by username) from the group identified by `uid`. No-op if
+     * `usernames` is empty.
+     */
     async removeUsers(uid: string, usernames: string[]): Promise<void> {
         if (usernames.length === 0) return;
         const placeholders = `(${usernames.map(() => '?').join(', ')})`;

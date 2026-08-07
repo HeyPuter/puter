@@ -25,17 +25,26 @@ function parseHTTPHead (head) {
         const value = splitHeaders.slice(1).join(': ');
         headersArray.push([key, value]);
     }
-    new Headers(headersArray);
     return { headers: new Headers(headersArray), statusText, status };
 }
 
 // Trivial stream based HTTP 1.1 client
 // TODO optional redirect handling
 
+/**
+ * `puter.net.fetch`: fetches an http/https resource over a raw socket rather
+ * than the browser's HTTP stack, so it is not subject to CORS. Takes the same
+ * arguments as `fetch` and resolves to a `Response`.
+ *
+ * @type {(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>}
+ */
 export function pFetch (...args) {
     return new Promise(async (res, rej) => {
+        // Declared out here so the catch below can still describe the request
+        // when `new Request(...)` is what threw.
+        let reqObj;
         try {
-            const reqObj = new Request(...args);
+            reqObj = new Request(...args);
             const parsedURL = new URL(reqObj.url);
             let headers = new Headers(reqObj.headers); // Make a headers object we can modify
 
@@ -64,9 +73,12 @@ export function pFetch (...args) {
                 return;
             }
 
-            // Sending default UA
+            // Sending default UA. `navigator` is absent in workerd, where
+            // reading it unguarded would fail every request outright; send
+            // no User-Agent at all rather than inventing one.
             if ( ! headers.get('user-agent') ) {
-                headers.set('user-agent', navigator.userAgent);
+                const runtimeUserAgent = globalThis.navigator?.userAgent;
+                if ( runtimeUserAgent ) headers.set('user-agent', runtimeUserAgent);
             }
 
             let reqHead = `${reqObj.method} ${parsedURL.pathname}${parsedURL.search} HTTP/1.1\r\nHost: ${parsedURL.host}\r\nConnection: close\r\n`;
@@ -261,8 +273,8 @@ export function pFetch (...args) {
                 globalThis.puter.apiCallLogger.logRequest({
                     service: 'network',
                     operation: 'pFetch',
-                    params: { url: reqObj.url, method: reqObj.method },
-                    error: { message: e.message || e.toString(), stack: e.stack },
+                    params: { url: reqObj?.url, method: reqObj?.method },
+                    error: { message: e?.message || String(e), stack: e?.stack },
                 });
             }
             rej(e);

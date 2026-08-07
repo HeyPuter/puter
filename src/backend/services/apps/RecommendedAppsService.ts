@@ -1,28 +1,29 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { getAppIconUrl } from '../../util/appIcon.js';
 import { PuterService } from '../types.js';
 
 /**
- * Hardcoded list of recommended apps shown on the desktop launch grid.
- * Resolved at call time against the apps table.
+ * Hardcoded list of recommended apps shown on the desktop launch grid. Resolved
+ * at call time against the apps table.
  */
 const RECOMMENDED_APP_NAMES = [
     'builder',
@@ -31,27 +32,26 @@ const RECOMMENDED_APP_NAMES = [
     'recorder',
     'app-center',
     'dev-center',
-    'butler',
     'calculator',
-    'calendar',
-    'code',
-    'music-player',
     'contacts',
-    'browser',
-    'memos',
-    'audio-editor',
-    'ai-image-project',
+    'calendar',
+    'music-player',
     'word-processor',
     'spreadsheet',
     'presentation',
     'pdf-editor',
+    'diagram',
+    'memos',
+    'audio-editor',
     'vault',
-    'basketball-tap',
+    'browser',
+    'ai-image-project',
+    'chess',
     'blockup',
     'pretty-tiles',
     'galaxy-troops',
     'blend-fruits',
-    'traffic-tap-puzzle',
+    'basketball-tap',
 ];
 
 export class RecommendedAppsService extends PuterService {

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -22,6 +22,8 @@ import UIWindow from './UIWindow.js';
 import UIWindowRecoverPassword from './UIWindowRecoverPassword.js';
 import UIWindowSignup from './UIWindowSignup.js';
 import { KNOWN_OIDC_PROVIDERS, OIDC_GENERIC_PROVIDER_ICON, humanizeOidcProviderId } from '../util/openid.js';
+import { offersFederatedSignInInPopup } from '../util/popupAuth.js';
+import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/auth_redirect.js';
 
 // ── 2FA Login CSS (injected once) ───────────────────────────────────────────
 const LOGIN_2FA_CSS = `
@@ -259,14 +261,9 @@ async function UIWindowLogin (options) {
 
     if ( options.redirect_url === undefined )
     {
-        if ( window.location?.href?.toLowerCase().endsWith('/action/login') )
-        {
-            options.redirect_url = '/';
-        }
-        else
-        {
-            options.redirect_url = window.location.href;
-        }
+        // stay on the page the login started from (e.g. an /app/<name>
+        // landing), with standalone auth pages going to the root dashboard
+        options.redirect_url = get_auth_redirect_url();
     }
 
     return new Promise(async (resolve) => {
@@ -400,6 +397,14 @@ async function UIWindowLogin (options) {
 
         (async () => {
             try {
+                // A federated hop navigates this popup away and the provider
+                // returns it as a plain sign-in popup, losing whatever the popup
+                // was opened to do — and, for a permission prompt, handing the
+                // opener a token instead of a decision. Don't offer it there.
+                if ( window.embedded_in_popup
+                    && ! offersFederatedSignInInPopup(window.gui_action) ) {
+                    return;
+                }
                 const res = await fetch(`${window.api_origin}/auth/oidc/providers`);
                 if ( ! res.ok ) return;
                 const data = await res.json();
@@ -411,8 +416,8 @@ async function UIWindowLogin (options) {
                         let url = `${window.gui_origin}/auth/oidc/${provider}/start?flow=login`;
 
                         // return to the interface the login started from (backend whitelists the path)
-                        const return_to = window.location.pathname;
-                        if ( return_to === '/desktop' || return_to === '/dashboard' ) {
+                        const return_to = get_oidc_return_to();
+                        if ( return_to ) {
                             url += `&return_to=${encodeURIComponent(return_to)}`;
                         }
 

@@ -45,18 +45,22 @@ export class FSItem {
     created?: number;
     /** Whether the item is a directory. `true` for a directory, `false` for a file. */
     isDir: boolean;
+    /** Alias of `isDir`, kept for backward compatibility. */
+    isDirectory: boolean;
     _internalProperties?: InternalFSProperties;
 
     /** Writes data to the file, overwriting its existing contents. Resolves to the written `FSItem`. */
     write (data: Blob | File | ArrayBuffer | ArrayBufferView | string): Promise<FSItem>;
     /** Renames the item. Resolves to the renamed `FSItem`. */
     rename (newName: string): Promise<FSItem>;
+    /** Moves the item to `destination`, which is either the directory to move it into or the item's new path. Resolves to the moved `FSItem`. */
     move (destination: string, overwrite?: boolean, newName?: string): Promise<FSItem>;
+    /** Copies the item into `destinationDirectory`. With `autoRename`, a free name is picked instead of conflicting. Resolves to the copied `FSItem`. */
     copy (destinationDirectory: string, autoRename?: boolean, overwrite?: boolean): Promise<FSItem>;
     /** Deletes the item. Resolves once the item has been deleted. */
     delete (): Promise<void>;
     /** Creates a new subdirectory inside the item. The item must be a directory, otherwise an error is thrown. Resolves to the created `FSItem`. */
-    mkdir (name: string): Promise<FSItem>;
+    mkdir (name: string, autoRename?: boolean): Promise<FSItem>;
     /** Lists the contents of the item. The item must be a directory, otherwise an error is thrown. Resolves to an array of `FSItem` objects. */
     readdir (): Promise<FSItem[]>;
     /** Reads the contents of the file. Resolves to a `Blob` containing the file's contents. */
@@ -67,6 +71,6 @@ export class FSItem {
     open (callback: (item: FSItem) => void): void;
     setAsWallpaper (options?: Record<string, unknown>, callback?: () => void): void;
     versions (): Promise<unknown>;
-    trash (): Promise<unknown>;
+    trash (): void;
     metadata (): Promise<unknown>;
 }

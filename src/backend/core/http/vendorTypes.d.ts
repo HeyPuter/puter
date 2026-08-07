@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -18,9 +18,9 @@
  */
 
 /**
- * Ambient type declarations for third-party packages that don't ship
- * their own `.d.ts`. Keeps `tsc --noEmit` clean without pulling in
- * `@types/*` packages for each one.
+ * Ambient type declarations for third-party packages that don't ship their own
+ * `.d.ts`. Keeps `tsc --noEmit` clean without pulling in `@types/*` packages
+ * for each one.
  */
 declare module 'cookie-parser' {
     import type { RequestHandler } from 'express';

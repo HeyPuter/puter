@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -78,24 +78,24 @@ export interface DriverRateLimitSpec {
     /** Window length, in milliseconds. */
     window: number;
     /**
-     * Per-subscription overrides for `limit`. Keyed by
-     * `SubscriptionPolicy.id` (`user_free`, `temp_free`, `unlimited`,
-     * etc.). Falls back to `limit` when the actor's subscription isn't
-     * in the map. Same mechanic as `DriverConcurrentSpec.bySubscription`.
+     * Per-subscription overrides for `limit`. Keyed by `SubscriptionPolicy.id`
+     * (`user_free`, `temp_free`, `unlimited`, etc.). Falls back to `limit` when
+     * the actor's subscription isn't in the map. Same mechanic as
+     * `DriverConcurrentSpec.bySubscription`.
      */
     bySubscription?: Record<string, number>;
     /**
-     * Storage backend to count against. Omit to use the server-wide
-     * default configured by `config.rate_limit.backend`.
+     * Storage backend to count against. Omit to use the server-wide default
+     * configured by `config.rate_limit.backend`.
      */
     backend?: RateLimitBackend;
 }
 
 export interface DriverRateLimitConfig {
     /**
-     * Applied to any method not listed in `methods`. Lets a driver opt
-     * the whole interface into tighter limits than the global driver
-     * default without enumerating every method.
+     * Applied to any method not listed in `methods`. Lets a driver opt the
+     * whole interface into tighter limits than the global driver default
+     * without enumerating every method.
      */
     default?: DriverRateLimitSpec;
     /** Per-method overrides. Keys are driver method names. */
@@ -103,10 +103,9 @@ export interface DriverRateLimitConfig {
 }
 
 /**
- * Validate a `rateLimit` block declared by a driver. Throws on bad
- * shape so registration fails loudly at boot rather than silently
- * misconfiguring production traffic. Returns the value unchanged on
- * success for chaining.
+ * Validate a `rateLimit` block declared by a driver. Throws on bad shape so
+ * registration fails loudly at boot rather than silently misconfiguring
+ * production traffic. Returns the value unchanged on success for chaining.
  */
 export function validateDriverRateLimit(
     value: unknown,
@@ -183,9 +182,9 @@ function validateBySubscription(value: unknown, label: string): void {
 }
 
 /**
- * Resolve the spec that applies to a given method on a driver. Per-method
- * entry wins over `default`; returns `undefined` if neither is set so the
- * caller can apply its own fallback.
+ * Resolve the spec that applies to a given method on a driver. Per-method entry
+ * wins over `default`; returns `undefined` if neither is set so the caller can
+ * apply its own fallback.
  */
 export function resolveDriverMethodRateLimit(
     cfg: DriverRateLimitConfig | undefined,
@@ -205,15 +204,15 @@ export interface DriverConcurrentSpec {
     /** Maximum simultaneous in-flight requests. */
     limit: number;
     /**
-     * Per-subscription overrides keyed by `SubscriptionPolicy.id`
-     * (`user_free`, `temp_free`, `unlimited`, etc.). Falls back to
-     * `limit` when the actor's subscription isn't in the map.
+     * Per-subscription overrides keyed by `SubscriptionPolicy.id` (`user_free`,
+     * `temp_free`, `unlimited`, etc.). Falls back to `limit` when the actor's
+     * subscription isn't in the map.
      */
     bySubscription?: Record<string, number>;
     /**
      * Storage backend. Memory is per-process (use only on single-node
-     * deployments); redis coordinates across nodes; kv is rarely the
-     * right choice for concurrency but supported for parity.
+     * deployments); redis coordinates across nodes; kv is rarely the right
+     * choice for concurrency but supported for parity.
      */
     backend?: RateLimitBackend;
 }
@@ -226,8 +225,8 @@ export interface DriverConcurrentConfig {
 }
 
 /**
- * Validate a `concurrent` block. Mirrors `validateDriverRateLimit` —
- * throws with a labelled path so a malformed entry surfaces at boot.
+ * Validate a `concurrent` block. Mirrors `validateDriverRateLimit` — throws
+ * with a labelled path so a malformed entry surfaces at boot.
  */
 export function validateDriverConcurrent(
     value: unknown,
@@ -284,10 +283,10 @@ function validateConcurrentSpec(value: unknown, label: string): void {
 }
 
 /**
- * Resolve the concurrent spec for a given method on a driver. Same
- * precedence as `resolveDriverMethodRateLimit`: per-method wins over
- * `default`; `undefined` means no concurrency cap is declared, and the
- * caller should leave the method unbounded.
+ * Resolve the concurrent spec for a given method on a driver. Same precedence
+ * as `resolveDriverMethodRateLimit`: per-method wins over `default`;
+ * `undefined` means no concurrency cap is declared, and the caller should leave
+ * the method unbounded.
  */
 export function resolveDriverMethodConcurrent(
     cfg: DriverConcurrentConfig | undefined,
@@ -320,31 +319,30 @@ export interface DriverMeta {
     /**
      * Rate-limit policy for this driver. Per-method specs override the
      * `default` spec; both are optional. `DriverController` consults this
-     * before invoking the method and falls back to the global driver
-     * default (600/min) if nothing is declared.
+     * before invoking the method and falls back to the global driver default
+     * (600/min) if nothing is declared.
      */
     rateLimit?: DriverRateLimitConfig;
     /**
-     * Concurrent in-flight policy for this driver. When set, the
-     * controller acquires a slot before invoking the method and releases
-     * in `finally`. Absent → no concurrency cap (current behaviour).
+     * Concurrent in-flight policy for this driver. When set, the controller
+     * acquires a slot before invoking the method and releases in `finally`.
+     * Absent → no concurrency cap (current behaviour).
      */
     concurrent?: DriverConcurrentConfig;
     /**
-     * When true, `/drivers/call` rejects bare account-session ("root")
-     * tokens for this driver: callers must present an app/worker token or
-     * a dashboard-minted API token. Per-driver counterpart of the
-     * `noUserSession` route option — the dispatch route is shared, so the
-     * flag lives on the driver. Set on the AI drivers so a copied session
-     * token can't double as an AI credential.
+     * When true, `/drivers/call` rejects bare account-session ("root") tokens
+     * for this driver: callers must present an app/worker token or a
+     * dashboard-minted API token. Per-driver counterpart of the `noUserSession`
+     * route option — the dispatch route is shared, so the flag lives on the
+     * driver.
      */
     noUserSession?: boolean;
 }
 
 /**
  * Extract driver metadata from a driver instance. Checks decorator-set
- * prototype metadata first, then falls back to instance properties.
- * Returns `null` if the driver doesn't declare an interface.
+ * prototype metadata first, then falls back to instance properties. Returns
+ * `null` if the driver doesn't declare an interface.
  */
 export function resolveDriverMeta(
     driver: WithLifecycle & Record<string, unknown>,
@@ -410,4 +408,66 @@ export function resolveDriverMeta(
         concurrent,
         noUserSession,
     };
+}
+
+/**
+ * Framework/lifecycle method names that must never be reachable via
+ * `/drivers/call`. These live on `PuterDriver` (see `drivers/types.ts`) and are
+ * the machinery the dispatch surface must exclude. For class-based drivers a
+ * concrete `override` of one still carries the same name and is caught here;
+ * for plain-object drivers (registered by extensions — see `server.ts`, `typeof
+ * DriverClass === 'object'`) there is no base prototype to distinguish them, so
+ * this denylist is the _only_ thing keeping a hook off the RPC surface. Any
+ * lifecycle hook added to `PuterDriver` must be added here too — the per-driver
+ * guard test (`callableMethods.test.ts`) fails loudly if a base method starts
+ * leaking into every driver's surface.
+ */
+export const RESERVED_DRIVER_METHODS: ReadonlySet<string> = new Set([
+    'onServerStart',
+    'onServerPrepareShutdown',
+    'onServerShutdown',
+    'getReportedCosts',
+]);
+
+/**
+ * Compute the set of method names a driver exposes over `/drivers/call`.
+ *
+ * The RPC surface is defined structurally rather than by a hand-maintained
+ * per-method allow-list. Walking from the instance up to (but not including)
+ * `Object.prototype`, a name is callable iff it resolves to a function and is
+ * neither `constructor` nor a `RESERVED_DRIVER_METHODS` entry. This covers both
+ * driver shapes the server accepts (`server.ts`): class instances (RPC methods
+ * on the concrete prototype, config on the instance) and plain objects
+ * (everything own, used verbatim by extensions). It excludes all
+ * `Object.prototype` members (`toString`, `valueOf`, `__proto__`, …), the
+ * `constructor`, and the lifecycle hooks.
+ *
+ * `#`-private helpers need no handling: they are not real property keys, so
+ * `getOwnPropertyNames` never lists them and `driver['#x']` is `undefined`.
+ * Only _plain_ public methods can appear here.
+ *
+ * Getters are excluded (we read the descriptor's `.value`, never access the
+ * property), so evaluating this set never runs driver code. Intended to be
+ * called once per driver at registration and cached — not on the hot path.
+ */
+export function resolveCallableMethods(driver: object): Set<string> {
+    const callable = new Set<string>();
+    const seen = new Set<string>();
+    for (
+        let o: object | null = driver;
+        o && o !== Object.prototype;
+        o = Object.getPrototypeOf(o) as object | null
+    ) {
+        for (const name of Object.getOwnPropertyNames(o)) {
+            // First (lowest) definition wins — a subclass override shadows
+            // the base, and we decide against the resolved descriptor.
+            if (seen.has(name)) continue;
+            seen.add(name);
+            if (name === 'constructor') continue;
+            if (RESERVED_DRIVER_METHODS.has(name)) continue;
+            const desc = Object.getOwnPropertyDescriptor(o, name);
+            if (desc && typeof desc.value === 'function') callable.add(name);
+        }
+    }
+    return callable;
 }

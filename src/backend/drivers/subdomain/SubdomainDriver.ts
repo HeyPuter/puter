@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -27,11 +27,11 @@ import {
 } from '../../services/metering/consts.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
-import type { AclMode } from '../../services/acl/ACLService.js';
 import type { DriverRateLimitConfig } from '../meta.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
+import { buildHostedSubdomainIndexUrlCandidates } from '../../util/hostedAppBacking.js';
 import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.js';
 import {
     decodeCursor,
@@ -66,15 +66,15 @@ const RESERVED_SUBDOMAINS = new Set([
 /**
  * Driver exposing the `puter-subdomains` interface.
  *
- * Wraps SubdomainStore with validation + permission checks.
- * Methods follow the `crud-q` shape: create, read, select, update,
- * upsert, delete.
+ * Wraps SubdomainStore with validation + permission checks. Methods follow the
+ * `crud-q` shape: create, read, select, update, upsert, delete.
  *
  * Permission model:
- *   - Owner (user_id) can read/write their own subdomains
- *   - App actor matching app_owner can read/write scoped subdomains
- *   - `system:es:write-all-owners` grants blanket write
- *   - `read-all-subdomains` grants cross-user reads
+ *
+ * - Owner (user_id) can read/write their own subdomains
+ * - App actor matching app_owner can read/write scoped subdomains
+ * - `system:es:write-all-owners` grants blanket write
+ * - `read-all-subdomains` grants cross-user reads
  */
 export class SubdomainDriver extends PuterDriver {
     readonly driverInterface = 'puter-subdomains';
@@ -148,6 +148,31 @@ export class SubdomainDriver extends PuterDriver {
             });
         }
         await this.services.fs.checkFSAccess(entry, actor);
+
+        // A name some other user's app still points at is not free either.
+        // Deleting a hosted subdomain leaves the app row's `index_url` intact,
+        // and the GUI launcher appends `puter.auth.token` to whatever URL it is
+        // given — so registering the freed name would hand that app's launch
+        // token to whoever claimed it. The app's own owner is exempt:
+        // re-creating their site restores their app rather than hijacking it.
+        // See `util/hostedAppBacking.ts` for the wider rule.
+        //
+        // Last check before the insert on purpose: `apps.index_url` is
+        // unindexed, so this scan only runs for a request that would otherwise
+        // have created the row, and it stays behind the same root_dir gate as
+        // the existing uniqueness answer.
+        const appHoldingName = await this.stores.app.findByIndexUrlCandidates(
+            buildHostedSubdomainIndexUrlCandidates(subdomain, this.config),
+            { excludeOwnerUserId: actor.user.id },
+        );
+        if (appHoldingName) {
+            throw new HttpError(
+                409,
+                'A site with this subdomain already exists',
+                { legacyCode: 'conflict' },
+            );
+        }
+
         // `associated_app_id` is no longer accepted from clients. The
         // "associated app" for a subdomain is derived at read time from
         // `apps.owner_user_id = subdomain.user_id` + `index_url` match
@@ -321,65 +346,6 @@ export class SubdomainDriver extends PuterDriver {
         return shaped ?? null;
     }
 
-    async #checkFSAccess(
-        rootDirId: number | null | undefined,
-        actor: Actor,
-        mode: AclMode = 'write',
-    ): Promise<void> {
-        if (rootDirId == null) return;
-
-        const entry = await this.stores.fsEntry.getEntryById(rootDirId);
-        if (!entry) {
-            throw new HttpError(400, 'root_dir_id does not exist', {
-                legacyCode: 'bad_request',
-            });
-        }
-
-        const fsService = this.services.fs;
-        let ancestorsCache: Promise<
-            Array<{ uid: string; path: string }>
-        > | null = null;
-        const descriptor = {
-            path: entry.path,
-            resolveAncestors() {
-                if (!ancestorsCache) {
-                    ancestorsCache = fsService.getAncestorChain(entry.path);
-                }
-                return ancestorsCache;
-            },
-        };
-        const allowed = await this.services.acl.check(actor, descriptor, mode);
-        if (allowed) return;
-
-        const safe = (await this.services.acl.getSafeAclError(
-            actor,
-            descriptor,
-            mode,
-        )) as {
-            status?: unknown;
-            message?: unknown;
-            fields?: { code?: unknown };
-        };
-        const status = Number(safe?.status);
-        const message =
-            typeof safe?.message === 'string' && safe.message.length > 0
-                ? safe.message
-                : 'Access denied';
-        const code =
-            typeof safe?.fields?.code === 'string'
-                ? safe.fields.code
-                : undefined;
-        const legacyCode = code === 'forbidden' ? 'access_denied' : code;
-        if (status === 404) {
-            throw new HttpError(404, message, {
-                ...(legacyCode ? { legacyCode } : {}),
-            });
-        }
-        throw new HttpError(403, message, {
-            legacyCode: legacyCode ?? 'access_denied',
-        });
-    }
-
     async upsert(args: Record<string, unknown>): Promise<unknown> {
         const existing = await this.#resolve(args);
         if (existing)
@@ -500,8 +466,8 @@ export class SubdomainDriver extends PuterDriver {
     /**
      * Mirror of the HTTP-layer `requireVerifiedGate` on /delete-site — only
      * active when `strict_email_verification_required` is truthy, so self-
-     * hosted installs without SMTP aren't bricked. Applied at the driver
-     * level so /drivers/call can't bypass the gate the HTTP route enforces.
+     * hosted installs without SMTP aren't bricked. Applied at the driver level
+     * so /drivers/call can't bypass the gate the HTTP route enforces.
      */
     #requireVerified(actor: Actor): void {
         assertVerifiedEmail(
@@ -587,12 +553,11 @@ export class SubdomainDriver extends PuterDriver {
     /**
      * Hydrate raw subdomain rows into the v1-shaped client response.
      *
-     * Resolves the foreign keys (user_id → owner, root_dir_id →
-     * root_dir, associated_app_id / app_owner → app shapes) with one
-     * batched lookup per store, regardless of how many rows we're
-     * shaping. Used by both `select` (many rows) and the single-row
-     * paths (`create`/`read`/`update`/`upsert`) so the wire shape stays
-     * identical.
+     * Resolves the foreign keys (user_id → owner, root_dir_id → root_dir,
+     * associated_app_id / app_owner → app shapes) with one batched lookup per
+     * store, regardless of how many rows we're shaping. Used by both `select`
+     * (many rows) and the single-row paths (`create`/`read`/`update`/`upsert`)
+     * so the wire shape stays identical.
      */
     async #hydrateRows(
         rows: Array<Record<string, unknown>>,
@@ -653,9 +618,9 @@ export class SubdomainDriver extends PuterDriver {
 
     /**
      * For each subdomain row, find the app owned by the same user whose
-     * `index_url` matches one of the subdomain's host candidates
-     * (subdomain × hosting domains × protocols × paths). Returns a
-     * `rowUuid → appId` map. Rows with no matching app are absent.
+     * `index_url` matches one of the subdomain's host candidates (subdomain ×
+     * hosting domains × protocols × paths). Returns a `rowUuid → appId` map.
+     * Rows with no matching app are absent.
      *
      * Runs one batched DB query regardless of input size.
      */
@@ -664,37 +629,6 @@ export class SubdomainDriver extends PuterDriver {
     ): Promise<Map<string, number>> {
         const result = new Map<string, number>();
         if (rows.length === 0) return result;
-
-        const normalize = (v: unknown): string | null => {
-            if (typeof v !== 'string') return null;
-            const trimmed = v.trim().toLowerCase().replace(/^\./, '');
-            return trimmed || null;
-        };
-        const stripPort = (v: string): string => v.split(':')[0] || v;
-
-        const hostingDomainsRaw = [
-            normalize(this.config.static_hosting_domain),
-            normalize(this.config.static_hosting_domain_alt),
-            normalize(this.config.private_app_hosting_domain),
-            normalize(this.config.private_app_hosting_domain_alt),
-        ].filter((d): d is string => !!d);
-        const hostingDomains = [
-            ...new Set([
-                ...hostingDomainsRaw,
-                ...hostingDomainsRaw.map(stripPort),
-            ]),
-        ];
-        if (hostingDomains.length === 0) return result;
-
-        const configuredProtocol =
-            typeof this.config.protocol === 'string'
-                ? this.config.protocol.trim().replace(/:$/, '')
-                : '';
-        const protocols = [
-            ...new Set(
-                [configuredProtocol, 'https', 'http'].filter((p) => !!p),
-            ),
-        ];
 
         const userIdToRowMeta = new Map<
             number,
@@ -717,16 +651,10 @@ export class SubdomainDriver extends PuterDriver {
                     : '';
             if (!subdomain || !Number.isFinite(userId) || !rowUuid) continue;
 
-            const candidates = new Set<string>();
-            for (const d of hostingDomains) {
-                const host = `${subdomain}.${d}`;
-                for (const p of protocols) {
-                    const base = `${p}://${host}`;
-                    candidates.add(base);
-                    candidates.add(`${base}/`);
-                    candidates.add(`${base}/index.html`);
-                }
-            }
+            const candidates = new Set<string>(
+                buildHostedSubdomainIndexUrlCandidates(subdomain, this.config),
+            );
+            if (candidates.size === 0) continue;
             for (const c of candidates) allCandidates.add(c);
 
             if (!userIdToRowMeta.has(userId)) {

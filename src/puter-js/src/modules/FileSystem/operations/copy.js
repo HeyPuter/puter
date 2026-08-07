@@ -1,61 +1,42 @@
-import * as utils from '../../../lib/utils.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
+import { defineOperation, firstDefined } from './scaffold.js';
 
-const copy = function (...args) {
-    let options;
+/** @typedef {import('../../../../types/modules/filesystem').CopyOptions} CopyOptions */
+/** @typedef {import('../../../../types/modules/fs-item').FSItem} FSItem */
 
-    // If first argument is an object, it's the options
-    if ( typeof args[0] === 'object' && args[0] !== null ) {
-        options = args[0];
-    } else {
-        // Otherwise, we assume separate arguments are provided
-        options = {
-            source: args[0],
-            destination: args[1],
-            overwrite: args[2]?.overwrite,
-            new_name: args[2]?.newName || args[2]?.new_name,
-            create_missing_parents: args[2]?.createMissingParents || args[2]?.create_missing_parents,
-            new_metadata: args[2]?.newMetadata || args[2]?.new_metadata,
-            original_client_socket_id: args[2]?.excludeSocketID || args[2]?.original_client_socket_id,
-            success: args[3],
-            error: args[4],
-            // Add more if needed...
+/**
+ * Copies a file or directory to another location. Relative paths resolve
+ * against the app's root directory. When `destination` is a directory the item
+ * is copied into it under the same name.
+ *
+ * @type {{
+ *   (options: CopyOptions): Promise<FSItem>,
+ *   (
+ *     source: string,
+ *     destination: string,
+ *     options?: CopyOptions,
+ *     success?: (value: FSItem) => void,
+ *     error?: (reason: unknown) => void,
+ *   ): Promise<FSItem>,
+ * }}
+ */
+const copy = defineOperation({
+    positional: ['source', 'destination'],
+    request (options) {
+        return {
+            endpoint: '/copy',
+            body: {
+                original_client_socket_id: this.socket.id,
+                socket_id: this.socket.id,
+                source: getAbsolutePathForApp(options.source),
+                destination: getAbsolutePathForApp(options.destination),
+                overwrite: options.overwrite,
+                new_name: firstDefined(options, 'newName', 'new_name'),
+                // if user is copying an item to where its source is, change the name so there is no conflict
+                dedupe_name: firstDefined(options, 'dedupeName', 'dedupe_name'),
+            },
         };
-    }
-
-    return new Promise(async (resolve, reject) => {
-        // If auth token is not provided and we are in the web environment,
-        // try to authenticate with Puter
-        if ( !puter.authToken && puter.env === 'web' ) {
-            try {
-                await puter.ui.authenticateWithPuter();
-            } catch (e) {
-                // if authentication fails, throw an error
-                reject('Authentication failed.');
-            }
-        }
-
-        // convert paths to absolute path
-        options.source = getAbsolutePathForApp(options.source);
-        options.destination = getAbsolutePathForApp(options.destination);
-
-        // create xhr object
-        const xhr = utils.initXhr('/copy', this.APIOrigin, this.authToken);
-
-        // set up event handlers for load and error events
-        utils.setupXhrEventHandlers(xhr, options.success, options.error, resolve, reject);
-
-        xhr.send(JSON.stringify({
-            original_client_socket_id: this.socket.id,
-            socket_id: this.socket.id,
-            source: options.source,
-            destination: options.destination,
-            overwrite: options.overwrite,
-            new_name: (options.new_name || options.newName),
-            // if user is copying an item to where its source is, change the name so there is no conflict
-            dedupe_name: (options.dedupe_name || options.dedupeName),
-        }));
-    });
-};
+    },
+});
 
 export default copy;

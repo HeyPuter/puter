@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -18,12 +18,12 @@
  */
 
 /**
- * Email template definitions. Keys are the template names; values are
- * the Handlebars-compilable `subject` and `html` strings.
+ * Email template definitions. Keys are the template names; values are the
+ * Handlebars-compilable `subject` and `html` strings.
  *
- * Rendered values are supplied by callers of `EmailClient.send()`.
- * Variables use standard Handlebars syntax: `{{var}}`, `{{#if cond}}…{{/if}}`,
- * and the custom helper `{{{nl2br text}}}` for HTML-safe newline conversion.
+ * Rendered values are supplied by callers of `EmailClient.send()`. Variables
+ * use standard Handlebars syntax: `{{var}}`, `{{#if cond}}…{{/if}}`, and the
+ * custom helper `{{{nl2br text}}}` for HTML-safe newline conversion.
  */
 
 export interface EmailTemplate {

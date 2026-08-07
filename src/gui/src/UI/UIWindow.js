@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -233,7 +233,30 @@ async function UIWindow (options) {
         options.is_visible = false;
     }
 
-    h += `<div class="window window-active 
+    // --------------------------------------------------------
+    // Dashboard app chrome
+    // --------------------------------------------------------
+    // In dashboard mode a maximized app window renders HEADLESS — the app
+    // covers the full tab, and the titlebar's controls live elsewhere: Back
+    // minimizes (URL ownership), the top-edge control drawer carries
+    // minimize/close (attach_dashboard_app_drawer), and the app's tile shows
+    // a running dot with a Quit item. Everything else keeps its head:
+    // dialogs and the dashboard window itself (update_window_url is false
+    // for both), explorer, and non-maximized windows (apps launching child
+    // windows) — a headless floating window would have no drag handle.
+    const is_dashboard_app_chrome = !! (window.is_dashboard_mode
+        && options.app && options.app !== 'explorer'
+        && options.update_window_url
+        && options.is_maximized && options.is_visible
+        && (options.iframe_url || options.iframe_srcdoc));
+    if ( is_dashboard_app_chrome ) {
+        options.has_head = false;
+        // The class exempts this window from dashboard.css's 29px
+        // head-height compensation on .window-body-app.
+        options.window_class = `${options.window_class ?? ''} window-dashboard-headless`;
+    }
+
+    h += `<div class="window window-active
                         ${options.app === 'explorer' ? 'window-explorer' : ''}
                         ${options.cover_page ? 'window-cover-page' : ''}
                         ${options.uid !== undefined ? `window-${options.uid}` : ''} 
@@ -252,6 +275,7 @@ async function UIWindow (options) {
                 data-element_uuid="${html_encode(options.element_uuid)}"
                 data-parent_uuid="${html_encode(options.parent_uuid)}"
                 ${options.parent_instance_id ? `data-parent_instance_id="${options.parent_instance_id}"` : ''}
+                ${options.file_uid ? `data-file_uid="${html_encode(String(options.file_uid).toLowerCase())}"` : ''}
                 data-id ="${win_id}"
                 data-iframe_msg_uid ="${html_encode(options.iframe_msg_uid)}"
                 data-is_dir ="${options.is_dir}"
@@ -271,7 +295,6 @@ async function UIWindow (options) {
                 data-update_window_url = "${options.update_window_url && options.is_visible}"
                 data-custom_path = "${html_encode(options.custom_path)}"
                 data-user_set_url_params = "${html_encode(user_set_url_params)}"
-                data-initial_zindex = "${zindex}"
                 data-is_panel ="${options.is_panel ? 1 : 0}"
                 data-is_visible ="${options.is_visible ? 1 : 0}"
                 style=" z-index: ${zindex}; 
@@ -335,6 +358,10 @@ async function UIWindow (options) {
             h += `<div draggable="false" title="${i18n('videos')}" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-videos.svg'])}">${i18n('videos')}</div>`;
         } else {
             let items = JSON.parse(window.sidebar_items);
+            // Saved sidebar orders may predate the Home entry — make sure it's always present
+            if ( ! items.some(item => item.path === window.home_path) ) {
+                items.unshift({ path: window.home_path, name: i18n('home') });
+            }
             for ( let item of items ) {
                 let icon;
                 if ( item.path === window.home_path )
@@ -654,7 +681,55 @@ async function UIWindow (options) {
         $(el_window).focusWindow();
     }
 
-    if ( window.animate_window_opening ) {
+    // In dashboard mode an opening app claims the URL (/app/<name>) with a
+    // real history entry — Back then reads as "leave the app" and minimizes
+    // it (see the popstate handler next to push_dashboard_app_url). Same
+    // ownership rule as focusWindow's desktop-mode replaceState: only
+    // windows asked to update the URL, and never explorer (its URL scheme
+    // is the desktop's custom_path, meaningless on the dashboard).
+    if ( window.is_dashboard_mode && options.is_visible
+        && options.app && options.app !== 'explorer'
+        && options.update_window_url ) {
+        push_dashboard_app_url(options.app, options.title, options.icon);
+    }
+
+    // Headless dashboard app windows get the top-edge control drawer in
+    // place of the head (see the Dashboard app chrome section above).
+    if ( is_dashboard_app_chrome ) {
+        attach_dashboard_app_drawer(el_window, options);
+    }
+
+    // Let the Apps tab refresh its tiles' running dots (see TabApps).
+    if ( window.is_dashboard_mode && options.app ) {
+        document.dispatchEvent(new CustomEvent('dashboard-app-windows-changed'));
+    }
+
+    // A launch from a dashboard Apps-tab tile (TabApps passes
+    // morph_from_dashboard_tile) morphs the tile's icon into the opening
+    // window — the reverse of hideWindow's minimize morph. The window is
+    // already appended, displayed, and at its final (maximized) geometry
+    // here, and nothing has painted since it was appended, so the morph's
+    // collapsed start state applies without a flash of the full window.
+    // Falls through to the standard opening fade when the tile isn't
+    // visible (other tab, other pager page, reduced motion).
+    let morphed_from_tile = false;
+    if ( options.morph_from_dashboard_tile && window.animate_window_opening
+        && options.is_visible && ! options.fadeIn
+        && ! (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) ) {
+        const tile = dashboard_tile_in_view(options.app);
+        if ( tile ) {
+            // .window is display:none from the stylesheet until the show()
+            // further down; the morph needs the window laid out to measure
+            // it, so show it now — nothing has painted yet, so neither the
+            // early show nor the hide-back on failure ever flashes.
+            const was_hidden = ! $(el_window).is(':visible');
+            if ( was_hidden ) $(el_window).show();
+            morphed_from_tile = morph_window_from_tile(el_window, tile);
+            if ( ! morphed_from_tile && was_hidden ) $(el_window).hide();
+        }
+    }
+
+    if ( ! morphed_from_tile && window.animate_window_opening ) {
         // animate window opening
         $(el_window).css({
             'opacity': '0',
@@ -1694,7 +1769,7 @@ async function UIWindow (options) {
     // Minimize button
     // --------------------------------------------------------
     $(`#window-${win_id} > .window-head > .window-minimize-btn`).click(function () {
-        $(el_window).hideWindow();
+        minimize_window(el_window);
     });
 
     // --------------------------------------------------------
@@ -1847,19 +1922,12 @@ async function UIWindow (options) {
                 // rm window from original_window_position
                 window.original_window_position[$(el_window).attr('id')] = undefined;
 
-                // since jquery draggable sets the z-index automatically we need this to
-                // bring windows to the front when they are clicked.
-                window.last_window_zindex = parseInt($(el_window).css('z-index'));
-
                 //transform causes draggable to start inaccurately
                 $(el_window).css('transform', 'none');
             },
             drag: function ( e, ui ) {
                 $(el_window_app_iframe).css('pointer-events', 'none');
                 $('.window').css('pointer-events', 'none');
-                // jqueryui changes the z-index automatically, if the stay_on_top flag is set
-                // make sure window stays on top
-                $('.window[data-stay_on_top="true"]').css('z-index', 999999999);
 
                 if ( $(el_window).attr('data-is_maximized') === '1' ) {
                     $(el_window).attr('data-is_maximized', '0');
@@ -1920,11 +1988,6 @@ async function UIWindow (options) {
                 $(el_window_app_iframe).css('pointer-events', 'all');
                 $('.window').css('pointer-events', 'initial');
                 $('.toolbar').css('pointer-events', 'auto');
-                // jqueryui changes the z-index automatically, if the stay_on_top flag is set
-                // make sure window stays on top with the initial zindex though
-                $('.window[data-stay_on_top="true"]').each(function () {
-                    $(this).css('z-index', $(this).attr('data-initial_zindex'));
-                });
 
                 if ( options.is_resizable && snap_placeholder_active && !window_is_snapped ) {
                     window_will_snap = true;
@@ -2058,7 +2121,14 @@ async function UIWindow (options) {
                 }
             },
             handle: `.window-head-draggable${ options.draggable_body ? ', .window-body' : ''}`,
-            stack: '.window',
+            // No jQuery UI `stack` option here: it compacts every .window's
+            // z-index into a small sequential range on drag start, erasing the
+            // 99999999+ band that keeps stay-on-top windows — and their child
+            // dialogs, banded via window_zindex_base — above everything else
+            // (a dashboard app's file dialog would end up buried under its
+            // parent). Raise-on-click is already handled band-aware by the
+            // document mousedown -> focusWindow path, which fires before any
+            // drag starts.
             scroll: false,
             containment: '.window-container',
         });
@@ -2264,7 +2334,7 @@ async function UIWindow (options) {
             menu_items.push({
                 html: i18n('minimize'),
                 onClick: function () {
-                    $(el_window).hideWindow();
+                    minimize_window(el_window);
                 },
             });
             menu_items.push({
@@ -2618,7 +2688,7 @@ async function UIWindow (options) {
                                     window.socket.emit('trash.is_empty', { is_empty: true });
                                 }
                                 // use the 'empty trash' icon
-                                $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', window.icons['trash.svg']);
+                                window.update_trash_icons(true);
                             },
                         },
                     ],
@@ -2782,6 +2852,7 @@ function delete_window_element (el_window) {
     if ( window.active_element === el_window ) {
         window.active_element = null;
     }
+    const was_app = $(el_window).attr('data-app');
     // remove DOM element
     $(el_window).remove();
     // if no other windows open, reset window_counter
@@ -2789,6 +2860,11 @@ function delete_window_element (el_window) {
     if ( $('.window').length === 0 )
     {
         window.window_counter = 0;
+    }
+    // Every close path funnels through here — after the element is gone,
+    // let the Apps tab turn the app tile's running dot off (see TabApps).
+    if ( window.is_dashboard_mode && was_app ) {
+        document.dispatchEvent(new CustomEvent('dashboard-app-windows-changed'));
     }
 }
 
@@ -3557,12 +3633,26 @@ $.fn.close = async function (options) {
             else {
                 // close any open FileDialogs belonging to this window
                 $(`.window-filedialog[data-parent_uuid="${window_uuid}"]`).close();
-                // reset URL to desktop first; focusWindow will set the correct URL for the next focused window
-                // only reset the URL if this window was the one that owns it (mirrors the open-side check in focusWindow)
-                const update_window_url = $(this).attr('data-update_window_url');
-                if ( ! window.is_dashboard_mode && (update_window_url === 'true' || update_window_url === null) ) {
-                    window.history.replaceState(null, document.title, '/desktop');
+                // Dashboard mode: consume this app's URL entry so the
+                // address bar doesn't keep naming a dead app (the popstate
+                // handler finds no window left and just restores the title;
+                // no-op when the closing app doesn't own the URL).
+                //
+                // If the app underneath is only minimized because it
+                // launched THIS app, closing lands on the dashboard instead
+                // of resurrecting it: closing an app always goes home, and
+                // the parent keeps running behind its tile (Back, which
+                // doesn't come through here, still returns to it). A parent
+                // the user has since restored themselves no longer carries
+                // the marker, so it is left alone.
+                const $stacked_parent = $(`.window[data-minimized_for_child="${html_encode(window_uuid)}"]`);
+                const parent_minimized = $stacked_parent.attr('data-is_minimized');
+                const parent_is_stacked = $stacked_parent.length > 0
+                    && (parent_minimized === '1' || parent_minimized === 'true');
+                if ( $stacked_parent.length > 0 ) {
+                    $stacked_parent.removeAttr('data-minimized_for_child');
                 }
+                pop_dashboard_app_url($(this).attr('data-app'), { to_dashboard: parent_is_stacked });
                 // bring focus to the last window in the window-stack (only if not minimized)
                 let next_window_focused = false;
                 if ( window.window_stack.length > 0 ) {
@@ -3821,6 +3911,81 @@ $.fn.showWindow = async function (options) {
         if ( $(this).hasClass('window') ) {
             // show window
             const el_window = this;
+
+            // Stay-on-top windows (every fullpage/dashboard app window) are
+            // CREATED in the 99999999+ z band; restore must re-raise them
+            // into that same band. A plain counter z would demote the window
+            // below whatever gets focused next — and focusWindow deliberately
+            // never raises stay_on_top windows, so the demotion would stick
+            // (a dashboard-mode app would sit buried under the dashboard).
+            const raised_zindex = () => ($(el_window).attr('data-stay_on_top') === 'true'
+                ? 99999999 + (++window.last_window_zindex)
+                : ++window.last_window_zindex);
+
+            // A window minimized with no taskbar to animate toward (dashboard
+            // mode) was hidden in place by hideWindow — its geometry was
+            // never disturbed. If the app's tile is visible on the Apps tab's
+            // current page, grow the window back out of it (the reverse of
+            // hideWindow's zoom-to-tile morph); otherwise just fade it back
+            // in as before. (The explicit flag is used because data-orig-*
+            // can't distinguish the two minimize paths: drag/maximize
+            // handlers set it too.)
+            if ( $(el_window).attr('data-minimized_in_place') === '1' ) {
+                $(el_window).attr({
+                    'data-is_minimized': false,
+                    'data-minimized_in_place': '0',
+                });
+                // On screen again (Back, tile click, Forward), so it is no
+                // longer minimized-because-a-child-took-over: closing that
+                // child must not now send the user to the dashboard.
+                $(el_window).removeAttr('data-minimized_for_child');
+                $(el_window).css('z-index', raised_zindex());
+                const reduce_motion = window.matchMedia
+                    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                // Skip the morph while another morph still owns the window's
+                // inline styles (reopen mid-minimize-zoom): clearing the
+                // flags above already makes that animation's cleanup leave
+                // the window visible and restored, same as before.
+                const tile = (reduce_motion
+                    || $(el_window).attr('data-window_morphing') === '1')
+                    ? null
+                    : dashboard_tile_in_view($(el_window).attr('data-app'));
+                let morphed = false;
+                if ( tile ) {
+                    // The morph needs the window displayed and laid out to
+                    // measure it; no paint happens between this show() and
+                    // the morph's start state, so nothing flashes.
+                    const was_hidden = ! $(el_window).is(':visible');
+                    if ( was_hidden ) $(el_window).show();
+                    // The lighter cut of the launch morph — window half
+                    // only, on a shorter path — so un-minimizing reads as
+                    // the window coming back out of the tile, not the app
+                    // launching again (no icon flourish, no launch pacing).
+                    morphed = morph_window_from_tile(el_window, tile, {
+                        icon_half: false,
+                        duration: 0.3,
+                    });
+                    if ( ! morphed && was_hidden ) $(el_window).hide();
+                }
+                if ( ! morphed ) $(el_window).fadeIn(150);
+                // Restores come back with the control drawer collapsed —
+                // whatever state it was minimized in (headless dashboard
+                // windows only; no-op otherwise).
+                el_window._dashboard_drawer_collapse?.();
+                // A restore re-claims the URL for this app — except when
+                // the restore was DRIVEN by a history traversal (popstate
+                // passes no_history: the entry is already current).
+                if ( ! options?.no_history
+                    && $(el_window).attr('data-update_window_url') === 'true'
+                    && $(el_window).attr('data-app') !== 'explorer' ) {
+                    push_dashboard_app_url($(el_window).attr('data-app'), $(el_window).attr('data-name'));
+                }
+                setTimeout(() => {
+                    $(this).focusWindow();
+                }, 80);
+                return;
+            }
+
             $(el_window).css({
                 'transition': 'top 0.2s, left 0.2s, bottom 0.2s, right 0.2s, width 0.2s, height 0.2s',
                 top: `${$(el_window).attr('data-orig-top') }px`,
@@ -3828,7 +3993,7 @@ $.fn.showWindow = async function (options) {
                 width: `${$(el_window).attr('data-orig-width') }px`,
                 height: `${$(el_window).attr('data-orig-height') }px`,
             });
-            $(el_window).css('z-index', ++window.last_window_zindex);
+            $(el_window).css('z-index', raised_zindex());
 
             $(el_window).attr({
                 'data-is_minimized': false,
@@ -3865,6 +4030,25 @@ window.toggle_empty_folder_message = function (el_item_container) {
     }
 };
 
+/**
+ * The z-index band a window stacks in, as a base offset. Stay-on-top
+ * windows (every fullpage/dashboard app window) are created in the
+ * 99999999+ band; a window that isn't stay-on-top itself but hangs off one
+ * through parent_uuid — e.g. a file dialog opened by a dashboard app —
+ * must stack in that same band, or it renders buried under every app
+ * window. Walks up the parent_uuid chain (bounded, in case of a cycle).
+ */
+function window_zindex_base (el_window) {
+    let $win = $(el_window);
+    for ( let depth = 0; $win.length > 0 && depth < 10; depth++ ) {
+        if ( $win.attr('data-stay_on_top') === 'true' ) return 99999999;
+        const parent_uuid = $win.attr('data-parent_uuid');
+        if ( ! parent_uuid || parent_uuid === 'null' ) return 0;
+        $win = $(`.window[data-element_uuid="${parent_uuid}"]`);
+    }
+    return 0;
+}
+
 $.fn.focusWindow = function (event) {
     if ( this.hasClass('window') ) {
         const $app_iframe = $(this).find('.window-app-iframe');
@@ -3876,17 +4060,29 @@ $.fn.focusWindow = function (event) {
         $(this).addClass('window-active');
         // disable pointer events on all windows' iframes, except for this window's iframe
         $('.window-app-iframe').not($app_iframe).css('pointer-events', 'none');
-        // bring this window to front, only if it's not stay_on_top
+        // bring this window to front, only if it's not stay_on_top — and
+        // within its stacking band: a dialog owned by a stay-on-top
+        // (fullpage/dashboard) app window must rise into that band, not the
+        // plain counter band underneath it.
         if ( $(this).attr('data-stay_on_top') !== 'true' ) {
-            $(this).css('z-index', ++window.last_window_zindex);
+            $(this).css('z-index', window_zindex_base(this) + (++window.last_window_zindex));
         }
-        // if this window has a parent, bring them to the front too
+        // if this window has a parent, bring them to the front too — in the
+        // parent's own band. Assigning the bare counter here demoted a
+        // stay-on-top parent under every other fullpage/dashboard window
+        // (focusing an app's file dialog buried the app under other apps).
         if ( $(this).attr('data-parent_uuid') !== 'null' ) {
-            $(`.window[data-element_uuid="${$(this).attr('data-parent_uuid')}"]`).css('z-index', window.last_window_zindex);
+            const $parent_win = $(`.window[data-element_uuid="${$(this).attr('data-parent_uuid')}"]`);
+            if ( $parent_win.length > 0 ) {
+                $parent_win.css('z-index', window_zindex_base($parent_win) + window.last_window_zindex);
+            }
         }
-        // if this window has child windows, bring them to the front too
+        // if this window has child windows, bring them to the front too —
+        // each in its own band, same reasoning as above.
         if ( $(this).attr('data-element_uuid') !== 'null' ) {
-            $(`.window[data-parent_uuid="${$(this).attr('data-element_uuid')}"]`).css('z-index', ++window.last_window_zindex);
+            $(`.window[data-parent_uuid="${$(this).attr('data-element_uuid')}"]`).each(function () {
+                $(this).css('z-index', window_zindex_base(this) + (++window.last_window_zindex));
+            });
         }
 
         // hide other global menubars
@@ -3927,23 +4123,13 @@ $.fn.focusWindow = function (event) {
         }
         // remove blurred class from items on this window
         $(window.active_item_container).find('.item-blurred').removeClass('item-blurred');
-        //change window URL (skip in dashboard mode — URL should stay on the dashboard route)
+        // Update the tab title to the focused window. The URL itself is
+        // deliberately NOT touched here: on the desktop it stays /desktop
+        // (apps don't rewrite it), and in dashboard mode the open app owns
+        // it through real history entries (push_dashboard_app_url).
         if ( ! window.is_dashboard_mode ) {
             const update_window_url = $(this).attr('data-update_window_url');
-            const url_app_name = $(this).attr('data-app_pseudonym') || $(this).attr('data-app');
-            let custom_path = $(this).attr('data-custom_path');
-
-            if ( custom_path && custom_path !== '' ) {
-                if ( update_window_url === 'true' || update_window_url === null ) {
-                    if ( ! custom_path.startsWith('/') ) {
-                        custom_path = `/${ custom_path}`;
-                    }
-                    window.history.replaceState({ window_id: $(this).attr('data-id') }, '', custom_path);
-                    document.title = $(this).attr('data-name');
-                }
-            }
-            else if ( update_window_url === 'true' || update_window_url === null ) {
-                window.history.replaceState({ window_id: $(this).attr('data-id') }, '', `/app/${url_app_name}${$(this).attr('data-user_set_url_params')}`);
+            if ( update_window_url === 'true' || update_window_url === null ) {
                 document.title = $(this).attr('data-name');
             }
         }
@@ -3956,12 +4142,939 @@ $.fn.focusWindow = function (event) {
     return this;
 };
 
+/**
+ * The dashboard Apps-tab tile for `app_name`, but only when the user can
+ * actually see it right now: the dashboard's Apps section must be the active
+ * tab AND the tile must sit on the pager page currently in view (pages are
+ * laid side by side in a horizontal scroller, so an off-page tile has a
+ * rendered box the user can't see). Returns the tile element, or null.
+ */
+function dashboard_tile_in_view (app_name) {
+    if ( ! app_name || typeof CSS === 'undefined' || ! CSS.escape ) return null;
+    const tiles = document.querySelectorAll(
+        `.dashboard-section-apps.active .myapps-tile[data-app-name="${CSS.escape(app_name)}"]`,
+    );
+    for ( const tile of tiles ) {
+        const rect = tile.getBoundingClientRect();
+        if ( rect.width <= 0 || rect.height <= 0 ) continue;
+        const scroller = tile.closest('.myapps-pager-scroller');
+        const clip = (scroller || tile.parentElement).getBoundingClientRect();
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        if ( cx >= clip.left && cx <= clip.right && cy >= clip.top && cy <= clip.bottom ) {
+            return tile;
+        }
+    }
+    return null;
+}
+
+// ---------------------------------------------------------------------
+// Dashboard app URL ownership
+// ---------------------------------------------------------------------
+// In dashboard mode the open app claims the URL as /app/<name> with a REAL
+// history entry (the desktop's version of this is focusWindow's
+// replaceState, which Back can't return to), so the browser's Back button
+// reads as "leave the app": popping the entry MINIMIZES the window — the
+// app keeps running, the zoom-to-tile morph shows where it went, and
+// Forward (or the tile) brings it back. The dashboard's own route stays
+// underneath the app entries. The minimize/close buttons consume the
+// entry via pop_dashboard_app_url so the address bar never keeps naming
+// an app that is no longer on screen.
+
+// The app name the URL currently claims, kept in lockstep with pushes and
+// traversals so the popstate handler knows which window a traversal LEFT
+// (module-local: every push goes through push_dashboard_app_url).
+let dashboard_url_app = null;
+
+// The dashboard's own URL at the moment an app entry was pushed over it,
+// used by pop_dashboard_app_url's watchdog to repair the address bar when
+// a back() failed to consume the app's entry. Recaptured on every push
+// made FROM the dashboard route (not on pushes stacking app over app) so
+// it tracks the tab hash the user actually left. '/' — the same route the
+// deep-link handler slots underneath — is the fallback if no push ever
+// captured it.
+let dashboard_url_base = null;
+
+// The focused app also claims the browser-tab FAVICON, on the same
+// ownership as the title above. The page's own <link rel="icon"> elements
+// are detached while an app holds the tab — not rewritten in place: they
+// carry sizes/type attributes that would misdescribe an app's icon, and
+// which of several links wins is browser-dependent — and are put back
+// when the dashboard takes the tab back.
+let dashboard_default_favicons = null;
+let el_dashboard_app_favicon = null;
+
+function set_dashboard_favicon (icon_url) {
+    // No resolvable icon: leave the tab as it is. A stale app icon can't
+    // outlive its window — every path that hands the tab back to the
+    // dashboard goes through restore_dashboard_favicon.
+    if ( ! icon_url ) return;
+    if ( ! el_dashboard_app_favicon ) {
+        dashboard_default_favicons = Array.from(document.head.querySelectorAll('link[rel~="icon"]'));
+        for ( const link of dashboard_default_favicons ) link.remove();
+        el_dashboard_app_favicon = document.createElement('link');
+        el_dashboard_app_favicon.rel = 'icon';
+        document.head.append(el_dashboard_app_favicon);
+    }
+    if ( el_dashboard_app_favicon.getAttribute('href') !== icon_url ) {
+        el_dashboard_app_favicon.setAttribute('href', icon_url);
+    }
+}
+
+function restore_dashboard_favicon () {
+    if ( ! el_dashboard_app_favicon ) return;
+    el_dashboard_app_favicon.remove();
+    el_dashboard_app_favicon = null;
+    for ( const link of dashboard_default_favicons ?? [] ) {
+        document.head.append(link);
+    }
+    dashboard_default_favicons = null;
+}
+
+/**
+ * Favicon for a RUNNING app window: the bitmap its own chrome already
+ * shows (control-drawer icon on headless dashboard windows, head icon
+ * otherwise), falling back to a dashboard tile's rendered icon. Used when
+ * an app re-claims the tab with no launch in hand (restores, history
+ * traversals); the launch path passes its own icon.
+ */
+function dashboard_app_window_icon (app_name) {
+    if ( ! app_name ) return null;
+    const img = $(`.window[data-app="${html_encode(app_name)}"]`).last()
+        .find('.dashboard-app-drawer-icon, .window-head-icon').get(0);
+    return (img?.currentSrc || img?.src) || dashboard_rendered_app_icon(app_name);
+}
+
+function dashboard_app_url_current () {
+    const m = /^\/app\/([^/]+)\/?$/.exec(window.location.pathname);
+    if ( ! m ) return null;
+    // A malformed percent-sequence in a hand-edited URL must not throw
+    // out of the popstate handler.
+    try {
+        return decodeURIComponent(m[1]);
+    } catch (e) {
+        return m[1];
+    }
+}
+
+function push_dashboard_app_url (app_name, title, icon) {
+    if ( ! window.is_dashboard_mode || ! app_name ) return;
+    // The tab favicon follows the same ownership as the title. A launch
+    // passes its icon (possibly UIWindow's {image} form); a restore
+    // passes none and the icon is read off the running window.
+    set_dashboard_favicon((icon?.image ?? icon) || dashboard_app_window_icon(app_name));
+    if ( dashboard_app_url_current() === app_name ) {
+        // Already current (e.g. the popstate handler relaunching a closed
+        // app's entry): claim it without stacking a duplicate.
+        dashboard_url_app = app_name;
+        if ( title ) document.title = title;
+        return;
+    }
+    // The title to come back to when the last app entry is popped.
+    if ( window.dashboard_base_title === undefined ) {
+        window.dashboard_base_title = document.title;
+    }
+    // The URL being pushed over (see dashboard_url_base above).
+    if ( dashboard_app_url_current() === null ) {
+        dashboard_url_base = window.location.pathname + window.location.search + window.location.hash;
+    }
+    window.history.pushState({ dashboard_app: app_name }, '', `/app/${encodeURIComponent(app_name)}`);
+    dashboard_url_app = app_name;
+    dashboard_url_pop_pending = false;
+    if ( title ) document.title = title;
+}
+
+/**
+ * Consume an app's URL entry (history.back()) if it is the one the URL
+ * currently shows — pure bookkeeping so the address bar doesn't keep
+ * naming an app that was minimized or closed, and so Forward can restore
+ * it. The minimize controls hide their window BEFORE calling this
+ * (minimize_window below) rather than waiting on the traversal; the
+ * popstate handler and the watchdog skip windows already minimized.
+ * Returns true if the back() was issued (or one is already in flight),
+ * false when this app doesn't own the URL (e.g. an app stacked under
+ * another app's entry — there is no entry to consume).
+ */
+// True while a pop's history.back() is in flight (issued but its
+// popstate not yet processed). The URL doesn't change until the popstate
+// lands, so without this latch a double-click on minimize — or a close
+// racing a minimize — would issue TWO back()s, and the second would pop
+// the dashboard's own entry and navigate clean out of the page.
+let dashboard_url_pop_pending = false;
+let dashboard_url_pop_watchdog = null;
+
+// Set for the in-flight pop when the entry underneath belongs to an app
+// that is only minimized because IT launched the app being closed. The
+// traversal still consumes exactly one entry (no extra history hops —
+// those are what the watchdog above exists to survive); the popstate
+// handler just declines to restore what it lands on and rewrites the
+// address bar to the dashboard's route instead.
+let dashboard_pop_to_dashboard = false;
+
+function pop_dashboard_app_url (app_name, options) {
+    if ( ! window.is_dashboard_mode || ! app_name ) return false;
+    if ( dashboard_app_url_current() !== app_name ) return false;
+    // Duplicate request for an entry already being popped: report it
+    // handled so the caller doesn't ALSO hide the window.
+    if ( dashboard_url_pop_pending ) return true;
+    dashboard_url_pop_pending = true;
+    if ( options?.to_dashboard ) dashboard_pop_to_dashboard = true;
+    window.history.back();
+    // WATCHDOG — back() traverses the JOINT session history, which the
+    // app's iframe shares. If the app navigated internally after load
+    // (SPA router, redirects; browsers differ on which iframe navigations
+    // stack joint entries, so this is engine-dependent), the entry
+    // consumed is the IFRAME's: the URL here never changes and no
+    // popstate reaches this window — which would leave the pending latch
+    // stuck and every later minimize/close a silent no-op. A successful
+    // pop is a same-document traversal of THIS document (app entries are
+    // pushState over the dashboard's route), so its popstate arrives well
+    // inside this delay; if the URL still names the app by then, do what
+    // that popstate would have done — minimize the window — and REPLACE
+    // the stranded /app/<name> entry with the dashboard's own route so no
+    // later traversal resurrects a window the user already dismissed.
+    clearTimeout(dashboard_url_pop_watchdog);
+    dashboard_url_pop_watchdog = setTimeout(() => {
+        // Settled properly in the meantime: a popstate landed, or a new
+        // push claimed the URL (both clear the latch).
+        if ( ! dashboard_url_pop_pending ) return;
+        dashboard_url_pop_pending = false;
+        // The repair below already lands on the dashboard's route and
+        // restores nothing, which is exactly what to_dashboard asks for.
+        dashboard_pop_to_dashboard = false;
+        if ( dashboard_app_url_current() !== app_name ) return;
+        window.history.replaceState(null, '', dashboard_url_base || '/');
+        dashboard_url_app = null;
+        if ( window.dashboard_base_title !== undefined ) {
+            document.title = window.dashboard_base_title;
+        }
+        restore_dashboard_favicon();
+        // Same window lookup and minimized guard as the popstate handler.
+        // On the close path the window is already gone — the URL repair
+        // above was the part that still mattered.
+        const $win = $(`.window[data-app="${html_encode(app_name)}"]`).last();
+        if ( $win.length
+            && $win.attr('data-is_minimized') !== '1'
+            && $win.attr('data-is_minimized') !== 'true' ) {
+            $win.hideWindow();
+        }
+    }, 400);
+    return true;
+}
+
+/**
+ * Minimize a window AND do the dashboard URL bookkeeping — the shared
+ * body of every minimize control (head button, context menu, control
+ * drawer). The window hides FIRST: consuming the app's URL entry rides
+ * the session history (pop_dashboard_app_url), and when the app's iframe
+ * has stacked joint entries the pop only settles at the watchdog — the
+ * minimize morph must not wait ~400ms on that. The eager hide is safe
+ * against both ways the pop can settle: hideWindow marks
+ * data-is_minimized synchronously, and the popstate handler and the
+ * watchdog both skip already-minimized windows. (The browser's Back
+ * button still minimizes through the popstate handler as before.)
+ */
+function minimize_window (el_window) {
+    const minimized = $(el_window).attr('data-is_minimized');
+    if ( minimized !== '1' && minimized !== 'true' ) {
+        $(el_window).hideWindow();
+    }
+    pop_dashboard_app_url($(el_window).attr('data-app'));
+}
+
+window.addEventListener('popstate', () => {
+    if ( ! window.is_dashboard_mode ) return;
+    // Any traversal settles a pending pop (see pop_dashboard_app_url).
+    dashboard_url_pop_pending = false;
+    // Consume the flag: it belongs to this one traversal only, and must not
+    // leak into the user's next Back/Forward.
+    const to_dashboard = dashboard_pop_to_dashboard;
+    dashboard_pop_to_dashboard = false;
+    const new_app = dashboard_app_url_current();
+    const prev_app = dashboard_url_app;
+    // Same app on both sides means the traversal wasn't ours (e.g. an app
+    // iframe's internal history) — leave the windows alone.
+    if ( new_app === prev_app ) return;
+    dashboard_url_app = new_app;
+
+    // The traversal left an app's entry: minimize that window (closed
+    // windows are simply gone — close consumed its entry already, or the
+    // entry went stale mid-stack).
+    if ( prev_app ) {
+        const $prev_win = $(`.window[data-app="${html_encode(prev_app)}"]`);
+        if ( $prev_win.length ) {
+            const $win = $prev_win.last();
+            const minimized = $win.attr('data-is_minimized');
+            if ( minimized !== '1' && minimized !== 'true' ) {
+                $win.hideWindow();
+            }
+        }
+    }
+
+    if ( new_app && to_dashboard ) {
+        // A closing app popped onto its launcher's entry: leave the
+        // launcher minimized and show the dashboard. Rewriting the entry
+        // (rather than traversing again) keeps this to the single hop the
+        // close already issued.
+        window.history.replaceState(null, '', dashboard_url_base || '/');
+        dashboard_url_app = null;
+        if ( window.dashboard_base_title !== undefined ) {
+            document.title = window.dashboard_base_title;
+        }
+        restore_dashboard_favicon();
+    }
+    else if ( new_app ) {
+        // ...and landed on another app's entry (Forward, or Back across
+        // two stacked apps): restore its window — or relaunch it if it
+        // was closed, so the entry behaves as a live deep link.
+        const $new_win = $(`.window[data-app="${html_encode(new_app)}"]`);
+        if ( $new_win.length ) {
+            const $win = $new_win.last();
+            const minimized = $win.attr('data-is_minimized');
+            if ( minimized === '1' || minimized === 'true' ) {
+                // no_history: the entry being restored to is already
+                // current — showWindow must not push it again.
+                $win.showWindow({ no_history: true });
+            } else {
+                $win.focusWindow();
+            }
+            document.title = $win.attr('data-name') || document.title;
+            set_dashboard_favicon(dashboard_app_window_icon(new_app));
+        } else {
+            // No favicon change here: the relaunch claims it when its
+            // window opens (push_dashboard_app_url, with the fresh icon).
+            launch_app({
+                name: new_app,
+                maximized: true,
+                window_options: { morph_from_dashboard_tile: true },
+            }).catch((err) => {
+                console.error(`Failed to launch ${new_app}:`, err);
+            });
+        }
+    } else {
+        if ( window.dashboard_base_title !== undefined ) {
+            document.title = window.dashboard_base_title;
+        }
+        restore_dashboard_favicon();
+    }
+});
+
+/**
+ * An already-rendered dashboard icon for `app_name`: the Apps-tab tile or
+ * a Home-tab recent whose <img> has finished decoding. The launch resolves
+ * its own icon URL (typically a differently-sized variant served under a
+ * different URL), so an <img> pointed at it fetches cold and the icon pops
+ * in visibly late; the bitmap a tile already painted renders instantly from
+ * the browser's image cache. Generic placeholder fallbacks don't count — a
+ * slow real icon beats an instant wrong one.
+ */
+function dashboard_rendered_app_icon (app_name) {
+    if ( ! app_name || typeof CSS === 'undefined' || ! CSS.escape ) return null;
+    const esc = CSS.escape(app_name);
+    const imgs = document.querySelectorAll(
+        `.myapps-tile[data-app-name="${esc}"] .myapps-tile-icon img, `
+        + `.bento-recent-app[data-app-name="${esc}"] .bento-recent-app-icon`,
+    );
+    for ( const img of imgs ) {
+        const src = img.currentSrc || img.src;
+        if ( ! src || ! img.complete || img.naturalWidth <= 0 ) continue;
+        if ( src === window.icons['app.svg'] || src === window.icons['app-default.svg'] ) continue;
+        return src;
+    }
+    return null;
+}
+
+/**
+ * The control drawer for headless dashboard app windows: one glass surface
+ * flush with the top edge of the app (parent DOM, above the app's iframe)
+ * that MORPHS between two shapes. At rest it's a small tongue — a grabber
+ * bar peeking in from the edge; opened, the same surface swells into a
+ * tray carrying the head's surviving controls — app identity, minimize,
+ * and close — while the grabber bar fades away, leaving a bare strip
+ * along the tray's bottom edge as the dismiss hit area (the bar
+ * reappears as the drawer shuts). It opens expanded so
+ * first-time and deep-link users see the controls, then shrinks back into
+ * the tongue; hovering the tongue (mouse), tapping it, or keyboard-
+ * focusing the drawer opens it again. Timers rather than hover alone
+ * drive the collapse because mousemove inside the app's iframe is
+ * invisible to the parent — the drawer itself is the only hover surface
+ * there is.
+ *
+ * The drawer is a CHILD of the window element, so it shows/hides/scales with
+ * the window for free (minimize morphs, display:none, fullscreen requests
+ * from the iframe hide it via the browser's own fullscreen stacking).
+ */
+function attach_dashboard_app_drawer (el_window, options) {
+    const app_name = options.app;
+    // A data: icon needs no fetch — use it as-is. A URL icon is a cold
+    // fetch the user can watch mid-intro: prefer the same bitmap a
+    // dashboard tile already painted (see dashboard_rendered_app_icon).
+    const launch_icon = options.icon || window.icons['app.svg'];
+    const icon = ( typeof launch_icon === 'string' && ! launch_icon.startsWith('data:') )
+        ? (dashboard_rendered_app_icon(app_name) || launch_icon)
+        : launch_icon;
+    const title = options.title || app_name;
+
+    // The toggle comes FIRST in the DOM so Tab reaches it before the
+    // controls' buttons; both layers are absolutely positioned (see
+    // dashboard.css), so DOM order doesn't affect the visuals.
+    const $drawer = $(`
+        <div class="dashboard-app-drawer collapsed">
+            <button type="button" class="dashboard-app-drawer-toggle" aria-expanded="false" title="App controls" aria-label="App controls">
+                <span class="dashboard-app-drawer-grabber" aria-hidden="true"></span>
+            </button>
+            <div class="dashboard-app-drawer-clip">
+                <div class="dashboard-app-drawer-controls">
+                    <img class="dashboard-app-drawer-icon" src="${html_encode(icon)}" alt="" draggable="false">
+                    <span class="dashboard-app-drawer-title">${html_encode(title)}</span>
+                    <button type="button" class="dashboard-app-drawer-btn dashboard-app-drawer-minimize" title="Minimize to Dashboard" aria-label="Minimize to Dashboard">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    </button>
+                    <button type="button" class="dashboard-app-drawer-btn dashboard-app-drawer-close" title="Close App" aria-label="Close App">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+    `);
+    const drawer = $drawer.get(0);
+    const toggle = $drawer.find('.dashboard-app-drawer-toggle').get(0);
+
+    // No dashboard-rendered bitmap to reuse (deep link before the grid
+    // painted): the icon is still fetching, so ease it in when it arrives
+    // instead of letting it pop into the open drawer. A failed fetch falls
+    // back to the generic app icon rather than a broken-image glyph.
+    const icon_img = $drawer.find('.dashboard-app-drawer-icon').get(0);
+    if ( ! icon_img.complete ) {
+        icon_img.style.opacity = '0';
+        icon_img.style.transition = 'opacity 0.2s ease';
+        icon_img.addEventListener('load', () => {
+            icon_img.style.opacity = '1';
+        }, { once: true });
+        icon_img.addEventListener('error', () => {
+            icon_img.src = window.icons['app.svg'];
+            icon_img.style.opacity = '1';
+        }, { once: true });
+    }
+
+    let collapse_timer = null;
+    let opened_at = 0;
+    const expand = () => {
+        clearTimeout(collapse_timer);
+        if ( drawer.classList.contains('collapsed') ) opened_at = Date.now();
+        drawer.classList.remove('collapsed');
+        toggle.setAttribute('aria-expanded', 'true');
+    };
+    const collapse = () => {
+        clearTimeout(collapse_timer);
+        drawer.classList.add('collapsed');
+        toggle.setAttribute('aria-expanded', 'false');
+    };
+    const schedule_collapse = (ms) => {
+        clearTimeout(collapse_timer);
+        collapse_timer = setTimeout(collapse, ms);
+    };
+    // Expand + auto-collapse: played once on open, so the controls
+    // introduce themselves — and retract INTO the tongue, teaching where
+    // they live — without permanently costing pixels.
+    const flash = () => {
+        expand();
+        schedule_collapse(2600);
+    };
+
+    // Hover pulls the drawer open and leaving lets it settle — mouse only:
+    // a touch tap synthesizes a pointerenter right before its click, which
+    // would make the toggle below see an already-open drawer and shut it
+    // again. Touch devices open by tap instead, and since they never fire
+    // pointerleave, that path self-schedules its collapse.
+    $drawer.on('pointerenter', (e) => {
+        if ( e.pointerType === 'mouse' ) expand();
+    });
+    $drawer.on('pointerleave', (e) => {
+        if ( e.pointerType === 'mouse' ) schedule_collapse(900);
+    });
+    $drawer.on('focusin', () => expand());
+    $drawer.on('focusout', () => schedule_collapse(1100));
+
+    // Pressing the drawer activates its window, as pressing a titlebar
+    // would — the drawer took over the head's job. Deferred a tick because
+    // the document-level activation handler (initgui's mousedown →
+    // mouseover_window) runs after this one on hover bookkeeping that only
+    // mousemove refreshes; a tap with no mousemove since a dashboard click
+    // (touch, restored windows) would re-raise the dashboard OVER the app.
+    $drawer.on('mousedown', () => {
+        setTimeout(() => $(el_window).focusWindow(), 0);
+    });
+
+    // The grabber is the drawer's one toggle: opens it when shut, shuts
+    // it when open. A click landing within a beat of the open is the
+    // SAME gesture that opened it (hover-then-click mice, tap) — hold
+    // the drawer open instead of instantly re-shutting it.
+    $(toggle).on('click', function (e) {
+        e.stopPropagation();
+        if ( drawer.classList.contains('collapsed') ) {
+            expand();
+            schedule_collapse(3500);
+        } else if ( Date.now() - opened_at < 500 ) {
+            schedule_collapse(3500);
+        } else {
+            collapse();
+        }
+    });
+
+    // The head's controls, rerouted through the same code paths the head
+    // used: minimize consumes the app's URL entry when it owns it (the
+    // popstate handler then plays the minimize morph — one path with the
+    // browser's Back button), and close tears the window down normally.
+    $drawer.find('.dashboard-app-drawer-minimize').on('click', function (e) {
+        e.stopPropagation();
+        collapse();
+        minimize_window(el_window);
+    });
+    $drawer.find('.dashboard-app-drawer-close').on('click', function (e) {
+        e.stopPropagation();
+        $(el_window).close();
+    });
+
+    // showWindow forces the drawer shut when the window is restored — the
+    // intro already ran on open, and a restore should bring back the app,
+    // not the chrome. (Minimize collapses too, but the Back-button path
+    // hides the window without touching the drawer.)
+    el_window._dashboard_drawer_collapse = collapse;
+
+    $(el_window).append($drawer);
+    // Two frames so the collapsed state paints first and the intro
+    // morphs out of the tongue instead of popping in fully open.
+    requestAnimationFrame(() => requestAnimationFrame(flash));
+}
+
+/**
+ * Tiles whose click feedback has played (or is playing) for the launch
+ * currently in flight. A fresh app launch has a server round-trip between
+ * the click and the window's creation; so the click is acknowledged
+ * instantly, TabApps plays the icon half of the open morph immediately
+ * (begin_dashboard_tile_launch) and the mark here tells the window's half
+ * not to replay it when the window finally opens (morph_window_from_tile).
+ */
+const tile_launch_ghosts = new WeakMap();
+
+/**
+ * Play a tile's launch feedback NOW, before the app's fetches resolve: a
+ * ghost of the icon pops out of the slot — the icon half of
+ * morph_window_from_tile, enlarging in place and dissolving — while the
+ * REAL icon stays exactly as it is, so the slot is never left empty
+ * however long the launch takes. The tile is marked so the window's morph
+ * runs only its window half when it opens;
+ * settle_dashboard_tile_launch clears the mark once the launch attempt is
+ * over. No-op when the open morph itself wouldn't run (animations off,
+ * reduced motion) so the two halves always agree.
+ */
+export function begin_dashboard_tile_launch (tile) {
+    const reduce_motion = window.matchMedia
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if ( ! tile || ! window.animate_window_opening || reduce_motion ) return;
+    if ( tile_launch_ghosts.has(tile) ) return;
+    const icon = tile.querySelector('.myapps-tile-icon') || tile;
+    const icon_rect = icon.getBoundingClientRect();
+    if ( icon_rect.width <= 0 || icon_rect.height <= 0 ) return;
+
+    const ghost = icon.cloneNode(true);
+    ghost.style.position = 'fixed';
+    ghost.style.left = `${icon_rect.left}px`;
+    ghost.style.top = `${icon_rect.top}px`;
+    ghost.style.width = `${icon_rect.width}px`;
+    ghost.style.height = `${icon_rect.height}px`;
+    ghost.style.margin = '0';
+    // The window this click opens doesn't exist yet; it will be created on
+    // the same stay-on-top formula (99999999 + counter), so sit safely above
+    // where it will land.
+    ghost.style.zIndex = 99999999 + (window.last_window_zindex || 0) + 10;
+    ghost.style.pointerEvents = 'none';
+    ghost.style.transformOrigin = 'center';
+    ghost.style.willChange = 'transform, opacity';
+    ghost.style.opacity = '1';
+    ghost.style.transform = 'none';
+    document.body.appendChild(ghost);
+    tile_launch_ghosts.set(tile, true);
+
+    // The icon half of the open morph, played over the untouched real
+    // icon: enlarge in place on the decelerating curve, fully dissolved
+    // right around 200% (see morph_window_from_tile for why the growth is
+    // capped), then clean up after itself. Runs at ~1.7x the window
+    // half's 0.45s — as a standalone flourish it reads better unhurried.
+    void ghost.offsetWidth;
+    ghost.style.transition = [
+        'transform 0.76s cubic-bezier(0.32, 0.72, 0, 1)',
+        'opacity 0.338s ease-out 0.203s',
+    ].join(', ');
+    ghost.style.transform = 'scale(2)';
+    ghost.style.opacity = '0';
+    setTimeout(() => {
+        ghost.remove();
+    }, 820);
+}
+
+/**
+ * Clear a tile's click-feedback mark once its launch attempt is over (the
+ * ghost cleans itself up and the real icon was never touched; the mark
+ * only stops the window's morph from replaying the icon half). Call it
+ * from the launch's finally so failures and fallbacks don't leave a stale
+ * mark on the tile.
+ */
+export function settle_dashboard_tile_launch (tile) {
+    if ( tile ) tile_launch_ghosts.delete(tile);
+}
+
+/**
+ * The reverse of hideWindow's zoom-to-tile morph: the tile's icon flies out
+ * and inflates into the window while the window fades in — the same two
+ * congruent layers on the same 450ms decelerating path, run backwards, so
+ * opening reads as the icon becoming the window. See hideWindow's morph for
+ * the mechanics (congruent layers, contain-fit ghost, compositor-only
+ * animation); this mirrors it constant for constant.
+ *
+ * If begin_dashboard_tile_launch already played the icon half at click
+ * time, no second ghost is spawned and the real icon (which the click
+ * feedback never touches) is left alone: only the window half runs,
+ * expanding out of the tile's slot.
+ *
+ * The window must be in the DOM, displayed, and at its final geometry —
+ * geometry is never touched, and every inline property this sets is restored
+ * byte-identical when the animation ends. Returns true if the morph started;
+ * false if either box was unmeasurable (caller falls back to its fade).
+ *
+ * Options let a restore (un-minimizing — see showWindow) run a lighter cut
+ * of the morph than a launch, so coming back to a running app doesn't read
+ * as relaunching it:
+ *   icon_half: false — never spawn the icon ghost; only the window half
+ *     expands out of the tile's slot (the real icon is left untouched).
+ *   duration — seconds for the zoom path (default 0.45, the launch pace).
+ */
+function morph_window_from_tile (el_window, tile, morph_options = {}) {
+    const icon_half = morph_options.icon_half !== false;
+    const duration = morph_options.duration || 0.45;
+    const icon = tile.querySelector('.myapps-tile-icon') || tile;
+    const win_rect = el_window.getBoundingClientRect();
+    const icon_rect = icon.getBoundingClientRect();
+    if ( win_rect.width <= 0 || win_rect.height <= 0
+        || icon_rect.width <= 0 || icon_rect.height <= 0 ) {
+        return false;
+    }
+
+    const $win = $(el_window);
+    // Click feedback already played for this launch (see
+    // begin_dashboard_tile_launch): the icon half popped out of the slot
+    // at click time, so only the window half runs here — no second ghost,
+    // and the real icon (untouched by the click feedback) stays as it is.
+    const click_feedback_played = tile_launch_ghosts.has(tile);
+    if ( click_feedback_played ) tile_launch_ghosts.delete(tile);
+    // Everything touched is restored from these exact inline values once
+    // the animation ends.
+    const orig_style = {
+        transform: el_window.style.transform,
+        transformOrigin: el_window.style.transformOrigin,
+        opacity: el_window.style.opacity,
+        borderRadius: el_window.style.borderRadius,
+        overflow: el_window.style.overflow,
+        willChange: el_window.style.willChange,
+        pointerEvents: el_window.style.pointerEvents,
+        transition: el_window.style.transition,
+    };
+    const icon_orig_visibility = icon.style.visibility;
+    // Unlike the minimize morph (whose end states are inline values it
+    // sets itself), this direction ends on the window's RESTING look, which
+    // lives in the stylesheet — transitions need explicit end values, so
+    // read the computed radius up front (the inline value goes back at the
+    // end either way).
+    const end_radius = getComputedStyle(el_window).borderRadius;
+    const end_transform = orig_style.transform || 'none';
+
+    // Same mapping as the minimize morph, driven backwards: the window
+    // starts collapsed onto the icon's box...
+    const scale_x = icon_rect.width / win_rect.width;
+    const scale_y = icon_rect.height / win_rect.height;
+    const dx = icon_rect.left - win_rect.left;
+    const dy = icon_rect.top - win_rect.top;
+
+    // ...and the ghost simply enlarges IN PLACE on the real icon's slot,
+    // dissolving as the window grows out from underneath it. Unlike the
+    // minimize morph's contain-fit flight (where the huge ghost only
+    // becomes visible once it has shrunk near icon size), this ghost is
+    // visible from frame one — flown toward the window it visibly drifts
+    // away from its slot, and grown to full contain-fit (easily 10x+) it
+    // reads as a giant blurry sticker. So it stays put and its growth is
+    // capped: it fades out completely by ~97% of the decelerating path,
+    // right around 200% of its size, and the window alone carries the
+    // motion and the rest of the growth.
+    let ghost = null;
+    if ( ! click_feedback_played && icon_half ) {
+        ghost = icon.cloneNode(true);
+        ghost.style.position = 'fixed';
+        ghost.style.left = `${icon_rect.left}px`;
+        ghost.style.top = `${icon_rect.top}px`;
+        ghost.style.width = `${icon_rect.width}px`;
+        ghost.style.height = `${icon_rect.height}px`;
+        ghost.style.margin = '0';
+        // +2, not +1: showWindow's delayed focusWindow() bumps the window's
+        // z-index once more mid-flight, and the ghost must stay above it.
+        ghost.style.zIndex = (parseInt($win.css('z-index'), 10) || 1) + 2;
+        ghost.style.pointerEvents = 'none';
+        // 'center' so the scale below enlarges the ghost in place around its
+        // own slot (the minimize morph's ghost uses 'top left' because it
+        // translates as it flies; this one never moves).
+        ghost.style.transformOrigin = 'center';
+        ghost.style.willChange = 'transform, opacity';
+        ghost.style.opacity = '1';
+        ghost.style.transform = 'none';
+        document.body.appendChild(ghost);
+        icon.style.visibility = 'hidden';
+    }
+    const ghost_scale = Math.min(
+        2,
+        win_rect.width / icon_rect.width,
+        win_rect.height / icon_rect.height,
+    );
+
+    $win.attr('data-window_morphing', '1');
+    el_window.style.transition = 'none';
+    el_window.style.transformOrigin = 'top left';
+    el_window.style.overflow = 'hidden'; // let the radius clip the content
+    el_window.style.willChange = 'transform, opacity';
+    el_window.style.pointerEvents = 'none';
+    el_window.style.transform = `translate(${dx}px, ${dy}px) scale(${scale_x}, ${scale_y})`;
+    // Percentage radius stays proportional under the scale — ~22% is the
+    // icon-squircle look.
+    el_window.style.borderRadius = '22%';
+    el_window.style.opacity = '0';
+    // Flush the starting state (both layers) so the transitions animate
+    // from it rather than snapping.
+    void el_window.offsetWidth;
+
+    // The minimize morph's handoff, mirrored: the incoming layer (here the
+    // window) fades in at 80→240ms, the outgoing ghost lingers to 120→320ms,
+    // and both ride the same decelerating path — so there is never a hole
+    // and the swap is invisible: the icon "becomes" the window. (The fade's
+    // timing stays fixed when the path is shortened: it still completes
+    // before the shortest landing.)
+    el_window.style.transition = [
+        `transform ${duration}s cubic-bezier(0.32, 0.72, 0, 1)`,
+        `border-radius ${duration}s cubic-bezier(0.32, 0.72, 0, 1)`,
+        'opacity 0.16s ease-in 0.08s',
+    ].join(', ');
+    el_window.style.transform = end_transform;
+    el_window.style.borderRadius = end_radius;
+    el_window.style.opacity = '1';
+    if ( ghost ) {
+        // Same unhurried pace as the click-time ghost (see
+        // begin_dashboard_tile_launch) so the icon flourish looks the same
+        // on every open. Its fade outlives the window's 480ms cleanup
+        // (ends ~541ms), so it cleans up on its own clock — and the real
+        // icon, hidden for the flight, comes back as the ghost goes.
+        ghost.style.transition = [
+            'transform 0.76s cubic-bezier(0.32, 0.72, 0, 1)',
+            'opacity 0.338s ease-out 0.203s',
+        ].join(', ');
+        ghost.style.transform = `scale(${ghost_scale})`;
+        ghost.style.opacity = '0';
+        setTimeout(() => {
+            ghost.remove();
+            icon.style.visibility = icon_orig_visibility;
+        }, 820);
+    }
+
+    setTimeout(() => {
+        // End of the zoom: the window has landed — put every touched
+        // inline property back (the end states equal the resting computed
+        // values, so nothing visibly changes). The ghost and the real
+        // icon are handled on the ghost's own slower timer above.
+        $win.attr('data-window_morphing', '0');
+        el_window.style.transition = 'none';
+        el_window.style.transform = orig_style.transform;
+        el_window.style.transformOrigin = orig_style.transformOrigin;
+        el_window.style.opacity = orig_style.opacity;
+        el_window.style.borderRadius = orig_style.borderRadius;
+        el_window.style.overflow = orig_style.overflow;
+        el_window.style.willChange = orig_style.willChange;
+        el_window.style.pointerEvents = orig_style.pointerEvents;
+        setTimeout(() => {
+            el_window.style.transition = orig_style.transition;
+        }, 50);
+    }, Math.round(duration * 1000) + 30);
+    return true;
+}
+
 // hides a window
 $.fn.hideWindow = async function (options) {
     $(this).each(async function () {
         if ( $(this).hasClass('window') ) {
             // get taskbar item location
             let taskbar_item_pos = $(`.taskbar .taskbar-item[data-app="${$(this).attr('data-app')}"]`).position();
+
+            // No taskbar item to animate toward (e.g. dashboard mode, which
+            // has no taskbar): if the app's tile is visible on the Apps tab's
+            // current page, shrink the window into it so the user sees where
+            // the app went; otherwise simply hide the window in place. Either
+            // way the geometry is untouched afterwards and showWindow()
+            // un-hides via the data-minimized_in_place flag.
+            if ( ! taskbar_item_pos ) {
+                const el_window = this;
+                const $win = $(this);
+                const reduce_motion = window.matchMedia
+                    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                // (A morph already in flight — either direction — owns the
+                // window's inline transform/opacity and will restore them at
+                // its end, so don't start another on top; fall back to the
+                // plain fade below, exactly as before the morphs existed.)
+                const tile = (reduce_motion
+                    || $win.attr('data-window_morphing') === '1')
+                    ? null
+                    : dashboard_tile_in_view($win.attr('data-app'));
+
+                if ( tile ) {
+                    // iOS-style zoom-to-icon morph, two congruent layers on
+                    // the same 450ms decelerating path so it reads as ONE
+                    // object transforming:
+                    //   1. the LIVE window scales onto the tile's icon box,
+                    //      its corner radius growing toward the squircle,
+                    //      fading OUT once it has mostly shrunk;
+                    //   2. an enlarged clone of the icon ("ghost") starts
+                    //      covering the window and flies/shrinks with it,
+                    //      fading IN as the window fades out, landing exactly
+                    //      on the real icon's slot (the real icon is hidden
+                    //      until the ghost lands, so nothing doubles).
+                    // Transform + opacity animate on the compositor (no
+                    // per-frame reflow of the app's iframe); the window's
+                    // geometry (top/left/width/height) is never touched, so
+                    // restore is trivial.
+                    const icon = tile.querySelector('.myapps-tile-icon') || tile;
+                    const win_rect = el_window.getBoundingClientRect();
+                    const icon_rect = icon.getBoundingClientRect();
+                    if ( win_rect.width > 0 && win_rect.height > 0
+                        && icon_rect.width > 0 && icon_rect.height > 0 ) {
+                        // Everything touched is restored from these exact
+                        // inline values once the animation ends.
+                        const orig_style = {
+                            transform: el_window.style.transform,
+                            transformOrigin: el_window.style.transformOrigin,
+                            opacity: el_window.style.opacity,
+                            borderRadius: el_window.style.borderRadius,
+                            overflow: el_window.style.overflow,
+                            willChange: el_window.style.willChange,
+                            pointerEvents: el_window.style.pointerEvents,
+                            transition: el_window.style.transition,
+                        };
+                        const icon_orig_visibility = icon.style.visibility;
+                        // Map the window rect exactly onto the icon rect (and
+                        // the ghost the exact inverse: icon rect onto window
+                        // rect), so the two layers stay congruent throughout.
+                        const scale_x = icon_rect.width / win_rect.width;
+                        const scale_y = icon_rect.height / win_rect.height;
+                        const dx = icon_rect.left - win_rect.left;
+                        const dy = icon_rect.top - win_rect.top;
+
+                        const ghost = icon.cloneNode(true);
+                        ghost.style.position = 'fixed';
+                        ghost.style.left = `${icon_rect.left}px`;
+                        ghost.style.top = `${icon_rect.top}px`;
+                        ghost.style.width = `${icon_rect.width}px`;
+                        ghost.style.height = `${icon_rect.height}px`;
+                        ghost.style.margin = '0';
+                        ghost.style.zIndex = (parseInt($win.css('z-index'), 10) || 1) + 1;
+                        ghost.style.pointerEvents = 'none';
+                        ghost.style.transformOrigin = 'top left';
+                        ghost.style.willChange = 'transform, opacity';
+                        ghost.style.opacity = '0';
+                        // UNIFORM start scale so the icon stays square (a
+                        // rect-onto-rect mapping stretches it), sized to fit
+                        // INSIDE the window (contain, centered) — a covering
+                        // square would protrude past the card's short edge
+                        // and the protruding halo pops in mid-crossfade
+                        // (visible jitter). Contained, the ghost's side
+                        // tracks the card's short edge exactly for the whole
+                        // flight (both interpolate linearly between the same
+                        // start and end sizes), so the card's rectangular
+                        // flanks simply melt away around a steady square.
+                        const ghost_scale = Math.min(
+                            win_rect.width / icon_rect.width,
+                            win_rect.height / icon_rect.height,
+                        );
+                        const ghost_left = win_rect.left + (win_rect.width - icon_rect.width * ghost_scale) / 2;
+                        const ghost_top = win_rect.top + (win_rect.height - icon_rect.height * ghost_scale) / 2;
+                        ghost.style.transform = `translate(${ghost_left - icon_rect.left}px, ${ghost_top - icon_rect.top}px) scale(${ghost_scale})`;
+                        document.body.appendChild(ghost);
+                        icon.style.visibility = 'hidden';
+
+                        $win.attr({
+                            'data-is_minimized': true,
+                            'data-minimized_in_place': '1',
+                            'data-window_morphing': '1',
+                        });
+                        el_window.style.transformOrigin = 'top left';
+                        el_window.style.overflow = 'hidden'; // let the radius clip the content
+                        el_window.style.willChange = 'transform, opacity';
+                        el_window.style.pointerEvents = 'none';
+                        // Flush the starting state (both layers) so the
+                        // transitions animate from it rather than snapping.
+                        void el_window.offsetWidth;
+                        // The handoff: by ~130ms the decelerating curve has
+                        // done ~80% of the shrink — the ghost fades in just
+                        // before (80→240ms) and the window fades out just
+                        // after (120→320ms). The overlap means there is never
+                        // a hole, and since both ride the same path the swap
+                        // is invisible: the window "becomes" the icon.
+                        el_window.style.transition = [
+                            'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+                            'border-radius 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+                            'opacity 0.2s ease-out 0.12s',
+                        ].join(', ');
+                        el_window.style.transform = `translate(${dx}px, ${dy}px) scale(${scale_x}, ${scale_y})`;
+                        // Percentage radius stays proportional under the
+                        // scale — ~22% is the icon-squircle look.
+                        el_window.style.borderRadius = '22%';
+                        el_window.style.opacity = '0';
+                        ghost.style.transition = [
+                            'transform 0.45s cubic-bezier(0.32, 0.72, 0, 1)',
+                            'opacity 0.16s ease-in 0.08s',
+                        ].join(', ');
+                        ghost.style.transform = 'none';
+                        ghost.style.opacity = '1';
+
+                        setTimeout(() => {
+                            // End of the zoom: the ghost has landed on the
+                            // real icon's slot — swap them back in the same
+                            // frame, hide the window, and put every touched
+                            // inline property back while nothing is visible.
+                            // If the user re-opened the window mid-animation
+                            // (tile click → showWindow cleared the flags),
+                            // restore but leave it visible.
+                            ghost.remove();
+                            icon.style.visibility = icon_orig_visibility;
+                            $win.attr('data-window_morphing', '0');
+                            const minimized = $win.attr('data-is_minimized');
+                            if ( minimized === '1' || minimized === 'true' ) $win.hide();
+                            el_window.style.transition = 'none';
+                            el_window.style.transform = orig_style.transform;
+                            el_window.style.transformOrigin = orig_style.transformOrigin;
+                            el_window.style.opacity = orig_style.opacity;
+                            el_window.style.borderRadius = orig_style.borderRadius;
+                            el_window.style.overflow = orig_style.overflow;
+                            el_window.style.willChange = orig_style.willChange;
+                            el_window.style.pointerEvents = orig_style.pointerEvents;
+                            setTimeout(() => {
+                                el_window.style.transition = orig_style.transition;
+                            }, 50);
+                        }, 480);
+                        return;
+                    }
+                }
+
+                $win.attr({
+                    'data-is_minimized': true,
+                    'data-minimized_in_place': '1',
+                });
+                $win.fadeOut(150);
+                return;
+            }
 
             // Calculate animation target based on taskbar position
             let animationTarget = {};
@@ -4012,10 +5125,10 @@ $.fn.hideWindow = async function (options) {
                 });
             }, 250);
 
-            // update title and window URL — only if this window was the one that owns the URL
+            // reset the tab title (the URL is not touched — apps never
+            // rewrite it on the desktop) — only if this window owned it
             const update_window_url = $(this).attr('data-update_window_url');
             if ( ! window.is_dashboard_mode && (update_window_url === 'true' || update_window_url === null) ) {
-                window.history.replaceState(null, document.title, '/desktop');
                 document.title = i18n('window_title_puter');
             }
         }

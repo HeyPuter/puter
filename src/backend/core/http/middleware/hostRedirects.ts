@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -38,9 +38,9 @@ const NATIVE_APP_SUBDOMAINS = [
 const NATIVE_APPS_WITH_DIST = new Set(['docs', 'developer']);
 
 /**
- * Subdomains that v2 serves itself. Anything NOT in this set that lives on
- * the root domain is treated as a user-defined site and redirected to the
- * static hosting domain.
+ * Subdomains that v2 serves itself. Anything NOT in this set that lives on the
+ * root domain is treated as a user-defined site and redirected to the static
+ * hosting domain.
  *
  * Kept as a plain Set so `has()` is O(1); order doesn't matter.
  */
@@ -57,9 +57,7 @@ const RESERVED_SUBDOMAINS = new Set<string>([
     'onlyoffice',
 ]);
 
-/**
- * Redirects `www.<domain>` → `<domain>` (dropping the path).
- */
+/** Redirects `www.<domain>` → `<domain>` (dropping the path). */
 export const createWwwRedirect = (config: IConfig): RequestHandler => {
     const domain = (config.domain ?? '').toLowerCase();
     return (req, res, next) => {
@@ -75,10 +73,11 @@ export const createWwwRedirect = (config: IConfig): RequestHandler => {
  * domain. `foo.puter.com/bar?x=1` → `302 foo.puter.site/bar?x=1`.
  *
  * Passes through when:
- *   - no active subdomain (root)
- *   - active subdomain is reserved (api, js, native apps, …)
- *   - host doesn't end in `config.domain` (custom domains, other hosts)
- *   - `static_hosting_domain` isn't configured
+ *
+ * - No active subdomain (root)
+ * - Active subdomain is reserved (api, js, native apps, …)
+ * - Host doesn't end in `config.domain` (custom domains, other hosts)
+ * - `static_hosting_domain` isn't configured
  */
 export const createUserSubdomainRedirect = (
     config: IConfig,
@@ -122,15 +121,15 @@ export const createUserSubdomainRedirect = (
 };
 
 /**
- * Serves static files from native-app bundles for the reserved app
- * subdomains (`editor.*`, `docs.*`, …). `docs` and `developer` resolve
- * under a `/dist` subdir — everything else maps directly to `<root>/<app>`.
+ * Serves static files from native-app bundles for the reserved app subdomains
+ * (`editor.*`, `docs.*`, …). `docs` and `developer` resolve under a `/dist`
+ * subdir — everything else maps directly to `<root>/<app>`.
  *
  * When the requested path is a directory without a trailing slash, responds
  * with 307 so relative asset URLs resolve correctly.
  *
- * Pass-through when `native_apps_root` is unset so self-hosted deployments
- * that don't ship the apps don't trip on 404s.
+ * Pass-through when `native_apps_root` is unset so self-hosted deployments that
+ * don't ship the apps don't trip on 404s.
  */
 export const createNativeAppStatic = (config: IConfig): RequestHandler => {
     const root = config.native_apps_root;

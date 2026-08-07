@@ -1,18 +1,16 @@
 import UIContextMenu from '../UIContextMenu.js';
 import UIAlert from '../UIAlert.js';
+import launch_app from '../../helpers/launch_app.js';
+import revokeAppSessions from '../../helpers/revoke_app_sessions.js';
+import { begin_dashboard_tile_launch, settle_dashboard_tile_launch } from '../UIWindow.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
+import { parseRemovedApps, serializeRemovedApps, REMOVED_APPS_KV_KEY } from './removedApps.js';
 
 /** Lowercase app names that must not offer Uninstall in the My Apps tile context menu. */
 const APP_NAMES_NO_UNINSTALL = new Set([
     'dev-center',
     'app-center',
-    'editor',
-    'camera',
-    'recorder',
-    'memos',
-    'music-player',
-    'ai',
 ]);
 
 /*
@@ -35,9 +33,9 @@ const APP_NAMES_NO_UNINSTALL = new Set([
  */
 
 // -- Drag-to-reorder tuning --
-const DRAG_START_DISTANCE = 5;      // px a mouse/pen must travel before a drag begins
-const DRAG_TOUCH_CANCEL_DISTANCE = 10; // px of finger travel that reclassifies a press as a scroll
-const DRAG_TOUCH_LONGPRESS_MS = 450; // hold time before a touch begins reordering
+const DRAG_START_DISTANCE = 5;      // px a pointer must travel before a drag begins
+const MODE_LONGPRESS_MS = 500;      // hold on empty grid space before reorder mode engages
+const MODE_LONGPRESS_CANCEL_DISTANCE = 10; // px of travel that reclassifies the hold as a swipe
 const DRAG_EDGE_ZONE = 60;          // px from a scroller edge that arms a page flip
 const DRAG_EDGE_DWELL_MS = 480;     // hold time at an edge before the page flips
 const DRAG_FLIP_SETTLE_MS = 440;    // time to let a page flip's smooth-scroll settle
@@ -49,6 +47,57 @@ const TILE_REMOVE_DELAY_MS = 500;   // pause between the uninstall modal closing
 // inside it (this fraction is trimmed off every edge). The resulting deadzone
 // around each tile is what stops items flickering back and forth at a boundary.
 const DRAG_HIT_INSET = 0.28;
+
+// How long a /app/<name> landing waits for the launching app's tile to be
+// visible before giving up on the click→morph→open intro and launching with
+// the plain fade (see beginDeepLinkLaunch). The wait covers the dashboard
+// window, the app-list fetches, a possibly-deferred first render, and the
+// grid's load-fade; the launch's own app-info fetch runs in parallel to it
+// (initgui prefetches), so this wait is the only thing the intro can cost.
+const DEEP_LINK_INTRO_DEADLINE_MS = 3000;
+const DEEP_LINK_INTRO_POLL_MS = 50;
+// Pacing for the intro itself. On a fast connection the grid reveal, the
+// tile's click flourish, and the window's morph would land in the same
+// breath and read as an unexplained flash — the beats spread them into a
+// sequence the user can follow: see the grid (WHERE you are), see the tile
+// acknowledge (WHAT is opening), see the window grow out of it. The grid
+// beat runs from the start of the pager's 200ms load-fade (see
+// .myapps-pager-loading); the click beat matches the round-trip feel of a
+// real tile click, joining the window's morph while the icon ghost is
+// still dissolving so the two halves stay one continuous motion.
+const DEEP_LINK_INTRO_GRID_BEAT_MS = 500;
+const DEEP_LINK_INTRO_CLICK_BEAT_MS = 300;
+// When the tile lives on a later pager page, the intro TRAVELS there
+// visibly (smooth scroll) instead of waking up on page N with no context —
+// the journey itself tells the user where the app lives. Smooth scrollTo
+// has no reliable completion event across engines, so like the drag code's
+// DRAG_FLIP_SETTLE_MS this is an allowance: the scroll's ~450ms plus a
+// rest so the landing reads before the tile pops.
+const DEEP_LINK_INTRO_FLIP_SETTLE_MS = 620;
+// The intro exists to teach ("windows are inflated tiles; minimize goes
+// back to the grid"); once learned it would only be a tax on every
+// bookmarked landing. After this many delivered — or deliberately skipped —
+// intros the beats collapse and the sequence plays in one breath, exactly
+// like a warm tile click. Counted per ACCOUNT in kv, not per device: the
+// lesson lives in the user's head and the account is what follows them
+// across devices (localStorage would also bleed between accounts on a
+// shared browser). The animated page flip is exempt from the decay — see
+// beginDeepLinkLaunch.
+const DEEP_LINK_INTRO_TEACH_COUNT = 3;
+const DEEP_LINK_INTRO_SEEN_KV_KEY = 'dashboard_deeplink_intros_seen';
+
+// The kv counter arrives as whatever the store returns (a number, a numeric
+// string, null on a failed or timed-out read); anything unparseable reads
+// as zero so the intro's failure mode is to teach once more — never to
+// never teach.
+function parseIntroSeenCount (raw) {
+    const n = typeof raw === 'number' ? raw : parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+// Cog on the reorder-mode toggle; _setReorderMode swaps it for "Done" while
+// the mode is on.
+const REORDER_BTN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
 
 // External apps (not owned by a Puter user) can report an opaque app-… id
 // as their title (uid === name === title); in that case show the hostname
@@ -84,6 +133,13 @@ function buildTileHtml (app) {
     let h = `<div class="myapps-tile" role="button" tabindex="-1" data-app-name="${html_encode(app.name)}" data-app-title="${html_encode(title)}" data-app-uid="${html_encode(app.uid || '')}" data-target-link="${html_encode(targetLink)}" title="${html_encode(title)}">`;
     h += '<div class="myapps-tile-icon">';
     h += `<img src="${html_encode(iconUrl)}" alt="" draggable="false">`;
+    // iOS-style uninstall badge; only shown while reorder mode is on (CSS).
+    // tabindex=-1 keeps it out of the grid's roving-tabindex tab order.
+    if ( ! APP_NAMES_NO_UNINSTALL.has((app.name || '').toLowerCase()) ) {
+        h += `<button type="button" class="myapps-tile-remove" tabindex="-1" aria-label="Uninstall ${html_encode(title)}">`;
+        h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+        h += '</button>';
+    }
     h += '</div>';
     h += `<span class="myapps-tile-label">${html_encode(title)}</span>`;
     h += '</div>';
@@ -173,14 +229,22 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
         //
         // A load fetched before the revoke must not apply — it would
         // resurrect the pre-revoke grid. No refetch here either: the
-        // recommended launch list doesn't know about the revoke, so an
-        // immediate reload would just re-add a recommended app's tile.
+        // optimistic splice below already shows the result, and
+        // _setAppRemoved is what keeps later loads (and the next session)
+        // from re-adding a recommended app's tile — the recommended launch
+        // list is global and doesn't know about the revoke.
         // The saved order intentionally keeps the app's name:
         // reconcileAppOrder ignores it while the app is gone and
         // restores its position if it comes back.
         const removedIndex = self._apps.findIndex(a => a.name === appName);
         const removedApp = removedIndex === -1 ? null : self._apps[removedIndex];
+        // A running instance would be stranded: the tile is a headless
+        // app's only switcher, so once it's gone a minimized window could
+        // never be restored OR quit. Close the app's windows first (close
+        // also consumes the app's URL entry if it owns one).
+        $(`.window[data-app="${html_encode(appName)}"]`).close();
         self._invalidateInFlightLoads();
+        self._setAppRemoved(appName, true);
         close();
 
         // A failed revoke must not roll back mid-animation: finishRemoval
@@ -251,10 +315,33 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
             finishRemoval();
         }
 
-        puter.perms.revokeApp(appUid, '*').catch(async err => {
+        puter.perms.revokeApp(appUid, '*').then(async () => {
+            // Clearing the grants is only half of it. An app the user already
+            // opened holds a token that authenticates against a session row,
+            // and that row outlives the permission rows — so without this an
+            // uninstalled app keeps calling with the credential it has. The
+            // revoke endpoint deliberately doesn't do this itself: dropping
+            // grants without ending the app's sign-in is a valid thing to ask
+            // for on its own, so uninstall asks for both.
+            //
+            // The grants are already gone at this point, so the app is
+            // uninstalled either way and the tile stays removed. A failure here
+            // is worth saying out loud rather than swallowing — it's the
+            // difference between "revoked" and "revoked but still signed in",
+            // and Manage Sessions is where the user can finish the job.
+            try {
+                await revokeAppSessions(appUid);
+            } catch ( e ) {
+                console.error('Uninstalled the app but could not end its sessions:', e);
+                UIAlert(i18n('uninstall_sessions_failed', [displayName]));
+            }
+        }).catch(async err => {
             console.error('Failed to uninstall app:', err);
             await removalSettled;
             self._invalidateInFlightLoads();
+            // The uninstall didn't happen — take the name back off the
+            // removed list so the recommended merge can show it again.
+            self._setAppRemoved(appName, false);
             if ( removedApp && ! self._apps.some(a => a.name === appName) ) {
                 self._apps.splice(Math.min(removedIndex, self._apps.length), 0, removedApp);
                 self.renderApps($el_window, { preservePage: true, instant: true });
@@ -307,12 +394,16 @@ const TabApps = {
     _pageCount: 0,
     _hasCustomOrder: false,
     _drag: null,
+    _reorderMode: false,
+    _emptyPress: null,
+    _suppressEmptyTap: false,
     _justDragged: false,
     _reduceMotionMQL: undefined,
     _loadPromise: null,
     _pendingLoad: null,
     _savedOrderNames: null,
     _orderSavedAtSeq: 0,
+    _launchingApps: new Set(),
 
     html () {
         let h = '<div class="dashboard-tab-content myapps-tab">';
@@ -324,6 +415,9 @@ const TabApps = {
         // offering email/contact autofill suggestions on focus.
         h += '<input type="search" name="myapps-search" class="myapps-search" placeholder="Search apps..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" data-form-type="other" data-lpignore="true" data-1p-ignore>';
         h += '</div>';
+        // Touch devices' way into drag-to-reorder (CSS shows it only there);
+        // toggles the reorder mode — see _setReorderMode.
+        h += `<button type="button" class="myapps-reorder-btn" aria-pressed="false" aria-label="Edit apps">${REORDER_BTN_ICON}</button>`;
         h += '</div>';
         h += '<div class="myapps-container">';
         h += '</div>';
@@ -332,9 +426,67 @@ const TabApps = {
     },
 
     init ($el_window) {
+        // This object outlives a closed dashboard window; a re-init gets a
+        // fresh DOM that is not in reorder mode, whatever the old one was —
+        // and a pending empty-space press holds document-level listeners
+        // that must not survive the old DOM.
+        this._reorderMode = false;
+        this._cancelEmptyPress();
+
         this.loadApps($el_window);
 
         const self = this;
+
+        $el_window.on('click', '.myapps-reorder-btn', function (e) {
+            // Don't bubble on to the empty-tap handler below: toggling the
+            // mode replaces this button's content, and if the tap landed on
+            // the cog svg the detached target no longer matches the
+            // handler's ancestry checks — the tap would read as empty space
+            // and undo the toggle it just made.
+            e.stopPropagation();
+            self._setReorderMode($el_window, ! self._reorderMode);
+        });
+
+        // Tapping empty grid space while the mode is on acts as Done,
+        // iOS-style. Interactive pieces are excluded: they handle themselves.
+        // _suppressEmptyTap covers the clicks a drag-drop or a long-press
+        // lift synthesizes on empty space.
+        $el_window.on('click', '.myapps-tab', function (e) {
+            if ( ! self._reorderMode || self._suppressEmptyTap ) return;
+            // A detached target means some handler already reshaped the DOM
+            // under this click — whatever it was, it wasn't empty space.
+            if ( ! e.target.isConnected ) return;
+            if ( $(e.target).closest('.myapps-tile, .myapps-tile-remove, .myapps-reorder-btn, .myapps-pager-dot, .myapps-pager-arrow').length ) return;
+            self._setReorderMode($el_window, false);
+        });
+
+        // …and pressing-and-holding empty grid space enters the mode.
+        $el_window.on('pointerdown', '.myapps-tab', function (e) {
+            self._onEmptyPointerDown($el_window, e);
+        });
+
+        // Reorder mode's per-tile uninstall badge — the context-menu route to
+        // Uninstall is suppressed while the mode is on, this replaces it.
+        $el_window.on('click', '.myapps-tile-remove', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if ( ! self._reorderMode || self._drag ) return;
+            const $tile = $(this).closest('.myapps-tile');
+            showUninstallModal({
+                appName: $tile.attr('data-app-name'),
+                appTitle: $tile.attr('data-app-title'),
+                appUid: $tile.attr('data-app-uid'),
+                self,
+                $el_window,
+            });
+        });
+
+        // Tiles double as the app switcher for headless in-page apps: a
+        // dot marks tiles whose app has an open (or minimized) window.
+        // UIWindow fires this event on every window open/close.
+        document.addEventListener('dashboard-app-windows-changed', () => {
+            self.updateRunningDots($el_window);
+        });
 
         $el_window.on('input', '.myapps-search', function () {
             self.updateSearchIcons($el_window);
@@ -349,11 +501,15 @@ const TabApps = {
         });
 
         // Handle app tile clicks. External apps carry a target link (their
-        // index_url) and open the app's website directly; everything else
-        // opens the Puter app page — matching the Home tab.
+        // index_url) and open the app's website directly in a new browser tab
+        // (an external site can't be reliably iframed); everything else
+        // launches the app as a maximized window in this same page.
         $el_window.on('click', '.myapps-tile', function (e) {
             e.preventDefault();
             e.stopPropagation();
+            // In reorder mode a press on a tile is a (potential) drag pickup,
+            // never a launch.
+            if ( self._reorderMode ) return;
             // A click synthesized at the end of a drag must not open the app.
             if ( self._justDragged ) {
                 self._justDragged = false;
@@ -361,55 +517,131 @@ const TabApps = {
             }
             const appName = $(this).attr('data-app-name');
             const targetLink = $(this).attr('data-target-link');
+            // Ctrl/Cmd+click opens in a new browser tab, mirroring the
+            // context menu's "Open in new tab" item.
+            if ( e.ctrlKey || e.metaKey ) {
+                if ( targetLink && targetLink !== '' ) {
+                    window.open(targetLink, '_blank', 'noopener,noreferrer');
+                } else if ( appName ) {
+                    window.open(`/app/${encodeURIComponent(appName)}`, '_blank', 'noopener,noreferrer');
+                }
+                return;
+            }
             if ( targetLink && targetLink !== '' ) {
                 window.open(targetLink, '_blank', 'noopener,noreferrer');
             } else if ( appName ) {
-                window.open(`/app/${appName}`, '_blank', 'noopener,noreferrer');
+                // One instance per app when launched from here: un-hide a
+                // minimized instance / focus a visible one rather than
+                // launching a duplicate.
+                const $existing = $(`.window[data-app="${html_encode(appName)}"]`);
+                if ( $existing.length ) {
+                    const $win = $existing.last();
+                    const minimized = $win.attr('data-is_minimized');
+                    if ( minimized === '1' || minimized === 'true' ) {
+                        $win.showWindow();
+                    } else {
+                        $win.focusWindow();
+                    }
+                    return;
+                }
+                // A second click while the first launch's fetches are still in
+                // flight has no window to find yet — swallow it instead of
+                // spawning a duplicate instance.
+                if ( self._launchingApps.has(appName) ) return;
+                self._launchingApps.add(appName);
+                const tile = this;
+                // Acknowledge the click NOW: the icon's half of the open
+                // morph starts immediately, while the app's fetches are
+                // still in flight; the window's half claims it when the
+                // window opens (morph_from_dashboard_tile → see UIWindow),
+                // and settle puts the icon back if it never does (launch
+                // failed, or the morph fell back to the plain fade).
+                begin_dashboard_tile_launch(tile);
+                launch_app({
+                    name: appName,
+                    maximized: true,
+                    window_options: { morph_from_dashboard_tile: true },
+                })
+                    .catch((err) => {
+                        console.error(`Failed to launch ${appName}:`, err);
+                    })
+                    .finally(() => {
+                        self._launchingApps.delete(appName);
+                        settle_dashboard_tile_launch(tile);
+                    });
             }
         });
 
         // Start a drag-to-reorder gesture. Kept separate from click so a plain
-        // click still opens the app (see _onTilePointerDown for the threshold /
-        // long-press logic that distinguishes the two).
+        // click still opens the app (see _onTilePointerDown for the movement
+        // threshold that distinguishes the two).
         $el_window.on('pointerdown', '.myapps-tile', function (e) {
             self._onTilePointerDown($el_window, e, this);
         });
 
-        // Context menu on right-click
+        // Context menu on right-click (and, where the platform fires it,
+        // touch long-press).
         $el_window.on('contextmenu', '.myapps-tile', function (e) {
-            // Suppress the menu (and any touch long-press callout) mid-drag.
-            if ( self._drag && self._drag.started ) {
+            // Reorder mode owns every tile gesture — no menu there; likewise
+            // suppress the menu (and any long-press callout) mid-drag.
+            if ( self._reorderMode || (self._drag && self._drag.started) ) {
                 e.preventDefault();
                 return;
             }
             const appName = $(this).attr('data-app-name');
             const appTitle = $(this).attr('data-app-title');
             const appUid = $(this).attr('data-app-uid');
+            const targetLink = $(this).attr('data-target-link');
             const noUninstall = APP_NAMES_NO_UNINSTALL.has((appName || '').toLowerCase());
+            const isRunning = !! appName && $(`.window[data-app="${html_encode(appName)}"]`).length > 0;
 
-            const items = noUninstall
-                ? []
-                : [
-                    {
-                        html: 'Uninstall',
-                        onClick: () => {
-                            showUninstallModal({
-                                appName,
-                                appTitle,
-                                appUid,
-                                self,
-                                $el_window,
-                            });
-                        },
+            // Every app opens in a new browser tab the way tiles did before
+            // in-page windows: external tiles via their site link, everything
+            // else via its /app/<name> URL.
+            const items = [
+                {
+                    html: 'Open in new tab',
+                    onClick: () => {
+                        if ( targetLink && targetLink !== '' ) {
+                            window.open(targetLink, '_blank', 'noopener,noreferrer');
+                        } else if ( appName ) {
+                            window.open(`/app/${encodeURIComponent(appName)}`, '_blank', 'noopener,noreferrer');
+                        }
                     },
-                ];
+                },
+            ];
+            // The tile doubles as the app switcher (headless apps have no
+            // titlebar): a running app — the tile shows its dot — can be
+            // quit from here without entering it. Closing consumes the
+            // app's URL entry only if it owns the URL (it doesn't, here on
+            // the dashboard), and the running dot clears via the
+            // dashboard-app-windows-changed event once the window is gone.
+            if ( isRunning ) {
+                items.push({
+                    html: 'Quit',
+                    onClick: () => {
+                        $(`.window[data-app="${html_encode(appName)}"]`).close();
+                    },
+                });
+            }
+            if ( ! noUninstall ) {
+                items.push('-', {
+                    html: 'Uninstall',
+                    onClick: () => {
+                        showUninstallModal({
+                            appName,
+                            appTitle,
+                            appUid,
+                            self,
+                            $el_window,
+                        });
+                    },
+                });
+            }
 
-            if ( items.length === 0 ) return;
-
-            // A touch long-press arms a drag pickup (see _onTilePointerDown). If
-            // the user held rather than dragged, they want this menu — cancel the
-            // pending pickup so the long-press → Uninstall path keeps working on
-            // touch. An already-started drag was handled by the guard above.
+            // A pending pickup (button held, not yet moved) would be stranded
+            // under the menu; cancel it so the two can't run at once. An
+            // already-started drag was handled by the guard above.
             if ( self._drag ) self._endDrag(false);
 
             e.preventDefault();
@@ -576,6 +808,16 @@ const TabApps = {
     renderApps ($el_window, { preservePage = false, instant = false } = {}) {
         if ( ! this._apps ) return;
 
+        // The reorder toggle only earns its place once there's something to
+        // reorder (CSS additionally gates it to touch-primary devices). A
+        // background refresh can also shrink the list below two mid-mode
+        // (e.g. apps uninstalled in another window) — leave the mode then.
+        $el_window.find('.myapps-reorder-btn')
+            .toggleClass('myapps-reorder-btn-available', this._apps.length >= 2);
+        if ( this._reorderMode && this._apps.length < 2 ) {
+            this._setReorderMode($el_window, false);
+        }
+
         const $container = $el_window.find('.myapps-container');
         const query = String($el_window.find('.myapps-search').val() || '').toLowerCase().trim();
 
@@ -621,6 +863,7 @@ const TabApps = {
 
         $container.html(buildPagerHtml(list, layout, instant));
         revealWhenLoaded($container);
+        this.updateRunningDots($el_window);
 
         const scroller = $container.find('.myapps-pager-scroller')[0];
         if ( this._page > 0 ) {
@@ -645,6 +888,17 @@ const TabApps = {
                 }
             });
         }, { passive: true });
+    },
+
+    // Mark tiles whose app has a live window (visible OR minimized — both
+    // are running) with the macOS-dock-style dot. Cheap enough to re-run
+    // wholesale on every open/close/render.
+    updateRunningDots ($el_window) {
+        for ( const tile of $el_window.find('.myapps-tile').toArray() ) {
+            const name = tile.getAttribute('data-app-name');
+            const running = !! name && $(`.window[data-app="${html_encode(name)}"]`).length > 0;
+            tile.classList.toggle('myapps-tile-running', running);
+        }
     },
 
     updatePagerUI ($el_window) {
@@ -693,6 +947,119 @@ const TabApps = {
         return !! (this._reduceMotionMQL && this._reduceMotionMQL.matches);
     },
 
+    // -- Reorder mode (touch) --
+    // On touch, a drag must win the gesture from native scrolling *before*
+    // the finger moves — touch-action is consulted at gesture start, so no
+    // amount of long-press arming can reclaim a touch the scroller already
+    // owns (hence the flaky pre-mode behavior, worst on iOS). An explicit
+    // mode can: while it's on, CSS sets touch-action:none on the tiles, the
+    // first pointer movement begins a drag, taps don't launch, and the
+    // context menu is suppressed. Entry is the cog button or a long-press on
+    // empty grid space; exit is Done or a tap on empty space (all iOS
+    // home-screen conventions). Each drop still persists immediately via
+    // saveOrder (same as desktop), so exiting only leaves the mode — there
+    // is no unsaved state to lose.
+    _setReorderMode ($el_window, on) {
+        on = !! on;
+        if ( this._reorderMode === on ) return;
+        if ( on && (! this._apps || this._apps.length < 2) ) return;
+
+        if ( ! on && this._drag ) {
+            // Done tapped with another finger mid-gesture: settle the drag
+            // first — commit a started one, discard a pending pickup.
+            this._endDrag(this._drag.started);
+        }
+
+        this._reorderMode = on;
+        $el_window.find('.dashboard-tab-content.myapps-tab')
+            .toggleClass('myapps-reorder-mode', on);
+
+        // Reordering a filtered subset is ambiguous (see _onTilePointerDown),
+        // so the mode owns the unfiltered grid: clear any query and freeze
+        // the search box while the mode is on.
+        const $search = $el_window.find('.myapps-search');
+        if ( on && String($search.val() || '') !== '' ) {
+            $search.val('');
+            this.updateSearchIcons($el_window);
+            this.renderApps($el_window);
+        }
+        $search.prop('disabled', on);
+
+        $el_window.find('.myapps-reorder-btn')
+            .toggleClass('myapps-reorder-btn-active', on)
+            .attr('aria-pressed', on ? 'true' : 'false')
+            .attr('aria-label', on ? 'Done editing' : 'Edit apps')
+            .html(on ? 'Done' : REORDER_BTN_ICON);
+    },
+
+    // A drag's drop and a long-press's lift both synthesize a click that can
+    // land on empty grid space; without this window the empty-tap-is-Done
+    // handler would read them as an exit request.
+    _suppressEmptyTapBriefly () {
+        this._suppressEmptyTap = true;
+        clearTimeout(this._suppressEmptyTapTimer);
+        this._suppressEmptyTapTimer = setTimeout(() => {
+            this._suppressEmptyTap = false;
+        }, 350);
+    },
+
+    // Long-press on empty grid space (touch) enters reorder mode. Unlike the
+    // abandoned long-press-to-drag, nothing here races the scroller or the
+    // native callout — the finger only has to hold still, so a plain timer
+    // is dependable. Movement (a swipe / page pan) or an early lift cancels
+    // the intent; after the mode engages, the same press keeps its listeners
+    // just long enough to suppress the click its lift synthesizes.
+    _onEmptyPointerDown ($el_window, e) {
+        const oe = e.originalEvent || e;
+        if ( this._reorderMode || this._drag || this._emptyPress ) return;
+        if ( (oe.pointerType || 'mouse') !== 'touch' ) return;
+        // Match the cog button's audience (a mode with no visible toggle
+        // would confuse hover-capable touchscreen laptops).
+        if ( ! isTouchPrimaryDevice() ) return;
+        if ( ! this._apps || this._apps.length < 2 ) return;
+        if ( $(oe.target).closest('.myapps-tile, .myapps-reorder-btn, .myapps-pager-dot, .myapps-pager-arrow, .myapps-search-inner, .myapps-modal-overlay').length ) return;
+
+        const p = this._emptyPress = {
+            pointerId: oe.pointerId,
+            startX: oe.clientX,
+            startY: oe.clientY,
+            timer: null,
+            fired: false,
+        };
+        const isPressPointer = ev => ev.pointerId === undefined || ev.pointerId === p.pointerId;
+        p.onMove = ev => {
+            if ( ! isPressPointer(ev) || p.fired ) return;
+            const dist = Math.hypot(ev.clientX - p.startX, ev.clientY - p.startY);
+            if ( dist > MODE_LONGPRESS_CANCEL_DISTANCE ) this._cancelEmptyPress();
+        };
+        p.onEnd = ev => {
+            if ( ! isPressPointer(ev) ) return;
+            if ( p.fired ) this._suppressEmptyTapBriefly();
+            this._cancelEmptyPress();
+        };
+        document.addEventListener('pointermove', p.onMove, { passive: true });
+        document.addEventListener('pointerup', p.onEnd);
+        document.addEventListener('pointercancel', p.onEnd);
+        p.timer = setTimeout(() => {
+            if ( this._emptyPress !== p ) return;
+            p.fired = true;
+            this._setReorderMode($el_window, true);
+            if ( navigator.vibrate ) {
+                try { navigator.vibrate(8); } catch ( _e ) { /* not supported */ }
+            }
+        }, MODE_LONGPRESS_MS);
+    },
+
+    _cancelEmptyPress () {
+        const p = this._emptyPress;
+        if ( ! p ) return;
+        this._emptyPress = null;
+        clearTimeout(p.timer);
+        document.removeEventListener('pointermove', p.onMove);
+        document.removeEventListener('pointerup', p.onEnd);
+        document.removeEventListener('pointercancel', p.onEnd);
+    },
+
     // -- Drag-to-reorder --
 
     _onTilePointerDown ($el_window, e, tileEl) {
@@ -702,11 +1069,20 @@ const TabApps = {
         if ( oe.button !== undefined && oe.button !== 0 ) return;
         if ( this._drag ) return;
         if ( ! this._apps || this._apps.length < 2 ) return;
+        // A press on the uninstall badge belongs to that button, not to a
+        // drag pickup — a finger wobble while tapping × must not lift the tile.
+        if ( oe.target && oe.target.closest && oe.target.closest('.myapps-tile-remove') ) return;
         // Reordering a filtered subset is ambiguous — only reorder the full list.
         const query = String($el_window.find('.myapps-search').val() || '').trim();
         if ( query ) return;
 
         const pointerType = oe.pointerType || 'mouse';
+        // Touch reorders only inside reorder mode (the button is the way in;
+        // outside it the scroller owns touch gestures and would cancel the
+        // drag anyway — see _setReorderMode). A touch press outside the mode
+        // stays a tap (launch), swipe (page), or long-press (context menu on
+        // platforms that fire it), all handled elsewhere.
+        if ( pointerType === 'touch' && ! this._reorderMode ) return;
         const d = this._drag = {
             $el_window,
             tileEl,
@@ -719,13 +1095,11 @@ const TabApps = {
             offsetX: 0,
             offsetY: 0,
             started: false,
-            readyToDrag: pointerType !== 'touch', // touch must long-press first
             ghost: null,
             edgeTimer: null,
             edgeDir: 0,
             flipping: false,
             flipClearTimer: null,
-            longPressTimer: null,
         };
 
         // Ignore events from a second pointer (e.g. a stray finger) so it can't
@@ -742,21 +1116,6 @@ const TabApps = {
         document.addEventListener('pointercancel', d.onCancel);
         document.addEventListener('keydown', d.onKey);
         window.addEventListener('blur', d.onBlur);
-
-        // Touch: a long-press *arms* reordering (it doesn't grab the tile yet).
-        // Moving after that begins the drag; holding still instead lets the
-        // native long-press context menu (Uninstall) fire. A finger that moves
-        // before the long-press is a page swipe and cancels the intent (see
-        // _onDragPointerMove).
-        if ( pointerType === 'touch' ) {
-            d.longPressTimer = setTimeout(() => {
-                if ( this._drag !== d || d.started ) return;
-                d.readyToDrag = true;
-                if ( navigator.vibrate ) {
-                    try { navigator.vibrate(8); } catch ( _e ) { /* not supported */ }
-                }
-            }, DRAG_TOUCH_LONGPRESS_MS);
-        }
     },
 
     _onDragPointerMove (e) {
@@ -765,11 +1124,6 @@ const TabApps = {
 
         if ( ! d.started ) {
             const dist = Math.hypot(e.clientX - d.startX, e.clientY - d.startY);
-            if ( ! d.readyToDrag ) {
-                // Touch, pre-long-press: a moving finger is a page swipe.
-                if ( dist > DRAG_TOUCH_CANCEL_DISTANCE ) this._endDrag(false);
-                return;
-            }
             if ( dist <= DRAG_START_DISTANCE ) return;
             d.lastClientX = e.clientX;
             d.lastClientY = e.clientY;
@@ -799,8 +1153,9 @@ const TabApps = {
         // starting a drag on a stale node would corrupt the persisted order.
         if ( ! d.tileEl.isConnected ) { this._endDrag(false); return; }
         d.started = true;
-        clearTimeout(d.longPressTimer);
-        d.longPressTimer = null;
+        if ( d.pointerType === 'touch' && navigator.vibrate ) {
+            try { navigator.vibrate(8); } catch ( _e ) { /* not supported */ }
+        }
 
         const rect = d.tileEl.getBoundingClientRect();
         d.offsetX = d.startX - rect.left;
@@ -971,7 +1326,6 @@ const TabApps = {
         document.removeEventListener('pointercancel', d.onCancel);
         document.removeEventListener('keydown', d.onKey);
         window.removeEventListener('blur', d.onBlur);
-        clearTimeout(d.longPressTimer);
         clearTimeout(d.edgeTimer);
         clearTimeout(d.flipClearTimer);
     },
@@ -990,13 +1344,17 @@ const TabApps = {
 
         d.tileEl.classList.remove('myapps-tile-dragging');
 
+        // The click this drop synthesizes may land on empty grid space (the
+        // drop spot) — it is the tail of the drag, not an exit-the-mode tap.
+        this._suppressEmptyTapBriefly();
+
         let changed = false;
         if ( commit ) {
             const names = d.$el_window.find('.myapps-page .myapps-tile').toArray()
                 .map(t => t.getAttribute('data-app-name'));
             const current = this._apps.map(a => a.name);
-            // Only persist when the order actually changed, so an accidental
-            // long-press or drop-in-place doesn't freeze the default ordering.
+            // Only persist when the order actually changed, so a pickup
+            // dropped back in place doesn't freeze the default ordering.
             changed = names.length !== current.length
                 || names.some((name, i) => name !== current[i]);
             if ( changed ) {
@@ -1067,6 +1425,36 @@ const TabApps = {
         this._loadSeq = (this._loadSeq || 0) + 1;
         this._appliedSeq = this._loadSeq;
         this._loadPromise = null;
+    },
+
+    // Record that the user uninstalled `appName` — or, with removed=false,
+    // that a failed uninstall rolled back. The in-memory record makes this
+    // session's loads filter correctly even while the kv write is still in
+    // flight; the kv record is what makes the uninstall survive a refresh
+    // (see the removedNames filter in _fetchAndRenderApps).
+    _setAppRemoved (appName, removed) {
+        if ( typeof appName !== 'string' || appName.length === 0 ) return;
+        if ( ! this._removedLocal ) this._removedLocal = new Map();
+        this._removedLocal.set(appName, removed);
+
+        // Persist by read-modify-write, serialized on a promise chain so two
+        // quick uninstalls can't interleave their reads and writes. Every
+        // local mutation is replayed onto the freshly read list, so a write
+        // that failed earlier is repaired by the next one, and names added
+        // by another window survive. If the read itself fails, the write is
+        // skipped rather than risk clobbering the stored list with an empty
+        // one — the in-memory record still covers this session, and the
+        // next write retries the lot.
+        this._removedWriteChain = (this._removedWriteChain || Promise.resolve()).then(async () => {
+            const names = parseRemovedApps(await puter.kv.get(REMOVED_APPS_KV_KEY));
+            for ( const [name, isRemoved] of this._removedLocal ) {
+                if ( isRemoved ) names.add(name);
+                else names.delete(name);
+            }
+            await puter.kv.set(REMOVED_APPS_KV_KEY, JSON.stringify(serializeRemovedApps(names)));
+        }).catch(err => {
+            console.error('Failed to persist the uninstalled-apps list:', err);
+        });
     },
 
     saveOrder () {
@@ -1164,7 +1552,7 @@ const TabApps = {
                 return { apps: all, complete: true };
             };
 
-            const [installedResult, launchRes, savedOrderRaw] = await Promise.all([
+            const [installedResult, launchRes, savedOrderRaw, removedAppsRaw] = await Promise.all([
                 fetchAllInstalledApps(),
                 fetch(
                     `${window.api_origin}/get-launch-apps?icon_size=128`,
@@ -1174,10 +1562,28 @@ const TabApps = {
                     },
                 ),
                 puter.kv.get(APPS_ORDER_KV_KEY).catch(() => null),
+                puter.kv.get(REMOVED_APPS_KV_KEY).catch(() => null),
             ]);
 
             const installedApps = installedResult.apps;
             const launchData = await launchRes.json();
+
+            // Uninstall only revokes permissions, and the recommended list
+            // is a global hardcoded set that knows nothing about per-user
+            // revokes — without this filter every uninstalled recommended
+            // app resurrects on the next load. Only the recommended merge
+            // is filtered; installedApps is never touched, so an app the
+            // user genuinely (re)installs always shows. The kv snapshot is
+            // overlaid with this session's not-yet-persisted mutations: an
+            // uninstall races its own kv write, and a failed uninstall's
+            // rollback races the removal of that write.
+            const removedNames = parseRemovedApps(removedAppsRaw);
+            if ( this._removedLocal ) {
+                for ( const [name, isRemoved] of this._removedLocal ) {
+                    if ( isRemoved ) removedNames.add(name);
+                    else removedNames.delete(name);
+                }
+            }
 
             // Normalize recommended launch apps to the tile shape. The
             // recent list is deliberately unused: recents are open history,
@@ -1185,14 +1591,16 @@ const TabApps = {
             // showed merely-visited sites as if installed. Anything the user
             // actually uses appears via installedApps (opening an app grants
             // it a permission). Recents still power the Home tab.
-            const launchApps = (launchData.recommended || []).map(app => ({
-                name: app.name,
-                title: app.title,
-                uid: app.uuid || app.uid || null,
-                index_url: app.index_url || null,
-                external: app.external ?? false,
-                iconUrl: app.iconUrl || app.icon || null,
-            }));
+            const launchApps = (launchData.recommended || [])
+                .filter(app => ! removedNames.has(app?.name))
+                .map(app => ({
+                    name: app.name,
+                    title: app.title,
+                    uid: app.uuid || app.uid || null,
+                    index_url: app.index_url || null,
+                    external: app.external ?? false,
+                    iconUrl: app.iconUrl || app.icon || null,
+                }));
 
             // Build seen set from launch apps
             const seen = new Set();
@@ -1288,6 +1696,194 @@ const TabApps = {
         } else if ( attempts > 0 ) {
             setTimeout(() => this.focusSearch($el_window, attempts - 1), 30);
         }
+    },
+
+    // A direct landing on /app/<name> (see initgui's dashboard branch) plays
+    // the same click→morph→open sequence a real tile click does, so the user
+    // sees WHICH tile the app came from — and where minimize will put it
+    // back. This waits for the tile to be genuinely visible (grid loaded,
+    // load-fade revealed, icon painted — the flourish must never play over
+    // blank space), then paces out the sequence: a beat to take the grid in,
+    // a visible flip when the tile lives on a later pager page, the tile's
+    // click flourish, a beat for it to read, and only then does it resolve
+    // for the caller to open the window, whose morph grows it out of the
+    // tile's slot.
+    //
+    // The intro is pedagogy, and it knows when to step aside:
+    //   - INTERRUPTIBLE: any pointer/key/wheel input skips the remaining
+    //     choreography and resolves at once — the trained user's instinctive
+    //     click gets an instant launch. Input never cancels the launch
+    //     itself (the URL asked for the app), and it is never swallowed:
+    //     whatever it was doing (typing a search, flipping a page) still
+    //     happens.
+    //   - EXPOSURE DECAY: after DEEP_LINK_INTRO_TEACH_COUNT delivered (or
+    //     deliberately skipped) intros, the beats collapse and the sequence
+    //     plays in one breath — see the constant for why the count lives in
+    //     kv. The page flip is exempt: unlike the beats it isn't repeating a
+    //     lesson, it's live wayfinding to where THIS app lives, and its
+    //     settle is needed anyway to put the tile in view for the morph.
+    //
+    // Resolves to the tile element, or null when there is nothing to
+    // introduce — app not installed (resolved as soon as the app list
+    // arrives, with no further waiting), grid slower than the deadline
+    // (which also bounds a stalled app-list fetch: a hung request must not
+    // hold the launch hostage), or animations that wouldn't play anyway;
+    // the landing then launches immediately with the plain fade it always
+    // had.
+    //
+    // Also claims the app in _launchingApps immediately, so a user click on
+    // the tile mid-intro is swallowed instead of spawning a second instance
+    // (same guard as the click handler). The caller MUST call
+    // settleDeepLinkLaunch once its launch attempt settles.
+    async beginDeepLinkLaunch (appName, $el_window) {
+        this._launchingApps.add(appName);
+        // No animations, no intro: the morph and the flourish would both
+        // no-op, so waiting on the grid would only delay the launch.
+        if ( ! window.animate_window_opening || this._reduceMotion() ) return null;
+        const deadline = Date.now() + DEEP_LINK_INTRO_DEADLINE_MS;
+
+        // How many intros this account has already been shown — fetched in
+        // parallel with the grid load, so it is long resolved by the time
+        // the beats need the answer.
+        const seen_promise = puter.kv.get(DEEP_LINK_INTRO_SEEN_KV_KEY).catch(() => null);
+
+        // Interruption plumbing. The flag is checked at every step, and
+        // waking the in-flight sleep makes a skip take effect NOW rather
+        // than at the end of a beat. Passive capture listeners: they must
+        // see input that page handlers consume, and must never delay it.
+        let interrupted = false;
+        let wake = () => {};
+        const on_input = (e) => {
+            // Real user input only — a script-dispatched event is not a
+            // person asking the intro to hurry up.
+            if ( ! e.isTrusted ) return;
+            interrupted = true;
+            wake();
+        };
+        const sleep = ms => new Promise(resolve => {
+            wake = resolve;
+            setTimeout(resolve, ms);
+        });
+        document.addEventListener('pointerdown', on_input, { capture: true, passive: true });
+        document.addEventListener('keydown', on_input, { capture: true, passive: true });
+        document.addEventListener('wheel', on_input, { capture: true, passive: true });
+
+        let tile = null;
+        let flourish_played = false;
+        try {
+            // Join the load init() already started rather than racing a
+            // duplicate — but never wait past the deadline: fetch has no
+            // timeout of its own, and a stalled app-list request used to
+            // stall the launch with it. (Racing the interruptible sleep also
+            // lets input cut this wait short.)
+            try {
+                await Promise.race([
+                    this.loadApps($el_window),
+                    sleep(Math.max(0, deadline - Date.now())),
+                ]);
+            } catch ( _e ) { /* a failed load leaves _apps unset; handled below */ }
+            if ( interrupted ) return null;
+            if ( ! Array.isArray(this._apps) || ! this._apps.some(a => a.name === appName) ) {
+                return null;
+            }
+            while ( Date.now() < deadline && ! interrupted ) {
+                // A hidden page (deep link opened in a background tab) can't
+                // show the intro at all — and won't finish this wait either:
+                // Chrome throttles the sleep below to 1Hz and defers the
+                // deferred-render path's ResizeObserver, so waiting just
+                // delays the launch. Skip to the plain open; the app is
+                // simply there when the tab is finally brought forward.
+                if ( document.visibilityState === 'hidden' ) return null;
+                // Re-query every pass — renders replace tile nodes
+                // wholesale, and the first render can trail the load itself
+                // (the window is briefly hidden entering full-page mode, so
+                // renderApps defers to the ResizeObserver until the
+                // container has a size). Scoped to the ACTIVE section: if
+                // the user has already moved to another tab, there is no
+                // visible tile to introduce from.
+                const candidate = $el_window.find('.dashboard-section-apps.active .myapps-tile').toArray()
+                    .find(el => el.dataset.appName === appName);
+                if ( candidate ) {
+                    const revealed = ! $el_window.find('.myapps-pager').hasClass('myapps-pager-loading');
+                    const img = candidate.querySelector('.myapps-tile-icon img');
+                    if ( revealed && ( ! img || img.complete ) ) {
+                        tile = candidate;
+                        break;
+                    }
+                }
+                await sleep(DEEP_LINK_INTRO_POLL_MS);
+            }
+            if ( ! tile || interrupted ) return tile;
+            // The count is normally long resolved; the short cap covers a
+            // hung kv read without holding a ready tile back (the timed-out
+            // default of 0 errs toward teaching).
+            const seen = parseIntroSeenCount(await Promise.race([seen_promise, sleep(400)]));
+            const teach = seen < DEEP_LINK_INTRO_TEACH_COUNT;
+            if ( interrupted ) return tile;
+            // Everything is on screen — now pace the sequence (see the beat
+            // constants). The beats are also where the user may navigate
+            // away: a page hidden mid-beat skips the rest of the
+            // choreography and just opens the app (the flourish would play
+            // unseen, and the window's morph re-checks tile visibility on
+            // its own anyway).
+            if ( teach ) {
+                await sleep(DEEP_LINK_INTRO_GRID_BEAT_MS);
+                if ( interrupted || document.visibilityState === 'hidden' ) return tile;
+            }
+            // A tile on a later pager page: travel there visibly, AFTER the
+            // reveal and the grid beat — the grid opens on its familiar
+            // first page and the user watches the flip land on the page the
+            // app actually lives on (which is also where minimize will put
+            // it back).
+            const page = $el_window.find('.myapps-page').index($(tile).closest('.myapps-page'));
+            if ( page >= 0 && page !== this._page ) {
+                this.goToPage($el_window, page, true);
+                await sleep(DEEP_LINK_INTRO_FLIP_SETTLE_MS);
+                if ( interrupted || document.visibilityState === 'hidden' ) return tile;
+            }
+            begin_dashboard_tile_launch(tile);
+            flourish_played = true;
+            if ( teach ) {
+                await sleep(DEEP_LINK_INTRO_CLICK_BEAT_MS);
+            }
+            return tile;
+        } finally {
+            document.removeEventListener('pointerdown', on_input, { capture: true });
+            document.removeEventListener('keydown', on_input, { capture: true });
+            document.removeEventListener('wheel', on_input, { capture: true });
+            // What counts as "seen": the flourish was delivered while the
+            // user watched, or they had the grid in front of them and
+            // actively skipped ahead — proof they didn't need the rest.
+            // Fallbacks (hidden tab, timeout, no tile) taught nothing and
+            // don't count.
+            if ( flourish_played || (tile && interrupted) ) {
+                this._recordDeepLinkIntroSeen(seen_promise);
+            }
+        }
+    },
+
+    // Bump the per-account intro counter. kv.incr is atomic on the server,
+    // so two devices landing at once can't lose an increment; the pre-read
+    // only CAPS the counter — once the lesson is learned there is nothing
+    // left to record and the key stops changing. A failed write just means
+    // one more teach later.
+    _recordDeepLinkIntroSeen (seen_promise) {
+        Promise.resolve(seen_promise).then(raw => {
+            if ( parseIntroSeenCount(raw) >= DEEP_LINK_INTRO_TEACH_COUNT ) return;
+            return puter.kv.incr(DEEP_LINK_INTRO_SEEN_KV_KEY);
+        }).catch(err => {
+            console.error('Failed to record the deep-link intro exposure:', err);
+        });
+    },
+
+    // Release beginDeepLinkLaunch's duplicate-launch claim once the landing's
+    // launch attempt is over — success or failure, tile or no tile —
+    // mirroring the tile click handler's finally (including its
+    // settle_dashboard_tile_launch, which un-marks the tile if the window's
+    // morph never claimed it).
+    settleDeepLinkLaunch (appName, tile) {
+        this._launchingApps.delete(appName);
+        settle_dashboard_tile_launch(tile);
     },
 };
 

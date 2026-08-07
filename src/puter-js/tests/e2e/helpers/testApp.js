@@ -15,17 +15,20 @@ const PUTER_READY_TIMEOUT = 60_000;
 export async function waitForPuterReady (page) {
     await page.waitForFunction(() => !!window.puter, null, { timeout: PUTER_READY_TIMEOUT });
 
-    // With storageState, sign-in should already be done. Wait for both auth
-    // and the API origin to be picked up by the SDK from localStorage.
+    // With storageState, sign-in should already be done. Wait for the token to
+    // be picked up and the SDK pointed at the GUI's own API origin.
     try {
         await page.waitForFunction(
             () => {
-                const ls = (typeof localStorage !== 'undefined') ? localStorage.getItem('auth_token') : null;
-                const lsApi = (typeof localStorage !== 'undefined') ? localStorage.getItem('api_origin') : null;
+                // The GUI persists the token under the v2 key since the
+                // v1→v2 cutover; tolerate the legacy key for old states.
+                const ls = (typeof localStorage !== 'undefined')
+                    ? (localStorage.getItem('auth_token_v2') || localStorage.getItem('auth_token'))
+                    : null;
                 return !!(
-                    ls && lsApi &&
+                    ls &&
                     window.auth_token && window.puter?.authToken &&
-                    window.puter?.APIOrigin === lsApi
+                    window.puter?.APIOrigin === window.api_origin
                 );
             },
             null,
@@ -37,7 +40,7 @@ export async function waitForPuterReady (page) {
             puter: typeof window.puter,
             puterAuthToken: !!window.puter?.authToken,
             windowAuthToken: !!window.auth_token,
-            lsAuthToken: !!(typeof localStorage !== 'undefined' && localStorage.getItem('auth_token')),
+            lsAuthToken: !!(typeof localStorage !== 'undefined' && (localStorage.getItem('auth_token_v2') || localStorage.getItem('auth_token'))),
             firstVisitEver: window.first_visit_ever,
             isAuth: typeof window.is_auth === 'function' ? window.is_auth() : null,
             user: window.user ? { is_temp: window.user.is_temp, username: window.user.username } : null,

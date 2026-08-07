@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -40,24 +40,24 @@ const GEMINI_DOWNLOAD_BASE =
  * OpenAI-/Anthropic-compatible HTTP surface on top of the
  * `puter-chat-completion` driver.
  *
- * Third-party SDKs (OpenAI's and Anthropic's official clients, LangChain,
- * etc.) point at their vendor's wire shape. These routes accept that wire
- * shape, translate to the internal `ICompleteArguments`, hand off to the
- * ChatCompletionDriver, and translate the result (or NDJSON stream) back
- * into the vendor's response / SSE shape.
+ * Third-party SDKs (OpenAI's and Anthropic's official clients, LangChain, etc.)
+ * point at their vendor's wire shape. These routes accept that wire shape,
+ * translate to the internal `ICompleteArguments`, hand off to the
+ * ChatCompletionDriver, and translate the result (or NDJSON stream) back into
+ * the vendor's response / SSE shape.
  *
- * All routes live on `subdomain: 'api'` and require a full-access API
- * token minted from the dashboard (user-scoped worker tokens also pass —
- * workers are never treated as root tokens). Apps, scoped tokens, and
- * account session ("root") tokens are rejected.
+ * All routes live on `subdomain: 'api'` and require a full-access API token
+ * minted from the dashboard (user-scoped worker tokens also pass — workers are
+ * never treated as root tokens). Apps, scoped tokens, and account session
+ * ("root") tokens are rejected.
  */
 export class PuterAIController extends PuterController {
     registerRoutes(router: PuterRouter): void {
         /**
          * The wire routes call the chat driver directly instead of going
          * through the `/drivers/call` dispatch, so the shared per-tier AI
-         * rate-limit / concurrency policy must be declared as route gates
-         * here. `scope` + `key` reproduce the dispatch's bucket key
+         * rate-limit / concurrency policy must be declared as route gates here.
+         * `scope` + `key` reproduce the dispatch's bucket key
          * (`driver:<iface>:<method>:<uid>`) exactly, so wire traffic and
          * `/drivers/call` traffic draw from one per-user budget rather than
          * each surface minting its own.
@@ -1179,7 +1179,8 @@ const setSseHeaders = (res: Response): void => {
  * Inline-compaction is emitted in a single canonical SSE shape that is
  * byte-identical across the `/responses` and `/anthropic/v1/messages` streaming
  * surfaces, so a streaming client parses compaction the same way regardless of
- * which upstream served the request. (Non-streaming bodies stay provider-native.)
+ * which upstream served the request. (Non-streaming bodies stay
+ * provider-native.)
  */
 const writeCompactionEvent = (
     res: Response,
@@ -1195,9 +1196,9 @@ const writeCompactionEvent = (
 };
 
 /**
- * The chat driver returns either a stream-result envelope or a plain
- * message result. Proxy routes invoked with `stream: true` expect the
- * former; 500 if the driver dropped the signal.
+ * The chat driver returns either a stream-result envelope or a plain message
+ * result. Proxy routes invoked with `stream: true` expect the former; 500 if
+ * the driver dropped the signal.
  */
 const expectStream = (
     result: IChatCompleteResult,
@@ -1211,10 +1212,10 @@ const expectStream = (
 };
 
 /**
- * The chat driver's stream emits one JSON object per line
- * (`{type: 'text', text}` / `{type: 'tool_use', ...}` / `{type: 'usage', ...}`).
- * This helper consumes the stream line-by-line and hands parsed events to
- * the caller's reducer, so the per-route translators can stay shape-focused.
+ * The chat driver's stream emits one JSON object per line (`{type: 'text',
+ * text}` / `{type: 'tool_use', ...}` / `{type: 'usage', ...}`). This helper
+ * consumes the stream line-by-line and hands parsed events to the caller's
+ * reducer, so the per-route translators can stay shape-focused.
  */
 interface NdjsonPipeOptions {
     onEnd: () => void;

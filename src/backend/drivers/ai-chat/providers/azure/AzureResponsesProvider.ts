@@ -27,6 +27,7 @@ import type { S3ObjectStore } from '../../../../stores/fs/S3ObjectStore.js';
 import type { IChatProvider, ICompleteArguments } from '../../types.js';
 import { toOpenAiContextManagement } from '../../utils/compaction.js';
 import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
+import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { AZURE_MODELS } from './models.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
@@ -45,9 +46,7 @@ import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
  * NOT Azure's — Azure is subsidised for us.
  */
 export class AzureResponsesProvider implements IChatProvider {
-    /**
-     * @type {import('openai').OpenAI}
-     */
+    /** @type {import('openai').OpenAI} */
     #openAi: OpenAI;
 
     #defaultModel = 'gpt-5-codex';
@@ -75,7 +74,8 @@ export class AzureResponsesProvider implements IChatProvider {
 
     /**
      * Returns an array of available AI models with their pricing information.
-     * Each model object includes an ID and cost details (currency, tokens, input/output rates).
+     * Each model object includes an ID and cost details (currency, tokens,
+     * input/output rates).
      */
     models(extra_params?: { no_restrictions?: boolean }) {
         if (extra_params?.no_restrictions) {
@@ -259,10 +259,9 @@ export class AzureResponsesProvider implements IChatProvider {
                         (usage as any).input_tokens_details?.cached_tokens ?? 0,
                 };
 
-                const costsOverrideFromModel = Object.fromEntries(
-                    Object.entries(trackedUsage).map(([k, v]) => {
-                        return [k, v * modelUsed.costs[k]];
-                    }),
+                const costsOverrideFromModel = buildCostsOverride(
+                    trackedUsage,
+                    modelUsed,
                 );
 
                 this.#meteringService.utilRecordUsageObject(

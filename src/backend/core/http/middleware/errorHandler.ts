@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -27,9 +27,9 @@ interface ErrorHandlerOptions {
      */
     onUnhandled?: (err: unknown, req: Parameters<RequestHandler>[0]) => void;
     /**
-     * Optional hook fired for every error caught (HttpError and otherwise).
-     * Use for alarm wiring (e.g., page on 500s) without coupling the
-     * middleware to a specific service.
+     * Optional hook fired for every error caught (HttpError and otherwise). Use
+     * for alarm wiring (e.g., page on 500s) without coupling the middleware to
+     * a specific service.
      */
     onError?: (err: unknown, req: Parameters<RequestHandler>[0]) => void;
 }
@@ -42,6 +42,7 @@ interface ErrorHandlerOptions {
  * controllers and gate middlewares can simply `throw new HttpError(...)`.
  *
  * Response shape is kept for wire-compat with existing clients:
+ *
  * ```json
  * {
  *   "error": "<message>",
@@ -55,9 +56,9 @@ interface ErrorHandlerOptions {
  * `message` is a duplicate of `error` kept for the legacy GUI, which keys on
  * `errorJson.message` when parsing auth-window AJAX error responses.
  *
- * Non-HttpError failures (programming bugs, unexpected exceptions) become
- * a generic 500 response — no internal details leak. The full error is
- * passed to `onUnhandled` for logging/alerting.
+ * Non-HttpError failures (programming bugs, unexpected exceptions) become a
+ * generic 500 response — no internal details leak. The full error is passed to
+ * `onUnhandled` for logging/alerting.
  */
 export const createErrorHandler = (
     opts: ErrorHandlerOptions = {},
@@ -85,6 +86,17 @@ export const createErrorHandler = (
             err = translated;
         }
 
+        // Database-batcher load-shed (circuit open, queue overflow, or no
+        // connection available): the persistence layer is temporarily
+        // degraded, not a programming bug. Surface as 503 so clients back
+        // off and retry instead of treating it as a hard failure.
+        if ((err as { code?: string } | null)?.code === 'dbBatchFailed') {
+            res.setHeader('Retry-After', 5);
+            err = new HttpError(503, 'Service temporarily unavailable', {
+                code: 'db_unavailable',
+            });
+        }
+
         if (isHttpError(err)) {
             opts.onError?.(err, req);
             if (err.statusCode === 402 || err.statusCode === 413) {
@@ -108,20 +120,20 @@ export const createErrorHandler = (
 };
 
 /**
- * Recognise framework-level errors that are caused by the client and
- * re-shape them as `HttpError`s with `client_*` legacy codes so the
- * alarm gate (server.ts) treats them as user-caused 4xx and does not
- * page on them.
+ * Recognise framework-level errors that are caused by the client and re-shape
+ * them as `HttpError`s with `client_*` legacy codes so the alarm gate
+ * (server.ts) treats them as user-caused 4xx and does not page on them.
  *
  * Sources covered:
- *  - `URIError` from `decodeURIComponent` in the express router (raised
- *    by path-traversal scanners hitting `%c0%ae` etc.)
- *  - body-parser `entity.parse.failed` (malformed JSON in request body)
- *  - body-parser `request.aborted` / `ECONNABORTED` (client closed
- *    socket mid-upload)
- *  - Anything else that already opted into `expose: true` with a
- *    numeric `statusCode` is mapped to `client_bad_request` so it
- *    surfaces with the declared status instead of becoming a 500.
+ *
+ * - `URIError` from `decodeURIComponent` in the express router (raised by
+ *   path-traversal scanners hitting `%c0%ae` etc.)
+ * - Body-parser `entity.parse.failed` (malformed JSON in request body)
+ * - Body-parser `request.aborted` / `ECONNABORTED` (client closed socket
+ *   mid-upload)
+ * - Anything else that already opted into `expose: true` with a numeric
+ *   `statusCode` is mapped to `client_bad_request` so it surfaces with the
+ *   declared status instead of becoming a 500.
  */
 const translateKnownClientError = (err: unknown): HttpError | null => {
     if (err instanceof URIError) {

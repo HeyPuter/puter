@@ -120,6 +120,13 @@ vi.mock('together-ai', () => {
     return { Together, default: Together };
 });
 
+const { secureFetchMock } = vi.hoisted(() => ({ secureFetchMock: vi.fn() }));
+
+vi.mock('../../util/secureHttp.js', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../util/secureHttp.js')>()),
+    secureFetch: secureFetchMock,
+}));
+
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
@@ -148,8 +155,12 @@ beforeEach(() => {
     geminiGenerateVideosMock.mockReset();
     togetherVideosCreateMock.mockReset();
     togetherVideosRetrieveMock.mockReset();
+    secureFetchMock.mockReset();
     hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
     hasCreditsSpy.mockResolvedValue(true);
+    vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
+        100_000_000_000,
+    );
 });
 
 afterEach(() => {
@@ -209,7 +220,7 @@ describe('VideoGenerationDriver catalog', () => {
         const ids = all.map((m) => m.id);
         // Sentinel ids from each provider.
         expect(ids).toContain('sora-2'); // OpenAI
-        expect(ids).toContain('veo-2.0-generate-001'); // Gemini
+        expect(ids).toContain('veo-3.1-generate-preview'); // Gemini
         // Together IDs are lowercased togetherai:org/model strings.
         expect(ids).toContain('togetherai:minimax/video-01-director');
         // Sort assertion: same-provider entries should be alphabetical.
@@ -256,7 +267,7 @@ describe('VideoGenerationDriver.generate provider routing', () => {
         expect(geminiGenerateVideosMock).not.toHaveBeenCalled();
     });
 
-    it('routes a known veo-2.0-generate-001 id to the Gemini provider', async () => {
+    it('routes a known veo-3.1-generate-preview id to the Gemini provider', async () => {
         geminiGenerateVideosMock.mockResolvedValueOnce({
             done: true,
             response: {
@@ -269,7 +280,7 @@ describe('VideoGenerationDriver.generate provider routing', () => {
         await withActor(() =>
             driver.generate({
                 prompt: 'hi',
-                model: 'veo-2.0-generate-001',
+                model: 'veo-3.1-generate-preview',
             } as never),
         );
 
@@ -552,6 +563,47 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
         expect(
             (writeArg as { fileMetadata: { path: string } }).fileMetadata.path,
         ).toBe('/testuser/videos/clip.mp4');
+    });
+
+    it('downloads a URL result through the SSRF-guarded fetch before writing it to FS', async () => {
+        const aclCheckSpy = vi.spyOn(server.services.acl, 'check');
+        aclCheckSpy.mockResolvedValueOnce(true);
+
+        const fsWriteSpy = vi.spyOn(server.services.fs, 'write');
+        fsWriteSpy.mockResolvedValueOnce(undefined as never);
+
+        togetherVideosCreateMock.mockResolvedValueOnce({ id: 'tg-job' });
+        togetherVideosRetrieveMock.mockResolvedValueOnce({
+            id: 'tg-job',
+            status: 'completed',
+            outputs: { video_url: 'https://together/out.mp4' },
+        });
+        secureFetchMock.mockResolvedValueOnce(
+            new Response(Buffer.from('fake-mp4'), {
+                status: 200,
+                headers: { 'content-type': 'video/mp4' },
+            }),
+        );
+
+        await withTestUser(() =>
+            driver.generate({
+                prompt: 'hi',
+                model: 'togetherai:minimax/video-01-director',
+                puter_output_path: '/testuser/videos/clip.mp4',
+            } as never),
+        );
+
+        expect(secureFetchMock).toHaveBeenCalledWith(
+            'https://together/out.mp4',
+            { skipProxy: true },
+        );
+        expect(fsWriteSpy).toHaveBeenCalledTimes(1);
+        const [, writeArg] = fsWriteSpy.mock.calls[0]!;
+        const meta = (
+            writeArg as { fileMetadata: { path: string; contentType: string } }
+        ).fileMetadata;
+        expect(meta.path).toBe('/testuser/videos/clip.mp4');
+        expect(meta.contentType).toBe('video/mp4');
     });
 
     it('writes stream result to FS and returns a new stream to caller', async () => {

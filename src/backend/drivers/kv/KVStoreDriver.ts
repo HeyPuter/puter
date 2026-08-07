@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -32,10 +32,10 @@ import { KV_COSTS } from './costs.js';
 /**
  * KV store driver implementing the `puter-kvstore` interface.
  *
- * Thin wrapper around `stores.kv` (SystemKVStore): it validates/coerces
- * request inputs into HTTP-friendly errors, passes the request actor through
- * so the store scopes data to the correct namespace, and meters the
- * DynamoDB capacity the store reports back.
+ * Thin wrapper around `stores.kv` (SystemKVStore): it validates/coerces request
+ * inputs into HTTP-friendly errors, passes the request actor through so the
+ * store scopes data to the correct namespace, and meters the DynamoDB capacity
+ * the store reports back.
  */
 export class KVStoreDriver extends PuterDriver {
     readonly driverInterface = 'puter-kvstore';

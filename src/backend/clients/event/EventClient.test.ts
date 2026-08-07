@@ -1,5 +1,6 @@
 import {
     afterAll,
+    afterEach,
     beforeAll,
     beforeEach,
     describe,
@@ -7,6 +8,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { extensionStore } from '../../extensions.ts';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import type { EventClient } from './EventClient.js';
@@ -21,12 +23,11 @@ describe('EventClient', () => {
     });
 
     afterAll(async () => {
-        await server.shutdown();
+        await server?.shutdown();
     });
 
     // Each test gets a fresh key so listeners registered by earlier tests
-    // never collide with later ones (the client has no public way to
-    // unsubscribe).
+    // never collide with later ones.
     let key: string;
     beforeEach(() => {
         key = `test.${Math.random().toString(36).slice(2)}`;
@@ -181,6 +182,106 @@ describe('EventClient', () => {
             });
             await target.emitAndWait(`${key}.child`, {}, {});
             expect(resolved).toBe(true);
+        });
+    });
+
+    describe('off', () => {
+        it('stops delivering to a removed listener', () => {
+            const kept = vi.fn();
+            const removed = vi.fn();
+            target.on(key, kept);
+            target.on(key, removed);
+
+            target.off(key, removed);
+            target.emit(key, {}, {});
+
+            expect(kept).toHaveBeenCalledTimes(1);
+            expect(removed).not.toHaveBeenCalled();
+        });
+
+        it('ignores a key nobody ever subscribed to', () => {
+            expect(() => target.off(key, vi.fn())).not.toThrow();
+        });
+
+        it('leaves the list alone when the listener was never registered', () => {
+            const listener = vi.fn();
+            target.on(key, listener);
+
+            target.off(key, vi.fn());
+            target.emit(key, {}, {});
+
+            expect(listener).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    describe('hasListeners', () => {
+        it('is false for a key nobody subscribed to', () => {
+            expect(target.hasListeners(key)).toBe(false);
+        });
+
+        it('is true for an exact subscriber', () => {
+            target.on(key, vi.fn());
+            expect(target.hasListeners(key)).toBe(true);
+        });
+
+        it('is true when only a wildcard prefix matches', () => {
+            target.on(`${key}.*`, vi.fn());
+            expect(target.hasListeners(`${key}.child.deep`)).toBe(true);
+        });
+
+        it('is true for an extension-registered listener', () => {
+            extensionStore.events[key] = [vi.fn()];
+            try {
+                expect(target.hasListeners(key)).toBe(true);
+            } finally {
+                delete extensionStore.events[key];
+            }
+        });
+
+        it('goes back to false once the last listener is removed', () => {
+            const listener = vi.fn();
+            target.on(key, listener);
+            target.off(key, listener);
+            expect(target.hasListeners(key)).toBe(false);
+        });
+    });
+
+    describe('extension-registered listeners', () => {
+        afterEach(() => {
+            delete extensionStore.events[key];
+        });
+
+        it('fires alongside listeners registered on the client', () => {
+            const fromExtension = vi.fn();
+            const fromClient = vi.fn();
+            extensionStore.events[key] = [fromExtension];
+            target.on(key, fromClient);
+
+            target.emit(key, { n: 1 }, { source: 'test' });
+
+            expect(fromExtension).toHaveBeenCalledWith(
+                key,
+                { n: 1 },
+                { source: 'test' },
+            );
+            expect(fromClient).toHaveBeenCalledTimes(1);
+        });
+
+        it('is awaited by emitAndWait', async () => {
+            const order: string[] = [];
+            extensionStore.events[key] = [
+                async () => {
+                    await new Promise((resolve) => setTimeout(resolve, 5));
+                    order.push('extension');
+                },
+            ];
+            target.on(key, () => {
+                order.push('client');
+            });
+
+            await target.emitAndWait(key, {}, {});
+
+            expect(order).toEqual(['client', 'extension']);
         });
     });
 

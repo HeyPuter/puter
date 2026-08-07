@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -18,6 +18,7 @@
  */
 
 import UIWindow from './UIWindow.js';
+import { confirmationSatisfied } from '../util/authmeGrant.js';
 
 /**
  * UIWindowAuthMe - Authorization dialog for redirecting with auth token
@@ -25,13 +26,28 @@ import UIWindow from './UIWindow.js';
  * Shows a security-focused dialog asking the user to approve redirecting
  * to a third-party URL with their authentication token.
  *
+ * Two grades of grant, because they are not remotely equivalent:
+ *
+ *   - Default: a restricted API token. Can use the API on the user's behalf
+ *     but is rejected by every account-management endpoint.
+ *   - `full_token`: a full account session. Can do anything the user can,
+ *     account settings included. Only offered when the caller explicitly asks
+ *     for it, and approval requires typing a confirmation phrase — a single
+ *     click is too cheap for a credential that is game over if it leaks.
+ *
  * @param {Object} options
  * @param {string} options.redirect_url - The URL to redirect to after approval
+ * @param {boolean} [options.full_token] - Request a full account session
+ *   instead of a restricted API token. Adds the type-to-confirm step.
  * @returns {Promise<boolean>} - Resolves to true if approved, false if cancelled
  */
 async function UIWindowAuthMe (options = {}) {
     return new Promise(async (resolve) => {
         const redirectURL = options.redirect_url;
+        const fullToken = !!options.full_token;
+        // Typing this is what approves a full-session grant. Compared
+        // case-insensitively and trimmed — deliberate, not a spelling test.
+        const confirmPhrase = i18n('authme_full_token_confirm_phrase');
 
         // Parse the URL to show domain prominently
         let urlDisplay;
@@ -50,13 +66,16 @@ async function UIWindowAuthMe (options = {}) {
 
         let h = '';
 
-        // Header with icon
+        // Header with icon. Red for a full-session grant so the two grades
+        // don't look alike at a glance.
         h += `<div style="
             display: flex;
             flex-direction: column;
             align-items: center;
             padding: 30px 20px 20px;
-            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            background: ${fullToken
+        ? 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)'
+        : 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)'};
             border-bottom: 1px solid #ced7e1;
         ">`;
 
@@ -77,8 +96,8 @@ async function UIWindowAuthMe (options = {}) {
         </svg>`;
         h += '</div>';
 
-        h += `<h2 style="margin: 0; font-size: 17px; font-weight: 600; color: white;">${i18n('authorization_required')}</h2>`;
-        h += `<p style="margin: 6px 0 0; font-size: 13px; color: rgba(255,255,255,0.85); text-align: center; line-height: 1.4;">${i18n('external_site_auth_request')}</p>`;
+        h += `<h2 style="margin: 0; font-size: 17px; font-weight: 600; color: white;">${fullToken ? i18n('authme_full_token_title') : i18n('authorization_required')}</h2>`;
+        h += `<p style="margin: 6px 0 0; font-size: 13px; color: rgba(255,255,255,0.85); text-align: center; line-height: 1.4;">${fullToken ? i18n('authme_full_token_request') : i18n('external_site_auth_request')}</p>`;
         h += '</div>';
 
         // Content area
@@ -116,15 +135,62 @@ async function UIWindowAuthMe (options = {}) {
         h += `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/>
         </svg>`;
-        h += `<span style="font-size: 13px; color: #374151;">${i18n('shared_api_token')}</span>`;
+        h += `<span style="font-size: 13px; color: ${fullToken ? '#991b1b' : '#374151'}; font-weight: ${fullToken ? '600' : 'normal'};">${fullToken ? i18n('shared_full_token') : i18n('shared_api_token')}</span>`;
         h += '</div>';
-        h += `<p style="margin: 8px 0 0; font-size: 12px; color: #6b7280; line-height: 1.4;">${i18n('shared_api_token_note')}</p>`;
+        if ( fullToken ) {
+            // Itemized rather than prose: the point is that the user can see
+            // what they are handing over, and a paragraph gets skimmed.
+            h += '<ul style="margin: 10px 0 0; padding-left: 18px; font-size: 12px; color: #374151; line-height: 1.6;">';
+            for ( const key of [
+                'shared_full_token_item_files',
+                'shared_full_token_item_account',
+                'shared_full_token_item_act',
+            ] ) {
+                h += `<li>${i18n(key)}</li>`;
+            }
+            h += '</ul>';
+            h += `<p style="margin: 10px 0 0; font-size: 12px; color: #6b7280; line-height: 1.4;">${i18n('shared_full_token_note')}</p>`;
+        } else {
+            h += `<p style="margin: 8px 0 0; font-size: 12px; color: #6b7280; line-height: 1.4;">${i18n('shared_api_token_note')}</p>`;
+        }
         h += '</div>';
+
+        // Type-to-confirm. Only for a full-session grant — the restricted
+        // token can't touch the account, so a click is proportionate there.
+        if ( fullToken ) {
+            h += '<div style="margin-bottom: 20px;">';
+            // Who / what / where, in the one sentence read at the moment of
+            // acting: the phrase alone doesn't say which account is being
+            // handed to which destination.
+            const username = window.user?.username;
+            h += `<label style="display: block; font-size: 13px; color: #374151; margin-bottom: 8px; line-height: 1.4;">${
+                username
+                    ? i18n('authme_full_token_confirm_label', {
+                        phrase: confirmPhrase,
+                        host: urlHostname,
+                        username,
+                    })
+                    : i18n('authme_full_token_confirm_label_no_user', {
+                        phrase: confirmPhrase,
+                        host: urlHostname,
+                    })
+            }</label>`;
+            h += `<input type="text" class="authme-confirm-input" autocomplete="off" spellcheck="false" autocapitalize="off" style="
+                width: 100%;
+                box-sizing: border-box;
+                padding: 10px 12px;
+                border: 1px solid #d1d5db;
+                border-radius: 8px;
+                font-size: 14px;
+                font-family: monospace;
+            " placeholder="${html_encode(confirmPhrase)}">`;
+            h += '</div>';
+        }
 
         // Buttons
         h += '<div style="display: flex; gap: 10px;">';
         h += `<button type="button" class="authme-cancel button button-default" style="flex: 1;">${i18n('cancel')}</button>`;
-        h += `<button type="button" class="authme-approve button button-primary" style="flex: 1;">${i18n('approve')}</button>`;
+        h += `<button type="button" class="authme-approve button ${fullToken ? 'button-danger' : 'button-primary'}" style="flex: 1;"${fullToken ? ' disabled' : ''}>${i18n('approve')}</button>`;
         h += '</div>';
 
         h += '</div>';
@@ -161,7 +227,22 @@ async function UIWindowAuthMe (options = {}) {
             ...options.window_options,
         });
 
+        // Approve stays disabled until the confirmation phrase matches. The
+        // click handler re-checks rather than trusting the button state — the
+        // `disabled` attribute is a UI affordance, and this is the grant.
+        const el_confirm_input = $(el_window).find('.authme-confirm-input');
+        const approvalAllowed = () => !fullToken
+            || confirmationSatisfied(el_confirm_input.val(), confirmPhrase);
+
+        if ( fullToken ) {
+            el_confirm_input.on('input', () => {
+                $(el_window).find('.authme-approve')
+                    .prop('disabled', !approvalAllowed());
+            });
+        }
+
         $(el_window).find('.authme-approve').on('click', function () {
+            if ( ! approvalAllowed() ) return;
             $(this).addClass('disabled');
             $(el_window).close();
             resolve(true);

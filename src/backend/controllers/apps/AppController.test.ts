@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -90,6 +90,11 @@ const uniqueName = (prefix: string) =>
 
 const uniqueIndexUrl = () =>
     `https://example-${Math.random().toString(36).slice(2, 10)}.test/`;
+
+// 1x1 transparent PNG. The `icon` write path validates the decoded payload,
+// not just the declared MIME, so icon fixtures must be real images.
+const MINIMAL_PNG_BASE64 =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
 const createApp = async (
     actor: Actor,
@@ -285,12 +290,7 @@ describe('AppController POST /rao', () => {
         const { res } = makeRes();
         await expect(
             withActor(actor, () =>
-                callRoute(
-                    'post',
-                    '/rao',
-                    makeReq({ body: {}, actor }),
-                    res,
-                ),
+                callRoute('post', '/rao', makeReq({ body: {}, actor }), res),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
@@ -328,11 +328,82 @@ describe('AppController POST /rao', () => {
         );
         expect(captured.body).toEqual({});
 
+        // The stats write is deliberately not awaited by the request.
+        await server.controllers.apps.drainPendingAppOpens();
+
         const rows = (await server.clients.db.read(
             'SELECT `app_uid`, `user_id` FROM `app_opens` WHERE `app_uid` = ? AND `user_id` = ?',
             [app.uid, owner.userId],
         )) as Array<{ app_uid: string; user_id: number }>;
         expect(rows).toHaveLength(1);
+    });
+
+    // `app_opens` is analytics: the response carries nothing derived from it
+    // and the client never awaits the post. Holding the response open for a
+    // primary write put that write's latency inside the app launch it was
+    // measuring, on a connection the launch was competing for.
+    it('responds without waiting for the stats write', async () => {
+        const owner = await makeUser();
+        const app = await createApp(owner.actor);
+
+        let releaseWrite = () => {};
+        const writeSpy = vi
+            .spyOn(server.clients.db, 'write')
+            .mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        releaseWrite = () => resolve(undefined as never);
+                    }),
+            );
+
+        try {
+            const { res, captured } = makeRes();
+            await withActor(owner.actor, () =>
+                callRoute(
+                    'post',
+                    '/rao',
+                    makeReq({ body: { app_uid: app.uid }, actor: owner.actor }),
+                    res,
+                ),
+            );
+
+            // The handler returned while the INSERT is still outstanding.
+            expect(captured.body).toEqual({});
+            expect(writeSpy).toHaveBeenCalled();
+        } finally {
+            releaseWrite();
+            await server.controllers.apps.drainPendingAppOpens();
+            writeSpy.mockRestore();
+        }
+    });
+
+    // A stats failure must never turn into a failed app open — and since the
+    // write is now unawaited, it must not surface as an unhandled rejection.
+    it('swallows a failing stats write without rejecting the request', async () => {
+        const owner = await makeUser();
+        const app = await createApp(owner.actor);
+
+        const writeSpy = vi
+            .spyOn(server.clients.db, 'write')
+            .mockRejectedValue(new Error('primary is down'));
+
+        try {
+            const { res, captured } = makeRes();
+            await withActor(owner.actor, () =>
+                callRoute(
+                    'post',
+                    '/rao',
+                    makeReq({ body: { app_uid: app.uid }, actor: owner.actor }),
+                    res,
+                ),
+            );
+            expect(captured.body).toEqual({});
+            await expect(
+                server.controllers.apps.drainPendingAppOpens(),
+            ).resolves.toBeUndefined();
+        } finally {
+            writeSpy.mockRestore();
+        }
     });
 
     it('falls back to actor.app.uid when the body omits app_uid', async () => {
@@ -353,6 +424,8 @@ describe('AppController POST /rao', () => {
             ),
         );
         expect(captured.body).toEqual({});
+
+        await server.controllers.apps.drainPendingAppOpens();
 
         const rows = (await server.clients.db.read(
             'SELECT `app_uid` FROM `app_opens` WHERE `app_uid` = ? AND `user_id` = ?',
@@ -426,6 +499,73 @@ describe('AppController GET /apps/:name', () => {
         expect(arr).toHaveLength(2);
         expect((arr[0] as Record<string, unknown>).uid).toBe(app.uid);
         expect(arr[1]).toBeNull();
+    });
+
+    // The driver is the authoritative producer of launch metadata: it runs
+    // the hosted-subdomain guard, which this route knows nothing about. The
+    // route's own entitlement re-check must never turn that denial into an
+    // affirmative verdict — the GUI launcher appends `puter.auth.token` to
+    // whatever `index_url` it is handed.
+
+    it('preserves the hosted-backing denial for the app owner', async () => {
+        const owner = await makeUser();
+        const sub = uniqueName('gone');
+        const row = await server.stores.subdomain.create({
+            userId: owner.userId,
+            subdomain: sub,
+        });
+        const app = await createApp(owner.actor, {
+            index_url: `https://${sub}.site.puter.localhost/`,
+        });
+        await server.stores.subdomain.deleteByUuid(
+            String((row as { uuid: string }).uuid),
+            { userId: owner.userId },
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(owner.actor, () =>
+            callRoute(
+                'get',
+                '/apps/:name',
+                makeReq({ params: { name: app.name }, actor: owner.actor }),
+                res,
+            ),
+        );
+        const body = captured.body as Record<string, unknown>;
+        expect(body.privateAccess).toMatchObject({
+            hasAccess: false,
+            reason: 'hosted_backing_unavailable',
+        });
+    });
+
+    it('omits the stale index_url for a non-owner', async () => {
+        const owner = await makeUser();
+        const stranger = await makeUser();
+        const sub = uniqueName('gone');
+        const row = await server.stores.subdomain.create({
+            userId: owner.userId,
+            subdomain: sub,
+        });
+        const app = await createApp(owner.actor, {
+            index_url: `https://${sub}.site.puter.localhost/`,
+        });
+        await server.stores.subdomain.deleteByUuid(
+            String((row as { uuid: string }).uuid),
+            { userId: owner.userId },
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(stranger.actor, () =>
+            callRoute(
+                'get',
+                '/apps/:name',
+                makeReq({ params: { name: app.name }, actor: stranger.actor }),
+                res,
+            ),
+        );
+        const body = captured.body as Record<string, unknown>;
+        expect(body.index_url).toBeUndefined();
+        expect(body.privateAccess).toMatchObject({ hasAccess: false });
     });
 });
 
@@ -649,7 +789,9 @@ describe('AppController GET /app-icon/:app_uid', () => {
 
     it('decodes a data URL icon and serves the declared MIME', async () => {
         const owner = await makeUser();
-        const png = Buffer.from('mock-png-bytes');
+        // Real PNG bytes: the write path sniffs the decoded payload and
+        // rejects anything that isn't the image type it claims to be.
+        const png = Buffer.from(MINIMAL_PNG_BASE64, 'base64');
         const dataUrl = `data:image/png;base64,${png.toString('base64')}`;
         const app = await createApp(owner.actor, { icon: dataUrl });
 
@@ -664,6 +806,25 @@ describe('AppController GET /app-icon/:app_uid', () => {
         expect(captured.headers['content-type']).toBe('image/png');
         expect(Buffer.isBuffer(captured.body)).toBe(true);
         expect((captured.body as Buffer).equals(png)).toBe(true);
+    });
+
+    // Icons are fetched on every app launch, over a connection the launch is
+    // already competing for. The inline path must not be cached more briefly
+    // than the redirect path that serves the same resource.
+    it('caches an inline data-URL icon as long as the redirect path', async () => {
+        const owner = await makeUser();
+        const dataUrl = `data:image/png;base64,${MINIMAL_PNG_BASE64}`;
+        const app = await createApp(owner.actor, { icon: dataUrl });
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app-icon/:app_uid',
+            makeReq({ params: { app_uid: app.uid } }),
+            res,
+        );
+
+        expect(captured.headers['cache-control']).toBe('public, max-age=900');
     });
 
     it('falls back to the default icon when the data-URL MIME is not allowlisted', async () => {
@@ -705,5 +866,155 @@ describe('AppController GET /app-icon/:app_uid', () => {
         // Either the default icon (no `icon` column on the row) or a
         // configured one — both come back as 200, not 404.
         expect(captured.statusCode).toBe(200);
+    });
+});
+
+// ── /rao actor gating ───────────────────────────────────────────────
+
+describe('AppController POST /rao actor gating', () => {
+    it('refuses to record an open for a scoped access token', async () => {
+        const { actor } = await makeUser();
+        const app = await createApp(actor);
+        // Shared / scoped credentials must not drive analytics counters.
+        const tokenActor = {
+            ...actor,
+            accessToken: { uuid: uuidv4(), permissions: [] },
+        } as unknown as Actor;
+
+        const { res } = makeRes();
+        await expect(
+            withActor(tokenActor, () =>
+                callRoute(
+                    'post',
+                    '/rao',
+                    makeReq({
+                        body: { app_uid: app.uid },
+                        actor: tokenActor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
+    });
+
+    it("refuses to let an app actor record another app's open", async () => {
+        const { actor } = await makeUser();
+        const own = await createApp(actor);
+        const other = await createApp(actor);
+        const appActor = {
+            ...actor,
+            app: { uid: own.uid as string },
+        } as unknown as Actor;
+
+        const { res } = makeRes();
+        await expect(
+            withActor(appActor, () =>
+                callRoute(
+                    'post',
+                    '/rao',
+                    makeReq({
+                        body: { app_uid: other.uid },
+                        actor: appActor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
+    });
+});
+
+// ── app-icon redirect + fallback paths ──────────────────────────────
+
+describe('AppController GET /app-icon remote icons', () => {
+    // AppDriver.create validates the `icon` column, so these fixtures write
+    // it straight to the row. AppStore caches by uid — drop that entry or the
+    // handler reads the pre-update app back.
+    const setIcon = async (uid: string, icon: string) => {
+        await server.clients.db.write(
+            'UPDATE `apps` SET `icon` = ? WHERE `uid` = ?',
+            [icon, uid],
+        );
+        await server.stores.app.invalidateByUid(uid);
+    };
+
+    it('redirects to an icon hosted on a trusted host', async () => {
+        const owner = await makeUser();
+        const app = await createApp(owner.actor);
+        const { static_hosting_domain: hostingDomain } = (
+            server.controllers.apps as unknown as {
+                config: { static_hosting_domain: string };
+            }
+        ).config;
+        const trusted = `https://puter-app-icons.${hostingDomain}/${app.uid}-128.png`;
+        await setIcon(String(app.uid), trusted);
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app-icon/:app_uid',
+            makeReq({ params: { app_uid: app.uid } }),
+            res,
+        );
+        expect(captured.redirectStatus).toBe(302);
+        expect(captured.redirectUrl).toBe(trusted);
+        expect(captured.headers['cache-control']).toBe('public, max-age=900');
+    });
+
+    it('never redirects to an icon URL on an untrusted host', async () => {
+        const owner = await makeUser();
+        const app = await createApp(owner.actor);
+        // An open redirect here would let an app row point browsers anywhere.
+        await setIcon(String(app.uid), 'https://evil.example.com/icon.png');
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app-icon/:app_uid',
+            makeReq({ params: { app_uid: app.uid } }),
+            res,
+        );
+        expect(captured.redirectUrl).toBeUndefined();
+        expect(captured.headers['content-type']).toContain('image/svg+xml');
+    });
+
+    it('serves the default icon for a malformed data URL with no comma', async () => {
+        const owner = await makeUser();
+        const app = await createApp(owner.actor);
+        await setIcon(String(app.uid), 'data:image/png;base64');
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app-icon/:app_uid',
+            makeReq({ params: { app_uid: app.uid } }),
+            res,
+        );
+        expect(captured.headers['content-type']).toContain('image/svg+xml');
+    });
+
+    it('serves the default icon for an unknown app uid', async () => {
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app-icon/:app_uid',
+            makeReq({ params: { app_uid: `app-${uuidv4()}` } }),
+            res,
+        );
+        expect(captured.headers['content-type']).toContain('image/svg+xml');
+    });
+
+    it('serves the default icon for a bare (non-URL, non-data) icon value', async () => {
+        const owner = await makeUser();
+        const app = await createApp(owner.actor);
+        await setIcon(String(app.uid), 'legacy-icon-name.png');
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/app-icon/:app_uid/:size',
+            makeReq({ params: { app_uid: app.uid, size: '64' } }),
+            res,
+        );
+        expect(captured.headers['content-type']).toContain('image/svg+xml');
     });
 });

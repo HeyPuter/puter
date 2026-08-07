@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -37,8 +37,8 @@ type SqlJsonPath = readonly [string, ...string[]];
  * Base database client. Subclasses must override every method that throws here.
  *
  * Do not instantiate directly — use the factory exported from
- * `clients/database/index.ts` which picks the right implementation
- * based on `config.database.engine`.
+ * `clients/database/index.ts` which picks the right implementation based on
+ * `config.database.engine`.
  */
 export class AbstractDatabaseClient extends PuterClient {
     /** Short name used by `case()` to pick engine-specific values. */
@@ -52,9 +52,7 @@ export class AbstractDatabaseClient extends PuterClient {
     // Abstract interface — subclasses MUST override
     // ------------------------------------------------------------------
 
-    /**
-     * Execute a read query. Returns an array of row objects.
-     */
+    /** Execute a read query. Returns an array of row objects. */
     async read(
         _query: string,
         _params: unknown[] = [],
@@ -63,9 +61,9 @@ export class AbstractDatabaseClient extends PuterClient {
     }
 
     /**
-     * Read that prefers the primary database (useful when read-replicas
-     * may have replication lag). In single-node setups this is identical
-     * to `read()`.
+     * Read that prefers the primary database (useful when read-replicas may
+     * have replication lag). In single-node setups this is identical to
+     * `read()`.
      */
     async pread(
         _query: string,
@@ -74,16 +72,12 @@ export class AbstractDatabaseClient extends PuterClient {
         throw new Error('DatabaseClient.pread() not implemented');
     }
 
-    /**
-     * Execute a write query (INSERT / UPDATE / DELETE).
-     */
+    /** Execute a write query (INSERT / UPDATE / DELETE). */
     async write(_query: string, _params: unknown[] = []): Promise<WriteResult> {
         throw new Error('DatabaseClient.write() not implemented');
     }
 
-    /**
-     * Execute multiple write statements in a single transaction.
-     */
+    /** Execute multiple write statements in a single transaction. */
     async batchWrite(_entries: BatchEntry[]): Promise<void> {
         throw new Error('DatabaseClient.batchWrite() not implemented');
     }
@@ -111,9 +105,9 @@ export class AbstractDatabaseClient extends PuterClient {
     }
 
     /**
-     * Like `read()` but falls back to the primary when read-replicas are
-     * in use. Subclasses may override with replica-aware logic; the
-     * default delegates to `pread()`.
+     * Like `read()` but falls back to the primary when read-replicas are in
+     * use. Subclasses may override with replica-aware logic; the default
+     * delegates to `pread()`.
      */
     async tryHardRead(
         query: string,
@@ -133,9 +127,7 @@ export class AbstractDatabaseClient extends PuterClient {
         return primary;
     }
 
-    /**
-     * Like `tryHardRead()` but throws when the result set is empty.
-     */
+    /** Like `tryHardRead()` but throws when the result set is empty. */
     async requireRead(
         query: string,
         params: unknown[] = [],
@@ -151,9 +143,12 @@ export class AbstractDatabaseClient extends PuterClient {
      * Return the value from `choices` that matches the current engine.
      *
      * Usage:
-     * ```
-     * db.case({ sqlite: "datetime('now')", mysql: 'NOW()', otherwise: 'NOW()' })
-     * ```
+     *
+     *     db.case({
+     *         sqlite: "datetime('now')",
+     *         mysql: 'NOW()',
+     *         otherwise: 'NOW()',
+     *     });
      *
      * If the engine name isn't present in `choices`, falls back to
      * `choices.otherwise`.

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -20,13 +20,13 @@
 /**
  * Integration tests for BroadcastService.
  *
- * Boots a real PuterServer (mock redis + in-memory everything) wired
- * with a single peer and our own webhook identity, then exercises the
- * service directly. Axios is mocked at the module boundary so outbound
- * POSTs never leave the process — that's the only external call this
- * service makes. Per AGENTS.md: "Prefer test server over mocking deps"
- * and "mock at a real boundary (a client/external service), not within
- * the same layer you're testing."
+ * Boots a real PuterServer (mock redis + in-memory everything) wired with a
+ * single peer and our own webhook identity, then exercises the service
+ * directly. Axios is mocked at the module boundary so outbound POSTs never
+ * leave the process — that's the only external call this service makes. Per
+ * AGENTS.md: "Prefer test server over mocking deps" and "mock at a real
+ * boundary (a client/external service), not within the same layer you're
+ * testing."
  */
 
 import { createHmac } from 'node:crypto';
@@ -118,8 +118,7 @@ describe('BroadcastService.verifyAndEmit', () => {
                 outbound_flush_ms: 60_000,
             },
         } as never);
-        broadcast = server.services
-            .broadcast as unknown as BroadcastService;
+        broadcast = server.services.broadcast as unknown as BroadcastService;
     });
 
     afterAll(async () => {
@@ -407,12 +406,9 @@ describe('BroadcastService.verifyAndEmit', () => {
         const sig = sign(PEER_SECRET, ts, nonce, raw.toString('utf8'));
 
         const seen: string[] = [];
-        server.clients.event.on(
-            'outer.bounce-guard' as never,
-            (key) => {
-                seen.push(key as string);
-            },
-        );
+        server.clients.event.on('outer.bounce-guard' as never, (key) => {
+            seen.push(key as string);
+        });
 
         const result = await broadcast.verifyAndEmit(
             raw,
@@ -437,12 +433,9 @@ describe('BroadcastService.verifyAndEmit', () => {
         const sig = sign(PEER_SECRET, ts, nonce, raw.toString('utf8'));
 
         const seen: unknown[] = [];
-        server.clients.event.on(
-            'outer.single-event' as never,
-            (_key, data) => {
-                seen.push(data);
-            },
-        );
+        server.clients.event.on('outer.single-event' as never, (_key, data) => {
+            seen.push(data);
+        });
 
         const result = await broadcast.verifyAndEmit(
             raw,
@@ -494,10 +487,9 @@ describe('BroadcastService outbound flush', () => {
     });
 
     /**
-     * Drain currently-queued outbound events. Polls instead of using a
-     * single timeout so we don't race the 25ms flush window — the timer
-     * is scheduled lazily and "no calls yet" doesn't mean "no calls
-     * coming."
+     * Drain currently-queued outbound events. Polls instead of using a single
+     * timeout so we don't race the 25ms flush window — the timer is scheduled
+     * lazily and "no calls yet" doesn't mean "no calls coming."
      */
     const waitForFlush = async (predicate: () => boolean, timeoutMs = 1000) => {
         const start = Date.now();
@@ -540,7 +532,9 @@ describe('BroadcastService outbound flush', () => {
         expect(request.headers['X-Broadcast-Peer-Id']).toBe(SELF_PEER_ID);
         expect(request.headers['X-Broadcast-Timestamp']).toMatch(/^\d+$/);
         expect(request.headers['X-Broadcast-Nonce']).toMatch(/^\d+$/);
-        expect(request.headers['X-Broadcast-Signature']).toMatch(/^[a-f0-9]{64}$/);
+        expect(request.headers['X-Broadcast-Signature']).toMatch(
+            /^[a-f0-9]{64}$/,
+        );
 
         const ts = Number(request.headers['X-Broadcast-Timestamp']);
         const nonce = Number(request.headers['X-Broadcast-Nonce']);
@@ -551,9 +545,7 @@ describe('BroadcastService outbound flush', () => {
         const parsed = JSON.parse(request.data) as {
             events: { key: string; data: unknown }[];
         };
-        const ours = parsed.events.find(
-            (e) => e.key === 'outer.fs.write-hash',
-        );
+        const ours = parsed.events.find((e) => e.key === 'outer.fs.write-hash');
         expect(ours).toBeDefined();
         expect(ours!.data).toMatchObject({ hash: 'h1', uuid: 'u1' });
     });
@@ -610,5 +602,275 @@ describe('BroadcastService outbound flush', () => {
             0,
         );
         expect(occurrences).toBe(1);
+    });
+});
+
+// -- Header validation ------------------------------------------------
+
+describe('BroadcastService.verifyAndEmit — header validation', () => {
+    let server: PuterServer;
+    let broadcast: BroadcastService;
+
+    beforeAll(async () => {
+        server = await setupTestServer({
+            broadcast: {
+                webhook: { peerId: SELF_PEER_ID, secret: SELF_SECRET },
+                peers: [
+                    {
+                        peerId: PEER_ID,
+                        webhook: true,
+                        webhook_url: PEER_URL,
+                        webhook_secret: PEER_SECRET,
+                    },
+                ],
+                outbound_flush_ms: 60_000,
+            },
+        } as never);
+        broadcast = server.services.broadcast as unknown as BroadcastService;
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    const body = JSON.stringify({
+        events: [{ key: 'outer.x', data: { a: 1 }, meta: {} }],
+    });
+    const raw = () => Buffer.from(body);
+
+    it('rejects a missing or non-numeric timestamp', async () => {
+        const n = nextNonce();
+        await expect(
+            broadcast.verifyAndEmit(raw(), JSON.parse(body), {
+                peerId: PEER_ID,
+                timestamp: undefined,
+                nonce: String(n),
+                signature: 'x',
+            }),
+        ).resolves.toEqual({
+            ok: false,
+            status: 400,
+            message: 'Missing X-Broadcast-Timestamp',
+        });
+
+        await expect(
+            broadcast.verifyAndEmit(raw(), JSON.parse(body), {
+                peerId: PEER_ID,
+                timestamp: 'not-a-number',
+                nonce: String(n),
+                signature: 'x',
+            }),
+        ).resolves.toEqual({
+            ok: false,
+            status: 400,
+            message: 'Invalid X-Broadcast-Timestamp',
+        });
+    });
+
+    it('rejects a timestamp too far in the future', async () => {
+        const ts = Math.floor(Date.now() / 1000) + 3600;
+        await expect(
+            broadcast.verifyAndEmit(raw(), JSON.parse(body), {
+                peerId: PEER_ID,
+                timestamp: String(ts),
+                nonce: String(nextNonce()),
+                signature: 'x',
+            }),
+        ).resolves.toEqual({
+            ok: false,
+            status: 400,
+            message: 'Timestamp out of window',
+        });
+    });
+
+    it('rejects a missing, empty, or non-numeric nonce', async () => {
+        const ts = Math.floor(Date.now() / 1000);
+        for (const nonce of [undefined, '', 'abc']) {
+            const result = await broadcast.verifyAndEmit(
+                raw(),
+                JSON.parse(body),
+                {
+                    peerId: PEER_ID,
+                    timestamp: String(ts),
+                    nonce,
+                    signature: 'x',
+                },
+            );
+            expect(result.ok).toBe(false);
+            expect(result.status).toBe(400);
+            expect(result.message).toMatch(/X-Broadcast-Nonce/);
+        }
+    });
+
+    it('rejects a request with no signature at all', async () => {
+        const ts = Math.floor(Date.now() / 1000);
+        await expect(
+            broadcast.verifyAndEmit(raw(), JSON.parse(body), {
+                peerId: PEER_ID,
+                timestamp: String(ts),
+                nonce: String(nextNonce()),
+                signature: undefined,
+            }),
+        ).resolves.toEqual({
+            ok: false,
+            status: 403,
+            message: 'Missing X-Broadcast-Signature',
+        });
+    });
+
+    it('rejects a nested event whose meta is not a plain object', async () => {
+        // Array metas normalize to `{}` rather than leaking through.
+        const ts = Math.floor(Date.now() / 1000);
+        const nonce = nextNonce();
+        const payload = JSON.stringify({
+            events: [{ key: 'outer.meta-array', data: 1, meta: ['nope'] }],
+        });
+        const received: Array<Record<string, unknown>> = [];
+        const handler = (_k: string, _d: unknown, meta: object) =>
+            received.push(meta as Record<string, unknown>);
+        server.clients.event.on('outer.meta-array' as never, handler as never);
+
+        const result = await broadcast.verifyAndEmit(
+            Buffer.from(payload),
+            JSON.parse(payload),
+            headers(PEER_ID, ts, nonce, sign(PEER_SECRET, ts, nonce, payload)),
+        );
+        expect(result).toEqual({ ok: true });
+        expect(received).toEqual([{ from_outside: true }]);
+        server.clients.event.off('outer.meta-array' as never, handler as never);
+    });
+});
+
+// -- Config handling ---------------------------------------------------
+
+describe('BroadcastService — peer configuration', () => {
+    let server: PuterServer;
+    let broadcast: BroadcastService;
+    let warn: ReturnType<typeof vi.spyOn>;
+
+    beforeAll(async () => {
+        warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        server = await setupTestServer({
+            protocol: 'http',
+            broadcast: {
+                webhook: { peerId: SELF_PEER_ID, secret: SELF_SECRET },
+                peers: [
+                    { webhook: true, webhook_url: PEER_URL },
+                    {
+                        peerId: PEER_ID,
+                        webhook: true,
+                        webhook_url: PEER_URL,
+                        webhook_secret: PEER_SECRET,
+                    },
+                    {
+                        peerId: PEER_ID,
+                        webhook: true,
+                        webhook_url: 'http://dupe.invalid/hook',
+                        webhook_secret: 'dupe',
+                    },
+                    {
+                        peerId: 'ws-only',
+                        webhook: false,
+                        webhook_url: 'http://ws.invalid/hook',
+                        webhook_secret: 'ws',
+                    },
+                ],
+                outbound_flush_ms: 'not-a-number',
+            },
+        } as never);
+        broadcast = server.services.broadcast as unknown as BroadcastService;
+    });
+
+    afterAll(async () => {
+        warn.mockRestore();
+        await server?.shutdown();
+    });
+
+    it('warns about, and drops, a peer with no id', () => {
+        expect(warn).toHaveBeenCalledWith(
+            '[broadcast] ignoring peer config with missing key/peerId',
+            expect.anything(),
+        );
+    });
+
+    it('warns about a duplicate peer id, keeping the last definition', async () => {
+        expect(warn).toHaveBeenCalledWith(
+            '[broadcast] duplicate peer id',
+            expect.objectContaining({ peerId: PEER_ID }),
+        );
+        // The later definition's secret is the one that verifies now.
+        const payload = JSON.stringify({
+            events: [{ key: 'outer.dupe', data: 1, meta: {} }],
+        });
+        const ts = Math.floor(Date.now() / 1000);
+        const nonce = nextNonce();
+        const result = await broadcast.verifyAndEmit(
+            Buffer.from(payload),
+            JSON.parse(payload),
+            headers(PEER_ID, ts, nonce, sign('dupe', ts, nonce, payload)),
+        );
+        expect(result).toEqual({ ok: true });
+    });
+
+    it('ignores a non-webhook peer', () => {
+        expect(warn).toHaveBeenCalledWith(
+            '[broadcast] non-webhook peer ignored (websocket transport disabled in v2)',
+            { peerId: 'ws-only' },
+        );
+    });
+});
+
+// -- Redis pub/sub fan-out ---------------------------------------------
+
+describe('BroadcastService — same-cluster pub/sub fan-out', () => {
+    let server: PuterServer;
+
+    beforeAll(async () => {
+        server = await setupTestServer({
+            broadcast: {
+                webhook: { peerId: SELF_PEER_ID, secret: SELF_SECRET },
+                peers: [],
+                outbound_flush_ms: 60_000,
+            },
+        } as never);
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('publishes `pubsub.*` events to the cluster channel', async () => {
+        const published: string[] = [];
+        const publishSpy = vi
+            .spyOn(server.clients.redis, 'publish')
+            .mockImplementation(async (channel: string, message: string) => {
+                if (channel === 'pubsub') published.push(message);
+                return 1;
+            });
+        try {
+            server.clients.event.emit(
+                'pubsub.thing' as never,
+                { a: 1 } as never,
+                {},
+            );
+            expect(published).toHaveLength(1);
+            const parsed = JSON.parse(published[0]);
+            expect(parsed).toMatchObject({
+                key: 'pubsub.thing',
+                data: { a: 1 },
+                meta: {},
+            });
+            expect(parsed.source).toContain(':');
+
+            // An event that already came off the bus must not be re-published.
+            server.clients.event.emit(
+                'pubsub.thing' as never,
+                { a: 2 } as never,
+                { from_fanout: true },
+            );
+            expect(published).toHaveLength(1);
+        } finally {
+            publishSpy.mockRestore();
+        }
     });
 });

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -124,10 +124,10 @@ export class FSService extends PuterService {
     }
 
     /**
-     * FS-domain permission rules. App/site/user registrations live in their
-     * own services (AppPermissionService, SubdomainPermissionService,
-     * AuthService). Splitting by domain keeps the dependency surface narrow:
-     * each service only pulls the stores it actually needs.
+     * FS-domain permission rules. App/site/user registrations live in their own
+     * services (AppPermissionService, SubdomainPermissionService, AuthService).
+     * Splitting by domain keeps the dependency surface narrow: each service
+     * only pulls the stores it actually needs.
      *
      * The path rewriter relies on `FSEntryStore.getEntryByPath`'s Redis cache
      * (60s TTL), which is invalidated on every rename/move/delete through the
@@ -557,10 +557,20 @@ export class FSService extends PuterService {
                 );
             }
             if (existingEntry && !normalizedInput.overwrite) {
+                // v1 wire contract: clients (the GUI's save dialogs among
+                // them) key on `item_with_same_name_exists` + `entry_name`
+                // to offer an overwrite prompt.
                 throw new HttpError(
                     409,
                     'A file already exists at this path and overwrite was not requested',
-                    { legacyCode: 'conflict' },
+                    {
+                        legacyCode: 'item_with_same_name_exists',
+                        fields: {
+                            entry_name: pathPosix.basename(
+                                normalizedInput.path,
+                            ),
+                        },
+                    },
                 );
             }
 
@@ -2760,12 +2770,36 @@ export class FSService extends PuterService {
     }
 
     /**
-     * Search by file name for a user. Linear-scan with LIKE — cheap for
-     * typical library sizes, revisit if we need full-text.
+     * Cursor-paginated nested listing: descendants of `path` up to `maxDepth`
+     * levels deep, ordered by path. Owner-scoped by `userId` + path prefix.
+     */
+    async listDirectoryTreePage(
+        userId: number,
+        path: string,
+        options: { limit?: number; cursor?: string | null; maxDepth: number },
+    ): Promise<{ entries: FSEntry[]; cursor?: string }> {
+        return this.stores.fsEntry.listDescendantsPage(userId, path, options);
+    }
+
+    async countDirectoryTree(
+        userId: number,
+        path: string,
+        maxDepth: number,
+    ): Promise<number> {
+        return this.stores.fsEntry.countDescendantsToDepth(
+            userId,
+            path,
+            maxDepth,
+        );
+    }
+
+    /**
+     * Search by file name for a user. Linear-scan with LIKE — cheap for typical
+     * library sizes, revisit if we need full-text.
      *
      * `pathScope` restricts results to entries at or under that path.
-     * App-under-user callers pass their AppData root so search can't leak
-     * paths the actor isn't allowed to read.
+     * App-under-user callers pass their AppData root so search can't leak paths
+     * the actor isn't allowed to read.
      */
     async searchByName(
         userId: number,
@@ -2793,8 +2827,8 @@ export class FSService extends PuterService {
 
     /**
      * Stream bytes of a file entry from S3. The returned stream is a Node
-     * Readable; caller pipes it into the HTTP response and emits metering
-     * once the stream ends. Honours HTTP Range when provided.
+     * Readable; caller pipes it into the HTTP response and emits metering once
+     * the stream ends. Honours HTTP Range when provided.
      *
      * Throws 400 if the entry isn't a file, 500 if the entry has no backing
      * bucket (should never happen for real files).
@@ -2923,9 +2957,9 @@ export class FSService extends PuterService {
     }
 
     /**
-     * Resolve or create a parent directory for a given target path. Returns
-     * the parent entry. Throws 400 if the path has no parent (root) or 404
-     * when parents are missing and create is disabled.
+     * Resolve or create a parent directory for a given target path. Returns the
+     * parent entry. Throws 400 if the path has no parent (root) or 404 when
+     * parents are missing and create is disabled.
      */
     async #resolveOrCreateParent(
         userId: number,
@@ -2951,9 +2985,10 @@ export class FSService extends PuterService {
 
     /**
      * Create a directory at `path`. Options:
-     *   - overwrite: if a non-directory exists, remove it and create dir
-     *   - dedupeName: if conflict, append ` (N)`
-     *   - createMissingParents: create intermediate dirs
+     *
+     * - Overwrite: if a non-directory exists, remove it and create dir
+     * - DedupeName: if conflict, append ` (N)`
+     * - CreateMissingParents: create intermediate dirs
      *
      * Returns the created (or existing-on-dedupe-false-no-conflict) entry.
      */
@@ -3255,10 +3290,10 @@ export class FSService extends PuterService {
 
     /**
      * Hard-delete every FS entry owned by `userId`: S3 objects first, then
-     * every `fsentries` row. Used by account deletion. Paginates through
-     * files (5k at a time) so large users don't blow the heap, batches S3
-     * deletes per bucket+region, and finishes with one bulk DELETE to
-     * sweep dirs/shortcuts/symlinks that don't have backing objects.
+     * every `fsentries` row. Used by account deletion. Paginates through files
+     * (5k at a time) so large users don't blow the heap, batches S3 deletes per
+     * bucket+region, and finishes with one bulk DELETE to sweep
+     * dirs/shortcuts/symlinks that don't have backing objects.
      *
      * Safe to call concurrently with other ops on the same user only in the
      * sense that orphaned S3 objects may linger if a write races us; the DB
@@ -3369,13 +3404,12 @@ export class FSService extends PuterService {
     /**
      * Emit one of the lifecycle events that `extension.on('fs.…')` consumers
      * expect (cf-file-cache, future thumbnails-style extensions). Payload
-     * carries multiple aliases (`node` / `entry` / `uid`) so handlers using
-     * any existing calling convention just work.
+     * carries multiple aliases (`node` / `entry` / `uid`) so handlers using any
+     * existing calling convention just work.
      *
-     * Currently emitted:
-     *   fs.create.{file,directory,shortcut,symlink}
-     *   fs.write.file       — overwrite of an existing file
-     *   fs.rename           — in-place name change (move emits fs.move.node separately)
+     * Currently emitted: fs.create.{file,directory,shortcut,symlink}
+     * fs.write.file — overwrite of an existing file fs.rename — in-place name
+     * change (move emits fs.move.node separately)
      *
      * Skipped intentionally: `fs.pending.*` (no real entry yet at signed-URL
      * issue time) and per-flavor `fs.move.file` (move already emits
@@ -3404,8 +3438,8 @@ export class FSService extends PuterService {
 
     /**
      * Move an entry to a new parent (and optionally rename in the same op).
-     * Works for files and directories. Updates descendant paths when moving
-     * a directory.
+     * Works for files and directories. Updates descendant paths when moving a
+     * directory.
      */
     async move(
         userId: number,
@@ -3416,9 +3450,9 @@ export class FSService extends PuterService {
             overwrite?: boolean;
             dedupeName?: boolean;
             /**
-             * Optional metadata to overwrite on the moved entry. Callers use this
-             * for trash/restore: when moving into Trash the GUI stores
-             * `{ original_name, original_path, trashed_ts }` here so the restore
+             * Optional metadata to overwrite on the moved entry. Callers use
+             * this for trash/restore: when moving into Trash the GUI stores `{
+             * original_name, original_path, trashed_ts }` here so the restore
              * path and trash listing can recover the pre-trash name.
              */
             newMetadata?: Record<string, unknown> | null;
@@ -3462,10 +3496,16 @@ export class FSService extends PuterService {
             } else if (input.dedupeName) {
                 name = await this.#findDedupedName(destinationParent, name);
             } else {
+                // v1 wire contract: clients (the GUI's move/paste flows among
+                // them) key on `item_with_same_name_exists` + `entry_name` to
+                // offer a replace/skip prompt.
                 throw new HttpError(
                     409,
                     `An entry already exists at ${targetPath}`,
-                    { legacyCode: 'conflict' },
+                    {
+                        legacyCode: 'item_with_same_name_exists',
+                        fields: { entry_name: name },
+                    },
                 );
             }
         }
@@ -3516,10 +3556,10 @@ export class FSService extends PuterService {
 
     /**
      * Copy an entry to a new parent. For directories, walks descendants and
-     * issues S3 CopyObject + DB inserts. Thumbnail URLs on entries ride
-     * along in the DB column — the thumbnail extension is notified via
-     * `fs.copy.node` so it can duplicate the backing S3 object (otherwise
-     * deleting one copy would nuke the other's thumbnail).
+     * issues S3 CopyObject + DB inserts. Thumbnail URLs on entries ride along
+     * in the DB column — the thumbnail extension is notified via `fs.copy.node`
+     * so it can duplicate the backing S3 object (otherwise deleting one copy
+     * would nuke the other's thumbnail).
      */
     async copy(
         userId: number,
@@ -3565,10 +3605,14 @@ export class FSService extends PuterService {
             } else if (input.dedupeName) {
                 name = await this.#findDedupedName(destinationParent, name);
             } else {
+                // v1 wire contract, as in move() above.
                 throw new HttpError(
                     409,
                     `An entry already exists at ${targetPath}`,
-                    { legacyCode: 'conflict' },
+                    {
+                        legacyCode: 'item_with_same_name_exists',
+                        fields: { entry_name: name },
+                    },
                 );
             }
         }
@@ -3782,7 +3826,8 @@ export class FSService extends PuterService {
     }
 
     /**
-     * This method checks if the specified actor has permission to access the entry provided. It will throw an error if the actor is not permitted
+     * This method checks if the specified actor has permission to access the
+     * entry provided. It will throw an error if the actor is not permitted
      */
     async checkFSAccess(
         entry: FSEntry,

@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -97,6 +97,13 @@ async function UIWindowSessionList (options) {
             },
         });
         $(el_window).find('.login-c2a-session-list').on('click', async function (e) {
+            // The login window is a centered cover and this picker would
+            // otherwise float on top of it, hiding its username field. Only
+            // the reload flows close it: in the no-reload (popup) flows the
+            // picker doubles as the fallback UI when the login window is
+            // abandoned, and the resolve() below still needs a live promise
+            // chain either way.
+            if ( options.reload_on_success ) $(el_window).close();
             const login = await UIWindowLogin({
                 referrer: options.referrer,
                 reload_on_success: options.reload_on_success,
@@ -120,7 +127,11 @@ async function UIWindowSessionList (options) {
             }
         });
         $(el_window).find('.signup-c2a-session-list').on('click', async function (e) {
-            $('.signup-c2a-clickable').parents('.window').close();
+            // Same picker-over-cover overlap as the login c2a above, same
+            // reload-flows-only close. (The selector this replaces —
+            // '.signup-c2a-clickable', the LOGIN window's c2a class —
+            // matched nothing in this window and closed nothing.)
+            if ( options.reload_on_success ) $(el_window).close();
             // create Signup window
             const signup = await UIWindowSignup({
                 referrer: options.referrer,

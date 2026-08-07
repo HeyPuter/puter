@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -49,8 +49,8 @@ import { PuterStore } from '../types.js';
 
 /**
  * Store that owns S3 object I/O for fsentries: signed-URL minting, multipart
- * lifecycle, server-driven uploads, and object reads/copies/deletes. Wraps
- * the regional `S3Client` pool exposed by `clients.s3`.
+ * lifecycle, server-driven uploads, and object reads/copies/deletes. Wraps the
+ * regional `S3Client` pool exposed by `clients.s3`.
  */
 export class S3ObjectStore extends PuterStore {
     #getClientForRegion(region: string): S3Client {
@@ -58,9 +58,9 @@ export class S3ObjectStore extends PuterStore {
     }
 
     /**
-     * Client to use when minting presigned URLs handed back to the
-     * browser. Same instance as `#getClientForRegion` unless
-     * `s3Config.publicEndpoint` is set — see `clients/s3/S3Client.ts`.
+     * Client to use when minting presigned URLs handed back to the browser.
+     * Same instance as `#getClientForRegion` unless `s3Config.publicEndpoint`
+     * is set — see `clients/s3/S3Client.ts`.
      */
     #getPresignClientForRegion(region: string): S3Client {
         return this.clients.s3.getForPresign(region);

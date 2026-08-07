@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -33,48 +33,6 @@ const DIMENSIONS_WITH_4K = [...STANDARD_DIMENSIONS, '3840x2160', '2160x3840'];
 // https://ai.google.dev/gemini-api/docs/video
 // https://ai.google.dev/gemini-api/docs/pricing
 export const GEMINI_VIDEO_GENERATION_MODELS: IGeminiVideoModel[] = [
-    {
-        puterId: 'google:google/veo-2.0',
-        id: 'veo-2.0-generate-001',
-        name: 'Veo 2.0',
-        costs_currency: 'usd-cents',
-        costs: { 'per-second': 35 },
-        output_cost_key: 'per-second',
-        durationSeconds: [5, 6, 8],
-        dimensions: ['1280x720', '720x1280'],
-        aspectRatios: ['16:9', '9:16'],
-        resolutions: [],
-        supportsImageInput: true,
-        supportsReferenceImages: false,
-    },
-    {
-        puterId: 'google:google/veo-3.0',
-        id: 'veo-3.0-generate-001',
-        name: 'Veo 3.0',
-        costs_currency: 'usd-cents',
-        costs: { 'per-second': 40 },
-        output_cost_key: 'per-second',
-        durationSeconds: [4, 6, 8],
-        dimensions: STANDARD_DIMENSIONS,
-        aspectRatios: ['16:9', '9:16'],
-        resolutions: ['720p', '1080p'],
-        supportsImageInput: true,
-        supportsReferenceImages: false,
-    },
-    {
-        puterId: 'google:google/veo-3.0-fast',
-        id: 'veo-3.0-fast-generate-001',
-        name: 'Veo 3.0 Fast',
-        costs_currency: 'usd-cents',
-        costs: { 'per-second': 15 },
-        output_cost_key: 'per-second',
-        durationSeconds: [4, 6, 8],
-        dimensions: STANDARD_DIMENSIONS,
-        aspectRatios: ['16:9', '9:16'],
-        resolutions: ['720p', '1080p'],
-        supportsImageInput: true,
-        supportsReferenceImages: false,
-    },
     {
         puterId: 'google:google/veo-3.1',
         id: 'veo-3.1-generate-preview',

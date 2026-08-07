@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -34,6 +34,10 @@ import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { ACLService } from '../../services/acl/ACLService.js';
 import type { SignedFile } from '../../util/fileSigning.js';
 import { verifySignature } from '../../util/fileSigning.js';
+import {
+    buildHostedBackingDenial,
+    hostedIndexUrlBackingIsUnavailable,
+} from '../../util/hostedAppBacking.js';
 import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
 import { PuterController } from '../types.js';
 import { FS_COSTS } from './costs.js';
@@ -179,33 +183,60 @@ export class LegacyFSController extends PuterController {
                             ) => Promise<string[]>;
                         }
                     ).getRecentAppOpens?.(userId, { limit: 10 })) ?? [];
-                const apps: unknown[] = [];
-                for (const uid of recentUids) {
-                    const app = await (
-                        this.stores.app as unknown as {
-                            getByUid: (
-                                uid: string,
-                            ) => Promise<Record<string, unknown> | null>;
-                        }
-                    ).getByUid(uid);
-                    if (app) {
-                        apps.push({
-                            uuid: app.uid,
-                            name: app.name,
-                            title: app.title,
-                            icon: app.icon ?? null,
-                            godmode: Boolean(app.godmode),
-                            maximize_on_start: Boolean(app.maximize_on_start),
-                            index_url: app.index_url,
-                            // An app with no owner isn't owned by a Puter user —
-                            // it's an "external" (origin-bootstrapped) app.
-                            external:
-                                app.owner_user_id == null ||
-                                app.owner_user_id === '',
-                        });
+                // One batched read for the rows, then the backing checks
+                // concurrently. Serially awaiting a lookup per uid put ~2
+                // round trips of latency on every desktop boot.
+                const appsByUid = await (
+                    this.stores.app as unknown as {
+                        getByUids: (
+                            uids: string[],
+                        ) => Promise<Map<string, Record<string, unknown>>>;
                     }
-                }
-                recent = apps;
+                ).getByUids(recentUids);
+
+                // `recentUids` is ordered most-recent-first; preserve it.
+                const orderedApps = recentUids
+                    .map((uid) => appsByUid.get(uid))
+                    .filter((app): app is Record<string, unknown> =>
+                        Boolean(app),
+                    );
+
+                // Don't hand out an index_url whose puter-hosted backing is
+                // gone or reclaimed. The taskbar launches recents by name (so
+                // AppDriver's guard applies), but this list is a
+                // launch-metadata producer like any other — a future consumer
+                // reading index_url straight off it shouldn't inherit a stale
+                // origin.
+                const backingGoneFlags = await Promise.all(
+                    orderedApps.map((app) =>
+                        hostedIndexUrlBackingIsUnavailable({
+                            app,
+                            subdomainStore: this.stores.subdomain,
+                            config: this.config,
+                        }).catch(() => true),
+                    ),
+                );
+
+                recent = orderedApps.map((app, index) => {
+                    const backingGone = backingGoneFlags[index];
+                    return {
+                        uuid: app.uid,
+                        name: app.name,
+                        title: app.title,
+                        icon: app.icon ?? null,
+                        godmode: Boolean(app.godmode),
+                        maximize_on_start: Boolean(app.maximize_on_start),
+                        index_url: backingGone ? null : app.index_url,
+                        ...(backingGone
+                            ? { privateAccess: buildHostedBackingDenial() }
+                            : {}),
+                        // An app with no owner isn't owned by a Puter user —
+                        // it's an "external" (origin-bootstrapped) app.
+                        external:
+                            app.owner_user_id == null ||
+                            app.owner_user_id === '',
+                    };
+                });
             }
 
             res.json({ recommended, recent });
@@ -557,26 +588,61 @@ export class LegacyFSController extends PuterController {
             'write',
         );
 
+        // The v1 wire contract reports the entry an overwrite replaced
+        // (`overwritten`) so clients can drop its stale row/icon. The copy
+        // deletes that entry, so resolve it beforehand.
+        const overwriteRequested = getBoolean(body, 'overwrite') ?? false;
+        let overwrittenEntry = null;
+        if (overwriteRequested) {
+            const targetName = getString(body, 'new_name') ?? source.name;
+            const targetPath =
+                destinationParent.path === '/'
+                    ? `/${targetName}`
+                    : `${destinationParent.path}/${targetName}`;
+            overwrittenEntry =
+                await this.stores.fsEntry.getEntryByPath(targetPath);
+        }
+
         const copy = await this.services.fs.copy(userId, {
             source,
             destinationParent,
             newName: getString(body, 'new_name'),
-            overwrite: getBoolean(body, 'overwrite') ?? false,
+            overwrite: overwriteRequested,
             dedupeName: getBoolean(body, 'dedupe_name', 'change_name') ?? false,
         });
         await this.#emitGuiEvent('outer.gui.item.added', copy);
+        // Without this, every other client keeps a ghost row for the
+        // replaced entry until the directory is re-listed.
+        if (overwrittenEntry) {
+            await this.#emitGuiEvent(
+                'outer.gui.item.removed',
+                overwrittenEntry,
+            );
+        }
 
         // Legacy response shape: `[{copied: fsentry, overwritten?}]`.
         // Array is historical — originally supported bulk copy.
-        const copied = await toLegacyEntry(this.clients.event, copy, {
+        const legacyEntryOpts = {
             fsEntryStore: this.stores.fsEntry,
             userStore: this.stores.user as unknown as {
                 getById: (
                     id: number,
                 ) => Promise<Record<string, unknown> | null>;
             },
-        });
-        res.json([{ copied }]);
+        };
+        const copied = await toLegacyEntry(
+            this.clients.event,
+            copy,
+            legacyEntryOpts,
+        );
+        const overwritten = overwrittenEntry
+            ? await toLegacyEntry(
+                  this.clients.event,
+                  overwrittenEntry,
+                  legacyEntryOpts,
+              )
+            : undefined;
+        res.json([{ copied, ...(overwritten ? { overwritten } : {}) }]);
     };
 
     move = async (req: Request, res: Response): Promise<void> => {
@@ -608,11 +674,30 @@ export class LegacyFSController extends PuterController {
             'write',
         );
 
+        // The v1 wire contract reports the entry an overwrite replaced
+        // (`overwritten`) so clients can drop its stale row/icon. The move
+        // deletes that entry, so resolve it beforehand.
+        const overwriteRequested = getBoolean(body, 'overwrite') ?? false;
+        let overwrittenEntry = null;
+        if (overwriteRequested) {
+            const targetName = getString(body, 'new_name') ?? source.name;
+            const targetPath =
+                destinationParent.path === '/'
+                    ? `/${targetName}`
+                    : `${destinationParent.path}/${targetName}`;
+            const existing =
+                await this.stores.fsEntry.getEntryByPath(targetPath);
+            // Moving an entry onto its own path is not an overwrite.
+            if (existing && existing.uuid !== source.uuid) {
+                overwrittenEntry = existing;
+            }
+        }
+
         const moved = await this.services.fs.move(userId, {
             source,
             destinationParent,
             newName: getString(body, 'new_name'),
-            overwrite: getBoolean(body, 'overwrite') ?? false,
+            overwrite: overwriteRequested,
             dedupeName: getBoolean(body, 'dedupe_name', 'change_name') ?? false,
             // Trash/restore rides on this: GUI sends
             // `{ original_name, original_path, trashed_ts }` when moving into
@@ -625,17 +710,41 @@ export class LegacyFSController extends PuterController {
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
             old_path: oldPath,
         });
+        // Without this, every other client keeps a ghost row for the
+        // replaced entry until the directory is re-listed.
+        if (overwrittenEntry) {
+            await this.#emitGuiEvent(
+                'outer.gui.item.removed',
+                overwrittenEntry,
+            );
+        }
 
-        // Legacy response shape: `{moved: fsentry, old_path}`.
-        const movedEntry = await toLegacyEntry(this.clients.event, moved, {
+        // Legacy response shape: `{moved: fsentry, old_path, overwritten?}`.
+        const legacyEntryOpts = {
             fsEntryStore: this.stores.fsEntry,
             userStore: this.stores.user as unknown as {
                 getById: (
                     id: number,
                 ) => Promise<Record<string, unknown> | null>;
             },
+        };
+        const movedEntry = await toLegacyEntry(
+            this.clients.event,
+            moved,
+            legacyEntryOpts,
+        );
+        const overwritten = overwrittenEntry
+            ? await toLegacyEntry(
+                  this.clients.event,
+                  overwrittenEntry,
+                  legacyEntryOpts,
+              )
+            : undefined;
+        res.json({
+            moved: movedEntry,
+            old_path: oldPath,
+            ...(overwritten ? { overwritten } : {}),
         });
-        res.json({ moved: movedEntry, old_path: oldPath });
     };
 
     delete = async (req: Request, res: Response): Promise<void> => {
@@ -828,6 +937,14 @@ export class LegacyFSController extends PuterController {
             throw new HttpError(400, 'Missing `thumbnail`', {
                 legacyCode: 'bad_request',
             });
+        // Only inline image data. Clients generate the thumbnail themselves
+        // and the thumbnails extension is what turns it into a storage
+        // pointer; accepting a pointer here would let a caller name an object
+        // the server would then sign reads of, and delete, on their behalf.
+        if (!thumbnail.startsWith('data:'))
+            throw new HttpError(400, '`thumbnail` must be a data: URL', {
+                legacyCode: 'bad_request',
+            });
 
         const entry = await this.stores.fsEntry.getEntryByUuid(uid);
         if (!entry || !entry.path)
@@ -1018,10 +1135,9 @@ export class LegacyFSController extends PuterController {
     // -- Signed-URL + meta routes ----------------------------------------
 
     /**
-     * POST /sign
-     * Body: `{ items: [{ uid?, path?, action }], app_uid? }`. Returns
-     * `{ signatures: [...], token? }`. Apps may only sign files under their
-     * own AppData subtree.
+     * POST /sign Body: `{ items: [{ uid?, path?, action }], app_uid? }`.
+     * Returns `{ signatures: [...], token? }`. Apps may only sign files under
+     * their own AppData subtree.
      */
     sign = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
@@ -1146,10 +1262,10 @@ export class LegacyFSController extends PuterController {
     };
 
     /**
-     * POST /writeFile?uid=<uid>&operation=<op>
-     * Signature-authenticated multipart upload. `operation` dispatches to one
-     * of write/copy/move/mkdir/delete/rename/trash. Signature must be valid
-     * for `write` action on `uid`.
+     * POST /writeFile?uid=<uid>&operation=<op> Signature-authenticated
+     * multipart upload. `operation` dispatches to one of
+     * write/copy/move/mkdir/delete/rename/trash. Signature must be valid for
+     * `write` action on `uid`.
      */
     writeFile = async (req: Request, res: Response): Promise<void> => {
         const query = asRecord(req.query);
@@ -1368,10 +1484,9 @@ export class LegacyFSController extends PuterController {
     };
 
     /**
-     * GET /file?uid=<uid>&signature=...&expires=...
-     * Signature-authenticated file read. Directories return a signed listing
-     * of children; files stream bytes (with Range support when `download`
-     * isn't requested).
+     * GET /file?uid=<uid>&signature=...&expires=... Signature-authenticated
+     * file read. Directories return a signed listing of children; files stream
+     * bytes (with Range support when `download` isn't requested).
      */
     file = async (req: Request, res: Response): Promise<void> => {
         const query = asRecord(req.query);
@@ -1466,9 +1581,9 @@ export class LegacyFSController extends PuterController {
     };
 
     /**
-     * POST /open_item — resolve an entry, grant the default suggested app
-     * write access to it, and return a signed URL + user-app token so the
-     * launched app can read/write the file via its app-under-user token.
+     * POST /open_item — resolve an entry, grant the default suggested app write
+     * access to it, and return a signed URL + user-app token so the launched
+     * app can read/write the file via its app-under-user token.
      *
      * Matches v1 semantics: permission is always granted as `write` — the
      * underlying user's permission check still caps the effective access
@@ -1542,8 +1657,8 @@ export class LegacyFSController extends PuterController {
     };
 
     /**
-     * POST /auth/request-app-root-dir — an app-under-user requests stat on
-     * its own app root directory. The app must own itself.
+     * POST /auth/request-app-root-dir — an app-under-user requests stat on its
+     * own app root directory. The app must own itself.
      */
     requestAppRootDir = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
@@ -2246,12 +2361,21 @@ export class LegacyFSController extends PuterController {
 
     #serializeBatchError(err: unknown): Record<string, unknown> {
         if (err instanceof HttpError) {
-            return {
+            const payload: Record<string, unknown> = {
                 error: true,
                 status: err.statusCode,
                 message: err.message,
                 code: err.legacyCode ?? err.code,
             };
+            // Same as the terminal errorHandler: extra fields (e.g.
+            // `entry_name` on item_with_same_name_exists) ride along
+            // without clobbering the canonical slots.
+            if (err.fields) {
+                for (const [k, v] of Object.entries(err.fields)) {
+                    if (!(k in payload)) payload[k] = v;
+                }
+            }
+            return payload;
         }
         if (err instanceof Error) {
             return { error: true, status: 500, message: err.message };

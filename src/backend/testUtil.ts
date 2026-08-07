@@ -76,13 +76,13 @@ export const createPgMockPostgresDatabaseClient = async (
 
 /**
  * When `PUTER_TEST_DB_ENGINE=postgres` is set, `setupTestServer` swaps its
- * default sqlite test database for an in-memory Postgres backed by pgmock
- * (with the bundled Postgres migrations applied on boot). Tests that
- * explicitly override `database` still win — the env var only affects the
- * implicit default used by callers that don't pass any DB overrides.
+ * default sqlite test database for an in-memory Postgres backed by pgmock (with
+ * the bundled Postgres migrations applied on boot). Tests that explicitly
+ * override `database` still win — the env var only affects the implicit default
+ * used by callers that don't pass any DB overrides.
  *
- * Recognized values: `postgres` → pgmock. Anything else (including unset) →
- * the original sqlite-in-memory default.
+ * Recognized values: `postgres` → pgmock. Anything else (including unset) → the
+ * original sqlite-in-memory default.
  */
 const testDatabaseDefault = (): IConfig['database'] => {
     const engine = (process.env.PUTER_TEST_DB_ENGINE ?? '').toLowerCase();
@@ -105,10 +105,10 @@ export type SetupTestServerOptions = {
 };
 
 /**
- * Grab a free port by binding to 0 and releasing it. Done up-front (rather
- * than letting the server listen on 0) so the port is known while building
- * config — `origin` / `api_base_url` consumers like LocalWorkerService read
- * it at construction time.
+ * Grab a free port by binding to 0 and releasing it. Done up-front (rather than
+ * letting the server listen on 0) so the port is known while building config —
+ * `origin` / `api_base_url` consumers like LocalWorkerService read it at
+ * construction time.
  */
 export const allocateEphemeralPort = (): Promise<number> =>
     new Promise((resolve, reject) => {
@@ -210,25 +210,25 @@ export type TestUserCredentials = {
     password: string;
     token: string;
     /**
-     * Full-access access token (what the dashboard's "API Token" flow
-     * mints). AI surfaces reject bare session tokens (`noUserSession`),
-     * so suites exercising them authenticate with this instead.
+     * Full-access access token (what the dashboard's "API Token" flow mints).
+     * The `/puterai/*` wire routes reject bare session tokens
+     * (`noUserSession`), so suites exercising them authenticate with this.
      */
     apiToken: string;
     /**
-     * User-scoped worker session token (what deploying a worker with no
-     * app binding mints — `kind='worker'` session row). Never treated as
-     * a root token: suites use it to prove worker credentials pass the
-     * `noUserSession` gates.
+     * User-scoped worker session token (what deploying a worker with no app
+     * binding mints — `kind='worker'` session row). Never treated as a root
+     * token: suites use it to prove worker credentials pass the `noUserSession`
+     * gates.
      */
     workerToken: string;
 };
 
 /**
- * Seed a user with a known password directly through the stores (same steps
- * as DefaultUserService's admin bootstrap: bcrypt-hashed password, home
- * directory tree, optional admin-group membership) and mint a session token
- * the same way `POST /login` does.
+ * Seed a user with a known password directly through the stores (same steps as
+ * DefaultUserService's admin bootstrap: bcrypt-hashed password, home directory
+ * tree, optional admin-group membership) and mint a session token the same way
+ * `POST /login` does.
  */
 export const createTestUser = async (
     server: PuterServer,
@@ -292,20 +292,20 @@ export const createTestUser = async (
 
 export type PuterTestEnv = {
     /**
-     * Root origin (`http://puter.localhost:<port>`) — GUI and root-only
-     * routes like `POST /login` live here.
+     * Root origin (`http://puter.localhost:<port>`) — GUI and root-only routes
+     * like `POST /login` live here.
      */
     origin: string;
     /**
-     * API origin (`http://api.puter.localhost:<port>`) — what puter.js
-     * clients use as their APIOrigin. Routes gated on the `api` subdomain
-     * (e.g. `/whoami`) only match this host.
+     * API origin (`http://api.puter.localhost:<port>`) — what puter.js clients
+     * use as their APIOrigin. Routes gated on the `api` subdomain (e.g.
+     * `/whoami`) only match this host.
      */
     apiOrigin: string;
     /**
-     * Seeded accounts: an admin and two regular (non-privileged) users.
-     * `other` exists so suites can exercise cross-user flows (permission
-     * grants, access denials) without creating users on the fly.
+     * Seeded accounts: an admin and two regular (non-privileged) users. `other`
+     * exists so suites can exercise cross-user flows (permission grants, access
+     * denials) without creating users on the fly.
      */
     users: {
         admin: TestUserCredentials;
@@ -332,8 +332,8 @@ export const TEST_OTHER_USER_CREDENTIALS = {
 /**
  * Boot an in-memory Puter server on a real ephemeral port with deterministic
  * credentials, for client test runners (puter.js on node, browsers, workerd).
- * Clients can authenticate with the pre-minted tokens or via a real
- * `POST /login` using the fixed passwords — no stdout scraping.
+ * Clients can authenticate with the pre-minted tokens or via a real `POST
+ * /login` using the fixed passwords — no stdout scraping.
  */
 export const setupPuterTestEnv = async (
     configOverrides?: IConfig,
@@ -360,6 +360,13 @@ export const setupPuterTestEnv = async (
                 domain,
                 origin,
                 api_base_url: apiOrigin,
+                // The browser runner serves its fixture page from the API
+                // origin so the SDK runs same-origin, which makes that origin
+                // this env's GUI. A browser overrides any `Origin` header a
+                // test sets, so without this the credential routes behind
+                // `guiOriginGate` (/login, /signup, /session/sync-cookie) 403
+                // in the browser while passing everywhere else.
+                allow_gui_origins: [apiOrigin],
                 extensions: [extensionsDir],
             },
             configOverrides ?? {},

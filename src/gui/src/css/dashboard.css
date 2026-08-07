@@ -11,6 +11,12 @@
     --select-saturation: 74.22%;
     --select-lightness: 55.88%;
     --select-color: hsl(var(--select-hue), var(--select-saturation), var(--select-lightness));
+    /* Selection surfaces: a quiet accent wash + hairline ring instead of a
+       solid accent fill, so icons and labels keep their natural colors. */
+    --select-tint-weak: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.05);
+    --select-tint: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.1);
+    --select-tint-strong: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.2);
+    --select-ring: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.4);
 
     --dashboard-text: #444;
     --dashboard-border: #e0e0e0;
@@ -45,6 +51,12 @@
     --dashboard-warning-hover-bg: #fde68a;
     --dashboard-warning-hover-border: #d97706;
     --dashboard-warning-hover-text: #78350f;
+
+    /* Advisory notices (trial ending, renewal scheduled). Deliberately not the
+       warning ramp — nothing is wrong, so amber overstates it. */
+    --dashboard-notice-background: #eff6ff;
+    --dashboard-notice-border: #bfdbfe;
+    --dashboard-notice-text: #1d4ed8;
 
     --dashboard-success-background: #e6ffed;
     --dashboard-success-border: #08bf4e;
@@ -85,6 +97,8 @@
     --dashboard-shadow-light: rgba(0, 0, 0, 0.06);
     --dashboard-shadow-medium: rgba(0, 0, 0, 0.1);
     --dashboard-shadow-overlay: rgba(0, 0, 0, 0.5);
+    --dashboard-scrim: rgba(15, 18, 24, 0.42);
+    --dashboard-drawer-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04), 24px 0 64px rgba(0, 0, 0, 0.24);
 
     --dashboard-gradient-indigo: rgba(99, 102, 241, 0.08);
     --dashboard-gradient-purple: rgba(168, 85, 247, 0.06);
@@ -109,6 +123,12 @@ body {
         --primary-color: var(--dashboard-border);
         --primary-color-icon: invert(1);
         --primary-color-sidebar-item: #e8e8e8;
+
+        /* Alpha tints need a little more presence over dark surfaces */
+        --select-tint-weak: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.08);
+        --select-tint: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.16);
+        --select-tint-strong: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.28);
+        --select-ring: hsla(var(--select-hue), var(--select-saturation), var(--select-lightness), 0.5);
 
         --dashboard-text: #d4d4d4;
         --dashboard-border: #3d3d3d;
@@ -143,6 +163,12 @@ body {
         --dashboard-warning-hover-bg: #4a2608;
         --dashboard-warning-hover-border: #d97706;
         --dashboard-warning-hover-text: #fde68a;
+
+        /* Muted slate-blue rather than the amber ramp, which glares on a dark
+           surface. Low-chroma fill, visible-but-quiet border, legible text. */
+        --dashboard-notice-background: #17202f;
+        --dashboard-notice-border: #2f4058;
+        --dashboard-notice-text: #a8c4e8;
 
         --dashboard-success-background: #052e16;
         --dashboard-success-border: #16a34a;
@@ -180,6 +206,8 @@ body {
         --dashboard-shadow-light: rgba(0, 0, 0, 0.3);
         --dashboard-shadow-medium: rgba(0, 0, 0, 0.4);
         --dashboard-shadow-overlay: rgba(0, 0, 0, 0.7);
+        --dashboard-scrim: rgba(0, 0, 0, 0.6);
+        --dashboard-drawer-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 24px 0 64px rgba(0, 0, 0, 0.55);
 
         --dashboard-gradient-indigo: rgba(99, 102, 241, 0.15);
         --dashboard-gradient-purple: rgba(168, 85, 247, 0.12);
@@ -274,6 +302,12 @@ body {
     opacity: 0.6;
 }
 
+@media (prefers-color-scheme: dark) {
+    .dashboard-sidebar-collapse-toggle img {
+        filter: invert(1);
+    }
+}
+
 .dashboard-sidebar-collapse-toggle .sidebar-toggle-open {
     display: none;
 }
@@ -359,10 +393,42 @@ body {
     opacity: 1;
 }
 
-/* Hide desktop collapse toggle on mobile */
+/* Mobile drawer close button — hidden on desktop, where the collapse toggle
+   occupies the same header slot */
+.dashboard-sidebar-close {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: none;
+    border-radius: 8px;
+    color: var(--dashboard-text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
+    transition: background-color 0.15s, color 0.15s;
+}
+
+.dashboard-sidebar-close svg {
+    width: 20px;
+    height: 20px;
+}
+
+.dashboard-sidebar-close:active {
+    background: var(--dashboard-hover);
+    color: var(--dashboard-text);
+}
+
+/* Hide desktop collapse toggle on mobile; show the drawer close button */
 @media (max-width: 768px) {
     .dashboard-sidebar-collapse-toggle {
         display: none;
+    }
+
+    .dashboard-sidebar-close {
+        display: inline-flex;
     }
 }
 
@@ -411,6 +477,19 @@ body {
 .dashboard-sidebar-item.active {
     background: var(--dashboard-border);
     font-weight: 500;
+}
+
+/* Keyboard focus on the sidebar's controls: swap the UA's default blue
+   ring for the dashboard's own selection ring, hugging the control's
+   rounded corners from the inside. :focus-visible only, so a mouse click
+   (which also focuses these) never paints it. */
+.dashboard-sidebar-item:focus-visible,
+.dashboard-user-btn:focus-visible,
+.dashboard-sidebar-toggle:focus-visible,
+.dashboard-sidebar-collapse-toggle:focus-visible,
+.dashboard-sidebar-close:focus-visible {
+    outline: 2px solid var(--select-ring);
+    outline-offset: -2px;
 }
 
 /* User options button at bottom of sidebar */
@@ -712,10 +791,76 @@ input.myapps-search::-webkit-search-decoration {
     appearance: none;
 }
 
+/* Frozen while reorder mode is on (see TabApps._setReorderMode). */
+input.myapps-search:disabled {
+    opacity: 0.55;
+}
+
+/* Toggle for the touch reorder mode. Hidden by default: it only appears on
+   touch-primary devices (media query below — same test as
+   isTouchPrimaryDevice()) and only once there are 2+ tiles to reorder
+   (.myapps-reorder-btn-available, kept in sync by renderApps). */
+.myapps-reorder-btn {
+    display: none;
+    flex: none;
+    -webkit-appearance: none;
+    appearance: none;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 6px;
+    background: var(--dashboard-input-background);
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+    white-space: nowrap;
+}
+
+.myapps-reorder-btn svg {
+    display: block;
+    width: 16px;
+    height: 16px;
+}
+
+.myapps-reorder-btn.myapps-reorder-btn-active {
+    background: var(--select-color);
+    border-color: var(--select-color);
+    color: white;
+}
+
+@media (pointer: coarse) and (hover: none) {
+    .myapps-tab .myapps-reorder-btn.myapps-reorder-btn-available {
+        display: inline-flex;
+        align-items: center;
+    }
+
+    /* Sit the button beside the search box. With the button hidden (or on
+       devices where it never shows) the lone flex child centers at the same
+       360px max width the block layout gave it. */
+    .myapps-tab .myapps-search-wrap {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+    }
+
+    .myapps-tab .myapps-search-inner {
+        flex: 1 1 auto;
+        max-width: 360px;
+        margin-left: 0;
+        margin-right: 0;
+    }
+}
+
 .myapps-container {
     /* Pager geometry; TabApps.js reads these to size pages. */
     --myapps-tile-w: 100px;
-    --myapps-tile-h: 78px;
+    /* icon 56 + label margin 10 + one 12px/1.3 label line (~16) */
+    --myapps-tile-h: 82px;
     --myapps-gap-x: 32px;
     --myapps-gap-y: 32px;
     --myapps-dots-h: 28px;
@@ -908,10 +1053,12 @@ input.myapps-search::-webkit-search-decoration {
        this, an overflowing label makes flexbox shrink the icon box, deforming
        the icon into a landscape crop. */
     flex: none;
+    /* Positioning context for the reorder-mode uninstall badge. */
+    position: relative;
     width: 56px;
     height: 56px;
     overflow: hidden;
-    background: var(--dashboard-card-background);
+    background: none;
     transition: transform 0.15s ease, box-shadow 0.15s ease;
     display: flex;
     align-items: center;
@@ -939,9 +1086,8 @@ input.myapps-search::-webkit-search-decoration {
     }
 }
 
-.myapps-tile:active .myapps-tile-icon {
-    transform: scale(0.95);
-}
+/* No :active press-shrink on tiles: clicking launches the app, whose open
+   morph grows the icon — a shrink-then-grow stutter reads as jank. */
 
 /* Keyboard navigation: keyboard focus mirrors the mouse hover enlargement.
    :focus-visible only, so a mouse click doesn't pin the effect after the
@@ -965,7 +1111,10 @@ input.myapps-search::-webkit-search-decoration {
 }
 
 .myapps-tile-label {
-    margin-top: 6px;
+    /* 10px, not 6: the gap between icon and label hosts the running dot,
+       which needs clearance from the icon's 1.08x hover growth above it
+       and from the label text below it. */
+    margin-top: 10px;
     font-size: 12px;
     color: var(--dashboard-text-heading);
     text-align: center;
@@ -973,7 +1122,7 @@ input.myapps-search::-webkit-search-decoration {
     max-width: 100px;
     overflow: hidden;
     text-overflow: ellipsis;
-    /* Single line only: the 78px tile height (--myapps-tile-h) budgets icon +
+    /* Single line only: the 82px tile height (--myapps-tile-h) budgets icon +
        margin + exactly one label line. A second line overflows the grid row
        and gets clipped. Full names remain available via the tile tooltip. */
     display: -webkit-box;
@@ -1312,13 +1461,17 @@ input.myapps-search::-webkit-search-decoration {
 }
 
 /* Floating clone that tracks the pointer. Lives on <body> so the scroller's
-   overflow can't clip it; positioned entirely via an inline transform. */
+   overflow can't clip it; positioned entirely via an inline transform.
+   z-index must clear every window band — the fullpage dashboard window sits
+   at ~1e7 and stay-on-top windows near 1e9 (see UIWindow), and a ghost that
+   loses that contest renders invisibly behind the very grid being dragged.
+   Max int is safe: the ghost is transient, purely visual, pointer-events:none. */
 .myapps-drag-ghost {
     position: fixed;
     top: 0;
     left: 0;
     margin: 0;
-    z-index: 100000;
+    z-index: 2147483647;
     pointer-events: none;
     opacity: 0.95;
     filter: drop-shadow(0 10px 20px var(--dashboard-shadow-medium));
@@ -1353,8 +1506,94 @@ body.myapps-reordering .myapps-tile {
     touch-action: none;
 }
 
+/* -- Reorder mode (touch; see TabApps._setReorderMode) --
+   touch-action must be locked down BEFORE the finger goes down — the browser
+   reads it at gesture start, so the mid-drag body.myapps-reordering rule
+   above can't stop a touch the scroller has already claimed. While the mode
+   is on, touches that start on a tile belong to the drag logic (ones on the
+   gaps still pan pages natively) and the iOS long-press callout is off. */
+.myapps-reorder-mode .myapps-tile {
+    touch-action: none;
+    -webkit-touch-callout: none;
+}
+
+/* iOS-style uninstall badge (see buildTileHtml); rendered on every tile that
+   may be uninstalled but only shown while reorder mode is on. Fixed dark
+   grey / white ×, like iOS, works over any theme. */
+.myapps-tile-remove {
+    display: none;
+    position: absolute;
+    top: -7px;
+    left: -7px;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(58, 58, 64, 0.92);
+    color: #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    z-index: 1;
+    touch-action: manipulation;
+}
+
+.myapps-tile-remove svg {
+    width: 11px;
+    height: 11px;
+}
+
+/* Pad the 22px badge out to a finger-sized target. */
+.myapps-tile-remove::after {
+    content: '';
+    position: absolute;
+    inset: -7px;
+}
+
+.myapps-reorder-mode .myapps-tile-remove {
+    display: flex;
+}
+
+/* The badge overhangs the icon box's corner; the box normally clips. */
+.myapps-reorder-mode .myapps-tile-icon {
+    overflow: visible;
+}
+
+/* iOS-home-screen jiggle: the visible cue that tiles are draggable. Applied
+   to the icon, not the tile, so it can't fight the FLIP translate transforms
+   the drag logic puts on the tiles themselves. Phases are staggered by grid
+   position so the tiles don't wobble in lockstep. */
+@keyframes myapps-reorder-jiggle {
+    0% { transform: rotate(-1.5deg); }
+    50% { transform: rotate(1.5deg); }
+    100% { transform: rotate(-1.5deg); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .myapps-reorder-mode .myapps-tile .myapps-tile-icon {
+        animation: myapps-reorder-jiggle 0.35s ease-in-out infinite;
+    }
+
+    .myapps-reorder-mode .myapps-tile:nth-child(2n) .myapps-tile-icon {
+        animation-duration: 0.33s;
+        animation-delay: -0.12s;
+    }
+
+    .myapps-reorder-mode .myapps-tile:nth-child(3n) .myapps-tile-icon {
+        animation-delay: -0.24s;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
     .myapps-drag-ghost {
+        transition: none;
+    }
+
+    .dashboard-sidebar,
+    .dashboard-sidebar-scrim,
+    .dashboard-sidebar-toggle {
         transition: none;
     }
 }
@@ -1427,7 +1666,7 @@ body.myapps-reordering .myapps-tile {
 }
 
 .dashboard-section-files .directories li img {
-    width: 28px;
+    width: 35px;
     height: auto;
 }
 
@@ -1618,6 +1857,9 @@ body.myapps-reordering .myapps-tile {
     float: unset;
     -webkit-user-select: none;
     user-select: none;
+    /* Safari shows an I-beam over text regardless of user-select unless a
+       cursor is set explicitly; children (item-name, size, modified) inherit. */
+    cursor: default;
 }
 
 .dashboard-section-files .row.folder {
@@ -1626,24 +1868,24 @@ body.myapps-reordering .myapps-tile {
 
 @media (hover: hover) {
     .dashboard-section-files .row:hover {
-        background: var(--dashboard-hover);
+        background: var(--select-tint-weak);
         border-radius: 3px;
     }
 }
 
 .dashboard-section-files .row.has-open-contextmenu:not(.selected) {
-    background: var(--dashboard-hover);
+    background: var(--select-tint-weak);
     border-radius: 3px;
 }
 
 .dashboard-section-files .row.selected {
-    color: var(--primary-color-sidebar-item);
-    background-color: var(--select-color);
+    color: var(--dashboard-text-primary);
+    background-color: var(--select-tint);
     border-radius: 3px;
 }
 
 @keyframes item-added-highlight {
-    from { background-color: var(--select-color); }
+    from { background-color: var(--select-tint-strong); }
     to { background-color: transparent; }
 }
 
@@ -1686,6 +1928,26 @@ body.myapps-reordering .myapps-tile {
     font-weight: 500;
     word-break: inherit;
     line-height: 32px;
+}
+
+/* Open-file dot: marks rows whose file is open in an app window (visible or
+   minimized) — the row doubles as that window's switcher (clicking it
+   restores the window; see open_item.js), sibling of the Apps-tab tiles'
+   running dot. Kept current by updateOpenFileDots in TabFiles.js. */
+.dashboard-section-files .files-tab .files .row.file-is-open .item-name-wrapper::after {
+    content: '';
+    flex: 0 0 auto;
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--dashboard-text-tertiary, #71717a);
+}
+
+/* Grid view: the name wrapper is a block, not a flex row — center the dot
+   under the (up to two-line) name, mirroring the tile dot under its icon. */
+.dashboard-section-files .files-tab .files.files-grid-view .row.file-is-open .item-name-wrapper::after {
+    display: block;
+    margin: 4px auto 0;
 }
 
 /* On touch devices, item-name/icon/badges must not be direct event targets
@@ -1739,118 +2001,120 @@ body.myapps-reordering .myapps-tile {
     }
 
     .dashboard-section-files .row.selected:hover .item-more {
-        color: var(--primary-color-sidebar-item);
+        color: var(--dashboard-text);
     }
 }
 
+/* The '⋯' button stays in its active look while the menu it opened is up
+   (the pointer is on the menu by then, so :hover alone can't hold it). */
+.dashboard-section-files .row .item-more.has-open-contextmenu {
+    color: var(--dashboard-text);
+}
+
 .dashboard-section-files .row.selected .item-more {
-    color: var(--primary-color-sidebar-item);
+    color: var(--dashboard-text-secondary);
 }
 
-.dashboard-section-files.ui-draggable-dragging {
-    background-color: transparent !important;
-    opacity: 1 !important;
+/* Source rows dim while their drag is in flight */
+.dashboard-section-files .row.dragging-source {
+    opacity: 0.45;
 }
 
-/* --- List view drag ghost --- */
+/* --- Drag ghost ---
+   A compact icon+name chip that follows the cursor (same for list and grid
+   views). Multi-selections show stacked sheets behind the chip and a count
+   badge on its top-right corner. Built in TabFiles.js draggable helper(). */
 
-.dashboard-section-files.ui-draggable-dragging .files-list-view .row,
-.dashboard-section-files.item-selected-clone .files-list-view .row {
-    background-color: var(--select-color) !important;
-    color: var(--dashboard-background) !important;
-    border-radius: 3px;
-    cursor: move;
-    width: auto !important;
-    display: grid !important;
-    grid-template-columns: 24px auto !important;
-    align-items: center;
-    height: 32px;
-}
-
-.dashboard-section-files.item-selected-clone .files-list-view .row {
-    opacity: 0.6;
+.files-drag-ghost {
     pointer-events: none;
+    z-index: 10000;
+    opacity: 0.95;
+    animation: files-drag-ghost-in 120ms ease-out;
 }
 
-.dashboard-section-files.ui-draggable-dragging .files-list-view .row .item-name-wrapper,
-.dashboard-section-files.item-selected-clone .files-list-view .row .item-name-wrapper {
+@keyframes files-drag-ghost-in {
+    from {
+        transform: scale(0.92);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 0.95;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .files-drag-ghost {
+        animation: none;
+    }
+}
+
+.files-drag-ghost-card {
+    position: relative;
     display: flex;
     align-items: center;
-    overflow: hidden;
+    gap: 8px;
+    max-width: 220px;
+    padding: 7px 14px 7px 9px;
+    box-sizing: border-box;
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    box-shadow: 0 1px 2px var(--dashboard-shadow-subtle), 0 8px 24px var(--dashboard-shadow-medium);
+}
+
+.files-drag-ghost-icon {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 auto;
+    object-fit: contain;
+}
+
+.files-drag-ghost-name {
     min-width: 0;
-}
-
-.dashboard-section-files.ui-draggable-dragging .files-list-view .row .item-icon,
-.dashboard-section-files.item-selected-clone .files-list-view .row .item-icon {
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    background: white;
-    border-radius: 2px;
-}
-
-.dashboard-section-files.ui-draggable-dragging .files-list-view .row .item-icon img,
-.dashboard-section-files.item-selected-clone .files-list-view .row .item-icon img {
-    width: 18px;
-    height: 18px;
-    object-fit: cover;
-}
-
-.dashboard-section-files.ui-draggable-dragging .files-list-view .row .item-name,
-.dashboard-section-files.item-selected-clone .files-list-view .row .item-name {
+    overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    overflow: hidden;
-    max-width: unset;
-    color: currentColor;
-    text-shadow: none;
-    padding: 0 8px;
-    margin: 0;
-    font-size: 12px;
+    font-size: 12.5px;
     font-weight: 500;
-    word-break: inherit;
-    line-height: 32px;
+    color: var(--dashboard-text-primary);
 }
 
-.dashboard-section-files.ui-draggable-dragging .files-list-view .row .item-metadata,
-.dashboard-section-files.ui-draggable-dragging .files-list-view .row .col-spacer,
-.dashboard-section-files.ui-draggable-dragging .files-list-view .row .item-more,
-.dashboard-section-files.ui-draggable-dragging .files-list-view .row .item-name-editor,
-.dashboard-section-files.item-selected-clone .files-list-view .row .item-metadata,
-.dashboard-section-files.item-selected-clone .files-list-view .row .col-spacer,
-.dashboard-section-files.item-selected-clone .files-list-view .row .item-more,
-.dashboard-section-files.item-selected-clone .files-list-view .row .item-name-editor {
-    display: none !important;
+/* Stacked sheets behind the chip hint at additional items in the drag */
+.files-drag-ghost-sheet {
+    position: absolute;
+    inset: 0;
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    box-shadow: 0 1px 3px var(--dashboard-shadow-subtle);
 }
 
-/* --- Grid view drag ghost --- */
-
-.dashboard-section-files.ui-draggable-dragging .files-grid-view .row,
-.dashboard-section-files.item-selected-clone .files-grid-view .row {
-    background-color: var(--select-color) !important;
-    color: var(--dashboard-background) !important;
-    cursor: move;
+.files-drag-ghost-sheet-1 {
+    transform: translate(4px, 4px);
 }
 
-.dashboard-section-files.item-selected-clone .files-grid-view .row {
-    opacity: 0.6;
-    pointer-events: none;
+.files-drag-ghost-sheet-2 {
+    transform: translate(8px, 8px);
 }
 
-.dashboard-section-files.ui-draggable-dragging .files-grid-view .row .item-name-wrapper,
-.dashboard-section-files.item-selected-clone .files-grid-view .row .item-name-wrapper {
-    /* display: none !important; */
-}
-
-.dashboard-section-files.ui-draggable-dragging .files-grid-view .row .item-metadata,
-.dashboard-section-files.ui-draggable-dragging .files-grid-view .row .col-spacer,
-.dashboard-section-files.ui-draggable-dragging .files-grid-view .row .item-more,
-.dashboard-section-files.ui-draggable-dragging .files-grid-view .row .item-name-editor,
-.dashboard-section-files.item-selected-clone .files-grid-view .row .item-metadata,
-.dashboard-section-files.item-selected-clone .files-grid-view .row .col-spacer,
-.dashboard-section-files.item-selected-clone .files-grid-view .row .item-more,
-.dashboard-section-files.item-selected-clone .files-grid-view .row .item-name-editor {
-    display: none !important;
+.files-drag-ghost-count {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    z-index: 1;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    box-sizing: border-box;
+    border-radius: 10px;
+    background: var(--select-color);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 20px;
+    text-align: center;
+    box-shadow: 0 1px 4px var(--dashboard-shadow-medium);
 }
 
 .dashboard-section-files .row.folder.ui-droppable-hover,
@@ -1877,20 +2141,16 @@ body.myapps-reordering .myapps-tile {
     to { background-size: 100% 100%; }
 }
 
-.dashboard-section-files .draggable-count-badge {
-    position: fixed;
-    background: var(--select-color);
-    color: var(--dashboard-background);
-    border-radius: 50%;
-    width: 24px;
-    height: 24px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-    font-weight: bold;
-    pointer-events: none;
-    z-index: 10001;
+/* Navbar controls (back/forward/up, breadcrumbs) use an outline instead of a
+   border for the dwell state so the header layout doesn't shift. */
+.dashboard-section-files .path-btn.dwell-opening,
+.dashboard-section-files .header .path .dirname.dwell-opening {
+    background: linear-gradient(90deg, rgba(59, 130, 246, 0.15) 100%, transparent 100%);
+    background-size: 0% 100%;
+    background-repeat: no-repeat;
+    outline: 2px dashed var(--select-color);
+    outline-offset: -2px;
+    animation: dwell-fill 700ms linear forwards;
 }
 
 /* Drag cancel zone — shown after spring-loaded folder navigation */
@@ -2014,6 +2274,15 @@ body.myapps-reordering .myapps-tile {
     pointer-events: none;
 }
 
+/* The marquee is clamped to the files container but the cursor isn't;
+   while a rubber-band drag is active, the chrome around the list must
+   not react to the cursor passing over it (hover highlights, tooltips). */
+.dashboard.rubberband-selecting .dashboard-sidebar,
+.dashboard.rubberband-selecting .dashboard-section-files .directories,
+.dashboard.rubberband-selecting .dashboard-section-files .directory-contents .header {
+    pointer-events: none;
+}
+
 .dashboard-section-files .selection-action-btn {
     display: flex;
     align-items: center;
@@ -2125,7 +2394,7 @@ body.myapps-reordering .myapps-tile {
     width: 24px;
     height: 24px;
     padding: 0;
-    background: var(--dashboard-background);
+    background: transparent;
     border-radius: 2px;
 }
 
@@ -2220,22 +2489,21 @@ body.myapps-reordering .myapps-tile {
 
 @media (hover: hover) {
     .dashboard-section-files .files-tab .files.files-grid-view .row:hover {
-        background: var(--dashboard-sidebar-background);
-        border-color: var(--dashboard-border);
+        background: var(--select-tint-weak);
+        border-color: var(--select-tint-strong);
     }
 }
 
 /* An open context menu keeps its row in the hover state (the pointer is on
    the menu, so :hover no longer matches). Selected rows keep their own look. */
 .dashboard-section-files .files-tab .files.files-grid-view .row.has-open-contextmenu:not(.selected) {
-    background: var(--dashboard-sidebar-background);
-    border-color: var(--dashboard-border);
+    background: var(--select-tint-weak);
+    border-color: var(--select-tint-strong);
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view .row.selected {
-    background-color: var(--select-color);
-    color: var(--dashboard-background);
-    border-color: var(--select-color);
+    background-color: var(--select-tint);
+    border-color: var(--select-ring);
 }
 
 .dashboard-section-files .files-tab .files.files-grid-view .row .item-icon {
@@ -2295,16 +2563,25 @@ body.myapps-reordering .myapps-tile {
     .dashboard-section-files .files-tab .files.files-grid-view .row:hover .item-more,
     .dashboard-section-files .files-tab .files.files-grid-view .row.has-open-contextmenu .item-more {
         position: absolute;
-        top: 1px;
-        right: 1px;
-        color: #666;
-        background: var(--dashboard-sidebar-background);
+        top: 6px;
+        right: 6px;
+        color: var(--dashboard-text-secondary);
+        background: var(--dashboard-card-background);
+        border: 1px solid var(--dashboard-border);
+        box-shadow: 0 1px 2px var(--dashboard-shadow-subtle);
         width: 24px;
         height: 24px;
         display: flex;
         justify-content: center;
         align-items: center;
-        border-radius: 7px;
+        border-radius: 6px;
+        transition: background-color 0.15s ease, color 0.15s ease;
+    }
+
+    .dashboard-section-files .files-tab .files.files-grid-view .row .item-more:hover,
+    .dashboard-section-files .files-tab .files.files-grid-view .row .item-more.has-open-contextmenu {
+        color: var(--dashboard-text-primary);
+        background: var(--dashboard-hover);
     }
 }
 
@@ -2509,76 +2786,157 @@ body.myapps-reordering .myapps-tile {
     margin: 4px 0;
 }
 
-/* Mobile sidebar toggle */
+/* Mobile sidebar toggle — frosted so scrolling content reads through it,
+   aligned to the 16px content gutter */
 .dashboard-sidebar-toggle {
     display: none;
     position: fixed;
-    top: 12px;
-    left: 12px;
+    top: max(12px, env(safe-area-inset-top));
+    left: max(16px, env(safe-area-inset-left));
     z-index: 100;
-    width: 35px;
-    height: 35px;
-    background: var(--dashboard-background);
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.8);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    backdrop-filter: blur(16px) saturate(180%);
     border: 1px solid var(--dashboard-border);
-    border-radius: 6px;
+    border-radius: 10px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 4px 16px rgba(0, 0, 0, 0.06);
     cursor: pointer;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 4px;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+/* Extend the tap target to ~52px without growing the button visually */
+.dashboard-sidebar-toggle::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: inherit;
+}
+
+.dashboard-sidebar-toggle:active {
+    transform: scale(0.94);
+}
+
+/* The open drawer covers the toggle; fade it so it can't peek out from
+   behind the drawer's rounded corner or catch stray taps */
+.dashboard-sidebar-toggle.open {
+    opacity: 0;
+    transform: scale(0.9);
+    pointer-events: none;
 }
 
 .dashboard-sidebar-toggle span {
     display: block;
-    width: 18px;
+    width: 16px;
     height: 2px;
     background: var(--dashboard-text);
     border-radius: 1px;
-    transition: transform 0.2s, opacity 0.2s;
 }
 
-.dashboard-sidebar-toggle.open span:nth-child(1) {
-    transform: rotate(45deg) translate(4px, 4px);
+@media (prefers-color-scheme: dark) {
+    .dashboard-sidebar-toggle {
+        background: rgba(37, 37, 37, 0.8);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.3);
+    }
 }
 
-.dashboard-sidebar-toggle.open span:nth-child(2) {
-    opacity: 0;
+/* Scrim behind the mobile drawer */
+.dashboard-sidebar-scrim {
+    display: none;
 }
 
-.dashboard-sidebar-toggle.open span:nth-child(3) {
-    transform: rotate(-45deg) translate(4px, -4px);
-}
-
-/* Responsive: tablet and below */
+/* Responsive: tablet and below — the sidebar becomes a modal drawer */
 @media (max-width: 768px) {
     .dashboard-sidebar-header {
-        padding-left: 45px;
-        border-bottom: 0;
-        margin-bottom: 2px;
-        margin-top: 3px;
-    }
-
-    .dashboard-sidebar-header .dashboard-sidebar-logo {
-        margin-left: auto;
+        padding: 2px 2px 12px 6px;
     }
 
     .dashboard-sidebar-toggle {
         display: flex;
     }
 
+    .dashboard-sidebar-scrim {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 98;
+        background: var(--dashboard-scrim);
+        opacity: 0;
+        pointer-events: none;
+        touch-action: none;
+        transition: opacity 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    .dashboard-sidebar-scrim.open {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
     .dashboard-sidebar {
         position: fixed;
         left: 0;
         top: 0;
-        height: 100%;
+        bottom: 0;
+        height: auto;
+        width: min(304px, calc(100vw - 56px));
+        min-width: 0;
         z-index: 99;
+        padding: max(16px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom)) calc(14px + env(safe-area-inset-left));
+        border-right: none;
+        border-radius: 0 16px 16px 0;
         transform: translateX(-110%);
-        transition: transform 0.2s ease;
-        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.1);
+        visibility: hidden;
+        box-shadow: var(--dashboard-drawer-shadow);
+        overscroll-behavior: contain;
+        /* visibility flips only after the slide-out finishes, keeping the
+           closed drawer out of the tab order */
+        transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s linear 0.32s;
     }
 
     .dashboard-sidebar.open {
         transform: translateX(0);
+        visibility: visible;
+        transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    /* Mid-swipe: the drawer follows the finger, so no transitions */
+    .dashboard-sidebar.dragging,
+    .dashboard-sidebar-scrim.dragging {
+        transition: none;
+    }
+
+    /* Roomier touch targets inside the drawer, with pressed-state feedback
+       in place of hover */
+    .dashboard-sidebar-item {
+        padding: 12px;
+        gap: 12px;
+        font-size: 15px;
+        margin-bottom: 2px;
+        border-radius: 10px;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .dashboard-sidebar-item svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    .dashboard-sidebar-item:active {
+        background: var(--dashboard-hover);
+    }
+
+    .dashboard-user-btn {
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .dashboard-user-btn:active {
+        background: var(--dashboard-hover);
     }
 
     .dashboard-content {
@@ -2591,7 +2949,7 @@ body.myapps-reordering .myapps-tile {
        the first folder row (the column is hidden below 480px, so this only
        affects the tablet range). */
     .dashboard-section-files .directories {
-        padding-top: 52px;
+        padding-top: 60px;
     }
 
     .myapps-search-wrap {
@@ -3309,6 +3667,19 @@ body.myapps-reordering .myapps-tile {
     gap: 24px;
 }
 
+/* Three even columns need real width. Below that the plan column lands around
+   230px, which wraps its badge and renewal notice into a tall ribbon — so give
+   the plan its own row and let the two usage meters share the next one. */
+@media (max-width: 1200px) {
+    .dashboard .bento-usage-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .dashboard .bento-plan-section {
+        grid-column: 1 / -1;
+    }
+}
+
 .dashboard .bento-usage-section {
     display: flex;
     flex-direction: column;
@@ -3349,6 +3720,17 @@ body.myapps-reordering .myapps-tile {
     border: 1px solid var(--dashboard-danger-border);
 }
 
+.dashboard .bento-plan-badge.trial {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--dashboard-notice-text);
+    background: var(--dashboard-notice-background);
+    border: 1px solid var(--dashboard-notice-border);
+}
+
 .dashboard .bento-plan-warning {
     margin-top: 10px;
     padding: 8px 10px;
@@ -3358,6 +3740,14 @@ body.myapps-reordering .myapps-tile {
     border: 1px solid var(--dashboard-danger-border);
     font-size: 12px;
     line-height: 1.4;
+}
+
+/* Time-boxed but not broken — a trial notice reads as advisory, not as the
+   red dunning banner and not as an amber warning either. */
+.dashboard .bento-plan-warning.info {
+    color: var(--dashboard-notice-text);
+    background: var(--dashboard-notice-background);
+    border-color: var(--dashboard-notice-border);
 }
 
 .dashboard .bento-plan-upgrade {
@@ -3774,8 +4164,38 @@ body.myapps-reordering .myapps-tile {
 
 .dashboard-settings-card .button {
     flex-shrink: 0;
-    color: var(--dashboard-text);
+    color: var(--dashboard-text-primary);
+    background: var(--dashboard-card-background);
+    border-color: var(--dashboard-border);
+    border-radius: 10px;
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.dashboard-settings-card .button:hover {
     background: var(--dashboard-sidebar-background);
+}
+
+.dashboard-settings-card .button:focus-visible {
+    border-color: var(--select-color);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+.dashboard-settings-card .button:active {
+    background: var(--dashboard-hover);
+    border-color: var(--dashboard-border);
+    color: var(--dashboard-text-primary);
+    box-shadow: none;
+}
+
+/* Base .button:disabled hard-codes light greys with !important, which
+   clashes with this outline style and glares in dark mode. */
+.dashboard-settings-card .button:disabled {
+    background: var(--dashboard-card-background) !important;
+    border-color: var(--dashboard-border) !important;
+    color: var(--dashboard-text-muted) !important;
+    text-shadow: none !important;
 }
 
 .dashboard-settings-card-success {
@@ -4197,4 +4617,374 @@ body.myapps-reordering .myapps-tile {
 
 .submenu-arrow {
     margin-left: auto;
+}
+
+/* Dashboard mode runs fullpage (which normally hides the minimize button
+   because there's no taskbar to restore from), but here a minimized app can
+   be brought back from its Apps-tab tile — so keep the button available. */
+body.dashboard-mode .window-minimize-btn {
+    display: inline;
+}
+
+/* Fullpage mode sizes .window-body-app to 100% because fullpage windows have
+   no titlebar — but dashboard-mode app windows WITH a head still lose 29px to
+   it, so compensate for those. Headless dashboard app windows
+   (.window-dashboard-headless — the maximized in-page apps, whose controls
+   live in the top-edge control drawer) get the full height. */
+body.dashboard-mode .window:not(.window-dashboard-headless) .window-body-app {
+    height: calc(100% - 29px) !important;
+}
+
+body.dashboard-mode .window-dashboard-headless .window-body-app {
+    height: 100% !important;
+}
+
+/* ==========================================================================
+   Dashboard app drawer — controls for headless in-page app windows. One
+   glass surface flush with the top edge that MORPHS between two shapes:
+   at rest a small tongue (a grabber bar peeking in from the edge);
+   opened, the same surface swells into a tray carrying icon + title +
+   minimize + close while the grabber bar dissolves — the open tray is
+   clean glass, and a bare strip along its bottom edge stays behind as
+   the dismiss hit area; shutting condenses the bar back into the
+   settling tongue. Hover (mouse), tap, or keyboard focus opens it (see
+   attach_dashboard_app_drawer in UIWindow.js). A child of the window element (so it shows/hides/scales
+   with it), painted above the app's iframe. Dark translucent glass on
+   every theme: it overlays arbitrary app content, not the dashboard's
+   surfaces.
+
+   The base rules below describe the OPEN shape; .collapsed overrides to
+   the tongue. Each state carries its own transition, so opening gets a
+   soft overshoot (the tongue swells past the tray and settles) while
+   closing is quicker and lands without bounce.
+   ========================================================================== */
+
+.dashboard-app-drawer {
+    /* The morph's two shapes. --open-w is DERIVED from the part sizes —
+       the controls row is laid out with the same variables, so the open
+       surface always fits its content exactly and breakpoints only
+       override parts. --safe-top keeps content below a notch in
+       standalone/fullscreen display modes while the surface stays flush
+       with the physical edge. */
+    --safe-top: env(safe-area-inset-top, 0px);
+    --icon: 20px;
+    --btn: 26px;
+    --title-w: 150px;
+    --i2t: 8px;   /* icon → title gap */
+    --t2b: 6px;   /* title → buttons gap */
+    --controls-h: 40px;
+    /* With no visible handle when open, the tray hugs the controls row:
+       --open-h leaves just enough glass below the buttons to balance the
+       padding above them (plus ~2px the bottom corner radius eats
+       optically). The bare dismiss strip fills exactly that leftover —
+       it must never rise past the buttons' bottom edge at
+       (controls-h + btn)/2, because the toggle stacks OVER the controls
+       layer and would steal their clicks. */
+    --strip-h: 9px;
+    --open-w: calc(12px + var(--icon) + var(--i2t) + var(--title-w) + var(--t2b) + var(--btn) + 2px + var(--btn) + 10px);
+    --open-h: 42px;
+    --shut-w: 56px;
+    --shut-h: 16px;
+
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 500;
+    width: var(--open-w);
+    height: calc(var(--open-h) + var(--safe-top));
+    border-radius: 0 0 16px 16px;
+    background: rgba(24, 24, 28, 0.62);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-top: none;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28), 0 1px 3px rgba(0, 0, 0, 0.2);
+    color: #fff;
+    -webkit-user-select: none;
+    user-select: none;
+    transition:
+        width 0.45s cubic-bezier(0.34, 1.2, 0.4, 1),
+        height 0.45s cubic-bezier(0.34, 1.2, 0.4, 1),
+        border-radius 0.45s ease,
+        opacity 0.2s ease;
+}
+
+.dashboard-app-drawer.collapsed {
+    width: var(--shut-w);
+    height: calc(var(--shut-h) + var(--safe-top));
+    border-radius: 0 0 12px 12px;
+    /* Subtle but findable over both light and dark app content — the
+       white hairline border carries the dark-on-dark case. */
+    opacity: 0.7;
+    transition:
+        width 0.3s cubic-bezier(0.5, 0.05, 0.25, 1),
+        height 0.3s cubic-bezier(0.5, 0.05, 0.25, 1),
+        border-radius 0.3s ease,
+        opacity 0.2s ease 0.08s;
+}
+
+/* Clipping window for the controls. The surface itself can't be
+   overflow:hidden — that would clip the toggle's invisible touch halo —
+   so an inner layer inherits the rounded shape and does the clipping:
+   mid-morph, the growing surface reveals the controls from the center
+   outward instead of letting them spill past the glass. */
+.dashboard-app-drawer-clip {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: inherit;
+    pointer-events: none;
+}
+
+/* The controls row is a FIXED-size layer centered on the surface: it
+   never reflows during the morph, the glass just grows around it. */
+.dashboard-app-drawer-controls {
+    position: absolute;
+    top: var(--safe-top);
+    left: 50%;
+    transform: translateX(-50%);
+    box-sizing: border-box;
+    width: var(--open-w);
+    height: var(--controls-h);
+    display: flex;
+    align-items: center;
+    padding: 0 10px 0 12px;
+    transition:
+        opacity 0.25s ease 0.1s,
+        filter 0.25s ease 0.1s,
+        transform 0.45s cubic-bezier(0.34, 1.2, 0.4, 1);
+}
+
+/* Shut, the controls condense out of focus — fade + blur + slight
+   shrink — and visibility (flipped AFTER the morph, hence the delay;
+   removing the class restores it instantly) drops the buttons out of
+   the Tab order and the accessibility tree. */
+.dashboard-app-drawer.collapsed .dashboard-app-drawer-controls {
+    opacity: 0;
+    filter: blur(5px);
+    transform: translateX(-50%) scale(0.82);
+    visibility: hidden;
+    transition:
+        opacity 0.12s ease,
+        filter 0.12s ease,
+        transform 0.3s cubic-bezier(0.5, 0.05, 0.25, 1),
+        visibility 0s linear 0.3s;
+}
+
+/* The grabber toggle: fills the tongue when shut; open, it settles into
+   a slim strip along the tray's bottom edge — same dismiss hit area,
+   but the bar inside it hides (below), so the open tray shows no
+   handle. Absolutely positioned, so its DOM position (first, for Tab
+   order) doesn't affect the visuals. */
+.dashboard-app-drawer-toggle {
+    position: absolute;
+    inset: calc(var(--safe-top) + var(--open-h) - var(--strip-h)) 0 0 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    margin: 0;
+    padding: 0;
+    cursor: pointer;
+    transition: inset 0.45s cubic-bezier(0.34, 1.2, 0.4, 1);
+}
+
+.dashboard-app-drawer.collapsed .dashboard-app-drawer-toggle {
+    inset: var(--safe-top) 0 0 0;
+    transition: inset 0.3s cubic-bezier(0.5, 0.05, 0.25, 1);
+}
+
+/* Invisible halo: keeps the tongue comfortably hittable and hoverable
+   without costing more visual space. A pseudo-element OF the button, so
+   hits on it are hits on the button — no stacking games needed. (Clicks
+   it absorbs would have hit the app within ~14px of the tongue —
+   acceptable dead zone.) */
+.dashboard-app-drawer-toggle::after {
+    content: '';
+    position: absolute;
+    inset: 0 -14px -14px;
+}
+
+/* Open, the bar is GONE (base = open shape): it dissolves in the first
+   beat of the swell — stretching a touch as it goes, absorbed into the
+   widening glass — before the controls bloom at 0.1s, one handing off
+   to the other. On collapse it condenses back in: the delay below skips
+   the controls' 0.12s fade-out so the bar never materializes mid-tray,
+   then it fades up while riding the shrinking toggle home, landing with
+   the tongue (0.14s + 0.18s ≈ the 0.3s shut morph). */
+.dashboard-app-drawer-grabber {
+    width: 24px;
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.6);
+    opacity: 0;
+    transition: width 0.3s ease, background-color 0.15s ease, opacity 0.12s ease;
+}
+
+.dashboard-app-drawer.collapsed .dashboard-app-drawer-grabber {
+    width: 20px;
+    background: rgba(255, 255, 255, 0.78);
+    opacity: 1;
+    transition: width 0.3s ease, background-color 0.15s ease, opacity 0.18s ease 0.14s;
+}
+
+@media (hover: hover) {
+    .dashboard-app-drawer-toggle:hover .dashboard-app-drawer-grabber {
+        background: rgba(255, 255, 255, 0.95);
+    }
+}
+
+.dashboard-app-drawer-icon {
+    /* Sized to balance the buttons and the tray; radius stays 25% of the
+       icon for the app-icon look. Square icons only — cover guards
+       against a non-square one. */
+    width: var(--icon);
+    height: var(--icon);
+    border-radius: 5px;
+    object-fit: cover;
+    display: block;
+    flex: none;
+    margin-right: var(--i2t);
+}
+
+.dashboard-app-drawer-title {
+    font-size: 12px;
+    font-weight: 500;
+    /* Roomy enough for descenders: overflow:hidden (needed for the
+       ellipsis) clips vertically too, so a line-height of 1 cut the
+       tails off g/p/y. The flex container centers the taller box. */
+    line-height: 1.35;
+    color: rgba(255, 255, 255, 0.92);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    /* FIXED title box (not a cap): every app's tray is the same width, so
+       the minimize/close buttons sit at the same screen position in every
+       app — they're operated by muscle memory. Left-aligned against the
+       icon: the tray is asymmetric (one icon left, two buttons right), so
+       a centered title lands off the tray's true center and reads as
+       misaligned against the centered tongue below. Icon + title cluster
+       as the identity on the left, controls cluster on the right. */
+    flex: none;
+    width: var(--title-w);
+    text-align: left;
+    margin-right: var(--t2b);
+}
+
+.dashboard-app-drawer-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--btn);
+    height: var(--btn);
+    flex: none;
+    background: none;
+    border: none;
+    border-radius: 50%;
+    padding: 0;
+    margin: 0;
+    color: rgba(255, 255, 255, 0.9);
+    cursor: pointer;
+    /* The clip layer is pointer-events:none so stray clicks fall through
+       to the surface; the buttons opt back in. */
+    pointer-events: auto;
+    transition: background-color 0.12s ease;
+}
+
+.dashboard-app-drawer-minimize {
+    margin-right: 2px;
+}
+
+.dashboard-app-drawer-btn svg {
+    width: 14px;
+    height: 14px;
+    flex: none;
+}
+
+@media (hover: hover) {
+    .dashboard-app-drawer-btn:hover {
+        background-color: rgba(255, 255, 255, 0.16);
+    }
+}
+
+.dashboard-app-drawer-btn:active {
+    background-color: rgba(255, 255, 255, 0.26);
+}
+
+.dashboard-app-drawer-toggle:focus-visible,
+.dashboard-app-drawer-btn:focus-visible {
+    outline: 2px solid rgba(255, 255, 255, 0.9);
+    outline-offset: 1px;
+}
+
+/* Touch: a taller tray with 36px buttons, and a bigger tongue whose halo
+   brings the effective target to ~44px. */
+@media (pointer: coarse) {
+    .dashboard-app-drawer {
+        --btn: 36px;
+        --controls-h: 48px;
+        --strip-h: 8px;
+        --open-h: 50px;
+        --shut-w: 68px;
+        --shut-h: 20px;
+    }
+
+    .dashboard-app-drawer-grabber {
+        width: 28px;
+        height: 4px;
+    }
+
+    .dashboard-app-drawer.collapsed .dashboard-app-drawer-grabber {
+        width: 24px;
+    }
+
+    .dashboard-app-drawer-toggle::after {
+        inset: 0 -16px -18px;
+    }
+}
+
+/* Tight screens: identity shrinks to the icon; the controls keep their
+   size — they're the part that must stay usable. Zeroing the title
+   variables shrinks --open-w to match. */
+@media (max-width: 500px) {
+    .dashboard-app-drawer {
+        --title-w: 0px;
+        --t2b: 0px;
+    }
+
+    .dashboard-app-drawer-title {
+        display: none;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-app-drawer,
+    .dashboard-app-drawer * {
+        transition: none !important;
+    }
+}
+
+/* Running dot: marks Apps-tab tiles whose app has a live window (visible or
+   minimized), macOS-dock style — sits centered in the gap between the 56px
+   icon and the label. Kept/removed by updateRunningDots in TabApps.js. */
+.myapps-tile {
+    position: relative;
+}
+
+.myapps-tile-running::after {
+    content: '';
+    position: absolute;
+    /* 4px under the 56px icon at rest — enough that the icon's 1.08x
+       hover scale (bottom edge grows ~2px downward) never touches it.
+       The label sits lower to make the room (see .myapps-tile-label). */
+    top: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--dashboard-text-tertiary, #71717a);
 }

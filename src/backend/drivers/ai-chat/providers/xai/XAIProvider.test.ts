@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -156,9 +156,9 @@ describe('XAIProvider construction', () => {
 // ── Model catalog ───────────────────────────────────────────────────
 
 describe('XAIProvider model catalog', () => {
-    it('returns grok-beta as the default', () => {
+    it('returns grok-4.5 as the default', () => {
         const { provider } = makeProvider();
-        expect(provider.getDefaultModel()).toBe('grok-beta');
+        expect(provider.getDefaultModel()).toBe('grok-4.5');
     });
 
     it('exposes the static XAI_MODELS list verbatim from models()', () => {
@@ -398,11 +398,11 @@ describe('XAIProvider model resolution', () => {
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].model).toBe('grok-beta');
+        expect(createMock.mock.calls[0]![0].model).toBe('grok-4.5');
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'xai:grok-beta',
+            'xai:grok-4.5',
             expect.any(Object),
         );
     });

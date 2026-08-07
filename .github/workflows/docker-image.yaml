@@ -87,6 +87,8 @@ jobs:
                   platforms: linux/amd64,linux/arm64
                   context: .
                   push: true
+                  provenance: mode=max
+                  sbom: true
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
                   cache-from: type=gha

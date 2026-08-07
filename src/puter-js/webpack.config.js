@@ -19,14 +19,13 @@ export default (env = {}) => ({
     // `--env coverage` instruments every first-party module with istanbul
     // counters (accumulated on `globalThis.__coverage__`), so the API test
     // harness can measure SDK coverage in whatever runtime executes the
-    // bundle. Vendored code (socket.io) is left out of the numbers.
+    // bundle.
     ...(env.coverage ? {
         module: {
             rules: [
                 {
                     test: /\.js$/,
                     include: path.resolve(__dirname, 'src'),
-                    exclude: path.resolve(__dirname, 'src/lib/socket.io'),
                     use: {
                         loader: 'babel-loader',
                         options: {

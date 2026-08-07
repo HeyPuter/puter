@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -271,6 +271,7 @@ export class ClaudeProvider implements IChatProvider {
             'claude-sonnet-5',
             'claude-opus-4-7',
             'claude-opus-4-8',
+            'claude-opus-5',
         ].includes(modelUsed.id);
         const resolvedTemperature = omitsTemperature
             ? undefined
@@ -280,6 +281,7 @@ export class ClaudeProvider implements IChatProvider {
         const supportsEffort = [
             'claude-fable-5',
             'claude-sonnet-5',
+            'claude-opus-5',
             'claude-opus-4-8',
             'claude-opus-4-7',
             'claude-opus-4-6',
@@ -317,7 +319,7 @@ export class ClaudeProvider implements IChatProvider {
         } = {
             model: modelUsed.id,
             max_tokens: Math.floor(
-                max_tokens ||
+                max_tokens ??
                     (model === 'claude-3-5-sonnet-20241022' ||
                     model === 'claude-3-5-sonnet-20240620'
                         ? 8192
@@ -682,6 +684,7 @@ export class ClaudeProvider implements IChatProvider {
         // the stream.
         if (
             modelId === 'claude-fable-5' ||
+            modelId === 'claude-opus-5' ||
             modelId === 'claude-opus-4-8' ||
             modelId === 'claude-opus-4-7'
         ) {

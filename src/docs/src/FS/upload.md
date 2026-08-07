@@ -39,6 +39,18 @@ Returns a `Promise` that resolves to:
 - A single [`FSItem`](/Objects/fsitem/) object if `items` parameter contains one item
 - An array of [`FSItem`](/Objects/fsitem/) objects if `items` parameter contains multiple items
 
+If any part of the upload fails, the promise is rejected — it never resolves to a mix of items and errors. The rejection value always carries a `message`, and a `failedItems` array when individual items failed rather than the request as a whole. A partially failed upload is not rolled back: the items that were written stay written.
+
+On `nodejs` and `workers`, where the upload goes through an older batch endpoint, the rejection value also carries a stable `code`:
+
+- `batch_upload_failed` — every operation failed, so nothing was written.
+- `batch_upload_partially_failed` — some operations succeeded and others didn't. `failedCount` and `totalCount` say how many, and `results` holds every operation's result in the order they were sent.
+- `batch_upload_no_results` — the request succeeded but the server didn't report what it wrote.
+
+## Uploading directories
+
+Directory uploads (dropped directory entries, or `createFileParent`) are supported on `websites` and `apps`. On `nodejs` and `workers` the upload goes through an older batch endpoint that cannot create the directory tree, so a directory upload rejects with `batch_upload_failed`; create the directories with [`puter.fs.mkdir()`](/FS/mkdir/) and upload the files into them instead.
+
 ## Examples
 
 <strong class="example-title">Upload a file from a file input</strong>

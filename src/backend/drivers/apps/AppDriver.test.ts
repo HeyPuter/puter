@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2024-present Puter Technologies Inc.
  *
  * This file is part of Puter.
@@ -607,6 +607,148 @@ describe('AppDriver.create additional branches', () => {
         expect(created.icon).toBe(png);
     });
 
+    // The write path once validated only the MIME prefix, so an
+    // allow-listed prefix plus arbitrary text was stored verbatim and later
+    // interpolated into a Dev Center template — stored XSS in a godmode app
+    // that carries the user's session token. Reachable with an app-under-user
+    // token, the lowest-privilege credential we issue.
+    describe('icon data URL payload validation', () => {
+        const ATTACK_PAYLOAD =
+            'data:image/png;base64,iVBORw0KGgo=" a5x="1"><img src=x onerror=window.__A5APP=1>';
+
+        const createWithIcon = async (icon: string, label: string) => {
+            const { actor } = await makeUser();
+            return withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName(label),
+                        title: 't',
+                        index_url: uniqueIndexUrl(),
+                        icon,
+                    },
+                }),
+            );
+        };
+
+        it('rejects the reported breakout payload', async () => {
+            await expect(
+                createWithIcon(ATTACK_PAYLOAD, 'xss-icon'),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('rejects the breakout payload on update, not just create', async () => {
+            const { actor } = await makeUser();
+            const created = await withActor(actor, () =>
+                driver.create({
+                    object: {
+                        name: uniqueName('xss-upd'),
+                        title: 't',
+                        index_url: uniqueIndexUrl(),
+                    },
+                }),
+            );
+            await expect(
+                withActor(actor, () =>
+                    driver.update({
+                        uid: created.uid,
+                        object: { icon: ATTACK_PAYLOAD },
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('rejects an allow-listed MIME whose payload is not an image', async () => {
+            // Valid base64, decodes cleanly — just isn't a PNG.
+            const notAnImage = `data:image/png;base64,${Buffer.from(
+                'not an image at all',
+            ).toString('base64')}`;
+            await expect(
+                createWithIcon(notAnImage, 'notimg-icon'),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('rejects a payload whose bytes contradict the declared MIME', async () => {
+            const pngBytes =
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+            await expect(
+                createWithIcon(
+                    `data:image/gif;base64,${pngBytes}`,
+                    'mismatch-icon',
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('rejects a percent-encoded (non-base64) data URL', async () => {
+            // The only shape that can carry literal `<` and `"`.
+            await expect(
+                createWithIcon(
+                    'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%3E%3C/svg%3E',
+                    'pct-icon',
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('rejects base64 with smuggled non-base64 characters', async () => {
+            // `Buffer.from(…,'base64')` silently drops these; the
+            // round-trip check is what catches them.
+            await expect(
+                createWithIcon(
+                    'data:image/png;base64,iVBORw0KGgo=<script>alert(1)</script>',
+                    'smuggle-icon',
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('accepts a base64 SVG icon and stores it canonically', async () => {
+            const svg = Buffer.from(
+                '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>',
+            ).toString('base64');
+            const created = await createWithIcon(
+                `data:image/svg+xml;base64,${svg}`,
+                'svg-icon',
+            );
+            expect(created.icon).toBe(`data:image/svg+xml;base64,${svg}`);
+        });
+
+        it('accepts image/jpg as an alias of image/jpeg', async () => {
+            // Minimal JPEG SOI + APP0 header — enough to sniff.
+            const jpeg = Buffer.concat([
+                Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+                Buffer.from('0000JFIF'),
+            ]).toString('base64');
+            const created = await createWithIcon(
+                `data:image/jpg;base64,${jpeg}`,
+                'jpg-icon',
+            );
+            expect(String(created.icon).startsWith('data:image/jpg;base64,')).toBe(
+                true,
+            );
+        });
+
+        it('strips line wrapping from an otherwise valid payload', async () => {
+            const png =
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+            const wrapped = `${png.slice(0, 40)}\n${png.slice(40)}`;
+            const created = await createWithIcon(
+                `data:image/png;base64,${wrapped}`,
+                'wrapped-icon',
+            );
+            expect(created.icon).toBe(`data:image/png;base64,${png}`);
+        });
+
+        it('rejects raw base64 that does not decode to an image', async () => {
+            // v1 wrapped any base64 as image/png regardless of content.
+            await expect(
+                createWithIcon(
+                    Buffer.from('definitely not an image payload').toString(
+                        'base64',
+                    ),
+                    'rawtext-icon',
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+    });
+
     it('normalizes a raw-base64 icon into a data: URL', async () => {
         const { actor } = await makeUser();
         // Raw base64 of a 1x1 PNG (no data: prefix)
@@ -679,8 +821,9 @@ describe('AppDriver.create additional branches', () => {
             }),
         );
         expect(Array.isArray(created.filetype_associations)).toBe(true);
+        // Dotted input is canonicalized to the bare lowercase extension.
         expect(created.filetype_associations).toEqual(
-            expect.arrayContaining(['.txt', '.md']),
+            expect.arrayContaining(['txt', 'md']),
         );
     });
 
@@ -828,8 +971,9 @@ describe('AppDriver.update additional branches', () => {
                 ? JSON.parse(updated.metadata)
                 : updated.metadata;
         expect(meta).toEqual({ version: 2 });
+        // Dotted input is canonicalized to the bare lowercase extension.
         expect(updated.filetype_associations).toEqual(
-            expect.arrayContaining(['.md', '.csv']),
+            expect.arrayContaining(['md', 'csv']),
         );
     });
 });
@@ -1258,6 +1402,37 @@ describe('AppDriver hosted-subdomain ownership check', () => {
         }
     });
 
+    it('create merges into an owner-stamped bootstrap stub for an owned subdomain', async () => {
+        // The get-user-app-token bootstrap path stamps the subdomain owner
+        // on the stub at mint time — the owner's later create must still
+        // absorb the stub (claimOwnership is skipped, merge proceeds).
+        const { actor, userId } = await makeUser();
+        const sub = uniqueName('ownedstub');
+        await server.stores.subdomain.create({ userId, subdomain: sub });
+        const stubUid = `app-${uuidv4()}`;
+        await server.stores.app.createFromOrigin(
+            stubUid,
+            `https://${sub}.site.puter.localhost`,
+            { ownerUserId: userId },
+        );
+
+        const name = uniqueName('owned-create');
+        const result = await withActor(actor, () =>
+            driver.create({
+                object: {
+                    name,
+                    title: 'Owned stub',
+                    index_url: hostedUrl(sub),
+                },
+            }),
+        );
+
+        expect(result.uid).toBe(stubUid);
+        expect(result.name).toBe(name);
+        const stored = await server.stores.app.getByUid(stubUid);
+        expect(stored?.owner_user_id).toBe(userId);
+    });
+
     it('rejects a hosted index_url whose subdomain does not exist anywhere', async () => {
         const { actor } = await makeUser();
         await expect(
@@ -1343,6 +1518,48 @@ describe('AppDriver hosted-subdomain ownership check', () => {
         };
         expect(access?.hasAccess).toBe(false);
         expect(access?.reason).toBe('hosted_backing_unavailable');
+    });
+
+    it('withholds the stale index_url from everyone but the owner', async () => {
+        const owner = await makeUser();
+        const other = await makeUser();
+        const sub = uniqueName('stale');
+        const row = await server.stores.subdomain.create({
+            userId: owner.userId,
+            subdomain: sub,
+        });
+
+        const created = await withActor(owner.actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('app'),
+                    title: 'Backed App',
+                    index_url: hostedUrl(sub),
+                },
+            }),
+        );
+        await server.stores.subdomain.deleteByUuid(
+            String((row as { uuid: string }).uuid),
+            { userId: owner.userId },
+        );
+
+        // The owner still sees it — dev center renders the URL in the app's
+        // edit form, and it's their row to repoint.
+        const asOwner = await withActor(owner.actor, () =>
+            driver.read({ uid: created.uid }),
+        );
+        expect(String(asOwner.index_url)).toContain(sub);
+
+        // Anyone else gets the denial without the URL it suppresses, so a
+        // consumer that reads `index_url` without reading the verdict still
+        // can't hand it to the launcher.
+        const asOther = await withActor(other.actor, () =>
+            driver.read({ uid: created.uid }),
+        );
+        expect(asOther.index_url).toBeUndefined();
+        expect(
+            (asOther.privateAccess as { hasAccess?: boolean }).hasAccess,
+        ).toBe(false);
     });
 
     it('denies launch when the hosted subdomain was reclaimed by another user', async () => {
