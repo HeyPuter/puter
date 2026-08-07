@@ -253,6 +253,42 @@ describe('ClaudeProvider.complete request shape', () => {
         expect(args.max_tokens).toBe(0);
     });
 
+    it('converts OpenAI-shaped image_url parts into Anthropic image blocks', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-sonnet-4-6',
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            { type: 'text', text: 'What do you see?' },
+                            {
+                                image_url: {
+                                    url: 'https://assets.puter.site/doge.jpeg',
+                                },
+                            },
+                        ],
+                    },
+                ],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect(args.messages[0].content).toEqual([
+            { type: 'text', text: 'What do you see?' },
+            {
+                type: 'image',
+                source: {
+                    type: 'url',
+                    url: 'https://assets.puter.site/doge.jpeg',
+                },
+            },
+        ]);
+    });
+
     it('extracts system messages and forwards them as the top-level `system` field', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);

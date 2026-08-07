@@ -278,10 +278,7 @@ const generateAllTests = function() {
 // per-model tests above, each of these targets a specific known-good model.
 
 const TEST_IMAGE_URL = "https://assets.puter.site/doge.jpeg";
-// Direct-claude models are excluded: the claude provider is the one chat
-// provider that doesn't infer the `type` on the SDK's `{ image_url }`
-// media blocks, so the vision shorthand 400s against Anthropic today.
-const VISION_MODELS = ["gpt-5-nano", "gemini-2.5-pro"];
+const VISION_MODELS = ["gpt-5-nano", "gemini-2.5-pro", "claude-sonnet-4-6"];
 
 // The test image is a Shiba Inu; any vision-capable model should say so.
 const assertMentionsDog = function(result) {
