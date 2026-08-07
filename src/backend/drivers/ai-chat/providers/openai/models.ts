@@ -728,19 +728,4 @@ export const OPEN_AI_MODELS: IChatModel[] = [
         context: 1_047_576,
         max_tokens: 32768,
     },
-    {
-        puterId: 'openai:openai/gpt-4.5-preview',
-        id: 'gpt-4.5-preview',
-        aliases: ['openai/gpt-4.5-preview'],
-        costs_currency: 'usd-cents',
-        input_cost_key: 'prompt_tokens',
-        output_cost_key: 'completion_tokens',
-        costs: {
-            tokens: 1_000_000,
-            prompt_tokens: 7500,
-            completion_tokens: 15000,
-        },
-        context: 128_000,
-        max_tokens: 32768,
-    },
 ];
