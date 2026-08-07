@@ -48,6 +48,26 @@ const TILE_REMOVE_DELAY_MS = 500;   // pause between the uninstall modal closing
 // around each tile is what stops items flickering back and forth at a boundary.
 const DRAG_HIT_INSET = 0.28;
 
+// How long a /app/<name> landing waits for the launching app's tile to be
+// visible before giving up on the click→morph→open intro and launching with
+// the plain fade (see beginDeepLinkLaunch). The wait covers the dashboard
+// window, the app-list fetches, a possibly-deferred first render, and the
+// grid's load-fade; the launch's own app-info fetch runs in parallel to it
+// (initgui prefetches), so this wait is the only thing the intro can cost.
+const DEEP_LINK_INTRO_DEADLINE_MS = 3000;
+const DEEP_LINK_INTRO_POLL_MS = 50;
+// Pacing for the intro itself. On a fast connection the grid reveal, the
+// tile's click flourish, and the window's morph would land in the same
+// breath and read as an unexplained flash — the beats spread them into a
+// sequence the user can follow: see the grid (WHERE you are), see the tile
+// acknowledge (WHAT is opening), see the window grow out of it. The grid
+// beat runs from the start of the pager's 200ms load-fade (see
+// .myapps-pager-loading); the click beat matches the round-trip feel of a
+// real tile click, joining the window's morph while the icon ghost is
+// still dissolving so the two halves stay one continuous motion.
+const DEEP_LINK_INTRO_GRID_BEAT_MS = 500;
+const DEEP_LINK_INTRO_CLICK_BEAT_MS = 300;
+
 // Cog on the reorder-mode toggle; _setReorderMode swaps it for "Done" while
 // the mode is on.
 const REORDER_BTN_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
@@ -1649,6 +1669,97 @@ const TabApps = {
         } else if ( attempts > 0 ) {
             setTimeout(() => this.focusSearch($el_window, attempts - 1), 30);
         }
+    },
+
+    // A direct landing on /app/<name> (see initgui's dashboard branch) plays
+    // the same click→morph→open sequence a real tile click does, so the user
+    // sees WHICH tile the app came from — and where minimize will put it
+    // back. This waits for the tile to be genuinely visible (grid loaded,
+    // pager flipped to the tile's page, load-fade revealed, icon painted —
+    // the flourish must never play over blank space), then paces out the
+    // sequence: a beat to take the grid in, the tile's click flourish, a
+    // beat for it to read, and only then does it resolve for the caller to
+    // open the window, whose morph grows it out of the tile's slot.
+    //
+    // Resolves to the tile element, or null when there is nothing to
+    // introduce — app not installed (resolved as soon as the app list
+    // arrives, with no further waiting), grid slower than the deadline, or
+    // animations that wouldn't play anyway; the landing then launches
+    // immediately with the plain fade it always had.
+    //
+    // Also claims the app in _launchingApps immediately, so a user click on
+    // the tile mid-intro is swallowed instead of spawning a second instance
+    // (same guard as the click handler). The caller MUST call
+    // settleDeepLinkLaunch once its launch attempt settles.
+    async beginDeepLinkLaunch (appName, $el_window) {
+        this._launchingApps.add(appName);
+        // No animations, no intro: the morph and the flourish would both
+        // no-op, so waiting on the grid would only delay the launch.
+        if ( ! window.animate_window_opening || this._reduceMotion() ) return null;
+        const deadline = Date.now() + DEEP_LINK_INTRO_DEADLINE_MS;
+        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+        // Join the load init() already started rather than racing a duplicate.
+        try {
+            await this.loadApps($el_window);
+        } catch ( _e ) { /* a failed load leaves _apps unset; handled below */ }
+        if ( ! Array.isArray(this._apps) || ! this._apps.some(a => a.name === appName) ) {
+            return null;
+        }
+        let tile = null;
+        while ( Date.now() < deadline ) {
+            // A hidden page (deep link opened in a background tab) can't show
+            // the intro at all — and won't finish this wait either: Chrome
+            // throttles the sleep below to 1Hz and defers the deferred-render
+            // path's ResizeObserver, so waiting just delays the launch. Skip
+            // to the plain open; the app is simply there when the tab is
+            // finally brought forward.
+            if ( document.visibilityState === 'hidden' ) return null;
+            // Re-query every pass — renders replace tile nodes wholesale, and
+            // the first render can trail the load itself (the window is
+            // briefly hidden entering full-page mode, so renderApps defers to
+            // the ResizeObserver until the container has a size). Scoped to
+            // the ACTIVE section: if the user has already moved to another
+            // tab, there is no visible tile to introduce from.
+            const candidate = $el_window.find('.dashboard-section-apps.active .myapps-tile').toArray()
+                .find(el => el.dataset.appName === appName);
+            if ( candidate ) {
+                // The tile may sit on a later pager page; flip to it now,
+                // instantly and behind the load-fade, so the grid comes up
+                // already showing the tile the window is about to grow out of.
+                const page = $el_window.find('.myapps-page').index($(candidate).closest('.myapps-page'));
+                if ( page >= 0 && page !== this._page ) {
+                    this.goToPage($el_window, page, false);
+                }
+                const revealed = ! $el_window.find('.myapps-pager').hasClass('myapps-pager-loading');
+                const img = candidate.querySelector('.myapps-tile-icon img');
+                if ( revealed && ( ! img || img.complete ) ) {
+                    tile = candidate;
+                    break;
+                }
+            }
+            await sleep(DEEP_LINK_INTRO_POLL_MS);
+        }
+        if ( ! tile ) return null;
+        // Everything is on screen — now pace the sequence (see the beat
+        // constants). The beats are also where the user may navigate away:
+        // a page hidden mid-beat skips the rest of the choreography and
+        // just opens the app (the flourish would play unseen, and the
+        // window's morph re-checks tile visibility on its own anyway).
+        await sleep(DEEP_LINK_INTRO_GRID_BEAT_MS);
+        if ( document.visibilityState === 'hidden' ) return tile;
+        begin_dashboard_tile_launch(tile);
+        await sleep(DEEP_LINK_INTRO_CLICK_BEAT_MS);
+        return tile;
+    },
+
+    // Release beginDeepLinkLaunch's duplicate-launch claim once the landing's
+    // launch attempt is over — success or failure, tile or no tile —
+    // mirroring the tile click handler's finally (including its
+    // settle_dashboard_tile_launch, which un-marks the tile if the window's
+    // morph never claimed it).
+    settleDeepLinkLaunch (appName, tile) {
+        this._launchingApps.delete(appName);
+        settle_dashboard_tile_launch(tile);
     },
 };
 

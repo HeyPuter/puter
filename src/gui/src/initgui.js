@@ -18,6 +18,7 @@
  */
 
 import UIDashboard from './UI/Dashboard/UIDashboard.js';
+import TabApps from './UI/Dashboard/TabApps.js';
 import UIAlert from './UI/UIAlert.js';
 import UIComponentWindow from './UI/UIComponentWindow.js';
 import UIDesktop from './UI/UIDesktop.js';
@@ -173,7 +174,7 @@ const postAuthActions = async (action) => {
     // Dashboard mode
     // -------------------------------------------------------------------------------------
     else if ( window.is_dashboard_mode ) {
-        UIDashboard();
+        const el_dashboard_promise = UIDashboard();
         // Direct landing on /app/<name>: open the app in the dashboard the
         // same way a tile launch does. The dashboard's route is slotted
         // underneath first (replaceState) and the launch re-claims
@@ -183,6 +184,7 @@ const postAuthActions = async (action) => {
         if ( window.url_paths[0]?.toLocaleLowerCase() === 'app'
             && window.url_paths[1]
             && ! window.url_query_params.has('c') ) {
+            const app_name = window.url_paths[1];
             // any query param that doesn't start with 'puter.' is passed
             // through to the app (mirrors the desktop URL-launch flow)
             const app_query_params = {};
@@ -204,20 +206,62 @@ const postAuthActions = async (action) => {
             // forever — preset the title to fall back to when the app's
             // history entry is popped.
             window.dashboard_base_title = i18n('window_title_puter');
+            // ...and make it the DOCUMENT title before the replaceState
+            // below commits the dashboard's own entry. Chrome stamps a
+            // session entry with the document title current at commit and
+            // shows that stored title in the tab strip whenever a traversal
+            // lands on the entry — so with the server's app-name title
+            // still in place, closing the app (whose close consumes the
+            // /app/<name> entry via history.back()) left the tab named
+            // after an app that was no longer on screen: the popstate
+            // handler's document.title reset updates the DOM title, but the
+            // tab strip keeps displaying the entry's stored one.
+            document.title = window.dashboard_base_title;
             window.history.replaceState(null, '', '/');
-            launch_app({
-                name: window.url_paths[1],
-                maximized: true,
-                params: app_query_params,
-                readURL: window.url_query_params.get('readURL'),
-                ...(posargs ? {
-                    args: {
-                        command_line: { args: posargs },
-                    },
-                } : {}),
-            }).catch((err) => {
-                console.error(`Failed to launch ${window.url_paths[1]} from URL:`, err);
-            });
+            // Resolve the app's info NOW, in parallel with the tile wait
+            // below, so the intro never delays the launch's own server
+            // round-trip; the result is handed to launch_app as app_obj (the
+            // same object its own fetch would produce). A failed prefetch
+            // hands nothing over — launch_app refetches and fails exactly
+            // the way it always did.
+            const app_info_promise = puter.apps.get(app_name, { icon_size: 64 })
+                .catch(() => null);
+            (async () => {
+                // If the app already has a tile in the Apps tab, play the
+                // whole click→morph→open sequence a real tile click plays —
+                // paced so it can be followed: the grid appears, a beat, the
+                // tile visibly acknowledges (icon ghost), a beat, and the
+                // window grows out of its slot — so the landing tells the
+                // user what is being opened and where minimize puts it back.
+                // No tile (not installed, grid too slow, apps fetch failed,
+                // animations off): the launch proceeds immediately with the
+                // plain fade, as before.
+                let tile = null;
+                try {
+                    const el_dashboard = await el_dashboard_promise;
+                    tile = await TabApps.beginDeepLinkLaunch(app_name, $(el_dashboard));
+                } catch ( _e ) {
+                    // No dashboard window — no intro; still launch.
+                }
+                const app_obj = await app_info_promise;
+                launch_app({
+                    name: app_name,
+                    maximized: true,
+                    params: app_query_params,
+                    readURL: window.url_query_params.get('readURL'),
+                    ...(app_obj ? { app_obj } : {}),
+                    ...(posargs ? {
+                        args: {
+                            command_line: { args: posargs },
+                        },
+                    } : {}),
+                    window_options: { morph_from_dashboard_tile: true },
+                }).catch((err) => {
+                    console.error(`Failed to launch ${app_name} from URL:`, err);
+                }).finally(() => {
+                    TabApps.settleDeepLinkLaunch(app_name, tile);
+                });
+            })();
         }
     }
     // -------------------------------------------------------------------------------------
