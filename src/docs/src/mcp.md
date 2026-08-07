@@ -98,11 +98,14 @@ The Puter MCP server exposes the following tools, grouped by category. Each one 
 ### Filesystem
 
 - `fs_write_file`: Create or overwrite a file in your Puter filesystem.
-- `fs_read_file`: Read a file's contents (UTF-8 text, or base64 for binary).
+- `fs_read_file`: Read a file's contents (UTF-8 text, or base64 for binary), optionally just a byte window of it.
 - `fs_readdir`: List the files and subdirectories in a directory.
 - `fs_mkdir`: Create a directory, optionally creating missing parents.
 - `fs_stat`: Get metadata (name, size, type, timestamps) for a file or directory.
 - `fs_delete`: Delete a file or directory.
+- `fs_copy`: Copy a file or directory to another location.
+- `fs_move`: Move a file or directory to another location (also renames).
+- `fs_rename`: Rename a file or directory in place.
 
 ### Hosting
 
@@ -119,6 +122,21 @@ The Puter MCP server exposes the following tools, grouped by category. Each one 
 - `workers_list`: List your deployed workers.
 - `workers_get`: Get a single worker's public URL and source file.
 - `workers_delete`: Undeploy a worker.
+
+### Key-value store
+
+Each app has its own KV namespace inside your account. These tools use your own
+user-level store by default; pass `app_uuid` to work in a specific app's store instead.
+
+- `kv_get`: Read a key (a missing key reads as `null`).
+- `kv_set`: Create or overwrite a key, optionally with an expiry timestamp.
+- `kv_del`: Delete a key.
+- `kv_list`: List keys, or key/value pairs, by pattern with pagination.
+- `kv_incr` / `kv_decr`: Change a number, or numbers at given dot paths.
+- `kv_add`: Add to the stored value — sums numbers, appends to arrays.
+- `kv_update`: Set specific dot paths inside a stored object.
+- `kv_remove`: Remove dot paths from a stored object.
+- `kv_expire` / `kv_expire_at`: Expire a key after N seconds, or at a timestamp.
 
 ### Apps
 
