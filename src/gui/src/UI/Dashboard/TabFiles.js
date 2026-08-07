@@ -3794,15 +3794,27 @@ const TabFiles = {
                             rename: true,
                             overwrite: false,
                         });
-                        // Remove empty-directory placeholder if present
-                        _this.$el_window.find('.files-tab .files > div:not(.item)').remove();
-                        // Add the new folder incrementally
-                        await _this.renderItem(result);
+                        if ( targetPath === _this.currentPath ) {
+                            // Remove empty-directory placeholder if present
+                            _this.$el_window.find('.files-tab .files > div:not(.item)').remove();
+                            // Add the new folder incrementally
+                            await _this.renderItem(result);
+                            const $newRow = _this.$el_window.find(`.files-tab .files .item[data-uid='${result.uid}']`);
+                            if ( $newRow.length > 0 ) {
+                                _this.insertAtSortedPosition($newRow, result);
+                                _this.applyColumnWidths();
+                                _this.updateFooterStats();
+                            }
+                        } else {
+                            // Created via a sidebar/breadcrumb right-click on a
+                            // folder that isn't the one on screen — navigate to
+                            // it so the rename happens where the folder lives,
+                            // not as a phantom row in the current listing.
+                            _this.pushNavHistory(targetPath);
+                            await _this.renderDirectory(targetPath, { consistency: 'strong' });
+                        }
                         const $newRow = _this.$el_window.find(`.files-tab .files .item[data-uid='${result.uid}']`);
                         if ( $newRow.length > 0 ) {
-                            _this.insertAtSortedPosition($newRow, result);
-                            _this.applyColumnWidths();
-                            _this.updateFooterStats();
                             $newRow.addClass('selected');
                             window.activate_item_name_editor($newRow[0]);
                         }
@@ -3839,15 +3851,25 @@ const TabFiles = {
 
                             if ( uploadPromise ) {
                                 const result = await uploadPromise;
-                                // Remove empty-directory placeholder if present
-                                _this.$el_window.find('.files-tab .files > div:not(.item)').remove();
-                                // Add the new file incrementally
-                                await _this.renderItem(result);
+                                if ( targetPath === _this.currentPath ) {
+                                    // Remove empty-directory placeholder if present
+                                    _this.$el_window.find('.files-tab .files > div:not(.item)').remove();
+                                    // Add the new file incrementally
+                                    await _this.renderItem(result);
+                                    const $newRow = _this.$el_window.find(`.files-tab .files .item[data-uid='${result.uid}']`);
+                                    if ( $newRow.length > 0 ) {
+                                        _this.insertAtSortedPosition($newRow, result);
+                                        _this.applyColumnWidths();
+                                        _this.updateFooterStats();
+                                    }
+                                } else {
+                                    // Same navigate-to-target treatment as New
+                                    // Folder above.
+                                    _this.pushNavHistory(targetPath);
+                                    await _this.renderDirectory(targetPath, { consistency: 'strong' });
+                                }
                                 const $newRow = _this.$el_window.find(`.files-tab .files .item[data-uid='${result.uid}']`);
                                 if ( $newRow.length > 0 ) {
-                                    _this.insertAtSortedPosition($newRow, result);
-                                    _this.applyColumnWidths();
-                                    _this.updateFooterStats();
                                     $newRow.addClass('selected');
                                     window.activate_item_name_editor($newRow[0]);
                                 }
