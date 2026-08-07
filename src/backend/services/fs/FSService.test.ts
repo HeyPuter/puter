@@ -2940,4 +2940,41 @@ describe('FSService — cross-app AppData access', () => {
             await server.stores.fsEntry.getEntryByPath(contactsFile.path),
         ).toBeFalsy();
     });
+
+    it('refuses an access-token actor whose issuer is the granted app', async () => {
+        // The token carries no `app` of its own, so a guard keyed on `actor.app`
+        // would skip entirely — failing open where the read/write implicator
+        // fails closed.
+        await grant(appDataPermission(contacts.uid, 'fs', 'write'));
+        const tokenActor = {
+            user: owner.actor.user,
+            accessToken: {
+                uid: 'tok-cross-app',
+                issuer: calendarActor,
+                fullAccess: false,
+            },
+        } as unknown as Actor;
+
+        await expect(
+            runWithContext({ actor: tokenActor }, () =>
+                fs.remove(owner.userId, { entry: contactsFile }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('lets system-initiated repair through the guard', async () => {
+        // Ghost-fsentry cleanup runs during an unrelated caller's *read*, so it
+        // is not that caller's action. Without the opt-out the repair is refused
+        // and the orphaned row is never reaped.
+        await grant(appDataPermission(contacts.uid, 'fs', 'read'));
+        await asCalendar(() =>
+            fs.remove(owner.userId, {
+                entry: contactsFile,
+                systemInitiated: true,
+            }),
+        );
+        expect(
+            await server.stores.fsEntry.getEntryByPath(contactsFile.path),
+        ).toBeFalsy();
+    });
 });

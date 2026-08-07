@@ -58,6 +58,7 @@ import type {
 } from './types.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { Context } from '../../core/context.js';
+import { effectiveActorApp } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
     APP_DATA_FS_MODE_CLASSES,
@@ -2958,7 +2959,7 @@ export class FSService extends PuterService {
             objectKey,
         });
         try {
-            await this.remove(entry.userId, { entry });
+            await this.remove(entry.userId, { entry, systemInitiated: true });
         } catch (cleanupErr) {
             console.error(
                 'prodfsv2 ghost fsentry cleanup failed',
@@ -3274,11 +3275,16 @@ export class FSService extends PuterService {
      */
     async #assertCrossAppDeleteAllowed(path: string): Promise<void> {
         const actor = Context.get('actor') as Actor | undefined;
-        if (!actor?.app || actor.accessToken) return;
+        if (!actor) return;
+        // Through the issuer chain: a token actor has no `app` of its own, so
+        // keying off `actor.app` would skip the guard — failing open where the
+        // paired implicator fails closed.
+        const app = effectiveActorApp(actor);
+        if (!app) return;
         const username = actor.user?.username;
         if (!username) return;
 
-        const targetAppUid = foreignAppDataOwner(path, username, actor.app.uid);
+        const targetAppUid = foreignAppDataOwner(path, username, app.uid);
         if (!targetAppUid) return;
 
         const granted = await this.services.permission.check(
@@ -3296,10 +3302,18 @@ export class FSService extends PuterService {
             entry: FSEntry;
             recursive?: boolean;
             descendantsOnly?: boolean;
+            /**
+             * Set by internal repair (ghost-fsentry cleanup), which runs during
+             * an unrelated caller's read and is not that caller's action —
+             * otherwise the guard refuses it and the orphan is never reaped.
+             */
+            systemInitiated?: boolean;
         },
     ): Promise<void> {
         const { entry } = input;
-        await this.#assertCrossAppDeleteAllowed(entry.path);
+        if (!input.systemInitiated) {
+            await this.#assertCrossAppDeleteAllowed(entry.path);
+        }
         if (entry.userId !== userId) {
             // Defensive — only the owner should be hitting this path; higher
             // layers grant access via ACL, not raw ownership, but we still

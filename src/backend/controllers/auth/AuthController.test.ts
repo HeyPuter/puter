@@ -7060,6 +7060,23 @@ describe('AuthController — app-data grants', () => {
         );
     });
 
+    it('writes nothing when an entry is too wide for the column it lands in', async () => {
+        // `#validateAppPermissionParams` allows 4096 chars but the column is 255,
+        // so this passes shape validation and fails inside the grant. Before the
+        // pre-flight, the first entry committed and the caller still got a 400 —
+        // and the dialog reads a 4xx as "nothing was written".
+        const grantee = await makeAppRow();
+        const target = await makeAppRow();
+        const good = `app-data:${target.uid}:kv:read`;
+        await expect(
+            post('handleGrantUserApp', {
+                app_uid: grantee.uid,
+                permissions: [good, 'x'.repeat(300)],
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(await grantedPermissions(grantee.uid)).not.toContain(good);
+    });
+
     it('404s when the target app does not exist', async () => {
         const grantee = await makeAppRow();
         await expect(

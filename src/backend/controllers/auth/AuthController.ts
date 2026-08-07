@@ -2960,8 +2960,14 @@ export class AuthController extends PuterController {
         }
 
         // Validate every entry before writing any, so a bad one in the list
-        // cannot leave a partially-granted set behind.
+        // cannot leave a partially-granted set behind: the dialog reads a 4xx as
+        // "nothing was written" and skips its withdrawal, so a partial commit
+        // leaves live access the user was told they refused. The rewrite running
+        // twice is cheaper than splitting the grant into prepare/commit.
         for (const entry of list) {
+            await this.services.permission.assertUserAppPermissionWritable(
+                entry,
+            );
             await this.#prepareAppDataGrant(req.actor!, entry);
         }
         for (const entry of list) {
@@ -3382,7 +3388,9 @@ export class AuthController extends PuterController {
             // A distinct action, because only *this* path can reuse a uid:
             // `AppStore.create` mints a random uuid4, which no deleted app can
             // ever hold again.
-            this.clients.event.emit(
+            // Awaited: the token is issued below, so a fire-and-forget sweep
+            // would leave the recreated app usable with the old grants live.
+            await this.clients.event.emitAndWait(
                 'app.changed',
                 { app_uid, action: 'created-from-origin', app },
                 {},
