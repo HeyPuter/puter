@@ -6,6 +6,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { setupTestServer } from '../../testUtil.ts';
 import type { SystemKVStore } from './SystemKVStore.ts';
@@ -255,9 +256,9 @@ describe('SystemKVStore', () => {
         });
 
         it('rejects a non-positive limit', async () => {
-            await expect(
-                target.list({ limit: 0 }, opts),
-            ).rejects.toMatchObject({ statusCode: 400 });
+            await expect(target.list({ limit: 0 }, opts)).rejects.toMatchObject(
+                { statusCode: 400 },
+            );
         });
 
         it('rejects a malformed cursor', async () => {
@@ -280,7 +281,8 @@ describe('SystemKVStore', () => {
         });
 
         it('skips ahead with offset', async () => {
-            const all = (await target.list({ as: 'keys' }, opts)).res as string[];
+            const all = (await target.list({ as: 'keys' }, opts))
+                .res as string[];
             const result = await target.list(
                 { as: 'keys', offset: 1, limit: 5 },
                 opts,
@@ -385,10 +387,7 @@ describe('SystemKVStore', () => {
             let cursor: string | undefined;
             do {
                 const page = (
-                    await target.list(
-                        { as: 'keys', limit: 1, cursor },
-                        opts,
-                    )
+                    await target.list({ as: 'keys', limit: 1, cursor }, opts)
                 ).res as { items: string[]; cursor?: string };
                 keys.push(...page.items);
                 cursor = page.cursor;
@@ -500,7 +499,11 @@ describe('SystemKVStore', () => {
             // First bump creates the counter and stamps the (already-elapsed)
             // ttl in the same write — no separate expireAt call.
             await target.incr(
-                { key: 'ttlCounter', pathAndAmountMap: { hits: 1 }, expireAt: past },
+                {
+                    key: 'ttlCounter',
+                    pathAndAmountMap: { hits: 1 },
+                    expireAt: past,
+                },
                 opts,
             );
             const result = await target.get({ key: 'ttlCounter' }, opts);
@@ -510,14 +513,22 @@ describe('SystemKVStore', () => {
         it('keeps the first expireAt stamp across later bumps (if_not_exists)', async () => {
             const future = Math.floor(Date.now() / 1000) + 3600;
             await target.incr(
-                { key: 'ttlKeep', pathAndAmountMap: { hits: 1 }, expireAt: future },
+                {
+                    key: 'ttlKeep',
+                    pathAndAmountMap: { hits: 1 },
+                    expireAt: future,
+                },
                 opts,
             );
             // A later bump passing an already-elapsed ttl must NOT override the
             // first stamp, so the counter stays visible.
             const past = Math.floor(Date.now() / 1000) - 10;
             await target.incr(
-                { key: 'ttlKeep', pathAndAmountMap: { hits: 1 }, expireAt: past },
+                {
+                    key: 'ttlKeep',
+                    pathAndAmountMap: { hits: 1 },
+                    expireAt: past,
+                },
                 opts,
             );
             const result = await target.get({ key: 'ttlKeep' }, opts);
@@ -726,9 +737,9 @@ describe('SystemKVStore', () => {
 
         afterEach(() => {
             // Nothing a caller sends may end up on the shared prototype.
-            expect(
-                Object.getOwnPropertyNames(Object.prototype),
-            ).not.toContain('polluted');
+            expect(Object.getOwnPropertyNames(Object.prototype)).not.toContain(
+                'polluted',
+            );
             expect(({} as Record<string, unknown>).polluted).toBeUndefined();
         });
 
@@ -848,7 +859,10 @@ describe('SystemKVStore', () => {
         it('rejects an unsafe key in a batchPut item', async () => {
             const value = JSON.parse('{"__proto__":{"polluted":true}}');
             await expect(
-                target.batchPut({ items: [{ key: 'proto-batch', value }] }, opts),
+                target.batchPut(
+                    { items: [{ key: 'proto-batch', value }] },
+                    opts,
+                ),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
 
@@ -880,6 +894,73 @@ describe('SystemKVStore', () => {
             const getRes = await target.get({ key: 'usage-k' }, opts);
             expect(getRes.usage.read).toBeGreaterThanOrEqual(0);
             expect(getRes.usage.write).toBe(0);
+        });
+    });
+
+    // -- Cross-app privacy probe ---------------------------------------
+    //
+    // Reached only through `namespaceAppUuid`, which the KV driver sets after
+    // its permission check. Asserted at the store so no permission machinery
+    // (which reads flat perms through KV) is in the measurement.
+    describe('cross-app mutations', () => {
+        let crossOpts: { actor: Actor; namespaceAppUuid: string };
+        beforeEach(() => {
+            crossOpts = { actor, namespaceAppUuid: 'app-other' };
+        });
+
+        it('probes a whole batch in one read rather than one per key', async () => {
+            const batchGet = vi.spyOn(server.clients.dynamo, 'batchGet');
+            const get = vi.spyOn(server.clients.dynamo, 'get');
+            try {
+                await target.batchPut(
+                    {
+                        items: [
+                            { key: 'b1', value: 1 },
+                            { key: 'b2', value: 2 },
+                            { key: 'b3', value: 3 },
+                        ],
+                    },
+                    crossOpts,
+                );
+                // A per-key probe would make this N single-key gets.
+                expect(batchGet).toHaveBeenCalledTimes(1);
+                expect(get).not.toHaveBeenCalled();
+            } finally {
+                batchGet.mockRestore();
+                get.mockRestore();
+            }
+        });
+
+        it('bills the probe as a read', async () => {
+            // The probe is a real round trip; metering runs off the usage the
+            // store reports, so swallowing it under-bills the caller.
+            const { usage } = await target.set(
+                { key: 'metered', value: 'v' },
+                crossOpts,
+            );
+            expect(usage.read).toBeGreaterThan(0);
+            expect(usage.write).toBeGreaterThan(0);
+        });
+
+        it('still refuses a private entry through the batch probe', async () => {
+            // Into the *target* namespace: a plain user actor may address any of
+            // its own app namespaces via `appUuid`, which is how the owning app's
+            // data is seeded here.
+            await target.set(
+                { key: 'secret', value: 's', disableSharing: true },
+                { actor, appUuid: 'app-other' },
+            );
+            await expect(
+                target.batchPut(
+                    {
+                        items: [
+                            { key: 'ok', value: 1 },
+                            { key: 'secret', value: 2 },
+                        ],
+                    },
+                    crossOpts,
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
         });
     });
 });

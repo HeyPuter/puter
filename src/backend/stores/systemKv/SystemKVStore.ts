@@ -308,8 +308,8 @@ export class SystemKVStore extends PuterStore {
         namespace: string,
         key: string,
         opts?: KVOpts,
-    ): Promise<void> {
-        if (!isCrossApp(opts)) return;
+    ): Promise<KVUsage> {
+        if (!isCrossApp(opts)) return emptyUsage();
         const response = await this.clients.dynamo.get(this.tableName, {
             namespace,
             key,
@@ -321,6 +321,35 @@ export class SystemKVStore extends PuterStore {
                 { legacyCode: 'forbidden' },
             );
         }
+        // Returned rather than swallowed: the probe is a real read, and a caller
+        // that did not pay for it is under-billed for the operation.
+        return readUsage(
+            response.ConsumedCapacity?.CapacityUnits as number | undefined,
+        );
+    }
+
+    /**
+     * The batch form: one batched read for every key rather than a round trip
+     * each, which would turn a single batched write into N+1 calls.
+     */
+    async #assertNonePrivate(
+        namespace: string,
+        keys: string[],
+        opts?: KVOpts,
+    ): Promise<KVUsage> {
+        if (!isCrossApp(opts) || keys.length === 0) return emptyUsage();
+        const { entries, usage } = await this.getBatches(namespace, keys);
+        const isPrivate = (entries as Array<{ noShare?: boolean }>).some(
+            (entry) => entry?.noShare,
+        );
+        if (isPrivate) {
+            throw new HttpError(
+                403,
+                'kv: this entry is private to the app that wrote it',
+                { legacyCode: 'forbidden' },
+            );
+        }
+        return usage;
     }
 
     async get(
@@ -398,7 +427,7 @@ export class SystemKVStore extends PuterStore {
         assertValue(value);
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
-        await this.#assertNotPrivate(namespace, key, opts);
+        const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
 
         const response = await this.clients.dynamo.put(this.tableName, {
             namespace,
@@ -410,8 +439,12 @@ export class SystemKVStore extends PuterStore {
 
         return {
             res: true,
-            usage: writeUsage(
-                response.ConsumedCapacity?.CapacityUnits as number | undefined,
+            usage: addUsage(
+                probeUsage,
+                writeUsage(
+                    response.ConsumedCapacity?.CapacityUnits as
+                        number | undefined,
+                ),
             ),
         };
     }
@@ -445,11 +478,11 @@ export class SystemKVStore extends PuterStore {
         const namespace = getNamespace(actor, opts);
 
         // One private key refuses the batch — no partial success to probe with.
-        if (isCrossApp(opts)) {
-            for (const k of byKey.keys()) {
-                await this.#assertNotPrivate(namespace, k, opts);
-            }
-        }
+        const probeUsage = await this.#assertNonePrivate(
+            namespace,
+            [...byKey.keys()],
+            opts,
+        );
 
         const putParams = Array.from(byKey.values()).map((item) => ({
             table: this.tableName,
@@ -468,7 +501,10 @@ export class SystemKVStore extends PuterStore {
                 0,
             ) ?? byKey.size;
 
-        return { res: true, usage: writeUsage(units || byKey.size) };
+        return {
+            res: true,
+            usage: addUsage(probeUsage, writeUsage(units || byKey.size)),
+        };
     }
 
     async del(
@@ -477,7 +513,7 @@ export class SystemKVStore extends PuterStore {
     ): Promise<KVResult<boolean>> {
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
-        await this.#assertNotPrivate(namespace, key, opts);
+        const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
 
         const response = await this.clients.dynamo.del(this.tableName, {
             namespace,
@@ -485,9 +521,12 @@ export class SystemKVStore extends PuterStore {
         });
         return {
             res: true,
-            usage: writeUsage(
-                (response.ConsumedCapacity?.CapacityUnits as
-                    number | undefined) ?? 1,
+            usage: addUsage(
+                probeUsage,
+                writeUsage(
+                    (response.ConsumedCapacity?.CapacityUnits as
+                        number | undefined) ?? 1,
+                ),
             ),
         };
     }
@@ -732,9 +771,9 @@ export class SystemKVStore extends PuterStore {
         assertKey(key);
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
-        await this.#assertNotPrivate(namespace, key, opts);
+        const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
         const usage = await this.rawExpireAt(namespace, key, Number(timestamp));
-        return { res: undefined, usage };
+        return { res: undefined, usage: addUsage(probeUsage, usage) };
     }
 
     async expire(
@@ -744,10 +783,10 @@ export class SystemKVStore extends PuterStore {
         assertKey(key);
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
-        await this.#assertNotPrivate(namespace, key, opts);
+        const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
         const timestamp = Math.floor(Date.now() / 1000) + Number(ttl);
         const usage = await this.rawExpireAt(namespace, key, timestamp);
-        return { res: undefined, usage };
+        return { res: undefined, usage: addUsage(probeUsage, usage) };
     }
 
     async incr<T extends Record<string, number>>(
@@ -779,7 +818,7 @@ export class SystemKVStore extends PuterStore {
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
 
-        await this.#assertNotPrivate(namespace, key, opts);
+        const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
 
         const setStatements = Object.entries(pathAndAmountMap).map(
             ([valPath, _amt], idx) => {
@@ -856,9 +895,12 @@ export class SystemKVStore extends PuterStore {
             response = await runUpdate();
         }
 
-        const usage = writeUsage(
-            Number(response.ConsumedCapacity?.CapacityUnits ?? 0) +
-                createPathsUsage,
+        const usage = addUsage(
+            probeUsage,
+            writeUsage(
+                Number(response.ConsumedCapacity?.CapacityUnits ?? 0) +
+                    createPathsUsage,
+            ),
         );
 
         return { res: response.Attributes?.value, usage };
@@ -897,7 +939,7 @@ export class SystemKVStore extends PuterStore {
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
 
-        await this.#assertNotPrivate(namespace, key, opts);
+        const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
 
         const createPathsUsage = await this.createPaths(
             namespace,
@@ -943,9 +985,12 @@ export class SystemKVStore extends PuterStore {
             { ...valueAttributeNames, '#value': 'value' },
         );
 
-        const usage = writeUsage(
-            Number(response.ConsumedCapacity?.CapacityUnits ?? 0) +
-                createPathsUsage,
+        const usage = addUsage(
+            probeUsage,
+            writeUsage(
+                Number(response.ConsumedCapacity?.CapacityUnits ?? 0) +
+                    createPathsUsage,
+            ),
         );
 
         return { res: response.Attributes?.value, usage };
@@ -966,7 +1011,7 @@ export class SystemKVStore extends PuterStore {
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
 
-        await this.#assertNotPrivate(namespace, key, opts);
+        const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
 
         const removeStatements = paths.map((valPath) => {
             return ['value', ...valPath.split('.')]
@@ -1001,9 +1046,12 @@ export class SystemKVStore extends PuterStore {
             );
             return {
                 res: response.Attributes?.value,
-                usage: writeUsage(
-                    (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                usage: addUsage(
+                    probeUsage,
+                    writeUsage(
+                        (response.ConsumedCapacity?.CapacityUnits as
+                            number | undefined) ?? 1,
+                    ),
                 ),
             };
         } catch (e) {
@@ -1016,7 +1064,10 @@ export class SystemKVStore extends PuterStore {
                 const fallback = await this.get({ key }, opts);
                 return {
                     res: fallback.res,
-                    usage: addUsage(fallback.usage, writeUsage(1)),
+                    usage: addUsage(
+                        probeUsage,
+                        addUsage(fallback.usage, writeUsage(1)),
+                    ),
                 };
             }
             throw e;
@@ -1048,7 +1099,7 @@ export class SystemKVStore extends PuterStore {
 
         const actor = ensureActor(opts);
         const namespace = getNamespace(actor, opts);
-        await this.#assertNotPrivate(namespace, key, opts);
+        const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
 
         const createPathsUsage = await this.createPaths(
             namespace,
@@ -1105,9 +1156,12 @@ export class SystemKVStore extends PuterStore {
             { ...valueAttributeNames, '#value': 'value' },
         );
 
-        const usage = writeUsage(
-            Number(response.ConsumedCapacity?.CapacityUnits ?? 0) +
-                createPathsUsage,
+        const usage = addUsage(
+            probeUsage,
+            writeUsage(
+                Number(response.ConsumedCapacity?.CapacityUnits ?? 0) +
+                    createPathsUsage,
+            ),
         );
 
         return { res: response.Attributes?.value, usage };
