@@ -74,6 +74,26 @@ const DEEP_LINK_INTRO_CLICK_BEAT_MS = 300;
 // DRAG_FLIP_SETTLE_MS this is an allowance: the scroll's ~450ms plus a
 // rest so the landing reads before the tile pops.
 const DEEP_LINK_INTRO_FLIP_SETTLE_MS = 620;
+// The intro exists to teach ("windows are inflated tiles; minimize goes
+// back to the grid"); once learned it would only be a tax on every
+// bookmarked landing. After this many delivered — or deliberately skipped —
+// intros the beats collapse and the sequence plays in one breath, exactly
+// like a warm tile click. Counted per ACCOUNT in kv, not per device: the
+// lesson lives in the user's head and the account is what follows them
+// across devices (localStorage would also bleed between accounts on a
+// shared browser). The animated page flip is exempt from the decay — see
+// beginDeepLinkLaunch.
+const DEEP_LINK_INTRO_TEACH_COUNT = 3;
+const DEEP_LINK_INTRO_SEEN_KV_KEY = 'dashboard_deeplink_intros_seen';
+
+// The kv counter arrives as whatever the store returns (a number, a numeric
+// string, null on a failed or timed-out read); anything unparseable reads
+// as zero so the intro's failure mode is to teach once more — never to
+// never teach.
+function parseIntroSeenCount (raw) {
+    const n = typeof raw === 'number' ? raw : parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+}
 
 // Cog on the reorder-mode toggle; _setReorderMode swaps it for "Done" while
 // the mode is on.
@@ -1682,17 +1702,34 @@ const TabApps = {
     // the same click→morph→open sequence a real tile click does, so the user
     // sees WHICH tile the app came from — and where minimize will put it
     // back. This waits for the tile to be genuinely visible (grid loaded,
-    // pager flipped to the tile's page, load-fade revealed, icon painted —
-    // the flourish must never play over blank space), then paces out the
-    // sequence: a beat to take the grid in, the tile's click flourish, a
-    // beat for it to read, and only then does it resolve for the caller to
-    // open the window, whose morph grows it out of the tile's slot.
+    // load-fade revealed, icon painted — the flourish must never play over
+    // blank space), then paces out the sequence: a beat to take the grid in,
+    // a visible flip when the tile lives on a later pager page, the tile's
+    // click flourish, a beat for it to read, and only then does it resolve
+    // for the caller to open the window, whose morph grows it out of the
+    // tile's slot.
+    //
+    // The intro is pedagogy, and it knows when to step aside:
+    //   - INTERRUPTIBLE: any pointer/key/wheel input skips the remaining
+    //     choreography and resolves at once — the trained user's instinctive
+    //     click gets an instant launch. Input never cancels the launch
+    //     itself (the URL asked for the app), and it is never swallowed:
+    //     whatever it was doing (typing a search, flipping a page) still
+    //     happens.
+    //   - EXPOSURE DECAY: after DEEP_LINK_INTRO_TEACH_COUNT delivered (or
+    //     deliberately skipped) intros, the beats collapse and the sequence
+    //     plays in one breath — see the constant for why the count lives in
+    //     kv. The page flip is exempt: unlike the beats it isn't repeating a
+    //     lesson, it's live wayfinding to where THIS app lives, and its
+    //     settle is needed anyway to put the tile in view for the morph.
     //
     // Resolves to the tile element, or null when there is nothing to
     // introduce — app not installed (resolved as soon as the app list
-    // arrives, with no further waiting), grid slower than the deadline, or
-    // animations that wouldn't play anyway; the landing then launches
-    // immediately with the plain fade it always had.
+    // arrives, with no further waiting), grid slower than the deadline
+    // (which also bounds a stalled app-list fetch: a hung request must not
+    // hold the launch hostage), or animations that wouldn't play anyway;
+    // the landing then launches immediately with the plain fade it always
+    // had.
     //
     // Also claims the app in _launchingApps immediately, so a user click on
     // the tile mid-intro is swallowed instead of spawning a second instance
@@ -1704,62 +1741,139 @@ const TabApps = {
         // no-op, so waiting on the grid would only delay the launch.
         if ( ! window.animate_window_opening || this._reduceMotion() ) return null;
         const deadline = Date.now() + DEEP_LINK_INTRO_DEADLINE_MS;
-        const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-        // Join the load init() already started rather than racing a duplicate.
-        try {
-            await this.loadApps($el_window);
-        } catch ( _e ) { /* a failed load leaves _apps unset; handled below */ }
-        if ( ! Array.isArray(this._apps) || ! this._apps.some(a => a.name === appName) ) {
-            return null;
-        }
+
+        // How many intros this account has already been shown — fetched in
+        // parallel with the grid load, so it is long resolved by the time
+        // the beats need the answer.
+        const seen_promise = puter.kv.get(DEEP_LINK_INTRO_SEEN_KV_KEY).catch(() => null);
+
+        // Interruption plumbing. The flag is checked at every step, and
+        // waking the in-flight sleep makes a skip take effect NOW rather
+        // than at the end of a beat. Passive capture listeners: they must
+        // see input that page handlers consume, and must never delay it.
+        let interrupted = false;
+        let wake = () => {};
+        const on_input = (e) => {
+            // Real user input only — a script-dispatched event is not a
+            // person asking the intro to hurry up.
+            if ( ! e.isTrusted ) return;
+            interrupted = true;
+            wake();
+        };
+        const sleep = ms => new Promise(resolve => {
+            wake = resolve;
+            setTimeout(resolve, ms);
+        });
+        document.addEventListener('pointerdown', on_input, { capture: true, passive: true });
+        document.addEventListener('keydown', on_input, { capture: true, passive: true });
+        document.addEventListener('wheel', on_input, { capture: true, passive: true });
+
         let tile = null;
-        while ( Date.now() < deadline ) {
-            // A hidden page (deep link opened in a background tab) can't show
-            // the intro at all — and won't finish this wait either: Chrome
-            // throttles the sleep below to 1Hz and defers the deferred-render
-            // path's ResizeObserver, so waiting just delays the launch. Skip
-            // to the plain open; the app is simply there when the tab is
-            // finally brought forward.
-            if ( document.visibilityState === 'hidden' ) return null;
-            // Re-query every pass — renders replace tile nodes wholesale, and
-            // the first render can trail the load itself (the window is
-            // briefly hidden entering full-page mode, so renderApps defers to
-            // the ResizeObserver until the container has a size). Scoped to
-            // the ACTIVE section: if the user has already moved to another
-            // tab, there is no visible tile to introduce from.
-            const candidate = $el_window.find('.dashboard-section-apps.active .myapps-tile').toArray()
-                .find(el => el.dataset.appName === appName);
-            if ( candidate ) {
-                const revealed = ! $el_window.find('.myapps-pager').hasClass('myapps-pager-loading');
-                const img = candidate.querySelector('.myapps-tile-icon img');
-                if ( revealed && ( ! img || img.complete ) ) {
-                    tile = candidate;
-                    break;
-                }
+        let flourish_played = false;
+        try {
+            // Join the load init() already started rather than racing a
+            // duplicate — but never wait past the deadline: fetch has no
+            // timeout of its own, and a stalled app-list request used to
+            // stall the launch with it. (Racing the interruptible sleep also
+            // lets input cut this wait short.)
+            try {
+                await Promise.race([
+                    this.loadApps($el_window),
+                    sleep(Math.max(0, deadline - Date.now())),
+                ]);
+            } catch ( _e ) { /* a failed load leaves _apps unset; handled below */ }
+            if ( interrupted ) return null;
+            if ( ! Array.isArray(this._apps) || ! this._apps.some(a => a.name === appName) ) {
+                return null;
             }
-            await sleep(DEEP_LINK_INTRO_POLL_MS);
+            while ( Date.now() < deadline && ! interrupted ) {
+                // A hidden page (deep link opened in a background tab) can't
+                // show the intro at all — and won't finish this wait either:
+                // Chrome throttles the sleep below to 1Hz and defers the
+                // deferred-render path's ResizeObserver, so waiting just
+                // delays the launch. Skip to the plain open; the app is
+                // simply there when the tab is finally brought forward.
+                if ( document.visibilityState === 'hidden' ) return null;
+                // Re-query every pass — renders replace tile nodes
+                // wholesale, and the first render can trail the load itself
+                // (the window is briefly hidden entering full-page mode, so
+                // renderApps defers to the ResizeObserver until the
+                // container has a size). Scoped to the ACTIVE section: if
+                // the user has already moved to another tab, there is no
+                // visible tile to introduce from.
+                const candidate = $el_window.find('.dashboard-section-apps.active .myapps-tile').toArray()
+                    .find(el => el.dataset.appName === appName);
+                if ( candidate ) {
+                    const revealed = ! $el_window.find('.myapps-pager').hasClass('myapps-pager-loading');
+                    const img = candidate.querySelector('.myapps-tile-icon img');
+                    if ( revealed && ( ! img || img.complete ) ) {
+                        tile = candidate;
+                        break;
+                    }
+                }
+                await sleep(DEEP_LINK_INTRO_POLL_MS);
+            }
+            if ( ! tile || interrupted ) return tile;
+            // The count is normally long resolved; the short cap covers a
+            // hung kv read without holding a ready tile back (the timed-out
+            // default of 0 errs toward teaching).
+            const seen = parseIntroSeenCount(await Promise.race([seen_promise, sleep(400)]));
+            const teach = seen < DEEP_LINK_INTRO_TEACH_COUNT;
+            if ( interrupted ) return tile;
+            // Everything is on screen — now pace the sequence (see the beat
+            // constants). The beats are also where the user may navigate
+            // away: a page hidden mid-beat skips the rest of the
+            // choreography and just opens the app (the flourish would play
+            // unseen, and the window's morph re-checks tile visibility on
+            // its own anyway).
+            if ( teach ) {
+                await sleep(DEEP_LINK_INTRO_GRID_BEAT_MS);
+                if ( interrupted || document.visibilityState === 'hidden' ) return tile;
+            }
+            // A tile on a later pager page: travel there visibly, AFTER the
+            // reveal and the grid beat — the grid opens on its familiar
+            // first page and the user watches the flip land on the page the
+            // app actually lives on (which is also where minimize will put
+            // it back).
+            const page = $el_window.find('.myapps-page').index($(tile).closest('.myapps-page'));
+            if ( page >= 0 && page !== this._page ) {
+                this.goToPage($el_window, page, true);
+                await sleep(DEEP_LINK_INTRO_FLIP_SETTLE_MS);
+                if ( interrupted || document.visibilityState === 'hidden' ) return tile;
+            }
+            begin_dashboard_tile_launch(tile);
+            flourish_played = true;
+            if ( teach ) {
+                await sleep(DEEP_LINK_INTRO_CLICK_BEAT_MS);
+            }
+            return tile;
+        } finally {
+            document.removeEventListener('pointerdown', on_input, { capture: true });
+            document.removeEventListener('keydown', on_input, { capture: true });
+            document.removeEventListener('wheel', on_input, { capture: true });
+            // What counts as "seen": the flourish was delivered while the
+            // user watched, or they had the grid in front of them and
+            // actively skipped ahead — proof they didn't need the rest.
+            // Fallbacks (hidden tab, timeout, no tile) taught nothing and
+            // don't count.
+            if ( flourish_played || (tile && interrupted) ) {
+                this._recordDeepLinkIntroSeen(seen_promise);
+            }
         }
-        if ( ! tile ) return null;
-        // Everything is on screen — now pace the sequence (see the beat
-        // constants). The beats are also where the user may navigate away:
-        // a page hidden mid-beat skips the rest of the choreography and
-        // just opens the app (the flourish would play unseen, and the
-        // window's morph re-checks tile visibility on its own anyway).
-        await sleep(DEEP_LINK_INTRO_GRID_BEAT_MS);
-        if ( document.visibilityState === 'hidden' ) return tile;
-        // A tile on a later pager page: travel there visibly, AFTER the
-        // reveal and the grid beat — the grid opens on its familiar first
-        // page and the user watches the flip land on the page the app
-        // actually lives on (which is also where minimize will put it back).
-        const page = $el_window.find('.myapps-page').index($(tile).closest('.myapps-page'));
-        if ( page >= 0 && page !== this._page ) {
-            this.goToPage($el_window, page, true);
-            await sleep(DEEP_LINK_INTRO_FLIP_SETTLE_MS);
-            if ( document.visibilityState === 'hidden' ) return tile;
-        }
-        begin_dashboard_tile_launch(tile);
-        await sleep(DEEP_LINK_INTRO_CLICK_BEAT_MS);
-        return tile;
+    },
+
+    // Bump the per-account intro counter. kv.incr is atomic on the server,
+    // so two devices landing at once can't lose an increment; the pre-read
+    // only CAPS the counter — once the lesson is learned there is nothing
+    // left to record and the key stops changing. A failed write just means
+    // one more teach later.
+    _recordDeepLinkIntroSeen (seen_promise) {
+        Promise.resolve(seen_promise).then(raw => {
+            if ( parseIntroSeenCount(raw) >= DEEP_LINK_INTRO_TEACH_COUNT ) return;
+            return puter.kv.incr(DEEP_LINK_INTRO_SEEN_KV_KEY);
+        }).catch(err => {
+            console.error('Failed to record the deep-link intro exposure:', err);
+        });
     },
 
     // Release beginDeepLinkLaunch's duplicate-launch claim once the landing's

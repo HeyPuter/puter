@@ -235,7 +235,10 @@ const postAuthActions = async (action) => {
                 // user what is being opened and where minimize puts it back.
                 // No tile (not installed, grid too slow, apps fetch failed,
                 // animations off): the launch proceeds immediately with the
-                // plain fade, as before.
+                // plain fade, as before. The intro also steps aside on its
+                // own: user input skips its remaining beats, and once this
+                // account has watched it a few times the beats collapse for
+                // good (see beginDeepLinkLaunch).
                 let tile = null;
                 try {
                     const el_dashboard = await el_dashboard_promise;
