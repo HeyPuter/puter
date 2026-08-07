@@ -3,9 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { appDataPermissions, requestAppData } from './appData.js';
 import { PuterJSError } from '../../lib/PuterJSError.js';
 
-const CONTACTS = 'app-contacts-uid';
+const CONTACTS = 'app-11111111-2222-3333-4444-555555555555';
 
-const makeModule = ({ granted = true, appID = 'app-calendar-uid', get } = {}) => ({
+const makeModule = ({ granted = true, appID = 'app-99999999-8888-7777-6666-555555555555', get } = {}) => ({
     puter: {
         appID,
         apps: { get: vi.fn(get ?? (async () => ({ uid: CONTACTS }))) },
@@ -160,6 +160,26 @@ describe('perms requestAppData', () => {
         await expect(
             requestAppData.call(mod, 'no-such-app', 'read'),
         ).rejects.toThrow(/app not found/);
+    });
+
+    it('treats an app *named* like a uid prefix as a name, not a uid', async () => {
+        // `puter.apps.get` looks up by name only, so a bare `app-` prefix test
+        // would send `app-store` to a uid lookup that can never match.
+        const mod = makeModule();
+        await requestAppData.call(mod, 'app-store', 'read');
+        expect(mod.puter.apps.get).toHaveBeenCalledWith('app-store');
+    });
+
+    it('rejects a prototype key as an unknown store', async () => {
+        const mod = makeModule();
+        // `out['toString']` is truthy, so a truthiness guard would fall through
+        // and throw a TypeError instead of a clean error.
+        await expect(
+            requestAppData.call(mod, CONTACTS, ['toString:read']),
+        ).rejects.toThrow(/unknown store/);
+        await expect(
+            requestAppData.call(mod, CONTACTS, ['constructor:read']),
+        ).rejects.toThrow(/unknown store/);
     });
 
     it('rejects a bad identifier and a bad scope before any IPC', async () => {

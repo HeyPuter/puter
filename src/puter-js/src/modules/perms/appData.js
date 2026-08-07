@@ -17,6 +17,9 @@ const KV_OPS = Object.values(KV_CLASS_OPS).flat();
 /** Never grantable: it empties a whole namespace rather than touching entries. */
 const KV_FORBIDDEN_OPS = ['flush'];
 
+const APP_UID_RE =
+    /^app-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const err = (message) => new PuterJSError(message, 'invalid_argument');
 
 /**
@@ -113,7 +116,11 @@ const normaliseScopes = (scopes) => {
                 throw err(`scope must look like "kv:get" or "fs:read": ${entry}`);
             }
             const [store, name] = entry.split(':');
-            if (!out[store]) throw err(`unknown store: ${store}`);
+            // Explicit names, not `out[store]`: `toString` and friends are
+            // truthy, so the push below would throw a TypeError instead.
+            if (store !== 'kv' && store !== 'fs') {
+                throw err(`unknown store: ${store}`);
+            }
             out[store].push(name);
         }
         return out;
@@ -151,7 +158,9 @@ export async function requestAppData (appIdentifier, scopes) {
         throw err('parameter appIdentifier must be a non-empty string');
     }
 
-    const appUid = identifier.startsWith('app-')
+    // A uid is `app-` plus a UUID. The bare prefix would read an app *named*
+    // `app-store` as a uid, and `puter.apps.get` resolves names only.
+    const appUid = APP_UID_RE.test(identifier)
         ? identifier
         : (await this.puter.apps.get(identifier))?.uid;
     if (typeof appUid !== 'string' || appUid === '') {
