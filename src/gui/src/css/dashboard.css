@@ -1330,6 +1330,12 @@ input.myapps-group-name {
     box-sizing: border-box;
     width: auto;
     max-width: 100%;
+    /* Hug the name (iOS sizes the field to its text): a short name in the
+       default ~20ch box floats in a hover pill far wider than the word, and
+       a long one clips while the card has room. Engines without field-sizing
+       keep that default box — same behavior as before, just less tailored. */
+    field-sizing: content;
+    min-width: 90px;
     padding: 4px 10px;
     border: 1px solid transparent;
     border-radius: 8px;
