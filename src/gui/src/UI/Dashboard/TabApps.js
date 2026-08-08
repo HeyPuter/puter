@@ -2512,6 +2512,14 @@ const TabApps = {
     },
 
     onActivate ($el_window) {
+        // A folder is modal over THIS tab's grid, and the dashboard only hides
+        // an inactive section — it never tells a tab it was left. So one open
+        // when the user walked off to Files is still open, mid-browse, when
+        // they come back, with focusSearch about to drop the caret in the
+        // search box behind its scrim: typing would then filter a grid the
+        // folder is covering. Coming back to the tab is coming back to the
+        // grid.
+        this._closeGroup($el_window, { instant: true });
         this.loadApps($el_window);
         this.focusSearch($el_window);
     },
