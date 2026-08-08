@@ -1966,6 +1966,16 @@ const TabApps = {
             if ( moved > DRAG_MERGE_TRAVEL ) {
                 d.mergeAnchorX = d.lastClientX;
                 d.mergeAnchorY = d.lastClientY;
+                // The well's fill IS this countdown to the user (the CSS
+                // transition runs the same DRAG_MERGE_DWELL_MS) — and the
+                // hand that decelerates INTO a tile routinely trips this
+                // restart, because the anchor was pinned back at first
+                // contact. Refill from empty, or the well sits full while
+                // the countdown quietly runs again, promising a folder the
+                // drop wouldn't make.
+                overTile.classList.remove('myapps-tile-merge-pending');
+                void overTile.offsetWidth; // commit the empty state
+                overTile.classList.add('myapps-tile-merge-pending');
                 d.mergeTimer = setTimeout(tick, DRAG_MERGE_DWELL_MS);
                 return;
             }
