@@ -88,9 +88,19 @@ const DRAG_MERGE_DROP_MS = 240;     // ghost dropping into the folder it joined
 // A tile dragged this far outside the open folder's card leaves the folder
 // (iOS: drag an app out of a folder and it lands back on the home screen).
 const GROUP_EJECT_MARGIN = 24;
+// How long the icon must stay carried outside the card before the folder
+// closes under it and the SAME drag carries on over the grid, placeholder
+// and page flips included, so the user PLACES the app rather than
+// discovering where a blind drop put it (see _ejectToGrid). A beat of
+// forgiveness first: an overshoot can swing straight back in.
+const GROUP_EJECT_CLOSE_MS = 260;
 
 // -- Folder panel --
 const GROUP_ICON_MAX_TILES = 9;     // the 3x3 mini-grid on a folder's icon
+// A folder big enough to need it paginates like the grid outside (iOS folders
+// page too) rather than growing a scrollbar: this many rows to a page, fewer
+// when the viewport can't show that many (see _refreshGroupPanel).
+const GROUP_PANEL_ROWS = 3;
 const GROUP_PANEL_OPEN_MS = 380;    // keep in sync with .myapps-group-panel
 const GROUP_PANEL_CLOSE_MS = 240;
 // A brand-new folder opens itself so the user sees what their drop made — and
@@ -511,6 +521,8 @@ const TabApps = {
     _apps: null,
     _groups: [],
     _openGroupId: null,
+    _groupPage: 0,
+    _groupPageCount: 0,
     _layout: null,
     _page: 0,
     _pageCount: 0,
@@ -923,7 +935,7 @@ const TabApps = {
                 return;
             }
             const cols = $panelGrid.length
-                ? gridColumnCount($panelGrid[0])
+                ? gridColumnCount($panelGrid.find('.myapps-group-page')[0] || $panelGrid[0])
                 : ((self._layout && self._layout.cols) || 1);
             let next = idx;
             if ( e.key === 'ArrowLeft' ) next = idx - 1;
@@ -1222,7 +1234,7 @@ const TabApps = {
         // The folder card's own empty space counts: with the grid's behind a
         // backdrop, holding there is the only way into reorder mode from
         // inside a folder. Its backdrop doesn't — a tap there closes.
-        if ( $(oe.target).closest('.myapps-tile, .myapps-reorder-btn, .myapps-pager-dot, .myapps-pager-arrow, .myapps-search-inner, .myapps-modal-overlay, .myapps-group-backdrop, .myapps-group-name').length ) return;
+        if ( $(oe.target).closest('.myapps-tile, .myapps-reorder-btn, .myapps-pager-dot, .myapps-pager-arrow, .myapps-search-inner, .myapps-modal-overlay, .myapps-group-backdrop, .myapps-group-name, .myapps-group-dots').length ) return;
 
         const p = this._emptyPress = {
             pointerId: oe.pointerId,
@@ -1288,6 +1300,8 @@ const TabApps = {
         $el_window.find('.myapps-group-overlay').remove();
 
         this._openGroupId = groupId;
+        this._groupPage = 0;
+        this._groupPageCount = 0;
         // Where focus came from, so closing can hand it back rather than
         // dumping the keyboard user at the top of the document.
         this._groupReturnFocus = fromTile || null;
@@ -1300,6 +1314,7 @@ const TabApps = {
                         aria-label="${i18n('app_group_name_aria')}" autocomplete="off" autocorrect="off"
                         spellcheck="false" data-form-type="other" data-lpignore="true" data-1p-ignore>
                     <div class="myapps-group-panel-grid"></div>
+                    <div class="myapps-group-dots" aria-label="Folder pages"></div>
                 </div>
             </div>
         `);
@@ -1344,6 +1359,60 @@ const TabApps = {
         // hand focus (and the z-index) back to the window underneath it.
         $overlay.on('mousedown', function () {
             window.mouseover_window = undefined;
+        });
+
+        // -- The folder's own pager (see _refreshGroupPanel) --
+
+        $overlay.on('click', '.myapps-group-dot', function () {
+            self._goToGroupPage($el_window, parseInt(this.dataset.page, 10), true);
+        });
+
+        // Mouse wheel / two-finger vertical swipe flips one folder page per
+        // gesture, mirroring the grid's scroller (which see for the debounce).
+        $overlay.on('wheel', '.myapps-group-panel-grid', function (e) {
+            const oe = e.originalEvent;
+            if ( Math.abs(oe.deltaX) > Math.abs(oe.deltaY) ) return;
+            if ( Math.abs(oe.deltaY) < 4 ) return;
+            e.preventDefault();
+            clearTimeout(self._groupWheelTimer);
+            self._groupWheelTimer = setTimeout(() => {
+                self._groupWheelActive = false;
+            }, 150);
+            if ( self._groupWheelActive ) return;
+            self._groupWheelActive = true;
+            self._goToGroupPage($el_window, self._groupPage + (oe.deltaY > 0 ? 1 : -1), true);
+        });
+
+        // Keep the active dot in sync with native swipes. The scroller node
+        // outlives every _refreshGroupPanel rebuild (only its contents are
+        // replaced), so binding once here is enough.
+        const scroller = $overlay.find('.myapps-group-panel-grid')[0];
+        let ticking = false;
+        scroller.addEventListener('scroll', () => {
+            if ( ticking ) return;
+            ticking = true;
+            requestAnimationFrame(() => {
+                ticking = false;
+                const pageW = scroller.clientWidth || 1;
+                const idx = Math.round(Math.abs(scroller.scrollLeft) / pageW);
+                const page = Math.max(0, Math.min((self._groupPageCount || 1) - 1, idx));
+                if ( page !== self._groupPage ) {
+                    self._groupPage = page;
+                    self._updateGroupPagerUI($el_window);
+                }
+            });
+        }, { passive: true });
+
+        // Focus follows pages: Tab (or the arrow keys, whose focus calls
+        // suppress the browser's own scrolling) may land on a tile of an
+        // offscreen folder page — flip there, snap-aligned, so focus is never
+        // on something the user can't see.
+        $overlay.on('focusin', '.myapps-tile', function () {
+            const $pages = $overlay.find('.myapps-group-page');
+            const page = $pages.index($(this).closest('.myapps-group-page'));
+            if ( page >= 0 && page !== self._groupPage ) {
+                self._goToGroupPage($el_window, page, true);
+            }
         });
 
         // Escape closes from anywhere — a click on the scrim leaves focus on
@@ -1451,12 +1520,32 @@ const TabApps = {
         // Only as wide as it needs to be, within the cap the stylesheet sets
         // for the viewport — a folder of three in a four-wide card would sit
         // lopsided against a stretch of empty surface.
-        const maxCols = parseInt(getComputedStyle($grid[0]).getPropertyValue('--myapps-group-cols-max'), 10);
-        $grid[0].style.setProperty(
-            '--myapps-group-cols',
-            String(Math.max(1, Math.min(apps.length, Number.isFinite(maxCols) ? maxCols : 4))),
-        );
-        const html = apps.map(app => buildTileHtml(app)).join('');
+        const gridCS = getComputedStyle($grid[0]);
+        const maxCols = parseInt(gridCS.getPropertyValue('--myapps-group-cols-max'), 10);
+        const cols = Math.max(1, Math.min(apps.length, Number.isFinite(maxCols) ? maxCols : 4));
+        $grid[0].style.setProperty('--myapps-group-cols', String(cols));
+
+        // A folder that outgrows one page paginates, like the grid outside —
+        // GROUP_PANEL_ROWS rows to a page, fewer when the viewport is too
+        // short for them (landscape phones): the card must never outgrow the
+        // screen now that it doesn't scroll. ~180px is the card's overhead
+        // around the rows (scrim padding, card padding, name row, dots).
+        const tileH = parseFloat(gridCS.getPropertyValue('--myapps-tile-h')) || 78;
+        const rows = Math.max(1, Math.min(
+            GROUP_PANEL_ROWS,
+            Math.floor((window.innerHeight - 180) / (tileH + 24)),
+        ));
+        const perPage = cols * rows;
+        const pageCount = Math.ceil(apps.length / perPage);
+
+        let html = '';
+        for ( let p = 0; p < pageCount; p++ ) {
+            html += '<div class="myapps-group-page">';
+            for ( const app of apps.slice(p * perPage, (p + 1) * perPage) ) {
+                html += buildTileHtml(app);
+            }
+            html += '</div>';
+        }
         // A rebuild replaces every tile node, and a node detached mid-gesture
         // takes the rest of that gesture with it: the name box commits on
         // BLUR, which fires on the press — before the click it belongs to —
@@ -1477,6 +1566,24 @@ const TabApps = {
             $grid[0].__myappsPanelHtml = html;
             $grid.html(html);
             $overlay.find('.myapps-tile').attr('tabindex', '0');
+
+            // The rebuild reset the scroller; put it back on the page the
+            // user was browsing (clamped — a shrink can delete that page),
+            // and rebuild the dots to the new page count.
+            this._groupPageCount = pageCount;
+            this._groupPage = Math.max(0, Math.min(this._groupPage, pageCount - 1));
+            let dots = '';
+            for ( let p = 0; p < pageCount; p++ ) {
+                dots += `<button class="myapps-group-dot" data-page="${p}" aria-label="Page ${p + 1} of ${pageCount}"></button>`;
+            }
+            $overlay.find('.myapps-group-dots')
+                .html(dots)
+                .toggleClass('myapps-group-dots-hidden', pageCount < 2);
+            if ( this._groupPage > 0 ) {
+                $grid[0].scrollLeft = this._groupPage * $grid[0].clientWidth;
+            }
+            this._updateGroupPagerUI($el_window);
+
             const ae = document.activeElement;
             if ( ae === document.body || ae === null || ! ae.isConnected ) {
                 const tiles = $grid[0].querySelectorAll('.myapps-tile');
@@ -1487,9 +1594,35 @@ const TabApps = {
             // Tiles that survive keep the resting rects an earlier drag left
             // on them, and the card may have moved since (a resize re-centres
             // it) — stale rects are what the next drag would hit-test against.
-            for ( const el of $grid[0].children ) el.__myappsRestRect = null;
+            for ( const el of $grid[0].querySelectorAll('.myapps-tile') ) el.__myappsRestRect = null;
         }
         this.updateRunningDots($el_window);
+    },
+
+    _goToGroupPage ($el_window, index, smooth) {
+        const scroller = $el_window.find('.myapps-group-panel-grid')[0];
+        if ( ! scroller || ! this._groupPageCount ) return;
+        const page = Math.max(0, Math.min(this._groupPageCount - 1, index));
+        scroller.scrollTo({
+            left: page * scroller.clientWidth,
+            behavior: (smooth && ! this._reduceMotion()) ? 'smooth' : 'auto',
+        });
+        // Programmatic scrolls don't reliably emit 'scroll' events; track the
+        // page eagerly (same as goToPage).
+        this._groupPage = page;
+        this._updateGroupPagerUI($el_window);
+    },
+
+    _updateGroupPagerUI ($el_window) {
+        const page = this._groupPage;
+        $el_window.find('.myapps-group-dots .myapps-group-dot').each(function (i) {
+            this.classList.toggle('active', i === page);
+            if ( i === page ) {
+                this.setAttribute('aria-current', 'true');
+            } else {
+                this.removeAttribute('aria-current');
+            }
+        });
     },
 
     _animateGroupPanelOpen ($el_window, fromTile) {
@@ -1717,6 +1850,7 @@ const TabApps = {
             mergeAnchorX: 0,
             mergeAnchorY: 0,
             ejecting: false,
+            ejectTimer: null,
         };
 
         // Ignore events from a second pointer (e.g. a stray finger) so it can't
@@ -1763,6 +1897,9 @@ const TabApps = {
             // before the finger lifts.
             this._updateEjectState(e.clientX, e.clientY);
             if ( d.ejecting ) return;
+            if ( d.flipping ) return;
+            this._maybeGroupEdgeFlip(e.clientX);
+            if ( d.flipping ) return;
             this._updatePlaceholder(e.clientX, e.clientY);
             return;
         }
@@ -1775,6 +1912,10 @@ const TabApps = {
     // Whether the dragged icon has left the open folder's card (with a margin
     // of forgiveness, since the card's edge is also where the last row of
     // tiles sits). Only meaningful for a drag that started inside a folder.
+    // An icon that stays out past GROUP_EJECT_CLOSE_MS is ejected mid-drag —
+    // see _ejectToGrid; a drop during the beat before that still ejects, it
+    // just lands beside the folder (_commitEject) instead of where the user
+    // carried it.
     _updateEjectState (px, py) {
         const d = this._drag;
         const panel = d.$el_window.find('.myapps-group-panel')[0];
@@ -1789,7 +1930,57 @@ const TabApps = {
         if ( outside === d.ejecting ) return;
         d.ejecting = outside;
         d.$el_window.find('.myapps-group-overlay').toggleClass('myapps-group-ejecting', outside);
-        if ( outside ) this._vibrate(8);
+        clearTimeout(d.ejectTimer);
+        d.ejectTimer = null;
+        if ( outside ) {
+            this._vibrate(8);
+            // A timer, not a pointer event, ends the beat: nothing is
+            // dispatched while the icon rests outside the card.
+            d.ejectTimer = setTimeout(() => {
+                d.ejectTimer = null;
+                if ( this._drag !== d || ! d.ejecting ) return;
+                this._ejectToGrid(d);
+            }, GROUP_EJECT_CLOSE_MS);
+        }
+    },
+
+    // The icon has been carried out of the folder and held there: take the
+    // app out NOW — the folder closes behind it and the very same drag
+    // carries on over the grid (placeholder shuffle, edge page flips, even a
+    // drop into another folder), so the app lands where the user watched
+    // themselves put it. The membership change is saved here, exactly as a
+    // drop at this moment would have saved it; the drop that eventually ends
+    // the drag saves only the final position.
+    _ejectToGrid (d) {
+        const appName = d.tileEl.dataset.appName;
+        if ( ! this._ejectApp(d.$el_window, d.groupId, appName) ) return;
+        this._closeGroup(d.$el_window);
+        this.renderApps(d.$el_window, { preservePage: true, instant: true });
+
+        const tile = d.$el_window.find('.myapps-page .myapps-tile').toArray()
+            .find(el => el.dataset.appName === appName);
+        if ( ! tile ) {
+            // Nothing left to carry (the app vanished in a refresh); the
+            // eject itself stands, there is just nothing to place.
+            this._endDrag(false);
+            return;
+        }
+
+        // A folder-page flip armed just before the icon left the card must
+        // not fire into the grid drag this has become.
+        clearTimeout(d.edgeTimer);
+        d.edgeTimer = null;
+        d.edgeDir = 0;
+
+        d.panelGrid = null;
+        d.groupId = null;
+        d.ejecting = false;
+        d.tileEl = tile;
+        tile.classList.add('myapps-tile-dragging');
+        // The tile landed beside its old folder, possibly on another page;
+        // this pulls the placeholder straight under the icon the user is
+        // still holding.
+        this._updatePlaceholder(d.lastClientX, d.lastClientY);
     },
 
     _beginDrag () {
@@ -1881,6 +2072,50 @@ const TabApps = {
         }, DRAG_EDGE_DWELL_MS);
     },
 
+    // _maybeEdgeFlip's folder-card counterpart: dwelling at the card's edge
+    // flips its pages, so a drag can reorder across them. The zone is
+    // narrower than the grid's — the card's scroller is exactly as wide as
+    // its tiles, so a wide zone would swallow the whole edge column; this
+    // one stays inside the edge tiles' hit-test dead band (DRAG_HIT_INSET).
+    // No merge hold either: tiles inside a folder never merge.
+    _maybeGroupEdgeFlip (px) {
+        const d = this._drag;
+        const scroller = d.panelGrid;
+        if ( ! scroller || this._groupPageCount < 2 ) return;
+
+        const r = scroller.getBoundingClientRect();
+        const zone = Math.min(DRAG_EDGE_ZONE, d.tileW * DRAG_HIT_INSET);
+        let dir = 0;
+        if ( px >= r.right - zone ) dir = 1;
+        else if ( px <= r.left + zone ) dir = -1;
+
+        const atEnd = (dir === 1 && this._groupPage >= this._groupPageCount - 1);
+        const atStart = (dir === -1 && this._groupPage <= 0);
+        if ( dir === 0 || atEnd || atStart ) {
+            clearTimeout(d.edgeTimer);
+            d.edgeTimer = null;
+            d.edgeDir = 0;
+            return;
+        }
+
+        if ( d.edgeTimer && d.edgeDir === dir ) return; // already dwelling this way
+        clearTimeout(d.edgeTimer);
+        d.edgeDir = dir;
+        d.edgeTimer = setTimeout(() => {
+            d.edgeTimer = null;
+            d.edgeDir = 0;
+            if ( this._drag !== d || d.ejecting ) return;
+            d.flipping = true;
+            this._goToGroupPage(d.$el_window, this._groupPage + dir, true);
+            clearTimeout(d.flipClearTimer);
+            d.flipClearTimer = setTimeout(() => {
+                if ( this._drag !== d ) return;
+                d.flipping = false;
+                this._updatePlaceholder(d.lastClientX, d.lastClientY);
+            }, this._reduceMotion() ? 60 : DRAG_FLIP_SETTLE_MS);
+        }, DRAG_EDGE_DWELL_MS);
+    },
+
     // Slot the (invisible) placeholder into the tile the dragged icon is
     // hovering over, animating the displaced tiles with FLIP. The placeholder
     // may hop in from another page (cross-page reorder).
@@ -1897,7 +2132,13 @@ const TabApps = {
     _updatePlaceholder (px, py, { force = false } = {}) {
         const d = this._drag;
         if ( ! d ) return;
-        const pageEl = d.panelGrid || d.$el_window.find('.myapps-page').toArray()[this._page];
+        // Inside a folder, only the visible page's tiles are live targets —
+        // the other pages' tiles have real rects just past the scroller's
+        // clip edge, and a probe near the card's edge must not shuffle a
+        // tile the user can't see.
+        const pageEl = d.panelGrid
+            ? d.panelGrid.querySelectorAll('.myapps-group-page')[this._groupPage]
+            : d.$el_window.find('.myapps-page').toArray()[this._page];
         if ( ! pageEl ) return;
 
         // Probe with the dragged icon's centre rather than the fingertip, so the
@@ -1960,10 +2201,13 @@ const TabApps = {
         const refNode = (phIndex === -1 || overIndex < phIndex)
             ? overTile
             : overTile.nextElementSibling;
+        // overTile's own parent, not pageEl: inside a folder the tiles live
+        // one level down, in the current .myapps-group-page.
+        const parentEl = overTile.parentElement || pageEl;
 
         this._flipMove(tiles.filter(t => t !== d.tileEl), () => {
-            if ( refNode ) pageEl.insertBefore(d.tileEl, refNode);
-            else pageEl.appendChild(d.tileEl);
+            if ( refNode ) parentEl.insertBefore(d.tileEl, refNode);
+            else parentEl.appendChild(d.tileEl);
         });
     },
 
@@ -1977,44 +2221,63 @@ const TabApps = {
             this._clearMergeTarget();
             return false;
         }
-        if ( d.mergeEl === overTile ) return true; // countdown already running
+        if ( d.mergeEl === overTile ) {
+            // The countdown measures REST, and rest is only visible at its
+            // edges: each move event that carries the icon further across
+            // the tile re-anchors the countdown HERE, so the one that
+            // finally completes started with the last movement — the well
+            // fills exactly once, beginning the moment the hand stops.
+            // (Anchoring at first contact instead made the dwell's own
+            // re-check trip on the hand decelerating INTO the tile, and the
+            // refill played the fill twice on nearly every merge.)
+            if ( ! d.mergeArmed ) {
+                const moved = Math.hypot(d.lastClientX - d.mergeAnchorX, d.lastClientY - d.mergeAnchorY);
+                if ( moved > DRAG_MERGE_TRAVEL ) {
+                    d.mergeAnchorX = d.lastClientX;
+                    d.mergeAnchorY = d.lastClientY;
+                    this._restartMergeCountdown(d, overTile);
+                }
+            }
+            return true;
+        }
 
         d.mergeEl = overTile;
         d.mergeAnchorX = d.lastClientX;
         d.mergeAnchorY = d.lastClientY;
         overTile.classList.add('myapps-tile-merge-pending');
-
-        // Re-arming rather than one-shot: a pointer that is still moving when
-        // the dwell elapses restarts it from wherever it now is, so the offer
-        // lands the moment the icon comes to rest and never a moment before.
-        // (One-shot the other way round — cancel on movement — could never
-        // fire at all: the last events of a drag are the ones that carry the
-        // icon onto the target, and nothing is dispatched while it rests.)
-        const tick = () => {
-            if ( this._drag !== d || d.mergeEl !== overTile ) return;
-            const moved = Math.hypot(d.lastClientX - d.mergeAnchorX, d.lastClientY - d.mergeAnchorY);
-            if ( moved > DRAG_MERGE_TRAVEL ) {
-                d.mergeAnchorX = d.lastClientX;
-                d.mergeAnchorY = d.lastClientY;
-                // The well's fill IS this countdown to the user (the CSS
-                // transition runs the same DRAG_MERGE_DWELL_MS) — and the
-                // hand that decelerates INTO a tile routinely trips this
-                // restart, because the anchor was pinned back at first
-                // contact. Refill from empty, or the well sits full while
-                // the countdown quietly runs again, promising a folder the
-                // drop wouldn't make.
-                overTile.classList.remove('myapps-tile-merge-pending');
-                void overTile.offsetWidth; // commit the empty state
-                overTile.classList.add('myapps-tile-merge-pending');
-                d.mergeTimer = setTimeout(tick, DRAG_MERGE_DWELL_MS);
-                return;
-            }
-            d.mergeArmed = true;
-            overTile.classList.add('myapps-tile-merge-armed');
-            this._vibrate(12);
-        };
-        d.mergeTimer = setTimeout(tick, DRAG_MERGE_DWELL_MS);
+        d.mergeTimer = setTimeout(() => this._mergeDwellElapsed(d, overTile), DRAG_MERGE_DWELL_MS);
         return true;
+    },
+
+    // Restart the rest countdown — and with it the well's fill, from empty:
+    // the fill IS the countdown to the user (the CSS transition runs the same
+    // DRAG_MERGE_DWELL_MS), so a well left full while the countdown quietly
+    // reran would promise a folder the drop wouldn't make.
+    _restartMergeCountdown (d, overTile) {
+        overTile.classList.remove('myapps-tile-merge-pending');
+        void overTile.offsetWidth; // commit the empty state
+        overTile.classList.add('myapps-tile-merge-pending');
+        clearTimeout(d.mergeTimer);
+        d.mergeTimer = setTimeout(() => this._mergeDwellElapsed(d, overTile), DRAG_MERGE_DWELL_MS);
+    },
+
+    _mergeDwellElapsed (d, overTile) {
+        if ( this._drag !== d || d.mergeEl !== overTile ) return;
+        // Movement normally restarts the countdown from the move events
+        // themselves (see _considerMerge); this re-check only catches travel
+        // in the final instants before the timer fired. It exists because
+        // nothing is dispatched while the icon rests — a cancel-on-movement
+        // dwell could never fire at all.
+        const moved = Math.hypot(d.lastClientX - d.mergeAnchorX, d.lastClientY - d.mergeAnchorY);
+        if ( moved > DRAG_MERGE_TRAVEL ) {
+            d.mergeAnchorX = d.lastClientX;
+            d.mergeAnchorY = d.lastClientY;
+            this._restartMergeCountdown(d, overTile);
+            return;
+        }
+        d.mergeArmed = true;
+        overTile.classList.add('myapps-tile-merge-armed');
+        this._vibrate(12);
     },
 
     // Can the dragged tile be dropped INTO `tile`? Folders don't nest (so a
@@ -2109,6 +2372,7 @@ const TabApps = {
         clearTimeout(d.edgeTimer);
         clearTimeout(d.flipClearTimer);
         clearTimeout(d.mergeTimer);
+        clearTimeout(d.ejectTimer);
     },
 
     _endDrag (commit) {
@@ -2800,7 +3064,18 @@ const TabApps = {
                     .find(el => el.dataset.appName === appName);
                 // A folder that refused to open (its apps went missing under
                 // us) leaves the folder's own tile as the morph's anchor.
-                if ( inFolder ) tile = inFolder;
+                if ( inFolder ) {
+                    tile = inFolder;
+                    // The app may live on a later folder page — travel there
+                    // visibly, same as the grid's own wayfinding flip, so the
+                    // morph grows out of a tile the user can actually see.
+                    const inPage = $el_window.find('.myapps-group-page')
+                        .index($(inFolder).closest('.myapps-group-page'));
+                    if ( inPage >= 0 && inPage !== this._groupPage ) {
+                        this._goToGroupPage($el_window, inPage, true);
+                        await sleep(DEEP_LINK_INTRO_FLIP_SETTLE_MS);
+                    }
+                }
                 if ( interrupted || document.visibilityState === 'hidden' ) return tile;
             }
             begin_dashboard_tile_launch(tile);

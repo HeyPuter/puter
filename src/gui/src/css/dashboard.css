@@ -977,7 +977,10 @@ input.myapps-search:disabled {
     visibility: hidden;
 }
 
-.myapps-pager-dot {
+/* .myapps-group-dot is the folder pager's dot (see .myapps-group-dots) —
+   same look, its own class so the two pagers' click handlers can't cross. */
+.myapps-pager-dot,
+.myapps-group-dot {
     -webkit-appearance: none;
     appearance: none;
     flex: none;
@@ -994,17 +997,20 @@ input.myapps-search:disabled {
     transition: opacity 0.2s ease;
 }
 
-.myapps-pager-dot.active {
+.myapps-pager-dot.active,
+.myapps-group-dot.active {
     opacity: 0.85;
 }
 
 @media (hover: hover) {
-    .myapps-pager-dot:not(.active):hover {
+    .myapps-pager-dot:not(.active):hover,
+    .myapps-group-dot:not(.active):hover {
         opacity: 0.5;
     }
 }
 
-.myapps-pager-dot:focus-visible {
+.myapps-pager-dot:focus-visible,
+.myapps-group-dot:focus-visible {
     outline: 2px solid var(--select-color);
     outline-offset: -1px;
 }
@@ -1361,29 +1367,62 @@ input.myapps-group-name:focus {
     background: var(--dashboard-card-background);
 }
 
+/* The card's pager: a folder big enough to need it paginates like the grid
+   outside (see _refreshGroupPanel) rather than growing a scrollbar. */
 .myapps-group-panel-grid {
     /* --myapps-group-cols-max is the widest the card may get; the actual count
        is set inline by _refreshGroupPanel so a folder of three doesn't sit in
        the corner of a four-wide card. */
     --myapps-group-cols-max: 4;
+    display: flex;
+    /* A scroller can't be sized by the very content it clips, so the grid's
+       width is spelled out for it. */
+    width: calc(var(--myapps-group-cols, 4) * var(--myapps-tile-w)
+        + (var(--myapps-group-cols, 4) - 1) * var(--myapps-gap-x));
+    max-width: 100%;
+    /* Reorder mode's uninstall badge overhangs the top corner of every tile,
+       and the scroller clips whatever leaves its padding box — the top
+       row's badges came out sliced flat. Hold the overhang inside the padding,
+       pulled straight back out again so the resting layout is unchanged. */
+    padding-top: 9px;
+    margin-top: -9px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    overscroll-behavior-x: contain;
+    touch-action: pan-x;
+    scrollbar-width: none;
+}
+
+.myapps-group-panel-grid::-webkit-scrollbar {
+    display: none;
+}
+
+.myapps-group-page {
+    flex: 0 0 100%;
+    min-width: 0;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
     display: grid;
     grid-template-columns: repeat(var(--myapps-group-cols, 4), var(--myapps-tile-w));
     column-gap: var(--myapps-gap-x);
     row-gap: 24px;
     justify-content: center;
     align-content: start;
-    /* Reorder mode's uninstall badge overhangs the top corner of every tile,
-       and the scroller below clips whatever leaves its padding box — the top
-       row's badges came out sliced flat. Hold the overhang inside the padding,
-       pulled straight back out again so the resting layout is unchanged. */
-    padding-top: 9px;
-    margin-top: -9px;
-    /* A folder big enough to need it scrolls rather than growing past the
-       viewport; the row gap keeps the last row from looking cut off. */
-    max-height: min(52vh, 430px);
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: thin;
+}
+
+/* The folder's page dots — the grid pager's, one size down in spacing. Gone
+   entirely (not just invisible) on a one-page folder: the card hugs its
+   contents, and a reserved empty strip would read as a layout bug. */
+.myapps-group-dots {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: -6px;
+}
+
+.myapps-group-dots-hidden {
+    display: none;
 }
 
 /* Uninstall confirmation modal */
@@ -3278,9 +3317,8 @@ body.myapps-reordering .myapps-tile {
         border-radius: 24px;
     }
 
-    .myapps-group-panel-grid {
+    .myapps-group-page {
         row-gap: 18px;
-        max-height: 46vh;
     }
 }
 
