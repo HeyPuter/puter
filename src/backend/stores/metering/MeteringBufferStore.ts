@@ -192,6 +192,26 @@ return redis.call('HGETALL', KEYS[2])
 `;
 
 /**
+ * KEYS: pending (abandoned), pending (fresh), pending index. ARGV: abandoned
+ * nonce, fresh nonce, fresh index value, ttl.
+ *
+ * Re-claims an abandoned claim under a new nonce. The pending index is read
+ * without removing anything, so every deployment sees every abandoned claim at
+ * once; this rename is what stops more than one of them from writing the same
+ * amounts onward. Re-stamping the claim time also restarts the clock, so a
+ * deployment that dies holding the re-claim doesn't have it swept instantly.
+ */
+const RECLAIM_SCRIPT = `
+if redis.call('EXISTS', KEYS[1]) == 0 then return nil end
+redis.call('RENAME', KEYS[1], KEYS[2])
+redis.call('PEXPIRE', KEYS[2], ARGV[4])
+redis.call('HDEL', KEYS[3], ARGV[1])
+redis.call('HSET', KEYS[3], ARGV[2], ARGV[3])
+redis.call('PEXPIRE', KEYS[3], ARGV[4])
+return redis.call('HGETALL', KEYS[2])
+`;
+
+/**
  * KEYS: base, pending, pending index. ARGV: nonce, ttl, new total (or ''), then
  * the authoritative path/value pairs.
  *
@@ -233,6 +253,7 @@ type ScriptRunner = {
     meterIncr(...args: string[]): Promise<[string[], string[]]>;
     meterRead(...args: string[]): Promise<[string[], string[]]>;
     meterClaim(...args: string[]): Promise<string[] | null>;
+    meterReclaim(...args: string[]): Promise<string[] | null>;
     meterSettle(...args: string[]): Promise<number>;
     meterSeed(...args: string[]): Promise<string[]>;
 };
@@ -397,6 +418,10 @@ export class MeteringBufferStore extends PuterStore {
         client.defineCommand('meterClaim', {
             numberOfKeys: 3,
             lua: CLAIM_SCRIPT,
+        });
+        client.defineCommand('meterReclaim', {
+            numberOfKeys: 3,
+            lua: RECLAIM_SCRIPT,
         });
         client.defineCommand('meterSettle', {
             numberOfKeys: 3,
@@ -609,19 +634,25 @@ export class MeteringBufferStore extends PuterStore {
         tag: string,
         orphan: { nonce: string; key: string },
     ): Promise<void> {
-        const pairs = await this.clients.redis.hgetall(
+        const nonce = randomUUID().replace(/-/g, '');
+        const reclaimed = await this.#redis.meterReclaim(
             pendingKey(tag, orphan.nonce),
+            pendingKey(tag, nonce),
+            pendingIndexKey(tag),
+            orphan.nonce,
+            nonce,
+            encodePendingEntry(Date.now(), orphan.key),
+            String(BUFFER_TTL_MS),
         );
-        const amounts: FlatAmounts = {};
-        for (const [path, amount] of Object.entries(pairs ?? {})) {
-            amounts[path] = Number(amount);
-        }
-        if (Object.keys(amounts).length === 0) {
-            // The claimed data is gone but its index entry outlived it.
+        if (!reclaimed) {
+            // Either another flush re-claimed this first, or the claimed data
+            // is gone and only its index entry outlived it. Dropping the entry
+            // covers the second case and is a no-op for the first, which has
+            // already re-keyed it.
             await this.clients.redis.hdel(pendingIndexKey(tag), orphan.nonce);
             return;
         }
-        await this.#settle(tag, orphan.key, orphan.nonce, amounts);
+        await this.#settle(tag, orphan.key, nonce, pairsToAmounts(reclaimed));
     }
 
     async #settle(
