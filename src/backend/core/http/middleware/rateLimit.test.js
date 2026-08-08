@@ -32,6 +32,7 @@ import { EventEmitter } from 'node:events';
 import { isHttpError } from '../HttpError.js';
 import { setupTestServer } from '../../../testUtil.ts';
 import {
+    acquireConcurrent,
     acquireDriverConcurrent,
     checkDriverRateLimit,
     checkRateLimit,
@@ -1340,5 +1341,69 @@ describe('memory backend key cap', () => {
 
         // Evicted: the victim starts from a clean bucket.
         expect(await checkRateLimit(victim, 1, 60_000, 'memory')).toBe(true);
+    });
+});
+
+describe('acquireConcurrent (imperative)', () => {
+    beforeAll(() => configureRateLimit());
+    afterAll(() => configureRateLimit());
+
+    // The websocket handshake is the motivating case: the slot is held for
+    // the life of the connection, not the life of a response, so it cannot
+    // go through `concurrencyGate`.
+    it('admits up to the limit and rejects past it', async () => {
+        const key = `imperative-${Math.random()}`;
+        const a = await acquireConcurrent(key, 2, 'memory');
+        const b = await acquireConcurrent(key, 2, 'memory');
+        const c = await acquireConcurrent(key, 2, 'memory');
+
+        expect(a.ok).toBe(true);
+        expect(b.ok).toBe(true);
+        expect(c.ok).toBe(false);
+
+        await a.release();
+        expect((await acquireConcurrent(key, 2, 'memory')).ok).toBe(true);
+    });
+
+    it('returns a no-op release on rejection so callers can release blindly', async () => {
+        const key = `imperative-noop-${Math.random()}`;
+        const held = await acquireConcurrent(key, 1, 'memory');
+        const denied = await acquireConcurrent(key, 1, 'memory');
+
+        expect(denied.ok).toBe(false);
+        // Releasing a slot we never got must not free the one we did.
+        await denied.release();
+        expect((await acquireConcurrent(key, 1, 'memory')).ok).toBe(false);
+
+        await held.release();
+        expect((await acquireConcurrent(key, 1, 'memory')).ok).toBe(true);
+    });
+
+    it('releases at most once even if called repeatedly', async () => {
+        const key = `imperative-once-${Math.random()}`;
+        const a = await acquireConcurrent(key, 1, 'memory');
+        await a.release();
+        await a.release();
+        await a.release();
+
+        // A double release would have driven the counter negative and
+        // handed out more slots than the limit allows.
+        expect((await acquireConcurrent(key, 1, 'memory')).ok).toBe(true);
+        expect((await acquireConcurrent(key, 1, 'memory')).ok).toBe(false);
+    });
+
+    it('fails open when the backend throws', async () => {
+        const err = new Error('backend down');
+        const redis = {
+            multi: () => ({
+                incr: () => {
+                    throw err;
+                },
+            }),
+        };
+        configureRateLimit({ redis });
+        const result = await acquireConcurrent('any', 1, 'redis');
+        expect(result.ok).toBe(true);
+        configureRateLimit();
     });
 });

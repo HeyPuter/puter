@@ -50,6 +50,22 @@ import {
 } from '../../util/validation.js';
 import { PuterDriver } from '../types.js';
 
+/**
+ * Shared by every method that writes an app row. Each one also allocates or
+ * releases an app directory and a subdomain, so the ceiling is set by what a
+ * developer plausibly does by hand, not by what the row write costs.
+ *
+ * @type {import('../meta.js').DriverRateLimitSpec}
+ */
+const APP_WRITE_LIMIT = {
+    limit: 60,
+    window: 60_000,
+    bySubscription: {
+        [DEFAULT_FREE_SUBSCRIPTION]: 30,
+        [DEFAULT_TEMP_SUBSCRIPTION]: 10,
+    },
+};
+
 const APP_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
 const APP_NAME_MAX_LEN = 100;
 const APP_TITLE_MAX_LEN = 100;
@@ -118,6 +134,7 @@ export class AppDriver extends PuterDriver {
     // on permission grants in `hardcoded-permissions.js`. Re-expressed
     // here as subscription-tier overrides — the metering service maps
     // anonymous users to `temp_free` and registered users to `user_free`.
+    /** @type {import('../meta.js').DriverRateLimitConfig} */
     rateLimit = {
         default: {
             limit: 100,
@@ -125,6 +142,37 @@ export class AppDriver extends PuterDriver {
             bySubscription: {
                 [DEFAULT_FREE_SUBSCRIPTION]: 100,
                 [DEFAULT_TEMP_SUBSCRIPTION]: 50,
+            },
+        },
+        methods: {
+            // The blanket envelope above is sized for `read`/`select`,
+            // which desktop boot calls repeatedly. Writing an app row also
+            // allocates an app directory and a subdomain, so it does not
+            // belong on a read-shaped budget.
+            create: APP_WRITE_LIMIT,
+            update: APP_WRITE_LIMIT,
+            upsert: APP_WRITE_LIMIT,
+            delete: APP_WRITE_LIMIT,
+            // Answers "does this name exist?" for any name, so it is a
+            // name-enumeration oracle regardless of how cheap it is.
+            isNameAvailable: {
+                limit: 60,
+                window: 60_000,
+                bySubscription: {
+                    [DEFAULT_FREE_SUBSCRIPTION]: 30,
+                    [DEFAULT_TEMP_SUBSCRIPTION]: 10,
+                },
+            },
+        },
+    };
+
+    /** @type {import('../meta.js').DriverConcurrentConfig} */
+    concurrent = {
+        default: {
+            limit: 20,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 10,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 5,
             },
         },
     };

@@ -90,7 +90,18 @@ export class PuterAIController extends PuterController {
                 key: aiPolicyKey,
             },
         } as RouteOptions;
-        const publicOpts = { subdomain: 'api', requireAuth: false } as const;
+        // Model listings are unauthenticated and serialise the whole
+        // catalogue, so they get a per-IP ceiling. Cacheable, hence generous.
+        const publicOpts = {
+            subdomain: 'api',
+            requireAuth: false,
+            rateLimit: {
+                scope: 'puterai-models',
+                limit: 120,
+                window: 60_000,
+                key: 'ip',
+            },
+        } as RouteOptions;
 
         // Every route below carries the `/puterai` prefix for wire
         // compatibility with puter-js and existing API tests.
@@ -153,7 +164,23 @@ export class PuterAIController extends PuterController {
         // URL itself is HMAC-signed, so no additional auth gate.
         router.get(
             '/puterai/video/proxy',
-            { subdomain: 'api' },
+            {
+                subdomain: 'api',
+                // HMAC-signed but unauthenticated, and it streams provider
+                // bandwidth through us — so the in-flight cap matters as
+                // much as the window.
+                rateLimit: {
+                    scope: 'puterai-video-proxy',
+                    limit: 60,
+                    window: 60_000,
+                    key: 'ip',
+                },
+                concurrent: {
+                    scope: 'puterai-video-proxy',
+                    limit: 5,
+                    key: 'ip',
+                },
+            },
             this.#videoProxy,
         );
     }

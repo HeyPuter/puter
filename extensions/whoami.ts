@@ -196,6 +196,18 @@ export const handleWhoami = async (
 
 extension.get(
     '/whoami',
-    { subdomain: 'api', requireAuth: true, allowUnconfirmed: true },
+    {
+        subdomain: 'api',
+        requireAuth: true,
+        allowUnconfirmed: true,
+        // The GUI polls this, and each call fans out to every `whoami`
+        // event listener — so it costs more than the response suggests.
+        rateLimit: {
+            scope: 'whoami',
+            limit: 300,
+            window: 60_000,
+            key: 'user',
+        },
+    },
     handleWhoami,
 );

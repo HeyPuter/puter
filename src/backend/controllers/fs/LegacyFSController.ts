@@ -43,6 +43,24 @@ import {
 } from '../../util/hostedAppBacking.js';
 import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
 import { PuterController } from '../types.js';
+import {
+    FS_BATCH_CONCURRENT,
+    FS_BATCH_LIMIT,
+    FS_DF_LIMIT,
+    FS_HELPER_LIMIT,
+    FS_MUTATE_LIMIT,
+    FS_POLL_LIMIT,
+    FS_READ_CONCURRENT,
+    FS_READ_LIMIT,
+    FS_READDIR_LIMIT,
+    FS_SEARCH_CONCURRENT,
+    FS_SEARCH_LIMIT,
+    FS_SIGN_LIMIT,
+    FS_SIGNED_CONCURRENT,
+    FS_SIGNED_READ_LIMIT,
+    FS_SIGNED_WRITE_LIMIT,
+    FS_STAT_LIMIT,
+} from './limits.js';
 import { FS_COSTS } from './costs.js';
 import {
     asRecord,
@@ -106,40 +124,107 @@ export class LegacyFSController extends PuterController {
         } as RouteOptions;
 
         // Core filesystem_api routes — direct handlers over the FS service.
-        router.post('/stat', apiOptions, this.stat);
-        router.post('/readdir', apiOptions, this.readdir);
-        router.post('/mkdir', apiOptions, this.mkdir);
-        router.post('/copy', apiOptions, this.copy);
-        router.post('/move', apiOptions, this.move);
-        router.post('/delete', apiOptions, this.delete);
-        router.post('/rename', apiOptions, this.rename);
-        router.post('/touch', apiOptions, this.touch);
-        router.post('/search', apiOptions, this.search);
-        router.get('/read', apiOptions, this.read);
+        // Limits come from `./limits` and carry an explicit `scope`, so these
+        // draw from the same per-user budget as their v2 counterparts rather
+        // than handing a caller a second allowance for the same operation.
+        const mutate = { ...apiOptions, rateLimit: FS_MUTATE_LIMIT };
+        router.post(
+            '/stat',
+            { ...apiOptions, rateLimit: FS_STAT_LIMIT },
+            this.stat,
+        );
+        router.post(
+            '/readdir',
+            { ...apiOptions, rateLimit: FS_READDIR_LIMIT },
+            this.readdir,
+        );
+        router.post('/mkdir', mutate, this.mkdir);
+        router.post('/copy', mutate, this.copy);
+        router.post('/move', mutate, this.move);
+        router.post('/delete', mutate, this.delete);
+        router.post('/rename', mutate, this.rename);
+        router.post('/touch', mutate, this.touch);
+        router.post(
+            '/search',
+            {
+                ...apiOptions,
+                rateLimit: FS_SEARCH_LIMIT,
+                concurrent: FS_SEARCH_CONCURRENT,
+            },
+            this.search,
+        );
+        router.get(
+            '/read',
+            {
+                ...apiOptions,
+                rateLimit: FS_READ_LIMIT,
+                concurrent: FS_READ_CONCURRENT,
+            },
+            this.read,
+        );
         router.get(
             '/token-read',
             {
                 subdomain: 'api',
                 requireVerified: false,
                 allowAccessToken: true,
+                // An access token may or may not carry a user, so key on IP
+                // rather than falling back to a fingerprint per request.
+                rateLimit: FS_SIGNED_READ_LIMIT,
             },
             this.tokenRead,
         );
 
-        router.post('/batch', apiOptions, this.batch);
+        router.post(
+            '/batch',
+            {
+                ...apiOptions,
+                rateLimit: FS_BATCH_LIMIT,
+                concurrent: FS_BATCH_CONCURRENT,
+            },
+            this.batch,
+        );
 
         // Signed-URL + meta routes.
-        router.post('/sign', apiOptions, this.sign);
-        router.post('/writeFile', signedOptions, this.writeFile);
-        router.get('/file', signedOptions, this.file);
-        router.all('/df', apiOptions, this.df);
-        router.post('/open_item', apiOptions, this.openItem);
+        router.post(
+            '/sign',
+            { ...apiOptions, rateLimit: FS_SIGN_LIMIT },
+            this.sign,
+        );
+        router.post(
+            '/writeFile',
+            {
+                ...signedOptions,
+                rateLimit: FS_SIGNED_WRITE_LIMIT,
+                concurrent: FS_SIGNED_CONCURRENT,
+            },
+            this.writeFile,
+        );
+        router.get(
+            '/file',
+            {
+                ...signedOptions,
+                rateLimit: FS_SIGNED_READ_LIMIT,
+                concurrent: FS_SIGNED_CONCURRENT,
+            },
+            this.file,
+        );
+        router.all('/df', { ...apiOptions, rateLimit: FS_DF_LIMIT }, this.df);
+        router.post(
+            '/open_item',
+            { ...apiOptions, rateLimit: FS_HELPER_LIMIT },
+            this.openItem,
+        );
         router.post(
             '/auth/request-app-root-dir',
-            apiOptions,
+            { ...apiOptions, rateLimit: FS_SIGN_LIMIT },
             this.requestAppRootDir,
         );
-        router.post('/auth/check-app-acl', apiOptions, this.checkAppAcl);
+        router.post(
+            '/auth/check-app-acl',
+            { ...apiOptions, rateLimit: FS_SIGN_LIMIT },
+            this.checkAppAcl,
+        );
 
         // `/down` — session-auth'd file download. Unlike `/file` (signed URL)
         // this accepts a path on the user's behalf and streams as attachment.
@@ -157,6 +242,8 @@ export class LegacyFSController extends PuterController {
                 allowFullAccessToken: true,
                 requireVerified: true,
                 antiCsrf: true,
+                rateLimit: FS_READ_LIMIT,
+                concurrent: FS_READ_CONCURRENT,
             },
             this.down,
         );
@@ -167,92 +254,102 @@ export class LegacyFSController extends PuterController {
             });
         });
 
-        router.get('/get-launch-apps', apiOptions, async (req, res) => {
-            const recommendedSvc = this.services.recommendedApps as unknown as
-                { getRecommendedApps?: () => Promise<unknown[]> } | undefined;
-            const recommended = recommendedSvc?.getRecommendedApps
-                ? await recommendedSvc.getRecommendedApps()
-                : [];
+        router.get(
+            '/get-launch-apps',
+            { ...apiOptions, rateLimit: FS_HELPER_LIMIT },
+            async (req, res) => {
+                const recommendedSvc = this.services
+                    .recommendedApps as unknown as
+                    | { getRecommendedApps?: () => Promise<unknown[]> }
+                    | undefined;
+                const recommended = recommendedSvc?.getRecommendedApps
+                    ? await recommendedSvc.getRecommendedApps()
+                    : [];
 
-            let recent: unknown[] = [];
-            const userId = req.actor?.user?.id;
-            if (userId) {
-                const recentUids =
-                    (await (
+                let recent: unknown[] = [];
+                const userId = req.actor?.user?.id;
+                if (userId) {
+                    const recentUids =
+                        (await (
+                            this.stores.app as unknown as {
+                                getRecentAppOpens?: (
+                                    id: number,
+                                    opts?: { limit?: number },
+                                ) => Promise<string[]>;
+                            }
+                        ).getRecentAppOpens?.(userId, { limit: 10 })) ?? [];
+                    // One batched read for the rows, then the backing checks
+                    // concurrently. Serially awaiting a lookup per uid put ~2
+                    // round trips of latency on every desktop boot.
+                    const appsByUid = await (
                         this.stores.app as unknown as {
-                            getRecentAppOpens?: (
-                                id: number,
-                                opts?: { limit?: number },
-                            ) => Promise<string[]>;
+                            getByUids: (
+                                uids: string[],
+                            ) => Promise<Map<string, Record<string, unknown>>>;
                         }
-                    ).getRecentAppOpens?.(userId, { limit: 10 })) ?? [];
-                // One batched read for the rows, then the backing checks
-                // concurrently. Serially awaiting a lookup per uid put ~2
-                // round trips of latency on every desktop boot.
-                const appsByUid = await (
-                    this.stores.app as unknown as {
-                        getByUids: (
-                            uids: string[],
-                        ) => Promise<Map<string, Record<string, unknown>>>;
-                    }
-                ).getByUids(recentUids);
+                    ).getByUids(recentUids);
 
-                // `recentUids` is ordered most-recent-first; preserve it.
-                const orderedApps = recentUids
-                    .map((uid) => appsByUid.get(uid))
-                    .filter((app): app is Record<string, unknown> =>
-                        Boolean(app),
+                    // `recentUids` is ordered most-recent-first; preserve it.
+                    const orderedApps = recentUids
+                        .map((uid) => appsByUid.get(uid))
+                        .filter((app): app is Record<string, unknown> =>
+                            Boolean(app),
+                        );
+
+                    // Don't hand out an index_url whose puter-hosted backing is
+                    // gone or reclaimed. The taskbar launches recents by name (so
+                    // AppDriver's guard applies), but this list is a
+                    // launch-metadata producer like any other — a future consumer
+                    // reading index_url straight off it shouldn't inherit a stale
+                    // origin.
+                    const backingGoneFlags = await Promise.all(
+                        orderedApps.map((app) =>
+                            hostedIndexUrlBackingIsUnavailable({
+                                app,
+                                subdomainStore: this.stores.subdomain,
+                                config: this.config,
+                            }).catch(() => true),
+                        ),
                     );
 
-                // Don't hand out an index_url whose puter-hosted backing is
-                // gone or reclaimed. The taskbar launches recents by name (so
-                // AppDriver's guard applies), but this list is a
-                // launch-metadata producer like any other — a future consumer
-                // reading index_url straight off it shouldn't inherit a stale
-                // origin.
-                const backingGoneFlags = await Promise.all(
-                    orderedApps.map((app) =>
-                        hostedIndexUrlBackingIsUnavailable({
-                            app,
-                            subdomainStore: this.stores.subdomain,
-                            config: this.config,
-                        }).catch(() => true),
-                    ),
-                );
+                    recent = orderedApps.map((app, index) => {
+                        const backingGone = backingGoneFlags[index];
+                        return {
+                            uuid: app.uid,
+                            name: app.name,
+                            title: app.title,
+                            icon: app.icon ?? null,
+                            godmode: Boolean(app.godmode),
+                            maximize_on_start: Boolean(app.maximize_on_start),
+                            index_url: backingGone ? null : app.index_url,
+                            ...(backingGone
+                                ? { privateAccess: buildHostedBackingDenial() }
+                                : {}),
+                            // An app with no owner isn't owned by a Puter user —
+                            // it's an "external" (origin-bootstrapped) app.
+                            external:
+                                app.owner_user_id == null ||
+                                app.owner_user_id === '',
+                        };
+                    });
+                }
 
-                recent = orderedApps.map((app, index) => {
-                    const backingGone = backingGoneFlags[index];
-                    return {
-                        uuid: app.uid,
-                        name: app.name,
-                        title: app.title,
-                        icon: app.icon ?? null,
-                        godmode: Boolean(app.godmode),
-                        maximize_on_start: Boolean(app.maximize_on_start),
-                        index_url: backingGone ? null : app.index_url,
-                        ...(backingGone
-                            ? { privateAccess: buildHostedBackingDenial() }
-                            : {}),
-                        // An app with no owner isn't owned by a Puter user —
-                        // it's an "external" (origin-bootstrapped) app.
-                        external:
-                            app.owner_user_id == null ||
-                            app.owner_user_id === '',
-                    };
-                });
-            }
+                res.json({ recommended, recent });
+            },
+        );
 
-            res.json({ recommended, recent });
-        });
-
-        router.post('/suggest_apps', apiOptions, this.suggestApps);
+        router.post(
+            '/suggest_apps',
+            { ...apiOptions, rateLimit: FS_HELPER_LIMIT },
+            this.suggestApps,
+        );
 
         // puter-js polls this to decide whether to purge its in-memory FS
         // cache. SocketService bumps a per-user Redis key on every
         // `outer.gui.item.*` mutation — read it back here.
         router.get(
             '/cache/last-change-timestamp',
-            apiOptions,
+            { ...apiOptions, rateLimit: FS_POLL_LIMIT },
             async (req, res) => {
                 const userId = req.actor?.user?.id;
                 if (!userId) {
@@ -273,10 +370,14 @@ export class LegacyFSController extends PuterController {
             },
         );
 
-        router.post('/readdir-subdomains', apiOptions, this.readdirSubdomains);
+        router.post(
+            '/readdir-subdomains',
+            { ...apiOptions, rateLimit: FS_HELPER_LIMIT },
+            this.readdirSubdomains,
+        );
         router.post(
             '/update-fsentry-thumbnail',
-            apiOptions,
+            { ...apiOptions, rateLimit: FS_HELPER_LIMIT },
             this.updateFsentryThumbnail,
         );
 
@@ -707,7 +808,9 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                Record<string, unknown> | null | undefined,
+                | Record<string, unknown>
+                | null
+                | undefined,
         });
         const oldPath = source.path;
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
@@ -1168,7 +1271,8 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            (SignedFile & { path?: string }) | Record<string, never>;
+            | (SignedFile & { path?: string })
+            | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1708,7 +1812,10 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            'see' | 'list' | 'read' | 'write';
+            | 'see'
+            | 'list'
+            | 'read'
+            | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',

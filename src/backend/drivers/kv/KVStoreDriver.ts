@@ -25,7 +25,7 @@ import {
 } from '../../services/metering/consts.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
-import type { DriverRateLimitConfig } from '../meta.js';
+import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 import {
     APP_DATA_KV_METHOD_OPS,
     APP_DATA_KV_TTL_PARAMS,
@@ -72,6 +72,40 @@ export class KVStoreDriver extends PuterDriver {
             bySubscription: {
                 [DEFAULT_FREE_SUBSCRIPTION]: 400,
                 [DEFAULT_TEMP_SUBSCRIPTION]: 200,
+            },
+        },
+        methods: {
+            // `list` is a prefix scan, not a point read — it does not
+            // belong on the same budget as `get`/`set`.
+            list: {
+                limit: 60,
+                window: 60_000,
+                bySubscription: {
+                    [DEFAULT_FREE_SUBSCRIPTION]: 30,
+                    [DEFAULT_TEMP_SUBSCRIPTION]: 10,
+                },
+            },
+        },
+    };
+
+    // The rate window above is well-tuned; what was missing is an in-flight
+    // bound. This is the driver most likely to be called from a tight loop
+    // inside a worker, where the caller never waits for a response.
+    readonly concurrent: DriverConcurrentConfig = {
+        default: {
+            limit: 30,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 15,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 8,
+            },
+        },
+        methods: {
+            list: {
+                limit: 5,
+                bySubscription: {
+                    [DEFAULT_FREE_SUBSCRIPTION]: 3,
+                    [DEFAULT_TEMP_SUBSCRIPTION]: 2,
+                },
             },
         },
     };

@@ -22,6 +22,14 @@ import type { Server as HttpServer } from 'node:http';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 import type { Actor } from '../../core/actor.js';
 import { isAccessTokenActor, isAppActor } from '../../core/actor.js';
+import {
+    acquireConcurrent,
+    checkRateLimit,
+} from '../../core/http/middleware/rateLimit.js';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+} from '../metering/consts.js';
 import type { AuthResult, AuthService } from '../auth/AuthService.js';
 import { PuterService } from '../types.js';
 
@@ -352,32 +360,111 @@ export class SocketService extends PuterService {
         });
     }
 
+    /**
+     * Client events don't pass through the HTTP middleware chain, so the route
+     * gates never see them. Both handlers below fan out to other sockets or
+     * onto the event bus, and a client can emit as fast as the connection
+     * allows — so each one gets its own window via the imperative helper. Per
+     * (user, event), matching how the route gates bucket by actor.
+     */
+    static SOCKET_EVENT_LIMIT = 60;
+    static SOCKET_EVENT_WINDOW_MS = 60_000;
+
+    /**
+     * Simultaneous connections per user. A connection costs an adapter room
+     * membership and a slot on whichever node terminates it, and nothing
+     * bounded how many a single account could hold open.
+     *
+     * The ceiling has to clear real usage comfortably — a user with many tabs
+     * open across two machines is ordinary, and each tab is a connection.
+     */
+    static MAX_SOCKETS_PER_USER = 50;
+    static MAX_SOCKETS_BY_SUBSCRIPTION: Record<string, number> = {
+        [DEFAULT_FREE_SUBSCRIPTION]: 20,
+        [DEFAULT_TEMP_SUBSCRIPTION]: 10,
+    };
+
+    async #socketLimitFor(actor: Actor): Promise<number> {
+        const base = SocketService.MAX_SOCKETS_PER_USER;
+        try {
+            const sub =
+                await this.services.metering.getActorSubscription(actor);
+            return SocketService.MAX_SOCKETS_BY_SUBSCRIPTION[sub.id] ?? base;
+        } catch {
+            // Same policy as the route gates: a failure to resolve the tier
+            // falls through to the base rather than tightening.
+            return base;
+        }
+    }
+
+    async #allowSocketEvent(userId: number, event: string): Promise<boolean> {
+        return checkRateLimit(
+            `socket:${event}:${userId}`,
+            SocketService.SOCKET_EVENT_LIMIT,
+            SocketService.SOCKET_EVENT_WINDOW_MS,
+        );
+    }
+
     #installConnectionHandler(): void {
         if (!this.#io) return;
 
         this.#io.on('connection', (socket: AuthenticatedSocket) => {
             const actor = socket.actor;
-            if (!actor || !actor.user) return;
+            // The id is what both limits below bucket on, so a user without
+            // one has nothing to key against.
+            if (!actor || actor.user?.id === undefined) return;
             const userId = actor.user.id;
             const userRoom = String(userId);
 
+            // Hold a slot for the life of the connection. Released on
+            // `disconnect`, which socket.io fires for clean closes, transport
+            // errors, and server-side disconnects alike — so an abandoned
+            // connection gives its slot back the same way a closed one does.
+            void this.#socketLimitFor(actor).then(async (limit) => {
+                const slot = await acquireConcurrent(
+                    `socket:conn:${userId}`,
+                    limit,
+                );
+                if (!slot.ok) {
+                    socket.disconnect(true);
+                    return;
+                }
+                socket.once('disconnect', () => slot.release());
+                // The socket may already be gone by the time the tier
+                // lookup resolved; don't strand the slot until its TTL.
+                if (socket.disconnected) slot.release();
+            });
+
             // Peer-echo: one tab notifies others that trash is empty.
             socket.on('trash.is_empty', (msg: unknown) => {
-                socket.broadcast.to(userRoom).emit('trash.is_empty', msg);
+                void this.#allowSocketEvent(userId, 'trash.is_empty').then(
+                    (ok) => {
+                        if (!ok) return;
+                        socket.broadcast
+                            .to(userRoom)
+                            .emit('trash.is_empty', msg);
+                    },
+                );
             });
 
             // Legacy probe some frontends use to signal "the UI is
             // really up, not just a health-check connection". Extensions
             // sometimes listen for the follow-up event.
             socket.on('puter_is_actually_open', () => {
-                this.clients.event.emit(
-                    'web.socket.user-connected',
-                    {
-                        socket,
-                        user: actor.user,
-                    },
-                    {},
-                );
+                void this.#allowSocketEvent(
+                    userId,
+                    'puter_is_actually_open',
+                ).then((ok) => {
+                    if (!ok) return;
+                    this.clients.event.emit(
+                        'web.socket.user-connected',
+                        {
+                            socket,
+                            user: actor.user,
+                        },
+                        {},
+                    );
+                });
             });
 
             // Fire-and-forget connect event.

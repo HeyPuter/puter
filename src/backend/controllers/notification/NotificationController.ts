@@ -41,6 +41,14 @@ export class NotificationController extends PuterController {
         subdomain: 'api',
         requireUserActor: true,
         allowFullAccessToken: true,
+        // Fires per notification interaction, so the ceiling stays
+        // generous — it is here to catch a loop, not to pace a user.
+        rateLimit: {
+            scope: 'notification-mark',
+            limit: 300,
+            window: 60_000,
+            key: 'user',
+        },
     })
     async markAck(req: Request, res: Response): Promise<void> {
         const uid = req.body?.uid;
@@ -84,6 +92,14 @@ export class NotificationController extends PuterController {
         subdomain: 'api',
         requireUserActor: true,
         allowFullAccessToken: true,
+        // Fires per notification interaction, so the ceiling stays
+        // generous — it is here to catch a loop, not to pace a user.
+        rateLimit: {
+            scope: 'notification-mark',
+            limit: 300,
+            window: 60_000,
+            key: 'user',
+        },
     })
     async markRead(req: Request, res: Response): Promise<void> {
         const uid = req.body?.uid;

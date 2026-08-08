@@ -158,6 +158,68 @@ describe('MeteringService', () => {
             expect(policy.id).toBe('custom-default');
         });
 
+        // Rate and concurrency gates resolve the subscription on every gated
+        // request, and a resolver may reach a remote store to answer. Without
+        // the cache, adding a tiered limit to a hot route would add a round
+        // trip to that route.
+        it('resolves once per actor within the cache window', async () => {
+            const stub = vi.fn(async () => null);
+            target.registerSubscriptionResolver(stub);
+
+            await target.getActorSubscription(actor);
+            await target.getActorSubscription(actor);
+            await target.getActorSubscription(actor);
+
+            expect(stub).toHaveBeenCalledTimes(1);
+        });
+
+        it('caches per actor, not globally', async () => {
+            const other: Actor = { user: makeUser({ email: null }) };
+            const stub = vi.fn(async () => null);
+            target.registerSubscriptionResolver(stub);
+
+            expect((await target.getActorSubscription(actor)).id).toBe(
+                DEFAULT_FREE_SUBSCRIPTION,
+            );
+            expect((await target.getActorSubscription(other)).id).toBe(
+                DEFAULT_TEMP_SUBSCRIPTION,
+            );
+            expect(stub).toHaveBeenCalledTimes(2);
+        });
+
+        it('re-resolves after the entry is invalidated', async () => {
+            const stub = vi.fn(async () => null);
+            target.registerSubscriptionResolver(stub);
+
+            await target.getActorSubscription(actor);
+            expect(stub).toHaveBeenCalledTimes(1);
+
+            // What a purchase or cancellation calls, so a new plan applies
+            // to the very next request rather than at the end of the window.
+            target.invalidateActorSubscription(actor.user!.uuid as string);
+
+            await target.getActorSubscription(actor);
+            expect(stub).toHaveBeenCalledTimes(2);
+        });
+
+        it('re-resolves once the cache window has passed', async () => {
+            const stub = vi.fn(async () => null);
+            target.registerSubscriptionResolver(stub);
+
+            await target.getActorSubscription(actor);
+            const cacheMs = (
+                target.constructor as unknown as {
+                    SUBSCRIPTION_CACHE_MS: number;
+                }
+            ).SUBSCRIPTION_CACHE_MS;
+            const now = Date.now();
+            vi.spyOn(Date, 'now').mockReturnValue(now + cacheMs + 1);
+            await target.getActorSubscription(actor);
+            vi.mocked(Date.now).mockRestore();
+
+            expect(stub).toHaveBeenCalledTimes(2);
+        });
+
         it('rejects an actor with no user uuid', async () => {
             await expect(
                 target.getActorSubscription({

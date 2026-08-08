@@ -559,6 +559,51 @@ export async function checkRateLimit(key, limit, windowMs, backend) {
     }
 }
 
+/**
+ * Imperative concurrency acquire — the `acquire` twin to `checkRateLimit`, for
+ * long-lived things that aren't a request/response pair and so can't use
+ * `concurrencyGate`. The websocket handshake is the motivating case: the slot
+ * has to be held for the life of the connection, not the life of a response.
+ *
+ * Caller MUST invoke `release()` exactly once when the thing being counted ends
+ * (`ok: false` still returns a no-op `release`, so callers can release
+ * unconditionally). Fails open on backend error.
+ *
+ * `release()` returns a promise that settles once the slot is actually back —
+ * await it when the next observation has to see the freed slot. Fire-and-forget
+ * is fine for the usual case (an event handler on connection close), which is
+ * why it never rejects.
+ */
+export async function acquireConcurrent(key, limit, backend) {
+    const bk = resolveBackend(backend);
+    try {
+        const result = await bk.acquire(key, limit);
+        if (!result.ok) return { ok: false, release: async () => {} };
+        let released = false;
+        return {
+            ok: true,
+            release: async () => {
+                if (released) return;
+                released = true;
+                try {
+                    await result.release();
+                } catch (err) {
+                    console.error(
+                        '[concurrent] imperative release failed:',
+                        err,
+                    );
+                }
+            },
+        };
+    } catch (err) {
+        console.error(
+            '[concurrent] imperative acquire failed, failing open:',
+            err,
+        );
+        return { ok: true, release: async () => {} };
+    }
+}
+
 // -- Subscription-aware limit resolution -----------------------------
 
 /**

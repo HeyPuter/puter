@@ -32,13 +32,38 @@ export const AGGREGATOR_PROVIDERS = new Set([
     'neuralwatt',
 ]);
 
-// Lower rank is served first. `together-ai` sits behind the other resellers —
-// a pre-existing guarantee this ranking extends rather than replaces.
+// Lower rank is served first. `openrouter` and `together-ai` sit at the very
+// bottom, in that order, behind the other resellers.
 const providerRank = (provider?: string): number => {
-    if (provider === 'together-ai') return 2;
+    if (provider === 'together-ai') return 3;
+    if (provider === 'openrouter') return 2;
     if (provider && AGGREGATOR_PROVIDERS.has(provider)) return 1;
     return 0;
 };
+
+/**
+ * Lookup form for a model id or alias: the model map is keyed case- and
+ * whitespace-insensitively.
+ */
+export const normalizeModelKey = (key: string): string =>
+    key.trim().toLowerCase();
+
+/**
+ * Whether a key asserts _which model this is_, rather than merely being another
+ * way to name it.
+ *
+ * Catalogs mix both into `aliases`: machine ids (`anthropic/claude-sonnet-4`,
+ * `claude-sonnet-4`) alongside human labels (`Anthropic: Claude Sonnet 4`).
+ * Only the former may pull an entry into another provider's bucket — two
+ * gateways agreeing on a display string is not evidence they serve the same
+ * weights, and a label collision would otherwise silently reroute traffic.
+ * Labels stay usable for lookup; they just don't merge anything.
+ *
+ * Vendor model ids never contain whitespace, and every display name in the
+ * catalogs we consume does — that separation is the whole test.
+ */
+export const isIdentityKey = (key: string): boolean =>
+    key.length > 0 && !/\s/.test(key);
 
 /**
  * Orders the candidates that share a model bucket; the first one gets served.

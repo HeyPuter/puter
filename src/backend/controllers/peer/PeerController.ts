@@ -24,6 +24,10 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
 import { PEER_COSTS } from './costs.js';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+} from '../../services/metering/consts.js';
 
 /**
  * Constant-time secret comparison for the internal-auth header. HMAC both sides
@@ -103,17 +107,51 @@ export class PeerController extends PuterController {
     registerRoutes(router: PuterRouter): void {
         router.get(
             '/peer/signaller-info',
-            { subdomain: 'api' },
+            {
+                subdomain: 'api',
+                rateLimit: {
+                    scope: 'peer-signaller-info',
+                    limit: 120,
+                    window: 60_000,
+                    key: 'ip',
+                },
+            },
             this.#signallerInfo,
         );
         router.post(
             '/peer/generate-turn',
-            { subdomain: 'api', requireAuth: true },
+            {
+                subdomain: 'api',
+                requireAuth: true,
+                // Every call reaches the upstream TURN API and mints
+                // credentials against a paid allocation, so this is a
+                // spend limit as much as an abuse limit.
+                rateLimit: {
+                    scope: 'peer-generate-turn',
+                    limit: 30,
+                    window: 60_000,
+                    key: 'user',
+                    bySubscription: {
+                        [DEFAULT_FREE_SUBSCRIPTION]: 10,
+                        [DEFAULT_TEMP_SUBSCRIPTION]: 5,
+                    },
+                },
+            },
             this.#generateTurn,
         );
         router.post(
             '/turn/ingest-usage',
-            { subdomain: 'api' },
+            {
+                subdomain: 'api',
+                // Shared-secret authenticated, so this only bounds how
+                // fast someone can guess the secret.
+                rateLimit: {
+                    scope: 'turn-ingest',
+                    limit: 60,
+                    window: 60_000,
+                    key: 'ip',
+                },
+            },
             this.#ingestUsage,
         );
     }

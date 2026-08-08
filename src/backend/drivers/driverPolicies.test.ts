@@ -31,6 +31,7 @@ import { AppDriver } from './apps/AppDriver.js';
 import { KVStoreDriver } from './kv/KVStoreDriver.js';
 import { NotificationDriver } from './notification/NotificationDriver.js';
 import { SubdomainDriver } from './subdomain/SubdomainDriver.js';
+import { WorkerDriver } from './workers/WorkerDriver.js';
 
 import { resolveDriverMeta } from './meta.js';
 import {
@@ -74,8 +75,29 @@ describe('KVStoreDriver — rate-limit policy', () => {
         });
     });
 
-    it('declares no concurrent cap (intentional — kv calls are cheap)', () => {
-        expect(m.concurrent).toBeUndefined();
+    it('gives `list` its own budget — a prefix scan, not a point read', () => {
+        expect(m.rateLimit?.methods?.list).toEqual({
+            limit: 60,
+            window: 60_000,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 30,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 10,
+            },
+        });
+    });
+
+    // An individual kv call is cheap, which is what the window is sized for.
+    // The concurrent cap is a different axis: it bounds how many can be in
+    // flight at once from a caller that never waits for a response.
+    it('caps in-flight calls, with `list` tighter than the default', () => {
+        expect(m.concurrent?.default).toEqual({
+            limit: 30,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 15,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 8,
+            },
+        });
+        expect(m.concurrent?.methods?.list?.limit).toBe(5);
     });
 });
 
@@ -91,6 +113,56 @@ describe('AppDriver — rate-limit policy', () => {
                 [DEFAULT_TEMP_SUBSCRIPTION]: 50,
             },
         });
+    });
+
+    // The blanket envelope above is sized for the reads desktop boot makes.
+    // Writing an app row also allocates an app directory and a subdomain.
+    it('puts the write methods on a tighter budget than the reads', () => {
+        for (const method of ['create', 'update', 'upsert', 'delete']) {
+            expect(m.rateLimit?.methods?.[method]).toEqual({
+                limit: 60,
+                window: 60_000,
+                bySubscription: {
+                    [DEFAULT_FREE_SUBSCRIPTION]: 30,
+                    [DEFAULT_TEMP_SUBSCRIPTION]: 10,
+                },
+            });
+        }
+    });
+
+    it('rate-limits the name-availability oracle separately', () => {
+        expect(m.rateLimit?.methods?.isNameAvailable?.limit).toBe(60);
+    });
+});
+
+describe('WorkerDriver — rate-limit policy', () => {
+    const m = meta(new WorkerDriver(...fake()));
+
+    // Without a declared policy this driver fell back to the generic
+    // 600/minute default, which does not fit a method that deploys code.
+    it('pins `create` well below the generic driver default', () => {
+        expect(m.rateLimit?.methods?.create).toEqual({
+            limit: 20,
+            window: 60_000,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 10,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 3,
+            },
+        });
+    });
+
+    it('never drops a concurrency slot below 2', () => {
+        const specs = [
+            m.concurrent?.default,
+            ...Object.values(m.concurrent?.methods ?? {}),
+        ].filter(Boolean);
+        expect(specs.length).toBeGreaterThan(0);
+        for (const spec of specs) {
+            expect(spec!.limit).toBeGreaterThanOrEqual(2);
+            for (const n of Object.values(spec!.bySubscription ?? {})) {
+                expect(n).toBeGreaterThanOrEqual(2);
+            }
+        }
     });
 });
 
@@ -182,4 +254,57 @@ describe('puter-speech2txt — one driver covers every provider', () => {
             expect.arrayContaining(['openai-speech2txt', 'xai-speech2txt']),
         );
     });
+});
+
+// ── Cross-driver invariants ────────────────────────────────────────
+
+describe('every registered driver', () => {
+    const drivers = [
+        ['kvStore', KVStoreDriver],
+        ['aiChat', ChatCompletionDriver],
+        ['aiImage', ImageGenerationDriver],
+        ['aiTts', TTSDriver],
+        ['aiVideo', VideoGenerationDriver],
+        ['aiSpeech2Speech', VoiceChangerDriver],
+        ['aiSpeech2Txt', SpeechToTextDriver],
+        ['aiOcr', OCRDriver],
+        ['apps', AppDriver],
+        ['subdomains', SubdomainDriver],
+        ['notifications', NotificationDriver],
+        ['workers', WorkerDriver],
+    ] as const;
+
+    // A driver that declares nothing silently inherits the generic
+    // 600/minute fallback in `checkDriverRateLimit`, which is far too loose
+    // for anything that writes or spends. Declaring is the point.
+    it.each(drivers)('%s declares a rate-limit policy', (_name, Driver) => {
+        const m = meta(new (Driver as any)(...fake()));
+        expect(m.rateLimit?.default ?? m.rateLimit?.methods).toBeTruthy();
+    });
+
+    // Concurrency has no fallback at all — undeclared means unbounded.
+    it.each(drivers)('%s declares a concurrency cap', (_name, Driver) => {
+        const m = meta(new (Driver as any)(...fake()));
+        expect(m.concurrent?.default).toBeTruthy();
+    });
+
+    // A single slot turns incidental client parallelism — two tabs, a
+    // prefetch alongside a user action — into a spurious 429. Paid tiers
+    // keep enough headroom to actually parallelise.
+    it.each(drivers)(
+        '%s keeps every concurrency slot at 2 or more, and 5+ when paid',
+        (_name, Driver) => {
+            const m = meta(new (Driver as any)(...fake()));
+            const specs = [
+                m.concurrent?.default,
+                ...Object.values(m.concurrent?.methods ?? {}),
+            ].filter(Boolean);
+            for (const spec of specs) {
+                expect(spec!.limit).toBeGreaterThanOrEqual(5);
+                for (const n of Object.values(spec!.bySubscription ?? {})) {
+                    expect(n).toBeGreaterThanOrEqual(2);
+                }
+            }
+        },
+    );
 });

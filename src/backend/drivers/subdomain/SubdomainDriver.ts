@@ -27,7 +27,7 @@ import {
 } from '../../services/metering/consts.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
-import type { DriverRateLimitConfig } from '../meta.js';
+import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
@@ -93,6 +93,29 @@ export class SubdomainDriver extends PuterDriver {
             bySubscription: {
                 [DEFAULT_FREE_SUBSCRIPTION]: 200,
                 [DEFAULT_TEMP_SUBSCRIPTION]: 100,
+            },
+        },
+        methods: {
+            // Unlike the reads this shares an envelope with, `create`
+            // consumes a name out of a global namespace nobody gets back.
+            // A known abuse target, so it gets its own tighter budget.
+            create: {
+                limit: 30,
+                window: 60_000,
+                bySubscription: {
+                    [DEFAULT_FREE_SUBSCRIPTION]: 15,
+                    [DEFAULT_TEMP_SUBSCRIPTION]: 5,
+                },
+            },
+        },
+    };
+
+    readonly concurrent: DriverConcurrentConfig = {
+        default: {
+            limit: 20,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 10,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 5,
             },
         },
     };

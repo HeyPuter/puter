@@ -231,7 +231,15 @@ export class OIDCController extends PuterController {
 
         router.get(
             '/auth/oidc/providers',
-            { subdomain: 'api' },
+            {
+                subdomain: 'api',
+                rateLimit: {
+                    scope: 'oidc-providers',
+                    limit: 120,
+                    window: 60_000,
+                    key: 'ip',
+                },
+            },
             async (_req: Request, res: Response) => {
                 const providers =
                     await this.services.oidc.getEnabledProviderIds();
@@ -587,7 +595,14 @@ export class OIDCController extends PuterController {
 
         router.get(
             '/auth/revalidate-done',
-            { subdomain: '' },
+            {
+                subdomain: '',
+                rateLimit: {
+                    scope: 'oidc-general',
+                    limit: 30,
+                    window: 60_000,
+                },
+            },
             (_req: Request, res: Response) => {
                 const origin = this.config.origin ?? '';
                 res.set('Content-Type', 'text/html; charset=utf-8');

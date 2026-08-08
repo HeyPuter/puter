@@ -25,6 +25,26 @@ import { PuterController } from '../types.js';
  *
  * These are all low-risk, authenticated or not, and mostly stateless.
  */
+/**
+ * Deploy-constant public info, polled by clients and monitoring. Cheap to
+ * serve, but `/healthcheck` calls into the health service and takes query
+ * parameters, so it is not free. Keyed on IP — there is no actor.
+ */
+const PUBLIC_INFO_LIMIT = {
+    scope: 'public-info',
+    limit: 600,
+    window: 60_000,
+    key: 'ip',
+};
+
+/** Static introspection output, read once at boot rather than in a loop. */
+const LSMOD_LIMIT = {
+    scope: 'lsmod',
+    limit: 60,
+    window: 60_000,
+    key: 'user',
+};
+
 export class SystemController extends PuterController {
     constructor(config, clients, stores, services, drivers) {
         super(config, clients, stores, services, drivers);
@@ -52,44 +72,53 @@ export class SystemController extends PuterController {
                       .map((name) => name.trim())
                       .filter(Boolean)
                 : [];
-        router.get('/healthcheck', { subdomain: '*' }, async (req, res) => {
-            const health = this.services.health;
-            if (!health || typeof health.getStatus !== 'function') {
-                // Fallback for boot ordering / missing service.
-                return res.send('ok');
-            }
-            const status = await health.getStatus({
-                ignore: parseNames(req.query.ignore),
-                degrade: parseNames(req.query['marked-degraded']),
-            });
-            if (!status.ok) return res.status(503).json(status);
-            if (status.degraded?.length) return res.status(207).json(status);
-            return res.json(status);
-        });
+        router.get(
+            '/healthcheck',
+            { subdomain: '*', rateLimit: PUBLIC_INFO_LIMIT },
+            async (req, res) => {
+                const health = this.services.health;
+                if (!health || typeof health.getStatus !== 'function') {
+                    // Fallback for boot ordering / missing service.
+                    return res.send('ok');
+                }
+                const status = await health.getStatus({
+                    ignore: parseNames(req.query.ignore),
+                    degrade: parseNames(req.query['marked-degraded']),
+                });
+                if (!status.ok) return res.status(503).json(status);
+                if (status.degraded?.length)
+                    return res.status(207).json(status);
+                return res.json(status);
+            },
+        );
 
         // -- Version -------------------------------------------------
 
-        router.get('/version', { subdomain: '*' }, (_req, res) => {
-            const version =
-                this.config.version ??
-                process.env.npm_package_version ??
-                'unknown';
-            const parts = String(version).split('.');
-            // Deploy-constant, and callers poll it. Cache per-client only:
-            // a shared cache could pin one region's `location` for everyone,
-            // and the short window still bounds how long a client can miss a
-            // new deploy.
-            res.setHeader('Cache-Control', 'private, max-age=60');
-            res.json({
-                version,
-                major: parts[0] ? Number(parts[0]) : null,
-                minor: parts[1] ? Number(parts[1]) : null,
-                patch: parts[2] ? Number(parts[2]) : null,
-                environment: this.config.env ?? 'prod',
-                location: this.config.serverId ?? null,
-                deploy_timestamp: this.bootTime,
-            });
-        });
+        router.get(
+            '/version',
+            { subdomain: '*', rateLimit: PUBLIC_INFO_LIMIT },
+            (_req, res) => {
+                const version =
+                    this.config.version ??
+                    process.env.npm_package_version ??
+                    'unknown';
+                const parts = String(version).split('.');
+                // Deploy-constant, and callers poll it. Cache per-client only:
+                // a shared cache could pin one region's `location` for everyone,
+                // and the short window still bounds how long a client can miss a
+                // new deploy.
+                res.setHeader('Cache-Control', 'private, max-age=60');
+                res.json({
+                    version,
+                    major: parts[0] ? Number(parts[0]) : null,
+                    minor: parts[1] ? Number(parts[1]) : null,
+                    patch: parts[2] ? Number(parts[2]) : null,
+                    environment: this.config.env ?? 'prod',
+                    location: this.config.serverId ?? null,
+                    deploy_timestamp: this.bootTime,
+                });
+            },
+        );
 
         // -- Contact us ----------------------------------------------
 
@@ -153,14 +182,20 @@ export class SystemController extends PuterController {
 
         // -- GET /whoarewe -------------------------------------------
 
-        router.get('/whoarewe', {}, (_req, res) => {
-            res.json({
-                name: 'Puter',
-                version: this.config.version ?? null,
-                environment: this.config.env ?? 'prod',
-                disable_user_signup: Boolean(this.config.disable_user_signup),
-            });
-        });
+        router.get(
+            '/whoarewe',
+            { rateLimit: PUBLIC_INFO_LIMIT },
+            (_req, res) => {
+                res.json({
+                    name: 'Puter',
+                    version: this.config.version ?? null,
+                    environment: this.config.env ?? 'prod',
+                    disable_user_signup: Boolean(
+                        this.config.disable_user_signup,
+                    ),
+                });
+            },
+        );
 
         // -- GET|POST /lsmod -----------------------------------------
         // Enumerates driver interfaces and their implementors. POST is
@@ -181,8 +216,16 @@ export class SystemController extends PuterController {
             }
             res.json({ interfaces });
         };
-        router.get('/lsmod', { subdomain: 'api', requireAuth: true }, lsmod);
-        router.post('/lsmod', { subdomain: 'api', requireAuth: true }, lsmod);
+        router.get(
+            '/lsmod',
+            { subdomain: 'api', requireAuth: true, rateLimit: LSMOD_LIMIT },
+            lsmod,
+        );
+        router.post(
+            '/lsmod',
+            { subdomain: 'api', requireAuth: true, rateLimit: LSMOD_LIMIT },
+            lsmod,
+        );
     }
 
     onServerStart() {}

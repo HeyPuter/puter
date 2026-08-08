@@ -104,10 +104,28 @@ export class MeteringService extends PuterService {
      */
     static MONTHLY_CHARGE_MEMO_LIMIT = 100_000;
 
+    /**
+     * How long a resolved subscription is reused before asking the resolvers
+     * again, and how many actors are remembered at once. Rate/concurrency gates
+     * resolve the subscription on every gated request, and a resolver may reach
+     * a remote store to answer — without this, adding a tiered limit to a hot
+     * route would add a round trip to that route. Short enough that a plan
+     * change takes effect on its own; `invalidateActorSubscription` closes the
+     * gap for changes we know about as they happen.
+     */
+    static SUBSCRIPTION_CACHE_MS = 60_000;
+    static SUBSCRIPTION_CACHE_LIMIT = 50_000;
+
     private rateCheckTimer: ReturnType<typeof setInterval> | null = null;
     private extraPolicies: SubscriptionPolicy[] = [];
     private subscriptionResolvers: SubscriptionResolver[] = [];
     private defaultSubscriptionResolvers: SubscriptionResolver[] = [];
+
+    /** Uuid → resolved policy + expiry. See SUBSCRIPTION_CACHE_MS. */
+    private subscriptionCache = new Map<
+        string,
+        { policy: SubscriptionPolicy; expiresAt: number }
+    >();
 
     /** Actors settled for `settledMonth`; see MONTHLY_CHARGE_MEMO_LIMIT. */
     private settledMonth: string | null = null;
@@ -747,15 +765,49 @@ export class MeteringService extends PuterService {
         return (await this.getRemainingUsage(actor)) >= amount;
     }
 
+    /**
+     * Drop the cached subscription for an actor. Call after anything that
+     * changes which policy they resolve to (a purchase landing, a cancellation,
+     * an admin edit) so the new plan applies immediately rather than at the end
+     * of the cache window.
+     */
+    invalidateActorSubscription(userUuid: string): void {
+        this.subscriptionCache.delete(userUuid);
+    }
+
     async getActorSubscription(actor: Actor): Promise<SubscriptionPolicy> {
         if (!actor.user?.uuid)
             throw new HttpError(403, 'Actor must be a user to get policy', {
                 legacyCode: 'forbidden',
             });
 
+        const uuid = actor.user.uuid;
+        const now = Date.now();
+        const cached = this.subscriptionCache.get(uuid);
+        if (cached && cached.expiresAt > now) return cached.policy;
+
+        const policy = await this.#resolveActorSubscription(actor);
+
+        // Map preserves insertion order; FIFO-evict so a flood of one-shot
+        // actors can't grow this without bound.
+        if (
+            this.subscriptionCache.size >=
+            MeteringService.SUBSCRIPTION_CACHE_LIMIT
+        ) {
+            const oldest = this.subscriptionCache.keys().next().value;
+            if (oldest !== undefined) this.subscriptionCache.delete(oldest);
+        }
+        this.subscriptionCache.set(uuid, {
+            policy,
+            expiresAt: now + MeteringService.SUBSCRIPTION_CACHE_MS,
+        });
+        return policy;
+    }
+
+    async #resolveActorSubscription(actor: Actor): Promise<SubscriptionPolicy> {
         const fallbackDefault = this.config.unlimitedMetering
             ? UNLIMITED_SUBSCRIPTION
-            : actor.user.email
+            : actor.user?.email
               ? DEFAULT_FREE_SUBSCRIPTION
               : DEFAULT_TEMP_SUBSCRIPTION;
 

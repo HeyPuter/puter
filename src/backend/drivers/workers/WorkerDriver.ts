@@ -30,6 +30,11 @@ import {
     WORKER_SUBDOMAIN_PREFIX,
     type SubdomainRow,
 } from '../../stores/subdomain/SubdomainStore.js';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+} from '../../services/metering/consts.js';
+import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import { loadFileInput } from '../util/fileInput.js';
 import {
@@ -130,6 +135,61 @@ export class WorkerDriver extends PuterDriver {
     // puter-js calls this as `workers:worker-service` (see Workers.js). Keep the name aligned.
     readonly driverName = 'worker-service';
     readonly isDefault = true;
+
+    // Without this the driver falls back to the generic 600/minute default,
+    // which is far too loose for `create` — every call reads the source out
+    // of the user's FS, bundles it, and provisions upstream. Nothing
+    // legitimate deploys more than a handful of times a minute.
+    readonly rateLimit: DriverRateLimitConfig = {
+        default: {
+            limit: 120,
+            window: 60_000,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 60,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 30,
+            },
+        },
+        methods: {
+            create: {
+                limit: 20,
+                window: 60_000,
+                bySubscription: {
+                    [DEFAULT_FREE_SUBSCRIPTION]: 10,
+                    [DEFAULT_TEMP_SUBSCRIPTION]: 3,
+                },
+            },
+            destroy: {
+                limit: 30,
+                window: 60_000,
+                bySubscription: {
+                    [DEFAULT_FREE_SUBSCRIPTION]: 20,
+                    [DEFAULT_TEMP_SUBSCRIPTION]: 10,
+                },
+            },
+        },
+    };
+
+    readonly concurrent: DriverConcurrentConfig = {
+        default: {
+            limit: 10,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 5,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 3,
+            },
+        },
+        methods: {
+            // Deploys are the expensive path; the floor stays at 2 so a
+            // client that kicks off a second deploy while the first is
+            // still settling doesn't get a spurious rejection.
+            create: {
+                limit: 5,
+                bySubscription: {
+                    [DEFAULT_FREE_SUBSCRIPTION]: 2,
+                    [DEFAULT_TEMP_SUBSCRIPTION]: 2,
+                },
+            },
+        },
+    };
 
     #cfBaseUrl = '';
     #hotReloadSubscribed = false;

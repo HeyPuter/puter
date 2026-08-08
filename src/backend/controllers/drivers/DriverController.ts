@@ -180,12 +180,34 @@ export class DriverController extends PuterController {
     registerRoutes(router: PuterRouter): void {
         router.post(
             '/call',
-            { subdomain: 'api', requireAuth: true },
+            {
+                subdomain: 'api',
+                requireAuth: true,
+                // Per-driver limits do the real work; this is the coarse
+                // envelope, so that spreading calls across many interfaces
+                // can't dodge every individual bucket.
+                rateLimit: {
+                    scope: 'drivers-call',
+                    limit: 2000,
+                    window: 60_000,
+                    key: 'user',
+                },
+            },
             this.#handleCall,
         );
         router.get(
             '/list-interfaces',
-            { subdomain: 'api', requireAuth: true },
+            {
+                subdomain: 'api',
+                requireAuth: true,
+                // Static introspection output, read once at boot.
+                rateLimit: {
+                    scope: 'drivers-list-interfaces',
+                    limit: 60,
+                    window: 60_000,
+                    key: 'user',
+                },
+            },
             this.#handleListInterfaces,
         );
     }
