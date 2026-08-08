@@ -1380,7 +1380,19 @@ const TabApps = {
         $name.on('keydown', function (e) {
             if ( e.key === 'Enter' ) {
                 e.preventDefault();
-                this.blur();
+                // The name box owns this Enter: the grid's document-level key
+                // handler reads Enter on a focused tile as "launch it", and
+                // the focus move below would hand it exactly that — the same
+                // keystroke would name the folder AND open an app out of it.
+                e.stopPropagation();
+                // Step out onto the folder's contents rather than just
+                // blurring: a bare blur leaves focus on <body>, outside this
+                // dialog, where the next Tab walks off into the inert grid
+                // the folder is covering. Moving focus still commits the
+                // name — that is the same blur.
+                const first = $overlay.find('.myapps-group-panel-grid .myapps-tile')[0];
+                if ( first ) first.focus({ preventScroll: true });
+                else this.blur();
             }
         });
         $name.on('change blur', function () {
