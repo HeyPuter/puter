@@ -43,7 +43,6 @@ const RECOMMENDED_APP_NAMES = [
     'diagram',
     'memos',
     'audio-editor',
-    'vault',
     'browser',
     'ai-image-project',
     'chess',
