@@ -1359,6 +1359,12 @@ input.myapps-group-name:focus {
     row-gap: 24px;
     justify-content: center;
     align-content: start;
+    /* Reorder mode's uninstall badge overhangs the top corner of every tile,
+       and the scroller below clips whatever leaves its padding box — the top
+       row's badges came out sliced flat. Hold the overhang inside the padding,
+       pulled straight back out again so the resting layout is unchanged. */
+    padding-top: 9px;
+    margin-top: -9px;
     /* A folder big enough to need it scrolls rather than growing past the
        viewport; the row gap keeps the last row from looking cut off. */
     max-height: min(52vh, 430px);
