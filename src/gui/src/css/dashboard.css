@@ -1160,6 +1160,11 @@ input.myapps-search:disabled {
     /* Overrides .myapps-tile-icon's centring flexbox: the mini-grid fills the
        slot rather than sitting in the middle of it. */
     display: block;
+    /* Stated rather than left to `.dashboard *`: the drag ghost and the launch
+       / minimize morph ghosts are CLONES of this box parked on <body>, outside
+       that rule, where the padding below would be added to the 56px slot and
+       land a 66px ghost over the 56px icon it is meant to sit on. */
+    box-sizing: border-box;
     padding: 5px;
     border-radius: 14px;
     background: var(--dashboard-folder-surface);
