@@ -1295,7 +1295,7 @@ const TabApps = {
         const $overlay = $(`
             <div class="myapps-group-overlay">
                 <div class="myapps-group-backdrop"></div>
-                <div class="myapps-group-panel" role="dialog" aria-modal="true" aria-label="${i18n('app_group_tile_aria', [groupLabel(group), group.apps.length])}">
+                <div class="myapps-group-panel" role="dialog" aria-modal="true" tabindex="-1" aria-label="${i18n('app_group_tile_aria', [groupLabel(group), group.apps.length])}">
                     <input type="text" class="myapps-group-name" maxlength="${MAX_GROUP_NAME_LENGTH}"
                         aria-label="${i18n('app_group_name_aria')}" autocomplete="off" autocorrect="off"
                         spellcheck="false" data-form-type="other" data-lpignore="true" data-1p-ignore>
@@ -1365,10 +1365,15 @@ const TabApps = {
             if ( focusables.length === 0 ) return;
             const first = focusables[0];
             const last = focusables[focusables.length - 1];
-            if ( e.shiftKey && document.activeElement === first ) {
+            const idx = focusables.indexOf(document.activeElement);
+            // idx -1: focus sits on the card itself (its tabindex=-1 catches
+            // clicks on the card's empty space, keeping this trap in reach) —
+            // going backwards from there must wrap inside too, not step off
+            // through the scrim.
+            if ( e.shiftKey && idx <= 0 ) {
                 e.preventDefault();
                 last.focus();
-            } else if ( ! e.shiftKey && document.activeElement === last ) {
+            } else if ( ! e.shiftKey && idx === focusables.length - 1 ) {
                 e.preventDefault();
                 first.focus();
             }
@@ -1459,9 +1464,25 @@ const TabApps = {
         // folder and did nothing else (the click found no tile to bubble
         // from). Nothing here changes on a rename, so nothing is rebuilt.
         if ( $grid[0].__myappsPanelHtml !== html ) {
+            // The rebuild is about to detach a focused tile, and the routes
+            // in here that go through a context menu (Remove from Folder)
+            // already dropped focus to <body> when the menu closed. Focus
+            // stranded outside an open folder breaks its modality — Tab
+            // walks the inert grid behind the scrim — so pull it back to
+            // the same app's tile (or the first). Only from <body>: an
+            // uninstall modal above the folder holds focus legitimately.
+            const focusedApp = $grid[0].contains(document.activeElement)
+                ? document.activeElement.dataset.appName
+                : null;
             $grid[0].__myappsPanelHtml = html;
             $grid.html(html);
             $overlay.find('.myapps-tile').attr('tabindex', '0');
+            const ae = document.activeElement;
+            if ( ae === document.body || ae === null || ! ae.isConnected ) {
+                const tiles = $grid[0].querySelectorAll('.myapps-tile');
+                const target = [...tiles].find(t => t.dataset.appName === focusedApp) || tiles[0];
+                if ( target ) target.focus({ preventScroll: true });
+            }
         } else {
             // Tiles that survive keep the resting rects an earlier drag left
             // on them, and the card may have moved since (a resize re-centres
@@ -1605,10 +1626,19 @@ const TabApps = {
         if ( ! this._ejectApp($el_window, this._openGroupId, appName) ) return;
         // Two apps left one behind: the folder is gone and there is nothing to
         // stay open for. Otherwise the folder stays open, one app lighter.
-        if ( ! findGroupById(this._groups, this._openGroupId) ) {
-            this._closeGroup($el_window);
-        }
+        const dissolved = ! findGroupById(this._groups, this._openGroupId);
+        if ( dissolved ) this._closeGroup($el_window);
         this.renderApps($el_window, { preservePage: true, instant: true });
+        // The re-render replaced every node, including whatever _closeGroup
+        // just handed focus to — and the context menu this ran from dropped
+        // focus to <body> anyway. Give it to the ejected app's tile, where
+        // the user's attention is. (The folder-stays-open case is covered by
+        // _refreshGroupPanel's own restore.)
+        if ( dissolved && (document.activeElement === document.body || ! document.activeElement) ) {
+            const tile = $el_window.find('.myapps-page .myapps-tile').toArray()
+                .find(el => el.dataset.appName === appName);
+            if ( tile ) tile.focus({ preventScroll: true });
+        }
     },
 
     saveGroups () {

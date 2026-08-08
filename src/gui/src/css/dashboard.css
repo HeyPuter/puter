@@ -1303,6 +1303,13 @@ body.myapps-reordering .myapps-tile.myapps-tile-merge-armed .myapps-tile-icon {
     transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.22s ease;
 }
 
+/* The card's tabindex=-1 exists to catch clicks on its empty space (keeping
+   focus inside the modal folder, where the Tab trap can see it) — a ring
+   around the whole card would misread that plumbing as selection. */
+.myapps-group-panel:focus {
+    outline: none;
+}
+
 /* Carrying an app past the card's edge takes it out of the folder: the card
    shrinks back as if making way (see _updateEjectState). */
 .myapps-group-ejecting .myapps-group-panel {
