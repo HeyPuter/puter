@@ -158,6 +158,110 @@ describe('MeteringService', () => {
             expect(policy.id).toBe('custom-default');
         });
 
+        // Rate and concurrency gates resolve the subscription on every gated
+        // request, and a resolver may reach a remote store to answer. Without
+        // the cache, adding a tiered limit to a hot route would add a round
+        // trip to that route.
+        it('resolves once per actor within the cache window', async () => {
+            const stub = vi.fn(async () => null);
+            target.registerSubscriptionResolver(stub);
+
+            await target.getActorSubscription(actor);
+            await target.getActorSubscription(actor);
+            await target.getActorSubscription(actor);
+
+            expect(stub).toHaveBeenCalledTimes(1);
+        });
+
+        it('caches per actor, not globally', async () => {
+            const other: Actor = { user: makeUser({ email: null }) };
+            const stub = vi.fn(async () => null);
+            target.registerSubscriptionResolver(stub);
+
+            expect((await target.getActorSubscription(actor)).id).toBe(
+                DEFAULT_FREE_SUBSCRIPTION,
+            );
+            expect((await target.getActorSubscription(other)).id).toBe(
+                DEFAULT_TEMP_SUBSCRIPTION,
+            );
+            expect(stub).toHaveBeenCalledTimes(2);
+        });
+
+        it('re-resolves after the entry is invalidated', async () => {
+            const stub = vi.fn(async () => null);
+            target.registerSubscriptionResolver(stub);
+
+            await target.getActorSubscription(actor);
+            expect(stub).toHaveBeenCalledTimes(1);
+
+            // What a purchase or cancellation calls, so a new plan applies
+            // to the very next request rather than at the end of the window.
+            target.invalidateActorSubscription(actor.user!.uuid as string);
+
+            await target.getActorSubscription(actor);
+            expect(stub).toHaveBeenCalledTimes(2);
+        });
+
+        it('announces an invalidation so other nodes drop their copy too', async () => {
+            const seen = vi.fn();
+            server.clients.event.on(
+                'outer.pubsub.metering.subscription-changed',
+                seen,
+            );
+
+            target.invalidateActorSubscription('some-user-uuid');
+
+            // `outer.pubsub.*` is the channel that reaches sibling nodes and
+            // peer clusters — a local-only drop would leave every other node
+            // serving the old tier until its entry expired.
+            expect(seen).toHaveBeenCalledWith(
+                'outer.pubsub.metering.subscription-changed',
+                { userUuid: 'some-user-uuid' },
+                expect.anything(),
+            );
+            server.clients.event.off(
+                'outer.pubsub.metering.subscription-changed',
+                seen,
+            );
+        });
+
+        it('drops its own copy when another node announces a change', async () => {
+            const stub = vi.fn(async () => null);
+            target.registerSubscriptionResolver(stub);
+
+            await target.getActorSubscription(actor);
+            expect(stub).toHaveBeenCalledTimes(1);
+
+            // What arrives on a node that did not handle the purchase.
+            server.clients.event.emit(
+                'outer.pubsub.metering.subscription-changed',
+                { userUuid: actor.user!.uuid as string },
+                {},
+            );
+            await vi.waitFor(async () => {
+                await target.getActorSubscription(actor);
+                expect(stub).toHaveBeenCalledTimes(2);
+            });
+        });
+
+        it('re-resolves once the cache window has passed', async () => {
+            const stub = vi.fn(async () => null);
+            target.registerSubscriptionResolver(stub);
+
+            await target.getActorSubscription(actor);
+            const cacheMs = (
+                target.constructor as unknown as {
+                    SUBSCRIPTION_CACHE_MS: number;
+                }
+            ).SUBSCRIPTION_CACHE_MS;
+            const now = Date.now();
+            vi.spyOn(Date, 'now').mockReturnValue(now + cacheMs + 1);
+            await target.getActorSubscription(actor);
+            vi.mocked(Date.now).mockRestore();
+
+            expect(stub).toHaveBeenCalledTimes(2);
+        });
+
         it('rejects an actor with no user uuid', async () => {
             await expect(
                 target.getActorSubscription({
@@ -1407,9 +1511,8 @@ describe('MeteringService', () => {
             );
             expect(global.total).toBe(700);
 
-            const { usage } = await target.getActorCurrentMonthUsageDetails(
-                actor,
-            );
+            const { usage } =
+                await target.getActorCurrentMonthUsageDetails(actor);
             expect(usage.total).toBe(750);
         });
 

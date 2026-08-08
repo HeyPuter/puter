@@ -32,6 +32,19 @@ const ALLOWED_SORT_ORDER = ['asc', 'desc'];
  * - User-level: desktop background, taskbar items (UserStore)
  * - Folder-level: layout, sort_by/sort_order (fsentries table)
  */
+/**
+ * Desktop preference writes — background, taskbar, layout, sort order. All four
+ * persist to the user row on every call, and the GUI fires them on direct user
+ * action, so a per-minute ceiling well above human speed is enough to catch a
+ * stuck client.
+ */
+const PREFERENCE_WRITE_LIMIT = {
+    scope: 'desktop-preference',
+    limit: 120,
+    window: 60_000,
+    key: 'user',
+};
+
 export class DesktopController extends PuterController {
     constructor(config, clients, stores, services) {
         super(config, clients, stores, services);
@@ -53,6 +66,7 @@ export class DesktopController extends PuterController {
                 subdomain: 'api',
                 requireUserActor: true,
                 allowFullAccessToken: true,
+                rateLimit: PREFERENCE_WRITE_LIMIT,
             },
             async (req, res) => {
                 const { url, color, fit } = req.body ?? {};
@@ -108,6 +122,7 @@ export class DesktopController extends PuterController {
                 subdomain: 'api',
                 requireUserActor: true,
                 allowFullAccessToken: true,
+                rateLimit: PREFERENCE_WRITE_LIMIT,
             },
             async (req, res) => {
                 const { items } = req.body ?? {};
@@ -134,6 +149,7 @@ export class DesktopController extends PuterController {
                 subdomain: 'api',
                 requireUserActor: true,
                 allowFullAccessToken: true,
+                rateLimit: PREFERENCE_WRITE_LIMIT,
             },
             async (req, res) => {
                 const { item_uid, item_path, layout } = req.body ?? {};
@@ -161,6 +177,7 @@ export class DesktopController extends PuterController {
                 subdomain: 'api',
                 requireUserActor: true,
                 allowFullAccessToken: true,
+                rateLimit: PREFERENCE_WRITE_LIMIT,
             },
             async (req, res) => {
                 const { item_uid, item_path, sort_by, sort_order } =

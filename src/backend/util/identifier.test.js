@@ -23,14 +23,14 @@ import identifier from './identifier.js';
 const { generate_identifier, generate_random_code } = identifier;
 
 describe('generate_identifier', () => {
-    it('joins adjective, noun and a 0-9999 number with the default separator', () => {
+    it('joins adjective, noun and a 0-999999 number with the default separator', () => {
         const value = generate_identifier();
         const parts = value.split('_');
         expect(parts).toHaveLength(3);
         expect(parts[0]).toMatch(/^[a-z]+$/);
         expect(parts[1]).toMatch(/^[a-z]+$/);
         expect(Number(parts[2])).toBeGreaterThanOrEqual(0);
-        expect(Number(parts[2])).toBeLessThan(10000);
+        expect(Number(parts[2])).toBeLessThan(1000000);
     });
 
     it('honours a custom separator', () => {
@@ -47,9 +47,9 @@ describe('generate_identifier', () => {
     });
 
     it('reaches the last entry of each list at the top of the range', () => {
-        const almostOne = () => 0.999999;
+        const almostOne = () => 0.9999999;
         const value = generate_identifier('|', almostOne);
-        expect(value.split('|')[2]).toBe('9999');
+        expect(value.split('|')[2]).toBe('999999');
     });
 });
 

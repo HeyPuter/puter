@@ -42,6 +42,12 @@ import {
     hasWritePermission,
     refreshLock,
 } from './locks.js';
+import { DAV_CONCURRENT, DAV_LIMIT } from '../fs/limits.js';
+import {
+    acquireConcurrent,
+    checkRateLimit,
+    computeNetworkFingerprint,
+} from '../../core/http/middleware/rateLimit.js';
 
 const DAV_HEADERS = {
     DAV: '1, 2, ordered-collections',
@@ -70,10 +76,17 @@ export class WebDAVController extends PuterController {
         // Single catch-all on the `dav` subdomain. We dispatch by req.method
         // inside the handler because WebDAV uses non-standard HTTP verbs that
         // Express doesn't have first-class router methods for in all versions.
+        //
+        // The rate limit is applied inside the handler rather than through
+        // `RouteOptions`. For a `use` mount the subdomain check lives in the
+        // handler wrapper, not in the middleware chain — so a `rateLimit`
+        // here would run for every request on every subdomain and count
+        // non-DAV traffic against the DAV budget.
         router.use(
             { subdomain: 'dav' },
             async (req: Request, res: Response, _next) => {
                 try {
+                    if (!(await this.#admit(req, res))) return;
                     await this.#dispatch(req, res);
                 } catch (err) {
                     if (err instanceof HttpError) {
@@ -86,6 +99,41 @@ export class WebDAVController extends PuterController {
                 // Don't call next — we always handle or error.
             },
         );
+    }
+
+    /**
+     * Rate + concurrency gate for the whole DAV surface. Returns false when the
+     * request was rejected (429 already sent).
+     *
+     * Runs before `#dispatch` authenticates, so it keys on the network
+     * fingerprint rather than an actor. That is the coarser bucket, but a DAV
+     * client sends credentials on every request anyway — there is no
+     * unauthenticated browsing phase to protect a per-user key from.
+     */
+    async #admit(req: Request, res: Response): Promise<boolean> {
+        const key = computeNetworkFingerprint(req);
+        if (
+            !(await checkRateLimit(
+                `${DAV_LIMIT.scope}:${key}`,
+                DAV_LIMIT.limit,
+                DAV_LIMIT.window,
+            ))
+        ) {
+            res.status(429).send('Too many requests.');
+            return false;
+        }
+        const slot = await acquireConcurrent(
+            `${DAV_CONCURRENT.scope}:${key}`,
+            DAV_CONCURRENT.limit,
+        );
+        if (!slot.ok) {
+            res.status(429).send('Too many concurrent requests.');
+            return false;
+        }
+        // `finish` and `close` can both fire; release is once-only.
+        res.once('finish', () => void slot.release());
+        res.once('close', () => void slot.release());
+        return true;
     }
 
     async #dispatch(req: Request, res: Response): Promise<void> {

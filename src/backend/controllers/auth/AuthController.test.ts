@@ -42,6 +42,7 @@ import type { TokenSource } from '../../core/http/types.js';
 import { PuterServer } from '../../server.js';
 import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import { setupTestServer } from '../../testUtil.js';
+import { FS_READ_LIMIT } from '../fs/limits.js';
 
 // ── Test harness ────────────────────────────────────────────────────
 
@@ -1388,6 +1389,26 @@ describe('AuthController account-lifecycle route gating', () => {
     it('GET /get-anticsrf-token requires a human user actor', () => {
         const opts = routeOptions('get', '/get-anticsrf-token');
         expect(opts.requireUserActor).toBe(true);
+    });
+
+    // A fresh token is minted per protected mutation and nothing caches them,
+    // so issuance has to outrun the COMBINED rate of everything that spends
+    // one. The session-authenticated download path dominates — a multi-select
+    // download spends a token per file — with logout and the handful of
+    // session-management writes behind it.
+    it('GET /get-anticsrf-token clears the budgets that consume tokens', () => {
+        type Window = { limit: number; window: number };
+        const issuance = routeOptions('get', '/get-anticsrf-token')
+            .rateLimit as Window;
+        const logout = routeOptions('post', '/logout').rateLimit as Window;
+
+        expect(issuance.window).toBe(60_000);
+        expect(logout.window).toBe(60_000);
+        expect(FS_READ_LIMIT.window).toBe(60_000);
+
+        expect(issuance.limit).toBeGreaterThan(
+            FS_READ_LIMIT.limit + logout.limit,
+        );
     });
 
     it('requireUserActorGate rejects app-under-user and access-token actors', () => {

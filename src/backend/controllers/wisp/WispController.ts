@@ -21,6 +21,10 @@ import type { Request, Response } from 'express';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+} from '../../services/metering/consts.js';
 
 /**
  * WISP relay token controller — create and verify short-lived JWT tokens for
@@ -32,12 +36,39 @@ export class WispController extends PuterController {
     registerRoutes(router: PuterRouter): void {
         router.post(
             '/wisp/relay-token/create',
-            { subdomain: 'api', requireAuth: true },
+            {
+                subdomain: 'api',
+                requireAuth: true,
+                // Auth is optional in practice (the handler tolerates an
+                // anonymous actor), so the key falls back to a fingerprint
+                // when there is no user to key on.
+                rateLimit: {
+                    scope: 'wisp-token-create',
+                    limit: 60,
+                    window: 60_000,
+                    key: 'user',
+                    bySubscription: {
+                        [DEFAULT_FREE_SUBSCRIPTION]: 30,
+                        [DEFAULT_TEMP_SUBSCRIPTION]: 10,
+                    },
+                },
+            },
             this.#create,
         );
         router.post(
             '/wisp/relay-token/verify',
-            { subdomain: 'api', requireAuth: false },
+            {
+                subdomain: 'api',
+                requireAuth: false,
+                // Unauthenticated by design, which makes it a token-guessing
+                // oracle without a ceiling.
+                rateLimit: {
+                    scope: 'wisp-token-verify',
+                    limit: 300,
+                    window: 60_000,
+                    key: 'ip',
+                },
+            },
             this.#verify,
         );
     }

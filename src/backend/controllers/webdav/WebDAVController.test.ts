@@ -64,7 +64,20 @@ const makeRes = () => {
         headers: {},
         ended: false,
     };
+    const listeners: Record<string, Array<() => void>> = {};
     const res = {
+        // The DAV mount holds a concurrency slot for the life of the request
+        // and releases it on `finish` / `close`, so the stub has to behave
+        // like an emitter or every dispatch throws.
+        once: vi.fn((event: string, fn: () => void) => {
+            (listeners[event] ??= []).push(fn);
+            return res;
+        }),
+        emit: vi.fn((event: string) => {
+            const fns = listeners[event] ?? [];
+            listeners[event] = [];
+            for (const fn of fns) fn();
+        }),
         json: vi.fn((value: unknown) => {
             captured.body = value;
             return res;
@@ -89,10 +102,12 @@ const makeRes = () => {
         }),
         send: vi.fn((value: unknown) => {
             captured.body = value;
+            res.emit('finish');
             return res;
         }),
         end: vi.fn(() => {
             captured.ended = true;
+            res.emit('finish');
             return res;
         }),
         headersSent: false,
@@ -962,6 +977,11 @@ describe('WebDAVController verbs', () => {
             send: (value: unknown) => {
                 captured.body = value;
                 captured.ended = true;
+                // End the underlying Writable so `finish` fires, as it does
+                // on a real response. The DAV mount releases its concurrency
+                // slot on that event — without it every `send()` path would
+                // leak a slot and later requests would 429.
+                if (!sink.writableEnded) sink.end();
                 return res;
             },
             headersSent: false,

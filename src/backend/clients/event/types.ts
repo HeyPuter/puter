@@ -435,6 +435,14 @@ export type EventMap = {
     [K in `route.${string}`]: RouteLifecycleEvent;
 } & {
     [K in `pubsub.login.${string}`]: { authtoken: string };
+} & {
+    /**
+     * A user's subscription now resolves to a different policy. Carried on the
+     * `outer.pubsub.*` channel so it reaches sibling nodes and peer clusters,
+     * not just the one that handled the change — every node caches the resolved
+     * policy, so a purchase is only live once they have all dropped theirs.
+     */
+    'outer.pubsub.metering.subscription-changed': { userUuid: string };
 };
 
 /**

@@ -158,11 +158,14 @@ interface MockRes {
     sentBody: string | undefined;
     contentType: string | undefined;
     pipedFrom: Readable | undefined;
+    listeners: Record<string, Array<() => void>>;
     status(code: number): MockRes;
     json(body: unknown): MockRes;
     setHeader(key: string, value: string): MockRes;
     type(t: string): MockRes;
     send(body: string): MockRes;
+    once(event: string, fn: () => void): MockRes;
+    emit(event: string): void;
 }
 const makeRes = (): MockRes => {
     const res: MockRes = {
@@ -172,6 +175,19 @@ const makeRes = (): MockRes => {
         sentBody: undefined,
         contentType: undefined,
         pipedFrom: undefined,
+        // `#handleCall` releases a driver's concurrency slot on `finish` /
+        // `close`, so the stub has to behave like an emitter for any driver
+        // that declares a `concurrent` policy.
+        listeners: {},
+        once(event: string, fn: () => void) {
+            (this.listeners[event] ??= []).push(fn);
+            return this;
+        },
+        emit(event: string) {
+            const fns = this.listeners[event] ?? [];
+            this.listeners[event] = [];
+            for (const fn of fns) fn();
+        },
         status(code: number) {
             this.statusCode = code;
             return this;

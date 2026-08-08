@@ -2,6 +2,14 @@ import { Context } from '@heyputer/backend/src/core';
 import type { Actor } from '@heyputer/backend/src/core/actor';
 import { HttpError } from '@heyputer/backend/src/core/http';
 import { PuterDriver } from '@heyputer/backend/src/drivers/types';
+import type {
+    DriverConcurrentConfig,
+    DriverRateLimitConfig,
+} from '@heyputer/backend/src/drivers/meta';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+} from '@heyputer/backend/src/services/metering/consts';
 import { extension } from '@heyputer/backend/src/extensions';
 
 // App-telemetry lets an app owner enumerate the users who have
@@ -50,16 +58,41 @@ const parseIntParam = (
  * Driver exposing the `app-telemetry` interface.
  *
  * The `/drivers/call` permission gate checks
- * `service:app-telemetry:ii:app-telemetry`, which every actor already holds
- * via the blanket `service` grant (hardcoded-permissions.js +
+ * `service:app-telemetry:ii:app-telemetry`, which every actor already holds via
+ * the blanket `service` grant (hardcoded-permissions.js +
  * `default_implicit_user_app_permissions`). The real authorization — "is the
- * caller the app owner?" — is enforced inside `get_users` below, exactly as
- * v1 did.
+ * caller the app owner?" — is enforced inside `get_users` below, exactly as v1
+ * did.
  */
 export class AppTelemetryDriver extends PuterDriver {
     readonly driverInterface = 'app-telemetry';
     readonly driverName = 'app-telemetry';
     readonly isDefault = true;
+
+    // Declaring nothing here would leave both methods on the generic
+    // 600/minute driver default, which does not fit a paginated scan that
+    // can ask for MAX_LIMIT rows at MAX_OFFSET. This is a dashboard read —
+    // nobody calls it in a loop.
+    readonly rateLimit: DriverRateLimitConfig = {
+        default: {
+            limit: 60,
+            window: 60_000,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 30,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 10,
+            },
+        },
+    };
+
+    readonly concurrent: DriverConcurrentConfig = {
+        default: {
+            limit: 5,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 2,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 2,
+            },
+        },
+    };
 
     /** Users who have authenticated into the given app (owner-only). */
     async get_users({

@@ -124,9 +124,9 @@ const makeSyntheticDriver = () => ({
 
 const buildController = (driver: ReturnType<typeof makeSyntheticDriver>) => {
     // The controller reads `this.services?.permission` only when an actor
-    // is on the request; otherwise the services bag is unused. The
-    // alarm client is invoked on the rate-limit / concurrency rejection
-    // paths, so stub a no-op `create`.
+    // is on the request; otherwise the services bag is unused. The rejection
+    // paths no longer alarm, but other paths still reach the client, so keep
+    // a no-op `create` stubbed.
     const clients = { alarm: { create: () => {} } };
     return new DriverController(
         {} as any,

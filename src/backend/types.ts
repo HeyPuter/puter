@@ -383,6 +383,24 @@ export interface IServerHealthConfig {
     db_liveness_latency_fail_ms?: number;
     /** Staleness threshold for the health-check loop itself (ms). */
     stale_health_loop_fail_ms?: number;
+    /**
+     * Cadence for the external-dependency probes (redis, dynamo, object store,
+     * primary database). Deliberately slower than the 5s check loop so probing
+     * a paid, rate-limited backing service stays a rounding error against real
+     * traffic. Default 30000.
+     */
+    dependency_check_interval_ms?: number;
+    /** Redis liveness latency threshold (ms). Default 1000. */
+    redis_liveness_latency_fail_ms?: number;
+    /** Dynamo liveness latency threshold (ms). Default 1500. */
+    dynamo_liveness_latency_fail_ms?: number;
+    /** Object-store liveness latency threshold (ms). Default 2000. */
+    s3_liveness_latency_fail_ms?: number;
+    /**
+     * Check names to skip registering entirely — an operator kill switch for a
+     * probe that turns out to be noisy, without waiting on a deploy.
+     */
+    disabled_checks?: string[];
 }
 
 export interface IS3LocalConfig {
@@ -881,6 +899,14 @@ interface IConfigOptional {
 
     //Metering
     unlimitedMetering?: boolean;
+    /**
+     * Fleet-wide spend rate, in micro-cents per minute, past which the metering
+     * service raises an alarm. There is no defensible default here — the right
+     * number is a multiple of what this deployment's own traffic normally
+     * costs, so set it from observed rate and revisit it as traffic grows. An
+     * unset or non-positive value turns the check off rather than guessing.
+     */
+    maxGlobalUsagePerMinute?: number;
 }
 
 /**
