@@ -134,6 +134,21 @@ const DEEP_LINK_INTRO_CLICK_BEAT_MS = 300;
 // DRAG_FLIP_SETTLE_MS this is an allowance: the scroll's ~450ms plus a
 // rest so the landing reads before the tile pops.
 const DEEP_LINK_INTRO_FLIP_SETTLE_MS = 620;
+// A landing on an app the dashboard doesn't list yet is what INSTALLS it
+// (opening grants the permission that installedApps reports) — so the grid
+// says so: the app's tile materializes at the tail, held invisible until
+// the intro has travelled to its page, then is INSTALLED before the
+// flourish and the morph grow the window out of it. The arrival plays the
+// install grammar users already know: the slot opens with the icon dim
+// inside it — present but not yet usable — a progress stroke draws around
+// the slot, and on completion the icon springs to full color and size
+// while the label names it (keep in sync with
+// .myapps-tile-install-arriving). It is the one beat that never decays:
+// per-app news that happens at most once per app, not a repeated lesson.
+// See _spliceDeepLinkApp.
+const DEEP_LINK_INSTALL_ARRIVE_MS = 1400;
+const DEEP_LINK_INSTALL_REST_MS = 220;
+
 // The intro exists to teach ("windows are inflated tiles; minimize goes
 // back to the grid"); once learned it would only be a tax on every
 // bookmarked landing. After this many delivered — or deliberately skipped —
@@ -539,6 +554,13 @@ const TabApps = {
     _orderSavedAtSeq: 0,
     _groupsSavedAtSeq: 0,
     _launchingApps: new Set(),
+    // A deep-link install mid-arrival ({ name, $el_window }) — its tile is
+    // parked invisible until the intro's arrival beat (see
+    // _spliceDeepLinkApp); and the session's landing-installed apps, kept
+    // so a refresh fetched before the launch's grant lands can't evict
+    // their tiles (the mirror of _removedLocal).
+    _arriving: null,
+    _pendingInstalls: null,
 
     html () {
         let h = '<div class="dashboard-tab-content myapps-tab">';
@@ -569,6 +591,10 @@ const TabApps = {
         this._reorderMode = false;
         this._cancelEmptyPress();
         this._closeGroup($el_window, { instant: true });
+        // An arrival is a beat of the OLD window's intro; the fresh DOM
+        // renders its tile plainly visible (the pending-install record, by
+        // contrast, is data and survives re-init).
+        this._arriving = null;
 
         this.loadApps($el_window);
 
@@ -1068,6 +1094,14 @@ const TabApps = {
         this._page = Math.min(Math.floor(anchorIndex / layout.perPage), this._pageCount - 1);
 
         $container.html(buildPagerHtml(items, layout, instant));
+        // A tile mid-arrival (a deep-link landing installing its app — see
+        // _spliceDeepLinkApp) stays parked invisible across re-renders; the
+        // intro's arrival beat, not the render, is what reveals it.
+        if ( this._arriving ) {
+            const el = $container.find('.myapps-tile').toArray()
+                .find(t => t.dataset.appName === this._arriving.name);
+            if ( el ) el.classList.add('myapps-tile-installing');
+        }
         revealWhenLoaded($container);
         this.updateRunningDots($el_window);
         // An open folder outlives the grid rebuilds underneath it (a
@@ -2817,6 +2851,24 @@ const TabApps = {
                 merged.push(app);
             }
 
+            // Apps this session installed by landing on their URL (see
+            // _spliceDeepLinkApp): a load fetched before the launch's
+            // permission grant landed doesn't list them yet, and applying
+            // it would evict a tile the user just watched arrive. The local
+            // record fills that gap — and retires the moment the server
+            // confirms the app (it is in `seen` already) or the user
+            // uninstalls it again (removedNames).
+            if ( this._pendingInstalls ) {
+                for ( const [name, app] of [...this._pendingInstalls] ) {
+                    if ( seen.has(name) || removedNames.has(name) ) {
+                        this._pendingInstalls.delete(name);
+                        continue;
+                    }
+                    seen.add(name);
+                    merged.push({ ...app });
+                }
+            }
+
             // A page beyond the first failed: fill the gap with apps we
             // already know about so one flaky request among N can't make
             // apps vanish from the grid, from search, or from a subsequently
@@ -2907,6 +2959,97 @@ const TabApps = {
         }
     },
 
+    // A deep-link landing on an app the dashboard doesn't list: opening is
+    // what installs it (the launch grants the permission installedApps
+    // reports), so the grid says so NOW rather than on some later refresh —
+    // without this the user's first Back found no tile to minimize into and
+    // a grid without the app they were just using. The app joins _apps at
+    // the tail (where reconcileAppOrder appends new apps) with a tile drawn
+    // from the landing's own app-info prefetch, so only a confirmed-real
+    // app ever materializes, with its real icon. `mark` parks the tile
+    // invisible (.myapps-tile-installing) for the intro's arrival beat to
+    // reveal; unmarked (no-intro paths) it simply appears. The
+    // _pendingInstalls record shields the tile from refreshes fetched
+    // before the grant lands (see _fetchAndRenderApps). The order is NOT
+    // saved: a default-position append must not freeze a custom order the
+    // user never made. Resolves true when the app is on the grid (or
+    // already was), false when there is nothing to add.
+    async _spliceDeepLinkApp ($el_window, appName, appInfoPromise, { mark = false, boundedSleep = null } = {}) {
+        if ( ! appInfoPromise ) return false;
+        let info = null;
+        try {
+            info = boundedSleep
+                ? await Promise.race([appInfoPromise, boundedSleep()])
+                : await appInfoPromise;
+        } catch ( _e ) { /* a failed prefetch: nothing real to add */ }
+        if ( ! info || ! info.name || info.name !== appName ) return false;
+        if ( ! Array.isArray(this._apps) ) return false;
+        if ( this._apps.some(a => a.name === appName) ) return true; // a refresh beat us to it
+
+        const app = {
+            name: info.name,
+            title: info.title || info.name,
+            uid: info.uuid || info.uid || null,
+            index_url: info.index_url || null,
+            external: false,
+            iconUrl: info.icon || null,
+        };
+        if ( ! this._pendingInstalls ) this._pendingInstalls = new Map();
+        this._pendingInstalls.set(appName, app);
+        // A previously uninstalled app is being re-installed by this
+        // landing; the removed record must not go on filtering it.
+        this._setAppRemoved(appName, false);
+        this._apps.push(app);
+        if ( mark ) this._arriving = { name: appName, $el_window };
+        // instant only when the pager is already on screen: this re-render
+        // must not blink a revealed grid back through the load fade, nor
+        // skip the fade of one still arriving.
+        const revealed = $el_window.find('.myapps-pager').length > 0
+            && $el_window.find('.myapps-pager-loading').length === 0;
+        this.renderApps($el_window, { preservePage: true, instant: revealed });
+        return true;
+    },
+
+    // Reveal the tile a deep-link install parked invisible (see
+    // _spliceDeepLinkApp). Animated only from the intro's arrival beat;
+    // instant from every other path — interruption, hidden tab, and
+    // settleDeepLinkLaunch's safety net — because the parked state must
+    // never outlive the intro: an invisible tile is a broken grid.
+    _revealArrivingTile (animate) {
+        const arriving = this._arriving;
+        if ( ! arriving ) return;
+        this._arriving = null;
+        const el = arriving.$el_window.find('.myapps-page .myapps-tile').toArray()
+            .find(t => t.dataset.appName === arriving.name);
+        if ( ! el ) return;
+        if ( animate && ! this._reduceMotion() ) {
+            // The installation (see .myapps-tile-install-arriving): the
+            // slot opens with the icon dim inside it, a progress stroke
+            // draws clockwise around the slot, and on completion the icon
+            // springs to full color while the label names it. Each piece
+            // is a backwards-filled keyframe, so the class swap never
+            // flashes the resting tile. The progress ring is a transient
+            // element rather than a pseudo — the tile's ::before is the
+            // folder well and its ::after the running dot. Everything is
+            // torn down just after the run; a re-render replacing the node
+            // mid-run simply shows the resting tile (the detached nodes are
+            // cleaned up regardless).
+            el.classList.add('myapps-tile-install-arriving');
+            el.classList.remove('myapps-tile-installing');
+            const ring = document.createElement('div');
+            ring.className = 'myapps-install-progress';
+            ring.innerHTML = '<svg viewBox="0 0 68 68" aria-hidden="true">'
+                + '<rect x="1.5" y="1.5" width="65" height="65" rx="17" pathLength="100"/></svg>';
+            el.appendChild(ring);
+            setTimeout(() => {
+                el.classList.remove('myapps-tile-install-arriving');
+                ring.remove();
+            }, DEEP_LINK_INSTALL_ARRIVE_MS + 80);
+        } else {
+            el.classList.remove('myapps-tile-installing');
+        }
+    },
+
     // A direct landing on /app/<name> (see initgui's dashboard branch) plays
     // the same click→morph→open sequence a real tile click does, so the user
     // sees WHICH tile the app came from — and where minimize will put it
@@ -2944,11 +3087,20 @@ const TabApps = {
     // the tile mid-intro is swallowed instead of spawning a second instance
     // (same guard as the click handler). The caller MUST call
     // settleDeepLinkLaunch once its launch attempt settles.
-    async beginDeepLinkLaunch (appName, $el_window) {
+    async beginDeepLinkLaunch (appName, $el_window, appInfoPromise = null) {
         this._launchingApps.add(appName);
         // No animations, no intro: the morph and the flourish would both
-        // no-op, so waiting on the grid would only delay the launch.
-        if ( ! window.animate_window_opening || this._reduceMotion() ) return null;
+        // no-op, so waiting on the grid would only delay the launch. The
+        // landing still installs the app, though — give it its tile
+        // silently once the grid is up (fire-and-forget: nothing here may
+        // hold the launch, and a failure just means the tile waits for the
+        // next refresh, as it always did).
+        if ( ! window.animate_window_opening || this._reduceMotion() ) {
+            Promise.resolve(this.loadApps($el_window))
+                .then(() => this._spliceDeepLinkApp($el_window, appName, appInfoPromise))
+                .catch(() => {});
+            return null;
+        }
         const deadline = Date.now() + DEEP_LINK_INTRO_DEADLINE_MS;
 
         // How many intros this account has already been shown — fetched in
@@ -2992,8 +3144,29 @@ const TabApps = {
                 ]);
             } catch ( _e ) { /* a failed load leaves _apps unset; handled below */ }
             if ( interrupted ) return null;
-            if ( ! Array.isArray(this._apps) || ! this._apps.some(a => a.name === appName) ) {
-                return null;
+            if ( ! Array.isArray(this._apps) ) return null;
+            if ( ! this._apps.some(a => a.name === appName) ) {
+                // Not on the dashboard: this landing is what installs it.
+                // Materialize its tile (parked invisible for the arrival
+                // beat below), bounded by the same deadline as the rest of
+                // the intro — the prefetch has been in flight since the
+                // landing, so it is normally long resolved.
+                const spliced = await this._spliceDeepLinkApp($el_window, appName, appInfoPromise, {
+                    mark: true,
+                    boundedSleep: () => sleep(Math.max(0, deadline - Date.now())),
+                });
+                if ( ! spliced ) {
+                    // The wait ran out (deadline, or input woke it) with the
+                    // prefetch still pending: the intro moves on, but the
+                    // data half must not be lost — add the tile plainly
+                    // whenever the info lands (a rejected/absent app still
+                    // adds nothing).
+                    this._spliceDeepLinkApp($el_window, appName, appInfoPromise).catch(() => {});
+                    return null;
+                }
+                // Interrupted while splicing: no intro, but the tile stays —
+                // settleDeepLinkLaunch's reveal uncovers it.
+                if ( interrupted ) return null;
             }
             while ( Date.now() < deadline && ! interrupted ) {
                 // A hidden page (deep link opened in a background tab) can't
@@ -3051,6 +3224,16 @@ const TabApps = {
             if ( page >= 0 && page !== this._page ) {
                 this.goToPage($el_window, page, true);
                 await sleep(DEEP_LINK_INTRO_FLIP_SETTLE_MS);
+                if ( interrupted || document.visibilityState === 'hidden' ) return tile;
+            }
+            // This landing installed the app: its tile ARRIVES now — after
+            // the travel, so the user watches it materialize where it will
+            // live — and only then does the launch grow out of it. Unlike
+            // the beats this never decays: it is per-app news, delivered at
+            // most once per app, ever.
+            if ( this._arriving && this._arriving.name === appName ) {
+                this._revealArrivingTile(true);
+                await sleep(DEEP_LINK_INSTALL_ARRIVE_MS + DEEP_LINK_INSTALL_REST_MS);
                 if ( interrupted || document.visibilityState === 'hidden' ) return tile;
             }
             // The app lives in a folder: open it, so the launch grows out of
@@ -3121,6 +3304,11 @@ const TabApps = {
     settleDeepLinkLaunch (appName, tile) {
         this._launchingApps.delete(appName);
         settle_dashboard_tile_launch(tile);
+        // Whatever path the intro took out (interruption, hidden tab, the
+        // deadline), an unrevealed arrival must not outlive it — an
+        // invisible tile is a broken grid. The intro's own reveal already
+        // cleared this on the happy path.
+        this._revealArrivingTile(false);
         // A folder the intro opened to show where the app lives has done its
         // job once the window is up (or the launch has failed).
         if ( this._deepLinkFolder ) {

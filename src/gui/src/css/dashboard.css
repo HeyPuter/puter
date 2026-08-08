@@ -1746,6 +1746,108 @@ input.myapps-group-name:focus {
     }
 }
 
+/* A tile installed by a deep-link landing, not yet arrived: rendered in
+   place — layout, page count, and the wayfinding flip all see it — but held
+   invisible for the intro's arrival beat to reveal (see _spliceDeepLinkApp /
+   _revealArrivingTile in TabApps.js). */
+.myapps-tile-installing {
+    opacity: 0;
+    transform: scale(0.55);
+    pointer-events: none;
+}
+
+/* The arrival itself: an INSTALLATION, staged over 1400ms (mirrored by
+   DEEP_LINK_INSTALL_ARRIVE_MS in TabApps.js) with the grammar users know
+   from every app store:
+     1. the slot opens — the folder well's own surface — and the icon
+        materializes into it DIM (grayscale, translucent, slightly small):
+        present, but not yet usable;
+     2. a progress stroke draws clockwise around the slot (the
+        .myapps-install-progress element _revealArrivingTile injects);
+     3. the stroke completes and everything resolves at once — the well
+        recedes, the ring dissolves outward, the icon springs to full
+        color and size, and the label names what was installed.
+   Every piece fills backwards so the delayed ones hold their start state
+   through their delay. Only _revealArrivingTile applies the class and
+   injects the ring, never under prefers-reduced-motion. */
+.myapps-tile-install-arriving::before {
+    animation: myapps-install-well 1400ms ease backwards;
+}
+
+.myapps-tile-install-arriving .myapps-tile-icon {
+    animation: myapps-install-icon 1400ms ease backwards;
+}
+
+.myapps-tile-install-arriving .myapps-tile-label {
+    animation: myapps-install-label 320ms ease 1020ms backwards;
+}
+
+/* The progress ring: the same box the folder well draws (see
+   .myapps-tile::before), as a stroke. A transient element, not a pseudo —
+   the tile's ::before is the well and its ::after the running dot. */
+.myapps-install-progress {
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    width: calc(var(--myapps-icon-size, 56px) + 12px);
+    height: calc(var(--myapps-icon-size, 56px) + 12px);
+    margin-left: calc((var(--myapps-icon-size, 56px) + 12px) / -2);
+    pointer-events: none;
+    animation: myapps-install-progress-done 360ms ease 1000ms forwards;
+}
+
+.myapps-install-progress svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.myapps-install-progress rect {
+    fill: none;
+    stroke: var(--select-color);
+    stroke-width: 3;
+    stroke-linecap: round;
+    /* pathLength=100 normalizes the perimeter; the draw is a dashoffset
+       sweep from fully hidden to fully drawn, starting at the top. The
+       slight overshoot closes the seam at the join. */
+    stroke-dasharray: 100.5;
+    stroke-dashoffset: 100.5;
+    animation: myapps-install-draw 830ms cubic-bezier(0.4, 0, 0.2, 1) 140ms forwards;
+}
+
+/* The slot: opens from the well's resting state (opacity 0, scale .62),
+   holds while the stroke draws, recedes as the icon comes alive. */
+@keyframes myapps-install-well {
+    0%   { opacity: 0;   transform: scale(0.62); }
+    10%  { opacity: 0.6; transform: scale(0.92); }
+    70%  { opacity: 0.6; transform: scale(0.92); }
+    88%  { opacity: 0;   transform: scale(1.05); }
+    100% { opacity: 0;   transform: scale(1.05); }
+}
+
+/* The icon: dim and small while "installing", then alive with a spring. */
+@keyframes myapps-install-icon {
+    0%   { opacity: 0;    transform: scale(0.6);  filter: grayscale(1) brightness(0.9); }
+    10%  { opacity: 0.45; transform: scale(0.82); filter: grayscale(1) brightness(0.9); }
+    70%  { opacity: 0.45; transform: scale(0.82); filter: grayscale(1) brightness(0.9); }
+    82%  { opacity: 1;    transform: scale(1.08); filter: grayscale(0) brightness(1); }
+    100% { opacity: 1;    transform: none;        filter: grayscale(0) brightness(1); }
+}
+
+@keyframes myapps-install-draw {
+    to { stroke-dashoffset: 0; }
+}
+
+@keyframes myapps-install-progress-done {
+    to { opacity: 0; transform: scale(1.1); }
+}
+
+@keyframes myapps-install-label {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
 /* -- Drag-to-reorder -- */
 
 /* The tile being dragged is kept in the grid as an invisible placeholder so
@@ -1883,6 +1985,18 @@ body.myapps-reordering .myapps-tile {
 @media (prefers-reduced-motion: reduce) {
     .myapps-drag-ghost {
         transition: none;
+    }
+
+    /* The installation's end state (a plain visible tile) without its
+       staging; the progress ring shows nothing rather than a frozen arc. */
+    .myapps-tile-install-arriving::before,
+    .myapps-tile-install-arriving .myapps-tile-icon,
+    .myapps-tile-install-arriving .myapps-tile-label {
+        animation: none;
+    }
+
+    .myapps-install-progress {
+        display: none;
     }
 
     /* Folders still open and the well still fills — they just do it without

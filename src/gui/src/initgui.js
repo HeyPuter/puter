@@ -221,10 +221,12 @@ const postAuthActions = async (action) => {
             // Resolve the app's info NOW, in parallel with the tile wait
             // below, so the intro never delays the launch's own server
             // round-trip; the result is handed to launch_app as app_obj (the
-            // same object its own fetch would produce). A failed prefetch
+            // same object its own fetch would produce, at the grid tiles'
+            // 128px icon size — the intro may have to DRAW a tile from it,
+            // when the landing is what installs the app). A failed prefetch
             // hands nothing over — launch_app refetches and fails exactly
             // the way it always did.
-            const app_info_promise = puter.apps.get(app_name, { icon_size: 64 })
+            const app_info_promise = puter.apps.get(app_name, { icon_size: 128 })
                 .catch(() => null);
             (async () => {
                 // If the app already has a tile in the Apps tab, play the
@@ -242,7 +244,10 @@ const postAuthActions = async (action) => {
                 let tile = null;
                 try {
                     const el_dashboard = await el_dashboard_promise;
-                    tile = await TabApps.beginDeepLinkLaunch(app_name, $(el_dashboard));
+                    // The app-info promise lets the intro materialize a tile
+                    // for an app the dashboard doesn't have yet — landing on
+                    // an app is what installs it (see _spliceDeepLinkApp).
+                    tile = await TabApps.beginDeepLinkLaunch(app_name, $(el_dashboard), app_info_promise);
                 } catch ( _e ) {
                     // No dashboard window — no intro; still launch.
                 }
