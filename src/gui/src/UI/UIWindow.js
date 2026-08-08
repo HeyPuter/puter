@@ -4148,22 +4148,40 @@ $.fn.focusWindow = function (event) {
  * tab AND the tile must sit on the pager page currently in view (pages are
  * laid side by side in a horizontal scroller, so an off-page tile has a
  * rendered box the user can't see). Returns the tile element, or null.
+ *
+ * An app filed away in a folder has no tile of its own while the folder is
+ * shut — its FOLDER's tile stands in, so minimizing sends the window to where
+ * the user will actually look for the app (and where opening it from will put
+ * it back). See buildGroupTileHtml for the data-group-apps this reads.
  */
 function dashboard_tile_in_view (app_name) {
     if ( ! app_name || typeof CSS === 'undefined' || ! CSS.escape ) return null;
-    const tiles = document.querySelectorAll(
-        `.dashboard-section-apps.active .myapps-tile[data-app-name="${CSS.escape(app_name)}"]`,
-    );
-    for ( const tile of tiles ) {
+    const in_view = tile => {
         const rect = tile.getBoundingClientRect();
-        if ( rect.width <= 0 || rect.height <= 0 ) continue;
+        if ( rect.width <= 0 || rect.height <= 0 ) return false;
         const scroller = tile.closest('.myapps-pager-scroller');
         const clip = (scroller || tile.parentElement).getBoundingClientRect();
         const cx = rect.left + rect.width / 2;
         const cy = rect.top + rect.height / 2;
-        if ( cx >= clip.left && cx <= clip.right && cy >= clip.top && cy <= clip.bottom ) {
-            return tile;
+        return cx >= clip.left && cx <= clip.right && cy >= clip.top && cy <= clip.bottom;
+    };
+
+    const tiles = document.querySelectorAll(
+        `.dashboard-section-apps.active .myapps-tile[data-app-name="${CSS.escape(app_name)}"]`,
+    );
+    for ( const tile of tiles ) {
+        if ( in_view(tile) ) return tile;
+    }
+
+    const folders = document.querySelectorAll('.dashboard-section-apps.active .myapps-group-tile');
+    for ( const folder of folders ) {
+        let names;
+        try {
+            names = JSON.parse(folder.dataset.groupApps || '[]');
+        } catch ( _e ) {
+            continue;
         }
+        if ( Array.isArray(names) && names.includes(app_name) && in_view(folder) ) return folder;
     }
     return null;
 }
