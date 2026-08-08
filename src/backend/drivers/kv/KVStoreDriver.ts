@@ -102,7 +102,12 @@ export class KVStoreDriver extends PuterDriver {
     async #opts(method: string, args: KvCallArgs): Promise<KVOpts> {
         const actor = Context.get('actor') as Actor | undefined;
         const appUuid = args.optConfig?.appUuid;
-        const ownAppUid = actor?.app?.uid;
+        // Through the issuer chain, not `actor.app`: an access-token actor
+        // carries no app of its own, so keying off `app` would read a token an
+        // app minted as a bare user token and hand it the ungated branch below
+        // — no permission check, and no private-entry filtering either, since
+        // the store keys that off `namespaceAppUuid`.
+        const ownAppUid = actor?.effectiveApp?.uid;
 
         // A user or API token acting on its own data: ungated, as before.
         if (!ownAppUid) return { actor, appUuid };
@@ -292,7 +297,7 @@ export class KVStoreDriver extends PuterDriver {
 
     async batchPut(args: {
         items: Array<{ key: string; value: unknown; expireAt?: number }>;
-        optConfig?: { appUuid?: string };
+        optConfig?: { appUuid?: string; disableSharing?: boolean };
     }): Promise<boolean> {
         const { items } = args;
         if (!Array.isArray(items) || items.length === 0) {
@@ -321,7 +326,10 @@ export class KVStoreDriver extends PuterDriver {
             );
         }
         const { res, usage } = await this.stores.kv.batchPut(
-            { items: coerced },
+            {
+                items: coerced,
+                disableSharing: args.optConfig?.disableSharing,
+            },
             opts,
         );
         this.#meter(opts.actor, usage);

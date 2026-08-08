@@ -22,7 +22,6 @@ import type { Request, Response } from 'express';
 import { posix as pathPosix } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { Actor } from '../../core/actor.js';
-import { effectiveActorApp } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
@@ -2091,8 +2090,7 @@ export class FSController extends PuterController {
         // the ActorUser type. Access via the escape hatch until a proper
         // storage-quota mechanism is in place.
         const actorUser = req.actor?.user as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
 
         const candidates = [
             this.#toStorageCapacityCandidate(actorUser?.free_storage),
@@ -2437,7 +2435,7 @@ export class FSController extends PuterController {
     // search results to this path so app actors can't see entries outside
     // their AppData via `/fs/search`.
     #appDataScopeForActor(actor: Actor): string | undefined {
-        const app = effectiveActorApp(actor);
+        const app = actor.effectiveApp;
         if (!app) return undefined;
         const username = actor.user?.username;
         if (typeof username !== 'string' || username.length === 0)

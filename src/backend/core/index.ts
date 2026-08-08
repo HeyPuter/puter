@@ -28,5 +28,6 @@ export {
     isAppActor,
     isAccessTokenActor,
     actorUid,
+    makeActor,
     userRelatedActor,
 } from './actor';

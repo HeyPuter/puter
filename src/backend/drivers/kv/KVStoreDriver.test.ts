@@ -7,7 +7,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { Actor } from '../../core/actor.ts';
+import { Actor, makeActor as buildActor } from '../../core/actor.ts';
 import { runWithContext } from '../../core/context.ts';
 import { PuterServer } from '../../server.ts';
 import {
@@ -34,17 +34,18 @@ describe('KVStoreDriver', () => {
     // Each test runs against a unique actor namespace so state from one test
     // never leaks into another. Mirrors the pattern used by SystemKVStore.test.
     let actor: Actor;
-    const makeActor = (overrides: Partial<Actor> = {}): Actor => ({
-        user: {
-            uuid: `test-user-${Math.random().toString(36).slice(2)}`,
-            id: 1,
-            username: 'test-user',
-            email: 'test@test.com',
-            email_confirmed: true,
-        },
-        app: { uid: 'test-app', id: 1 },
-        ...overrides,
-    });
+    const makeActor = (overrides: Partial<Actor> = {}): Actor =>
+        buildActor({
+            user: {
+                uuid: `test-user-${Math.random().toString(36).slice(2)}`,
+                id: 1,
+                username: 'test-user',
+                email: 'test@test.com',
+                email_confirmed: true,
+            },
+            app: { uid: 'test-app', id: 1 },
+            ...overrides,
+        });
     beforeEach(() => {
         actor = makeActor();
     });
@@ -731,14 +732,14 @@ describe('KVStoreDriver', () => {
 
         it('isolates values between two app actors with the same user but different apps', async () => {
             const baseUser = `user-${Math.random().toString(36).slice(2)}`;
-            const appA: Actor = {
+            const appA = buildActor({
                 user: { uuid: baseUser },
                 app: { uid: 'app-A', id: 100 },
-            };
-            const appB: Actor = {
+            });
+            const appB = buildActor({
                 user: { uuid: baseUser },
                 app: { uid: 'app-B', id: 200 },
-            };
+            });
 
             await inCtx(() => target.set({ key: 'k', value: 'A' }), appA);
             const fromB = await inCtx(() => target.get({ key: 'k' }), appB);
@@ -756,10 +757,10 @@ describe('KVStoreDriver', () => {
             // unknown target app is a 404, and a real target with no grant is a
             // 403 (covered under cross-app access).
             const baseUser = `user-${Math.random().toString(36).slice(2)}`;
-            const appActor: Actor = {
+            const appActor = buildActor({
                 user: { uuid: baseUser },
                 app: { uid: 'real-app', id: 1 },
-            };
+            });
             await inCtx(
                 () => target.set({ key: 'k', value: 'real' }),
                 appActor,
@@ -788,11 +789,11 @@ describe('KVStoreDriver', () => {
             // app namespace via optConfig.appUuid. Verify by reading the same
             // entry via a real app-actor for that app.
             const baseUser = `user-${Math.random().toString(36).slice(2)}`;
-            const userOnly: Actor = { user: { uuid: baseUser } };
-            const asApp: Actor = {
+            const userOnly = buildActor({ user: { uuid: baseUser } });
+            const asApp = buildActor({
                 user: { uuid: baseUser },
                 app: { uid: 'target-app', id: 1 },
-            };
+            });
 
             await inCtx(
                 () =>
@@ -849,14 +850,14 @@ describe('KVStoreDriver', () => {
             const row = await server.stores.user.getByUsername(
                 created.username,
             );
-            return {
+            return buildActor({
                 user: {
                     id: row!.id,
                     uuid: row!.uuid,
                     username: row!.username,
                     email: row!.email ?? null,
                 },
-            };
+            });
         };
 
         const makeRealApp = async (
@@ -878,10 +879,22 @@ describe('KVStoreDriver', () => {
         const asApp = (
             owner: Actor,
             app: { id: number; uid: string },
-        ): Actor => ({
-            user: owner.user,
-            app: { uid: app.uid, id: app.id },
-        });
+        ): Actor =>
+            buildActor({
+                user: owner.user,
+                app: { uid: app.uid, id: app.id },
+            });
+
+        /** An access token that `app` minted, as AuthService builds one. */
+        const asTokenOf = (owner: Actor, actorForApp: Actor): Actor =>
+            buildActor({
+                user: owner.user,
+                accessToken: {
+                    uid: `tok-${Math.random().toString(36).slice(2)}`,
+                    issuer: actorForApp,
+                    authorized: null,
+                },
+            });
 
         const grant = (
             owner: Actor,
@@ -1315,6 +1328,106 @@ describe('KVStoreDriver', () => {
             expect(
                 await inCtx(() => target.get({ key: 'token' }), contactsActor),
             ).toBe('oauth-secret');
+        });
+
+        it('gates a token an app minted, not just the app itself', async () => {
+            const { owner, contacts, calendarActor } = await setup();
+            // An access-token actor carries no `app` of its own — the app is on
+            // `accessToken.issuer`. Reading `actor.app` here would take the
+            // ungated user-token branch and hand the token the whole namespace.
+            const token = asTokenOf(owner, calendarActor);
+            await expect(
+                crossApp(token, contacts.uid, (optConfig) =>
+                    target.get({ key: 'entry', optConfig }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('resolves a token to its minting app, not to a bare user', async () => {
+            const { owner, contacts, calendarActor } = await setup();
+            const token = asTokenOf(owner, calendarActor);
+            const spy = vi.spyOn(permissions(), 'check');
+            try {
+                await expect(
+                    crossApp(token, contacts.uid, (optConfig) =>
+                        target.get({ key: 'entry', optConfig }),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+                // The ungated user-token branch never consults permissions at
+                // all, so the call itself is the evidence the token was read as
+                // app-scoped.
+                expect(spy).toHaveBeenCalledWith(
+                    expect.anything(),
+                    appDataPermission(contacts.uid, 'kv', 'get'),
+                );
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it('reads through a token that carries the scope itself', async () => {
+            const { owner, calendar, contacts, calendarActor } = await setup();
+            const permission = appDataPermission(contacts.uid, 'kv', 'read');
+            await grant(owner, calendar.uid, permission);
+
+            // A scoped token does not inherit its issuer's grants — it needs
+            // the row too. Both halves have to line up for the read to land.
+            const token = asTokenOf(owner, calendarActor);
+            await server.clients.db.write(
+                'INSERT INTO `access_token_permissions` (`token_uid`, `permission`) VALUES (?, ?)',
+                [token.accessToken!.uid, permission],
+            );
+
+            expect(
+                await crossApp(token, contacts.uid, (optConfig) =>
+                    target.get({ key: 'entry', optConfig }),
+                ),
+            ).toBe('contacts-value');
+        });
+
+        it("files a token's own writes under the minting app's namespace", async () => {
+            const owner = await makeOwner();
+            const calendar = await makeRealApp(owner.user.id!);
+            const calendarActor = asApp(owner, calendar);
+            const token = asTokenOf(owner, calendarActor);
+
+            await inCtx(() => target.set({ key: 'own', value: 'v' }), token);
+            // Not the shared global namespace: the gate reads the token as
+            // app-scoped, so the store has to file it the same way.
+            expect(
+                await inCtx(() => target.get({ key: 'own' }), calendarActor),
+            ).toBe('v');
+        });
+
+        it('honours disableSharing on a batch write', async () => {
+            const { owner, calendar, contacts, calendarActor, contactsActor } =
+                await setup();
+            await inCtx(
+                () =>
+                    target.batchPut({
+                        items: [
+                            { key: 'b1', value: 'v1' },
+                            { key: 'b2', value: 'v2' },
+                        ],
+                        optConfig: { disableSharing: true },
+                    }),
+                contactsActor,
+            );
+            await grant(owner, calendar.uid, appDataPermission(contacts.uid));
+
+            // Silently dropping the flag here would hand a granted app entries
+            // the owner asked to keep to itself.
+            expect(
+                await crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.get({ key: ['b1', 'b2'], optConfig }),
+                ),
+            ).toEqual([null, null]);
+            expect(
+                await inCtx(
+                    () => target.get({ key: ['b1', 'b2'] }),
+                    contactsActor,
+                ),
+            ).toEqual(['v1', 'v2']);
         });
 
         it('refuses disableSharing on a cross-app write', async () => {

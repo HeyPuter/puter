@@ -19,10 +19,9 @@
 
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import {
-    MANAGE_PERM_PREFIX,
-    PERMISSION_FOR_NOTHING_IN_PARTICULAR,
-} from '../permission/consts.js';
+import type { puterStores } from '../../stores/index.js';
+import type { LayerInstances } from '../../types.js';
+import type { puterServices } from '../index.js';
 import {
     APP_DATA_KV_OP_CLASSES,
     APP_DATA_PERMISSION_PREFIX,
@@ -31,10 +30,11 @@ import {
     type AppDataKvOp,
     type AppDataStore,
 } from '../permission/appDataScopes.js';
+import {
+    MANAGE_PERM_PREFIX,
+    PERMISSION_FOR_NOTHING_IN_PARTICULAR,
+} from '../permission/consts.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
-import type { LayerInstances } from '../../types.js';
-import type { puterStores } from '../../stores/index.js';
-import type { puterServices } from '../index.js';
 import { PuterService } from '../types.js';
 
 /**
@@ -282,20 +282,10 @@ export class AppPermissionService extends PuterService {
                       }
                     | undefined;
                 if (!d?.app_uid) return;
+
+                let reason: string | null = null;
                 if (d.action === 'deleted') {
-                    await this.#withdrawAppDataGrants(
-                        d.app_uid,
-                        'target app deleted',
-                    );
-                } else if (d.action === 'created-from-origin') {
-                    // Only origin-bootstrapped apps can reuse a uid: their uid is
-                    // a uuidv5 of the origin, while `AppStore.create` mints a
-                    // random uuid4. Sweeping every creation would scan the grant
-                    // tables for uids that cannot have stale grants.
-                    await this.#withdrawAppDataGrants(
-                        d.app_uid,
-                        'uid reused by a new app',
-                    );
+                    reason = 'target app deleted';
                 } else if (
                     d.action === 'updated' &&
                     appDataSharingAllowed(
@@ -305,10 +295,18 @@ export class AppPermissionService extends PuterService {
                         (d.app ?? {}) as { metadata?: unknown },
                     )
                 ) {
-                    await this.#withdrawAppDataGrants(
-                        d.app_uid,
-                        'target app stopped sharing its data',
-                    );
+                    reason = 'target app stopped sharing its data';
+                }
+                if (!reason) return;
+
+                // Best-effort here, unlike the origin-bootstrap sweep the auth
+                // controller drives: deleting or updating an app must not fail
+                // because this did. `withdrawAppDataGrants` has already raised
+                // the alarm, so the failure is not silent.
+                try {
+                    await this.withdrawAppDataGrants(d.app_uid, reason);
+                } catch {
+                    // Already alarmed and logged.
                 }
             },
         );
@@ -319,9 +317,13 @@ export class AppPermissionService extends PuterService {
      * and bust the holders' permission caches so the change is effective at
      * once rather than after the scan TTL.
      *
-     * Best-effort: deleting or updating an app must not fail because this did.
+     * Throws on failure. Every caller decides for itself whether a failed sweep
+     * is fatal: the event listener treats it as best-effort, because deleting
+     * an app must not fail because this did, while the origin-bootstrap path
+     * refuses to issue a token rather than let a new app inherit the consent
+     * its predecessor was given.
      */
-    async #withdrawAppDataGrants(
+    async withdrawAppDataGrants(
         targetAppUid: string,
         reason: string,
     ): Promise<void> {
@@ -358,11 +360,17 @@ export class AppPermissionService extends PuterService {
                 ]);
             }
         } catch (e) {
-            console.error(
-                '[app-data] failed to withdraw cross-app grants for',
-                targetAppUid,
-                e,
+            // A sweep that fails leaves consent live for an app the user can no
+            // longer see, so it is worth a human looking today — but nobody
+            // needs waking, since the callers that cannot tolerate it fail the
+            // request outright.
+            this.clients.alarm.create(
+                `app_data_grant_withdrawal_failed:${targetAppUid}`,
+                'Failed to withdraw cross-app data grants',
+                { targetAppUid, reason, error: e as Error },
+                'warning',
             );
+            throw e;
         }
     }
 

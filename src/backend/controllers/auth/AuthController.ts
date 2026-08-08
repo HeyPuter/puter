@@ -27,6 +27,7 @@ import type { HttpErrorOptions } from '../../core/http/HttpError.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
+import type { Actor } from '../../core/actor.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
     signStepUpToken,
@@ -3381,19 +3382,18 @@ export class AuthController extends PuterController {
             // An origin's uid is a deterministic uuidv5, so a deleted app
             // reappears here under the identical uid. Withdraw any cross-app
             // data grants left pointing at it before this new row can inherit
-            // consent the user gave its predecessor. `createFromOrigin` emits no
-            // `app.changed`, so the listener in AppPermissionService never sees
-            // this path.
+            // consent the user gave its predecessor. Only *this* path can reuse
+            // a uid: `AppStore.create` mints a random uuid4, which no deleted
+            // app can ever hold again.
             //
-            // A distinct action, because only *this* path can reuse a uid:
-            // `AppStore.create` mints a random uuid4, which no deleted app can
-            // ever hold again.
-            // Awaited: the token is issued below, so a fire-and-forget sweep
-            // would leave the recreated app usable with the old grants live.
-            await this.clients.event.emitAndWait(
-                'app.changed',
-                { app_uid, action: 'created-from-origin', app },
-                {},
+            // Called directly rather than through `app.changed`: the token is
+            // issued below, so this has to be able to stop that, and
+            // `emitAndWait` swallows listener errors. Letting it throw is the
+            // point — a sweep that failed leaves the old grants live against an
+            // app whoever controls the origin now has just claimed.
+            await this.services.appPermission.withdrawAppDataGrants(
+                app_uid,
+                'uid reused by a new app',
             );
         }
         if (!app) {

@@ -47,6 +47,20 @@ export interface ActorAccessToken {
 export interface Actor {
     user: Partial<UserRow>;
     app?: ActorApp | null;
+    /**
+     * The app this actor ultimately acts as: its own `app`, or failing that the
+     * app of whoever issued its access token.
+     *
+     * Read this — not `app` — in any gate asking "which app is doing this?". An
+     * access-token actor carries no `app` of its own, so `app` alone reads as
+     * "no app" even for a token an app minted, and a gate keyed off it fails
+     * open exactly where it must not.
+     *
+     * Required, not optional, so the compiler rather than reviewer discipline
+     * is what keeps it populated. Build actors with `makeActor`, which is the
+     * one place the derivation lives.
+     */
+    effectiveApp: ActorApp | null;
     /** True for the system actor; skips metering / quota tracking. */
     system?: boolean;
     accessToken?: ActorAccessToken | null;
@@ -67,8 +81,21 @@ export const SYSTEM_ACTOR_UUID = '5d4adce0-a381-4982-9c02-6e2540026238';
 /** The default system actor used when no actor is supplied. */
 export const SYSTEM_ACTOR: Actor = {
     user: { uuid: SYSTEM_ACTOR_UUID, username: 'system' },
+    effectiveApp: null,
     system: true,
 };
+
+/**
+ * Build an actor, deriving `effectiveApp` from its own app and, failing that,
+ * from the app of whoever issued its access token.
+ *
+ * The issuer was itself built here, so its chain is already collapsed — one hop
+ * is enough, and no caller has to walk anything.
+ */
+export const makeActor = (actor: Omit<Actor, 'effectiveApp'>): Actor => ({
+    ...actor,
+    effectiveApp: actor.app ?? actor.accessToken?.issuer.effectiveApp ?? null,
+});
 
 export const isSystemActor = (actor: Actor | undefined | null): boolean => {
     return !!actor?.system || actor?.user?.uuid === SYSTEM_ACTOR_UUID;
@@ -106,15 +133,5 @@ export const actorUid = (actor: Actor): string => {
  */
 export const userRelatedActor = (actor: Actor): Actor => {
     if (!actor.app && !actor.accessToken) return actor;
-    return { user: actor.user };
-};
-
-/**
- * Walk the access-token issuer chain and return the first app identity found,
- * or null if no app appears anywhere in the chain.
- */
-export const effectiveActorApp = (actor: Actor): ActorApp | null => {
-    if (actor.app) return actor.app;
-    if (actor.accessToken) return effectiveActorApp(actor.accessToken.issuer);
-    return null;
+    return { user: actor.user, effectiveApp: null };
 };

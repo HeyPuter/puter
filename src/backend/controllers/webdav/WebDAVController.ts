@@ -21,7 +21,7 @@ import { compare as bcryptCompare } from 'bcrypt';
 import type { Request, Response } from 'express';
 import { posix as pathPosix } from 'node:path';
 import { EventMap } from '../../clients/event/types.js';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
     assertNotSuspended,
@@ -238,7 +238,7 @@ export class WebDAVController extends PuterController {
         }
 
         // Build a session-less actor for the user
-        return {
+        return makeActor({
             user: {
                 id: user.id,
                 uuid: user.uuid,
@@ -258,7 +258,7 @@ export class WebDAVController extends PuterController {
                 requires_card_verification:
                     user.requires_card_verification ?? false,
             },
-        };
+        });
     }
 
     // -- OPTIONS ------------------------------------------------------

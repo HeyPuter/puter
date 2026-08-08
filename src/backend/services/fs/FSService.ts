@@ -17,16 +17,26 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { posix as pathPosix } from 'node:path';
-import { assertNormalized } from './resolveNode.js';
 import { createHash } from 'node:crypto';
-import { Readable, Transform } from 'node:stream';
+import { posix as pathPosix } from 'node:path';
 import type { TransformCallback } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { v4 as uuidv4 } from 'uuid';
-import type {
-    MultipartCompletePart,
-    SignedUploadResult,
-} from '../../stores/fs/s3Types.js';
+import {
+    BinaryPayload,
+    CompleteWriteRequest,
+    CompleteWriteResponse,
+    SignedWriteRequest,
+    SignedWriteResponse,
+    SignMultipartPartsRequest,
+    SignMultipartPartsResponse,
+    UploadMode,
+    WriteRequest,
+    WriteResponse,
+} from '../../controllers/fs/requestTypes.js';
+import { Actor } from '../../core/actor.js';
+import { Context } from '../../core/context.js';
+import { HttpError } from '../../core/http/HttpError.js';
 import {
     FSEntry,
     FSEntryCreateInput,
@@ -35,18 +45,25 @@ import {
     PendingUploadCreateInput,
     PendingUploadSession,
 } from '../../stores/fs/FSEntry.js';
+import type {
+    MultipartCompletePart,
+    SignedUploadResult,
+} from '../../stores/fs/s3Types.js';
+import type { puterStores } from '../../stores/index.js';
+import type { LayerInstances } from '../../types.js';
+import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
+import { AclMode } from '../acl/ACLService.js';
+import type { puterServices } from '../index.js';
 import {
-    BinaryPayload,
-    CompleteWriteRequest,
-    CompleteWriteResponse,
-    SignMultipartPartsRequest,
-    SignMultipartPartsResponse,
-    SignedWriteRequest,
-    SignedWriteResponse,
-    UploadMode,
-    WriteRequest,
-    WriteResponse,
-} from '../../controllers/fs/requestTypes.js';
+    APP_DATA_FS_MODE_CLASSES,
+    appDataPermission,
+    appDataSharingAllowed,
+} from '../permission/appDataScopes.js';
+import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
+import { PermissionUtil } from '../permission/permissionUtil.js';
+import { PuterService } from '../types.js';
+import { FSEntryCacheInvalidationEventHandler } from './cacheInvalidation.js';
+import { assertNormalized } from './resolveNode.js';
 import type {
     BatchWritePrepareRequest,
     NormalizedWriteInput,
@@ -56,24 +73,6 @@ import type {
     UploadPreparedBatchItemInput,
     UploadProgressTrackerLike,
 } from './types.js';
-import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
-import { Context } from '../../core/context.js';
-import { effectiveActorApp } from '../../core/actor.js';
-import { HttpError } from '../../core/http/HttpError.js';
-import {
-    APP_DATA_FS_MODE_CLASSES,
-    appDataPermission,
-    appDataSharingAllowed,
-} from '../permission/appDataScopes.js';
-import { PuterService } from '../types.js';
-import type { LayerInstances } from '../../types.js';
-import type { puterStores } from '../../stores/index.js';
-import type { puterServices } from '../index.js';
-import { FSEntryCacheInvalidationEventHandler } from './cacheInvalidation.js';
-import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
-import { PermissionUtil } from '../permission/permissionUtil.js';
-import { Actor } from '../../core/actor.js';
-import { AclMode } from '../acl/ACLService.js';
 
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 const DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS = 60 * 15;
@@ -3279,7 +3278,7 @@ export class FSService extends PuterService {
         // Through the issuer chain: a token actor has no `app` of its own, so
         // keying off `actor.app` would skip the guard — failing open where the
         // paired implicator fails closed.
-        const app = effectiveActorApp(actor);
+        const app = actor.effectiveApp;
         if (!app) return;
         const username = actor.user?.username;
         if (!username) return;

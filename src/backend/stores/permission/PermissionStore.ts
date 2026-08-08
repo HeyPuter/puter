@@ -338,7 +338,14 @@ export class PermissionStore extends PuterStore {
     > {
         // `_` and `%` are LIKE wildcards, so an unescaped one would widen the
         // match beyond the intended subtree.
-        const escaped = permission.replace(/([\\%_])/g, '\\$1');
+        //
+        // `!` as the escape character, matching FSEntryStore: a backslash one
+        // would have to be written `ESCAPE '\\'` in the SQL text, and MySQL
+        // processes backslash escapes inside string literals, so the `'\'` a
+        // JS `'\\'` produces reads as an escaped quote and leaves the literal
+        // unterminated. SQLite and Postgres accept it, which is why only MySQL
+        // would have seen the parse error.
+        const escaped = permission.replace(/([!%_])/g, '!$1');
         const exact = permission;
         const prefix = `${escaped}:%`;
 
@@ -355,7 +362,7 @@ export class PermissionStore extends PuterStore {
         ] as const) {
             const rows = (await this.clients.db.read(
                 `SELECT \`user_id\`, \`app_id\`, \`permission\` FROM \`${table}\` ` +
-                    "WHERE `permission` = ? OR `permission` LIKE ? ESCAPE '\\'",
+                    "WHERE `permission` = ? OR `permission` LIKE ? ESCAPE '!'",
                 [exact, prefix],
             )) as Array<{
                 user_id: number;
@@ -366,7 +373,7 @@ export class PermissionStore extends PuterStore {
 
             await this.clients.db.write(
                 `DELETE FROM \`${table}\` ` +
-                    "WHERE `permission` = ? OR `permission` LIKE ? ESCAPE '\\'",
+                    "WHERE `permission` = ? OR `permission` LIKE ? ESCAPE '!'",
                 [exact, prefix],
             );
             for (const row of rows) removed.push({ table, ...row });

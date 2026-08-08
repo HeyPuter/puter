@@ -18,7 +18,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import type { PuterServer } from '../../server.js';
@@ -800,13 +800,65 @@ describe('AppPermissionService — cross-app grant withdrawal', () => {
 
     it('withdraws grants when an origin bootstrap reuses a uid', async () => {
         // An origin-derived uid is regenerated verbatim, so a recreated app
-        // must not inherit consent the user gave to its predecessor.
+        // must not inherit consent the user gave to its predecessor. Driven
+        // directly by the auth controller rather than through `app.changed`,
+        // because that path has to be able to refuse the token when the sweep
+        // fails and `emitAndWait` swallows listener errors.
         const { owner, grantee, target, permission } = await setupGrant();
-        await emitAppChanged({
-            app_uid: target.uid,
-            action: 'created-from-origin',
-        });
+        await server.services.appPermission.withdrawAppDataGrants(
+            target.uid,
+            'uid reused by a new app',
+        );
         expect(await hasGrant(owner, grantee.id, permission)).toBe(false);
+    });
+
+    it('propagates a sweep failure so the caller can refuse to proceed', async () => {
+        // Swallowing this is what would let a recreated app come up with the
+        // old grants still live.
+        const { target } = await setupGrant();
+        const spy = vi
+            .spyOn(
+                server.stores.permission,
+                'deleteAppGrantsByPermissionPrefix',
+            )
+            .mockRejectedValue(new Error('db down'));
+        const alarm = vi.spyOn(server.clients.alarm, 'create');
+        try {
+            await expect(
+                server.services.appPermission.withdrawAppDataGrants(
+                    target.uid,
+                    'uid reused by a new app',
+                ),
+            ).rejects.toThrow('db down');
+            expect(alarm).toHaveBeenCalledWith(
+                expect.stringContaining('app_data_grant_withdrawal_failed'),
+                expect.any(String),
+                expect.objectContaining({ targetAppUid: target.uid }),
+                'warning',
+            );
+        } finally {
+            spy.mockRestore();
+            alarm.mockRestore();
+        }
+    });
+
+    it('keeps an app.changed sweep best-effort so a delete still succeeds', async () => {
+        const { target } = await setupGrant();
+        const spy = vi
+            .spyOn(
+                server.stores.permission,
+                'deleteAppGrantsByPermissionPrefix',
+            )
+            .mockRejectedValue(new Error('db down'));
+        try {
+            // Deleting an app must not fail because the sweep did — the alarm
+            // is what carries the failure, not an exception at the emit site.
+            await expect(
+                emitAppChanged({ app_uid: target.uid, action: 'deleted' }),
+            ).resolves.not.toThrow();
+        } finally {
+            spy.mockRestore();
+        }
     });
 
     it('does not sweep on an ordinary app creation', async () => {

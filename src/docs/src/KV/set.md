@@ -36,6 +36,8 @@ A number containing when the key should expire in timestamp seconds.
 
 Pass inside the trailing options object — `set(key, value, { disableSharing: true })` — to mark this entry private to your app. A private entry cannot be read, listed, changed, or deleted by any other app, even one the user has granted access to your app's data with [`puter.perms.requestAppData()`](/Perms/requestAppData/). Use it for anything another app should never see, such as a cached access token: a user approving a request cannot see what your store holds.
 
+The batch form takes it too — `set([...items], { disableSharing: true })` marks every entry in the batch.
+
 Your own app reads and writes the entry normally. Writing the same key again without the flag makes it shareable once more, since `set` replaces the whole entry.
 
 #### `items` (Array) (batch only)

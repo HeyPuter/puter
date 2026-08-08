@@ -113,16 +113,13 @@ export class Perms {
      *
      * @param appIdentifier - The target app's uid, registered name, or an object
      * carrying either.
-     * @param scopes - `'read' | 'write' | 'delete'` applied to both stores, an
-     * array of `'<store>:<name>'` pairs, or a per-store object.
+     * @param scopes - An access class applied to both stores, an array of
+     * `'<store>:<name>'` pairs, or a per-store object.
      * @returns `true` if the app may now use that data, `false` if denied.
      */
     requestAppData (
         appIdentifier: string | { uid: string } | { name: string },
-        scopes: AppDataScope
-            | AppDataScope[]
-            | `${AppDataStore}:${string}`[]
-            | { kv?: AppDataScope | AppDataScope[], fs?: AppDataScope | AppDataScope[] },
+        scopes: AppDataScopes,
     ): Promise<boolean>;
 }
 
@@ -130,15 +127,47 @@ export class Perms {
 export type AppDataStore = 'kv' | 'fs';
 
 /**
- * An access class, or a concrete KV operation. Classes are the coarser form:
- * `read` covers `get`/`list`, `write` covers `set`/`add`/`incr`/`decr`/`update`,
- * and `delete` covers `del`/`remove`/`expire`/`expireAt`.
+ * The three access classes. `delete` is orthogonal to `write`: neither implies
+ * the other, so an app that only adds data cannot remove any.
+ */
+export type AppDataClass = 'read' | 'write' | 'delete';
+
+/**
+ * A key-value scope: an access class, or one concrete operation. Classes are
+ * the coarser form — `read` covers `get`/`list`, `write` covers
+ * `set`/`add`/`incr`/`decr`/`update`, and `delete` covers
+ * `del`/`remove`/`expire`/`expireAt`.
  *
  * `flush` is deliberately absent — it empties a whole namespace and no scope
  * reaches it.
  */
-export type AppDataScope =
-    | 'read' | 'write' | 'delete'
+export type AppDataKvScope =
+    | AppDataClass
     | 'get' | 'list'
     | 'set' | 'add' | 'incr' | 'decr' | 'update'
     | 'del' | 'remove' | 'expire' | 'expireAt';
+
+/**
+ * A file scope. Classes only, with no per-operation form: ACL checks a mode,
+ * not an operation, so there is nothing finer to name.
+ */
+export type AppDataFsScope = AppDataClass;
+
+/** One `'<store>:<name>'` pair, as the array form takes them. */
+export type AppDataScopePair =
+    | `kv:${AppDataKvScope}`
+    | `fs:${AppDataFsScope}`;
+
+/**
+ * What `requestAppData` accepts. A bare class applies to both stores; the array
+ * form spells out the store on every entry; the object form groups by store.
+ * There is no bare-name array — an entry with no store would be ambiguous
+ * between the two.
+ */
+export type AppDataScopes =
+    | AppDataClass
+    | AppDataScopePair[]
+    | {
+        kv?: AppDataKvScope | AppDataKvScope[],
+        fs?: AppDataFsScope | AppDataFsScope[],
+    };

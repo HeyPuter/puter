@@ -18,7 +18,6 @@
  */
 
 import type { Request, RequestHandler } from 'express';
-import { effectiveActorApp } from '../../actor';
 import type { Actor } from '../../actor';
 import { HttpError } from '../HttpError';
 import { assertVerifiedEmail } from '../verifiedEmail';
@@ -238,7 +237,7 @@ export const DEFAULT_ADMIN_USERNAMES = ['admin', 'system'] as const;
  * pair, not a replacement for it.
  *
  * Also requires a _root token_ — an actor with no app anywhere in its token
- * chain (see `effectiveActorApp`) — so a third-party app an admin has
+ * chain (see `Actor.effectiveApp`) — so a third-party app an admin has
  * authorized can't reach admin endpoints on the admin's behalf. The one
  * exception is `appGated`: on a route that is also appId-gated
  * (`allowedAppIds`), a direct app-under-user actor is deferred to
@@ -278,7 +277,7 @@ export const adminOnlyGate = (
         // through an app. A direct app-under-user actor is deferred to
         // `allowedAppIdsGate` when the route is appId-gated; chain-only apps
         // are rejected even then, since that gate can't see them.
-        const chainApp = req.actor ? effectiveActorApp(req.actor) : null;
+        const chainApp = req.actor?.effectiveApp ?? null;
         if (chainApp && !(opts.appGated && req.actor?.app?.uid)) {
             next(
                 new HttpError(403, 'Only admins may request this resource', {

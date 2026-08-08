@@ -153,9 +153,10 @@ export interface KVOptConfig {
      * Mark the entry private to this app: invisible and untouchable to any other
      * app the user later grants access to this namespace.
      *
-     * Honoured by `set()`, which writes the whole entry — so writing the key
-     * again without the flag makes it shareable. Rejected when combined with
-     * `appUuid`, since only an entry's owner may mark it private.
+     * Honoured by both forms of `set()` — one key, or a batch, where it marks
+     * every entry in the batch. `set` writes the whole entry, so writing the
+     * key again without the flag makes it shareable. Rejected when combined
+     * with `appUuid`, since only an entry's owner may mark it private.
      *
      * Use it for anything another app should never read, such as a cached OAuth
      * token, since a user granting access cannot see what a namespace holds.

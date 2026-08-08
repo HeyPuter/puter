@@ -1,6 +1,9 @@
 import { PuterJSError } from '../../lib/PuterJSError.js';
 
 /** @typedef {import('./index.js').PermsModule} PermsModule */
+/** @typedef {import('../../../types/modules/perms').AppDataScopes} AppDataScopes */
+/** @typedef {import('../../../types/modules/perms').AppDataKvScope} AppDataKvScope */
+/** @typedef {import('../../../types/modules/perms').AppDataFsScope} AppDataFsScope */
 
 // Mirrors `services/permission/appDataScopes.ts`, which stays authoritative.
 // This copy only turns a typo into a useful error instead of an opaque 403.
@@ -80,7 +83,7 @@ const collapseKv = (requested) => {
  * assert the mapping without going near the IPC layer.
  *
  * @param {string} appUid
- * @param {{ kv?: string | string[], fs?: string | string[] }} scopes
+ * @param {{ kv?: AppDataKvScope | AppDataKvScope[], fs?: AppDataFsScope | AppDataFsScope[] }} scopes
  * @returns {string[]}
  */
 export function appDataPermissions (appUid, scopes) {
@@ -146,7 +149,7 @@ const normaliseScopes = (scopes) => {
  *
  * @this {PermsModule}
  * @param {string | { uid: string } | { name: string }} appIdentifier
- * @param {string | string[] | { kv?: string | string[], fs?: string | string[] }} scopes
+ * @param {AppDataScopes} scopes
  * @returns {Promise<boolean>} `true` if the app may now use that data.
  */
 export async function requestAppData (appIdentifier, scopes) {

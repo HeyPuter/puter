@@ -18,7 +18,7 @@
  */
 
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
-import type { Actor } from '../../core/actor';
+import { makeActor, type Actor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
     ASSET_WINDOW_SECONDS,
@@ -1802,7 +1802,7 @@ export class AuthService extends PuterService {
         }
 
         return {
-            actor: {
+            actor: makeActor({
                 user: this.#actorUserFromRow(user),
                 accessToken: {
                     uid: decoded.token_uid,
@@ -1815,7 +1815,7 @@ export class AuthService extends PuterService {
                     fullAccess:
                         !decoded.app_uid && decoded.full_access === true,
                 },
-            },
+            }),
         };
     }
 
@@ -1842,12 +1842,12 @@ export class AuthService extends PuterService {
     }
 
     #buildUserActor(user: UserRow, session: SessionRow | null): Actor {
-        return {
+        return makeActor({
             user: this.#actorUserFromRow(user),
             session: session
                 ? { uid: session.uuid, kind: session.kind ?? null }
                 : null,
-        };
+        });
     }
 
     #buildAppUnderUserActor(
@@ -1855,7 +1855,7 @@ export class AuthService extends PuterService {
         app: { uid: string; id: number },
         session: SessionRow | null,
     ): Actor {
-        return {
+        return makeActor({
             user: this.#actorUserFromRow(user),
             app: {
                 uid: app.uid,
@@ -1864,6 +1864,6 @@ export class AuthService extends PuterService {
             session: session
                 ? { uid: session.uuid, kind: session.kind ?? null }
                 : null,
-        };
+        });
     }
 }

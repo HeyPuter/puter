@@ -128,11 +128,15 @@ const ensureActor = (opts?: KVOpts): Actor => opts?.actor ?? SYSTEM_ACTOR;
 
 const isCrossApp = (opts?: KVOpts): boolean => Boolean(opts?.namespaceAppUuid);
 
+// `effectiveApp`, not `app`, so the namespace agrees with the gate the driver
+// applied: both read an access-token actor as the app that issued it, rather
+// than the driver treating it as app-scoped while the store files its data
+// under the shared global key.
 const getNamespace = (actor: Actor, opts?: KVOpts): string => {
     if (isSystemActor(actor)) return SYSTEM_NAMESPACE;
     const appUuid =
         opts?.namespaceAppUuid ??
-        actor.app?.uid ??
+        actor.effectiveApp?.uid ??
         opts?.appUuid ??
         GLOBAL_APP_KEY;
     return `v1:${actor.user.uuid}:${appUuid}`;
@@ -452,7 +456,16 @@ export class SystemKVStore extends PuterStore {
     async batchPut(
         {
             items,
-        }: { items: Array<{ key: string; value: unknown; expireAt?: number }> },
+            disableSharing,
+        }: {
+            items: Array<{ key: string; value: unknown; expireAt?: number }>;
+            /**
+             * Marks every entry in the batch private, as `set` does for one.
+             * Batch-wide rather than per-item: it arrives on the same trailing
+             * options object the single form takes.
+             */
+            disableSharing?: boolean;
+        },
         opts?: KVOpts,
     ): Promise<KVResult<boolean>> {
         if (!Array.isArray(items) || items.length === 0) {
@@ -491,6 +504,7 @@ export class SystemKVStore extends PuterStore {
                 key: item.key,
                 value: item.value,
                 ttl: item.expireAt,
+                ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
             },
         }));
 

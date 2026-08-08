@@ -21,7 +21,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import type { EventMetadata } from '../../clients/event/types.js';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError, type LegacyErrorCodes } from '../../core/http/HttpError.js';
 import { assertVerifiedEmail } from '../../core/http/verifiedEmail.js';
@@ -800,7 +800,7 @@ export class WorkerDriver extends PuterDriver {
             try {
                 const ownerUser = await this.stores.user.getById(entry.userId);
                 if (!ownerUser) continue;
-                const ownerActor = { user: ownerUser } as Actor;
+                const ownerActor = makeActor({ user: ownerUser });
 
                 // Read the updated file content. `ownerActor` is the file's
                 // owner from the originating write event, so the read-ACL

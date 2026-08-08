@@ -21,7 +21,7 @@ import type { Request, Response } from 'express';
 import { Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
@@ -250,7 +250,7 @@ describe('LegacyFSController.mkdir', () => {
         const { actor: userActor } = await makeUser();
         const username = userActor.user!.username!;
         const appUid = `app-legacy-mkdir-${uuidv4()}`;
-        const appActor: Actor = { ...userActor, app: { uid: appUid } };
+        const appActor = makeActor({ ...userActor, app: { uid: appUid } });
         const parent = `/${username}/AppData`;
 
         await withActor(userActor, () =>
@@ -1214,7 +1214,7 @@ describe('LegacyFSController.search', () => {
         const { actor: userActor } = await makeUser();
         const username = userActor.user!.username!;
         const appUid = `app-legacy-search-${uuidv4()}`;
-        const appActor: Actor = { ...userActor, app: { uid: appUid } };
+        const appActor = makeActor({ ...userActor, app: { uid: appUid } });
         const needle = `appneedle-${Math.random().toString(36).slice(2, 8)}`;
 
         await withActor(userActor, () =>
@@ -1419,10 +1419,10 @@ describe('LegacyFSController.sign', () => {
             },
             { ownerUserId: userActor.user!.id! },
         );
-        const attackerActor: Actor = {
+        const attackerActor = makeActor({
             ...userActor,
             app: { uid: `attacker-${uuidv4()}` },
-        };
+        });
 
         const { res } = makeRes();
         await expect(
@@ -1456,7 +1456,7 @@ describe('LegacyFSController.sign', () => {
             },
             { ownerUserId: userActor.user!.id! },
         );
-        const appActor: Actor = { ...userActor, app: { uid: ownApp.uid } };
+        const appActor = makeActor({ ...userActor, app: { uid: ownApp.uid } });
 
         const { res, captured } = makeRes();
         await withActor(appActor, () =>
@@ -1766,10 +1766,10 @@ describe('LegacyFSController.requestAppRootDir', () => {
     it('rejects with 403 when the actor.app.uid differs from the requested app_uid', async () => {
         const { actor } = await makeUser();
         const { res } = makeRes();
-        const appActor = {
+        const appActor = makeActor({
             ...actor,
             app: { uid: 'app-mismatch' },
-        } as unknown as Actor;
+        });
         await expect(
             withActor(appActor, () =>
                 controller.requestAppRootDir(
@@ -1787,10 +1787,10 @@ describe('LegacyFSController.requestAppRootDir', () => {
         const { actor } = await makeUser();
         const username = actor.user!.username!;
         const appUid = 'app-self';
-        const appActor = {
+        const appActor = makeActor({
             ...actor,
             app: { uid: appUid },
-        } as unknown as Actor;
+        });
         const { res, captured } = makeRes();
         await withActor(appActor, () =>
             controller.requestAppRootDir(
@@ -2463,10 +2463,10 @@ describe('LegacyFSController.sign app sandbox + write downgrade', () => {
         const { actor } = await makeUser();
         const username = actor.user!.username!;
         // Build an app-under-user actor whose AppData root is the test app.
-        const appActor = {
+        const appActor = makeActor({
             ...actor,
             app: { uid: 'sandbox-app' },
-        } as unknown as Actor;
+        });
 
         // Create a file *outside* /Documents (anywhere outside AppData/<uid>).
         const target = `/${username}/Documents/forbidden.txt`;
@@ -2730,10 +2730,10 @@ describe('LegacyFSController.suggestApps', () => {
     it('refuses to look up entries an app actor cannot see', async () => {
         const { actor: userActor } = await makeUser();
         const username = userActor.user!.username!;
-        const appActor: Actor = {
+        const appActor = makeActor({
             ...userActor,
             app: { uid: `app-suggest-${uuidv4()}` },
-        };
+        });
         const target = `/${username}/Documents/probe.txt`;
         await withActor(userActor, () =>
             controller.touch(
@@ -2801,10 +2801,10 @@ describe('LegacyFSController.suggestApps', () => {
 describe('LegacyFSController.readdirSubdomains', () => {
     it('returns an empty array for app-under-user actors', async () => {
         const { actor: userActor, userId } = await makeUser();
-        const appActor: Actor = {
+        const appActor = makeActor({
             ...userActor,
             app: { uid: `app-subd-${uuidv4()}` },
-        };
+        });
         await server.clients.db.write(
             'INSERT INTO `subdomains` (`uuid`, `subdomain`, `user_id`) VALUES (?, ?, ?)',
             [uuidv4(), `sd-${uuidv4().slice(0, 8)}`, userId],
@@ -2843,10 +2843,10 @@ describe('LegacyFSController.updateFsentryThumbnail', () => {
     it('rejects an app actor probing entries outside AppData with 404', async () => {
         const { actor: userActor } = await makeUser();
         const username = userActor.user!.username!;
-        const appActor: Actor = {
+        const appActor = makeActor({
             ...userActor,
             app: { uid: `app-thumb-${uuidv4()}` },
-        };
+        });
         const target = `/${username}/Documents/thumbme.txt`;
         await withActor(userActor, () =>
             controller.touch(

@@ -1591,7 +1591,7 @@ export class PermissionService extends PuterService {
             username: user.username,
             email: user.email ?? null,
         };
-        return { user: actorUser };
+        return { user: actorUser, effectiveApp: null };
     }
 }
 

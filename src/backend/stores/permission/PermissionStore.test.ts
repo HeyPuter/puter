@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { readFileSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PuterServer } from '../../server.ts';
@@ -200,6 +201,121 @@ describe('PermissionStore', () => {
             expect(rows).toHaveLength(1);
             expect(rows[0].action).toBe('grant');
             expect(rows[0].reason).toBe('test');
+        });
+    });
+
+    // -- prefix deletion -----------------------------------------------
+
+    describe('deleteAppGrantsByPermissionPrefix', () => {
+        it('removes the exact permission and its subtree, across both tables', async () => {
+            const user = await makeUser();
+            const app = await makeApp(user.id);
+
+            await store.upsertUserAppPerm(user.id, app.id, 'app-data:x', {});
+            await store.upsertUserAppPerm(
+                user.id,
+                app.id,
+                'app-data:x:kv:get',
+                {},
+            );
+            await store.upsertUserAppPerm(user.id, app.id, 'app-data:y', {});
+            await store.upsertDevAppPerm(user.id, app.id, 'app-data:x:fs', {});
+
+            const removed =
+                await store.deleteAppGrantsByPermissionPrefix('app-data:x');
+
+            expect(removed.map((r) => r.permission).sort()).toEqual([
+                'app-data:x',
+                'app-data:x:fs',
+                'app-data:x:kv:get',
+            ]);
+            expect(
+                await store.hasUserAppPerm(user.id, app.id, 'app-data:y'),
+            ).toBe(true);
+        });
+
+        it('treats LIKE wildcards in the permission as literal text', async () => {
+            const user = await makeUser();
+            const app = await makeApp(user.id);
+
+            // `_` matches any single character unescaped, so an unescaped
+            // pattern for `app-data:a_c` would also delete `app-data:abc`.
+            await store.upsertUserAppPerm(
+                user.id,
+                app.id,
+                'app-data:a_c:kv',
+                {},
+            );
+            await store.upsertUserAppPerm(
+                user.id,
+                app.id,
+                'app-data:abc:kv',
+                {},
+            );
+            await store.upsertUserAppPerm(user.id, app.id, 'app-data:100%', {});
+            await store.upsertUserAppPerm(
+                user.id,
+                app.id,
+                'app-data:100pct',
+                {},
+            );
+
+            const removed =
+                await store.deleteAppGrantsByPermissionPrefix('app-data:a_c');
+            expect(removed.map((r) => r.permission)).toEqual([
+                'app-data:a_c:kv',
+            ]);
+            expect(
+                await store.hasUserAppPerm(user.id, app.id, 'app-data:abc:kv'),
+            ).toBe(true);
+
+            await store.deleteAppGrantsByPermissionPrefix('app-data:100%');
+            expect(
+                await store.hasUserAppPerm(user.id, app.id, 'app-data:100pct'),
+            ).toBe(true);
+        });
+
+        it('escapes the escape character itself', async () => {
+            const user = await makeUser();
+            const app = await makeApp(user.id);
+
+            await store.upsertUserAppPerm(user.id, app.id, 'app-data:a!b', {});
+            await store.upsertUserAppPerm(
+                user.id,
+                app.id,
+                'app-data:a!b:kv',
+                {},
+            );
+
+            const removed =
+                await store.deleteAppGrantsByPermissionPrefix('app-data:a!b');
+            expect(removed.map((r) => r.permission).sort()).toEqual([
+                'app-data:a!b',
+                'app-data:a!b:kv',
+            ]);
+        });
+
+        it('does not use a backslash as the LIKE escape character', () => {
+            // MySQL processes backslash escapes inside string literals, so the
+            // `'\'` that a JS `'\\'` produces reads as an escaped quote and
+            // leaves the literal unterminated. That is a parse error on MySQL
+            // only — no SQLite or Postgres run, including this suite, would
+            // ever surface it, so the SQL text itself is what gets pinned.
+            const source = readFileSync(
+                new URL('./PermissionStore.ts', import.meta.url),
+                'utf8',
+            );
+            const escapeClauses = source
+                .split('\n')
+                .filter(
+                    (line) =>
+                        line.includes('LIKE ?') && line.includes('ESCAPE'),
+                )
+                .map((line) => line.trim());
+            expect(escapeClauses.length).toBeGreaterThan(0);
+            for (const clause of escapeClauses) {
+                expect(clause).toContain("ESCAPE '!'");
+            }
         });
     });
 

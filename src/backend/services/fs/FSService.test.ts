@@ -28,7 +28,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { appDataPermission } from '../permission/appDataScopes.js';
@@ -2696,7 +2696,7 @@ describe('FSService permission rules', () => {
             `${user.home}/Documents/outside.json`,
             '{}',
         );
-        const appActor: Actor = { user: user.actor.user, app: { uid: appUid } };
+        const appActor = makeActor({ user: user.actor.user, app: { uid: appUid } });
 
         await expect(
             server.services.permission.check(
@@ -2800,10 +2800,10 @@ describe('FSService — cross-app AppData access', () => {
         owner = await makeUser();
         calendar = await makeRealApp(owner.userId);
         contacts = await makeRealApp(owner.userId);
-        calendarActor = {
+        calendarActor = makeActor({
             user: owner.actor.user,
             app: { uid: calendar.uid, id: calendar.id },
-        } as Actor;
+        });
         contactsRoot = await fs.mkdir(owner.userId, {
             path: `${owner.home}/AppData/${contacts.uid}`,
             createMissingParents: true,
@@ -2946,14 +2946,14 @@ describe('FSService — cross-app AppData access', () => {
         // would skip entirely — failing open where the read/write implicator
         // fails closed.
         await grant(appDataPermission(contacts.uid, 'fs', 'write'));
-        const tokenActor = {
+        const tokenActor = makeActor({
             user: owner.actor.user,
             accessToken: {
                 uid: 'tok-cross-app',
                 issuer: calendarActor,
                 fullAccess: false,
             },
-        } as unknown as Actor;
+        });
 
         await expect(
             runWithContext({ actor: tokenActor }, () =>

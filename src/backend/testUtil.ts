@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { v4 as uuidv4 } from 'uuid';
 import { deepMerge } from '../../tools/lib/configMigration.mjs';
+import { makeActor } from './core/actor';
 import { PuterServer } from './server';
 import { IConfig } from './types';
 import { puterClients } from './clients';
@@ -268,7 +269,7 @@ export const createTestUser = async (
     // "API Token" flow does (POST /auth/create-access-token with the
     // full-api-access sentinel).
     const apiToken = await server.services.auth.createAccessToken(
-        { user },
+        makeActor({ user }),
         [[FULL_API_ACCESS]],
         { label: 'puter-test-env' },
     );
