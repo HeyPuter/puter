@@ -1450,6 +1450,16 @@ const TabApps = {
         const groupId = this._openGroupId;
         if ( ! groupId ) return;
         this._openGroupId = null;
+        // Commit a name still being typed. Every other way out of the folder
+        // (clicking outside it, launching an app from it) commits through the
+        // box's own blur while the folder is still open; closing is the one
+        // path that blurs it AFTER — handing focus back to the tile below, or
+        // simply removing the card — so the blur handler would find no open
+        // folder to rename and the typed name would be dropped on the floor.
+        const nameEl = $el_window.find('.myapps-group-name')[0];
+        if ( nameEl && document.activeElement === nameEl ) {
+            this._renameGroup($el_window, groupId, nameEl.value);
+        }
         clearTimeout(this._createdGroupTimer);
         if ( this._groupEscHandler ) {
             document.removeEventListener('keydown', this._groupEscHandler);
