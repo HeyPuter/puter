@@ -116,6 +116,66 @@ async function fetchDocText(url) {
     return resp.text();
 }
 
+// ----- signed (out-of-band) uploads ----------------------------------------
+// fs_write_file carries every byte inline, so a large file has to be base64'd
+// through the caller's context before it ever reaches us. The fs_*_upload tools
+// hand back a presigned storage URL instead: the caller PUTs the file straight
+// to storage and then finalizes, and the bytes never pass through this server
+// or the conversation.
+
+/** POST JSON to a Puter API endpoint as the caller, returning the parsed body. */
+async function postApi(puter, endpoint, payload) {
+    const resp = await fetch(`${puter.APIOrigin}${endpoint}`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${puter.authToken}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    });
+    const text = await resp.text();
+    let body = null;
+    if (text) {
+        try {
+            body = JSON.parse(text);
+        } catch {
+            body = text;
+        }
+    }
+    if (!resp.ok) {
+        const message = (body && (body.message || body.error?.message || body.error))
+            || (typeof body === 'string' && body)
+            || `Request failed with status ${resp.status}`;
+        const error = new Error(typeof message === 'string' ? message : JSON.stringify(message));
+        error.status = resp.status;
+        throw error;
+    }
+    return body;
+}
+
+/** Single-quote a string for safe interpolation into the emitted shell command. */
+function shellQuote(value) {
+    return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+/** Best-effort content type from a file extension, for the signed PUT. */
+const UPLOAD_MIME_BY_EXT = {
+    txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', html: 'text/html',
+    css: 'text/css', js: 'application/javascript', json: 'application/json',
+    xml: 'application/xml', pdf: 'application/pdf', zip: 'application/zip',
+    gz: 'application/gzip', tar: 'application/x-tar', png: 'image/png',
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+    svg: 'image/svg+xml', ico: 'image/x-icon', mp3: 'audio/mpeg', wav: 'audio/wav',
+    ogg: 'audio/ogg', mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime',
+};
+
+function guessContentType(path) {
+    const name = String(path).split('/').pop() || '';
+    const dot = name.lastIndexOf('.');
+    if (dot <= 0) return 'application/octet-stream';
+    return UPLOAD_MIME_BY_EXT[name.slice(dot + 1).toLowerCase()] || 'application/octet-stream';
+}
+
 /** The directory part of a Puter path ('' when the path has no directory part). */
 function parentPath(path) {
     const trimmed = String(path).replace(/\/+$/, '');
@@ -241,8 +301,11 @@ export const TOOLS = [
     {
         name: 'fs_write_file',
         description:
-            'Write (create or overwrite) a file in Puter. Provide content as UTF-8 text, ' +
-            'or set encoding="base64" to write binary data. Equivalent to PuterJS puter.fs.write(path, data).',
+            'Write (create or overwrite) a file in Puter from content you supply inline. Provide content ' +
+            'as UTF-8 text, or set encoding="base64" to write binary data. Best for text you are ' +
+            'generating anyway; for a file that already exists on disk — especially a large or binary ' +
+            'one — use fs_start_upload instead, which moves the bytes out of band. Equivalent to ' +
+            'PuterJS puter.fs.write(path, data).',
         inputSchema: {
             type: 'object',
             properties: {
@@ -272,6 +335,143 @@ export const TOOLS = [
                 dedupeName: dedupe_name,
                 createMissingParents: create_missing_parents,
             });
+        },
+    },
+    {
+        name: 'fs_start_upload',
+        description:
+            'Begin an out-of-band file upload and get back a presigned URL to PUT the bytes to. ' +
+            'PREFER THIS OVER fs_write_file for any file you already have on disk, and for anything ' +
+            'large or binary: the bytes go straight from your machine to storage instead of being ' +
+            'base64-encoded through this conversation. Three steps: (1) call this with the destination ' +
+            'path and the file\'s exact byte size, (2) run the returned `upload_command` in a shell, ' +
+            '(3) call fs_complete_upload with the returned upload_id — the file does not exist in Puter ' +
+            'until you do. Get the exact size with `wc -c < file` and pass it verbatim; a wrong size is ' +
+            'rejected. The URL expires (see expires_at), so upload promptly. If the upload fails, call ' +
+            'fs_abort_upload rather than leaving the session dangling.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                path: { type: 'string', description: `Destination file path in Puter. ${HOME_PATH_NOTE}` },
+                size: {
+                    type: 'integer',
+                    minimum: 0,
+                    description: 'Exact size of the file in bytes (`wc -c < file`). Must match what you upload.',
+                },
+                local_path: {
+                    type: 'string',
+                    description: 'Path of the local file being uploaded. Only used to write the `upload_command` for you; this server never reads it.',
+                },
+                content_type: {
+                    type: 'string',
+                    description: 'MIME type. Defaults to a guess from the destination extension. The upload MUST send this exact value as its Content-Type header — `upload_command` already does.',
+                },
+                expires_in: {
+                    type: 'integer',
+                    description: 'Seconds the upload URL stays valid. Clamped to 60..3600 by the server. Defaults to 900.',
+                },
+                overwrite: { type: 'boolean', default: true, description: 'Overwrite an existing file.' },
+                create_missing_parents: {
+                    type: 'boolean',
+                    default: true,
+                    description: 'Create missing parent directories.',
+                },
+                dedupe_name: {
+                    type: 'boolean',
+                    default: false,
+                    description: 'Auto-rename instead of overwriting if the file exists.',
+                },
+            },
+            required: ['path', 'size'],
+        },
+        async handler(puter, {
+            path, size, local_path, content_type, expires_in,
+            overwrite = true, create_missing_parents = true, dedupe_name = false,
+        }) {
+            const contentType = content_type || guessContentType(path);
+            const startResponse = await postApi(puter, '/fs/startBatchWrite', [{
+                fileMetadata: {
+                    path,
+                    size,
+                    contentType,
+                    overwrite,
+                    dedupeName: dedupe_name,
+                    createMissingParents: create_missing_parents,
+                },
+                uploadMode: 'single',
+                ...(expires_in ? { expiresInSeconds: expires_in } : {}),
+            }]);
+            const started = Array.isArray(startResponse) ? startResponse[0] : null;
+
+            if (!started || !started.sessionId) {
+                throw new Error(
+                    'This Puter server did not return a presigned upload URL. Use fs_write_file instead.',
+                );
+            }
+
+            // The server upgrades anything past its single-PUT ceiling to a
+            // multipart upload, which needs a per-part ETag dance we don't
+            // support here. Release the session rather than leaving it pending.
+            if (started.uploadMode !== 'single' || !started.url) {
+                await postApi(puter, '/fs/abortWrite', { uploadId: started.sessionId }).catch(() => {});
+                throw new Error(
+                    `File is too large for a single-shot signed upload (${size} bytes). ` +
+                    'Split it into smaller files, or use fs_write_file if it is small enough to inline.',
+                );
+            }
+
+            const target = local_path ? shellQuote(local_path) : '<LOCAL_FILE>';
+            return {
+                upload_id: started.sessionId,
+                url: started.url,
+                content_type: started.contentType || contentType,
+                size,
+                path,
+                expires_at: new Date(started.expiresAt).toISOString(),
+                upload_command:
+                    `curl -sS --fail-with-body -X PUT ` +
+                    `-H ${shellQuote(`Content-Type: ${started.contentType || contentType}`)} ` +
+                    `--upload-file ${target} ${shellQuote(started.url)}`,
+                next_step:
+                    'Run upload_command, then call fs_complete_upload with this upload_id. ' +
+                    'The file is not visible in Puter until that call succeeds.',
+            };
+        },
+    },
+    {
+        name: 'fs_complete_upload',
+        description:
+            'Finalize an upload started with fs_start_upload, after the bytes have been PUT to the ' +
+            'presigned URL. This is what actually creates the file in Puter — skip it and the upload ' +
+            'is discarded. Returns the created file entry.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                upload_id: { type: 'string', description: 'The upload_id returned by fs_start_upload.' },
+            },
+            required: ['upload_id'],
+        },
+        async handler(puter, { upload_id }) {
+            const response = await postApi(puter, '/fs/completeBatchWrite', [{ uploadId: upload_id }]);
+            const completed = Array.isArray(response) ? response[0] : response;
+            return (completed && completed.fsEntry) || completed;
+        },
+    },
+    {
+        name: 'fs_abort_upload',
+        description:
+            'Discard an upload started with fs_start_upload without creating a file. Use this when the ' +
+            'PUT failed or you changed your mind, so the pending upload does not linger.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                upload_id: { type: 'string', description: 'The upload_id returned by fs_start_upload.' },
+            },
+            required: ['upload_id'],
+        },
+        async handler(puter, { upload_id }) {
+            await postApi(puter, '/fs/abortWrite', { uploadId: upload_id });
+            return { success: true, aborted: upload_id };
         },
     },
     {

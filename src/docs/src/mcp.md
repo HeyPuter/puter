@@ -97,7 +97,10 @@ The Puter MCP server exposes the following tools, grouped by category. Each one 
 
 ### Filesystem
 
-- `fs_write_file`: Create or overwrite a file in your Puter filesystem.
+- `fs_write_file`: Create or overwrite a file in your Puter filesystem from inline content.
+- `fs_start_upload`: Get a presigned URL to upload a local file directly to storage, without sending its bytes through the agent. Preferred for large or binary files.
+- `fs_complete_upload`: Finalize an upload started with `fs_start_upload` — this is what creates the file.
+- `fs_abort_upload`: Discard an upload without creating a file.
 - `fs_read_file`: Read a file's contents (UTF-8 text, or base64 for binary), optionally just a byte window of it.
 - `fs_readdir`: List the files and subdirectories in a directory.
 - `fs_mkdir`: Create a directory, optionally creating missing parents.
