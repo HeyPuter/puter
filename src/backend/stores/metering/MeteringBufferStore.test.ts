@@ -492,6 +492,32 @@ describe('MeteringBufferStore', () => {
             ).toEqual({});
         });
 
+        it('re-drives an abandoned claim through exactly one of two concurrent flushes', async () => {
+            const tag = bucketTag(key);
+            const nonce = 'abandonednonce';
+
+            await server.clients.redis.hset(
+                `meter:p:{${tag}}:${nonce}`,
+                'total',
+                '25',
+            );
+            await server.clients.redis.hset(
+                `meter:pending:{${tag}}`,
+                nonce,
+                `${Date.now() - 60_000}:${key}`,
+            );
+
+            // The pending index is read without removing anything, so both
+            // cycles see this claim. Only one of them may write it onward —
+            // usage counted twice here would over-bill.
+            await Promise.all([target.flushCycle(), target.flushCycle()]);
+
+            expect(await storedTotal(key)).toBe(25);
+            expect(
+                await server.clients.redis.hgetall(`meter:pending:{${tag}}`),
+            ).toEqual({});
+        });
+
         it('leaves a claim that is still fresh alone', async () => {
             const tag = bucketTag(key);
             await server.clients.redis.hset(
