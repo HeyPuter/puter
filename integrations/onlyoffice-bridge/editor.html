@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Documento</title>
+<script src="__DOCSERVER_BROWSER_ORIGIN__/web-apps/apps/api/documents/api.js"></script>
+<style>
+    html, body, #placeholder { height: 100%; margin: 0; padding: 0; }
+</style>
+</head>
+<body>
+<div id="debug" style="display:none; font: 12px monospace; white-space: pre-wrap; padding: 8px; background: #fffae0; border-bottom: 2px solid #cc0; max-height: 40vh; overflow: auto;"></div>
+<div id="placeholder"></div>
+<script>
+    const DEBUG = new URLSearchParams(window.location.search).get('debug') === '1';
+    const debugEl = document.getElementById('debug');
+    if (DEBUG) debugEl.style.display = 'block';
+    function log(msg) {
+        console.log('[editor]', msg);
+        if (DEBUG) debugEl.textContent += msg + '\n';
+    }
+
+    // These two are substituted server-side (see server.js) from
+    // DOCSERVER_BROWSER_ORIGIN / BRIDGE_CONTAINER_ORIGIN env vars.
+    const DOCSERVER_BROWSER_ORIGIN = '__DOCSERVER_BROWSER_ORIGIN__';
+    const BRIDGE_CONTAINER_ORIGIN = '__BRIDGE_CONTAINER_ORIGIN__';
+
+    const params = new URLSearchParams(window.location.search);
+    const readUrl = params.get('puter.item.read_url');
+    const writeUrl = params.get('puter.item.write_url');
+    const authToken = params.get('puter.auth.token');
+    const appName = params.get('puter.app.name') || 'word-processor';
+    let fileName = params.get('puter.item.name');
+
+    log('full query string: ' + window.location.search);
+    log('readUrl: ' + readUrl);
+    log('writeUrl: ' + writeUrl);
+    log('appName: ' + appName);
+
+    const APP_TYPE_INFO = {
+        'word-processor': { type: 'word', ext: 'docx', defaultName: 'Novo Documento.docx' },
+        spreadsheet: { type: 'cell', ext: 'xlsx', defaultName: 'Nova Planilha.xlsx' },
+        presentation: { type: 'slide', ext: 'pptx', defaultName: 'Nova Apresentação.pptx' },
+    };
+
+    const MIME_BY_EXT = {
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        txt: 'text/plain',
+        csv: 'text/csv',
+    };
+
+    function docTypeFromExt(ext) {
+        if (['xls', 'xlsx', 'ods', 'csv'].includes(ext)) return 'cell';
+        if (['ppt', 'pptx', 'odp'].includes(ext)) return 'slide';
+        return 'word';
+    }
+
+    let downloadUrl, callbackUrl, documentType, key;
+
+    if (readUrl) {
+        // Opening an existing file.
+        fileName = fileName || 'documento.docx';
+        const ext = (fileName.split('.').pop() || 'docx').toLowerCase();
+        const fileUid = params.get('puter.item.uid') || 'doc';
+        documentType = docTypeFromExt(ext);
+        key = fileUid + '-' + Date.now();
+        downloadUrl = BRIDGE_CONTAINER_ORIGIN + '/download?u=' + encodeURIComponent(readUrl);
+        callbackUrl = BRIDGE_CONTAINER_ORIGIN + '/callback'
+            + '?write_url=' + encodeURIComponent(writeUrl)
+            + '&auth_token=' + encodeURIComponent(authToken || '')
+            + '&title=' + encodeURIComponent(fileName)
+            + '&mime=' + encodeURIComponent(MIME_BY_EXT[ext] || 'application/octet-stream');
+        window.document.title = fileName;
+    } else {
+        // Launched standalone (no file): start from a blank template and
+        // create the real file in ~/Desktop on first save.
+        log('sem read_url — abrindo documento em branco (modo criacao)');
+        const info = APP_TYPE_INFO[appName] || APP_TYPE_INFO['word-processor'];
+        fileName = info.defaultName;
+        documentType = info.type;
+        key = 'blank-' + info.type + '-' + Date.now();
+        downloadUrl = BRIDGE_CONTAINER_ORIGIN + '/blank?type=' + info.type;
+        callbackUrl = BRIDGE_CONTAINER_ORIGIN + '/callback'
+            + '?create=1'
+            + '&auth_token=' + encodeURIComponent(authToken || '')
+            + '&title=' + encodeURIComponent(fileName)
+            + '&mime=' + encodeURIComponent(MIME_BY_EXT[info.ext] || 'application/octet-stream');
+        window.document.title = fileName;
+    }
+
+    const config = {
+        document: {
+            fileType: fileName.split('.').pop().toLowerCase(),
+            key: key,
+            title: fileName,
+            url: downloadUrl,
+        },
+        documentType: documentType,
+        editorConfig: {
+            callbackUrl: callbackUrl,
+            lang: 'pt-BR',
+            user: { id: 'puter-user', name: 'Usuário' },
+        },
+        width: '100%',
+        height: '100%',
+        events: {
+            onAppReady: function () { log('evento: onAppReady'); },
+            onDocumentReady: function () { log('evento: onDocumentReady (documento carregou!)'); },
+            onError: function (e) { log('evento: onError -> ' + JSON.stringify(e && e.data ? e.data : e)); },
+            onInfo: function (e) { log('evento: onInfo -> ' + JSON.stringify(e && e.data ? e.data : e)); },
+        },
+    };
+
+    log('downloadUrl (que o container vai buscar): ' + downloadUrl);
+    log('callbackUrl (que o container vai chamar ao salvar): ' + callbackUrl);
+    log('typeof DocsAPI: ' + typeof DocsAPI);
+
+    if (typeof DocsAPI === 'undefined') {
+        log('ERRO: api.js do OnlyOffice nao carregou (DocsAPI indefinido).');
+    } else {
+        new DocsAPI.DocEditor('placeholder', config);
+        log('DocsAPI.DocEditor chamado, aguardando eventos...');
+    }
+</script>
+</body>
+</html>

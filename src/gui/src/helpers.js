@@ -710,7 +710,7 @@ window.mutate_user_preferences = function (user_preferences_delta) {
 window.update_user_preferences = function (user_preferences) {
     window.user_preferences = user_preferences;
     localStorage.setItem('user_preferences', JSON.stringify(user_preferences));
-    const language = user_preferences.language ?? 'en';
+    const language = user_preferences.language ?? 'br';
     window.locale = language;
 
     // Broadcast locale change to apps
@@ -2131,7 +2131,7 @@ window.refresh_desktop_background = function () {
     }
     // default background
     else {
-        let wallpaper = (window.gui_env === 'prod') ? 'https://puter-assets.b-cdn.net/wallpaper.webp' : '/src/images/wallpaper.webp';
+        let wallpaper = (window.gui_env === 'prod') ? '/images/wallpaper.jpg' : '/src/images/wallpaper.jpg';
         window.set_desktop_background({
             url: wallpaper,
             fit: 'cover',

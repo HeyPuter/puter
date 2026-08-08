@@ -947,15 +947,15 @@ window.showTurnstileChallenge = function (options) {
         let message = 'Setting up your account...';
         if (window.embedded_in_popup) {
             message =
-                'Setting up your <a href="https://puter.com" target="_blank">Puter.com</a> account...';
+                'Setting up your <a href="https://iaflay.com.br" target="_blank">IAFlay</a> account...';
         }
         // Create modal HTML
         let modalHtml = `
             <div id="${modalId}" class="captcha-modal">
                 <div class="modal-content">
                     <div class="modal-header" style="margin-bottom: 20px;">
-                        <img src="${window.icons['logo-white.svg']}" class="captcha-logo">
-                        <h2 class="captcha-title">Welcome to Puter!</h2>
+                        <img src="${window.icons['iaflay-logo.png']}" class="captcha-logo">
+                        <h2 class="captcha-title">Welcome to IAFlay!</h2>
                     </div>
 
                     <div class="captcha-container">
@@ -2268,9 +2268,9 @@ window.initgui = async function (options) {
                         const blockedMsg = err_obj.message || 'Signup blocked';
                         overlay.innerHTML = `
                             <div class="signup-blocked-content">
-                                <img src="${window.icons['logo.svg'] || window.icons['logo-white.svg'] || ''}" style="width:64px;margin-bottom:24px;" />
+                                <img src="${window.icons['iaflay-logo.png'] || ''}" style="width:64px;margin-bottom:24px;" />
                                 <p>${html_encode(blockedMsg)}</p>
-                                <p>If you already have an account, try <a href="/action/login">logging in</a>. Otherwise, contact <a href="mailto:support@puter.com">support@puter.com</a> for assistance.</p>
+                                <p>If you already have an account, try <a href="/action/login">logging in</a>. Otherwise, contact <a href="mailto:contato@iaflay.com.br">contato@iaflay.com.br</a> for assistance.</p>
                             </div>
                         `;
                         document.body.appendChild(overlay);

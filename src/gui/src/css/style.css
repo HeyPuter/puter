@@ -1661,7 +1661,9 @@ span.header-sort-icon img {
     display: none;
     z-index: 9999999999;
     position: absolute;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
+    max-height: calc(100vh - 20px);
     white-space: nowrap;
     font-family: sans-serif;
     background: #fff;
@@ -2515,18 +2517,35 @@ label {
         0 4px 16px rgba(0, 0, 0, 0.2);
 }
 
-/* Bottom positioned taskbar (default) */
+/* Bottom positioned taskbar (default) — floating, centered dock. */
 .taskbar.taskbar-position-bottom {
     bottom: 5px;
     left: 50%;
     right: auto;
     top: auto;
     width: auto;
-    height: 50px;
+    height: 54px;
     transform: translateX(-50%);
     flex-direction: row;
     justify-content: center;
+    align-items: center;
     writing-mode: initial;
+}
+
+.taskbar.taskbar-position-bottom .taskbar-sortable {
+    justify-content: center !important;
+}
+
+/* Dock magnification: lift + scale the icon under the cursor */
+.taskbar.taskbar-position-bottom .taskbar-item {
+    transition: transform 0.15s ease, margin 0.15s ease;
+}
+
+.taskbar.taskbar-position-bottom .taskbar-item:hover {
+    transform: translateY(-8px) scale(1.25);
+    margin-left: 4px;
+    margin-right: 4px;
+    z-index: 2;
 }
 
 /* Left positioned taskbar */

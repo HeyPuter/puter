@@ -1,0 +1,13 @@
+{
+  "name": "onlyoffice-bridge",
+  "version": "1.0.0",
+  "description": "Relay between Puter and a self-hosted OnlyOffice Document Server: proxies document downloads and relays saves back into Puter's filesystem.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {}
+}

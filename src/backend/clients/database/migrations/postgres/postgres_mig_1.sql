@@ -683,11 +683,6 @@ INSERT INTO apps (
   approved_for_incentive_program, tags, "timestamp"
 )
 VALUES
-  ('app-3920851d-bda8-479b-9407-8517293c7d44', 1, NULL, 'pdf', 'PDF', '', 'https://pdf.puter.com', FALSE, TRUE, FALSE, TRUE, FALSE, FALSE, 'productivity', '2020-01-01 00:00:00'),
-  ('app-5584fbf7-ed69-41fc-99cd-85da21b1ef51', 1, NULL, 'camera', 'Camera', 'Camera in the browser.', 'https://online-camera.com', FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, NULL, '2020-01-01 00:00:00'),
-  ('app-11edfba2-1ed3-4e22-8573-47e88fb87d70', 1, NULL, 'player', 'Player', 'A free video player app in the browser.', 'https://simple-player.puter.com', FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, NULL, '2020-01-01 00:00:00'),
-  ('app-7bdca1a4-6373-4c98-ad97-03ff2d608ca1', 1, NULL, 'recorder', 'Recorder', 'Online voice recorder in the browser with cloud storage.', 'https://voice-recorder.com', FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, NULL, '2020-01-01 00:00:00'),
-  ('app-d7e9471f-e441-4d72-a5ab-75e96573b76b', 1, NULL, 'music-player', 'Music Player', 'A free music player app in the browser.', 'https://player.puter.com', FALSE, FALSE, FALSE, TRUE, FALSE, FALSE, NULL, '2026-05-10 00:00:00'),
   ('app-e3ac5486-da8c-42ad-8377-8728086e0980', 1, NULL, 'git', 'Git', 'Puter Git client', 'https://builtins.namespaces.puter.com/git', FALSE, FALSE, TRUE, TRUE, FALSE, FALSE, 'productivity', '2020-01-01 00:00:00'),
   ('app-0b37f054-07d4-4627-8765-11bd23e889d4', 1, NULL, 'dev-center', 'Dev Center', 'This is the app that makes apps', 'https://builtins.namespaces.puter.com/dev-center', TRUE, TRUE, FALSE, TRUE, TRUE, FALSE, NULL, '2020-01-01 00:00:00'),
   ('app-fbbdb72b-ad08-4cb4-86a1-de0f27cf2e1e', 1, NULL, 'puter-linux', 'Puter Linux', 'Linux emulator for Puter', 'https://builtins.namespaces.puter.com/emulator', TRUE, FALSE, FALSE, TRUE, TRUE, FALSE, NULL, '2020-01-01 00:00:00'),

@@ -573,6 +573,8 @@ function UIContextMenu (options) {
         {
             y_pos = start_y;
         }
+        // don't let a menu taller than the viewport push above the top edge
+        y_pos = Math.max(y_pos, 10);
 
         // In the right position (the mouse)
         $(contextMenu).css({

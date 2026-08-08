@@ -1171,7 +1171,7 @@ async function UIDesktop (options) {
 
     ht += `<div class="toolbar hide-scrollbar ${class_name}" style="${style}">`;
     // logo
-    ht += `<div class="toolbar-btn toolbar-puter-logo" title="Puter" style="margin-left: 10px;"><img src="${window.icons['logo-white.svg']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
+    ht += `<div class="toolbar-btn toolbar-puter-logo" title="IAFlay" style="margin-left: 10px;"><img src="${window.icons['iaflay-logo.png']}" draggable="false" style="display:block; width:17px; height:17px"></div>`;
 
     // spacer to push items to the right
     ht += '<div class="toolbar-spacer"></div>';
@@ -2125,6 +2125,14 @@ $(document).on('click', '.user-options-menu-btn', async function (e) {
         position: { top: pos.top + 28, left: pos.left + pos.width - 15 },
         items: [
             ...items,
+            //--------------------------------------------------
+            // Change Language
+            //--------------------------------------------------
+            {
+                html: i18n('change_language'),
+                id: 'change-language',
+                items: supportedLanguagesItems,
+            },
             //--------------------------------------------------
             // Settings
             //--------------------------------------------------
