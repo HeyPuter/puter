@@ -109,6 +109,9 @@ export default defineConfig(({ mode }) => ({
         include: [
             'src/backend/**/*.test.{js,ts}',
             'extensions/**/*.test.{js,ts}',
+            // The MCP connector's signed-upload tools call the `/fs` HTTP API
+            // directly, so their tests need a booted backend (`setupPuterTestEnv`).
+            'src/mcp-connector/**/*.test.{js,ts}',
         ],
         // Root is the repo root so that the file transformer (which
         // applies `lowerDecoratorsPlugin`) sees both src/backend and

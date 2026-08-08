@@ -21,13 +21,47 @@ OAuth "Sign in with Puter" flow the Worker hosts itself (see
 | --- | --- |
 | `fs_read_file` | Read a file (UTF-8 or base64; optional byte offset/length window). |
 | `fs_stat` | Stat a file or directory (size, type, timestamps, uid). |
-| `fs_write_file` | Create/overwrite a file (UTF-8 or base64 content). |
+| `fs_write_file` | Create/overwrite a file from inline content (UTF-8 or base64). |
+| `fs_start_upload` | Get a presigned URL to upload a local file out of band. |
+| `fs_complete_upload` | Finalize an upload started with `fs_start_upload`. |
+| `fs_abort_upload` | Discard an upload without creating a file. |
 | `fs_mkdir` | Create a directory (optionally creating missing parents). |
 | `fs_delete` | Delete a file or directory (recursive by default). |
 | `fs_readdir` | List the entries of a directory. |
 | `fs_copy` | Copy a file or directory to another location. |
 | `fs_move` | Move a file or directory to another location (also renames). |
 | `fs_rename` | Rename a file or directory in place. |
+
+#### Uploading a local file
+
+`fs_write_file` carries its content inline, which means a file on disk has to be
+base64-encoded through the agent's context before it reaches the server — slow
+for anything large, and impossible past the client's message size limit.
+
+`fs_start_upload` avoids that entirely by handing back a presigned storage URL.
+The bytes go straight from the machine holding the file to storage; neither this
+server nor the conversation ever sees them.
+
+```
+fs_start_upload({ path: "~/uploads/build.zip", size: 48210433, local_path: "./build.zip" })
+  -> { upload_id, url, upload_command, expires_at, ... }
+
+# run the returned upload_command:
+curl -sS --fail-with-body -X PUT -H 'Content-Type: application/zip' \
+  --upload-file './build.zip' 'https://...'
+
+fs_complete_upload({ upload_id })   -> the created file entry
+```
+
+The file does not exist in Puter until `fs_complete_upload` succeeds; use
+`fs_abort_upload` to release a session whose upload failed. Two constraints come
+from the signing itself: `size` must be the file's exact byte count (`wc -c`),
+and the PUT must send the same `Content-Type` that was signed — storage rejects
+a mismatch on either. The emitted `upload_command` already gets both right.
+
+Uploads larger than the server's single-PUT ceiling would need a multipart part
+dance that these tools don't implement; `fs_start_upload` detects that case,
+releases the session, and says so.
 
 ### Hosting (static websites)
 Publishing a website in Puter means creating a hosting subdomain served at
