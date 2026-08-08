@@ -1306,8 +1306,17 @@ body.myapps-reordering .myapps-tile.myapps-tile-merge-armed .myapps-tile-icon {
 }
 
 input.myapps-group-name {
+    /* style.css's input[type=text] rules match this box at the SAME
+       specificity, so only what is spelled out here wins. width, padding and
+       border have to be stated (twice — the focus rule below faces
+       input[type=text]:focus, which sets padding 7px / border 2px): left
+       unstated, the name field stretches across the whole card and its box
+       grows 8px taller the moment it is clicked, shoving the folder's grid
+       down. Same trap .myapps-search documents. */
     -webkit-appearance: none;
     appearance: none;
+    box-sizing: border-box;
+    width: auto;
     max-width: 100%;
     padding: 4px 10px;
     border: 1px solid transparent;
@@ -1328,8 +1337,10 @@ input.myapps-group-name {
 }
 
 input.myapps-group-name:focus {
-    background: var(--dashboard-card-background);
+    padding: 4px 10px;
+    border-width: 1px;
     border-color: var(--select-color);
+    background: var(--dashboard-card-background);
 }
 
 .myapps-group-panel-grid {
