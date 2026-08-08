@@ -56,11 +56,17 @@ export interface Actor {
      * "no app" even for a token an app minted, and a gate keyed off it fails
      * open exactly where it must not.
      *
-     * Required, not optional, so the compiler rather than reviewer discipline
-     * is what keeps it populated. Build actors with `makeActor`, which is the
-     * one place the derivation lives.
+     * `null` and `undefined` are not the same thing here:
+     *
+     * - `null` — resolved, and this actor is not acting as any app.
+     * - Absent — never resolved, because the actor skipped `makeActor`.
+     *
+     * A gate must not read the second as the first: that is the fail-open this
+     * field exists to prevent. Optional only so an actor literal that predates
+     * the field still compiles; `assertResolvedActor` is what keeps the request
+     * path honest, and `makeActor` is the one place the derivation lives.
      */
-    effectiveApp: ActorApp | null;
+    effectiveApp?: ActorApp | null;
     /** True for the system actor; skips metering / quota tracking. */
     system?: boolean;
     accessToken?: ActorAccessToken | null;
@@ -96,6 +102,25 @@ export const makeActor = (actor: Omit<Actor, 'effectiveApp'>): Actor => ({
     ...actor,
     effectiveApp: actor.app ?? actor.accessToken?.issuer.effectiveApp ?? null,
 });
+
+/**
+ * Fail closed on an actor whose `effectiveApp` was never derived.
+ *
+ * Every actor on the request path is built by `AuthService` through
+ * `makeActor`, so this cannot fire in production — which is the point. It turns
+ * a future actor literal that skips the builder into a loud 500 at the edge
+ * rather than a silent bypass deep inside a gate that read `undefined` as "no
+ * app". Call it once, where the request actor is established.
+ */
+export const assertResolvedActor = (actor: Actor): Actor => {
+    if (actor.effectiveApp === undefined) {
+        throw new Error(
+            'actor was built without `makeActor`: `effectiveApp` is unresolved, ' +
+                'and app-scoped gates would read that as "no app"',
+        );
+    }
+    return actor;
+};
 
 export const isSystemActor = (actor: Actor | undefined | null): boolean => {
     return !!actor?.system || actor?.user?.uuid === SYSTEM_ACTOR_UUID;

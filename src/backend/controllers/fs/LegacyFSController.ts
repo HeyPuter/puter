@@ -21,7 +21,11 @@ import Busboy from 'busboy';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
-import { isAccessTokenActor, makeActor } from '../../core/actor.js';
+import {
+    assertResolvedActor,
+    isAccessTokenActor,
+    makeActor,
+} from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { RouteOptions } from '../../core/http/index.js';
@@ -1124,7 +1128,7 @@ export class LegacyFSController extends PuterController {
         assertNotSuspended(actor!.user);
         assertVerifiedAccount(actor!.user);
 
-        req.actor = actor!;
+        req.actor = assertResolvedActor(actor!);
         Context.set('actor', actor);
 
         // Forward back to regular read after setting actor

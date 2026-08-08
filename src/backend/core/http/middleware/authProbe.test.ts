@@ -21,7 +21,7 @@ import type { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import type { Actor } from '../../actor';
+import { makeActor, type Actor } from '../../actor';
 import type { AuthService } from '../../../services/auth/AuthService';
 import { PuterServer } from '../../../server';
 import { setupTestServer } from '../../../testUtil';
@@ -59,7 +59,16 @@ const makeStubAuth = (defaultActor: Actor | null = null): StubAuth => {
         authenticate: async (token: string) => {
             seenTokens.push(token);
             if (nextResult === 'throw') throw new Error('verify failed');
-            return nextResult;
+            // The real service builds every actor through `makeActor`, and the
+            // probe asserts that contract — so the stub has to honour it too,
+            // rather than handing back a literal the probe rejects.
+            if (!('actor' in nextResult)) return nextResult;
+            // Resolve only if the fixture didn't: the probe asserts the
+            // `makeActor` contract the real service satisfies, but tests that
+            // check actor identity need the same object back.
+            return nextResult.actor.effectiveApp === undefined
+                ? { ...nextResult, actor: makeActor(nextResult.actor) }
+                : nextResult;
         },
         // Back-compat wrapper for callers that still want Actor | null.
         authenticateFromToken: async (token: string) => {
@@ -273,7 +282,7 @@ describe('createAuthProbe — tokenSource', () => {
         ['handshake', { handshakeQuery: { auth_token: 'tok' } }],
     ];
 
-    const actor: Actor = { user: { uuid: 'u-1' } };
+    const actor: Actor = makeActor({ user: { uuid: 'u-1' } });
 
     it.each(cases)('records %s', async (expected, init) => {
         const stub = makeStubAuth(actor);
@@ -523,7 +532,7 @@ describe('createAuthProbe — cookie reading', () => {
 
 describe('createAuthProbe — actor attachment + failure tracking', () => {
     it('attaches actor + token on a successful authenticate', async () => {
-        const actor: Actor = { user: { uuid: 'u-1' } };
+        const actor: Actor = makeActor({ user: { uuid: 'u-1' } });
         const stub = makeStubAuth(actor);
         const probe = createAuthProbe({ authService: stub.service });
         const { req } = await runProbe(

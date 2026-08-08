@@ -22,6 +22,7 @@ import type {
     AuthService,
     ReauthReason,
 } from '../../../services/auth/AuthService';
+import { assertResolvedActor } from '../../actor';
 import type { TokenSource } from '../types';
 
 // Ensure the `Request.actor` / `Request.token` augmentation is in scope
@@ -155,7 +156,7 @@ export const createAuthProbe = (opts: AuthProbeOptions): RequestHandler => {
             }
 
             if (result.actor) {
-                req.actor = result.actor;
+                req.actor = assertResolvedActor(result.actor);
                 req.token = token;
                 req.tokenSource = source;
             } else if (result.invalid) {
