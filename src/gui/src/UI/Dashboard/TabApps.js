@@ -1474,6 +1474,12 @@ const TabApps = {
             return;
         }
 
+        // The card is on its way out but its scrim still spans the viewport:
+        // without this it would swallow every click on the grid until the
+        // removal below, so the tile a user reaches for the instant a folder
+        // shuts would do nothing.
+        $overlay.css('pointer-events', 'none');
+
         // Back into the tile it grew out of; if that tile is gone (the folder
         // dissolved, the page flipped) the card simply recedes where it is.
         const panel = $overlay.find('.myapps-group-panel')[0];
