@@ -1319,7 +1319,14 @@ const TabApps = {
             input.focus();
             input.select();
         } else {
-            $overlay.find('.myapps-tile').first().focus({ preventScroll: true });
+            // The DOM node, not the jQuery wrapper: jQuery reads a lone
+            // object argument to .focus() as event DATA and binds a handler
+            // with it instead of moving focus — so the folder opened with
+            // focus still on the inert grid behind it (Tab then walked off
+            // through that grid, past this dialog's trap), and the bogus
+            // handler threw on the tile's every later focus.
+            const first = $overlay.find('.myapps-tile')[0];
+            if ( first ) first.focus({ preventScroll: true });
         }
     },
 
