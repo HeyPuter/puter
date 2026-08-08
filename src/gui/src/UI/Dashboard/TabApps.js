@@ -1394,6 +1394,24 @@ const TabApps = {
                 if ( first ) first.focus({ preventScroll: true });
                 else this.blur();
             }
+            if ( e.key === 'Escape' ) {
+                const group = findGroupById(self._groups, self._openGroupId);
+                const stored = group ? groupLabel(group) : '';
+                // An edit in progress: Escape means "never mind THIS EDIT"
+                // (the convention of every inline rename), not "close the
+                // folder" — left to propagate, the document handler would
+                // close it and _closeGroup's commit-on-close would store the
+                // very half-typed name being abandoned. Put the stored name
+                // back and step out of the box; the next Escape, with no
+                // edit left to cancel, closes the folder as usual.
+                if ( this.value === stored ) return;
+                e.preventDefault();
+                e.stopPropagation();
+                this.value = stored;
+                const first = $overlay.find('.myapps-group-panel-grid .myapps-tile')[0];
+                if ( first ) first.focus({ preventScroll: true });
+                else this.blur();
+            }
         });
         $name.on('change blur', function () {
             self._renameGroup($el_window, self._openGroupId, this.value);
