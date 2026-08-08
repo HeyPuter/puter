@@ -19,7 +19,7 @@
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
@@ -217,13 +217,13 @@ export class PeerController extends PuterController {
                 if (!user) continue;
                 const costInMicrocents =
                     egressBytes * PEER_COSTS['turn:egress-bytes'];
-                const actor = {
+                const actor = makeActor({
                     user: {
                         uuid: user.uuid,
                         id: user.id,
                         username: user.username,
                     },
-                };
+                });
                 await this.services.metering.incrementUsage(
                     actor,
                     'turn:egress-bytes',

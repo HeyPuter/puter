@@ -103,4 +103,71 @@ export class Perms {
      * @returns `true` if manage access was granted, `false` otherwise.
      */
     requestManageSubdomains (): Promise<boolean>;
+
+    /**
+     * Request permission to use another app's data: its key-value namespace and
+     * its AppData directory, both scoped to the current user.
+     *
+     * Deleting entries is a separate scope from writing them, so request
+     * `delete` explicitly when the app needs to remove data it did not write.
+     *
+     * @param appIdentifier - The target app's uid, registered name, or an object
+     * carrying either.
+     * @param scopes - An access class applied to both stores, an array of
+     * `'<store>:<name>'` pairs, or a per-store object.
+     * @returns `true` if the app may now use that data, `false` if denied.
+     */
+    requestAppData (
+        appIdentifier: string | { uid: string } | { name: string },
+        scopes: AppDataScopes,
+    ): Promise<boolean>;
 }
+
+/** The stores an `app-data` scope can name. */
+export type AppDataStore = 'kv' | 'fs';
+
+/**
+ * The three access classes. `delete` is orthogonal to `write`: neither implies
+ * the other, so an app that only adds data cannot remove any.
+ */
+export type AppDataClass = 'read' | 'write' | 'delete';
+
+/**
+ * A key-value scope: an access class, or one concrete operation. Classes are
+ * the coarser form — `read` covers `get`/`list`, `write` covers
+ * `set`/`add`/`incr`/`decr`/`update`, and `delete` covers
+ * `del`/`remove`/`expire`/`expireAt`.
+ *
+ * `flush` is deliberately absent — it empties a whole namespace and no scope
+ * reaches it.
+ */
+export type AppDataKvScope =
+    | AppDataClass
+    | 'get' | 'list'
+    | 'set' | 'add' | 'incr' | 'decr' | 'update'
+    | 'del' | 'remove' | 'expire' | 'expireAt';
+
+/**
+ * A file scope. Classes only, with no per-operation form: ACL checks a mode,
+ * not an operation, so there is nothing finer to name.
+ */
+export type AppDataFsScope = AppDataClass;
+
+/** One `'<store>:<name>'` pair, as the array form takes them. */
+export type AppDataScopePair =
+    | `kv:${AppDataKvScope}`
+    | `fs:${AppDataFsScope}`;
+
+/**
+ * What `requestAppData` accepts. A bare class applies to both stores; the array
+ * form spells out the store on every entry; the object form groups by store.
+ * There is no bare-name array — an entry with no store would be ambiguous
+ * between the two.
+ */
+export type AppDataScopes =
+    | AppDataClass
+    | AppDataScopePair[]
+    | {
+        kv?: AppDataKvScope | AppDataKvScope[],
+        fs?: AppDataFsScope | AppDataFsScope[],
+    };

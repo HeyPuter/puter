@@ -1,6 +1,6 @@
 import { Miniflare, RequestInit as MiniflareRequestInit } from 'miniflare';
 import { puterServices } from '..';
-import { Actor } from '../../core';
+import { makeActor } from '../../core';
 import { loadFileInput } from '../../drivers/util/fileInput';
 import { getWorkerPreamble } from '../../drivers/workers/WorkerDriver';
 import { puterStores } from '../../stores';
@@ -53,9 +53,9 @@ export class LocalWorkerService extends PuterService {
     }
 
     /**
-     * Local analogue of the production worker URL, matching the host the
-     * local worker proxy dispatches on (`<name>.workers.puter.localhost`).
-     * Clients rely on `create` returning a usable `url`.
+     * Local analogue of the production worker URL, matching the host the local
+     * worker proxy dispatches on (`<name>.workers.puter.localhost`). Clients
+     * rely on `create` returning a usable `url`.
      */
     #localWorkerUrl(workerName: string): string {
         const port = this.config.port ? `:${this.config.port}` : '';
@@ -159,7 +159,7 @@ export class LocalWorkerService extends PuterService {
         let authorization: string;
         const ownerUser = await this.stores.user.getById(row.user_id);
         if (!ownerUser) throw new Error('Owner seems to not exist');
-        const ownerActor = { user: ownerUser } as Actor;
+        const ownerActor = makeActor({ user: ownerUser });
 
         if (appOwnerId) {
             const app = await this.stores.app.getById(appOwnerId);

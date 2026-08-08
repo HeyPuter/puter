@@ -6,7 +6,7 @@ platforms: [websites, apps, nodejs, workers]
 
 When passed a key and a value, will add it to the user's key-value store, or update that key's value if it already exists.
 
-<div class="info">Each app has its own private key-value store within each user's account. Apps cannot access the key-value stores of other apps - only their own.</div>
+<div class="info">Each app has its own key-value store within each user's account. Another app can only reach it if the user explicitly grants that with <a href="/Perms/requestAppData/">puter.perms.requestAppData()</a> — and never for entries you write with <code>disableSharing</code>.</div>
 
 ## Syntax
 
@@ -32,6 +32,14 @@ A string containing the value you want to give the key you are creating/updating
 
 A number containing when the key should expire in timestamp seconds.
 
+#### `disableSharing` (Boolean) (optional)
+
+Pass inside the trailing options object — `set(key, value, { disableSharing: true })` — to mark this entry private to your app. A private entry cannot be read, listed, changed, or deleted by any other app, even one the user has granted access to your app's data with [`puter.perms.requestAppData()`](/Perms/requestAppData/). Use it for anything another app should never see, such as a cached access token: a user approving a request cannot see what your store holds.
+
+The batch form takes it too — `set([...items], { disableSharing: true })` marks every entry in the batch.
+
+Your own app reads and writes the entry normally. Writing the same key again without the flag makes it shareable once more, since `set` replaces the whole entry.
+
 #### `items` (Array) (batch only)
 
 An array of `{ key, value, expireAt? }` objects, set in a single request. Each `key` is required and follows the same **1 KB** key / **400 KB** value limits. You can pass the array directly (`set([...])`) or wrapped in an object (`set({ items: [...] })`).
@@ -43,6 +51,20 @@ You may also pass a single object instead of positional arguments: `set({ key, v
 A `Promise` that will resolves to `true` when the key-value pair has been created or the existing key's value has been updated.
 
 ## Examples
+
+<strong class="example-title">Store a value no other app can ever read</strong>
+
+```html
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        puter.kv.set('accessToken', 'secret-value', { disableSharing: true })
+            .then(() => puter.print('Stored privately'));
+    </script>
+</body>
+</html>
+```
 
 <strong class="example-title">Create a new key-value pair</strong>
 

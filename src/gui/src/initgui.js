@@ -648,7 +648,18 @@ const postAuthActions = async (action) => {
     // Runs post-auth so signed-out users go through sign-in/signup first.
     // -------------------------------------------------------------------------------------
     if ( action === 'request-permission' ) {
-        const permission = window.url_query_params.get('permission');
+        // Repeated `permission=` params: one prompt can cover several scopes.
+        // Capped because this URL is supplied by whoever opened the popup, and an
+        // unbounded list would put an unreadable consent prompt in front of the
+        // user. Over the cap we drop the request rather than truncate it, since a
+        // silently shortened list would grant less than the dialog described.
+        const MAX_REQUESTED_PERMISSIONS = 16;
+        const requested_permissions = window.url_query_params
+            .getAll('permission')
+            .filter(Boolean);
+        const permissions = requested_permissions.length <= MAX_REQUESTED_PERMISSIONS
+            ? requested_permissions
+            : [];
         const msg_id = window.url_query_params.get('msg_id');
         // Browser-attested only: `openerOrigin` is the referrer, or the opener's
         // own reply to the `requestOrigin` handshake. There is deliberately no
@@ -683,7 +694,10 @@ const postAuthActions = async (action) => {
             // same origin the dialog displayed, and reject it outright
             // unless it names an app that really exists.
             granted = await UIPermissionDialog({
-                permission: permission,
+                // See IPC.js: both forms, so a single scope still works with a
+                // dialog that only understands the scalar.
+                permissions,
+                permission: permissions.length === 1 ? permissions[0] : undefined,
                 origin: origin,
             });
         } catch (e) {

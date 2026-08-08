@@ -6907,3 +6907,253 @@ describe('AuthController.loginWait audience binding', () => {
         expect(res.body).toBeUndefined();
     });
 });
+
+// -- Batch grant / revoke + cross-app data grants -----------------------
+
+describe('AuthController — app-data grants', () => {
+    let issuer: { id: number; username: string };
+    let issuerActor: Actor;
+
+    beforeAll(async () => {
+        const name = `ad_${Math.random().toString(36).slice(2, 10)}`;
+        await controller.handleSignup(
+            makeReq({
+                username: name,
+                email: `${name}@test.local`,
+                password: 'correct-horse-battery',
+            }),
+            makeRes(),
+        );
+        const row = await server.stores.user.getByUsername(name);
+        await server.stores.user.update(row!.id, { email_confirmed: 1 });
+        issuer = { id: row!.id, username: row!.username };
+        issuerActor = {
+            user: {
+                id: row!.id,
+                uuid: row!.uuid,
+                username: row!.username,
+                email: row!.email,
+                email_confirmed: true,
+            },
+        } as Actor;
+    });
+    const makeAppRow = async (fields: Record<string, unknown> = {}) =>
+        (await server.stores.app.create(
+            {
+                name: `ad-${uuidv4()}`,
+                title: 'AppDataTest',
+                index_url: 'https://example.test/index.html',
+                ...fields,
+            },
+            { ownerUserId: issuer.id },
+        )) as { id: number; uid: string };
+
+    const grantedPermissions = async (appUid: string): Promise<string[]> => {
+        const rows = (await server.clients.db.read(
+            'SELECT p.`permission` FROM `user_to_app_permissions` p ' +
+                'JOIN `apps` a ON a.`id` = p.`app_id` ' +
+                'WHERE p.`user_id` = ? AND a.`uid` = ?',
+            [issuer.id, appUid],
+        )) as Array<{ permission: string }>;
+        return rows.map((r) => r.permission);
+    };
+
+    const post = (
+        handler: 'handleGrantUserApp' | 'handleRevokeUserApp',
+        body: Record<string, unknown>,
+    ) => {
+        const res = makeRes();
+        return inCtx(issuerActor, () =>
+            controller[handler](makeReq(body, { actor: issuerActor }), res),
+        ).then(() => res);
+    };
+
+    it('grants every permission in a list in one request', async () => {
+        const grantee = await makeAppRow();
+        const target = await makeAppRow();
+        const permissions = [
+            `app-data:${target.uid}:kv:read`,
+            `app-data:${target.uid}:kv:delete`,
+        ];
+
+        await post('handleGrantUserApp', {
+            app_uid: grantee.uid,
+            permissions,
+        });
+
+        expect(await grantedPermissions(grantee.uid)).toEqual(
+            expect.arrayContaining(permissions),
+        );
+    });
+
+    it('revokes every permission in a list in one request', async () => {
+        const grantee = await makeAppRow();
+        const target = await makeAppRow();
+        const permissions = [
+            `app-data:${target.uid}:kv:read`,
+            `app-data:${target.uid}:fs:read`,
+        ];
+        await post('handleGrantUserApp', {
+            app_uid: grantee.uid,
+            permissions,
+        });
+
+        await post('handleRevokeUserApp', {
+            app_uid: grantee.uid,
+            permissions,
+        });
+
+        const remaining = await grantedPermissions(grantee.uid);
+        for (const permission of permissions) {
+            expect(remaining).not.toContain(permission);
+        }
+    });
+
+    it('rejects the scalar and list forms together', async () => {
+        const grantee = await makeAppRow();
+        const target = await makeAppRow();
+        await expect(
+            post('handleGrantUserApp', {
+                app_uid: grantee.uid,
+                permission: `app-data:${target.uid}:kv:read`,
+                permissions: [`app-data:${target.uid}:kv:write`],
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects an empty, oversized, or `*`-bearing list', async () => {
+        const grantee = await makeAppRow();
+        const target = await makeAppRow();
+        for (const permissions of [
+            [],
+            Array.from(
+                { length: 17 },
+                (_x, i) => `app-data:${target.uid}:kv:read${i}`,
+            ),
+            [`app-data:${target.uid}:kv:read`, '*'],
+        ]) {
+            await expect(
+                post('handleGrantUserApp', {
+                    app_uid: grantee.uid,
+                    permissions,
+                }),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+    });
+
+    it('writes nothing when one entry in the list is invalid', async () => {
+        const grantee = await makeAppRow();
+        const target = await makeAppRow();
+        await expect(
+            post('handleGrantUserApp', {
+                app_uid: grantee.uid,
+                permissions: [
+                    `app-data:${target.uid}:kv:read`,
+                    `app-data:app-does-not-exist:kv:read`,
+                ],
+            }),
+        ).rejects.toMatchObject({ statusCode: 404 });
+        // The valid entry must not have landed: validation runs over the whole
+        // list before any row is written.
+        expect(await grantedPermissions(grantee.uid)).not.toContain(
+            `app-data:${target.uid}:kv:read`,
+        );
+    });
+
+    it('writes nothing when an entry is too wide for the column it lands in', async () => {
+        // `#validateAppPermissionParams` allows 4096 chars but the column is 255,
+        // so this passes shape validation and fails inside the grant. Before the
+        // pre-flight, the first entry committed and the caller still got a 400 —
+        // and the dialog reads a 4xx as "nothing was written".
+        const grantee = await makeAppRow();
+        const target = await makeAppRow();
+        const good = `app-data:${target.uid}:kv:read`;
+        await expect(
+            post('handleGrantUserApp', {
+                app_uid: grantee.uid,
+                permissions: [good, 'x'.repeat(300)],
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(await grantedPermissions(grantee.uid)).not.toContain(good);
+    });
+
+    it('404s when the target app does not exist', async () => {
+        const grantee = await makeAppRow();
+        await expect(
+            post('handleGrantUserApp', {
+                app_uid: grantee.uid,
+                permission: 'app-data:app-nope/:kv:read',
+            }),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('rejects a bare `app-data` with no target app', async () => {
+        const grantee = await makeAppRow();
+        for (const permission of ['app-data', 'app-data:', 'app-data::kv']) {
+            await expect(
+                post('handleGrantUserApp', {
+                    app_uid: grantee.uid,
+                    permission,
+                }),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        }
+    });
+
+    it('refuses a grant when the target opted out of sharing', async () => {
+        const grantee = await makeAppRow();
+        const closed = await makeAppRow({
+            metadata: JSON.stringify({ share_app_data: false }),
+        });
+        await expect(
+            post('handleGrantUserApp', {
+                app_uid: grantee.uid,
+                permission: `app-data:${closed.uid}:kv:read`,
+            }),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('still allows revoking a grant after the target opts out', async () => {
+        const grantee = await makeAppRow();
+        const target = await makeAppRow();
+        const permission = `app-data:${target.uid}:kv:read`;
+        await post('handleGrantUserApp', {
+            app_uid: grantee.uid,
+            permission,
+        });
+
+        await server.stores.app.update(target.id, {
+            metadata: JSON.stringify({ share_app_data: false }),
+        });
+
+        // A user must always be able to withdraw consent, whatever the target
+        // now says about sharing.
+        await post('handleRevokeUserApp', { app_uid: grantee.uid, permission });
+        expect(await grantedPermissions(grantee.uid)).not.toContain(permission);
+    });
+
+    it("creates the target's AppData directory for an fs grant", async () => {
+        const grantee = await makeAppRow();
+        const target = await makeAppRow();
+        const path = `/${issuer.username}/AppData/${target.uid}`;
+        expect(await server.stores.fsEntry.getEntryByPath(path)).toBeFalsy();
+
+        await post('handleGrantUserApp', {
+            app_uid: grantee.uid,
+            permission: `app-data:${target.uid}:fs:read`,
+        });
+
+        // Without this the grant is valid but every read 404s until the target
+        // app happens to run for the first time.
+        expect(await server.stores.fsEntry.getEntryByPath(path)).toBeTruthy();
+    });
+
+    it('leaves unrelated permissions untouched by the new validation', async () => {
+        const grantee = await makeAppRow();
+        const permission = 'service:unrelated:ii:read';
+        await post('handleGrantUserApp', {
+            app_uid: grantee.uid,
+            permission,
+        });
+        expect(await grantedPermissions(grantee.uid)).toContain(permission);
+    });
+});

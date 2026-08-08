@@ -21,15 +21,18 @@ import Busboy from 'busboy';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
-import type { Actor } from '../../core/actor.js';
-import { effectiveActorApp, isAccessTokenActor } from '../../core/actor.js';
+import {
+    assertResolvedActor,
+    isAccessTokenActor,
+    makeActor,
+} from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { RouteOptions } from '../../core/http/index.js';
 import {
     assertNotSuspended,
     assertVerifiedAccount,
 } from '../../core/http/middleware/gates.js';
-import { RouteOptions } from '../../core/http/index.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { ACLService } from '../../services/acl/ACLService.js';
 import type { SignedFile } from '../../util/fileSigning.js';
@@ -908,7 +911,7 @@ export class LegacyFSController extends PuterController {
         const actor = this.#requireActor(req);
         // Subdomain enumeration is a user-level concern; app actors would
         // otherwise see root_dir uids pointing outside their AppData scope.
-        if (effectiveActorApp(actor)) {
+        if (actor.effectiveApp) {
             res.json([]);
             return;
         }
@@ -985,7 +988,7 @@ export class LegacyFSController extends PuterController {
         // App-under-user actors only see entries within their AppData root;
         // user actors are unscoped. Mirrors the ACL short-circuit in
         // ACLService.check.
-        const app = effectiveActorApp(actor);
+        const app = actor.effectiveApp;
         const username = actor.user?.username;
         const pathScope =
             app && typeof username === 'string' && username.length > 0
@@ -1125,7 +1128,7 @@ export class LegacyFSController extends PuterController {
         assertNotSuspended(actor!.user);
         assertVerifiedAccount(actor!.user);
 
-        req.actor = actor!;
+        req.actor = assertResolvedActor(actor!);
         Context.set('actor', actor);
 
         // Forward back to regular read after setting actor
@@ -1727,10 +1730,10 @@ export class LegacyFSController extends PuterController {
             });
 
         // Build an actor-under-user shape for the check.
-        const actorForApp = {
-            user: (req.actor as { user?: unknown }).user,
+        const actorForApp = makeActor({
+            user: req.actor!.user,
             app: { uid: (app as { uid: string }).uid },
-        } as unknown as Actor;
+        });
         const descriptor = {
             path: subject.path,
             resolveAncestors: () =>

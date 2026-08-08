@@ -1,4 +1,5 @@
 import { PuterModule } from '../../lib/PuterModule.js';
+import { requestAppData } from './appData.js';
 import { requestReadAppRootDir, requestWriteAppRootDir } from './appRootDir.js';
 import {
     requestFolder_,
@@ -35,6 +36,7 @@ const METHODS = [
     'requestReadPictures', 'requestWritePictures',
     'requestReadVideos', 'requestWriteVideos',
     'requestReadAppRootDir', 'requestWriteAppRootDir',
+    'requestAppData',
 ];
 
 /**
@@ -86,6 +88,9 @@ export class PermsModule extends PuterModule {
     // App root directory access
     requestReadAppRootDir = requestReadAppRootDir;
     requestWriteAppRootDir = requestWriteAppRootDir;
+
+    // Another app's data (KV namespace + AppData directory)
+    requestAppData = requestAppData;
 
     /** @param {Puter} puter */
     constructor (puter) {

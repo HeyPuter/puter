@@ -19,9 +19,19 @@
 
 import { Readable } from 'node:stream';
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { Actor } from '../../core/actor.js';
+import {
+    afterAll,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import { makeActor, type Actor } from '../../core/actor.js';
+import { runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { appDataPermission } from '../permission/appDataScopes.js';
 import { PuterServer } from '../../server.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { toPendingUploadSessionKey } from '../../stores/fs/pendingUploadSessionHelpers.js';
@@ -2686,7 +2696,7 @@ describe('FSService permission rules', () => {
             `${user.home}/Documents/outside.json`,
             '{}',
         );
-        const appActor: Actor = { user: user.actor.user, app: { uid: appUid } };
+        const appActor = makeActor({ user: user.actor.user, app: { uid: appUid } });
 
         await expect(
             server.services.permission.check(
@@ -2729,5 +2739,242 @@ describe('FSService permission rules', () => {
             `fs:${file.uuid}:write`,
         );
         expect(higher).not.toContain(`fs:${file.uuid}:read`);
+    });
+});
+
+// -- Cross-app AppData (app-data:<uid>:fs:<class>) ----------------------
+
+describe('FSService — cross-app AppData access', () => {
+    let owner: TestUser;
+    let calendar: { id: number; uid: string };
+    let contacts: { id: number; uid: string };
+    let calendarActor: Actor;
+    let contactsFile: FSEntry;
+    let contactsRoot: FSEntry;
+
+    const makeRealApp = async (
+        ownerUserId: number,
+        fields: Record<string, unknown> = {},
+    ): Promise<{ id: number; uid: string }> => {
+        const name = `fsx-${uuidv4()}`;
+        return (await server.stores.app.create(
+            {
+                name,
+                title: 'FS cross-app test',
+                index_url: `https://${name}.test/`,
+                ...fields,
+            },
+            { ownerUserId },
+        )) as { id: number; uid: string };
+    };
+
+    const grant = (permission: string) =>
+        runWithContext({ actor: owner.actor }, () =>
+            server.services.permission.grantUserAppPermission(
+                owner.actor,
+                calendar.uid,
+                permission,
+            ),
+        );
+
+    const asCalendar = <T>(fn: () => T | Promise<T>) =>
+        runWithContext({ actor: calendarActor }, fn);
+
+    /** An AppData subtree with one file in it, as opening the app would leave. */
+    const seedAppData = async (
+        appUid: string,
+        name = 'state.json',
+    ): Promise<FSEntry> => {
+        await fs.mkdir(owner.userId, {
+            path: `${owner.home}/AppData/${appUid}`,
+            createMissingParents: true,
+        });
+        return writeFile(
+            owner,
+            `${owner.home}/AppData/${appUid}/${name}`,
+            '{}',
+        );
+    };
+
+    beforeEach(async () => {
+        owner = await makeUser();
+        calendar = await makeRealApp(owner.userId);
+        contacts = await makeRealApp(owner.userId);
+        calendarActor = makeActor({
+            user: owner.actor.user,
+            app: { uid: calendar.uid, id: calendar.id },
+        });
+        contactsRoot = await fs.mkdir(owner.userId, {
+            path: `${owner.home}/AppData/${contacts.uid}`,
+            createMissingParents: true,
+        });
+        contactsFile = await writeFile(
+            owner,
+            `${owner.home}/AppData/${contacts.uid}/state.json`,
+            '{"a":1}',
+        );
+    });
+
+    it('gives no access without a grant', async () => {
+        await expect(
+            server.services.permission.check(
+                calendarActor,
+                `fs:${contactsFile.uuid}:read`,
+            ),
+        ).resolves.toBe(false);
+    });
+
+    it('reads another app’s AppData with the read class', async () => {
+        await grant(appDataPermission(contacts.uid, 'fs', 'read'));
+        await expect(
+            server.services.permission.check(
+                calendarActor,
+                `fs:${contactsFile.uuid}:read`,
+            ),
+        ).resolves.toBe(true);
+        // Read does not carry write.
+        await expect(
+            server.services.permission.check(
+                calendarActor,
+                `fs:${contactsFile.uuid}:write`,
+            ),
+        ).resolves.toBe(false);
+    });
+
+    it('covers the subtree root and its descendants', async () => {
+        await grant(appDataPermission(contacts.uid, 'fs', 'read'));
+        for (const uuid of [contactsRoot.uuid, contactsFile.uuid]) {
+            await expect(
+                server.services.permission.check(
+                    calendarActor,
+                    `fs:${uuid}:read`,
+                ),
+            ).resolves.toBe(true);
+        }
+    });
+
+    it('refuses when the target app has opted out of sharing', async () => {
+        const closed = await makeRealApp(owner.userId, {
+            metadata: JSON.stringify({ share_app_data: false }),
+        });
+        const closedFile = await seedAppData(closed.uid);
+        await grant(appDataPermission(closed.uid, 'fs', 'read'));
+        await expect(
+            server.services.permission.check(
+                calendarActor,
+                `fs:${closedFile.uuid}:read`,
+            ),
+        ).resolves.toBe(false);
+    });
+
+    it('does not let a grant for one app reach another', async () => {
+        const third = await makeRealApp(owner.userId);
+        const thirdFile = await seedAppData(third.uid);
+        await grant(appDataPermission(contacts.uid, 'fs', 'read'));
+        await expect(
+            server.services.permission.check(
+                calendarActor,
+                `fs:${thirdFile.uuid}:read`,
+            ),
+        ).resolves.toBe(false);
+    });
+
+    // -- The delete guard ------------------------------------------------
+
+    it('refuses delete, move, and rename with only the write class', async () => {
+        await grant(appDataPermission(contacts.uid, 'fs', 'write'));
+        // ACL would allow all three: they ask for `fs:write`, which the grant
+        // satisfies. The guard is what separates them.
+        await expect(
+            asCalendar(() =>
+                fs.remove(owner.userId, { entry: contactsFile }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        await expect(
+            asCalendar(() => fs.rename(contactsFile, 'renamed.json')),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        const desktop = (await server.stores.fsEntry.getEntryByPath(
+            `${owner.home}/Desktop`,
+        ))!;
+        await expect(
+            asCalendar(() =>
+                fs.move(owner.userId, {
+                    source: contactsFile,
+                    destinationParent: desktop as unknown as FSEntry,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('allows delete once the delete class is granted', async () => {
+        await grant(appDataPermission(contacts.uid, 'fs', 'delete'));
+        await asCalendar(() => fs.remove(owner.userId, { entry: contactsFile }));
+        expect(
+            await server.stores.fsEntry.getEntryByPath(contactsFile.path),
+        ).toBeFalsy();
+    });
+
+    it('allows rename once the delete class is granted', async () => {
+        await grant(appDataPermission(contacts.uid, 'fs', 'delete'));
+        const renamed = await asCalendar(() =>
+            fs.rename(contactsFile, 'renamed.json'),
+        );
+        expect(renamed.name).toBe('renamed.json');
+    });
+
+    it('leaves an app’s own AppData deletable', async () => {
+        // The guard must only fire on a *foreign* subtree, or every app loses
+        // the ability to clean up after itself.
+        const ownFile = await seedAppData(calendar.uid, 'own.json');
+        await asCalendar(() => fs.remove(owner.userId, { entry: ownFile }));
+        expect(
+            await server.stores.fsEntry.getEntryByPath(ownFile.path),
+        ).toBeFalsy();
+    });
+
+    it('leaves the owning user unaffected by the guard', async () => {
+        // No app actor in context at all — the plain user path must not change.
+        await fs.remove(owner.userId, { entry: contactsFile });
+        expect(
+            await server.stores.fsEntry.getEntryByPath(contactsFile.path),
+        ).toBeFalsy();
+    });
+
+    it('refuses an access-token actor whose issuer is the granted app', async () => {
+        // The token carries no `app` of its own, so a guard keyed on `actor.app`
+        // would skip entirely — failing open where the read/write implicator
+        // fails closed.
+        await grant(appDataPermission(contacts.uid, 'fs', 'write'));
+        const tokenActor = makeActor({
+            user: owner.actor.user,
+            accessToken: {
+                uid: 'tok-cross-app',
+                issuer: calendarActor,
+                fullAccess: false,
+            },
+        });
+
+        await expect(
+            runWithContext({ actor: tokenActor }, () =>
+                fs.remove(owner.userId, { entry: contactsFile }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('lets system-initiated repair through the guard', async () => {
+        // Ghost-fsentry cleanup runs during an unrelated caller's *read*, so it
+        // is not that caller's action. Without the opt-out the repair is refused
+        // and the orphaned row is never reaped.
+        await grant(appDataPermission(contacts.uid, 'fs', 'read'));
+        await asCalendar(() =>
+            fs.remove(owner.userId, {
+                entry: contactsFile,
+                systemInitiated: true,
+            }),
+        );
+        expect(
+            await server.stores.fsEntry.getEntryByPath(contactsFile.path),
+        ).toBeFalsy();
     });
 });

@@ -19,6 +19,7 @@
 
 import type { Request, Response } from 'express';
 import { describe, expect, it } from 'vitest';
+import { makeActor, type Actor } from '../../actor';
 import { HttpError, isHttpError } from '../HttpError';
 import {
     DEFAULT_ADMIN_USERNAMES,
@@ -42,6 +43,23 @@ import {
 
 type NextArg = undefined | 'route' | HttpError | unknown;
 
+/**
+ * Rebuild an actor literal through `makeActor`, issuer-first, so the derived
+ * `effectiveApp` is present at every level of the token chain.
+ */
+const reviveActor = (actor: Actor): Actor =>
+    makeActor({
+        ...actor,
+        ...(actor.accessToken
+            ? {
+                  accessToken: {
+                      ...actor.accessToken,
+                      issuer: reviveActor(actor.accessToken.issuer),
+                  },
+              }
+            : {}),
+    });
+
 const runGate = (
     gate: (
         req: Request,
@@ -50,6 +68,12 @@ const runGate = (
     ) => unknown,
     req: Partial<Request>,
 ): NextArg => {
+    // Normalise the actor the way AuthService does before any gate sees one,
+    // so `effectiveApp` is derived here rather than spelled out on every
+    // literal below. Issuers too: a gate reading the chain reads the derived
+    // field, not `issuer.app`.
+    if (req.actor) req = { ...req, actor: reviveActor(req.actor) };
+
     let captured: NextArg = undefined;
     let called = false;
     gate(req as Request, {} as Response, (arg?: unknown) => {

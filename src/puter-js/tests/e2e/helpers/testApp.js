@@ -98,6 +98,51 @@ export async function registerTestApp (page, { fixtureURL = FIXTURE_URL } = {}) 
     return appName;
 }
 
+/**
+ * Registers an app that only exists to *own data* — the target of a cross-app
+ * request. Its `index_url` is never loaded, so no fixture is needed.
+ *
+ * `seed` entries are written into the target's own KV namespace from the GUI
+ * page, using the user-token override that is deliberately ungated.
+ *
+ * @returns {Promise<{ name: string, uid: string, title: string }>}
+ */
+export async function registerTargetApp (page, { title = 'Contacts', seed = {} } = {}) {
+    await page.goto('/');
+    await waitForPuterReady(page);
+
+    const appName = `puter-js-target-${randomUUID().slice(0, 8)}`;
+    const result = await page.evaluate(
+        async ({ name, appTitle, entries }) => {
+            try {
+                const app = await window.puter.apps.create(
+                    name,
+                    'https://target.example.test/',
+                    appTitle,
+                );
+                for ( const [key, spec] of Object.entries(entries) ) {
+                    await window.puter.kv.set(key, spec.value, {
+                        appUuid: app.uid,
+                        ...(spec.private ? { disableSharing: true } : {}),
+                    });
+                }
+                return { ok: true, app };
+            } catch (e) {
+                return { ok: false, error: String(e?.message ?? e) };
+            }
+        },
+        { name: appName, appTitle: title, entries: seed },
+    );
+    if ( ! result.ok ) {
+        throw new Error(`registerTargetApp failed: ${result.error}`);
+    }
+    // The dialog labels the target by title, so the tests depend on it landing.
+    if ( result.app.title !== title ) {
+        throw new Error(`target app title is "${result.app.title}", expected "${title}"`);
+    }
+    return { name: appName, uid: result.app.uid, title };
+}
+
 export async function deleteTestApp (page, appName) {
     if ( ! appName ) return;
     try {
