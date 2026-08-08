@@ -1421,8 +1421,23 @@ const TabApps = {
             '--myapps-group-cols',
             String(Math.max(1, Math.min(apps.length, Number.isFinite(maxCols) ? maxCols : 4))),
         );
-        $grid.html(apps.map(app => buildTileHtml(app)).join(''));
-        $overlay.find('.myapps-tile').attr('tabindex', '0');
+        const html = apps.map(app => buildTileHtml(app)).join('');
+        // A rebuild replaces every tile node, and a node detached mid-gesture
+        // takes the rest of that gesture with it: the name box commits on
+        // BLUR, which fires on the press — before the click it belongs to —
+        // so renaming a folder and then clicking an app in it renamed the
+        // folder and did nothing else (the click found no tile to bubble
+        // from). Nothing here changes on a rename, so nothing is rebuilt.
+        if ( $grid[0].__myappsPanelHtml !== html ) {
+            $grid[0].__myappsPanelHtml = html;
+            $grid.html(html);
+            $overlay.find('.myapps-tile').attr('tabindex', '0');
+        } else {
+            // Tiles that survive keep the resting rects an earlier drag left
+            // on them, and the card may have moved since (a resize re-centres
+            // it) — stale rects are what the next drag would hit-test against.
+            for ( const el of $grid[0].children ) el.__myappsRestRect = null;
+        }
         this.updateRunningDots($el_window);
     },
 
