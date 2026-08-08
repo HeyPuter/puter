@@ -1791,8 +1791,16 @@ const TabApps = {
 
         const r = scroller.getBoundingClientRect();
         let dir = 0;
-        if ( px >= r.right - DRAG_EDGE_ZONE ) dir = 1;
-        else if ( px <= r.left + DRAG_EDGE_ZONE ) dir = -1;
+        // A merge offer in progress means the icon is parked on a tile, not
+        // asking for a page — and a last-column tile sits inside the edge
+        // zone, so without this hold the page would flip out from under the
+        // very folder the user is watching form. Carrying the icon off the
+        // tile withdraws the offer (see _updatePlaceholder), and with it
+        // this hold.
+        if ( ! d.mergeEl ) {
+            if ( px >= r.right - DRAG_EDGE_ZONE ) dir = 1;
+            else if ( px <= r.left + DRAG_EDGE_ZONE ) dir = -1;
+        }
 
         const atEnd = (dir === 1 && this._page >= this._pageCount - 1);
         const atStart = (dir === -1 && this._page <= 0);
@@ -1810,6 +1818,10 @@ const TabApps = {
             d.edgeTimer = null;
             d.edgeDir = 0;
             if ( this._drag !== d ) return;
+            // The offer can arrive while this dwell runs (resting on an
+            // edge-zone tile starts both countdowns): no pointer event fires
+            // during a rest to clear the timer, so re-check at the flip.
+            if ( d.mergeEl ) return;
             d.flipping = true;
             this.goToPage(d.$el_window, this._page + dir, true);
             clearTimeout(d.flipClearTimer);
