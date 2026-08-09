@@ -6,6 +6,7 @@ import { begin_dashboard_tile_launch, settle_dashboard_tile_launch } from '../UI
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 import { parseRemovedApps, serializeRemovedApps, REMOVED_APPS_KV_KEY } from './removedApps.js';
+import { appTileLink } from './appLink.js';
 import {
     APP_GROUPS_KV_KEY,
     MAX_GROUP_APPS,
@@ -821,6 +822,15 @@ const TabApps = {
                         } else if ( appName ) {
                             window.open(`/app/${encodeURIComponent(appName)}`, '_blank', 'noopener,noreferrer');
                         }
+                    },
+                },
+                // The same destination the item above opens, as an absolute
+                // URL so it is worth pasting somewhere other than this page.
+                {
+                    html: i18n('copy_link'),
+                    onClick: async () => {
+                        const link = appTileLink({ appName, targetLink }, window.location.origin);
+                        if ( link ) await window.copy_to_clipboard(link);
                     },
                 },
             ];
