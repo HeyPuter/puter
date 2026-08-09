@@ -140,7 +140,18 @@ services:
 
   s3-init:
     # One-shot container that creates the `puter-local` bucket on first
-    # boot. Exits 0 once the bucket exists; stays exited 0 thereafter.
+    # boot and makes sure it has a CORS policy. Exits 0 once both are in
+    # place; stays exited 0 thereafter.
+    #
+    # The CORS policy matters because browsers PUT/GET straight to
+    # `s3.<domain>` using presigned URLs (see the `@s3` block in
+    # caddy/Caddyfile) — without it, uploads through the GUI (e.g.
+    # Dev Center's "Use files") fail preflight with "No
+    # 'Access-Control-Allow-Origin' header is present". Puter's own
+    # subdomains are dynamic (per-user site./app. hosts, optional custom
+    # domains), so pinning AllowedOrigins to a fixed list isn't practical
+    # here; access to the bucket is already gated by the request's AWS
+    # signature, so a wildcard origin doesn't loosen that.
     image: amazon/aws-cli:latest
     container_name: puter-s3-init
     depends_on:
@@ -163,6 +174,9 @@ services:
           echo "creating bucket $$bucket"
           aws --endpoint-url "$$endpoint" s3 mb "s3://$$bucket"
         fi
+        echo "applying bucket CORS policy"
+        echo '{"CORSRules":[{"AllowedOrigins":["*"],"AllowedMethods":["GET","PUT","POST","HEAD"],"AllowedHeaders":["*"],"ExposeHeaders":["ETag","x-amz-request-id"],"MaxAgeSeconds":3600}]}' > /tmp/cors.json
+        aws --endpoint-url "$$endpoint" s3api put-bucket-cors --bucket "$$bucket" --cors-configuration file:///tmp/cors.json
     restart: "no"
 
   # ── Optional: local LLM ───────────────────────────────────────────

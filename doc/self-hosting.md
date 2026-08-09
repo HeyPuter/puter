@@ -26,7 +26,7 @@ Generates secrets, writes `.env` + `puter/config/config.json`, downloads `docker
 | `puter-valkey`  | `valkey/valkey:8-alpine` | Redis-compatible cache + rate-limiter                      |
 | `puter-dynamo`  | `amazon/dynamodb-local`  | KV store — table auto-created on first boot                |
 | `puter-s3`      | `rustfs/rustfs`          | S3-compatible object storage (MinIO drop-in noted in file) |
-| `puter-s3-init` | `amazon/aws-cli`         | One-shot — creates the bucket on first boot, then exits    |
+| `puter-s3-init` | `amazon/aws-cli`         | One-shot — creates the bucket and applies its CORS policy on first boot, then exits |
 
 Optional services (compose profile `ai`, opt-in):
 
