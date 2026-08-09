@@ -35,6 +35,7 @@ const RECOMMENDED_APP_NAMES = [
     'calculator',
     'contacts',
     'calendar',
+    'blockarena',
     'music-player',
     'word-processor',
     'spreadsheet',
@@ -47,9 +48,6 @@ const RECOMMENDED_APP_NAMES = [
     'ai-image-project',
     'chess',
     'blockup',
-    'pretty-tiles',
-    'galaxy-troops',
-    'blend-fruits',
     'basketball-tap',
 ];
 
