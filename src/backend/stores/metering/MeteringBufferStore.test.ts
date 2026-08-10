@@ -31,6 +31,7 @@ import { setupTestServer } from '../../testUtil.ts';
 import type { SystemKVStore } from '../systemKv/SystemKVStore.ts';
 import {
     bucketTag,
+    chunkAmounts,
     flattenAmounts,
     pairsToAmounts,
     parsePendingEntry,
@@ -80,6 +81,21 @@ describe('MeteringBufferStore', () => {
             expect(
                 flattenAmounts({ total: 1, label: 'nope', nested: null }),
             ).toEqual({ total: 1 });
+        });
+
+        it('leaves a counter that already fits in one piece', () => {
+            const amounts = { total: 5, 'ai:chat.units': 2 };
+            expect(chunkAmounts(amounts, 24)).toEqual([amounts]);
+        });
+
+        it('splits a counter too wide for one write, losing nothing', () => {
+            const amounts: Record<string, number> = {};
+            for (let i = 0; i < 7; i++) amounts[`ai${i}.units`] = i;
+
+            const chunks = chunkAmounts(amounts, 3);
+
+            expect(chunks.map((c) => Object.keys(c).length)).toEqual([3, 3, 1]);
+            expect(Object.assign({}, ...chunks)).toEqual(amounts);
         });
     });
 
@@ -178,6 +194,29 @@ describe('MeteringBufferStore', () => {
             const { res } = await kv.get({ key });
             expect(res).toEqual({ total: 10, 'ai:chat': { count: 5 } });
             incrSpy.mockRestore();
+        });
+
+        it('splits a counter too wide for one expression across writes', async () => {
+            // Buffering is what makes this reachable: a single call meters a
+            // handful of paths, but a cycle's worth of calls for a busy counter
+            // adds up past what one update expression can hold.
+            const paths: Record<string, number> = {};
+            for (let i = 0; i < 60; i++) paths[`ai${i}.units`] = 1;
+            await target.incr({ key, pathAndAmountMap: paths });
+
+            const incrSpy = vi.spyOn(kv, 'incr');
+            await target.flushCycle();
+
+            expect(incrSpy).toHaveBeenCalledTimes(3);
+            for (const [input] of incrSpy.mock.calls) {
+                expect(
+                    Object.keys(input.pathAndAmountMap).length,
+                ).toBeLessThanOrEqual(24);
+            }
+            incrSpy.mockRestore();
+
+            const stored = flattenAmounts((await kv.get({ key })).res);
+            expect(Object.keys(stored)).toHaveLength(60);
         });
 
         it('counts what is already stored when it first sees a counter', async () => {
@@ -549,6 +588,84 @@ describe('MeteringBufferStore', () => {
             expect(
                 await server.clients.redis.hgetall(`meter:pending:{${tag}}`),
             ).toEqual({});
+        });
+
+        it('gives up on a claim the store will never accept', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 5 } });
+            // A rejection, not an outage: the next attempt would be rejected
+            // identically. Re-driving it every cycle for as long as the counter
+            // exists is what turned one bad counter into a write loop.
+            const rejected = Object.assign(
+                new Error(
+                    'Invalid UpdateExpression: Expression size has exceeded the maximum allowed size',
+                ),
+                { name: 'ValidationException' },
+            );
+            const boom = vi.spyOn(kv, 'incr').mockRejectedValue(rejected);
+            const logged = vi
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+
+            await target.flushCycle();
+            boom.mockRestore();
+
+            const tag = bucketTag(key);
+            expect(
+                await server.clients.redis.hgetall(`meter:pending:{${tag}}`),
+            ).toEqual({});
+            expect(await server.clients.redis.keys('meter:p:*')).toEqual([]);
+            // The amounts are lost, so this must not be quiet.
+            expect(logged).toHaveBeenCalledWith(
+                expect.stringContaining('unwritable path'),
+            );
+            logged.mockRestore();
+
+            // And a second cycle finds nothing left to re-drive.
+            const after = vi.spyOn(kv, 'incr');
+            await target.flushCycle();
+            expect(after).not.toHaveBeenCalled();
+            after.mockRestore();
+        });
+
+        it('does not write an applied chunk twice when a later one fails', async () => {
+            const paths: Record<string, number> = {};
+            for (let i = 0; i < 30; i++) paths[`ai${i}.units`] = 1;
+            await target.incr({ key, pathAndAmountMap: paths });
+
+            // Two chunks: let the first through and fail the second, the way a
+            // throttle landing mid-settle would.
+            const passThrough = kv.incr.bind(kv);
+            let call = 0;
+            const flaky = vi
+                .spyOn(kv, 'incr')
+                .mockImplementation((...args: Parameters<typeof kv.incr>) => {
+                    if (++call === 2)
+                        return Promise.reject(new Error('throttled'));
+                    return passThrough(...args);
+                });
+
+            await target.flushCycle();
+            flaky.mockRestore();
+
+            // Age the surviving claim so the sweep takes it, then let it finish.
+            const tag = bucketTag(key);
+            const pending = await server.clients.redis.hgetall(
+                `meter:pending:{${tag}}`,
+            );
+            const nonce = Object.keys(pending)[0]!;
+            await server.clients.redis.hset(
+                `meter:pending:{${tag}}`,
+                nonce,
+                `${Date.now() - 60_000}:${key}`,
+            );
+
+            await target.flushCycle();
+
+            // Every path lands exactly once: the applied chunk came off the
+            // claim as it was written, so the re-drive carried only the rest.
+            const stored = flattenAmounts((await kv.get({ key })).res);
+            expect(Object.keys(stored)).toHaveLength(30);
+            expect([...new Set(Object.values(stored))]).toEqual([1]);
         });
 
         it('leaves the claim in place when the write onward fails', async () => {

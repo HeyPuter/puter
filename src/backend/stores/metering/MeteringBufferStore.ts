@@ -71,6 +71,8 @@ const BUFFER_TTL_MS = 40 * 24 * 60 * 60 * 1000;
 /** How many counters are written onward at once, to keep the load even. */
 const SETTLE_CONCURRENCY = 20;
 
+const SETTLE_PATHS_PER_WRITE = 24;
+
 /** Roughly a minute between compression reports, so they don't flood the log. */
 const CYCLES_PER_COMPRESSION_REPORT = 12;
 
@@ -150,6 +152,27 @@ const toScriptArgs = (amounts: Record<string, number>): string[] => {
         args.push(path, String(amount));
     }
     return args;
+};
+
+/** Split counters into groups of at most `size` paths, preserving order. */
+export const chunkAmounts = (
+    amounts: FlatAmounts,
+    size: number,
+): FlatAmounts[] => {
+    const entries = Object.entries(amounts);
+    if (entries.length <= size) return [amounts];
+
+    const chunks: FlatAmounts[] = [];
+    for (let i = 0; i < entries.length; i += size) {
+        chunks.push(Object.fromEntries(entries.slice(i, i + size)));
+    }
+    return chunks;
+};
+
+const isPermanentSettleError = (err: Error): boolean => {
+    if (err.name === 'ValidationException') return true;
+    const status = (err as { statusCode?: unknown }).statusCode;
+    return typeof status === 'number' && status >= 400 && status < 500;
 };
 
 // -- Scripts ----------------------------------------------------------
@@ -661,12 +684,49 @@ export class MeteringBufferStore extends PuterStore {
         nonce: string,
         amounts: FlatAmounts,
     ): Promise<void> {
-        const { res } = await this.stores.kv.incr({
-            key,
-            pathAndAmountMap: amounts,
-        });
+        const total = Object.keys(amounts).length;
+        if (total === 0) {
+            // Nothing to write onward. Retire the claim rather than settling
+            // it, which would clear a base that is still good.
+            await this.#retireClaim(tag, nonce);
+            return;
+        }
+        const chunks = chunkAmounts(amounts, SETTLE_PATHS_PER_WRITE);
 
-        const flat = flattenAmounts(res);
+        // Each write returns the whole counter, so after the last chunk this
+        // holds every path the KV store now has — including the earlier chunks
+        // and anything another deployment contributed.
+        let settled: unknown;
+        let written = 0;
+        for (const chunk of chunks) {
+            try {
+                ({ res: settled } = await this.stores.kv.incr({
+                    key,
+                    pathAndAmountMap: chunk,
+                }));
+            } catch (e) {
+                const err = e as Error;
+                if (!isPermanentSettleError(err)) throw e;
+                console.error(
+                    `[metering] dropping ${total - written} unwritable path(s) of ${key}: ${err.message}`,
+                );
+                await this.#retireClaim(tag, nonce);
+                return;
+            }
+            written += Object.keys(chunk).length;
+
+            // This chunk is applied for good now, so take it off the claim: if a
+            // later one fails, the re-drive picks up only what is still
+            // outstanding instead of adding these amounts a second time.
+            if (chunks.length > 1) {
+                await this.clients.redis.hdel(
+                    pendingKey(tag, nonce),
+                    ...Object.keys(chunk),
+                );
+            }
+        }
+
+        const flat = flattenAmounts(settled);
         await this.#redis.meterSettle(
             baseKey(tag, key),
             pendingKey(tag, nonce),
@@ -676,6 +736,16 @@ export class MeteringBufferStore extends PuterStore {
             flat['total'] === undefined ? '' : String(flat['total']),
             ...toScriptArgs(flat),
         );
+    }
+
+    /**
+     * Forget a claim and its index entry, leaving the base alone. Settling
+     * would also replace the base, which is only correct when something was
+     * actually written onward.
+     */
+    async #retireClaim(tag: string, nonce: string): Promise<void> {
+        await this.clients.redis.del(pendingKey(tag, nonce));
+        await this.clients.redis.hdel(pendingIndexKey(tag), nonce);
     }
 }
 
