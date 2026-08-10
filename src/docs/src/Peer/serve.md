@@ -5,7 +5,7 @@ platforms: [websites, apps]
 ---
 
 
-Creates a peer server and returns a `PuterPeerServer` instance. The server will generate an invite code that other clients can use to connect.
+Creates a peer server and returns a [`PuterPeerServer`](/Objects/puterpeerserver/) instance. The server will generate an invite code that other clients can use to connect.
 
 <div class="info">
 
@@ -31,15 +31,7 @@ const server = await puter.peer.serve(options);
 
 ## Return value
 
-A `Promise` that resolves to a `PuterPeerServer` instance.
-
-### `PuterPeerServer` properties and events
-
-- `inviteCode` (`string`) The code you share with other clients.
-- `connections` (`Map<string, PuterPeerConnection>`) map of all connected clients
-- `connection` event: Fired when a client connects.
-  - `event.conn` (`PuterPeerConnection`) The connection to the client.
-  - `event.user` (`object`) Metadata about the connecting user (if available).
+A `Promise` that resolves to a [`PuterPeerServer`](/Objects/puterpeerserver/) instance, which carries the `inviteCode` to share, the `connections` map of connected clients, and a `connection` event fired as each client joins.
 
 ## Example
 

@@ -10,6 +10,7 @@ Prints a string by appending it to the body of the document. This is useful for 
 
 ```js
 puter.print(text)
+puter.print(text, options)
 ```
 
 ## Parameters
@@ -20,9 +21,10 @@ The text to print.
 
 #### `options` (Object, optional)
 
-An object containing options for the print function.
+An object containing options for the print function. It must be the last argument.
 
-- `code` (Boolean, optional): If true, the text will be printed as code by wrapping it in a `<code>` and `<pre>` tag. Defaults to `false`.
+- `code` (Boolean, optional): If true, the text will be printed as code by wrapping it in a `<code>` and `<pre>` tag. Defaults to `false`. Implies `escapeHTML`.
+- `escapeHTML` (Boolean, optional): If true, HTML in the text is escaped rather than rendered. Defaults to `false`.
 
 ## Examples
 

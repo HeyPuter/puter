@@ -32,6 +32,21 @@ A set of key/value pairs that configure the upload process. The following option
 - `dedupeName` (Boolean) - Whether to deduplicate the file name if it already exists. Defaults to `true`. Ignored when `overwrite` is `true`.
 - `createMissingParents` (Boolean) - Whether to create missing parent directories. Defaults to `false`.
 
+The following callbacks report on the upload as it runs. `operationId` identifies the upload, so a page running several uploads at once can tell them apart:
+
+- `init` (Function) - Called with `(operationId, xhr)` once the request has been created, before it is sent. The `XMLHttpRequest` is passed so you can abort the upload yourself.
+- `start` (Function) - Called with no arguments when the upload starts sending.
+- `progress` (Function) - Called with `(operationId, progress)` as bytes are sent, where `progress` is a percentage between `0` and `100`.
+- `abort` (Function) - Called with `(operationId)` if the upload is aborted.
+
+```js
+puter.fs.upload(items, './uploads', {
+    progress: (operationId, progress) => {
+        console.log(`${Math.round(progress)}%`);
+    },
+});
+```
+
 ## Return value
 
 Returns a `Promise` that resolves to:

@@ -11,7 +11,8 @@ export interface ChatMessage {
     tool_calls?: ToolCall[];
     tool_call_id?: string;
     cache_control?: { type: string };
-    images: ImageContent[];
+    /** Images attached to the message. Present on responses from image-capable models. */
+    images?: ImageContent[];
 }
 
 export interface ToolCall {
@@ -105,12 +106,14 @@ export interface ChatResponse {
  * discriminator; which other fields are present depends on that `type`.
  */
 export interface ChatResponseChunk {
-    /** The kind of chunk: `"text"`, `"reasoning"`, `"tool_use"`, `"compaction"`, `"extra_content"`, or `"usage"`. */
+    /** The kind of chunk: `"text"`, `"reasoning"`, `"image"`, `"tool_use"`, `"compaction"`, `"extra_content"`, `"usage"`, or `"error"`. */
     type: string;
     /** Text delta. Present on `"text"` chunks. */
     text?: string;
     /** Reasoning/thinking delta. Present on `"reasoning"` chunks. */
     reasoning?: string;
+    /** A generated image. Present on `"image"` chunks from image-capable models. */
+    image?: ImageContent;
     /** Tool call id (`"tool_use"`) or compaction item id (`"compaction"`). */
     id?: string;
     /** Tool/function name. Present on `"tool_use"` chunks. */
@@ -127,6 +130,8 @@ export interface ChatResponseChunk {
     extra_content?: unknown;
     /** Token usage totals. Present on the final `"usage"` chunk. */
     usage?: Record<string, number>;
+    /** Error description. Present on `"error"` chunks, which end the stream. */
+    message?: string;
 }
 
 export interface Img2TxtOptions {
@@ -221,6 +226,36 @@ export interface Txt2ImgOptions {
      * output format, e.g. `'webp'` | `'jpg'` | `'png'`.
      */
     response_format?: string;
+    /** Guidance scale (Replicate `flux-2-klein-9b-base`). */
+    guidance?: number;
+    /**
+     * Use the model's optimized fast mode (Replicate `flux-2-dev`). Defaults to
+     * `true` for that model, and affects pricing.
+     */
+    go_fast?: boolean;
+    /** Output quality, 0-100 (Replicate, flux family). */
+    output_quality?: number;
+    /**
+     * Approximate output size in megapixels (Replicate, flux family), e.g.
+     * `'0.25'` | `'0.5'` | `'1'` | `'2'`.
+     */
+    output_megapixels?: string;
+    /** Safety tolerance level (Replicate `flux-2-pro`, `flux-1.1-pro`). */
+    safety_tolerance?: number;
+    /** Enable prompt upsampling (Replicate `flux-1.1-pro`). */
+    prompt_upsampling?: boolean;
+    /**
+     * Generation tier for Replicate Leonardo models, which affects pricing:
+     * `'standard'` | `'ultra'` (`lucid-origin`), `'fast'` | `'quality'` |
+     * `'ultra'` (`phoenix-1.0`).
+     */
+    generation_mode?: string;
+    /** Stylistic preset (Replicate Leonardo models). */
+    style?: string;
+    /** Contrast preset (Replicate Leonardo models). */
+    contrast?: string;
+    /** Server-side prompt enhancement (Replicate Leonardo models). */
+    prompt_enhance?: boolean;
     /** When `true`, returns a sample image without using credits. */
     test_mode?: boolean;
     /**

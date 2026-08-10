@@ -106,6 +106,10 @@ export interface ReaddirOptions extends RequestCallbacks<FSItem[]> {
     sortBy?: 'name' | 'modified' | 'type' | 'size';
     /** Sort direction. Default is `asc`. */
     sortOrder?: 'asc' | 'desc';
+    /** Whether to also list the contents of subdirectories. Defaults to `false`. */
+    recursive?: boolean;
+    /** How many levels to descend when `recursive` is `true`. Defaults to unlimited. */
+    depth?: number;
 }
 
 /**
@@ -133,6 +137,12 @@ export interface StatOptions extends RequestCallbacks<FSItem> {
     consistency?: 'strong' | 'eventual';
     /** Whether to return subdomain information. Defaults to `false`. */
     returnSubdomains?: boolean;
+    /**
+     * Whether to return the workers attached to the item. Workers are served
+     * alongside subdomains, so this is an alias of `returnSubdomains` — setting
+     * either one returns both. Defaults to `false`.
+     */
+    returnWorkers?: boolean;
     /** Whether to return permission information. Defaults to `false`. */
     returnPermissions?: boolean;
     /** Whether to return version information. Defaults to `false`. */
@@ -313,10 +323,10 @@ export class FS {
      * Writes data to a file, creating it if it does not exist. Resolves to the `FSItem`
      * of the written file. If `path` is not absolute, it is resolved relative to the app's
      * root directory. A `File` may be written directly, in which case its path is derived
-     * from the file's name.
+     * from the file's name. Omitting `data` creates an empty file.
      */
     write (file: File): Promise<FSItem>;
-    write (path: string, data: string | File | Blob | ArrayBuffer | ArrayBufferView, options?: WriteOptions): Promise<FSItem>;
+    write (path: string, data?: string | File | Blob | ArrayBuffer | ArrayBufferView, options?: WriteOptions): Promise<FSItem>;
 
     sign (appUid: string, items: unknown | unknown[], success?: (result: SignResult) => void, error?: (reason: unknown) => void): Promise<SignResult>;
 

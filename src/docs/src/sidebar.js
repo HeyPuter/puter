@@ -1246,6 +1246,20 @@ let sidebar = [
                 path: '/Objects/monthlyusage',
             },
             {
+                title: '<code>PuterPeerConnection</code>',
+                title_tag: 'PuterPeerConnection',
+                icon: '/assets/img/object.svg',
+                source: '/Objects/puterpeerconnection.md',
+                path: '/Objects/puterpeerconnection',
+            },
+            {
+                title: '<code>PuterPeerServer</code>',
+                title_tag: 'PuterPeerServer',
+                icon: '/assets/img/object.svg',
+                source: '/Objects/puterpeerserver.md',
+                path: '/Objects/puterpeerserver',
+            },
+            {
                 title: '<code>SignInResult</code>',
                 title_tag: 'SignInResult',
                 icon: '/assets/img/object.svg',

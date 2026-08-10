@@ -37,10 +37,13 @@ Additional settings for the generation request. Available options depend on the 
 | `puter_output_path` | `String` | When set, the generated image is automatically saved to this path on the Puter filesystem. Relative paths are resolved against the app's data directory (or `~/` outside an app). The caller must have write permission to the destination |
 | `input_images` | `Array<String>` | Input image(s) for image-to-image — the canonical, cross-provider field (see below). |
 | `input_image` | `String` | Single-image shorthand for `input_images`. |
+| `input_image_mime_type` | `String` | MIME type of the input image(s), e.g. `'image/png'`. Used as a fallback when the type cannot be detected from the input — pass it when supplying raw base64 without a data-URI prefix. |
 
 #### Input images (image-to-image)
 
 `input_images` is the universal way to pass image-to-image inputs across providers; `input_image` is the single-image shorthand. Each entry may be a **public URL**, a **data-URI**, or **raw base64** — providers that need base64 fetch URLs server-side (SSRF-guarded), so a URL works everywhere.
+
+Raw base64 carries no MIME type of its own. When it cannot be detected from the bytes, set `input_image_mime_type` (e.g. `'image/png'`) — Gemini rejects the request otherwise, and OpenAI, xAI, and Replicate use it to label the upload.
 
 | Provider | Multiple images? | Accepted input forms |
 |----------|------------------|----------------------|

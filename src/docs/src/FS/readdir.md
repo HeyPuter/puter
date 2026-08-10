@@ -31,6 +31,8 @@ An object with the following properties:
 - `offset` (Number) (optional) - Skips the given number of entries. Prefer `cursor` for paging through large directories.
 - `sortBy` (String) (optional) - Sort field: `name`, `modified`, `type`, or `size`. Default is `name`.
 - `sortOrder` (String) (optional) - `asc` or `desc`. Default is `asc`.
+- `recursive` (Boolean) (optional) - If `true`, the contents of subdirectories are listed too. Defaults to `false`.
+- `depth` (Number) (optional) - How many levels to descend when `recursive` is `true`. Defaults to unlimited.
 - `cursor` (String | null) (optional) - Opts into paginated results. Pass `null` for the first page, then the `cursor` from each page to fetch the next one. The cursor pins the sort, so later pages must not request a different `sortBy`/`sortOrder`.
 - `includeTotal` (Boolean) (optional) - If `true`, the paginated result includes a `total` count of all entries in the directory.
 - `stream` (Boolean) (optional) - If `true`, the method returns an async iterator of page objects instead of a promise, for use with `for await ... of`. Combine with `limit` to control the page size, or `cursor` to resume from a previous page. Cannot be combined with `offset`. With `includeTotal`, only the first page carries `total`.
