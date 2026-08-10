@@ -28,7 +28,7 @@ const en = {
         access_granted_to: 'Access Granted To',
         add_app: 'Add an app',
         add_app_ai: 'Create an app with AI',
-        add_app_ai_desc: 'Describe the app you want and have it built for you',
+        add_app_ai_desc: 'Describe the app you want and AI will build it!',
         add_app_browse: 'Find an app',
         add_app_browse_desc: 'Browse the App Center and install what you need',
         add_app_request: 'Request an app',
