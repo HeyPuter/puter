@@ -49,11 +49,56 @@ function getFetchLogParams (args) {
     };
 }
 
+/**
+ * Rejects a request that cannot be made, before a relay connection is dialled.
+ * Epoxy reports a bad request as an opaque wasm value from deep inside the
+ * transport, so the checks the pre-epoxy client made client-side are still made
+ * here, and reject with what they always rejected with: a `TypeError` from
+ * `new Request` for a malformed request, and these two strings otherwise.
+ *
+ * @param {[input: RequestInfo | URL, init?: RequestInit]} args
+ * @returns {Promise<void>}
+ */
+async function assertRequestIsFetchable (args) {
+    const [input, init] = args;
+
+    // Building a Request from a Request disturbs the original's body, and the
+    // original is what gets handed to epoxy -- so validate against a clone.
+    const request = new Request(
+        input instanceof Request ? input.clone() : input,
+        init,
+    );
+
+    const { protocol } = new URL(request.url);
+    if ( protocol !== 'http:' && protocol !== 'https:' ) {
+        throw `Failed to fetch. URL scheme "${protocol}" is not supported.`;
+    }
+
+    const declaredLength = request.headers.get('content-length');
+    if ( declaredLength === null || ! request.body ) {
+        return;
+    }
+
+    const { byteLength } = await request.clone().arrayBuffer();
+    if ( declaredLength !== String(byteLength) ) {
+        throw 'Content-Length header does not match the body length. Please check your request.';
+    }
+}
+
+/**
+ * `puter.net.fetch`: fetches an http/https resource over a raw socket rather
+ * than the browser's HTTP stack, so it is not subject to CORS. Takes the same
+ * arguments as `fetch` and resolves to a `Response`.
+ *
+ * @type {(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>}
+ */
 export async function pFetch (...args) {
     const params = getFetchLogParams(args);
     let usedEpoxyClient = false;
 
     try {
+        await assertRequestIsFetchable(args);
+
         const client = await getEpoxyClient();
         usedEpoxyClient = true;
         const response = await client.fetch(...args);
