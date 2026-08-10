@@ -2,7 +2,7 @@ import UIContextMenu from '../UIContextMenu.js';
 import UIAlert from '../UIAlert.js';
 import launch_app from '../../helpers/launch_app.js';
 import revokeAppSessions from '../../helpers/revoke_app_sessions.js';
-import { begin_dashboard_tile_launch, dashboard_tile_in_view, settle_dashboard_tile_launch } from '../UIWindow.js';
+import { begin_dashboard_tile_launch, settle_dashboard_tile_launch } from '../UIWindow.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 import { parseRemovedApps, serializeRemovedApps, REMOVED_APPS_KV_KEY } from './removedApps.js';
@@ -654,33 +654,46 @@ function showAddAppModal ({ $el_window }) {
         else close();
     });
 
-    // Opened exactly as a tile click opens it, click flourish and
-    // grow-out-of-the-icon morph included. The anchor is resolved HERE, once,
-    // so the icon half and the window half can never disagree about which
-    // tile this launch came from: the app's own tile when it already has one
-    // on screen (minimize will fly the window back to it, so that is where
-    // opening should come from), and otherwise the + tile the user clicked —
-    // which is the whole point for an app they don't have yet, since
-    // UIWindow's by-app-name lookup can't find a tile that doesn't exist.
+    // Opened exactly like an /app/<name> landing: the same pedagogical
+    // click→morph→open intro plays (see beginDeepLinkLaunch) — and since
+    // choosing App Center or the AI builder is usually asking for an app the
+    // grid doesn't have yet, the intro is also what INSTALLS it: the tile
+    // arrives in the grid with the install choreography, and only then does
+    // the window grow out of the app's own slot. The user watches the app
+    // they asked for become a tile they can find again; the window never
+    // just appears from nowhere.
     const openApp = appName => {
         if ( focusExistingAppWindow(appName) ) return;
-        const tile = dashboard_tile_in_view(appName)
-            || $el_window.find('.myapps-add-tile')[0]
-            || null;
-        begin_dashboard_tile_launch(tile);
-        launch_app({
-            name: appName,
-            maximized: true,
-            window_options: {
-                morph_from_dashboard_tile: true,
-                dashboard_tile_el: tile,
-            },
-        })
-            .catch(err => {
+        // Same duplicate-launch guard as the tile click handler — a second
+        // trip through the modal mid-intro must not spawn a second instance.
+        if ( TabApps._launchingApps.has(appName) ) return;
+        // Fetched in parallel with the intro, which may need it to DRAW the
+        // arriving tile, then handed to launch_app so the intro never costs
+        // a second app-info round-trip — the same contract as the landing's
+        // prefetch in initgui. A failed prefetch hands nothing over;
+        // launch_app refetches and fails the way it always did.
+        const app_info_promise = puter.apps.get(appName, { icon_size: 128 })
+            .catch(() => null);
+        (async () => {
+            let tile = null;
+            try {
+                tile = await TabApps.beginDeepLinkLaunch(appName, $el_window, app_info_promise);
+            } catch ( _e ) {
+                // No intro — still launch.
+            }
+            const app_obj = await app_info_promise;
+            launch_app({
+                name: appName,
+                maximized: true,
+                ...(app_obj ? { app_obj } : {}),
+                window_options: { morph_from_dashboard_tile: true },
+            }).catch(err => {
                 console.error(`Failed to launch ${appName}:`, err);
                 UIAlert(i18n('something_went_wrong'));
-            })
-            .finally(() => settle_dashboard_tile_launch(tile));
+            }).finally(() => {
+                TabApps.settleDeepLinkLaunch(appName, tile);
+            });
+        })();
     };
 
     $overlay.on('click', '.myapps-add-option', function () {
