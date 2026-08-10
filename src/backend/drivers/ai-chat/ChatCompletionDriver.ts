@@ -407,11 +407,19 @@ export class ChatCompletionDriver extends PuterDriver {
                     remainingCredits - approximateInputCost;
                 const maxAllowedOutputTokens =
                     maxAllowedOutputUcents / outputTokenCost;
+                // A provider may not know a model's output ceiling. Drop the
+                // term rather than let a missing value drive the cap: `null`
+                // coerces to 0, so the subtraction goes negative instead of
+                // NaN and the user is told they're out of credits.
+                const modelOutputCeiling =
+                    Number.isFinite(model.max_tokens) && model.max_tokens > 0
+                        ? model.max_tokens - approximateTokenCount
+                        : Number.POSITIVE_INFINITY;
                 const cap = Math.floor(
                     Math.min(
                         args.max_tokens ?? Number.POSITIVE_INFINITY,
                         maxAllowedOutputTokens,
-                        model.max_tokens - approximateTokenCount,
+                        modelOutputCeiling,
                     ),
                 );
                 // `cap` is the credit-bounded ceiling on output tokens. When
