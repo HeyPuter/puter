@@ -550,6 +550,68 @@ describe('SystemKVStore', () => {
             expect(after.res).toMatchObject({ a: { b: { c: 5 } } });
         });
 
+        it('does not try to build paths for an expression rejected on its size', async () => {
+            // Both failures arrive as a ValidationException, but this one is
+            // about the expression rather than the item: createPaths would
+            // write a layer per nested path — each against this same item, so
+            // each costing the whole item — and then re-send a byte-identical
+            // expression to be rejected again. In production that ran as a
+            // sweep every 5s and cost real money, so the guard is worth
+            // pinning: one attempt, then out.
+            const oversized = Object.assign(
+                new Error(
+                    '1 validation error detected: Invalid UpdateExpression: Expression size has exceeded the maximum allowed size;',
+                ),
+                { name: 'ValidationException' },
+            );
+            const update = vi
+                .spyOn(server.clients.dynamo, 'update')
+                .mockRejectedValue(oversized);
+
+            await expect(
+                target.incr(
+                    { key: 'oversized', pathAndAmountMap: { 'a.b': 1 } },
+                    opts,
+                ),
+            ).rejects.toThrow(/Expression size/);
+            expect(update).toHaveBeenCalledTimes(1);
+
+            update.mockRestore();
+        });
+
+        it('still builds paths for a ValidationException about the item', async () => {
+            // The other side of the guard above: a genuinely missing nested
+            // parent must still be created and the update retried.
+            const missingPath = Object.assign(
+                new Error(
+                    'The document path provided in the update expression is invalid for update',
+                ),
+                { name: 'ValidationException' },
+            );
+            const real = server.clients.dynamo.update.bind(
+                server.clients.dynamo,
+            );
+            let first = true;
+            const update = vi
+                .spyOn(server.clients.dynamo, 'update')
+                .mockImplementation((...args) => {
+                    if (first) {
+                        first = false;
+                        return Promise.reject(missingPath);
+                    }
+                    return real(...args);
+                });
+
+            const result = await target.incr(
+                { key: 'guardedNest', pathAndAmountMap: { 'x.y.z': 4 } },
+                opts,
+            );
+
+            expect(result.res).toMatchObject({ x: { y: { z: 4 } } });
+            expect(update.mock.calls.length).toBeGreaterThan(1);
+            update.mockRestore();
+        });
+
         it('decr subtracts via the same machinery', async () => {
             await target.incr(
                 { key: 'counter3', pathAndAmountMap: { hits: 10 } },
