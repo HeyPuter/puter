@@ -2,7 +2,7 @@ import UIContextMenu from '../UIContextMenu.js';
 import UIAlert from '../UIAlert.js';
 import launch_app from '../../helpers/launch_app.js';
 import revokeAppSessions from '../../helpers/revoke_app_sessions.js';
-import { begin_dashboard_tile_launch, settle_dashboard_tile_launch } from '../UIWindow.js';
+import { begin_dashboard_tile_launch, dashboard_tile_in_view, settle_dashboard_tile_launch } from '../UIWindow.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 import { parseRemovedApps, serializeRemovedApps, REMOVED_APPS_KV_KEY } from './removedApps.js';
@@ -654,14 +654,33 @@ function showAddAppModal ({ $el_window }) {
         else close();
     });
 
-    // Maximized like a tile launch, and without a morph: the add tile is not
-    // the app's own icon, so there is nothing for the window to grow out of.
+    // Opened exactly as a tile click opens it, click flourish and
+    // grow-out-of-the-icon morph included. The anchor is resolved HERE, once,
+    // so the icon half and the window half can never disagree about which
+    // tile this launch came from: the app's own tile when it already has one
+    // on screen (minimize will fly the window back to it, so that is where
+    // opening should come from), and otherwise the + tile the user clicked —
+    // which is the whole point for an app they don't have yet, since
+    // UIWindow's by-app-name lookup can't find a tile that doesn't exist.
     const openApp = appName => {
         if ( focusExistingAppWindow(appName) ) return;
-        launch_app({ name: appName, maximized: true }).catch(err => {
-            console.error(`Failed to launch ${appName}:`, err);
-            UIAlert(i18n('something_went_wrong'));
-        });
+        const tile = dashboard_tile_in_view(appName)
+            || $el_window.find('.myapps-add-tile')[0]
+            || null;
+        begin_dashboard_tile_launch(tile);
+        launch_app({
+            name: appName,
+            maximized: true,
+            window_options: {
+                morph_from_dashboard_tile: true,
+                dashboard_tile_el: tile,
+            },
+        })
+            .catch(err => {
+                console.error(`Failed to launch ${appName}:`, err);
+                UIAlert(i18n('something_went_wrong'));
+            })
+            .finally(() => settle_dashboard_tile_launch(tile));
     };
 
     $overlay.on('click', '.myapps-add-option', function () {

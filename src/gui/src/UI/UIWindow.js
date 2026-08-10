@@ -716,7 +716,14 @@ async function UIWindow (options) {
     if ( options.morph_from_dashboard_tile && window.animate_window_opening
         && options.is_visible && ! options.fadeIn
         && ! (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) ) {
-        const tile = dashboard_tile_in_view(options.app);
+        // A named tile wins over the by-app-name lookup: the launcher knows
+        // which icon the user actually clicked, and it is the icon whose
+        // click feedback has already played. The grid's add-an-app tile uses
+        // this to open apps that have no tile of their own — an app you
+        // don't have yet can't be found by name (see showAddAppModal).
+        const tile = (options.dashboard_tile_el && dashboard_tile_visible(options.dashboard_tile_el))
+            ? options.dashboard_tile_el
+            : dashboard_tile_in_view(options.app);
         if ( tile ) {
             // .window is display:none from the stylesheet until the show()
             // further down; the morph needs the window laid out to measure
@@ -4154,23 +4161,14 @@ $.fn.focusWindow = function (event) {
  * the user will actually look for the app (and where opening it from will put
  * it back). See buildGroupTileHtml for the data-group-apps this reads.
  */
-function dashboard_tile_in_view (app_name) {
+export function dashboard_tile_in_view (app_name) {
     if ( ! app_name || typeof CSS === 'undefined' || ! CSS.escape ) return null;
-    const in_view = tile => {
-        const rect = tile.getBoundingClientRect();
-        if ( rect.width <= 0 || rect.height <= 0 ) return false;
-        const scroller = tile.closest('.myapps-pager-scroller');
-        const clip = (scroller || tile.parentElement).getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        return cx >= clip.left && cx <= clip.right && cy >= clip.top && cy <= clip.bottom;
-    };
 
     const tiles = document.querySelectorAll(
         `.dashboard-section-apps.active .myapps-tile[data-app-name="${CSS.escape(app_name)}"]`,
     );
     for ( const tile of tiles ) {
-        if ( in_view(tile) ) return tile;
+        if ( dashboard_tile_visible(tile) ) return tile;
     }
 
     const folders = document.querySelectorAll('.dashboard-section-apps.active .myapps-group-tile');
@@ -4181,9 +4179,27 @@ function dashboard_tile_in_view (app_name) {
         } catch ( _e ) {
             continue;
         }
-        if ( Array.isArray(names) && names.includes(app_name) && in_view(folder) ) return folder;
+        if ( Array.isArray(names) && names.includes(app_name) && dashboard_tile_visible(folder) ) return folder;
     }
     return null;
+}
+
+/**
+ * Whether a tile is rendered AND on the pager page currently in view. The
+ * page test is the point: pages sit side by side in a horizontal scroller,
+ * so an off-page tile has a real rendered box just past the scroller's clip
+ * edge, and a window morphing out of one would grow from nowhere the user
+ * is looking.
+ */
+function dashboard_tile_visible (tile) {
+    if ( ! tile || ! tile.getBoundingClientRect ) return false;
+    const rect = tile.getBoundingClientRect();
+    if ( rect.width <= 0 || rect.height <= 0 ) return false;
+    const scroller = tile.closest('.myapps-pager-scroller');
+    const clip = (scroller || tile.parentElement).getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    return cx >= clip.left && cx <= clip.right && cy >= clip.top && cy <= clip.bottom;
 }
 
 // ---------------------------------------------------------------------
