@@ -1112,6 +1112,14 @@ let sidebar = [
                 path: '/Perms/requestManageApps',
             },
             {
+                title: '<code>requestAppData()</code>',
+                page_title: '<code>puter.perms.requestAppData()</code>',
+                title_tag: 'puter.perms.requestAppData()',
+                icon: '/assets/img/function.svg',
+                source: '/Perms/requestAppData.md',
+                path: '/Perms/requestAppData',
+            },
+            {
                 title: '<code>requestReadSubdomains()</code>',
                 page_title: '<code>puter.perms.requestReadSubdomains()</code>',
                 title_tag: 'puter.perms.requestReadSubdomains()',
