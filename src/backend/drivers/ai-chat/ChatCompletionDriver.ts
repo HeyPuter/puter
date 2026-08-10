@@ -50,6 +50,7 @@ import { OllamaChatProvider } from './providers/ollama/OllamaProvider.js';
 import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
 import { OpenAiResponsesChatProvider } from './providers/openai/OpenAiChatResponsesProvider.js';
 import { OpenRouterProvider } from './providers/openrouter/OpenRouterProvider.js';
+import { SaladCloudProvider } from './providers/saladcloud/SaladCloudProvider.js';
 import { TogetherAIProvider } from './providers/together/TogetherAIProvider.js';
 import { XAIProvider } from './providers/xai/XAIProvider.js';
 import { ZAIProvider } from './providers/zai/ZAIProvider.js';
@@ -1271,6 +1272,18 @@ export class ChatCompletionDriver extends PuterDriver {
                 {
                     apiKey: neuralwattKey,
                     apiBaseUrl: neuralwatt?.apiBaseUrl as string | undefined,
+                },
+                metering,
+            );
+        }
+
+        const saladcloud = providers['saladcloud'];
+        const saladcloudKey = readKey(saladcloud);
+        if (saladcloudKey) {
+            this.#providers['saladcloud'] = new SaladCloudProvider(
+                {
+                    apiKey: saladcloudKey,
+                    apiBaseUrl: saladcloud?.apiBaseUrl as string | undefined,
                 },
                 metering,
             );

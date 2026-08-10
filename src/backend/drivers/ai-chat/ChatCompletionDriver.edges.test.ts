@@ -51,6 +51,7 @@ import { InfronProvider } from './providers/infron/InfronProvider.js';
 import { NeuralwattProvider } from './providers/neuralwatt/NeuralwattProvider.js';
 import { OpenAiChatProvider } from './providers/openai/OpenAiChatCompletionsProvider.js';
 import { OpenRouterProvider } from './providers/openrouter/OpenRouterProvider.js';
+import { SaladCloudProvider } from './providers/saladcloud/SaladCloudProvider.js';
 import { TogetherAIProvider } from './providers/together/TogetherAIProvider.js';
 
 let server: PuterServer;
@@ -75,6 +76,7 @@ const FULL_PROVIDER_CONFIG = {
         infron: { apiKey: 'k' },
         byteplus: { apiKey: 'k' },
         neuralwatt: { apiKey: 'k' },
+        saladcloud: { apiKey: 'k' },
         // Suppress auto-discovery of a developer's local Ollama.
         ollama: { enabled: false },
     },
@@ -126,6 +128,16 @@ beforeAll(async () => {
     vi.spyOn(NeuralwattProvider.prototype, 'models').mockResolvedValue(
         aggregatorCatalog('neuralwatt-only-model') as never,
     );
+    vi.spyOn(SaladCloudProvider.prototype, 'models').mockReturnValue([
+        {
+            id: 'saladcloud-only-model',
+            name: 'saladcloud-only-model',
+            aliases: [],
+            max_tokens: 1,
+            costs_currency: 'usd-cents',
+            costs: { tokens: 1_000_000, input_tokens: 10, output_tokens: 20 },
+        },
+    ]);
     fullDriver = await makeDriver(FULL_PROVIDER_CONFIG);
     fakeOnlyDriver = await makeDriver({
         providers: { ollama: { enabled: false } },
@@ -187,6 +199,7 @@ describe('ChatCompletionDriver provider registration', () => {
             'infron',
             'byteplus',
             'neuralwatt',
+            'saladcloud',
             'fake-chat',
         ]) {
             expect(providers).toContain(expected);
