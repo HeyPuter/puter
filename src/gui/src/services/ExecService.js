@@ -118,8 +118,10 @@ export class ExecService extends Service {
                 const caller_app_name = process.name;
                 const caller_app_info = await window.get_apps(caller_app_name);
 
-                // Check if caller is in godmode
-                if ( caller_app_info && caller_app_info.godmode === 1 ) {
+                // Check if caller is in godmode. The /apps endpoint serializes
+                // `godmode` as a boolean while older shapes used 0/1, so
+                // accept both (same guard as launch_app.js).
+                if ( caller_app_info && (caller_app_info.godmode === true || caller_app_info.godmode === 1) ) {
                     // Get target app info to create file signatures
                     const target_app_info = await puter.apps.get(app_name);
 
@@ -137,8 +139,10 @@ export class ExecService extends Service {
                             // Get file stats to verify it exists
                             const file_stat = await puter.fs.stat({ path: first_file_path, consistency: 'eventual' });
 
-                            // Create file signature for the target app
-                            const file_signature_result = await puter.fs.sign(target_app_info.uuid, {
+                            // Create file signature for the target app.
+                            // puter.apps.get returns `uid`; `uuid` is kept as
+                            // a fallback for any older cached shape.
+                            const file_signature_result = await puter.fs.sign(target_app_info.uid ?? target_app_info.uuid, {
                                 path: first_file_path,
                                 action: 'write',
                             });

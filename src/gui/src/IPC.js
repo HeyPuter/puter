@@ -1977,9 +1977,10 @@ const ipc_listener = async (event, handled) => {
                 return true;
             }
 
-            // God-mode apps can close anything
+            // God-mode apps can close anything. `godmode` arrives as a
+            // boolean from /apps but was historically 0/1 — accept both.
             const app_info = await window.get_apps(app_name);
-            if ( app_info.godmode === 1 ) {
+            if ( app_info.godmode === true || app_info.godmode === 1 ) {
                 console.log(`⚠️ Allowing GODMODE app ${appInstanceID} to close app ${targetAppInstanceID}`);
                 return true;
             }
