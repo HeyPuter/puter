@@ -1158,6 +1158,36 @@ input.myapps-search:disabled {
     word-break: break-word;
 }
 
+/* -- Add-an-app tile --
+   The tile at the tail of the grid (see buildAddTileHtml): a dashed, empty
+   app-shaped slot with a plus in it, so it reads as room for an app rather
+   than as an installed one. The border takes currentColor so a single
+   (theme-aware) color drives both it and the plus. */
+.myapps-add-icon {
+    border: 2px dashed;
+    border-radius: 14px;
+    color: var(--dashboard-text-tertiary);
+}
+
+.myapps-add-icon svg {
+    width: 24px;
+    height: 24px;
+}
+
+.myapps-add-tile .myapps-tile-label {
+    color: var(--dashboard-text-secondary);
+}
+
+@media (hover: hover) {
+    .myapps-add-tile:hover .myapps-add-icon {
+        color: var(--select-color);
+    }
+}
+
+.myapps-add-tile:focus-visible .myapps-add-icon {
+    color: var(--select-color);
+}
+
 /* -- App folders --
    A folder wears the same tile skeleton as an app, with its icon slot filled
    by iOS's miniature 3x3 grid of what is inside. */
@@ -1491,6 +1521,197 @@ input.myapps-group-name:focus {
 .myapps-modal-confirm:disabled {
     opacity: 0.6;
     cursor: default;
+}
+
+/* Add-an-app chooser (see showAddAppModal): the three ways to get an app, as
+   rows in the same modal shell. min-width gives the two-line rows room without
+   overflowing a narrow phone; the shell's own max-width caps the other end. */
+/* Stated rather than left to `.dashboard *`: the overlay is appended to the
+   dashboard WINDOW, which is outside that rule — without this, a width:100%
+   child (the option rows, the request form's message box) adds its padding
+   and border on top of the card's content width and hangs over the right
+   edge. Width is explicit for the same reason: it is the card's real width
+   only under border-box. */
+.myapps-add-modal,
+.myapps-add-modal * {
+    box-sizing: border-box;
+}
+.myapps-add-modal {
+    width: min(440px, calc(100vw - 32px));
+    min-width: 0;
+    max-width: none;
+}
+.myapps-add-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+.myapps-add-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px;
+    text-align: left;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+@media (hover: hover) {
+    .myapps-add-option:hover {
+        background: var(--dashboard-hover);
+        border-color: var(--select-ring);
+    }
+}
+.myapps-add-option:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: -1px;
+}
+.myapps-add-option-icon {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
+    background: var(--select-tint);
+    color: var(--select-color);
+}
+.myapps-add-option-icon svg {
+    width: 19px;
+    height: 19px;
+}
+.myapps-add-option-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.myapps-add-option-title {
+    font-size: 14px;
+    font-weight: 600;
+}
+.myapps-add-option-desc {
+    font-size: 12px;
+    line-height: 1.35;
+    color: var(--dashboard-text-secondary);
+}
+.myapps-add-option-chevron {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin-left: auto;
+    color: var(--dashboard-text-tertiary);
+}
+
+/* The request form, one step deeper in the same card (see showAddAppModal):
+   a titled header whose Back arrow returns to the options, the message, and
+   the sent confirmation that replaces both. */
+.myapps-add-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.myapps-add-head h3 {
+    margin: 0;
+}
+.myapps-add-back {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Pulled into the card's padding so the title, not the arrow, lines up
+       with the text below it. */
+    width: 26px;
+    height: 26px;
+    margin-left: -6px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+}
+.myapps-add-back svg {
+    width: 17px;
+    height: 17px;
+}
+@media (hover: hover) {
+    .myapps-add-back:hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
+}
+.myapps-add-back:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: -1px;
+}
+.myapps-add-message {
+    display: block;
+    width: 100%;
+    min-height: 130px;
+    margin-bottom: 12px;
+    padding: 10px;
+    resize: vertical;
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.45;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 6px;
+    background: var(--dashboard-input-background);
+    color: var(--dashboard-text-primary);
+    outline: none;
+    transition: border-color 0.15s;
+}
+.myapps-add-message:focus {
+    border-color: var(--select-color);
+}
+.myapps-add-message::placeholder {
+    color: var(--dashboard-text-muted);
+}
+p.myapps-add-error {
+    margin: -4px 0 12px;
+    font-size: 12px;
+    color: var(--dashboard-error-text);
+}
+.myapps-add-send {
+    background: var(--select-color);
+    border-color: var(--select-color);
+    color: #fff;
+}
+@media (hover: hover) {
+    .myapps-add-send:not(:disabled):hover {
+        filter: brightness(0.94);
+    }
+}
+.myapps-add-send:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+.myapps-add-sent {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0 6px;
+    text-align: center;
+}
+.myapps-add-sent svg {
+    width: 40px;
+    height: 40px;
+    color: var(--dashboard-success-text);
+}
+.myapps-add-sent p {
+    margin: 0 0 4px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--dashboard-text-secondary);
 }
 
 /* -- Item properties modal --
@@ -1979,6 +2200,13 @@ body.myapps-reordering .myapps-tile {
 
     .myapps-reorder-mode .myapps-tile:nth-child(3n) .myapps-tile-icon {
         animation-delay: -0.24s;
+    }
+
+    /* The add-an-app tile can't be dragged or uninstalled, so it has nothing
+       to say in reorder mode: it sits still while the apps wobble. Last, and
+       specific enough, to beat the nth-child rules above. */
+    .myapps-reorder-mode .myapps-tile.myapps-add-tile .myapps-tile-icon {
+        animation: none;
     }
 }
 
@@ -3418,6 +3646,10 @@ body.myapps-reordering .myapps-tile {
 
     .myapps-group-icon {
         padding: 4px;
+        border-radius: 12px;
+    }
+
+    .myapps-add-icon {
         border-radius: 12px;
     }
 

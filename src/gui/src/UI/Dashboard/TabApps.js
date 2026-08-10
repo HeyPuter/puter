@@ -51,6 +51,12 @@ const APP_NAMES_NO_UNINSTALL = new Set([
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+// -- Add-an-app tile --
+/** Puter's app marketplace — the add-an-app tile's route to installing one. */
+const APP_CENTER_APP_NAME = 'app-center';
+/** Puter's AI app builder, which generates an app from a description. */
+const BUILDER_APP_NAME = 'builder';
+
 // -- Drag-to-reorder tuning --
 const DRAG_START_DISTANCE = 5;      // px a pointer must travel before a drag begins
 const MODE_LONGPRESS_MS = 500;      // hold on empty grid space before reorder mode engages
@@ -222,6 +228,39 @@ function buildTileHtml (app) {
     return h;
 }
 
+// The tile at the tail of the grid that is not an app but the way to GET one
+// (see showAddAppModal). It wears the same .myapps-tile skeleton as an app so
+// hover, focus, and keyboard navigation treat it identically, and carries
+// neither an app name nor a group id — which is what keeps it out of the saved
+// order, the running dots, and the deep-link tile lookups, all of which key
+// off those attributes.
+function buildAddTileHtml () {
+    const label = i18n('add_app');
+    let h = `<div class="myapps-tile myapps-add-tile" role="button" tabindex="-1" title="${label}" aria-label="${label}">`;
+    h += '<div class="myapps-tile-icon myapps-add-icon">';
+    h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+    h += '</div>';
+    h += `<span class="myapps-tile-label">${label}</span>`;
+    h += '</div>';
+    return h;
+}
+
+// One instance per app when opened from the dashboard: un-hide a minimized
+// instance / focus a visible one instead of launching a duplicate. Returns
+// whether an existing window took the request.
+function focusExistingAppWindow (appName) {
+    const $existing = $(`.window[data-app="${html_encode(appName)}"]`);
+    if ( ! $existing.length ) return false;
+    const $win = $existing.last();
+    const minimized = $win.attr('data-is_minimized');
+    if ( minimized === '1' || minimized === 'true' ) {
+        $win.showWindow();
+    } else {
+        $win.focusWindow();
+    }
+    return true;
+}
+
 // The label a folder shows: its own name, or the default one if a rename
 // somehow left it blank (a nameless tile is one the user can't tell apart).
 function groupLabel (group) {
@@ -284,6 +323,7 @@ function parseTileGroupApps (tileEl) {
 }
 
 function buildGridItemHtml (item) {
+    if ( item.type === 'add' ) return buildAddTileHtml();
     return item.type === 'group'
         ? buildGroupTileHtml(item.group, item.apps)
         : buildTileHtml(item.app);
@@ -497,6 +537,189 @@ function showUninstallModal ({ appName, appTitle, appUid, self, $el_window }) {
     });
 }
 
+// What the grid's add-an-app tile asks: which of the three ways to get an app
+// do you want? Install one that already exists, have one built for you, or ask
+// for one that doesn't exist yet. Uses the same modal shell as the uninstall
+// confirmation above, with the options as rows rather than a question.
+function showAddAppModal ({ $el_window }) {
+    const options = [
+        {
+            key: 'browse',
+            icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>',
+            title: i18n('add_app_browse'),
+            desc: i18n('add_app_browse_desc'),
+        },
+        {
+            key: 'ai',
+            icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M11 3.5 12.7 8.3 17.5 10 12.7 11.7 11 16.5 9.3 11.7 4.5 10 9.3 8.3z"/><path d="M18 14.5 18.8 16.7 21 17.5 18.8 18.3 18 20.5 17.2 18.3 15 17.5 17.2 16.7z"/></svg>',
+            title: i18n('add_app_ai'),
+            desc: i18n('add_app_ai_desc'),
+        },
+        {
+            key: 'request',
+            icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>',
+            title: i18n('add_app_request'),
+            desc: i18n('add_app_request_desc'),
+        },
+    ];
+
+    let h = '<div class="myapps-modal-overlay">';
+    h += `<div class="myapps-modal myapps-add-modal" role="dialog" aria-modal="true" aria-label="${i18n('add_app')}">`;
+
+    // The three ways in.
+    h += '<div class="myapps-add-pane" data-pane="options">';
+    h += `<h3>${i18n('add_app')}</h3>`;
+    h += '<div class="myapps-add-options">';
+    for ( const option of options ) {
+        h += `<button type="button" class="myapps-add-option" data-add-option="${option.key}">`;
+        h += `<span class="myapps-add-option-icon">${option.icon}</span>`;
+        h += '<span class="myapps-add-option-text">';
+        h += `<span class="myapps-add-option-title">${option.title}</span>`;
+        h += `<span class="myapps-add-option-desc">${option.desc}</span>`;
+        h += '</span>';
+        h += '<svg class="myapps-add-option-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>';
+        h += '</button>';
+    }
+    h += '</div>';
+    h += '<div class="myapps-modal-buttons">';
+    h += `<button class="myapps-modal-btn myapps-modal-cancel">${i18n('cancel')}</button>`;
+    h += '</div>';
+    h += '</div>';
+
+    // The request form. Lives in the same card so asking for an app is one
+    // step deeper into the same decision, not a second window over the top
+    // of it — Back returns to the options with whatever was typed intact.
+    h += '<div class="myapps-add-pane" data-pane="request" hidden>';
+    h += '<div class="myapps-add-head">';
+    h += `<button type="button" class="myapps-add-back" aria-label="${i18n('back')}">`;
+    h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>';
+    h += '</button>';
+    h += `<h3>${i18n('add_app_request')}</h3>`;
+    h += '</div>';
+    h += `<p>${i18n('add_app_request_c2a')}</p>`;
+    h += `<textarea class="myapps-add-message" placeholder="${i18n('add_app_request_placeholder')}"></textarea>`;
+    h += `<p class="myapps-add-error" role="alert" hidden>${i18n('add_app_request_failed')}</p>`;
+    h += '<div class="myapps-modal-buttons">';
+    h += `<button class="myapps-modal-btn myapps-modal-cancel">${i18n('cancel')}</button>`;
+    h += `<button class="myapps-modal-btn myapps-add-send" disabled>${i18n('send')}</button>`;
+    h += '</div>';
+    h += '</div>';
+
+    // Sent.
+    h += '<div class="myapps-add-pane" data-pane="sent" hidden>';
+    h += '<div class="myapps-add-sent">';
+    h += '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="8 12.5 11 15.5 16 9.5"/></svg>';
+    h += `<p>${i18n('add_app_request_sent')}</p>`;
+    h += '</div>';
+    h += '<div class="myapps-modal-buttons">';
+    h += `<button class="myapps-modal-btn myapps-modal-cancel">${i18n('close')}</button>`;
+    h += '</div>';
+    h += '</div>';
+
+    h += '</div>';
+    h += '</div>';
+
+    const $overlay = $(h);
+    $el_window.append($overlay);
+
+    const close = () => {
+        $overlay.remove();
+        $(document).off('keydown.add-app-modal');
+    };
+
+    const currentPane = () => $overlay.find('.myapps-add-pane:not([hidden])').attr('data-pane');
+
+    const showPane = name => {
+        $overlay.find('.myapps-add-pane').attr('hidden', 'hidden');
+        $overlay.find(`.myapps-add-pane[data-pane="${name}"]`).removeAttr('hidden');
+        if ( name === 'request' ) {
+            $overlay.find('.myapps-add-message').focus();
+        } else if ( name === 'sent' ) {
+            $overlay.find('[data-pane="sent"] .myapps-modal-cancel').focus();
+        } else {
+            $overlay.find('.myapps-add-option').first().focus();
+        }
+    };
+
+    $overlay.on('click', '.myapps-modal-cancel', close);
+    $overlay.on('click', function (e) {
+        if ( e.target === $overlay[0] ) close();
+    });
+    $overlay.on('click', '.myapps-add-back', () => showPane('options'));
+    $(document).on('keydown.add-app-modal', function (e) {
+        if ( e.key !== 'Escape' ) return;
+        // Escape steps back out of the form before it closes the modal, so a
+        // half-written request survives a mis-hit key.
+        if ( currentPane() === 'request' ) showPane('options');
+        else close();
+    });
+
+    // Maximized like a tile launch, and without a morph: the add tile is not
+    // the app's own icon, so there is nothing for the window to grow out of.
+    const openApp = appName => {
+        if ( focusExistingAppWindow(appName) ) return;
+        launch_app({ name: appName, maximized: true }).catch(err => {
+            console.error(`Failed to launch ${appName}:`, err);
+            UIAlert(i18n('something_went_wrong'));
+        });
+    };
+
+    $overlay.on('click', '.myapps-add-option', function () {
+        const key = this.dataset.addOption;
+        if ( key === 'request' ) {
+            showPane('request');
+            return;
+        }
+        // An app is opening — the modal has nothing left to say.
+        close();
+        if ( key === 'browse' ) openApp(APP_CENTER_APP_NAME);
+        else if ( key === 'ai' ) openApp(BUILDER_APP_NAME);
+    });
+
+    // Nothing to send until something has been written.
+    $overlay.on('input', '.myapps-add-message', function () {
+        $overlay.find('.myapps-add-send').prop('disabled', this.value.trim() === '');
+    });
+
+    const send = async () => {
+        const $btn = $overlay.find('.myapps-add-send');
+        const message = String($overlay.find('.myapps-add-message').val() || '').trim();
+        if ( ! message || $btn.prop('disabled') ) return;
+        $btn.prop('disabled', true);
+        $overlay.find('.myapps-add-error').attr('hidden', 'hidden');
+        try {
+            const res = await fetch(`${window.api_origin}/contactUs`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${puter.authToken}`,
+                },
+                body: JSON.stringify({ message }),
+            });
+            if ( ! res.ok ) throw new Error(`contactUs responded ${res.status}`);
+            showPane('sent');
+        } catch ( err ) {
+            // Said inside the form rather than in an alert: the request is
+            // still here to retry, and an alert window over the modal is one
+            // the next click on the dashboard would bury.
+            console.error('Failed to send the app request:', err);
+            $overlay.find('.myapps-add-error').removeAttr('hidden');
+            $btn.prop('disabled', false);
+        }
+    };
+
+    $overlay.on('click', '.myapps-add-send', send);
+    // Enter alone belongs to the textarea (a request may need paragraphs).
+    $overlay.on('keydown', '.myapps-add-message', function (e) {
+        if ( e.key === 'Enter' && (e.metaKey || e.ctrlKey) ) {
+            e.preventDefault();
+            send();
+        }
+    });
+
+    showPane('options');
+}
+
 function revealWhenLoaded ($container) {
     const $pager = $container.find('.myapps-pager-loading');
     if ( $pager.length === 0 ) return;
@@ -676,6 +899,13 @@ const TabApps = {
                 self._justDragged = false;
                 return;
             }
+            // The tail tile isn't an app — it asks how you'd like to get one.
+            // Answered in every mode: it is never part of the arrangement
+            // reorder mode exists to edit.
+            if ( this.classList.contains('myapps-add-tile') ) {
+                showAddAppModal({ $el_window });
+                return;
+            }
             // Folders open in every mode — inside reorder mode that is the
             // only way to rearrange or empty one.
             if ( this.dataset.groupId ) {
@@ -712,15 +942,7 @@ const TabApps = {
                 // One instance per app when launched from here: un-hide a
                 // minimized instance / focus a visible one rather than
                 // launching a duplicate.
-                const $existing = $(`.window[data-app="${html_encode(appName)}"]`);
-                if ( $existing.length ) {
-                    const $win = $existing.last();
-                    const minimized = $win.attr('data-is_minimized');
-                    if ( minimized === '1' || minimized === 'true' ) {
-                        $win.showWindow();
-                    } else {
-                        $win.focusWindow();
-                    }
+                if ( focusExistingAppWindow(appName) ) {
                     closeFolder();
                     return;
                 }
@@ -763,6 +985,11 @@ const TabApps = {
         // Context menu on right-click (and, where the platform fires it,
         // touch long-press).
         $el_window.on('contextmenu', '.myapps-tile', function (e) {
+            // The add-an-app tile has no app for a menu to act on.
+            if ( this.classList.contains('myapps-add-tile') ) {
+                e.preventDefault();
+                return;
+            }
             // Reorder mode owns every tile gesture — no menu there; likewise
             // suppress the menu (and any long-press callout) mid-drag.
             if ( self._reorderMode || (self._drag && self._drag.started) ) {
@@ -1087,6 +1314,14 @@ const TabApps = {
                 : buildNoAppsHtml());
             return;
         }
+
+        // The add-an-app tile rides at the tail of the grid: after every app,
+        // on the last page, and nowhere else — a drag can't place an app past
+        // it (see _updatePlaceholder) and a newly installed app arrives before
+        // it. Pushed here, so it counts as a slot when the pages are laid out
+        // below. Search results leave it out: a query asks which apps you
+        // HAVE, and a tile that matches nothing has no business in the answer.
+        if ( ! query ) items.push({ type: 'add' });
 
         const layout = this.computeLayout($container);
         if ( ! layout ) {
@@ -1847,6 +2082,10 @@ const TabApps = {
         // A press on the uninstall badge belongs to that button, not to a
         // drag pickup — a finger wobble while tapping × must not lift the tile.
         if ( oe.target && oe.target.closest && oe.target.closest('.myapps-tile-remove') ) return;
+        // The add-an-app tile holds the tail and isn't part of the
+        // arrangement: it can't be picked up, and nothing can be dropped onto
+        // it (see _updatePlaceholder).
+        if ( tileEl.classList.contains('myapps-add-tile') ) return;
         // Reordering a filtered subset is ambiguous — only reorder the full list.
         const query = String($el_window.find('.myapps-search').val() || '').trim();
         if ( query ) return;
@@ -2203,6 +2442,11 @@ const TabApps = {
         for ( let i = 0; i < tiles.length; i++ ) {
             const t = tiles[i];
             if ( t === d.tileEl ) continue;
+            // The add-an-app tile is never a drop target, so an app can never
+            // be placed after it — the probe over its slot reads as a gap and
+            // leaves the arrangement alone. It stays in `tiles` so it still
+            // FLIP-slides along when a drop from another page pushes it.
+            if ( t.classList.contains('myapps-add-tile') ) continue;
             const r = t.__myappsRestRect || t.getBoundingClientRect();
             const insetX = r.width * DRAG_HIT_INSET;
             const insetY = r.height * DRAG_HIT_INSET;
