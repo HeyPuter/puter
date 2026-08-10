@@ -112,7 +112,18 @@ export function clearEpoxyClientCache () {
     cachedEpoxy = undefined;
 }
 
+/**
+ * The `puter.net` module.
+ *
+ * @type {import('../../../types/modules/networking').Networking}
+ */
 export let netAPI = {
+    /**
+     * Mints a relay URL (server + single-use token) for speaking the Wisp v1
+     * protocol directly, which is what the sockets below do for you.
+     *
+     * @returns {Promise<string>}
+     */
     async generateWispV1URL () {
         return await generateWispV1URL();
     },

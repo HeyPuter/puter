@@ -1,6 +1,8 @@
 import EventListener from '../../lib/EventListener.js';
 import { clearEpoxyClientCache, getEpoxyClient } from './index.js';
 
+/** @typedef {import('../../../types/modules/networking').SocketEvent} SocketEvent */
+
 const textEncoder = new TextEncoder();
 
 function normalizeWriteData (data) {
@@ -16,7 +18,9 @@ function normalizeWriteData (data) {
         return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
     }
 
-    throw new Error('Invalid data type (not TypedArray, ArrayBuffer or String).');
+    // Verbatim from the pre-epoxy socket: apps match on this message, so the
+    // trailing '!!' stays.
+    throw new Error('Invalid data type (not TypedArray, ArrayBuffer or String!!)');
 }
 
 function normalizeError (reason) {
@@ -27,6 +31,12 @@ function normalizeError (reason) {
     return new Error(String(reason));
 }
 
+/**
+ * A raw TCP socket in the browser, tunnelled over the Wisp relay. Construct it
+ * with `puter.net.Socket(hostname, port)`; the connection is established
+ * asynchronously, so writes issued before `'open'` fires are queued and sent
+ * once the stream is up.
+ */
 export class PSocket extends EventListener {
     #host;
     #port;
@@ -40,6 +50,12 @@ export class PSocket extends EventListener {
     #closed = false;
     #pendingWrites = [];
 
+    /**
+     * @param {string} host hostname or IP address of the server to connect to
+     * @param {number} port port to connect to on that server
+     * @param {{ tls?: boolean }} [options] `tls: true` wraps the connection in
+     * TLS and switches to the `tls`-prefixed events; {@link PTLSSocket} sets it
+     */
     constructor (host, port, options = {}) {
         super(['data', 'drain', 'open', 'error', 'close', 'tlsdata', 'tlsopen', 'tlsclose']);
 
@@ -50,6 +66,15 @@ export class PSocket extends EventListener {
         void this.#connect();
     }
 
+    /**
+     * Registers a handler for a socket event. On a TLS socket, `'open'`,
+     * `'data'` and `'close'` are accepted as aliases of the `tls`-prefixed
+     * events, so the same handler code works against either socket type.
+     *
+     * @param {SocketEvent} event
+     * @param {(...args: unknown[]) => void} callback
+     * @returns {void}
+     */
     on (event, callback) {
         if ( this.#useTls && (event === 'open' || event === 'data' || event === 'close') ) {
             return super.on(`tls${event}`, callback);
@@ -58,10 +83,27 @@ export class PSocket extends EventListener {
         return super.on(event, callback);
     }
 
-    addListener (...args) {
-        return this.on(...args);
+    /**
+     * Registers a handler for a socket event, the same as {@link PSocket#on}.
+     *
+     * @param {SocketEvent} event
+     * @param {(...args: unknown[]) => void} callback
+     * @returns {void}
+     */
+    addListener (event, callback) {
+        return this.on(event, callback);
     }
 
+    /**
+     * Writes data to the socket, invoking `callback` once it has been handed to
+     * the relay. Data written before the socket is open is queued. Throws if
+     * `data` is not a string, `ArrayBuffer`, or typed array, or if the socket
+     * has already closed.
+     *
+     * @param {ArrayBuffer | ArrayBufferView | string} data
+     * @param {() => void} [callback]
+     * @returns {void}
+     */
     write (data, callback) {
         const payload = normalizeWriteData(data);
 
@@ -77,6 +119,11 @@ export class PSocket extends EventListener {
         void this.#writePayload(payload, callback);
     }
 
+    /**
+     * Closes the TCP connection.
+     *
+     * @returns {void}
+     */
     close () {
         if ( this.#closing || this.#closed ) {
             return;
@@ -153,7 +200,11 @@ export class PSocket extends EventListener {
         try {
             await this.#writer.write(payload);
             if ( callback ) {
-                callback();
+                try {
+                    callback();
+                } catch ( callbackError ) {
+                    setTimeout(() => { throw callbackError; }, 0);
+                }
             }
         } catch ( error ) {
             clearEpoxyClientCache();
@@ -266,7 +317,16 @@ export class PSocket extends EventListener {
     }
 }
 
+/**
+ * A TLS-protected TCP socket in the browser. Same interface as {@link PSocket},
+ * but the connection is encrypted and its events are `'tls'`-prefixed.
+ * Construct it with `puter.net.tls.TLSSocket(hostname, port)`.
+ */
 export class PTLSSocket extends PSocket {
+    /**
+     * @param {string} host hostname or IP address of the server to connect to
+     * @param {number} port port to connect to on that server
+     */
     constructor (host, port) {
         super(host, port, { tls: true });
     }

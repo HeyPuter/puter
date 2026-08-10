@@ -139,8 +139,8 @@ describe('pFetch api call logging', () => {
             expect(entry.params.url).toBe('https://example.com/from-url');
         });
 
-        it('reads url and method off a Request-like object', async () => {
-            await pFetch({ url: 'https://example.com/req', method: 'DELETE' });
+        it('reads url and method off a Request object', async () => {
+            await pFetch(new Request('https://example.com/req', { method: 'DELETE' }));
 
             const [entry] = logRequest.mock.calls[0];
             expect(entry.params).toEqual({ url: 'https://example.com/req', method: 'DELETE' });
@@ -148,17 +148,90 @@ describe('pFetch api call logging', () => {
 
         // An explicit init overrides the method carried by the request object.
         it('prefers the init method over the request object method', async () => {
-            await pFetch({ url: 'https://example.com/req', method: 'DELETE' }, { method: 'PATCH' });
+            await pFetch(
+                new Request('https://example.com/req', { method: 'DELETE' }),
+                { method: 'PATCH' },
+            );
 
             const [entry] = logRequest.mock.calls[0];
             expect(entry.params.method).toBe('PATCH');
         });
 
         it('records an undefined url for an unrecognised resource', async () => {
-            await pFetch(42);
+            await expect(pFetch(42)).rejects.toThrow(TypeError);
 
             const [entry] = logRequest.mock.calls[0];
             expect(entry.params).toEqual({ url: undefined, method: 'GET' });
         });
+    });
+});
+
+// The pre-epoxy client made these checks itself; epoxy reports the same
+// failures as opaque wasm values, so they stay client-side and keep rejecting
+// with exactly what they used to.
+describe('pFetch request validation', () => {
+    it('refuses a URL scheme it cannot tunnel without dialing', async () => {
+        await expect(pFetch('ftp://example.com/file.txt')).rejects.toBe(
+            'Failed to fetch. URL scheme "ftp:" is not supported.',
+        );
+
+        expect(mockGetEpoxyClient).not.toHaveBeenCalled();
+        expect(mockClientFetch).not.toHaveBeenCalled();
+    });
+
+    it('surfaces a malformed request as a TypeError without dialing', async () => {
+        await expect(pFetch('http://example.com/', {
+            method: 'GET',
+            body: 'not allowed on a GET',
+        })).rejects.toThrow(TypeError);
+
+        expect(mockGetEpoxyClient).not.toHaveBeenCalled();
+    });
+
+    it('rejects a Content-Length that disagrees with the body', async () => {
+        await expect(pFetch('http://example.com/', {
+            method: 'POST',
+            headers: { 'content-length': '999' },
+            body: 'short',
+        })).rejects.toBe(
+            'Content-Length header does not match the body length. Please check your request.',
+        );
+
+        expect(mockGetEpoxyClient).not.toHaveBeenCalled();
+    });
+
+    it('accepts a Content-Length that matches the body', async () => {
+        await pFetch('http://example.com/', {
+            method: 'POST',
+            headers: { 'content-length': '5' },
+            body: 'short',
+        });
+
+        expect(mockClientFetch).toHaveBeenCalledTimes(1);
+    });
+
+    // Validation builds a Request of its own; doing that from the caller's
+    // Request would consume the body epoxy is about to send.
+    it('leaves the body of a caller-supplied Request intact', async () => {
+        const request = new Request('https://example.com/api', {
+            method: 'POST',
+            body: 'payload',
+        });
+
+        await pFetch(request);
+
+        expect(mockClientFetch).toHaveBeenCalledWith(request);
+        expect(request.bodyUsed).toBe(false);
+        await expect(request.text()).resolves.toBe('payload');
+    });
+
+    it('logs a validation failure without clearing the client cache', async () => {
+        await expect(pFetch('ftp://example.com/file.txt')).rejects.toBeTruthy();
+
+        const [entry] = logRequest.mock.calls[0];
+        expect(entry.error.message).toBe(
+            'Failed to fetch. URL scheme "ftp:" is not supported.',
+        );
+        expect(mockClearEpoxyClientCache).not.toHaveBeenCalled();
     });
 });
