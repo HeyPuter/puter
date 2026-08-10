@@ -1,4 +1,4 @@
-let EPOXY_BASE = 'https://puter-net.b-cdn.net/epoxy/7fbb05b';
+let EPOXY_BASE = 'https://puter-net.b-cdn.net/epoxy/04e4930';
 let epoxyRuntimePromise;
 
 const textEncoder = new TextEncoder();
@@ -82,10 +82,10 @@ export let initEpoxy = async ({ wispToken, wispServer }) => {
     const provider = new runtime.WispSocketProvider(
         new runtime.WebSocketJsProvider(),
         wispServer,
-        () => [
-            { builders: [createPuterPasswordBuilder(runtime, wispToken)] },
-            [0x02],
-        ],
+        () => ({
+            builders: [createPuterPasswordBuilder(runtime, wispToken)],
+            requiredExts: [0x02],
+        }),
     );
 
     return new runtime.EpoxyClient(provider);
