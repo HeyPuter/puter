@@ -1561,9 +1561,13 @@ input.myapps-group-name:focus {
     cursor: pointer;
     transition: background 0.15s, border-color 0.15s;
 }
+/* The accent wash, not the grey --dashboard-hover: the row already answers
+   hover with a --select-ring border, and a grey fill under an accent ring
+   reads as two systems disagreeing. The weak tint keeps the icon chip's
+   stronger --select-tint legible on top of it. */
 @media (hover: hover) {
     .myapps-add-option:hover {
-        background: var(--dashboard-hover);
+        background: var(--select-tint-weak);
         border-color: var(--select-ring);
     }
 }
