@@ -1,7 +1,7 @@
 ---
 title: Perms
 description: Request permissions to access user data and resources with Puter.js Permissions API
-platforms: [apps]
+platforms: [websites, apps]
 ---
 
 The Permissions API enables your application to request access to user data and resources such as email addresses, special folders (Desktop, Documents, Pictures, Videos), apps, subdomains, and other apps' saved data.

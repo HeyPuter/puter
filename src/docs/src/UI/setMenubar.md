@@ -14,6 +14,10 @@ puter.ui.setMenubar(options)
 
 ## Parameters
 
+#### `options.theme` (String) (optional)
+
+Forces the menubar's color theme — `'dark'` or `'light'`. When unset, the menubar follows the system color-scheme preference. Only applies when running standalone (`puter.env === 'web'`); inside the Puter desktop the menubar is rendered by the desktop, which uses its own theme.
+
 #### `options.items` (Array)
 
 An array of menu items. Each item can be a menu or a menu item. Each menu item can have a label, an action, and a submenu. An item can also be the string `'-'`, which indicates a separator (renders as a horizontal divider between groups of items).

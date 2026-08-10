@@ -26,6 +26,12 @@ An object that configures the context menu.
     - `items` (Array, optional): An array of submenu items. Creates a submenu when specified.
   - **Separator**: A string `'-'` to create a visual separator between menu items.
 
+* `theme` (String, optional): Forces the menu's color theme — `'dark'` or `'light'`. When unset, the menu follows the system color-scheme preference.
+* `x` (Number, optional): X position of the menu, in pixels. Defaults to the cursor position.
+* `y` (Number, optional): Y position of the menu, in pixels. Defaults to the cursor position.
+
+`theme`, `x`, and `y` only apply when running standalone (`puter.env === 'web'`). Inside the Puter desktop (`puter.env === 'app'`) the menu is rendered by the desktop, which places it at the cursor and uses its own theme.
+
 ## Return value 
 This method does not return a value. The context menu is displayed immediately and menu item actions are executed when clicked.
 

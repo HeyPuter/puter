@@ -101,6 +101,8 @@ These authentication features are supported out of the box when using Puter.js:
 - **[`puter.auth.signOut()`](/Auth/signOut/)** - Sign out the current user
 - **[`puter.auth.isSignedIn()`](/Auth/isSignedIn/)** - Check if a user is signed in
 - **[`puter.auth.getUser()`](/Auth/getUser/)** - Get information about the current user
+- **[`puter.auth.getMonthlyUsage()`](/Auth/getMonthlyUsage/)** - Get the user's current monthly resource usage
+- **[`puter.auth.getDetailedAppUsage()`](/Auth/getDetailedAppUsage/)** - Get detailed usage statistics for an application
 
 ## Examples
 

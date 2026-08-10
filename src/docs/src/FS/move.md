@@ -32,6 +32,7 @@ The options for the `move` operation. The following options are supported:
 - `destination` (String) - Path to the destination. Required when passing options as the only argument.
 - `overwrite` (Boolean) - Whether to overwrite the destination file or directory if it already exists. Defaults to `false`.
 - `dedupeName` (Boolean) - Whether to deduplicate the file or directory name if it already exists. Defaults to `false`.
+- `newName` (String) - The name to give the moved file or directory. When set, `destination` is always treated as the directory to move into. Defaults to the source's own name.
 - `createMissingParents` (Boolean) - Whether to create missing parent directories. Defaults to `false`.
 
 ## Return value

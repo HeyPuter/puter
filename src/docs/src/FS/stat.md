@@ -27,6 +27,7 @@ An object with the following properties:
 - `path` (String) - Path to the file or directory. Required when passing options as the only argument.
 - `uid` (String) - The UID of the file or directory. Can be used instead of `path`.
 - `returnSubdomains` (Boolean) - Whether to return subdomain information. Defaults to `false`.
+- `returnWorkers` (Boolean) - Whether to return the workers attached to the item. Workers are served alongside subdomains, so this is an alias of `returnSubdomains` — setting either one returns both. Defaults to `false`.
 - `returnPermissions` (Boolean) - Whether to return permission information. Defaults to `false`.
 - `returnVersions` (Boolean) - Whether to return version information. Defaults to `false`.
 - `returnSize` (Boolean) - Whether to return size information. Defaults to `false`.

@@ -29,6 +29,8 @@ puter.auth.signIn(options)
 
 - `attempt_temp_user_creation`: A boolean value that indicates whether to Puter should automatically create a temporary user. This is useful if you want to quickly onboard a user without requiring them to sign up. They can always sign up later if they want to.
 
+- `request_auth`: A boolean value that asks the popup to let the user re-pick their account, even when your site already holds a token for them. Puter otherwise skips that prompt for a site it has seen before. Useful for an explicit "switch account" button.
+
 ## Return value
 
 A `Promise` that will resolve to a [`SignInResult`](/Objects/signinresult/) object when the user has signed in.

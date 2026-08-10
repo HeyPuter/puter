@@ -112,9 +112,17 @@ export interface KVListOptions {
     optConfig?: KVOptConfig;
 }
 
+/**
+ * The options that switch `list()` from a flat array to a `KVListPage`. Any
+ * one of them is enough — they are the same set the runtime treats as a
+ * paginated request.
+ */
 export type KVListPaginationOptions =
-    | { limit: number; cursor?: string }
-    | { cursor: string; limit?: number };
+    | { limit: number }
+    | { cursor: string }
+    | { offset: number }
+    | { includeTotal: boolean }
+    | { fetchUntilFull: boolean };
 
 /**
  * The `stream: true` form of `list()`: returns an async iterator of

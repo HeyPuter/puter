@@ -59,6 +59,16 @@ export interface ContextMenuOptions {
      * When unset, the menu follows the system color-scheme preference.
      */
     theme?: 'dark' | 'light';
+    /**
+     * X position of the menu, in pixels. Defaults to the cursor position.
+     * Standalone only, with the same caveat as `theme`.
+     */
+    x?: number;
+    /**
+     * Y position of the menu, in pixels. Defaults to the cursor position.
+     * Standalone only, with the same caveat as `theme`.
+     */
+    y?: number;
 }
 
 /** Options that configure a window created by `createWindow()`. */

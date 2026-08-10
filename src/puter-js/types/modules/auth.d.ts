@@ -108,8 +108,12 @@ export class Auth {
      *
      * Set `attempt_temp_user_creation` to `true` to have Puter automatically create
      * a temporary user, useful for onboarding without requiring sign-up.
+     *
+     * Set `request_auth` to `true` to have the popup let the user re-pick their
+     * account even when this site already holds a token for them — Puter
+     * otherwise skips that prompt for a site it has seen before.
      */
-    signIn (options?: { attempt_temp_user_creation?: boolean }): Promise<SignInResult>;
+    signIn (options?: { attempt_temp_user_creation?: boolean, request_auth?: boolean }): Promise<SignInResult>;
     /** Signs the user out of the application. */
     signOut (): void;
     /** Returns `true` if the user is signed in, `false` otherwise. */
