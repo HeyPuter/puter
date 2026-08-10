@@ -63,5 +63,33 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
                 ?.content;
             expect(typeof text === 'string' && text.length > 0).toBe(true);
         });
+
+        it('recovers when max_tokens leaves no room for the prompt', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+            const provider = new TogetherAIProvider(
+                { apiKey: optionalEnv(ENV_VAR)! },
+                makeMeteringStub(),
+            );
+
+            // Asking for the model's whole context as output leaves no room
+            // for the prompt, which Together rejects outright — the provider
+            // should retry uncapped rather than surface a 400.
+            const model = (await provider.models()).find(
+                (m) => m.id === 'togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo',
+            )!;
+
+            const result = await withTestActor(() =>
+                provider.complete({
+                    model: model.id,
+                    messages: [
+                        { role: 'user', content: 'Say hi in one word.' },
+                    ],
+                    max_tokens: model.context!,
+                }),
+            );
+
+            const text = (result as { message?: { content?: string } }).message
+                ?.content;
+            expect(typeof text === 'string' && text.length > 0).toBe(true);
+        });
     },
 );
