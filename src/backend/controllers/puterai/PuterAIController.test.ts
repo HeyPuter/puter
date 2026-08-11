@@ -229,9 +229,18 @@ describe('PuterAIController.registerRoutes', () => {
         const modelsRoute = calls.find(
             (c) => c.path === '/puterai/chat/models',
         );
+        // Unauthenticated, so the limit keys on IP rather than an actor —
+        // which makes the bucket an aggregate over every client behind that
+        // address, hence a ceiling sized for a network rather than a browser.
         expect(modelsRoute?.opts).toEqual({
             subdomain: 'api',
             requireAuth: false,
+            rateLimit: {
+                scope: 'puterai-models',
+                limit: 3_000,
+                window: 60_000,
+                key: 'ip',
+            },
         });
     });
 

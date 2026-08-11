@@ -438,5 +438,12 @@
 
     // ── Metering ────────────────────────────────────────────────────────
     // When true, all metering checks pass — no per-actor limits enforced.
-    "unlimitedMetering": false
+    "unlimitedMetering": false,
+
+    // Fleet-wide spend rate, in micro-cents per minute, past which metering
+    // raises the `metering:excessiveGlobalUsageRate` alarm. Omit it (the
+    // default) to leave the check off: the only useful value is a multiple of
+    // what this deployment's normal traffic costs, so it has to be measured
+    // rather than guessed, and a stale number here alarms on healthy growth.
+    // "maxGlobalUsagePerMinute": 200000000
 }

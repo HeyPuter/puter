@@ -1746,3 +1746,35 @@ describe('OIDCController POST /auth/oidc/verify-popup-return', () => {
         expect((await redeem(proof)).body).toMatchObject({ oidc_login: false });
     });
 });
+
+// ── rate-limit scopes ───────────────────────────────────────────────
+
+describe('OIDCController rate limits', () => {
+    const rateLimitOf = (method: string, path: string) => {
+        const route = router.routes.find(
+            (r) => r.method === method && r.path === path,
+        );
+        if (!route) throw new Error(`No ${method.toUpperCase()} ${path} route`);
+        return route.options.rateLimit as { scope: string; limit: number };
+    };
+
+    it('keeps the revalidate landing page off the identity-provider bucket', () => {
+        // `/auth/revalidate-done` serves a constant HTML page; the start and
+        // callback routes exchange codes with an identity provider. Sharing
+        // a scope made the cheap page inherit the flow routes' tight ceiling,
+        // which one shared address can exhaust on its own.
+        const done = rateLimitOf('get', '/auth/revalidate-done');
+        const start = rateLimitOf('get', '/auth/oidc/:provider/start');
+        expect(done.scope).not.toBe(start.scope);
+        expect(done.scope).toBe('oidc-revalidate-done');
+        expect(done.limit).toBeGreaterThan(start.limit);
+    });
+
+    it('sizes the public provider list for a shared address, not a fleet', () => {
+        // Unauthenticated and keyed on IP, so the bucket covers every client
+        // behind one NAT or campus, not one browser. It is still login
+        // surface, so it stays bounded well below the ceilings given to
+        // static reads like icons or version info.
+        expect(rateLimitOf('get', '/auth/oidc/providers').limit).toBe(1_200);
+    });
+});

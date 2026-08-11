@@ -24,7 +24,10 @@ import {
     SYSTEM_ACTOR,
     SYSTEM_ACTOR_UUID,
 } from '../../core/actor';
-import { PUTER_KV_STORE_TABLE_DEFINITION } from './tableDefinition';
+import {
+    PUTER_KV_STORE_TABLE_DEFINITION,
+    PUTER_KV_STORE_TABLE_NAME,
+} from './tableDefinition';
 import { HttpError } from '../../core/http';
 import {
     decodeCursor,
@@ -285,7 +288,7 @@ const cleanAttrName = (chunk: string): string =>
  * If `opts.actor` is omitted, operations are scoped to the system namespace.
  */
 export class SystemKVStore extends PuterStore {
-    private tableName = 'store-kv-v1';
+    private tableName = PUTER_KV_STORE_TABLE_NAME;
     private initialized: Promise<void> | null = null;
 
     override async onServerStart(): Promise<void> {

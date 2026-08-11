@@ -1336,10 +1336,11 @@ describe('AuthService (integration)', () => {
                 ).rejects.toMatchObject({ statusCode: 403 });
             });
 
-            it('still refuses an access-token actor (403)', async () => {
-                const user = await makeUser();
-                const target = await makeApp('target', user.id);
-                const actor = {
+            const tokenActorFor = (
+                user: { id: number; uuid: string; username: string },
+                fullAccess: boolean,
+            ) =>
+                ({
                     user: {
                         id: user.id,
                         uuid: user.uuid,
@@ -1348,15 +1349,64 @@ describe('AuthService (integration)', () => {
                     accessToken: {
                         uid: uuidv4(),
                         issuer: { user },
-                        fullAccess: true,
+                        fullAccess,
                     },
-                } as unknown as Actor;
+                }) as unknown as Actor;
+
+            // The credential AuthMe hands the MCP connector and the CLI. Its
+            // reach is the user's own, and `puter.workers.create` binds every
+            // deploy to a `sandbox-<name>` app it creates under that user.
+            it('mints a token for a full-access token actor on its own app', async () => {
+                const user = await makeUser();
+                const target = await makeApp('target', user.id);
+
+                const token = await authService.createWorkerAppToken(
+                    tokenActorFor(user, true),
+                    target.uid,
+                    'wk-token',
+                );
+
+                const decoded = decodeAuth(token);
+                expect(decoded.app_uid).toBe(target.uid);
+                expect(decoded.user_uid).toBe(user.uuid);
+                expect(decoded.worker).toBe(true);
+            });
+
+            it('refuses a full-access token actor on another user’s app (403)', async () => {
+                const user = await makeUser();
+                const stranger = await makeUser();
+                const strangersApp = await makeApp('strangers', stranger.id);
 
                 await expect(
                     authService.createWorkerAppToken(
-                        actor,
+                        tokenActorFor(user, true),
+                        strangersApp.uid,
+                        'wk-stranger-token',
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+            });
+
+            it('refuses a full-access token actor naming an unknown app (403)', async () => {
+                const user = await makeUser();
+
+                await expect(
+                    authService.createWorkerAppToken(
+                        tokenActorFor(user, true),
+                        `app-${uuidv4()}`,
+                        'wk-unknown-token',
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+            });
+
+            it('still refuses a scoped access-token actor (403)', async () => {
+                const user = await makeUser();
+                const target = await makeApp('target', user.id);
+
+                await expect(
+                    authService.createWorkerAppToken(
+                        tokenActorFor(user, false),
                         target.uid,
-                        'wk-token',
+                        'wk-scoped-token',
                     ),
                 ).rejects.toMatchObject({ statusCode: 403 });
             });

@@ -90,7 +90,23 @@ export class PuterAIController extends PuterController {
                 key: aiPolicyKey,
             },
         } as RouteOptions;
-        const publicOpts = { subdomain: 'api', requireAuth: false } as const;
+        // Model listings are unauthenticated, so the only key available is
+        // the address — which is an aggregate, not a user: a NAT, a school,
+        // a mobile carrier gateway or a server-side renderer all arrive as
+        // one address, and the SDK and GUI both fetch the catalogue on
+        // startup. The ceiling therefore has to cover a whole network's page
+        // loads. What it still protects is the serialisation cost of the
+        // catalogue under a client stuck in a fetch loop.
+        const publicOpts = {
+            subdomain: 'api',
+            requireAuth: false,
+            rateLimit: {
+                scope: 'puterai-models',
+                limit: 3_000,
+                window: 60_000,
+                key: 'ip',
+            },
+        } as RouteOptions;
 
         // Every route below carries the `/puterai` prefix for wire
         // compatibility with puter-js and existing API tests.
@@ -153,7 +169,23 @@ export class PuterAIController extends PuterController {
         // URL itself is HMAC-signed, so no additional auth gate.
         router.get(
             '/puterai/video/proxy',
-            { subdomain: 'api' },
+            {
+                subdomain: 'api',
+                // HMAC-signed but unauthenticated, and it streams provider
+                // bandwidth through us — so the in-flight cap matters as
+                // much as the window.
+                rateLimit: {
+                    scope: 'puterai-video-proxy',
+                    limit: 60,
+                    window: 60_000,
+                    key: 'ip',
+                },
+                concurrent: {
+                    scope: 'puterai-video-proxy',
+                    limit: 5,
+                    key: 'ip',
+                },
+            },
             this.#videoProxy,
         );
     }

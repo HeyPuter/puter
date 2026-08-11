@@ -27,10 +27,11 @@ import {
 } from '../../services/metering/consts.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
-import type { DriverRateLimitConfig } from '../meta.js';
+import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
+import { isUniqueViolation } from '../../util/dbError.js';
 import { buildHostedSubdomainIndexUrlCandidates } from '../../util/hostedAppBacking.js';
 import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.js';
 import {
@@ -93,6 +94,32 @@ export class SubdomainDriver extends PuterDriver {
             bySubscription: {
                 [DEFAULT_FREE_SUBSCRIPTION]: 200,
                 [DEFAULT_TEMP_SUBSCRIPTION]: 100,
+            },
+        },
+        methods: {
+            // Unlike the reads this shares an envelope with, `create`
+            // consumes a name out of a global namespace nobody gets back.
+            // A known abuse target, so it keeps its own tighter budget —
+            // but publishing a site is also something the platform does on
+            // the user's behalf (an app gets one, a worker gets one), so the
+            // floor still has to clear a handful of those back to back.
+            create: {
+                limit: 120,
+                window: 60_000,
+                bySubscription: {
+                    [DEFAULT_FREE_SUBSCRIPTION]: 60,
+                    [DEFAULT_TEMP_SUBSCRIPTION]: 30,
+                },
+            },
+        },
+    };
+
+    readonly concurrent: DriverConcurrentConfig = {
+        default: {
+            limit: 20,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 10,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 5,
             },
         },
     };
@@ -178,13 +205,28 @@ export class SubdomainDriver extends PuterDriver {
         // `apps.owner_user_id = subdomain.user_id` + `index_url` match
         // (see `#hydrateRows`), so a subdomain row can never assert an
         // association with an app the caller doesn't own.
-        const created = await this.stores.subdomain.create({
-            userId: actor.user.id,
-            subdomain,
-            rootDirId,
-            associatedAppId: null,
-            appOwner: actor.app?.id ?? null,
-        });
+        //
+        // The uniqueness answer above is a check-then-insert, so two callers
+        // racing on the same name both pass it and the second one loses to the
+        // unique index. That is the same conflict, learned a moment later —
+        // report it the same way instead of letting the driver escape as a 500.
+        let created;
+        try {
+            created = await this.stores.subdomain.create({
+                userId: actor.user.id,
+                subdomain,
+                rootDirId,
+                associatedAppId: null,
+                appOwner: actor.app?.id ?? null,
+            });
+        } catch (err) {
+            if (!isUniqueViolation(err)) throw err;
+            throw new HttpError(
+                409,
+                'A site with this subdomain already exists',
+                { legacyCode: 'conflict' },
+            );
+        }
         const [shaped] = await this.#hydrateRows(
             created ? [created as Record<string, unknown>] : [],
         );

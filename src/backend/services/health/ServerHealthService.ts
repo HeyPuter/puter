@@ -20,6 +20,7 @@
 import { PuterService } from '../types';
 import type { SocketService } from '../socket/SocketService';
 import { kv } from '../../util/kvSingleton';
+import { PUTER_KV_STORE_TABLE_NAME } from '../../stores/systemKv/tableDefinition';
 
 /**
  * Periodic liveness monitor for the backend. Other services register checks via
@@ -29,10 +30,30 @@ import { kv } from '../../util/kvSingleton';
  *
  * Default checks registered on server start:
  *
- * - `database-liveness` — `SELECT 1 AS ok` latency-gated against
+ * - `database-liveness` — `SELECT 1 AS ok` through the normal read path (a
+ *   read-replica where one is configured), latency-gated against
  *   `config.server_health.db_liveness_latency_fail_ms` (default 1500ms).
  * - `socket-initialized` — socket.io must be attached. Only registered when
  *   SocketService is present (skipped for API-only deployments).
+ *
+ * Plus one probe per backing service this node can't serve traffic without,
+ * each in the `dependencies` group (see `addCheck`) and each registered only
+ * when that dependency is actually wired up:
+ *
+ * - `database-primary-liveness` — `SELECT 1 AS ok` pinned to the primary. Only
+ *   registered when a read-replica exists, since without one it would just
+ *   re-probe the connection `database-liveness` already covers.
+ * - `redis-liveness` — `PING`.
+ * - `dynamo-liveness` — point read of a key that is never written, so the probe
+ *   exercises the data plane without depending on any stored state.
+ * - `s3-liveness` — `HEAD` on the default storage bucket.
+ *
+ * These four are deliberately cheap and run on their own slower cadence
+ * (`config.server_health.dependency_check_interval_ms`, default 30s) rather
+ * than the 5s loop: they cross the network to metered services, and detecting a
+ * dependency outage seconds sooner isn't worth a standing request stream from
+ * every node. Any of them can be turned off with
+ * `config.server_health.disabled_checks`.
  *
  * Draining mode: `onServerPrepareShutdown` flips the service into drain and
  * clears failure state. `/healthcheck` returns 503 so load balancers route
@@ -44,8 +65,24 @@ const CHECK_INTERVAL_MS = 5 * SECOND;
 const CHECK_TIMEOUT_MS = 4 * SECOND;
 const HEALTH_LOOP_STALE_MULTIPLIER = 3;
 const DEFAULT_DB_LIVENESS_LATENCY_FAIL_MS = 1500;
+const DEFAULT_DEPENDENCY_CHECK_INTERVAL_MS = 30 * SECOND;
+const DEFAULT_REDIS_LATENCY_FAIL_MS = 1 * SECOND;
+const DEFAULT_DYNAMO_LATENCY_FAIL_MS = 1500;
+const DEFAULT_S3_LATENCY_FAIL_MS = 2 * SECOND;
 const STATUS_CACHE_TTL_SECONDS = 5;
 const STATUS_CACHE_KEY = 'server-health:status';
+
+/** Group name covering every backing-service probe. */
+const DEPENDENCY_GROUP = 'dependencies';
+
+/**
+ * Key the dynamo probe reads. Nothing ever writes it — a point read that misses
+ * still proves the round-trip, and costs the same minimum as one that hits.
+ */
+const DYNAMO_PROBE_KEY = {
+    namespace: 'server-health',
+    key: 'liveness-probe',
+};
 
 type CheckFn = () => Promise<unknown> | unknown;
 type FailHandler = (err: unknown) => Promise<void> | void;
@@ -54,10 +91,30 @@ interface Chainable {
     onFail(handler: FailHandler): Chainable;
 }
 
+export interface AddCheckOptions {
+    /**
+     * Minimum gap between runs. Defaults to 0 — every loop cycle. A check with
+     * a real cost (network hop, metered service) should set this; the loop
+     * skips it until it's due and keeps reporting its last result meanwhile.
+     */
+    intervalMs?: number;
+    /**
+     * Group names this check also answers to, so `ignore`/`degrade` callers can
+     * name a whole class of checks as `@<group>` instead of enumerating them.
+     */
+    groups?: string[];
+}
+
 interface RegisteredCheck {
     name: string;
     fn: CheckFn;
     onFailHandlers: FailHandler[];
+    groups: string[];
+    minIntervalMs: number;
+    lastRunAt: number;
+    lastDurationMs: number;
+    hasRun: boolean;
+    failing: boolean;
 }
 
 interface HealthStats {
@@ -85,7 +142,6 @@ export interface GetStatusOptions {
 
 export class ServerHealthService extends PuterService {
     #checks: RegisteredCheck[] = [];
-    #failures: { name: string }[] = [];
     #healthStartedAt = Date.now();
     #lastCycleCompletedAt = 0;
     #stats: HealthStats = {
@@ -105,7 +161,7 @@ export class ServerHealthService extends PuterService {
     override onServerPrepareShutdown(): void {
         if (this.#draining) return;
         this.#draining = true;
-        this.#failures = [];
+        for (const check of this.#checks) check.failing = false;
         this.#lastCycleCompletedAt = Date.now();
         this.#stats = {
             last_check_cycle_completed_at: this.#lastCycleCompletedAt,
@@ -126,10 +182,26 @@ export class ServerHealthService extends PuterService {
      * Register a named health check. The returned chainable exposes
      * `onFail(fn)` so callers can hook self-heal logic (e.g., recreating a
      * pooled DB client after a liveness drop).
+     *
+     * A check named in `config.server_health.disabled_checks` is dropped here
+     * and never runs — the chainable still works, its handlers just never
+     * fire.
      */
-    addCheck(name: string, fn: CheckFn): Chainable {
-        const registered: RegisteredCheck = { name, fn, onFailHandlers: [] };
-        this.#checks.push(registered);
+    addCheck(name: string, fn: CheckFn, opts: AddCheckOptions = {}): Chainable {
+        const registered: RegisteredCheck = {
+            name,
+            fn,
+            onFailHandlers: [],
+            groups: opts.groups ?? [],
+            minIntervalMs: opts.intervalMs ?? 0,
+            lastRunAt: 0,
+            lastDurationMs: 0,
+            hasRun: false,
+            failing: false,
+        };
+        const disabled = this.config.server_health?.disabled_checks ?? [];
+        if (!disabled.includes(name)) this.#checks.push(registered);
+
         const chainable: Chainable = {
             onFail: (handler) => {
                 registered.onFailHandlers.push(handler);
@@ -151,9 +223,12 @@ export class ServerHealthService extends PuterService {
      * status collapses back to `{ ok: true }`. `degrade` instead demotes named
      * failures to a non-fatal `degraded` list — `ok` stays true but the caller
      * can see the partial state. Any failure name may be filtered this way,
-     * including the `draining` lifecycle state. The cached status is always the
-     * full, unfiltered set — filtering is applied per-request after the cache
-     * read so it never leaks across callers.
+     * including the `draining` lifecycle state. A name of the form `@<group>`
+     * stands for every check registered in that group, so a caller can tolerate
+     * a whole class of checks — `@dependencies` for the backing-service probes
+     * — without having to be redeployed each time one is added. The cached
+     * status is always the full, unfiltered set — filtering is applied
+     * per-request after the cache read so it never leaks across callers.
      */
     async getStatus(opts: GetStatusOptions = {}): Promise<HealthStatus> {
         const base = this.#draining
@@ -189,16 +264,35 @@ export class ServerHealthService extends PuterService {
     ): HealthStatus {
         if (status.ok || !status.failed) return status;
 
+        const ignoredNames = this.#expandNames(ignore);
+        const degradedNames = this.#expandNames(degrade);
+
         const remaining = status.failed.filter(
-            (name) => !ignore.includes(name),
+            (name) => !ignoredNames.has(name),
         );
-        const degraded = remaining.filter((name) => degrade.includes(name));
-        const failed = remaining.filter((name) => !degrade.includes(name));
+        const degraded = remaining.filter((name) => degradedNames.has(name));
+        const failed = remaining.filter((name) => !degradedNames.has(name));
 
         const result: HealthStatus = { ok: failed.length === 0 };
         if (failed.length > 0) result.failed = failed;
         if (degraded.length > 0) result.degraded = degraded;
         return result;
+    }
+
+    /** Resolve `@<group>` tokens to the names of the checks in that group. */
+    #expandNames(names: string[]): Set<string> {
+        const resolved = new Set<string>();
+        for (const name of names) {
+            if (!name.startsWith('@')) {
+                resolved.add(name);
+                continue;
+            }
+            const group = name.slice(1);
+            for (const check of this.#checks) {
+                if (check.groups.includes(group)) resolved.add(check.name);
+            }
+        }
+        return resolved;
     }
 
     #registerDefaultChecks(): void {
@@ -237,6 +331,116 @@ export class ServerHealthService extends PuterService {
                 }
             });
         }
+
+        this.#registerDependencyChecks();
+    }
+
+    /**
+     * Probes for the backing services a node needs to serve traffic. Each is
+     * the cheapest round-trip that still proves the data path works, runs on
+     * the slow dependency cadence, and is skipped when the dependency isn't
+     * wired up (self-hosted subsets, partially-stubbed tests).
+     */
+    #registerDependencyChecks(): void {
+        const db = this.clients.db;
+        if (
+            this.config.database?.replica &&
+            db &&
+            typeof db.pread === 'function'
+        ) {
+            // `read()` above goes to the replica when one exists, so a primary
+            // that is gone (or lagging behind a failover) looks healthy there.
+            this.#addDependencyCheck(
+                'database-primary-liveness',
+                this.config.server_health?.db_liveness_latency_fail_ms,
+                DEFAULT_DB_LIVENESS_LATENCY_FAIL_MS,
+                async () => {
+                    const rows = (await db.pread(
+                        'SELECT 1 AS ok',
+                    )) as unknown[];
+                    if (!Array.isArray(rows) || rows.length === 0) {
+                        throw new Error(
+                            'primary database liveness query returned no rows',
+                        );
+                    }
+                },
+            );
+        }
+
+        const redis = this.clients.redis;
+        if (redis && typeof redis.ping === 'function') {
+            this.#addDependencyCheck(
+                'redis-liveness',
+                this.config.server_health?.redis_liveness_latency_fail_ms,
+                DEFAULT_REDIS_LATENCY_FAIL_MS,
+                async () => {
+                    const reply = await redis.ping();
+                    if (String(reply).toUpperCase() !== 'PONG') {
+                        throw new Error(`unexpected ping reply: ${reply}`);
+                    }
+                },
+            );
+        }
+
+        const dynamo = this.clients.dynamo;
+        if (dynamo && typeof dynamo.get === 'function') {
+            this.#addDependencyCheck(
+                'dynamo-liveness',
+                this.config.server_health?.dynamo_liveness_latency_fail_ms,
+                DEFAULT_DYNAMO_LATENCY_FAIL_MS,
+                async () => {
+                    await dynamo.get(
+                        PUTER_KV_STORE_TABLE_NAME,
+                        DYNAMO_PROBE_KEY,
+                    );
+                },
+            );
+        }
+
+        const s3 = this.clients.s3;
+        if (s3 && typeof s3.headBucket === 'function') {
+            this.#addDependencyCheck(
+                's3-liveness',
+                this.config.server_health?.s3_liveness_latency_fail_ms,
+                DEFAULT_S3_LATENCY_FAIL_MS,
+                async () => {
+                    await s3.headBucket();
+                },
+            );
+        }
+    }
+
+    /**
+     * Wrap a dependency probe with a latency gate and register it on the slow
+     * cadence, in the group `ignore`/`degrade` callers address as
+     * `@dependencies`.
+     */
+    #addDependencyCheck(
+        name: string,
+        configuredLatencyFailMs: number | undefined,
+        defaultLatencyFailMs: number,
+        probe: () => Promise<void>,
+    ): void {
+        const latencyFailMs =
+            Number(configuredLatencyFailMs) || defaultLatencyFailMs;
+        const intervalMs =
+            Number(this.config.server_health?.dependency_check_interval_ms) ||
+            DEFAULT_DEPENDENCY_CHECK_INTERVAL_MS;
+
+        this.addCheck(
+            name,
+            async () => {
+                const startedAt = Date.now();
+                await probe();
+                const durationMs = Date.now() - startedAt;
+                if (durationMs > latencyFailMs) {
+                    throw new Error(
+                        `${name} latency ${durationMs}ms > threshold ${latencyFailMs}ms`,
+                    );
+                }
+            },
+            { intervalMs, groups: [DEPENDENCY_GROUP] },
+        );
     }
 
     #startLoop(): void {
@@ -261,64 +465,82 @@ export class ServerHealthService extends PuterService {
             return;
         }
 
-        const newFailures: { name: string }[] = [];
-        const durations: Record<string, number> = {};
+        // Concurrently, not one after another: checks are all I/O waits, and
+        // serially they'd stack their timeouts into a cycle long enough to trip
+        // the loop-staleness check.
+        const due = this.#checks.filter((check) => this.#isDue(check));
+        await Promise.all(due.map((check) => this.#runCheck(check)));
 
+        const durations: Record<string, number> = {};
         for (const check of this.#checks) {
-            const startedAt = Date.now();
-            let timeoutHandle: NodeJS.Timeout | null = null;
-            try {
-                await new Promise<void>((resolve, reject) => {
-                    timeoutHandle = setTimeout(
-                        () => reject(new Error('Health check timed out')),
-                        CHECK_TIMEOUT_MS,
-                    );
-                    Promise.resolve(check.fn()).then(() => resolve(), reject);
-                });
-            } catch (err) {
-                newFailures.push({ name: check.name });
-                const alreadyFailing = this.#failures.some(
-                    (f) => f.name === check.name,
-                );
-                if (!alreadyFailing) {
-                    // Intentionally do not page PagerDuty for health-check
-                    // failures — external uptime monitors cover this and the
-                    // internal threshold flaps under normal load. Failures
-                    // are still logged below and still trigger self-heal
-                    // onFail handlers.
-                    for (const handler of check.onFailHandlers) {
-                        try {
-                            await handler(err);
-                        } catch (hErr) {
-                            console.error(
-                                `[server-health] onFail handler for ${check.name} threw:`,
-                                hErr,
-                            );
-                        }
-                    }
-                }
-                console.error(
-                    `[server-health] check "${check.name}" failed:`,
-                    err,
-                );
-            } finally {
-                if (timeoutHandle) clearTimeout(timeoutHandle);
-                durations[check.name] = Date.now() - startedAt;
-            }
+            if (check.hasRun) durations[check.name] = check.lastDurationMs;
         }
 
-        this.#failures = newFailures;
         this.#lastCycleCompletedAt = Date.now();
         this.#stats.last_check_cycle_completed_at = this.#lastCycleCompletedAt;
         this.#stats.check_durations_ms = durations;
-        this.#stats.failed_checks = newFailures.map((f) => f.name);
+        this.#stats.failed_checks = this.#collectCheckFailures();
+    }
+
+    /** Every cycle unless the check asked for a slower cadence. */
+    #isDue(check: RegisteredCheck): boolean {
+        if (!check.hasRun || check.minIntervalMs === 0) return true;
+        return Date.now() - check.lastRunAt >= check.minIntervalMs;
+    }
+
+    async #runCheck(check: RegisteredCheck): Promise<void> {
+        const startedAt = Date.now();
+        check.lastRunAt = startedAt;
+        check.hasRun = true;
+
+        let timeoutHandle: NodeJS.Timeout | null = null;
+        try {
+            await new Promise<void>((resolve, reject) => {
+                timeoutHandle = setTimeout(
+                    () => reject(new Error('Health check timed out')),
+                    CHECK_TIMEOUT_MS,
+                );
+                Promise.resolve(check.fn()).then(() => resolve(), reject);
+            });
+            check.failing = false;
+        } catch (err) {
+            const alreadyFailing = check.failing;
+            check.failing = true;
+            if (!alreadyFailing) {
+                // Intentionally do not page PagerDuty for health-check
+                // failures — external uptime monitors cover this and the
+                // internal threshold flaps under normal load. Failures
+                // are still logged below and still trigger self-heal
+                // onFail handlers.
+                for (const handler of check.onFailHandlers) {
+                    try {
+                        await handler(err);
+                    } catch (hErr) {
+                        console.error(
+                            `[server-health] onFail handler for ${check.name} threw:`,
+                            hErr,
+                        );
+                    }
+                }
+            }
+            console.error(`[server-health] check "${check.name}" failed:`, err);
+        } finally {
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+            check.lastDurationMs = Date.now() - startedAt;
+        }
     }
 
     #collectFailures(): string[] {
-        const names = this.#failures.map((f) => f.name);
+        const names = this.#collectCheckFailures();
         const stale = this.#staleLoopFailure();
         if (stale) names.push(stale);
         return names;
+    }
+
+    #collectCheckFailures(): string[] {
+        return this.#checks
+            .filter((check) => check.failing)
+            .map((check) => check.name);
     }
 
     #staleLoopFailure(): string | null {

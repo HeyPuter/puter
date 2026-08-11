@@ -67,6 +67,8 @@
     "check-translations": "node tools/check-translations.js",
     "prepare": "husky",
     "build:ts": "tsc -p tsconfig.build.json && node ./tools/write-dist-package-json.mjs",
+    "typecheck": "node tools/typecheck.mjs",
+    "typecheck:update": "node tools/typecheck.mjs --update",
     "setupExtensions": "node ./tools/extensionSetup.mjs"
   },
   "workspaces": [

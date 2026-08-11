@@ -110,26 +110,46 @@ export const handleMeteringAllCosts = async (
     res.json({ costs: cachedAllCosts });
 };
 
+/** Dashboard reads over the per-actor KV aggregates. */
+const USAGE_READ_LIMIT = {
+    scope: 'metering-usage',
+    limit: 120,
+    window: 60_000,
+    key: 'user' as const,
+};
+
 extension.get(
     '/metering/usage',
-    { subdomain: 'api', requireAuth: true },
+    { subdomain: 'api', requireAuth: true, rateLimit: USAGE_READ_LIMIT },
     handleMeteringUsage,
 );
 
 extension.get(
     '/metering/usage/:appIdOrName',
-    { subdomain: 'api', requireAuth: true },
+    { subdomain: 'api', requireAuth: true, rateLimit: USAGE_READ_LIMIT },
     handleMeteringUsageForApp,
 );
 
 extension.get(
     '/metering/globalUsage',
-    { subdomain: 'api', adminOnly: true },
+    {
+        subdomain: 'api',
+        adminOnly: true,
+        // Sums across every shard of the global aggregate. Admin-gated, so
+        // this is loop protection — but one accidental poll is an
+        // expensive minute.
+        rateLimit: {
+            scope: 'metering-global-usage',
+            limit: 10,
+            window: 60_000,
+            key: 'user',
+        },
+    },
     handleMeteringGlobalUsage,
 );
 
 extension.get(
     '/metering/allCosts',
-    { subdomain: 'api', requireAuth: true },
+    { subdomain: 'api', requireAuth: true, rateLimit: USAGE_READ_LIMIT },
     handleMeteringAllCosts,
 );
