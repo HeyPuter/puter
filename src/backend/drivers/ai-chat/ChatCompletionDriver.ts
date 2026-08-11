@@ -407,11 +407,16 @@ export class ChatCompletionDriver extends PuterDriver {
                     remainingCredits - approximateInputCost;
                 const maxAllowedOutputTokens =
                     maxAllowedOutputUcents / outputTokenCost;
+                const modelMaxTokens =
+                    typeof model.max_tokens === 'number' &&
+                    Number.isFinite(model.max_tokens)
+                        ? model.max_tokens
+                        : Number.POSITIVE_INFINITY;
                 const cap = Math.floor(
                     Math.min(
                         args.max_tokens ?? Number.POSITIVE_INFINITY,
                         maxAllowedOutputTokens,
-                        model.max_tokens - approximateTokenCount,
+                        modelMaxTokens - approximateTokenCount,
                     ),
                 );
                 // `cap` is the credit-bounded ceiling on output tokens. When

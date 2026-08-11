@@ -106,6 +106,14 @@ const SAMPLE_API_MODELS = [
         top_provider: { max_completion_tokens: 8192 },
     },
     {
+        id: 'meta/muse-spark-1.2',
+        name: 'Meta: Muse Spark 1.2',
+        created: 1785959287,
+        context_length: 1048576,
+        pricing: { prompt: 0.00000125, completion: 0.00000425 },
+        top_provider: { max_completion_tokens: null },
+    },
+    {
         // 'openrouter/auto' is filtered out — disallowed.
         id: 'openrouter/auto',
         name: 'Auto',
@@ -226,6 +234,14 @@ describe('OpenRouterProvider model catalog', () => {
         await provider.models();
         // Second call should be a cache hit, not a second axios request.
         expect(axiosRequestMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back max_tokens to context_length when top_provider max_completion_tokens is null', async () => {
+        const { provider } = makeProvider();
+        const models = await provider.models();
+        const muse = models.find((m) => m.id === 'openrouter:meta/muse-spark-1.2');
+        expect(muse).toBeDefined();
+        expect(muse?.max_tokens).toBe(1048576);
     });
 
     it('maps OpenRouter created timestamps to release_date metadata', async () => {

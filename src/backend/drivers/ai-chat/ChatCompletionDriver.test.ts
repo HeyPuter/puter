@@ -547,6 +547,40 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         expect(passed.max_tokens!).toBeGreaterThan(0);
     });
 
+    it('handles models with null or undefined max_tokens without throwing negative cap errors', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'nullmax',
+                aliases: [],
+                costs_currency: 'usd-cents',
+                costs: { input_tokens: 10, output_tokens: 20 },
+                max_tokens: null as unknown as number,
+            },
+        ]);
+        const d = await makeDriver();
+        const completeSpy = vi
+            .spyOn(FakeChatProvider.prototype, 'complete')
+            .mockResolvedValueOnce({
+                message: {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'ok' }],
+                },
+                usage: { input_tokens: 1, output_tokens: 1 },
+                finish_reason: 'stop',
+            } as never);
+
+        await withTestActor(() =>
+            d.complete({
+                model: 'nullmax',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const passed = completeSpy.mock.calls[0]![0] as ICompleteArguments;
+        expect(passed.max_tokens).toBeDefined();
+        expect(passed.max_tokens!).toBeGreaterThan(0);
+    });
+
     it('throws 402 instead of leaving `max_tokens` unset when credits cannot afford one output token', async () => {
         // Regression: previously a sub-1 cap set max_tokens to `undefined`,
         // which let the provider run to the model's full output limit and
