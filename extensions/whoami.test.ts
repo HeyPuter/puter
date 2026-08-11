@@ -109,6 +109,9 @@ describe('whoami extension — handleWhoami', () => {
         expect(body.oidc_only).toBe(false);
         // is_user_token is present (true) for user actors.
         expect(body.is_user_token).toBe(true);
+        // Account creation time, in unix seconds.
+        expect(typeof body.created_ts).toBe('number');
+        expect(body.created_ts).toBeGreaterThan(0);
         // `directories` is only sent to user actors — confirm it’s present.
         expect(body.directories).toBeDefined();
         // taskbar_items is only sent to user actors.
@@ -132,7 +135,7 @@ describe('whoami extension — handleWhoami', () => {
         expect(flags.payment_bypass).toBeUndefined();
     });
 
-    it('strips desktop_bg_* and human_readable_age fields for app actors', async () => {
+    it('strips desktop_bg_*, created_ts and human_readable_age fields for app actors', async () => {
         const user = await seedUser();
         const { res, captured } = makeRes();
 
@@ -154,6 +157,8 @@ describe('whoami extension — handleWhoami', () => {
         expect(body.desktop_bg_color).toBeUndefined();
         expect(body.desktop_bg_fit).toBeUndefined();
         expect(body.human_readable_age).toBeUndefined();
+        // Account age, in either form, is not exposed to apps.
+        expect(body.created_ts).toBeUndefined();
         // Directories are user-only.
         expect(body.directories).toBeUndefined();
     });

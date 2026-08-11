@@ -12,6 +12,11 @@ export interface User {
     actual_free_storage?: number;
     /** The current active app. */
     app_name?: string;
+    /**
+     * When the account was created, in unix seconds. Only returned to user
+     * tokens — apps acting on a user's behalf do not receive it.
+     */
+    created_ts?: number;
     feature_flags?: Record<string, unknown>;
     hasDevAccountAccess?: boolean;
     /** Whether the user's account is temporary. */
