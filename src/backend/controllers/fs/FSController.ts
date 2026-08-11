@@ -1558,6 +1558,7 @@ export class FSController extends PuterController {
         await this.#assertAccess(actor, source.path, 'read');
         await this.#assertAccess(actor, destinationParent.path, 'write');
 
+        const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
         const copy = await this.services.fs.copy(userId, {
             source,
             destinationParent,
@@ -1566,6 +1567,9 @@ export class FSController extends PuterController {
             overwrite: this.#toBoolean(body.overwrite) ?? false,
             dedupeName:
                 this.#toBoolean(body.dedupe_name ?? body.change_name) ?? true,
+            ...(storageAllowanceMax !== undefined
+                ? { storageAllowanceMax }
+                : {}),
         });
         this.#emitGuiItemAdded(copy);
         res.json(this.#toClientEntry(copy));
