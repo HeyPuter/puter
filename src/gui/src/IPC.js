@@ -28,6 +28,7 @@ import UIItem from './UI/UIItem.js';
 import UIPopover from './UI/UIPopover.js';
 import UIPrompt from './UI/UIPrompt.js';
 import UIWindow from './UI/UIWindow.js';
+import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
 import UIWindowColorPicker from './UI/UIWindowColorPicker.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowFontPicker from './UI/UIWindowFontPicker.js';
@@ -1381,6 +1382,58 @@ const ipc_listener = async (event, handled) => {
 
         // report the user's decision to the requester window
         respond(granted === true);
+        $(target_iframe).get(0)?.focus({ preventScroll: true });
+    }
+    //--------------------------------------------------------
+    // showFeedbackDialog
+    //--------------------------------------------------------
+    else if ( event.data.msg === 'showFeedbackDialog' ) {
+        // Always respond, even on failure, so the SDK's promise settles
+        // instead of hanging forever. The app can close its own window while
+        // the dialog is up, which tears down the iframe — posting into it
+        // must not throw.
+        const respond = (sent) => {
+            target_iframe?.contentWindow?.postMessage({
+                msg: 'feedbackDialogClosed',
+                sent: sent === true,
+                original_msg_id: msg_id,
+            }, '*');
+        };
+
+        // auth
+        try {
+            if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+            {
+                respond(false);
+                return;
+            }
+        } catch ( e ) {
+            // `ipc_listener` has no outer catch, so a throw from the signup
+            // window would escape before any reply and hang the app.
+            console.error('IPC showFeedbackDialog: auth gate failed', e);
+            respond(false);
+            return;
+        }
+
+        let sent = false;
+        try {
+            // The target app is this message's sender — identified by the
+            // GUI's own registry (`data-app_uuid` on the window that owns the
+            // validated source iframe), never by anything in the message, so
+            // an app can only ever open the feedback dialog for itself.
+            sent = await UIWindowAppFeedback({
+                app: app_uuid || app_name,
+                source: 'app',
+                window_options: {
+                    parent_uuid: event.data.appInstanceID,
+                    disable_parent_window: true,
+                },
+            });
+        } catch ( e ) {
+            console.error('IPC showFeedbackDialog failed', e);
+        }
+
+        respond(sent === true);
         $(target_iframe).get(0)?.focus({ preventScroll: true });
     }
     //--------------------------------------------------------

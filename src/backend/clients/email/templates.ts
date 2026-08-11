@@ -78,6 +78,24 @@ The Puter Team
 </p>
         `,
     },
+    'app-user-feedback': {
+        subject: 'New user feedback for {{app_title}}',
+        html: `
+<p>Hi{{#if owner_username}} {{owner_username}}{{/if}},</p>
+<p>
+<strong>{{sender_username}}</strong> sent feedback about <a href="{{app_link}}">{{app_title}}</a>:
+</p>
+<blockquote>{{{nl2br message}}}</blockquote>
+<p>
+You're receiving this because user feedback is enabled for your app. To stop
+receiving these emails, turn off feedback for the app (e.g.
+<code>puter.apps.update({ name: '{{app_name}}', feedbackEnabled: false })</code>).
+</p>
+<p>Best,<br />
+The Puter Team
+</p>
+        `,
+    },
     email_change_request: {
         subject: '📝 Confirm your email change',
         html: `

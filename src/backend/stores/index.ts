@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { AppFeedbackStore } from './appFeedback/AppFeedbackStore.js';
 import { AppStore } from './app/AppStore.js';
 import { FSEntryStore } from './fs/FSEntryStore.js';
 import { GroupStore } from './group/GroupStore.js';
@@ -45,6 +46,7 @@ declare module './types.js' {
         meteringBuffer: MeteringBufferStore;
         user: UserStore;
         app: AppStore;
+        appFeedback: AppFeedbackStore;
         fsEntry: FSEntryStore;
         s3Object: S3ObjectStore;
         subdomain: SubdomainStore;
@@ -71,6 +73,7 @@ export const puterStores = {
     meteringBuffer: MeteringBufferStore,
     user: UserStore,
     app: AppStore,
+    appFeedback: AppFeedbackStore,
     fsEntry: FSEntryStore,
     s3Object: S3ObjectStore,
     subdomain: SubdomainStore,

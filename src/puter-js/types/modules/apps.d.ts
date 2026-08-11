@@ -42,6 +42,11 @@ export interface App {
     /** Whether the app should run in the background. Default is `false`. */
     background?: boolean;
     /**
+     * Whether users can send feedback to the app's developer through
+     * `puter.ui.showFeedbackDialog()`. Default is `false`.
+     */
+    feedback_enabled?: boolean;
+    /**
      * The file types that the app can open. Each string is in the format
      * `".<extension>"` or `"mime/type"`, e.g. `[".txt", "image/png"]`. For a
      * directory association, the string should be `.directory`.
@@ -130,6 +135,11 @@ export interface CreateAppOptions {
     /** Whether the app should run in the background. Defaults to `false`. */
     background?: boolean;
     /**
+     * Whether users can send feedback to the app's developer through
+     * `puter.ui.showFeedbackDialog()`. Defaults to `false`.
+     */
+    feedbackEnabled?: boolean;
+    /**
      * The filetypes that the app can open. File extensions and MIME types are
      * supported, e.g. `[".txt", ".md", "application/pdf"]`. Defaults to `[]`.
      */
@@ -159,6 +169,11 @@ export interface UpdateAppAttributes {
     maximizeOnStart?: boolean;
     /** Whether the app should run in the background. Defaults to `false`. */
     background?: boolean;
+    /**
+     * Whether users can send feedback to the app's developer through
+     * `puter.ui.showFeedbackDialog()`. Defaults to `false`.
+     */
+    feedbackEnabled?: boolean;
     /**
      * The filetypes that the app can open. File extensions and MIME types are
      * supported, e.g. `[".txt", ".md", "application/pdf"]`. Defaults to `[]`.

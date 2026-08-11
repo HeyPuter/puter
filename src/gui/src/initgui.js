@@ -23,6 +23,7 @@ import UIAlert from './UI/UIAlert.js';
 import UIComponentWindow from './UI/UIComponentWindow.js';
 import UIDesktop from './UI/UIDesktop.js';
 import UIWindow from './UI/UIWindow.js';
+import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
 import UIWindowAuthMe from './UI/UIWindowAuthMe.js';
 import UIWindowChangeUsername from './UI/UIWindowChangeUsername.js';
 import UIWindowCopyToken from './UI/UIWindowCopyToken.js';
@@ -727,6 +728,66 @@ const postAuthActions = async (action) => {
             }, target_origin);
         } catch (e) {
             console.error('request-permission: could not answer the requester', e);
+        }
+
+        // The popup exists only to host this dialog; close it once answered.
+        if ( window.embedded_in_popup ) {
+            window.close();
+            window.open('', '_self').close();
+        }
+    }
+
+    // -------------------------------------------------------------------------------------
+    // Action: Send Feedback — show the app-feedback dialog for the site that opened this
+    // popup and report whether feedback was sent back to the opener. Runs post-auth so
+    // signed-out users go through sign-in/signup first.
+    // -------------------------------------------------------------------------------------
+    if ( action === 'send-feedback' ) {
+        const msg_id = window.url_query_params.get('msg_id');
+        // Browser-attested only, same rule as request-permission above: the
+        // origin names the app the feedback is recorded against (the server
+        // resolves origin → app), so a link must not get to state it. The
+        // dialog itself refuses when the resolved app hasn't opted in.
+        const origin = window.openerOrigin;
+
+        // Whatever happens, the requester must get an answer and the popup
+        // must close — otherwise it wedges open with the caller's promise
+        // pending until the user closes it by hand.
+        let sent = false;
+        try {
+            if ( ! origin ) {
+                throw new Error('no opener origin; not prompting');
+            }
+            sent = await UIWindowAppFeedback({
+                origin,
+                source: 'web',
+                window_options: {
+                    has_head: false,
+                    cover_page: true,
+                },
+            });
+        } catch (e) {
+            console.error('send-feedback action failed', e);
+        }
+
+        // `postMessage` throws a SyntaxError on a targetOrigin that isn't a
+        // parseable URL — an unparseable one would take out the answer *and*
+        // the close below.
+        let target_origin = '*';
+        try {
+            target_origin = origin ? new URL(origin).origin : '*';
+        } catch (e) {
+            console.error('send-feedback: unusable origin', origin);
+        }
+        const messageTarget = window.embedded_in_popup ? window.opener : window.parent;
+        try {
+            messageTarget?.postMessage({
+                msg: 'feedbackDialogClosed',
+                sent: sent === true,
+                original_msg_id: msg_id,
+            }, target_origin);
+        } catch (e) {
+            console.error('send-feedback: could not answer the requester', e);
         }
 
         // The popup exists only to host this dialog; close it once answered.

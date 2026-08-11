@@ -34,7 +34,7 @@
  */
 
 /** Popup actions that exist to answer a question, not to authenticate. */
-const NON_AUTH_POPUP_ACTIONS = new Set(['request-permission']);
+const NON_AUTH_POPUP_ACTIONS = new Set(['request-permission', 'send-feedback']);
 
 /**
  * Whether a popup running `action` may post `puter.token` to its opener.

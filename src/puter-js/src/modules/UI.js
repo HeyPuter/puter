@@ -1672,6 +1672,157 @@ class UI extends EventListener {
     };
 
     /**
+     * Opens a dialog the user can use to send feedback to this app's
+     * developer. The message is delivered by Puter (stored and emailed to the
+     * developer); it never passes through the app. Requires the developer to
+     * have opted in by setting `feedbackEnabled` on the app — otherwise the
+     * dialog tells the user feedback is unavailable.
+     *
+     * In the `app` environment the Puter desktop renders the dialog; in the
+     * `web` environment a puter.com popup hosts it (signing the user in first
+     * if needed). Every other environment resolves `false`.
+     *
+     * @returns {Promise<boolean>} `true` when the user submitted feedback,
+     *   `false` when the dialog was dismissed or feedback is unavailable.
+     *   Never rejects.
+     */
+    async showFeedbackDialog () {
+        if ( this.env === 'app' ) {
+            const result = await this.#postMessageAsync('showFeedbackDialog', {});
+            return result?.sent === true;
+        }
+
+        // The popup flow is for third-party websites only. In every other
+        // environment it either can't work (workers and node have no window
+        // to open a popup from) or makes no sense. Those callers resolve
+        // false rather than reject — dialogs are resolve-only.
+        if ( this.env !== 'web' ) {
+            return false;
+        }
+        if ( ! globalThis.open || ! globalThis.document ) {
+            return false;
+        }
+
+        // See requestPermission: canonical-to-canonical origin comparison. A
+        // configured origin that can't parse can't host the dialog at all.
+        let gui_origin;
+        try {
+            gui_origin = new URL(puter.defaultGUIOrigin).origin;
+        } catch (e) {
+            return false;
+        }
+
+        // How long to wait, after the popup is observed closed, for a result
+        // message that may still be in flight.
+        const CLOSE_GRACE_MS = 1000;
+
+        return new Promise((resolve) => {
+            // Unique per request and not reused across page loads — same
+            // stale-popup collision reasoning as requestPermission. The app's
+            // identity is deliberately NOT in this URL: the GUI derives it
+            // from the browser-attested opener origin, so a link can't open a
+            // feedback dialog in another app's name.
+            const msg_id = `${this.#messageID++}-${Math.random().toString(36).slice(2, 10)}`;
+            const url = `${gui_origin}/action/send-feedback?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}`;
+
+            // Guards against settling more than once across the message,
+            // popup-closed, and dialog-cancel code paths.
+            let settled = false;
+            let checkClosed = null;
+            let popupWindow = null;
+            let consentDialog = null;
+
+            const cleanup = () => {
+                if ( checkClosed ) {
+                    clearInterval(checkClosed);
+                    checkClosed = null;
+                }
+                window.removeEventListener('message', messageHandler);
+                consentDialog?.remove();
+                consentDialog = null;
+            };
+
+            const settle = (sent) => {
+                if ( settled ) return;
+                settled = true;
+                cleanup();
+                resolve(sent === true);
+            };
+
+            const messageHandler = (e) => {
+                // Only accept the result from the Puter GUI origin AND from
+                // the popup we opened; msg_id binds it to this request. The
+                // GUI echoes msg_id back as a string, which the loose `!=`
+                // compares correctly.
+                if ( e.origin !== gui_origin ) return;
+                if ( popupWindow && e.source !== popupWindow ) return;
+                if ( e.data?.original_msg_id != msg_id ) return;
+                if ( e.data?.msg !== 'feedbackDialogClosed' ) return;
+                settle(e.data.sent === true);
+            };
+            window.addEventListener('message', messageHandler);
+
+            const watchPopup = (popup) => {
+                if ( settled ) return;
+                if ( ! popup ) {
+                    settle(false);
+                    return;
+                }
+                // Pin the expected event.source before anything can return
+                // early.
+                popupWindow = popup;
+                // A severed opener relationship (COOP) means the popup can't
+                // post the result back and `popup.closed` tells us nothing.
+                // Unlike a permission grant, a feedback submission can't be
+                // read back from the server, so the outcome is unknowable
+                // here: report false now rather than hang. The popup stays
+                // open — the user can still send their feedback.
+                if ( window.crossOriginIsolated || popup.closed ) {
+                    settle(false);
+                    return;
+                }
+                checkClosed = setInterval(() => {
+                    if ( ! popup.closed ) return;
+                    clearInterval(checkClosed);
+                    checkClosed = null;
+                    // The GUI posts the result and then closes the popup, and
+                    // cross-process postMessage delivery is not ordered
+                    // relative to `closed` becoming true — give an in-flight
+                    // result its grace period before treating the close as a
+                    // dismissal.
+                    setTimeout(() => settle(false), CLOSE_GRACE_MS);
+                }, 100);
+            };
+
+            // Every path out of here resolves a boolean, so anything that
+            // throws while launching has to resolve false rather than reject.
+            try {
+                if ( hasUserActivation() ) {
+                    // Unique window name per request: window.open() reuses a
+                    // window with the same name, which would hijack a popup an
+                    // earlier, still-pending request is waiting on.
+                    watchPopup(openAuthPopup(url, `puter-feedback-${msg_id}`));
+                } else {
+                    // No user gesture: a popup opened now would be blocked.
+                    // Show a consent dialog first; the popup is then opened
+                    // from the user's click on it.
+                    const dialog = new PuterDialog(() => {}, () => {}, {
+                        popupURL: url,
+                        popupName: `puter-feedback-${msg_id}`,
+                        onLaunch: (popup) => watchPopup(popup),
+                        onCancel: () => settle(false),
+                    });
+                    consentDialog = dialog;
+                    document.body.appendChild(dialog);
+                    dialog.open();
+                }
+            } catch (e) {
+                settle(false);
+            }
+        });
+    };
+
+    /**
      * Greys out a menubar item so it cannot be clicked.
      *
      * @param {string} item_id

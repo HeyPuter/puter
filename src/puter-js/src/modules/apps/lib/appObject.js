@@ -26,4 +26,5 @@ export const toAppObject = (raw) => ({
     background: raw.background,
     filetype_associations: raw.filetypeAssociations,
     metadata: raw.metadata,
+    feedback_enabled: raw.feedbackEnabled,
 });

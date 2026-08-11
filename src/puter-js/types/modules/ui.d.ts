@@ -318,6 +318,15 @@ export class UI {
      */
     requestPermission (options: { permission: string }): Promise<boolean>;
     /**
+     * Opens a dialog the user can use to send feedback to this app's developer.
+     * The message is stored and emailed to the developer by Puter; it never
+     * passes through the app. Requires the developer to have opted in by
+     * setting `feedbackEnabled` on the app. Inside the Puter GUI the dialog is
+     * shown on the desktop; on the web it opens a popup on the Puter origin.
+     * Resolves to `true` only if the user submitted feedback; never rejects.
+     */
+    showFeedbackDialog (): Promise<boolean>;
+    /**
      * Presents a directory picker for the user's Puter cloud storage. Resolves to
      * one `FSItem` or an array of `FSItem` objects depending on selection count.
      */
