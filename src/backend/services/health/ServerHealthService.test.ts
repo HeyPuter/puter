@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -77,8 +78,19 @@ const runCycle = async (): Promise<void> => {
     await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS + 1);
 };
 
+/** Fresh status straight from the service, past the 5s per-node cache. */
+const uncachedStatus = async (service: ServerHealthService) => {
+    kv.del(STATUS_CACHE_KEY);
+    return service.getStatus();
+};
+
+const REPLICA_CONFIG = {
+    database: { engine: 'mysql', replica: { host: 'replica.local' } },
+};
+
 let errorSpy: ReturnType<typeof vi.spyOn>;
 let logSpy: ReturnType<typeof vi.spyOn>;
+let warnSpy: ReturnType<typeof vi.spyOn>;
 
 beforeEach(() => {
     // The 5s status cache is process-wide; a stale entry would leak between
@@ -87,12 +99,14 @@ beforeEach(() => {
     vi.useFakeTimers();
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
 
 afterEach(() => {
     vi.useRealTimers();
     errorSpy.mockRestore();
     logSpy.mockRestore();
+    warnSpy.mockRestore();
     kv.del(STATUS_CACHE_KEY);
 });
 
@@ -290,9 +304,7 @@ describe('ServerHealthService — dependency checks', () => {
         withoutReplica.service.onServerShutdown();
 
         kv.del(STATUS_CACHE_KEY);
-        const withReplica = makeService({
-            database: { engine: 'mysql', replica: { host: 'replica.local' } },
-        });
+        const withReplica = makeService(REPLICA_CONFIG);
         withReplica.service.onServerStart();
         await runCycle();
         expect(withReplica.dbPread).toHaveBeenCalledWith('SELECT 1 AS ok');
@@ -301,12 +313,100 @@ describe('ServerHealthService — dependency checks', () => {
     });
 
     it('fails the primary check when the primary returns no rows', async () => {
-        const { service, dbPread } = makeService({
-            database: { engine: 'mysql', replica: { host: 'replica.local' } },
-        });
+        const { service, dbPread } = makeService(REPLICA_CONFIG);
         dbPread.mockResolvedValue([]);
         service.onServerStart();
         await runCycle();
+        expect(await service.getStatus()).toEqual({
+            ok: false,
+            failed: ['database-primary-liveness'],
+        });
+        service.onServerShutdown();
+    });
+
+    it('holds the primary healthy through one slow round trip, failing only on sustained slowness', async () => {
+        const { service, dbPread } = makeService({
+            ...REPLICA_CONFIG,
+            server_health: { db_primary_liveness_latency_fail_ms: 100 },
+        });
+        dbPread.mockImplementation(async () => {
+            vi.setSystemTime(Date.now() + 150);
+            return [{ ok: 1 }];
+        });
+        service.onServerStart();
+
+        // One breach: warned about, not yet unhealthy.
+        await runCycle();
+        expect(await uncachedStatus(service)).toEqual({ ok: true });
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+
+        // Second consecutive breach crosses the tolerance.
+        await vi.advanceTimersByTimeAsync(DEPENDENCY_INTERVAL_MS);
+        expect(dbPread).toHaveBeenCalledTimes(2);
+        expect(await uncachedStatus(service)).toEqual({
+            ok: false,
+            failed: ['database-primary-liveness'],
+        });
+
+        service.onServerShutdown();
+    });
+
+    it('forgets primary latency breaches that are not consecutive', async () => {
+        const { service, dbPread } = makeService({
+            ...REPLICA_CONFIG,
+            server_health: { db_primary_liveness_latency_fail_ms: 100 },
+        });
+        let slow = true;
+        dbPread.mockImplementation(async () => {
+            if (slow) vi.setSystemTime(Date.now() + 150);
+            slow = !slow;
+            return [{ ok: 1 }];
+        });
+        service.onServerStart();
+
+        // Alternating slow/fast never accumulates two breaches in a row.
+        for (let i = 0; i < 4; i++) {
+            await vi.advanceTimersByTimeAsync(DEPENDENCY_INTERVAL_MS);
+            expect(await uncachedStatus(service)).toEqual({ ok: true });
+        }
+
+        service.onServerShutdown();
+    });
+
+    it('gives the primary its own latency threshold, not the replica path one', async () => {
+        const { service, dbPread } = makeService({
+            ...REPLICA_CONFIG,
+            // Tight on the local read path; the primary keeps its 3000ms default.
+            server_health: { db_liveness_latency_fail_ms: 10 },
+        });
+        dbPread.mockImplementation(async () => {
+            vi.setSystemTime(Date.now() + 50);
+            return [{ ok: 1 }];
+        });
+        service.onServerStart();
+        await runCycle();
+
+        expect(dbPread).toHaveBeenCalledTimes(1);
+        const status = await service.getStatus();
+        expect(status.failed ?? []).not.toContain('database-primary-liveness');
+        service.onServerShutdown();
+    });
+
+    it('honours a configured primary breach tolerance', async () => {
+        const { service, dbPread } = makeService({
+            ...REPLICA_CONFIG,
+            server_health: {
+                db_primary_liveness_latency_fail_ms: 100,
+                db_primary_liveness_breaches_to_fail: 1,
+            },
+        });
+        dbPread.mockImplementation(async () => {
+            vi.setSystemTime(Date.now() + 150);
+            return [{ ok: 1 }];
+        });
+        service.onServerStart();
+        await runCycle();
+
         expect(await service.getStatus()).toEqual({
             ok: false,
             failed: ['database-primary-liveness'],
@@ -419,9 +519,9 @@ describe('ServerHealthService — dependency checks', () => {
         await runCycle();
         expect(ping).not.toHaveBeenCalled();
         expect(dynamoGet).toHaveBeenCalledTimes(1);
-        expect(
-            service.getStats().check_durations_ms,
-        ).not.toHaveProperty('redis-liveness');
+        expect(service.getStats().check_durations_ms).not.toHaveProperty(
+            'redis-liveness',
+        );
         service.onServerShutdown();
     });
 
@@ -501,11 +601,13 @@ describe('ServerHealthService.getStatus — filtering', () => {
         service.onServerStart();
         await runCycle();
 
-        expect(await service.getStatus({ degrade: ['@dependencies'] })).toEqual({
-            ok: false,
-            failed: ['unrelated'],
-            degraded: ['redis-liveness', 'dynamo-liveness'],
-        });
+        expect(await service.getStatus({ degrade: ['@dependencies'] })).toEqual(
+            {
+                ok: false,
+                failed: ['unrelated'],
+                degraded: ['redis-liveness', 'dynamo-liveness'],
+            },
+        );
         expect(
             await service.getStatus({
                 ignore: ['@dependencies', 'unrelated'],

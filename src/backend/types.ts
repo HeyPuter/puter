@@ -195,12 +195,7 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        | 'sms'
-        | 'rcs'
-        | 'whatsapp'
-        | 'viber'
-        | 'zalo'
-        | 'telegram';
+        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
 }
 
 /**
@@ -381,6 +376,20 @@ export interface IWispConfig {
 export interface IServerHealthConfig {
     /** DB liveness latency threshold (ms). Default 1500. */
     db_liveness_latency_fail_ms?: number;
+    /**
+     * Latency threshold for the primary-pinned probe (ms). Separate from
+     * `db_liveness_latency_fail_ms` because that one measures the local read
+     * path while this one crosses to whichever region holds the primary.
+     * Default 3000. Values at or above the 4000ms per-check timeout are moot —
+     * the check runner gives up first.
+     */
+    db_primary_liveness_latency_fail_ms?: number;
+    /**
+     * Consecutive over-threshold runs before the primary probe reports
+     * unhealthy. Default 2, i.e. sustained slowness rather than one slow round
+     * trip. A primary that errors or hangs fails on the first run regardless.
+     */
+    db_primary_liveness_breaches_to_fail?: number;
     /** Staleness threshold for the health-check loop itself (ms). */
     stale_health_loop_fail_ms?: number;
     /**
@@ -945,7 +954,8 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

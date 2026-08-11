@@ -42,7 +42,14 @@ import { PUTER_KV_STORE_TABLE_NAME } from '../../stores/systemKv/tableDefinition
  *
  * - `database-primary-liveness` — `SELECT 1 AS ok` pinned to the primary. Only
  *   registered when a read-replica exists, since without one it would just
- *   re-probe the connection `database-liveness` already covers.
+ *   re-probe the connection `database-liveness` already covers. A node far from
+ *   the primary pays real round-trip latency on every write, so this probe gets
+ *   its own, looser threshold
+ *   (`config.server_health.db_primary_liveness_latency_fail_ms`, default
+ *   3000ms) and only reports unhealthy after
+ *   `config.server_health.db_primary_liveness_breaches_to_fail` consecutive
+ *   breaches (default 2) — a single slow cross-region round trip is noise. A
+ *   primary that errors or hangs outright still fails on the first run.
  * - `redis-liveness` — `PING`.
  * - `dynamo-liveness` — point read of a key that is never written, so the probe
  *   exercises the data plane without depending on any stored state.
@@ -65,6 +72,8 @@ const CHECK_INTERVAL_MS = 5 * SECOND;
 const CHECK_TIMEOUT_MS = 4 * SECOND;
 const HEALTH_LOOP_STALE_MULTIPLIER = 3;
 const DEFAULT_DB_LIVENESS_LATENCY_FAIL_MS = 1500;
+const DEFAULT_DB_PRIMARY_LIVENESS_LATENCY_FAIL_MS = 3 * SECOND;
+const DEFAULT_DB_PRIMARY_LIVENESS_BREACHES_TO_FAIL = 2;
 const DEFAULT_DEPENDENCY_CHECK_INTERVAL_MS = 30 * SECOND;
 const DEFAULT_REDIS_LATENCY_FAIL_MS = 1 * SECOND;
 const DEFAULT_DYNAMO_LATENCY_FAIL_MS = 1500;
@@ -350,11 +359,19 @@ export class ServerHealthService extends PuterService {
         ) {
             // `read()` above goes to the replica when one exists, so a primary
             // that is gone (or lagging behind a failover) looks healthy there.
-            this.#addDependencyCheck(
-                'database-primary-liveness',
-                this.config.server_health?.db_liveness_latency_fail_ms,
-                DEFAULT_DB_LIVENESS_LATENCY_FAIL_MS,
-                async () => {
+            this.#addDependencyCheck({
+                name: 'database-primary-liveness',
+                configuredLatencyFailMs:
+                    this.config.server_health
+                        ?.db_primary_liveness_latency_fail_ms,
+                defaultLatencyFailMs:
+                    DEFAULT_DB_PRIMARY_LIVENESS_LATENCY_FAIL_MS,
+                latencyBreachesToFail:
+                    Number(
+                        this.config.server_health
+                            ?.db_primary_liveness_breaches_to_fail,
+                    ) || DEFAULT_DB_PRIMARY_LIVENESS_BREACHES_TO_FAIL,
+                probe: async () => {
                     const rows = (await db.pread(
                         'SELECT 1 AS ok',
                     )) as unknown[];
@@ -364,49 +381,52 @@ export class ServerHealthService extends PuterService {
                         );
                     }
                 },
-            );
+            });
         }
 
         const redis = this.clients.redis;
         if (redis && typeof redis.ping === 'function') {
-            this.#addDependencyCheck(
-                'redis-liveness',
-                this.config.server_health?.redis_liveness_latency_fail_ms,
-                DEFAULT_REDIS_LATENCY_FAIL_MS,
-                async () => {
+            this.#addDependencyCheck({
+                name: 'redis-liveness',
+                configuredLatencyFailMs:
+                    this.config.server_health?.redis_liveness_latency_fail_ms,
+                defaultLatencyFailMs: DEFAULT_REDIS_LATENCY_FAIL_MS,
+                probe: async () => {
                     const reply = await redis.ping();
                     if (String(reply).toUpperCase() !== 'PONG') {
                         throw new Error(`unexpected ping reply: ${reply}`);
                     }
                 },
-            );
+            });
         }
 
         const dynamo = this.clients.dynamo;
         if (dynamo && typeof dynamo.get === 'function') {
-            this.#addDependencyCheck(
-                'dynamo-liveness',
-                this.config.server_health?.dynamo_liveness_latency_fail_ms,
-                DEFAULT_DYNAMO_LATENCY_FAIL_MS,
-                async () => {
+            this.#addDependencyCheck({
+                name: 'dynamo-liveness',
+                configuredLatencyFailMs:
+                    this.config.server_health?.dynamo_liveness_latency_fail_ms,
+                defaultLatencyFailMs: DEFAULT_DYNAMO_LATENCY_FAIL_MS,
+                probe: async () => {
                     await dynamo.get(
                         PUTER_KV_STORE_TABLE_NAME,
                         DYNAMO_PROBE_KEY,
                     );
                 },
-            );
+            });
         }
 
         const s3 = this.clients.s3;
         if (s3 && typeof s3.headBucket === 'function') {
-            this.#addDependencyCheck(
-                's3-liveness',
-                this.config.server_health?.s3_liveness_latency_fail_ms,
-                DEFAULT_S3_LATENCY_FAIL_MS,
-                async () => {
+            this.#addDependencyCheck({
+                name: 's3-liveness',
+                configuredLatencyFailMs:
+                    this.config.server_health?.s3_liveness_latency_fail_ms,
+                defaultLatencyFailMs: DEFAULT_S3_LATENCY_FAIL_MS,
+                probe: async () => {
                     await s3.headBucket();
                 },
-            );
+            });
         }
     }
 
@@ -414,18 +434,29 @@ export class ServerHealthService extends PuterService {
      * Wrap a dependency probe with a latency gate and register it on the slow
      * cadence, in the group `ignore`/`degrade` callers address as
      * `@dependencies`.
+     *
+     * `latencyBreachesToFail` tolerates that many consecutive over-threshold
+     * runs before the gate throws, for a dependency whose latency is expected
+     * to spike without being unhealthy (a primary reached across regions).
+     * Defaults to 1 — fail on the first breach. It gates latency only: a probe
+     * that rejects or hangs still fails the check on its first run.
      */
-    #addDependencyCheck(
-        name: string,
-        configuredLatencyFailMs: number | undefined,
-        defaultLatencyFailMs: number,
-        probe: () => Promise<void>,
-    ): void {
+    #addDependencyCheck(opts: {
+        name: string;
+        configuredLatencyFailMs: number | undefined;
+        defaultLatencyFailMs: number;
+        latencyBreachesToFail?: number;
+        probe: () => Promise<void>;
+    }): void {
+        const { name, probe } = opts;
         const latencyFailMs =
-            Number(configuredLatencyFailMs) || defaultLatencyFailMs;
+            Number(opts.configuredLatencyFailMs) || opts.defaultLatencyFailMs;
+        const breachesToFail = Math.max(1, opts.latencyBreachesToFail ?? 1);
         const intervalMs =
             Number(this.config.server_health?.dependency_check_interval_ms) ||
             DEFAULT_DEPENDENCY_CHECK_INTERVAL_MS;
+
+        let consecutiveBreaches = 0;
 
         this.addCheck(
             name,
@@ -433,11 +464,20 @@ export class ServerHealthService extends PuterService {
                 const startedAt = Date.now();
                 await probe();
                 const durationMs = Date.now() - startedAt;
-                if (durationMs > latencyFailMs) {
-                    throw new Error(
-                        `${name} latency ${durationMs}ms > threshold ${latencyFailMs}ms`,
-                    );
+                if (durationMs <= latencyFailMs) {
+                    consecutiveBreaches = 0;
+                    return;
                 }
+                consecutiveBreaches++;
+                if (consecutiveBreaches < breachesToFail) {
+                    console.warn(
+                        `[server-health] ${name} latency ${durationMs}ms > threshold ${latencyFailMs}ms (${consecutiveBreaches}/${breachesToFail} before failing)`,
+                    );
+                    return;
+                }
+                throw new Error(
+                    `${name} latency ${durationMs}ms > threshold ${latencyFailMs}ms on ${consecutiveBreaches} consecutive runs`,
+                );
             },
             { intervalMs, groups: [DEPENDENCY_GROUP] },
         );
