@@ -18,11 +18,13 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Actor } from '../../../../core/actor.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import {
     makeMeteringStub,
     withTestActor,
 } from '../../../integrationTestUtil.js';
+import type { ICompleteArguments } from '../../types.js';
 import { SALADCLOUD_MODELS } from './models.js';
 import { SaladCloudProvider } from './SaladCloudProvider.js';
 
@@ -54,8 +56,16 @@ const completion = {
 
 let metering: MeteringService;
 
+const stores = {} as ConstructorParameters<typeof SaladCloudProvider>[2];
+const fsService = {} as ConstructorParameters<typeof SaladCloudProvider>[3];
+
 const makeProvider = (apiBaseUrl?: string) =>
-    new SaladCloudProvider({ apiKey: 'test-key', apiBaseUrl }, metering);
+    new SaladCloudProvider(
+        { apiKey: 'test-key', apiBaseUrl },
+        metering,
+        stores,
+        fsService,
+    );
 
 beforeEach(() => {
     createMock.mockReset();
@@ -127,6 +137,10 @@ describe('SaladCloudProvider.complete', () => {
                 max_tokens: 32,
                 temperature: 0,
                 top_p: 0.8,
+                reasoning: { effort: 'medium' },
+                text: {
+                    verbosity: 'concise',
+                } as ICompleteArguments['text'],
             }),
         );
 
@@ -139,8 +153,56 @@ describe('SaladCloudProvider.complete', () => {
             max_tokens: 32,
             temperature: 0,
             top_p: 0.8,
+            reasoning_effort: 'medium',
+            verbosity: 'concise',
             stream: false,
         });
+    });
+
+    it('resolves puter_path parts before sending image input upstream', async () => {
+        const provider = makeProvider();
+        createMock.mockResolvedValueOnce(completion);
+        const part: Record<string, unknown> = {
+            puter_path: '/system/picture.png',
+        };
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'saladcloud:qwen3.6-35b-a3b',
+                messages: [{ role: 'user', content: [part] }],
+            }),
+        );
+
+        expect(part).toEqual({
+            type: 'text',
+            text: '{error: unauthenticated caller cannot resolve puter_path; the user did not write this message}',
+        });
+        expect(createMock.mock.calls[0]![0].messages).toEqual([
+            { role: 'user', content: [part] },
+        ]);
+    });
+
+    it('identifies the Puter actor without sending OpenAI-only safety fields', async () => {
+        const provider = makeProvider();
+        createMock.mockResolvedValueOnce(completion);
+        const actor = {
+            user: { id: 42 },
+            app: { uid: 'example-app' },
+        } as Actor;
+
+        await withTestActor(
+            () =>
+                provider.complete({
+                    model: 'saladcloud:qwen3.6-35b-a3b',
+                    messages: [{ role: 'user', content: 'hello' }],
+                }),
+            actor,
+        );
+
+        expect(createMock.mock.calls[0]![0]).toMatchObject({
+            user: '42:example-app',
+        });
+        expect('safety_identifier' in createMock.mock.calls[0]![0]).toBe(false);
     });
 
     it('requests usage in streamed responses', async () => {

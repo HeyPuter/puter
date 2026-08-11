@@ -20,6 +20,7 @@
 import { OpenAI } from 'openai';
 import type { ChatCompletionCreateParams } from 'openai/resources/index.js';
 import { Context } from '../../../../core/context.js';
+import type { FSService } from '../../../../services/fs/FSService.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type {
     IChatCompleteResult,
@@ -28,6 +29,7 @@ import type {
 } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
+import { processPuterPathUploads } from '../openai/fileUpload.js';
 import {
     SALADCLOUD_DEFAULT_MODEL,
     SALADCLOUD_MODELS,
@@ -41,15 +43,23 @@ export class SaladCloudProvider implements IChatProvider {
 
     #meteringService: MeteringService;
 
+    #stores: Parameters<typeof processPuterPathUploads>[1];
+
+    #fsService: FSService;
+
     constructor(
         config: { apiBaseUrl?: string; apiKey: string },
         meteringService: MeteringService,
+        stores: Parameters<typeof processPuterPathUploads>[1],
+        fsService: FSService,
     ) {
         this.#openai = new OpenAI({
             apiKey: config.apiKey,
             baseURL: config.apiBaseUrl || DEFAULT_API_BASE_URL,
         });
         this.#meteringService = meteringService;
+        this.#stores = stores;
+        this.#fsService = fsService;
     }
 
     getDefaultModel() {
@@ -77,18 +87,35 @@ export class SaladCloudProvider implements IChatProvider {
         max_tokens,
         temperature,
         top_p,
+        reasoning,
+        reasoning_effort,
+        text,
+        verbosity,
     }: ICompleteArguments): Promise<IChatCompleteResult> {
         const modelUsed =
             this.models().find((candidate) =>
                 [candidate.id, ...(candidate.aliases ?? [])].includes(model),
             ) ?? this.models()[0];
         const actor = Context.get('actor');
+        const userIdentifier = actor?.user.id
+            ? `${actor.user.id}${actor.app?.uid ? `:${actor.app.uid}` : ''}`
+            : undefined;
 
+        await processPuterPathUploads(
+            messages,
+            this.#stores,
+            this.#fsService,
+            actor,
+        );
         messages = await OpenAIUtil.process_input_messages(messages);
+
+        const requestedReasoningEffort = reasoning_effort ?? reasoning?.effort;
+        const requestedVerbosity = verbosity ?? text?.verbosity;
 
         const completion = await this.#openai.chat.completions.create({
             messages,
             model: stripSaladCloudPrefix(modelUsed.id),
+            ...(userIdentifier ? { user: userIdentifier } : {}),
             ...(tools ? { tools } : {}),
             ...(tool_choice !== undefined ? { tool_choice } : {}),
             ...(parallel_tool_calls !== undefined
@@ -97,6 +124,12 @@ export class SaladCloudProvider implements IChatProvider {
             ...(max_tokens !== undefined ? { max_tokens } : {}),
             ...(temperature !== undefined ? { temperature } : {}),
             ...(top_p !== undefined ? { top_p } : {}),
+            ...(requestedReasoningEffort !== undefined
+                ? { reasoning_effort: requestedReasoningEffort }
+                : {}),
+            ...(requestedVerbosity !== undefined
+                ? { verbosity: requestedVerbosity }
+                : {}),
             stream: !!stream,
             ...(stream
                 ? {

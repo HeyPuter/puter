@@ -1280,12 +1280,18 @@ export class ChatCompletionDriver extends PuterDriver {
         const saladcloud = providers['saladcloud'];
         const saladcloudKey = readKey(saladcloud);
         if (saladcloudKey) {
+            const saladcloudStores = {
+                fsEntry: this.stores.fsEntry,
+                s3Object: this.stores.s3Object,
+            };
             this.#providers['saladcloud'] = new SaladCloudProvider(
                 {
                     apiKey: saladcloudKey,
                     apiBaseUrl: saladcloud?.apiBaseUrl as string | undefined,
                 },
                 metering,
+                saladcloudStores,
+                this.services.fs,
             );
         }
 
