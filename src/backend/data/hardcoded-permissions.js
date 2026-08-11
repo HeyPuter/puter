@@ -88,55 +88,22 @@ const implicit_user_app_permissions = [
     },
 ];
 
-// Pre-v2 each entry below carried a `policy: { 'rate-limit': { max, period } }`
-// block attached by a `policyPerm('temp.kv')` / `policyPerm('user.es')` helper,
-// and a `driverPolicies` table held the actual `{max, period}` values. Nothing
-// ever read those policy blocks in v2 — rate limiting is now declared
-// directly on each driver via `@Driver({ rateLimit })` / `readonly rateLimit`
-// (see KVStoreDriver, AppDriver, SubdomainDriver, NotificationDriver), with
-// per-subscription overrides via `bySubscription`. The grants themselves
-// stay so the permission scan still emits a path for each group/permission;
-// only the dead policy plumbing was removed.
-const hardcoded_user_group_permissions = {
-    system: {
-        'ca342a5e-b13d-4dee-9048-58b11a57cc55': {
-            driver: {},
-            service: {},
-            feature: {},
-            'local-terminal:access': {},
-        },
-        'b7220104-7905-4985-b996-649fdcdb3c8f': {
-            driver: {},
-            service: {},
-            'service:hello-world:ii:hello-world': {},
-            'service:puter-kvstore:ii:puter-kvstore': {},
-            'driver:puter-kvstore': {},
-            'service:puter-notifications:ii:crud-q': {},
-            'service:puter-apps:ii:crud-q': {},
-            'service:puter-subdomains:ii:crud-q': {},
-            'service:apps:ii:crud-q': {},
-            'service:es\\Cnotification:ii:crud-q': {},
-            'service:es\\Capp:ii:crud-q': {},
-            'service:app:ii:crud-q': {},
-            'service:es\\Csubdomain:ii:crud-q': {},
-        },
-        '78b1b1dd-c959-44d2-b02c-8735671f9997': {
-            driver: {},
-            service: {},
-            'service:hello-world:ii:hello-world': {},
-            'service:puter-kvstore:ii:puter-kvstore': {},
-            'driver:puter-kvstore': {},
-            'service:es\\Cnotification:ii:crud-q': {},
-            'service:es\\Capp:ii:crud-q': {},
-            'service:app:ii:crud-q': {},
-            'service:es\\Csubdomain:ii:crud-q': {},
-            'service:apps:ii:crud-q': {},
-        },
-    },
+// Permissions every user actor holds, regardless of group membership.
+//
+// Roots only: a grant subsumes everything beneath it, so `service` already
+// answers `service:puter-kvstore:ii:puter-kvstore`. Listing descendants adds
+// entries no check can ever need.
+//
+// A floor, not a ceiling — anything that depends on *who* the user is belongs
+// in the ACL as a `user_to_group_permissions` / `user_to_user_permissions`
+// row. Adding a root here grants it to every user, temp accounts included.
+const default_user_permissions = {
+    driver: {},
+    service: {},
 };
 
 module.exports = {
     implicit_user_app_permissions,
     default_implicit_user_app_permissions,
-    hardcoded_user_group_permissions,
+    default_user_permissions,
 };

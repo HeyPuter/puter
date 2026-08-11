@@ -222,14 +222,14 @@ describe('PermissionService (integration)', () => {
             const { actor } = await makeUserActor();
             const allowed = await permService.check(
                 actor,
-                `service:nope-${uuidv4()}:ii:read`,
+                `zztest:nope-${uuidv4()}:ii:read`,
             );
             expect(allowed).toBeFalsy();
         });
 
         it('canManagePermission delegates to check on manage:<perm>', async () => {
             const { user, actor } = await makeUserActor();
-            const perm = `service:manage-test-${uuidv4()}:ii:read`;
+            const perm = `zztest:manage-test-${uuidv4()}:ii:read`;
             // Grant manage:<perm> via the flat store.
             await server.stores.permission.setFlatUserPerm(
                 user.id,
@@ -253,7 +253,7 @@ describe('PermissionService (integration)', () => {
                 permService.grantUserUserPermission(
                     actor,
                     `does-not-exist-${uuidv4()}`,
-                    'service:foo:ii:read',
+                    'zztest:foo:ii:read',
                 ),
             ).rejects.toMatchObject({ statusCode: 404 });
         });
@@ -264,7 +264,7 @@ describe('PermissionService (integration)', () => {
                 permService.grantUserUserPermission(
                     actor,
                     user.username,
-                    'service:foo:ii:read',
+                    'zztest:foo:ii:read',
                 ),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
@@ -277,7 +277,7 @@ describe('PermissionService (integration)', () => {
                     permService.grantUserUserPermission(
                         issuer,
                         target.username,
-                        `service:unmanaged-${uuidv4()}:ii:read`,
+                        `zztest:unmanaged-${uuidv4()}:ii:read`,
                     ),
                 ),
             ).rejects.toMatchObject({ statusCode: 403 });
@@ -286,7 +286,7 @@ describe('PermissionService (integration)', () => {
         it('grant persists when issuer holds manage:<permission>', async () => {
             const { user: issuer, actor: issuerActor } = await makeUserActor();
             const { user: target, actor: targetActor } = await makeUserActor();
-            const permission = `service:user-user-${uuidv4()}:ii:read`;
+            const permission = `zztest:user-user-${uuidv4()}:ii:read`;
             await server.stores.permission.setFlatUserPerm(
                 issuer.id,
                 `manage:${permission}`,
@@ -316,7 +316,7 @@ describe('PermissionService (integration)', () => {
                 permService.revokeUserUserPermission(
                     actor,
                     `does-not-exist-${uuidv4()}`,
-                    'service:foo:ii:read',
+                    'zztest:foo:ii:read',
                 ),
             ).rejects.toMatchObject({ statusCode: 404 });
         });
@@ -329,7 +329,7 @@ describe('PermissionService (integration)', () => {
                     permService.revokeUserUserPermission(
                         issuer,
                         target.username,
-                        `service:unmanaged-${uuidv4()}:ii:read`,
+                        `zztest:unmanaged-${uuidv4()}:ii:read`,
                     ),
                 ),
             ).rejects.toMatchObject({ statusCode: 403 });
@@ -359,7 +359,7 @@ describe('PermissionService (integration)', () => {
                     permService.grantUserAppPermission(
                         actor,
                         `does-not-exist-${uuidv4()}`,
-                        'service:foo:ii:read',
+                        'zztest:foo:ii:read',
                     ),
                 ),
             ).rejects.toMatchObject({ statusCode: 404 });
@@ -368,7 +368,7 @@ describe('PermissionService (integration)', () => {
         it('persists a user→app grant and is idempotent', async () => {
             const { user, actor } = await makeUserActor();
             const app = await makeApp(user.id);
-            const permission = `service:gua-${uuidv4()}:ii:read`;
+            const permission = `zztest:gua-${uuidv4()}:ii:read`;
 
             await runWithContext({ actor }, () =>
                 permService.grantUserAppPermission(actor, app.uid, permission),
@@ -389,7 +389,7 @@ describe('PermissionService (integration)', () => {
         it('revokeUserAppPermission removes the row', async () => {
             const { user, actor } = await makeUserActor();
             const app = await makeApp(user.id);
-            const permission = `service:rua-${uuidv4()}:ii:read`;
+            const permission = `zztest:rua-${uuidv4()}:ii:read`;
             await runWithContext({ actor }, () =>
                 permService.grantUserAppPermission(actor, app.uid, permission),
             );
@@ -417,7 +417,7 @@ describe('PermissionService (integration)', () => {
                 permService.revokeUserAppPermission(
                     appActor,
                     app.uid,
-                    'service:foo:ii:read',
+                    'zztest:foo:ii:read',
                 ),
             ).rejects.toMatchObject({ statusCode: 403 });
         });
@@ -448,8 +448,8 @@ describe('PermissionService (integration)', () => {
             const { user, actor } = await makeUserActor();
             const app = await makeApp(user.id);
             for (const p of [
-                `service:rua-${uuidv4()}:ii:read`,
-                `service:rua-${uuidv4()}:ii:write`,
+                `zztest:rua-${uuidv4()}:ii:read`,
+                `zztest:rua-${uuidv4()}:ii:write`,
             ]) {
                 await runWithContext({ actor }, () =>
                     permService.grantUserAppPermission(actor, app.uid, p),
@@ -488,7 +488,7 @@ describe('PermissionService (integration)', () => {
                     permService.grantDevAppPermission(
                         actor,
                         `does-not-exist-${uuidv4()}`,
-                        'service:foo:ii:read',
+                        'zztest:foo:ii:read',
                     ),
                 ),
             ).rejects.toMatchObject({ statusCode: 404 });
@@ -502,7 +502,7 @@ describe('PermissionService (integration)', () => {
                     permService.grantDevAppPermission(
                         actor,
                         app.uid,
-                        `service:unmanaged-${uuidv4()}:ii:read`,
+                        `zztest:unmanaged-${uuidv4()}:ii:read`,
                     ),
                 ),
             ).rejects.toMatchObject({ statusCode: 403 });
@@ -511,7 +511,7 @@ describe('PermissionService (integration)', () => {
         it('grant persists when manage:<perm> is held', async () => {
             const { user, actor } = await makeUserActor();
             const app = await makeApp(user.id);
-            const permission = `service:dev-${uuidv4()}:ii:read`;
+            const permission = `zztest:dev-${uuidv4()}:ii:read`;
             await server.stores.permission.setFlatUserPerm(
                 user.id,
                 `manage:${permission}`,
@@ -542,7 +542,7 @@ describe('PermissionService (integration)', () => {
                 permService.revokeDevAppPermission(
                     appActor,
                     app.uid,
-                    'service:foo:ii:read',
+                    'zztest:foo:ii:read',
                 ),
             ).rejects.toMatchObject({ statusCode: 403 });
         });
@@ -566,7 +566,7 @@ describe('PermissionService (integration)', () => {
                     permService.grantUserGroupPermission(
                         actor,
                         { id: 1, uid: 'grp-doesnt-matter' },
-                        `service:unmanaged-${uuidv4()}:ii:read`,
+                        `zztest:unmanaged-${uuidv4()}:ii:read`,
                     ),
                 ),
             ).rejects.toMatchObject({ statusCode: 403 });
@@ -577,7 +577,7 @@ describe('PermissionService (integration)', () => {
                 permService.revokeUserGroupPermission(
                     { user: undefined } as unknown as Actor,
                     { id: 1, uid: 'grp-x' },
-                    'service:foo:ii:read',
+                    'zztest:foo:ii:read',
                 ),
             ).rejects.toMatchObject({ statusCode: 403 });
         });
@@ -587,7 +587,7 @@ describe('PermissionService (integration)', () => {
         it('listUserPermissionIssuers returns the issuer who granted the target a perm', async () => {
             const { user: issuer, actor: issuerActor } = await makeUserActor();
             const { user: target } = await makeUserActor();
-            const permission = `service:lst-${uuidv4()}:ii:read`;
+            const permission = `zztest:lst-${uuidv4()}:ii:read`;
             await server.stores.permission.setFlatUserPerm(
                 issuer.id,
                 `manage:${permission}`,
@@ -666,7 +666,7 @@ describe('PermissionService (integration)', () => {
         it('revoke is visible immediately — a cached "granted" reading is not served', async () => {
             const { user: issuer, actor: issuerActor } = await makeUserActor();
             const { user: target, actor: targetActor } = await makeUserActor();
-            const permission = `service:revoke-now-${uuidv4()}:ii:read`;
+            const permission = `zztest:revoke-now-${uuidv4()}:ii:read`;
             await grantManage(issuer, permission);
 
             await runWithContext({ actor: issuerActor }, () =>
@@ -721,7 +721,7 @@ describe('PermissionService (integration)', () => {
         it('grant is visible immediately — a cached "denied" reading is not served', async () => {
             const { user: issuer, actor: issuerActor } = await makeUserActor();
             const { user: target, actor: targetActor } = await makeUserActor();
-            const permission = `service:grant-now-${uuidv4()}:ii:read`;
+            const permission = `zztest:grant-now-${uuidv4()}:ii:read`;
             await grantManage(issuer, permission);
 
             // Prime a "denied" reading into the cache.
@@ -780,7 +780,7 @@ describe('PermissionService (integration)', () => {
             const { user: issuer, actor: issuerActor } = await makeUserActor();
             const { user: target, actor: targetActor } = await makeUserActor();
             const app = await makeApp(target.id);
-            const permission = `service:app-revoke-now-${uuidv4()}:ii:read`;
+            const permission = `zztest:app-revoke-now-${uuidv4()}:ii:read`;
             await grantManage(issuer, permission);
 
             await runWithContext({ actor: issuerActor }, () =>
@@ -825,7 +825,7 @@ describe('PermissionService (integration)', () => {
             const { user: issuer, actor: issuerActor } = await makeUserActor();
             const { user: target, actor: targetActor } = await makeUserActor();
             const app = await makeApp(target.id);
-            const permission = `service:app-grant-now-${uuidv4()}:ii:read`;
+            const permission = `zztest:app-grant-now-${uuidv4()}:ii:read`;
             await grantManage(issuer, permission);
 
             // App is allowed to act with the permission, but the user does
@@ -874,7 +874,7 @@ describe('PermissionService (integration)', () => {
         it('revokeUserUserPermission deletes the linked SQL row before resolving', async () => {
             const { user: issuer, actor: issuerActor } = await makeUserActor();
             const { user: target } = await makeUserActor();
-            const permission = `service:rvk-sync-${uuidv4()}:ii:read`;
+            const permission = `zztest:rvk-sync-${uuidv4()}:ii:read`;
             await grantManage(issuer, permission);
             await runWithContext({ actor: issuerActor }, () =>
                 permService.grantUserUserPermission(
@@ -906,7 +906,7 @@ describe('PermissionService (integration)', () => {
         it('revokeUserUserPermission surfaces a failed SQL delete instead of swallowing it', async () => {
             const { user: issuer, actor: issuerActor } = await makeUserActor();
             const { user: target } = await makeUserActor();
-            const permission = `service:rvk-fail-${uuidv4()}:ii:read`;
+            const permission = `zztest:rvk-fail-${uuidv4()}:ii:read`;
             await grantManage(issuer, permission);
             await runWithContext({ actor: issuerActor }, () =>
                 permService.grantUserUserPermission(
@@ -946,7 +946,7 @@ describe('PermissionService (integration)', () => {
         it('scan-path warms of the flat view carry an expiry (grants are permanent)', async () => {
             const { user: issuer, actor: issuerActor } = await makeUserActor();
             const { user: target, actor: targetActor } = await makeUserActor();
-            const permission = `service:warm-ttl-${uuidv4()}:ii:read`;
+            const permission = `zztest:warm-ttl-${uuidv4()}:ii:read`;
             await grantManage(issuer, permission);
             // The linked (SQL) path is a delegation chain: it only grants
             // if the issuer holds the permission themselves. Give the
@@ -1088,47 +1088,78 @@ describe('PermissionService — scan paths', () => {
             { ownerUserId },
         );
 
-    describe('group-derived grants', () => {
-        it('members of the default user group inherit the system driver grants', async () => {
+    describe('default user permissions and group grants', () => {
+        it('grants the default permissions to a member of the default user group', async () => {
             const { actor } = await makeGroupedUser();
             expect(await permService.check(actor, 'driver:puter-kvstore')).toBe(
                 true,
             );
+            expect(
+                await permService.check(
+                    actor,
+                    'service:puter-kvstore:ii:puter-kvstore',
+                ),
+            ).toBe(true);
         });
 
-        it('a user in no group inherits nothing', async () => {
+        it('grants the default permissions to a user in no group at all', async () => {
+            // The floor does not depend on membership, which is what repairs
+            // the account whose best-effort group insert failed at signup —
+            // previously locked out of every driver call with no recovery.
             const { actor } = await makeLooseUser();
             expect(await permService.check(actor, 'driver:puter-kvstore')).toBe(
+                true,
+            );
+            expect(
+                await permService.check(
+                    actor,
+                    'service:puter-kvstore:ii:puter-kvstore',
+                ),
+            ).toBe(true);
+        });
+
+        it('grants the default permissions to a temp user', async () => {
+            const { row: temp, actor: tempActor } = await makeLooseUser();
+            await server.stores.group.addUsers(DEFAULT_TEMP_GROUP_UID, [
+                temp.username,
+            ]);
+            expect(
+                await permService.check(tempActor, 'driver:puter-kvstore'),
+            ).toBe(true);
+        });
+
+        it('does not grant a permission outside the default set', async () => {
+            // Both used to be admin-only entries in the group-keyed map.
+            // Nothing grants them now.
+            const { actor } = await makeLooseUser();
+            expect(await permService.check(actor, 'local-terminal:access')).toBe(
                 false,
             );
+            expect(
+                await permService.check(actor, `feature:${uuidv4()}`),
+            ).toBe(false);
         });
 
-        it('registerSystemGrantForUsers reaches the user group but not the temp group', async () => {
-            const permission = `feature:users-only-${uuidv4()}`;
-            const { actor: member } = await makeGroupedUser();
-            const { row: temp, actor: tempActor } = await makeLooseUser();
-            await server.stores.group.addUsers(DEFAULT_TEMP_GROUP_UID, [
-                temp.username,
-            ]);
-
-            permService.registerSystemGrantForUsers(permission);
-
-            expect(await permService.check(member, permission)).toBe(true);
-            expect(await permService.check(tempActor, permission)).toBe(false);
-        });
-
-        it('registerSystemGrantForEveryone reaches temp users too', async () => {
-            const permission = `feature:everyone-${uuidv4()}`;
-            const { row: temp, actor: tempActor } = await makeLooseUser();
-            await server.stores.group.addUsers(DEFAULT_TEMP_GROUP_UID, [
-                temp.username,
-            ]);
-
-            permService.registerSystemGrantForEveryone(permission, {
-                note: 'test',
-            });
-
-            expect(await permService.check(tempActor, permission)).toBe(true);
+        it('never queries group membership to resolve a user permission', async () => {
+            // The membership lookup existed only to re-derive the flattened
+            // constant above, so no scan should reach for it now.
+            const { actor } = await makeGroupedUser();
+            const spy = vi.spyOn(server.stores.group, 'listGroupsWithMember');
+            try {
+                expect(
+                    await permService.check(actor, 'driver:puter-kvstore', {
+                        noCache: true,
+                    }),
+                ).toBe(true);
+                expect(
+                    await permService.check(actor, `zztest:${uuidv4()}:read`, {
+                        noCache: true,
+                    }),
+                ).toBe(false);
+                expect(spy).not.toHaveBeenCalled();
+            } finally {
+                spy.mockRestore();
+            }
         });
 
         it('honours a group grant issued by a user, and drops it on revoke', async () => {
@@ -1368,6 +1399,22 @@ describe('PermissionService — scan paths', () => {
                 await permService.check(
                     scopedToken(actor, `tok-${uuidv4()}`),
                     permission,
+                ),
+            ).toBe(false);
+        });
+
+        it('a scoped token does not inherit the default user permissions', async () => {
+            // The floor applies to user actors only. A token must still carry
+            // its own row, or a scoped token would silently widen to every
+            // driver the moment its issuer held the `driver` root.
+            const { actor } = await makeGroupedUser();
+            expect(await permService.check(actor, 'driver:puter-kvstore')).toBe(
+                true,
+            );
+            expect(
+                await permService.check(
+                    scopedToken(actor, `tok-${uuidv4()}`),
+                    'driver:puter-kvstore',
                 ),
             ).toBe(false);
         });
@@ -1730,4 +1777,54 @@ describe('PermissionService — scan paths', () => {
             ).toEqual([]);
         });
     });
+});
+
+describe('PermissionService — default user permissions vs. group config', () => {
+    /** A user with no group membership, on an arbitrary server. */
+    const makeLooseActor = async (srv: PuterServer): Promise<Actor> => {
+        const username = `pdg${Math.random().toString(36).slice(2, 10)}`;
+        const u = await srv.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+            requires_email_confirmation: false,
+        });
+        return {
+            user: {
+                id: u.id,
+                uuid: u.uuid,
+                username: u.username,
+                email: u.email ?? null,
+            },
+        };
+    };
+
+    it('grants the default permissions with no default group configured', async () => {
+        // Self-hosted deployments may run without default groups. The floor
+        // is not group-derived, so it applies regardless — a deployment that
+        // clears both no longer has every driver call fail closed.
+        const bare = await setupTestServer({
+            default_user_group: '',
+            default_temp_group: '',
+        } as never);
+        try {
+            const perms = bare.services
+                .permission as unknown as PermissionService;
+            const actor = await makeLooseActor(bare);
+            expect(await perms.check(actor, 'driver:puter-kvstore')).toBe(true);
+            expect(
+                await perms.check(
+                    actor,
+                    'service:puter-kvstore:ii:puter-kvstore',
+                ),
+            ).toBe(true);
+            // Still only the roots the floor names.
+            expect(await perms.check(actor, 'local-terminal:access')).toBe(
+                false,
+            );
+        } finally {
+            await bare.shutdown();
+        }
+    }, 60_000);
 });
