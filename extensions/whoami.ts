@@ -150,9 +150,15 @@ export const handleWhoami = async (
         details.directories = directories;
     }
 
-    // Last activity
+    // Last activity — when the account was last online. Only the account's
+    // own credentials see it: a browser/root session, or a full-access
+    // personal access token. Delegated credentials (apps, workers, scoped
+    // access tokens) are told who the user is, not when they were around.
+    const isOwnCredential = actor.accessToken
+        ? actor.accessToken.fullAccess === true
+        : !actor.app && actor.session?.kind !== 'worker';
     const lastActivityTs = toUnixSeconds(user.last_activity_ts);
-    if (lastActivityTs !== undefined) {
+    if (isOwnCredential && lastActivityTs !== undefined) {
         details.last_activity_ts = lastActivityTs;
     }
 
@@ -189,7 +195,8 @@ export const handleWhoami = async (
     }
 
     const subscription = details.subscription as
-        { offering?: Record<string, unknown> } | undefined;
+        | { offering?: Record<string, unknown> }
+        | undefined;
     if (subscription?.offering) {
         delete subscription.offering.group;
         delete subscription.offering.benefits;

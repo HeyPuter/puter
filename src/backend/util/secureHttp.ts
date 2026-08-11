@@ -110,7 +110,11 @@ export function isPublicResolvedAddress(address: string): boolean {
 // public, and the check runs on the resolution the socket actually uses —
 // a validate-then-fetch design re-resolves at connect time, so checking
 // here (rather than before fetch) is what defeats DNS rebinding.
-const guardedLookup: net.LookupFunction = (hostname, options, callback) => {
+export const guardedLookup: net.LookupFunction = (
+    hostname,
+    options,
+    callback,
+) => {
     // `net`'s lookup hook can be handed `options` as either an object or a
     // bare address-family number. Normalize so we can both resolve all
     // addresses and report errors back in the arity the caller expects:
@@ -147,14 +151,38 @@ const guardedLookup: net.LookupFunction = (hostname, options, callback) => {
         }
         if (wantAll) {
             callback(null, list);
-        } else {
-            callback(null, list[0].address, list[0].family);
+            return;
         }
+        // Single-address callers get no second try, so the one we hand back
+        // has to be on a family this host can actually route. Resolvers order
+        // AAAA first for dual-stack names, and a deployment without IPv6
+        // egress then has nowhere to fall back to — the connection just hangs
+        // until the connect timeout, which reads as the destination being
+        // down rather than as an unusable family.
+        //
+        // Only reached when the caller opted out of address selection (see
+        // `autoSelectFamily` below); either way the address still comes from
+        // the list validated above, so re-resolving can't slip an unvalidated
+        // one in.
+        const preferred = list.find((a) => a.family === 4) ?? list[0];
+        callback(null, preferred.address, preferred.family);
     });
 };
 
 const ssrfGuardDispatcher = new UndiciAgent({
-    connect: { lookup: guardedLookup },
+    connect: {
+        lookup: guardedLookup,
+        // Try each resolved address rather than betting the request on the
+        // first one. Without this, whether a dead address family costs 250ms
+        // or the full connect timeout depends on the runtime's default, which
+        // is not something this module should be at the mercy of.
+        //
+        // Safe against the rebinding this guard exists to stop: the addresses
+        // raced here are exactly the ones `guardedLookup` validated, so every
+        // candidate has already been checked.
+        autoSelectFamily: true,
+        autoSelectFamilyAttemptTimeout: 250,
+    },
 });
 
 // Proxied requests skip the SSRF lookup guard (the only locally-resolved

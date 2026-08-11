@@ -21,7 +21,11 @@ export interface User {
     hasDevAccountAccess?: boolean;
     /** Whether the user's account is temporary. */
     is_temp?: boolean;
-    /** The user's last active timestamp. */
+    /**
+     * The user's last active timestamp. Only returned to the account's own
+     * credentials — a signed-in session or a full-access API token; apps,
+     * workers and scoped tokens do not receive it.
+     */
     last_activity_ts?: number;
     otp?: boolean;
     /** The amount of paid storage. */

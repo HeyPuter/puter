@@ -62,8 +62,24 @@ const FLUSH_JITTER_MS = 500;
 /** Per bucket, per cycle. Anything above this flushes on the next cycle. */
 const CLAIMS_PER_BUCKET = 100;
 
-/** A claim left unfinished this long is assumed abandoned and re-driven. */
+/**
+ * A claim left unfinished this long is assumed abandoned and re-driven. The
+ * sweep that finds it runs on its own cadence, so a claim can sit up to one
+ * sweep interval past this before anything picks it up.
+ */
 const ORPHAN_AGE_MS = 30_000;
+
+/**
+ * Flush cycles between orphan sweeps. Nothing is eligible to be re-driven until
+ * it is `ORPHAN_AGE_MS` old, so reading the pending index every cycle turns up
+ * nothing the cycles before it have not already passed over — and a read of an
+ * absent index still costs a lookup on every bucket. Sweeping on its own
+ * cadence trades a little detection latency for the reads in between.
+ */
+const CYCLES_PER_ORPHAN_SWEEP = Math.max(
+    1,
+    Math.round(ORPHAN_AGE_MS / FLUSH_INTERVAL_MS),
+);
 
 /** Long enough that a counter for the current month can never expire. */
 const BUFFER_TTL_MS = 40 * 24 * 60 * 60 * 1000;
@@ -303,6 +319,7 @@ export class MeteringBufferStore extends PuterStore {
     #absorbedCount = 0;
     #flushedCount = 0;
     #cyclesSinceReport = 0;
+    #cyclesSinceSweep = 0;
 
     // -- Lifecycle ----------------------------------------------------
 
@@ -528,7 +545,13 @@ export class MeteringBufferStore extends PuterStore {
         const delay =
             FLUSH_INTERVAL_MS + (Math.random() * 2 - 1) * FLUSH_JITTER_MS;
         this.#flushTimer = setTimeout(() => {
-            this.flushCycle()
+            // Only the timed cycle throttles the sweep. A cycle asked for
+            // directly — a drain, a test — is expected to do the whole job.
+            const sweepOrphans = this.#cyclesSinceSweep === 0;
+            this.#cyclesSinceSweep =
+                (this.#cyclesSinceSweep + 1) % CYCLES_PER_ORPHAN_SWEEP;
+
+            this.flushCycle(sweepOrphans)
                 .catch((e) => {
                     console.error('[metering] flush cycle failed', e);
                 })
@@ -541,14 +564,18 @@ export class MeteringBufferStore extends PuterStore {
      * Write one cycle's worth of buffered counters onward. Driven by the flush
      * timer; returns how many counters it handled so a drain loop knows when
      * there is nothing left.
+     *
+     * `sweepOrphans` decides whether this cycle also looks for claims an
+     * earlier flush abandoned. Skipping it leaves them for a later cycle;
+     * nothing is dropped either way.
      */
-    async flushCycle(): Promise<number> {
+    async flushCycle(sweepOrphans = true): Promise<number> {
         const work: Array<() => Promise<void>> = [];
         let truncated = 0;
 
         const buckets = await Promise.all(
             Array.from({ length: BUCKET_COUNT }, (_, bucket) =>
-                this.#drainBucket(`m${bucket}`),
+                this.#drainBucket(`m${bucket}`, sweepOrphans),
             ),
         );
 
@@ -605,7 +632,10 @@ export class MeteringBufferStore extends PuterStore {
         );
     }
 
-    async #drainBucket(tag: string): Promise<{
+    async #drainBucket(
+        tag: string,
+        sweepOrphans: boolean,
+    ): Promise<{
         tag: string;
         keys: string[];
         orphans: Array<{ nonce: string; key: string }>;
@@ -614,7 +644,7 @@ export class MeteringBufferStore extends PuterStore {
         const redis = this.clients.redis;
         const [popped, pending] = await Promise.all([
             redis.spop(dirtyKey(tag), CLAIMS_PER_BUCKET),
-            redis.hgetall(pendingIndexKey(tag)),
+            sweepOrphans ? redis.hgetall(pendingIndexKey(tag)) : null,
         ]);
 
         // An empty pop can come back as nothing at all rather than an empty

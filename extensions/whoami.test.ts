@@ -61,6 +61,7 @@ const seedUser = async () => {
         uuid: uuidv4(),
         password: 'hashedpw',
         email: `${slug}@example.com`,
+        last_activity_ts: new Date().toISOString(),
     });
 };
 
@@ -161,6 +162,64 @@ describe('whoami extension — handleWhoami', () => {
         expect(body.created_ts).toBeUndefined();
         // Directories are user-only.
         expect(body.directories).toBeUndefined();
+    });
+
+    describe('last_activity_ts', () => {
+        const whoamiFor = async (actor: Record<string, unknown>) => {
+            const { res, captured } = makeRes();
+            await runWithContext({ actor }, () => handleWhoami(makeReq(), res));
+            return captured.body as Record<string, unknown>;
+        };
+
+        it('is sent to a browser/root session', async () => {
+            const user = await seedUser();
+            const body = await whoamiFor({
+                user: { uuid: user.uuid, id: user.id as number },
+                session: { uid: 'sess-web', kind: 'web' },
+            });
+
+            expect(typeof body.last_activity_ts).toBe('number');
+        });
+
+        it('is sent to a full-access personal access token', async () => {
+            const user = await seedUser();
+            const body = await whoamiFor({
+                user: { uuid: user.uuid, id: user.id as number },
+                accessToken: { uid: 'tok-full', fullAccess: true },
+            });
+
+            expect(typeof body.last_activity_ts).toBe('number');
+        });
+
+        it('is withheld from a scoped access token', async () => {
+            const user = await seedUser();
+            const body = await whoamiFor({
+                user: { uuid: user.uuid, id: user.id as number },
+                accessToken: { uid: 'tok-scoped' },
+            });
+
+            expect(body.last_activity_ts).toBeUndefined();
+        });
+
+        it('is withheld from app actors', async () => {
+            const user = await seedUser();
+            const body = await whoamiFor({
+                user: { uuid: user.uuid, id: user.id as number },
+                app: { uid: 'app-test-actor' },
+            });
+
+            expect(body.last_activity_ts).toBeUndefined();
+        });
+
+        it('is withheld from worker tokens', async () => {
+            const user = await seedUser();
+            const body = await whoamiFor({
+                user: { uuid: user.uuid, id: user.id as number },
+                session: { uid: 'sess-worker', kind: 'worker' },
+            });
+
+            expect(body.last_activity_ts).toBeUndefined();
+        });
     });
 
     it('redacts tmp_password from metadata for user actors', async () => {

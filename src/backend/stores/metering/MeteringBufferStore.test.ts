@@ -531,6 +531,39 @@ describe('MeteringBufferStore', () => {
             ).toEqual({});
         });
 
+        it('holds an abandoned claim for a later cycle when not sweeping', async () => {
+            const tag = bucketTag(key);
+            const nonce = 'unsweptnonce';
+            const entry = `${Date.now() - 60_000}:${key}`;
+
+            await server.clients.redis.hset(
+                `meter:p:{${tag}}:${nonce}`,
+                'total',
+                '25',
+            );
+            await server.clients.redis.hset(
+                `meter:pending:{${tag}}`,
+                nonce,
+                entry,
+            );
+
+            await target.flushCycle(false);
+
+            // Untouched, not lost: the amount has gone nowhere and the claim is
+            // still indexed for whichever cycle sweeps next.
+            expect(await storedTotal(key)).toBe(0);
+            expect(
+                await server.clients.redis.hgetall(`meter:pending:{${tag}}`),
+            ).toEqual({ [nonce]: entry });
+
+            await target.flushCycle();
+
+            expect(await storedTotal(key)).toBe(25);
+            expect(
+                await server.clients.redis.hgetall(`meter:pending:{${tag}}`),
+            ).toEqual({});
+        });
+
         it('re-drives an abandoned claim through exactly one of two concurrent flushes', async () => {
             const tag = bucketTag(key);
             const nonce = 'abandonednonce';

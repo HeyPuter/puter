@@ -21,6 +21,7 @@ import { Agent as UndiciAgent } from 'undici';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { configContainer } from '../exports.js';
 import {
+    guardedLookup,
     isPublicResolvedAddress,
     secureFetch,
     validateUrlNoIP,
@@ -32,6 +33,23 @@ vi.mock('node:dns', async (importOriginal) => {
         'resolves-private.test': '10.0.0.1',
         'resolves-metadata.test': '169.254.169.254',
     };
+    // Multi-address fixtures, in the order a resolver really hands them back
+    // for these shapes — AAAA ahead of A for a dual-stack name.
+    const MULTI_HOSTS: Record<string, { address: string; family: number }[]> = {
+        'dual-stack.test': [
+            { address: '2606:4700:20::ac43:47b8', family: 6 },
+            { address: '104.26.14.31', family: 4 },
+        ],
+        'v6-only.test': [{ address: '2606:4700:20::ac43:47b8', family: 6 }],
+        'private-v4-public-v6.test': [
+            { address: '10.0.0.1', family: 4 },
+            { address: '2606:4700:20::ac43:47b8', family: 6 },
+        ],
+        'public-v4-private-v6.test': [
+            { address: '104.26.14.31', family: 4 },
+            { address: '::1', family: 6 },
+        ],
+    };
     return {
         ...actual,
         lookup: ((hostname: string, options: unknown, callback: unknown) => {
@@ -39,6 +57,11 @@ vi.mock('node:dns', async (importOriginal) => {
                 err: Error | null,
                 addresses?: { address: string; family: number }[],
             ) => void;
+            const multi = MULTI_HOSTS[hostname];
+            if (multi) {
+                cb(null, multi);
+                return;
+            }
             const addr = PRIVATE_HOSTS[hostname];
             if (addr) {
                 cb(null, [{ address: addr, family: 4 }]);
@@ -177,6 +200,68 @@ describe('secureHttp resolved address validation', () => {
                     err.cause?.message ?? err.message,
                 );
             });
+        }
+    });
+
+    // -- Address family selection ------------------------------------
+    //
+    // A single-address caller gets one shot, so handing back an address on a
+    // family this host can't route means the connection hangs to the connect
+    // timeout instead of failing over. Resolvers put AAAA first for dual-stack
+    // names, which is where that bites.
+
+    /** Drive `guardedLookup` against one of the DNS fixtures above. */
+    const lookupHost = (
+        hostname: string,
+        options: Record<string, unknown> = {},
+    ) =>
+        new Promise<{ err: Error | null; result: unknown; family?: number }>(
+            (resolve) => {
+                guardedLookup(
+                    hostname,
+                    options as never,
+                    ((err: Error | null, result: unknown, family?: number) =>
+                        resolve({ err, result, family })) as never,
+                );
+            },
+        );
+
+    it('hands a single-address caller a routable family, not just the first answer', async () => {
+        const { err, result, family } = await lookupHost('dual-stack.test');
+        expect(err).toBeNull();
+        expect(result).toBe('104.26.14.31');
+        expect(family).toBe(4);
+    });
+
+    it('still returns the only family available when a host is v6-only', async () => {
+        const { err, result, family } = await lookupHost('v6-only.test');
+        expect(err).toBeNull();
+        expect(result).toBe('2606:4700:20::ac43:47b8');
+        expect(family).toBe(6);
+    });
+
+    it('hands the full list to a caller that asked for every address', async () => {
+        const { err, result } = await lookupHost('dual-stack.test', {
+            all: true,
+        });
+        expect(err).toBeNull();
+        expect(result).toEqual([
+            { address: '2606:4700:20::ac43:47b8', family: 6 },
+            { address: '104.26.14.31', family: 4 },
+        ]);
+    });
+
+    // The selection above must never become a way to reach a blocked address:
+    // one private answer rejects the whole resolution, whichever family it is
+    // on and whichever family selection would have preferred.
+    it('rejects the whole set when any resolved address is private', async () => {
+        for (const host of [
+            'private-v4-public-v6.test',
+            'public-v4-private-v6.test',
+        ]) {
+            const { err, result } = await lookupHost(host);
+            expect(err).toMatchObject({ code: 'ERR_SSRF_BLOCKED' });
+            expect(result).toBe('');
         }
     });
 

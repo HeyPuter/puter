@@ -37,7 +37,7 @@ A boolean value indicating whether the user's account is temporary.
 
 #### `last_activity_ts` (Number)
 
-A number value indicating the user's last active timestamp.
+A number value indicating the user's last active timestamp. Only returned to the account's own credentials — a signed-in session or a full-access API token; apps acting on a user's behalf, workers, and scoped tokens do not receive it.
 
 #### `paid_storage` (Number)
 
