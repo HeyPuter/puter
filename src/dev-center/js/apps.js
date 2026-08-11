@@ -191,6 +191,9 @@ async function create_app (title, source_path = null, items = null) {
         maximizeOnStart: false,
         background: false,
         dedupeName: true,
+        // New apps accept user feedback by default; developers can turn this
+        // off in the app's settings (the "User Feedback" toggle).
+        feedbackEnabled: true,
         metadata: {
             window_resizable: true,
             fullpage_on_landing: true,
@@ -510,6 +513,12 @@ function generate_edit_app_section (app) {
 
                 <h3 style="font-size: 23px; border-bottom: 1px solid #EEE; margin-top: 50px; margin-bottom: 0px;">Misc</h3>
                 <div style="margin-top:30px;">
+                    <input type="checkbox" id="edit-app-user-feedback" name="edit-app-user-feedback" value="true" ${app.feedback_enabled ? 'checked' : ''}>
+                    <label for="edit-app-user-feedback" style="display: inline;">User Feedback</label>
+                    <p>When enabled, users can send you feedback about this app from within Puter. Feedback is delivered to your account's email address.</p>
+                </div>
+
+                <div style="margin-top:30px;">
                     <input type="checkbox" id="edit-app-locked" name="edit-app-locked" value="true" ${app.metadata?.locked ? 'checked' : ''}>
                     <label for="edit-app-locked" style="display: inline;">Delete Protection${lock_svg}</label>
                     <p>When enabled, the app cannot be deleted. This is useful for preventing accidental deletion of important apps.</p>
@@ -586,6 +595,7 @@ function trackOriginalValues () {
             locked: $('#edit-app-locked').is(':checked'),
             fullPageOnLanding: $('#edit-app-fullpage-on-landing').is(':checked'),
             setTitleToFile: $('#edit-app-set-title-to-file').is(':checked'),
+            userFeedback: $('#edit-app-user-feedback').is(':checked'),
         },
     };
 }
@@ -626,7 +636,8 @@ function hasChanges () {
         $('#edit-app-hide-titlebar').is(':checked') !== originalValues.checkboxes.hideTitleBar ||
         $('#edit-app-locked').is(':checked') !== originalValues.checkboxes.locked ||
         $('#edit-app-fullpage-on-landing').is(':checked') !== originalValues.checkboxes.fullPageOnLanding ||
-        $('#edit-app-set-title-to-file').is(':checked') !== originalValues.checkboxes.setTitleToFile
+        $('#edit-app-set-title-to-file').is(':checked') !== originalValues.checkboxes.setTitleToFile ||
+        $('#edit-app-user-feedback').is(':checked') !== originalValues.checkboxes.userFeedback
     );
 }
 
@@ -674,6 +685,7 @@ function resetToOriginalValues () {
     $('#edit-app-locked').prop('checked', originalValues.checkboxes.locked);
     $('#edit-app-fullpage-on-landing').prop('checked', originalValues.checkboxes.fullPageOnLanding);
     $('#edit-app-set-title-to-file').prop('checked', originalValues.checkboxes.setTitleToFile);
+    $('#edit-app-user-feedback').prop('checked', originalValues.checkboxes.userFeedback);
 
     if ( originalValues.icon ) {
         $('#edit-app-icon').css('background-image', `url(${originalValues.icon})`);
@@ -1284,6 +1296,7 @@ async function saveEditedApp (mode) {
         description: description,
         maximizeOnStart: $('#edit-app-maximize-on-start').is(':checked'),
         background: $('#edit-app-background').is(':checked'),
+        feedbackEnabled: $('#edit-app-user-feedback').is(':checked'),
         metadata: {
             fullpage_on_landing: $('#edit-app-fullpage-on-landing').is(':checked'),
             social_image: socialImageUrl,
