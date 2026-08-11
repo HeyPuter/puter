@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { Readable } from 'node:stream';
@@ -38,6 +39,7 @@ import { toPendingUploadSessionKey } from '../../stores/fs/pendingUploadSessionH
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { FSService } from './FSService.js';
+import { UNLIMITED_STORAGE_ALLOWANCE } from './FSService.js';
 
 // ── Harness ─────────────────────────────────────────────────────────
 //
@@ -589,6 +591,50 @@ describe('FSService storage allowance', () => {
         ).resolves.toMatchObject({ wasOverwrite: false });
     });
 
+    it('writes past a full account when the caller waives the quota', async () => {
+        const user = await quotaUser(64);
+        await user.write('fills-it.txt', 'x'.repeat(64));
+        await expect(user.write('over.txt', 'x')).rejects.toMatchObject({
+            statusCode: 413,
+        });
+
+        await expect(
+            user.write(
+                'system.png',
+                'x'.repeat(80),
+                UNLIMITED_STORAGE_ALLOWANCE,
+            ),
+        ).resolves.toMatchObject({ wasOverwrite: false });
+    });
+
+    it('waives the quota for a batch too', async () => {
+        const user = await quotaUser(64);
+        await user.write('fills-it.txt', 'x'.repeat(64));
+
+        await expect(
+            limitedFs.batchWrites(
+                user.userId,
+                [
+                    {
+                        fileMetadata: {
+                            path: `${user.home}/Documents/sys1.txt`,
+                            size: 40,
+                        },
+                        fileContent: 'x'.repeat(40),
+                    },
+                    {
+                        fileMetadata: {
+                            path: `${user.home}/Documents/sys2.txt`,
+                            size: 40,
+                        },
+                        fileContent: 'x'.repeat(40),
+                    },
+                ],
+                UNLIMITED_STORAGE_ALLOWANCE,
+            ),
+        ).resolves.toHaveLength(2);
+    });
+
     it('never lets an override lower the ceiling', async () => {
         const user = await quotaUser(64);
         await expect(
@@ -658,6 +704,112 @@ describe('FSService storage allowance', () => {
             }),
         );
         expect(error.statusCode).toBe(413);
+    });
+
+    it('rejects a copy that would exceed the allowance', async () => {
+        const user = await quotaUser(64);
+        const { fsEntry: source } = await user.write(
+            'orig.txt',
+            'x'.repeat(40),
+        );
+        const documents = (await limitedServer.stores.fsEntry.getEntryByPath(
+            `${user.home}/Documents`,
+        ))!;
+
+        const error = await caught(() =>
+            limitedFs.copy(user.userId, {
+                source,
+                destinationParent: documents,
+                newName: 'orig-copy.txt',
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('storage_limit_reached');
+        expect(
+            await limitedServer.stores.fsEntry.getEntryByPath(
+                `${user.home}/Documents/orig-copy.txt`,
+            ),
+        ).toBeNull();
+    });
+
+    it('counts the whole subtree when copying a directory', async () => {
+        const user = await quotaUser(64);
+        await limitedFs.mkdir(user.userId, {
+            path: `${user.home}/Documents/tree`,
+        });
+        await limitedFs.write(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/tree/a.txt`,
+                size: 20,
+            },
+            fileContent: 'x'.repeat(20),
+        });
+        await limitedFs.write(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/tree/b.txt`,
+                size: 20,
+            },
+            fileContent: 'x'.repeat(20),
+        });
+        const source = (await limitedServer.stores.fsEntry.getEntryByPath(
+            `${user.home}/Documents/tree`,
+        ))!;
+        const desktop = (await limitedServer.stores.fsEntry.getEntryByPath(
+            `${user.home}/Desktop`,
+        ))!;
+
+        // 40 of 64 bytes are used; duplicating the tree would need 40 more.
+        const error = await caught(() =>
+            limitedFs.copy(user.userId, {
+                source,
+                destinationParent: desktop,
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+        expect(
+            await limitedServer.stores.fsEntry.getEntryByPath(
+                `${user.home}/Desktop/tree`,
+            ),
+        ).toBeNull();
+    });
+
+    it('discounts the entry an overwriting copy replaces', async () => {
+        const user = await quotaUser(64);
+        const { fsEntry: source } = await user.write('src.txt', 'x'.repeat(30));
+        await user.write('dst.txt', 'y'.repeat(30));
+        const documents = (await limitedServer.stores.fsEntry.getEntryByPath(
+            `${user.home}/Documents`,
+        ))!;
+
+        // 60 of 64 bytes are used: the copy only fits because overwriting
+        // dst.txt releases its 30 first.
+        const copy = await limitedFs.copy(user.userId, {
+            source,
+            destinationParent: documents,
+            newName: 'dst.txt',
+            overwrite: true,
+        });
+        expect(copy.size).toBe(30);
+    });
+
+    it('lets a per-request override raise the ceiling for a copy', async () => {
+        const user = await quotaUser(64);
+        const { fsEntry: source } = await user.write(
+            'over.txt',
+            'x'.repeat(40),
+        );
+        const documents = (await limitedServer.stores.fsEntry.getEntryByPath(
+            `${user.home}/Documents`,
+        ))!;
+
+        await expect(
+            limitedFs.copy(user.userId, {
+                source,
+                destinationParent: documents,
+                newName: 'over-copy.txt',
+                storageAllowanceMax: 1024,
+            }),
+        ).resolves.toMatchObject({ size: 40 });
     });
 
     it('rejects a batch signed write that would exceed the allowance', async () => {
@@ -2696,7 +2848,10 @@ describe('FSService permission rules', () => {
             `${user.home}/Documents/outside.json`,
             '{}',
         );
-        const appActor = makeActor({ user: user.actor.user, app: { uid: appUid } });
+        const appActor = makeActor({
+            user: user.actor.user,
+            app: { uid: appUid },
+        });
 
         await expect(
             server.services.permission.check(
@@ -2886,9 +3041,7 @@ describe('FSService — cross-app AppData access', () => {
         // ACL would allow all three: they ask for `fs:write`, which the grant
         // satisfies. The guard is what separates them.
         await expect(
-            asCalendar(() =>
-                fs.remove(owner.userId, { entry: contactsFile }),
-            ),
+            asCalendar(() => fs.remove(owner.userId, { entry: contactsFile })),
         ).rejects.toMatchObject({ statusCode: 403 });
         await expect(
             asCalendar(() => fs.rename(contactsFile, 'renamed.json')),
@@ -2909,7 +3062,9 @@ describe('FSService — cross-app AppData access', () => {
 
     it('allows delete once the delete class is granted', async () => {
         await grant(appDataPermission(contacts.uid, 'fs', 'delete'));
-        await asCalendar(() => fs.remove(owner.userId, { entry: contactsFile }));
+        await asCalendar(() =>
+            fs.remove(owner.userId, { entry: contactsFile }),
+        );
         expect(
             await server.stores.fsEntry.getEntryByPath(contactsFile.path),
         ).toBeFalsy();

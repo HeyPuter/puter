@@ -212,7 +212,15 @@ export class LegacyFSController extends PuterController {
         router.all('/df', { ...apiOptions, rateLimit: FS_DF_LIMIT }, this.df);
         router.post(
             '/open_item',
-            { ...apiOptions, rateLimit: FS_HELPER_LIMIT },
+            {
+                ...apiOptions,
+                // Opening an item grants an app access to a file on the user's
+                // behalf, so only the user's own credential may drive it — an
+                // app calling it for itself would be widening its own ACL.
+                requireUserActor: true,
+                allowFullAccessToken: true,
+                rateLimit: FS_HELPER_LIMIT,
+            },
             this.openItem,
         );
         router.post(
@@ -1688,16 +1696,25 @@ export class LegacyFSController extends PuterController {
     };
 
     /**
-     * POST /open_item — resolve an entry, grant the default suggested app write
+     * POST /open_item — resolve an entry, grant the default suggested app
      * access to it, and return a signed URL + user-app token so the launched
      * app can read/write the file via its app-under-user token.
      *
-     * Matches v1 semantics: permission is always granted as `write` — the
-     * underlying user's permission check still caps the effective access
-     * (grantUserAppPermission doesn't escalate user privileges).
+     * This is a user-authority action: it writes a user→app ACL row. Two things
+     * keep an app from opening an item to widen its own access — the caller
+     * must be the user themselves (the route gate, re-checked here because
+     * extensions can reach handlers directly), and the grant is capped at the
+     * access the caller actually proved on the entry.
      */
     openItem = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
+        if ((actor as { app?: unknown }).app) {
+            throw new HttpError(
+                403,
+                'This endpoint is only available to user sessions',
+                { legacyCode: 'forbidden' },
+            );
+        }
         const body = asRecord(req.body);
         const entry = await resolveV1Selector(this.stores.fsEntry, body);
 
@@ -1709,8 +1726,8 @@ export class LegacyFSController extends PuterController {
             'read',
         );
 
-        // Downgrade the envelope when the caller only proved read.
-        // `/writeFile`'s ACL re-check would still block the write, but
+        // Downgrade the envelope and the grant when the caller only proved
+        // read. `/writeFile`'s ACL re-check would still block the write, but
         // returning `write_url` to a read-only caller is the same
         // privilege-leak shape that `/sign` and `/readdir` strip.
         const writeOk = await this.services.acl.check(
@@ -1738,7 +1755,7 @@ export class LegacyFSController extends PuterController {
             await this.services.permission.grantUserAppPermission(
                 actor,
                 defaultAppUid,
-                `fs:${entry.uuid}:write`,
+                `fs:${entry.uuid}:${writeOk ? 'write' : 'read'}`,
                 {},
                 { reason: 'open_item' },
             );
