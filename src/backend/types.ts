@@ -195,12 +195,7 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        | 'sms'
-        | 'rcs'
-        | 'whatsapp'
-        | 'viber'
-        | 'zalo'
-        | 'telegram';
+        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
 }
 
 /**
@@ -381,8 +376,40 @@ export interface IWispConfig {
 export interface IServerHealthConfig {
     /** DB liveness latency threshold (ms). Default 1500. */
     db_liveness_latency_fail_ms?: number;
+    /**
+     * Latency threshold for the primary-pinned probe (ms). Separate from
+     * `db_liveness_latency_fail_ms` because that one measures the local read
+     * path while this one crosses to whichever region holds the primary.
+     * Default 3000. Values at or above the 4000ms per-check timeout are moot —
+     * the check runner gives up first.
+     */
+    db_primary_liveness_latency_fail_ms?: number;
+    /**
+     * Consecutive over-threshold runs before the primary probe reports
+     * unhealthy. Default 2, i.e. sustained slowness rather than one slow round
+     * trip. A primary that errors or hangs fails on the first run regardless.
+     */
+    db_primary_liveness_breaches_to_fail?: number;
     /** Staleness threshold for the health-check loop itself (ms). */
     stale_health_loop_fail_ms?: number;
+    /**
+     * Cadence for the external-dependency probes (redis, dynamo, object store,
+     * primary database). Deliberately slower than the 5s check loop so probing
+     * a paid, rate-limited backing service stays a rounding error against real
+     * traffic. Default 30000.
+     */
+    dependency_check_interval_ms?: number;
+    /** Redis liveness latency threshold (ms). Default 1000. */
+    redis_liveness_latency_fail_ms?: number;
+    /** Dynamo liveness latency threshold (ms). Default 1500. */
+    dynamo_liveness_latency_fail_ms?: number;
+    /** Object-store liveness latency threshold (ms). Default 2000. */
+    s3_liveness_latency_fail_ms?: number;
+    /**
+     * Check names to skip registering entirely — an operator kill switch for a
+     * probe that turns out to be noisy, without waiting on a deploy.
+     */
+    disabled_checks?: string[];
 }
 
 export interface IS3LocalConfig {
@@ -881,6 +908,14 @@ interface IConfigOptional {
 
     //Metering
     unlimitedMetering?: boolean;
+    /**
+     * Fleet-wide spend rate, in micro-cents per minute, past which the metering
+     * service raises an alarm. There is no defensible default here — the right
+     * number is a multiple of what this deployment's own traffic normally
+     * costs, so set it from observed rate and revisit it as traffic grows. An
+     * unset or non-positive value turns the check off rather than guessing.
+     */
+    maxGlobalUsagePerMinute?: number;
 }
 
 /**
@@ -919,7 +954,8 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

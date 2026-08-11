@@ -27,6 +27,10 @@ A number value containing the user's free storage.
 
 A string containing the current active app.
 
+#### `created_ts` (Number)
+
+A number value indicating when the user's account was created, in seconds since the Unix epoch. Only returned to user tokens; apps acting on a user's behalf do not receive it.
+
 #### `is_temp` (Boolean)
 
 A boolean value indicating whether the user's account is temporary.

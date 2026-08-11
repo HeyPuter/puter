@@ -30,6 +30,11 @@ import {
     WORKER_SUBDOMAIN_PREFIX,
     type SubdomainRow,
 } from '../../stores/subdomain/SubdomainStore.js';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+} from '../../services/metering/consts.js';
+import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 import { PuterDriver } from '../types.js';
 import { loadFileInput } from '../util/fileInput.js';
 import {
@@ -130,6 +135,70 @@ export class WorkerDriver extends PuterDriver {
     // puter-js calls this as `workers:worker-service` (see Workers.js). Keep the name aligned.
     readonly driverName = 'worker-service';
     readonly isDefault = true;
+
+    // Without this the driver falls back to the generic 600/minute default,
+    // which is far too loose for `create` — every call reads the source out
+    // of the user's FS, bundles it, and provisions upstream.
+    //
+    // Deploys still get their own tighter budget, but not a single-digit one:
+    // developing against workers means redeploying on every change, and a
+    // tooling client that deploys a set of them does it back to back. The
+    // in-flight cap below is what bounds the concurrent bundling work; this
+    // window is only here to stop a loop.
+    readonly rateLimit: DriverRateLimitConfig = {
+        // Everything that isn't `create`/`destroy` is a metadata read —
+        // listing workers, resolving one by name, enumerating its files — and
+        // a client walks several of those per deploy and again per page of a
+        // listing. Cheap to serve, so the budget only catches a loop.
+        default: {
+            limit: 600,
+            window: 60_000,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 300,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 150,
+            },
+        },
+        methods: {
+            create: {
+                limit: 120,
+                window: 60_000,
+                bySubscription: {
+                    [DEFAULT_FREE_SUBSCRIPTION]: 80,
+                    [DEFAULT_TEMP_SUBSCRIPTION]: 40,
+                },
+            },
+            destroy: {
+                limit: 30,
+                window: 60_000,
+                bySubscription: {
+                    [DEFAULT_FREE_SUBSCRIPTION]: 20,
+                    [DEFAULT_TEMP_SUBSCRIPTION]: 10,
+                },
+            },
+        },
+    };
+
+    readonly concurrent: DriverConcurrentConfig = {
+        default: {
+            limit: 10,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 5,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 3,
+            },
+        },
+        methods: {
+            // Deploys are the expensive path; the floor stays at 2 so a
+            // client that kicks off a second deploy while the first is
+            // still settling doesn't get a spurious rejection.
+            create: {
+                limit: 5,
+                bySubscription: {
+                    [DEFAULT_FREE_SUBSCRIPTION]: 2,
+                    [DEFAULT_TEMP_SUBSCRIPTION]: 2,
+                },
+            },
+        },
+    };
 
     #cfBaseUrl = '';
     #hotReloadSubscribed = false;

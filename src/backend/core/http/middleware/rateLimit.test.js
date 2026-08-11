@@ -32,6 +32,8 @@ import { EventEmitter } from 'node:events';
 import { isHttpError } from '../HttpError.js';
 import { setupTestServer } from '../../../testUtil.ts';
 import {
+    CONCURRENT_SLOT_TTL_MS,
+    acquireConcurrent,
     acquireDriverConcurrent,
     checkDriverRateLimit,
     checkRateLimit,
@@ -39,6 +41,7 @@ import {
     configureRateLimit,
     listConfiguredRateLimitBackends,
     rateLimitGate,
+    sweepMemoryWindows,
 } from './rateLimit.js';
 
 // The rate-limit module is configured once at boot in production. In tests
@@ -848,7 +851,7 @@ describe('concurrencyGate — redis backend', () => {
         await redis.flushall();
     });
 
-    it('uses INCR/EXPIRE to coordinate slots and releases on finish', async () => {
+    it('coordinates slots across callers and releases on finish', async () => {
         const opts = {
             limit: 1,
             key: 'ip',
@@ -876,6 +879,85 @@ describe('concurrencyGate — redis backend', () => {
         const next3 = vi.fn();
         await concurrencyGate(opts)(req, makeRes(), next3);
         expect(next3.mock.calls[0][0]).toBeUndefined();
+    });
+});
+
+// ── concurrency: orphaned slots ─────────────────────────────────────
+//
+// A slot whose holder died without releasing has to age out on its own. The
+// pointed case is a caller that retries on rejection — a reconnecting socket —
+// where a per-key expiry gets refreshed by the very attempts it is rejecting
+// and the bucket never drains.
+
+describe('acquireConcurrent — orphan recovery (redis)', () => {
+    let redis;
+    beforeAll(() => {
+        redis = new RedisMock();
+        configureRateLimit({ default: 'redis', redis });
+    });
+    afterAll(async () => {
+        vi.useRealTimers();
+        await redis?.quit?.();
+        configureRateLimit();
+    });
+    beforeEach(async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+        await redis.flushall();
+    });
+
+    it('frees a leaked slot after the orphan window even while callers retry', async () => {
+        const key = 'orphan-retry';
+        const start = Date.now();
+        const step = 5 * 60_000;
+
+        // Holder takes the only slot and dies — never releases.
+        expect((await acquireConcurrent(key, 1)).ok).toBe(true);
+        expect((await acquireConcurrent(key, 1)).ok).toBe(false);
+
+        // Retry throughout the orphan window, the way a reconnecting client
+        // does. Each rejection must leave the leaked slot's own age untouched.
+        for (
+            let elapsed = step;
+            elapsed < CONCURRENT_SLOT_TTL_MS;
+            elapsed += step
+        ) {
+            vi.setSystemTime(new Date(start + elapsed));
+            expect((await acquireConcurrent(key, 1)).ok).toBe(false);
+        }
+
+        vi.setSystemTime(new Date(start + CONCURRENT_SLOT_TTL_MS + step));
+        expect((await acquireConcurrent(key, 1)).ok).toBe(true);
+    });
+
+    it('keeps a renewed slot held past the orphan window', async () => {
+        const key = 'orphan-renew';
+        const slot = await acquireConcurrent(key, 1);
+        expect(slot.ok).toBe(true);
+
+        // A live long-lived holder renews rather than letting the sweep
+        // mistake it for an abandoned one.
+        for (
+            let elapsed = 0;
+            elapsed < 2 * CONCURRENT_SLOT_TTL_MS;
+            elapsed += 10 * 60_000
+        ) {
+            vi.setSystemTime(new Date(Date.now() + 10 * 60_000));
+            await slot.renew();
+        }
+
+        expect((await acquireConcurrent(key, 1)).ok).toBe(false);
+        await slot.release();
+        expect((await acquireConcurrent(key, 1)).ok).toBe(true);
+    });
+
+    it('does not resurrect a slot renewed after release', async () => {
+        const key = 'orphan-renew-after-release';
+        const slot = await acquireConcurrent(key, 1);
+        await slot.release();
+        await slot.renew();
+
+        expect((await acquireConcurrent(key, 1)).ok).toBe(true);
     });
 });
 
@@ -1184,6 +1266,31 @@ describe('driver helpers — backend failures', () => {
 
     const req = { ip: '7.7.7.7', headers: {}, socket: {} };
 
+    // Minimal redis whose concurrent-acquire always reports one held slot, so
+    // a test can substitute its own failing `zrem` and exercise release alone.
+    const stubConcurrentRedis = () => ({
+        multi: () => ({
+            zremrangebyscore: function () {
+                return this;
+            },
+            zadd: function () {
+                return this;
+            },
+            zcard: function () {
+                return this;
+            },
+            expire: function () {
+                return this;
+            },
+            exec: async () => [
+                [null, 0],
+                [null, 1],
+                [null, 1],
+                [null, 1],
+            ],
+        }),
+    });
+
     it('checkDriverRateLimit fails open when the backend throws', async () => {
         configureRateLimit({
             default: 'redis',
@@ -1225,20 +1332,11 @@ describe('driver helpers — backend failures', () => {
         configureRateLimit({
             default: 'redis',
             redis: {
-                multi: () => ({
-                    incr: function () {
-                        return this;
-                    },
-                    expire: function () {
-                        return this;
-                    },
-                    exec: async () => [[null, 1]],
-                }),
-                decr: async () => {
-                    if (failRelease) throw new Error('decr exploded');
-                    return 0;
+                ...stubConcurrentRedis(),
+                zrem: async () => {
+                    if (failRelease) throw new Error('zrem exploded');
+                    return 1;
                 },
-                set: async () => 'OK',
             },
         });
         const handle = await acquireDriverConcurrent(req, 'iface', 'm', {
@@ -1261,19 +1359,10 @@ describe('driver helpers — backend failures', () => {
         configureRateLimit({
             default: 'redis',
             redis: {
-                multi: () => ({
-                    incr: function () {
-                        return this;
-                    },
-                    expire: function () {
-                        return this;
-                    },
-                    exec: async () => [[null, 1]],
-                }),
-                decr: async () => {
-                    throw new Error('decr exploded');
+                ...stubConcurrentRedis(),
+                zrem: async () => {
+                    throw new Error('zrem exploded');
                 },
-                set: async () => 'OK',
             },
         });
         const res = new EventEmitter();
@@ -1295,25 +1384,26 @@ describe('driver helpers — backend failures', () => {
         spy.mockRestore();
     });
 
-    it('clamps a redis concurrent counter that went negative after a TTL race', async () => {
+    it('absorbs a release whose slot was already swept away', async () => {
         const redis = new RedisMock();
         await redis.flushall();
         configureRateLimit({ default: 'redis', redis });
 
-        const handle = await acquireDriverConcurrent(req, 'iface', 'clamp', {
-            limit: 2,
+        const handle = await acquireDriverConcurrent(req, 'iface', 'sweep', {
+            limit: 1,
         });
         expect(handle.ok).toBe(true);
 
-        // Simulate the orphan TTL firing between acquire and release.
-        const keys = await redis.keys('concurrent:*');
-        for (const k of keys) await redis.del(k);
+        // The orphan sweep collected the whole bucket before release ran.
+        for (const k of await redis.keys('concurrent:*')) await redis.del(k);
+        await expect(handle.release()).resolves.toBeUndefined();
 
-        await handle.release();
-        const remaining = await redis.keys('concurrent:*');
-        for (const k of remaining) {
-            expect(Number(await redis.get(k))).toBe(0);
-        }
+        // Releasing a slot that is already gone must not leave the bucket
+        // owing anything — the next caller gets a clean one.
+        const next = await acquireDriverConcurrent(req, 'iface', 'sweep', {
+            limit: 1,
+        });
+        expect(next.ok).toBe(true);
         await redis.quit?.();
     });
 });
@@ -1340,5 +1430,114 @@ describe('memory backend key cap', () => {
 
         // Evicted: the victim starts from a clean bucket.
         expect(await checkRateLimit(victim, 1, 60_000, 'memory')).toBe(true);
+    });
+});
+
+describe('memory backend sweep retention', () => {
+    beforeAll(() => configureRateLimit());
+    afterAll(() => {
+        vi.useRealTimers();
+        configureRateLimit();
+    });
+
+    // The sweep's retention floor is an hour. A window longer than that has
+    // to survive it, or the limit is silently shortened to the floor — a
+    // day-scale "few per day" grant would reset hourly.
+    it('keeps a bucket whose window outlives the retention floor', async () => {
+        vi.useFakeTimers();
+        const day = 24 * 60 * 60_000;
+        const key = `long-window-${Math.random()}`;
+
+        vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+        expect(await checkRateLimit(key, 1, day, 'memory')).toBe(true);
+        expect(await checkRateLimit(key, 1, day, 'memory')).toBe(false);
+
+        // Two hours on: past the retention floor, far short of the window.
+        vi.setSystemTime(new Date('2026-01-01T02:00:00Z'));
+        sweepMemoryWindows();
+        expect(await checkRateLimit(key, 1, day, 'memory')).toBe(false);
+
+        // Past the window itself, the bucket is collectable again.
+        vi.setSystemTime(new Date('2026-01-02T01:00:00Z'));
+        sweepMemoryWindows();
+        expect(await checkRateLimit(key, 1, day, 'memory')).toBe(true);
+    });
+
+    it('still collects a short-window bucket at the retention floor', async () => {
+        vi.useFakeTimers();
+        const key = `short-window-${Math.random()}`;
+
+        vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+        expect(await checkRateLimit(key, 1, 60_000, 'memory')).toBe(true);
+
+        vi.setSystemTime(new Date('2026-01-01T02:00:00Z'));
+        sweepMemoryWindows();
+        // Nothing asserts the delete directly; a fresh bucket is the
+        // observable consequence of having been collected.
+        expect(await checkRateLimit(key, 1, 60_000, 'memory')).toBe(true);
+    });
+});
+
+describe('acquireConcurrent (imperative)', () => {
+    beforeAll(() => configureRateLimit());
+    afterAll(() => configureRateLimit());
+
+    // The websocket handshake is the motivating case: the slot is held for
+    // the life of the connection, not the life of a response, so it cannot
+    // go through `concurrencyGate`.
+    it('admits up to the limit and rejects past it', async () => {
+        const key = `imperative-${Math.random()}`;
+        const a = await acquireConcurrent(key, 2, 'memory');
+        const b = await acquireConcurrent(key, 2, 'memory');
+        const c = await acquireConcurrent(key, 2, 'memory');
+
+        expect(a.ok).toBe(true);
+        expect(b.ok).toBe(true);
+        expect(c.ok).toBe(false);
+
+        await a.release();
+        expect((await acquireConcurrent(key, 2, 'memory')).ok).toBe(true);
+    });
+
+    it('returns a no-op release on rejection so callers can release blindly', async () => {
+        const key = `imperative-noop-${Math.random()}`;
+        const held = await acquireConcurrent(key, 1, 'memory');
+        const denied = await acquireConcurrent(key, 1, 'memory');
+
+        expect(denied.ok).toBe(false);
+        // Releasing a slot we never got must not free the one we did.
+        await denied.release();
+        expect((await acquireConcurrent(key, 1, 'memory')).ok).toBe(false);
+
+        await held.release();
+        expect((await acquireConcurrent(key, 1, 'memory')).ok).toBe(true);
+    });
+
+    it('releases at most once even if called repeatedly', async () => {
+        const key = `imperative-once-${Math.random()}`;
+        const a = await acquireConcurrent(key, 1, 'memory');
+        await a.release();
+        await a.release();
+        await a.release();
+
+        // A double release would have driven the counter negative and
+        // handed out more slots than the limit allows.
+        expect((await acquireConcurrent(key, 1, 'memory')).ok).toBe(true);
+        expect((await acquireConcurrent(key, 1, 'memory')).ok).toBe(false);
+    });
+
+    it('fails open when the backend throws', async () => {
+        const err = new Error('backend down');
+        const redis = {
+            multi: () => ({
+                incr: () => {
+                    throw err;
+                },
+            }),
+        };
+        configureRateLimit({ redis });
+        const result = await acquireConcurrent('any', 1, 'redis');
+        expect(result.ok).toBe(true);
+        configureRateLimit();
     });
 });

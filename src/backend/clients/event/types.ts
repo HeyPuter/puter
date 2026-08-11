@@ -435,6 +435,14 @@ export type EventMap = {
     [K in `route.${string}`]: RouteLifecycleEvent;
 } & {
     [K in `pubsub.login.${string}`]: { authtoken: string };
+} & {
+    /**
+     * A user's subscription now resolves to a different policy. Carried on the
+     * `outer.pubsub.*` channel so it reaches sibling nodes and peer clusters,
+     * not just the one that handled the change — every node caches the resolved
+     * policy, so a purchase is only live once they have all dropped theirs.
+     */
+    'outer.pubsub.metering.subscription-changed': { userUuid: string };
 };
 
 /**
@@ -515,11 +523,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;

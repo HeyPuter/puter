@@ -14,6 +14,15 @@ const timeago = (() => {
     return new TimeAgo('en-US');
 })();
 
+// User timestamps come off the DB as SQL datetime strings; the wire format
+// for all of them is unix seconds. Unparseable values are dropped rather
+// than sent as NaN.
+const toUnixSeconds = (value: unknown): number | undefined => {
+    if (!value) return undefined;
+    const ms = new Date(value as string | number | Date).getTime();
+    return Number.isNaN(ms) ? undefined : Math.round(ms / 1000);
+};
+
 // Allowlist of `config.feature_flags` keys safe to surface via /whoami.
 // Anything not listed here stays server-side, so internal flags
 // (payment_bypass, staff_only_*, etc.) cannot leak by accident. Add a
@@ -98,6 +107,7 @@ export const handleWhoami = async (
             : undefined,
         otp: !!user.otp_enabled,
         feature_flags,
+        created_ts: toUnixSeconds(user.timestamp),
         human_readable_age: user.timestamp
             ? timeago.format(new Date(user.timestamp as string))
             : null,
@@ -141,14 +151,9 @@ export const handleWhoami = async (
     }
 
     // Last activity
-    if (user.last_activity_ts) {
-        try {
-            details.last_activity_ts = Math.round(
-                new Date(user.last_activity_ts as string).getTime() / 1000,
-            );
-        } catch {
-            /* ignore parse error */
-        }
+    const lastActivityTs = toUnixSeconds(user.last_activity_ts);
+    if (lastActivityTs !== undefined) {
+        details.last_activity_ts = lastActivityTs;
     }
 
     // Strip sensitive fields for app actors
@@ -164,6 +169,7 @@ export const handleWhoami = async (
         delete details.desktop_bg_color;
         delete details.desktop_bg_fit;
         delete details.human_readable_age;
+        delete details.created_ts;
         delete details.is_user_token;
         delete details.metadata;
     }
@@ -183,8 +189,7 @@ export const handleWhoami = async (
     }
 
     const subscription = details.subscription as
-        | { offering?: Record<string, unknown> }
-        | undefined;
+        { offering?: Record<string, unknown> } | undefined;
     if (subscription?.offering) {
         delete subscription.offering.group;
         delete subscription.offering.benefits;
@@ -196,6 +201,23 @@ export const handleWhoami = async (
 
 extension.get(
     '/whoami',
-    { subdomain: 'api', requireAuth: true, allowUnconfirmed: true },
+    {
+        subdomain: 'api',
+        requireAuth: true,
+        allowUnconfirmed: true,
+        // The GUI polls this, and each call fans out to every `whoami`
+        // event listener — so it costs more than the response suggests.
+        //
+        // It is also the call everything else leans on to find out who it is
+        // talking to, so it rides along with unrelated work rather than
+        // arriving at its own pace: the ceiling has to clear whatever the
+        // busiest session is doing, not what a person clicks.
+        rateLimit: {
+            scope: 'whoami',
+            limit: 1_800,
+            window: 60_000,
+            key: 'user',
+        },
+    },
     handleWhoami,
 );

@@ -208,6 +208,36 @@ describe('SQLBatcher', () => {
         expect(fallbackAttempts).toBe(2);
     });
 
+    it('retries a deadlocked write instead of surfacing it', async () => {
+        let fallbackAttempts = 0;
+        const conn = makeConnection((sql) => {
+            if (isBatchQuery(sql)) throw makeError('ER_LOCK_DEADLOCK');
+            fallbackAttempts++;
+            if (fallbackAttempts === 1) throw makeError('ER_LOCK_DEADLOCK');
+            return [[{ ok: 1 }], undefined];
+        });
+        const { pool } = makePool(conn);
+        const batcher = new SQLBatcher(pool, { maxTimeInQueue: 5 });
+
+        // The victim statement was rolled back by the server, so re-running it
+        // can't double-apply — the caller should never see the deadlock.
+        const result = await batcher.query('UPDATE notification SET x', []);
+        expect(result[0]).toEqual([{ ok: 1 }]);
+        expect(fallbackAttempts).toBe(2);
+    });
+
+    it('gives up on a write that deadlocks past the retry budget', async () => {
+        const conn = makeConnection(() => {
+            throw makeError('ER_LOCK_DEADLOCK');
+        });
+        const { pool } = makePool(conn);
+        const batcher = new SQLBatcher(pool, { maxTimeInQueue: 5 });
+
+        await expect(batcher.query('UPDATE hot SET x', [])).rejects.toMatchObject(
+            { code: 'ER_LOCK_DEADLOCK' },
+        );
+    });
+
     it('never retries deterministic row-level errors and does not escalate the breaker', async () => {
         let fallbackAttempts = 0;
         const conn = makeConnection((sql) => {

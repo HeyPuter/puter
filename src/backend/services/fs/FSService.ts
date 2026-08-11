@@ -77,6 +77,17 @@ import type {
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 const DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS = 60 * 15;
 
+/**
+ * Storage-allowance sentinel meaning "don't enforce a quota on this write".
+ *
+ * Also what an unmetered installation reports as its allowance max. Pass it as
+ * the `storageAllowanceMax` argument for writes the system performs on a user's
+ * behalf — small, bounded artifacts a full account must not be able to block.
+ * It is a server-side argument only: never derive it from request input, or a
+ * caller could opt itself out of its own quota.
+ */
+export const UNLIMITED_STORAGE_ALLOWANCE = Number.MAX_SAFE_INTEGER;
+
 const RESERVED_METADATA_KEYS: readonly string[] = ['objectKey'];
 
 /**
@@ -672,7 +683,7 @@ export class FSService extends PuterService {
         allowanceMax: number,
         storageAllowanceMaxOverride?: number,
     ): number {
-        if (allowanceMax === Number.MAX_SAFE_INTEGER) {
+        if (allowanceMax === UNLIMITED_STORAGE_ALLOWANCE) {
             return allowanceMax;
         }
         if (storageAllowanceMaxOverride === undefined) {
@@ -693,13 +704,18 @@ export class FSService extends PuterService {
         existingSize = 0,
         storageAllowanceMaxOverride?: number,
     ): Promise<void> {
+        // Skip the allowance lookup entirely for unmetered writes — it costs
+        // a query plus a quota-bonus round trip whose answer can't matter.
+        if (storageAllowanceMaxOverride === UNLIMITED_STORAGE_ALLOWANCE) {
+            return;
+        }
         const allowance =
             await this.stores.fsEntry.getUserStorageAllowance(userId);
         const maxStorage = this.#resolveStorageMax(
             allowance.max,
             storageAllowanceMaxOverride,
         );
-        if (maxStorage === Number.MAX_SAFE_INTEGER) {
+        if (maxStorage === UNLIMITED_STORAGE_ALLOWANCE) {
             return;
         }
 
@@ -719,6 +735,9 @@ export class FSService extends PuterService {
         if (sizeChanges.length === 0) {
             return;
         }
+        if (storageAllowanceMaxOverride === UNLIMITED_STORAGE_ALLOWANCE) {
+            return;
+        }
 
         const allowance =
             await this.stores.fsEntry.getUserStorageAllowance(userId);
@@ -726,7 +745,7 @@ export class FSService extends PuterService {
             allowance.max,
             storageAllowanceMaxOverride,
         );
-        if (maxStorage === Number.MAX_SAFE_INTEGER) {
+        if (maxStorage === UNLIMITED_STORAGE_ALLOWANCE) {
             return;
         }
 
@@ -743,6 +762,15 @@ export class FSService extends PuterService {
                 legacyCode: 'storage_limit_reached',
             });
         }
+    }
+
+    // Bytes an entry accounts for in the owner's usage: a directory's own row
+    // has a null size, so its cost is the sum over its subtree.
+    async #entryStorageSize(entry: FSEntry): Promise<number> {
+        if (entry.isDir) {
+            return this.stores.fsEntry.getSubtreeSize(entry.userId, entry.path);
+        }
+        return entry.size ?? 0;
     }
 
     #toErrorMessage(error: unknown): string {
@@ -3658,6 +3686,7 @@ export class FSService extends PuterService {
             newName?: string;
             overwrite?: boolean;
             dedupeName?: boolean;
+            storageAllowanceMax?: number;
         },
     ): Promise<FSEntry> {
         const { source, destinationParent } = input;
@@ -3685,6 +3714,19 @@ export class FSService extends PuterService {
                 : `${destinationParent.path}/${name}`;
 
         const collision = await this.stores.fsEntry.getEntryByPath(targetPath);
+
+        // A copy duplicates the bytes for real, so it costs the same against
+        // the allowance as writing them. Check before the overwrite below
+        // removes anything, and credit what that removal frees.
+        await this.#assertStorageAllowance(
+            userId,
+            await this.#entryStorageSize(source),
+            collision && input.overwrite
+                ? await this.#entryStorageSize(collision)
+                : 0,
+            input.storageAllowanceMax,
+        );
+
         if (collision) {
             if (input.overwrite) {
                 await this.remove(userId, {

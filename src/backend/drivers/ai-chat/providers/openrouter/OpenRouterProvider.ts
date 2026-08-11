@@ -278,10 +278,11 @@ export class OpenRouterProvider implements IChatProvider {
                     model.id.split('/').slice(1).join('/'),
                 ],
                 context: model.context_length,
+                // OpenRouter leaves max_completion_tokens null when a model
+                // declares no output cap separate from its context window.
                 max_tokens:
                     model.top_provider?.max_completion_tokens ??
-                    model.context_length ??
-                    4096,
+                    model.context_length,
                 costs_currency: 'usd-cents',
                 input_cost_key: 'prompt',
                 output_cost_key: 'completion',

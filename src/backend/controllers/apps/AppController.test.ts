@@ -1018,3 +1018,25 @@ describe('AppController GET /app-icon remote icons', () => {
         expect(captured.headers['content-type']).toContain('image/svg+xml');
     });
 });
+
+// ── app-icon rate limit ─────────────────────────────────────────────
+
+describe('AppController app-icon rate limit', () => {
+    it('sizes the icon bucket for a whole network rather than one desktop', () => {
+        // Icons are unauthenticated `<img src>` targets, so the only key is
+        // the address — which one NAT shares across every desktop behind it,
+        // and each boot pulls the taskbar's icons in a burst.
+        for (const path of ['/app-icon/:app_uid', '/app-icon/:app_uid/:size']) {
+            const route = router.routes.find(
+                (r) => r.method === 'get' && r.path === path,
+            );
+            if (!route) throw new Error(`No GET ${path} route`);
+            expect(route.options.rateLimit).toEqual({
+                scope: 'app-icon',
+                limit: 12_000,
+                window: 60_000,
+                key: 'ip',
+            });
+        }
+    });
+});

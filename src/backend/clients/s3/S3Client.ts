@@ -21,6 +21,7 @@ import {
     AbortMultipartUploadCommand,
     CompleteMultipartUploadCommand,
     CreateMultipartUploadCommand,
+    HeadBucketCommand,
     PutObjectCommand,
     S3Client as AwsS3Client,
     type S3ClientConfig,
@@ -242,6 +243,19 @@ export class S3Client extends PuterClient {
 
         this.presignClientMap.set(region, client);
         return client;
+    }
+
+    /**
+     * Cheapest round-trip that proves the object store answers for a bucket: no
+     * object data, no listing, just a HEAD. Throws on any failure (missing
+     * bucket, bad credentials, unreachable endpoint) so callers can treat it as
+     * a liveness probe. Reuses the pooled per-region client.
+     */
+    async headBucket(
+        bucket = this.config.s3_bucket || LEGACY_STORAGE_BUCKET,
+        region?: string,
+    ): Promise<void> {
+        await this.get(region).send(new HeadBucketCommand({ Bucket: bucket }));
     }
 
     // ------------------------------------------------------------------

@@ -335,7 +335,7 @@ window.validate_fsentry_name = function (name) {
 };
 
 /**
- * A function that generates a unique identifier by combining a random adjective, a random noun, and a random number (between 0 and 9999).
+ * A function that generates a unique identifier by combining a random adjective, a random noun, and a random number.
  * The result is returned as a string with components separated by hyphens.
  * It is useful when you need to create unique identifiers that are also human-friendly.
  *
@@ -344,7 +344,7 @@ window.validate_fsentry_name = function (name) {
  * @example
  *
  * let identifier = window.generate_identifier();
- * // identifier would be something like 'clever-idea-123'
+ * // identifier would be something like 'clever-idea-483920'
  *
  */
 window.generate_identifier = function () {
@@ -361,9 +361,12 @@ window.generate_identifier = function () {
         'ladybug', 'snail', 'camel', 'kangaroo', 'koala', 'panda', 'piglet', 'sheep', 'wolf', 'fox', 'deer', 'mouse', 'seal',
         'chicken', 'cow', 'dinosaur', 'puppy', 'kitten', 'circle', 'square', 'garden', 'otter', 'bunny', 'meerkat', 'harp'];
 
-    // return a random combination of first_adj + noun + number (between 0 and 9999)
-    // e.g. clever-idea-123
-    return `${first_adj[Math.floor(Math.random() * first_adj.length)] }-${ nouns[Math.floor(Math.random() * nouns.length)] }-${ Math.floor(Math.random() * 10000)}`;
+    // return a random combination of first_adj + noun + number
+    // e.g. clever-idea-483920. The word lists only reach ~3.6k pairs, so the
+    // number carries the entropy: this name is offered as a subdomain, and
+    // subdomains are globally unique, so a narrow suffix makes the taken-name
+    // error a routine part of publishing rather than a rarity.
+    return `${first_adj[Math.floor(Math.random() * first_adj.length)] }-${ nouns[Math.floor(Math.random() * nouns.length)] }-${ Math.floor(Math.random() * 1000000)}`;
 };
 
 /**

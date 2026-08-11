@@ -106,9 +106,10 @@ const SAMPLE_API_MODELS = [
         top_provider: { max_completion_tokens: 8192 },
     },
     {
+        // OpenRouter reports no separate output cap for some models.
         id: 'meta/muse-spark-1.2',
-        name: 'Meta: Muse Spark 1.2',
-        created: 1785959287,
+        name: 'Muse Spark 1.2',
+        created: 1786032000,
         context_length: 1048576,
         pricing: { prompt: 0.00000125, completion: 0.00000425 },
         top_provider: { max_completion_tokens: null },
@@ -236,12 +237,23 @@ describe('OpenRouterProvider model catalog', () => {
         expect(axiosRequestMock).toHaveBeenCalledTimes(1);
     });
 
-    it('falls back max_tokens to context_length when top_provider max_completion_tokens is null', async () => {
+    it('falls back to the context window when no output cap is reported', async () => {
         const { provider } = makeProvider();
         const models = await provider.models();
-        const muse = models.find((m) => m.id === 'openrouter:meta/muse-spark-1.2');
-        expect(muse).toBeDefined();
-        expect(muse?.max_tokens).toBe(1048576);
+
+        // A null max_completion_tokens previously landed on the model as-is,
+        // which made the driver's cap arithmetic go negative and reject the
+        // request as insufficient funds.
+        const noCap = models.find(
+            (m) => m.id === 'openrouter:meta/muse-spark-1.2',
+        )!;
+        expect(noCap.max_tokens).toBe(1048576);
+
+        // A model that reports its own cap keeps it.
+        const capped = models.find(
+            (m) => m.id === 'openrouter:openai/gpt-5-nano',
+        )!;
+        expect(capped.max_tokens).toBe(16000);
     });
 
     it('maps OpenRouter created timestamps to release_date metadata', async () => {

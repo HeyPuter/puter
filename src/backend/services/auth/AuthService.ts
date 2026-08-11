@@ -410,8 +410,18 @@ export class AuthService extends PuterService {
      * is what stamps `app_owner`, and an app that owns another app already has
      * full write access to it (`AppDriver.#checkWriteAccess`) including its
      * `index_url`. Everything else stays as strict as interactive delegation —
-     * access-token actors still can't delegate at all, and an app can never
+     * a scoped access token still can't delegate at all, and an app can never
      * name an app it didn't create.
+     *
+     * A full-access ("personal access token") actor is the third shape: it
+     * carries the issuing user's own API reach, which is exactly what
+     * `puter.workers.create` needs — its default sandbox binds the worker to a
+     * `sandbox-<name>` app the same call just created under that user. Blanket-
+     * refusing it broke every worker deploy from a credential minted through
+     * AuthMe (the MCP connector, the CLI). It stays narrower than a root
+     * session: the app must exist and be owned by the same user, and the
+     * resulting token carries an `app`, so account-management gates
+     * (`requireUserActor`) still reject it.
      */
     async #assertWorkerAppDelegationAllowed(
         actor: Actor,
@@ -426,8 +436,16 @@ export class AuthService extends PuterService {
 
         // Root user session: unchanged: may bind a worker to any app.
         if (!actor.app && !actor.accessToken) return;
-        // Access tokens are bound to their issuing identity; no delegation.
-        if (!actor.app) throw forbidden();
+        if (!actor.app) {
+            // Scoped access tokens are bound to their issuing identity and
+            // never delegate; full-access ones may name an app of their user's.
+            if (!actor.accessToken?.fullAccess) throw forbidden();
+            const ownApp = await this.stores.app.getByUid(appUid);
+            if (!ownApp) throw forbidden();
+            if (Number(ownApp.owner_user_id) !== Number(actor.user.id))
+                throw forbidden();
+            return;
+        }
 
         const app = await this.stores.app.getByUid(appUid);
         if (!app) throw forbidden();
@@ -594,8 +612,9 @@ export class AuthService extends PuterService {
     async revokeSession(uuid: string): Promise<void> {
         // Read first — after the cascade these rows carry `revoked_at` and
         // no longer count as active.
-        const tokenUids =
-            await this.stores.session.accessTokenUidsForCascade(uuid);
+        const tokenUids = (await this.stores.session.accessTokenUidsForCascade(
+            uuid,
+        )) as string[];
         await this.stores.session.revokeCascade(uuid);
         for (const tokenUid of tokenUids) {
             await this.#dropAccessTokenGrants(tokenUid);

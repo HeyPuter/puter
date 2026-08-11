@@ -54,6 +54,26 @@ const NEVER_SENT_ERROR_CODES = new Set([
     POOL_ACQUIRE_TIMEOUT,
 ]);
 
+/**
+ * Failures the server itself rolled back before returning. The statement did
+ * reach the database, so this is not `NEVER_SENT`, but InnoDB guarantees it
+ * left no effect — which makes a retry just as safe for writes.
+ *
+ * Only true for a _single_ statement: under autocommit each statement is its
+ * own transaction, so "the transaction was rolled back" means "this statement
+ * was rolled back". Retrying a multi-statement string on one of these would
+ * re-run the statements that already committed ahead of the failure.
+ */
+const ROLLED_BACK_ERROR_CODES = new Set([
+    // Deadlock — InnoDB picked this transaction as the victim and undid it.
+    // MySQL's own message for it is "try restarting transaction".
+    'ER_LOCK_DEADLOCK',
+    // Lock wait timeout. Rolls back the statement rather than the transaction
+    // unless innodb_rollback_on_timeout is set — the same thing when the
+    // transaction is one statement.
+    'ER_LOCK_WAIT_TIMEOUT',
+]);
+
 const errorCode = (error: unknown): string | undefined =>
     (error as { code?: string } | null)?.code;
 
@@ -73,4 +93,14 @@ export const isRetriableError = (error: unknown): boolean => {
 export const isNeverSentError = (error: unknown): boolean => {
     const code = errorCode(error);
     return Boolean(code && NEVER_SENT_ERROR_CODES.has(code));
+};
+
+/**
+ * Lock-contention failures the server rolled back on its own. Safe to retry a
+ * single statement on, writes included — see `ROLLED_BACK_ERROR_CODES` for the
+ * one-statement precondition.
+ */
+export const isRolledBackError = (error: unknown): boolean => {
+    const code = errorCode(error);
+    return Boolean(code && ROLLED_BACK_ERROR_CODES.has(code));
 };

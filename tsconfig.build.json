@@ -2,6 +2,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "strict": false,
+    // Emit-only: this build transpiles, it does not type check. Run the
+    // checker with `tsc -p tsconfig.build.json --noCheck false --noEmit`.
     "noCheck": true,
     "noImplicitAny": true
   }

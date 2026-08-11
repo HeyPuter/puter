@@ -621,6 +621,64 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         expect(completeSpy).not.toHaveBeenCalled();
     });
 
+    // A provider that can't report a model's output ceiling used to make the
+    // cap arithmetic go negative — `null - approxTokens` is negative, not NaN
+    // — so a funded account was told it had insufficient funds.
+    for (const [label, ceiling] of [
+        ['null', null],
+        ['zero', 0],
+        ['undefined', undefined],
+    ] as const) {
+        it(`serves models whose output ceiling is ${label}`, async () => {
+            vi.spyOn(
+                FakeChatProvider.prototype,
+                'models',
+            ).mockResolvedValueOnce([
+                {
+                    id: 'nocap',
+                    aliases: [],
+                    costs_currency: 'usd-cents',
+                    costs: { input_tokens: 1000, output_tokens: 2000 },
+                    max_tokens: ceiling,
+                },
+            ] as never);
+            const d = await makeDriver();
+
+            vi.spyOn(
+                server.services.metering,
+                'hasEnoughCredits',
+            ).mockResolvedValue(true);
+            vi.spyOn(
+                server.services.metering,
+                'getRemainingUsage',
+            ).mockResolvedValue(100_000);
+
+            const completeSpy = vi
+                .spyOn(FakeChatProvider.prototype, 'complete')
+                .mockResolvedValueOnce({
+                    message: {
+                        role: 'assistant',
+                        content: [{ type: 'text', text: 'ok' }],
+                    },
+                    usage: { input_tokens: 1, output_tokens: 1 },
+                    finish_reason: 'stop',
+                } as never);
+
+            await withTestActor(() =>
+                d.complete({
+                    model: 'nocap',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+
+            // Credits still bound the request; only the unknown model
+            // ceiling is ignored.
+            const passed = completeSpy.mock.calls[0]![0] as ICompleteArguments;
+            expect(passed.max_tokens!).toBeGreaterThan(0);
+            expect(passed.max_tokens!).toBeLessThanOrEqual(50);
+        });
+    }
+
     it('rejects subscriber-only models for the default free subscription', async () => {
         vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
             {

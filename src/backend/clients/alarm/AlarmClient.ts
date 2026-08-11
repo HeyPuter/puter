@@ -60,6 +60,15 @@ interface RegisteredHandler {
 
 /** Severity used when neither the call site nor config picks one. */
 const FALLBACK_SEVERITY: PagerSeverity = 'critical';
+/**
+ * How many recent occurrences an alarm keeps. An alarm is never cleared unless
+ * something calls `clear`, and a hot one repeats for as long as the fault lasts
+ * — so retaining every occurrence means retaining every message and field set
+ * it was ever raised with, request bodies and actors included, for the life of
+ * the process. The last few are what a human reads; the rest is only a count,
+ * and `count` keeps that.
+ */
+const OCCURRENCE_HISTORY_LIMIT = 20;
 /** Keeps `info` alarms out of the paging system unless config says otherwise. */
 const DEFAULT_PAGERDUTY_MIN_SEVERITY: PagerSeverity = 'warning';
 /** Slack's ceiling once a pager exists: chat gets what doesn't page. */
@@ -321,6 +330,7 @@ export class AlarmClient extends PuterClient {
             started: Date.now(),
             // `recordOccurrence` below stamps the first occurrence; seeding one
             // here too would report every alarm as one occurrence ahead.
+            count: 0,
             timestamps: [],
             occurrences: [],
         };
@@ -381,16 +391,25 @@ export class AlarmClient extends PuterClient {
         message: string,
         fields: AlarmFields,
     ): void {
+        const now = Date.now();
         alarm.message = message;
         alarm.fields = { ...alarm.fields, ...fields };
-        alarm.timestamps.push(Date.now());
+        alarm.count++;
         if (fields.error) alarm.error = fields.error;
 
-        alarm.occurrences.push({
-            message,
-            fields,
-            timestamp: Date.now(),
-        });
+        alarm.timestamps.push(now);
+        alarm.occurrences.push({ message, fields, timestamp: now });
+
+        if (alarm.timestamps.length > OCCURRENCE_HISTORY_LIMIT) {
+            alarm.timestamps.splice(
+                0,
+                alarm.timestamps.length - OCCURRENCE_HISTORY_LIMIT,
+            );
+            alarm.occurrences.splice(
+                0,
+                alarm.occurrences.length - OCCURRENCE_HISTORY_LIMIT,
+            );
+        }
     }
 
     private applyKnownErrors(alarm: Alarm): void {
@@ -438,7 +457,7 @@ export class AlarmClient extends PuterClient {
         this.applyKnownErrors(alarm);
 
         console.warn(
-            `[alarm] REPEAT ${displayId(alarm)} :: ${alarm.message} (${alarm.timestamps.length})`,
+            `[alarm] REPEAT ${displayId(alarm)} :: ${alarm.message} (${alarm.count})`,
         );
 
         if (alarm.noAlert) return;
@@ -476,7 +495,7 @@ export class AlarmClient extends PuterClient {
         alarm.severity = resolved;
 
         const fieldsClean = cleanFields(alarm.fields);
-        const repeatCount = alarm.timestamps.length;
+        const repeatCount = alarm.count;
 
         const id = alarm.id || 'something-bad';
 
