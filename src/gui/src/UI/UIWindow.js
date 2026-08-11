@@ -27,6 +27,7 @@ import UIWindowItemProperties from './UIWindowItemProperties.js';
 import new_context_menu_item from '../helpers/new_context_menu_item.js';
 import refresh_item_container from '../helpers/refresh_item_container.js';
 import UIWindowSaveAccount from './UIWindowSaveAccount.js';
+import UIWindowAppFeedback from './UIWindowAppFeedback.js';
 import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js';
 import launch_app from '../helpers/launch_app.js';
 
@@ -4604,6 +4605,17 @@ function attach_dashboard_app_drawer (el_window, options) {
         : launch_icon;
     const title = options.title || app_name;
 
+    // A "Send Feedback" control, shown only when the developer opted the app
+    // in (apps.feedbackEnabled → options.feedback_enabled). The dialog also
+    // re-checks opt-in server-side, so a stale flag can't send anywhere.
+    const feedback_enabled = options.feedback_enabled === true
+        || options.feedback_enabled === 1;
+    const feedback_label = i18n('app_feedback_title');
+    const feedback_btn = feedback_enabled ? `
+                    <button type="button" class="dashboard-app-drawer-btn dashboard-app-drawer-feedback" title="${feedback_label}" aria-label="${feedback_label}">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-10.9 6.7L4 19.5l1.3-4.1A7.5 7.5 0 1 1 20 11.5Z"/></svg>
+                    </button>` : '';
+
     // The toggle comes FIRST in the DOM so Tab reaches it before the
     // controls' buttons; both layers are absolutely positioned (see
     // dashboard.css), so DOM order doesn't affect the visuals.
@@ -4615,7 +4627,7 @@ function attach_dashboard_app_drawer (el_window, options) {
             <div class="dashboard-app-drawer-clip">
                 <div class="dashboard-app-drawer-controls">
                     <img class="dashboard-app-drawer-icon" src="${html_encode(icon)}" alt="" draggable="false">
-                    <span class="dashboard-app-drawer-title">${html_encode(title)}</span>
+                    <span class="dashboard-app-drawer-title">${html_encode(title)}</span>${feedback_btn}
                     <button type="button" class="dashboard-app-drawer-btn dashboard-app-drawer-minimize" title="Minimize to Dashboard" aria-label="Minimize to Dashboard">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     </button>
@@ -4741,6 +4753,21 @@ function attach_dashboard_app_drawer (el_window, options) {
     $drawer.find('.dashboard-app-drawer-close').on('click', function (e) {
         e.stopPropagation();
         $(el_window).close();
+    });
+    // Opens the feedback dialog for THIS app. Identify it by uid when we
+    // have one (unique, unspoofable) and fall back to the name; the dialog
+    // is modal over the app window it belongs to.
+    $drawer.find('.dashboard-app-drawer-feedback').on('click', function (e) {
+        e.stopPropagation();
+        collapse();
+        UIWindowAppFeedback({
+            app: options.app_uuid || app_name,
+            source: 'app',
+            window_options: {
+                parent_uuid: options.element_uuid,
+                disable_parent_window: true,
+            },
+        });
     });
 
     // showWindow forces the drawer shut when the window is restored — the

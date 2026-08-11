@@ -112,6 +112,48 @@ test.describe('puter.ui.showFeedbackDialog (env=gui)', () => {
     });
 });
 
+test.describe('dashboard app-drawer feedback control', () => {
+    test('opted-in app shows a feedback control in the drawer that opens the dialog', async ({ page }) => {
+        const appName = await registerTestApp(page, { fixtureURL: FEEDBACK_FIXTURE_URL });
+        try {
+            await setFeedbackEnabled(page, appName, true);
+
+            // Open the app on the /app/<name> route — dashboard mode, where
+            // the app window wears the top-edge drawer instead of a titlebar.
+            await page.goto(`/app/${appName}`);
+            const drawer = page.locator('.window-app .dashboard-app-drawer');
+            await expect(drawer).toBeAttached({ timeout: 60_000 });
+
+            // The drawer opens on hover; the control lives inside it.
+            await drawer.hover();
+            const feedbackBtn = drawer.locator('.dashboard-app-drawer-feedback');
+            await expect(feedbackBtn).toBeVisible();
+            await feedbackBtn.click();
+
+            // It opens the same dialog, targeting this app.
+            const dialog = page.locator('.window.window-app-feedback');
+            await expect(dialog.locator('.app-feedback-form')).toBeVisible({ timeout: 15_000 });
+            await expect(dialog.locator('.app-feedback-target-name')).toHaveText(appName);
+        } finally {
+            await deleteTestApp(page, appName);
+        }
+    });
+
+    test('an app that has not opted in shows no feedback control', async ({ page }) => {
+        const appName = await registerTestApp(page, { fixtureURL: FEEDBACK_FIXTURE_URL });
+        try {
+            await page.goto(`/app/${appName}`);
+            const drawer = page.locator('.window-app .dashboard-app-drawer');
+            await expect(drawer).toBeAttached({ timeout: 60_000 });
+            await drawer.hover();
+            // The control is only rendered for opted-in apps.
+            await expect(drawer.locator('.dashboard-app-drawer-feedback')).toHaveCount(0);
+        } finally {
+            await deleteTestApp(page, appName);
+        }
+    });
+});
+
 test.describe('puter.ui.showFeedbackDialog (env=web popup)', () => {
     test('popup hosts the dialog, reports false on close, and never hands the opener a token', async ({ page }) => {
         // Prime the GUI session (storageState sign-in) so the popup is authed.

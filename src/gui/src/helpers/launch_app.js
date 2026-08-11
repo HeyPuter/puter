@@ -678,6 +678,9 @@ const launch_app = async (options) => {
             window_class: 'window-app',
             update_window_url: true,
             app_uuid: app_info.uuid ?? app_info.uid,
+            // Surfaced on the dashboard app-drawer as a "Send Feedback"
+            // control when the developer opted in (apps.feedbackEnabled).
+            feedback_enabled: app_info.feedback_enabled,
             top: top,
             left: left,
             height: window_height,
