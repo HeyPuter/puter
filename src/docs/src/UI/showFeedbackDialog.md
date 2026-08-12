@@ -8,7 +8,7 @@ Opens a dialog the user can use to send you — the app's developer — feedback
 
 Inside Puter, the dialog is rendered by the desktop environment. On a website, a puter.com popup hosts the dialog (signing the user in first if needed).
 
-**Feedback is opt-in.** Users can only send feedback if you've enabled it for your app by setting `feedbackEnabled`:
+**Feedback is opt-in.** Users can only send feedback if it's enabled for your app. Apps created in the Dev Center have feedback enabled at creation — you can turn it off with the "User Feedback" toggle in the app's settings. Apps created through `puter.apps.create` default to off; enable it by setting `feedbackEnabled`:
 
 ```js
 await puter.apps.update('my-app', { feedbackEnabled: true });

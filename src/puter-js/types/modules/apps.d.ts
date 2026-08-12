@@ -43,7 +43,8 @@ export interface App {
     background?: boolean;
     /**
      * Whether users can send feedback to the app's developer through
-     * `puter.ui.showFeedbackDialog()`. Default is `false`.
+     * `puter.ui.showFeedbackDialog()`. Defaults to `false` for apps created
+     * through `puter.apps.create`; the Dev Center enables it at creation.
      */
     feedback_enabled?: boolean;
     /**
@@ -171,7 +172,8 @@ export interface UpdateAppAttributes {
     background?: boolean;
     /**
      * Whether users can send feedback to the app's developer through
-     * `puter.ui.showFeedbackDialog()`. Defaults to `false`.
+     * `puter.ui.showFeedbackDialog()`. Omitted leaves the app's current
+     * value unchanged.
      */
     feedbackEnabled?: boolean;
     /**

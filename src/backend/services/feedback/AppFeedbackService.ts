@@ -23,11 +23,12 @@ import { PuterService } from '../types.js';
 /**
  * User-to-developer app feedback ("send feedback to this app's developer").
  *
- * Feedback is strictly opt-in per app via the `apps.feedback_enabled` column,
- * which developers set through the regular `puter.apps.update` path
- * (`feedbackEnabled` in puter.js). Submissions are stored in `app_feedback` and
- * a copy is emailed to the app owner's confirmed email, subject to the caps
- * below.
+ * Feedback is gated per app by the `apps.feedback_enabled` column — off unless
+ * enabled. The Dev Center enables it when it creates an app (its "User
+ * Feedback" settings toggle turns it off); apps created through
+ * `puter.apps.create`/`update` default to off and opt in via `feedbackEnabled`
+ * in puter.js. Submissions are stored in `app_feedback` and a copy is emailed
+ * to the app owner's confirmed email, subject to the caps below.
  *
  * Trust model: the submit endpoint only accepts user actors (never app tokens),
  * so an app cannot submit feedback programmatically — every message passes
