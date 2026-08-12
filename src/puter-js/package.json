@@ -1,6 +1,6 @@
 {
     "name": "@heyputer/puter.js",
-    "version": "2.6.0",
+    "version": "2.6.1",
     "description": "Puter.js gives you auth, cloud storage, database, AI, and more through a single JavaScript library. It is the go-to backend for AI-generated apps.",
     "homepage": "https://docs.puter.com",
     "main": "src/index.js",
