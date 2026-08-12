@@ -73,6 +73,11 @@ const PUBLIC_READ_MODES: ReadonlyArray<AclMode> = Object.freeze([
     'see',
 ]);
 
+/** Lock bounds for `setUserUser`; past the retry budget a 409 beats waiting. */
+const SET_USER_LOCK_TTL_SECONDS = 5;
+const SET_USER_LOCK_RETRY_MS = 40;
+const SET_USER_LOCK_ATTEMPTS = 25;
+
 // -- ACLService -------------------------------------------------------
 
 /**
@@ -345,6 +350,47 @@ export class ACLService extends PuterService {
                 legacyCode: 'bad_request',
             });
 
+        // Resolved up front so the whole read-modify-write runs under one
+        // lock. Descriptors cache the chain, so statUserUser reuses this.
+        const ancestors = await resource.resolveAncestors();
+        const self = ancestors[0];
+        if (!self)
+            throw new HttpError(
+                400,
+                'resource has no ancestor chain (is it root?)',
+                { legacyCode: 'bad_request' },
+            );
+
+        const username = holder.user.username;
+        return this.#withNodeLock(
+            `${issuer.user.id}:${holder.user.id}:${self.uid}`,
+            () =>
+                this.#setUserUserLocked(
+                    issuer,
+                    holder,
+                    resource,
+                    mode,
+                    self.uid,
+                    username,
+                    options,
+                ),
+        );
+    }
+
+    /**
+     * Body of {@link setUserUser}. Read-modify-write, so it only runs under the
+     * lock above: concurrent calls would each act on their own snapshot and
+     * both grants would survive.
+     */
+    async #setUserUserLocked(
+        issuer: Actor,
+        holder: Actor,
+        resource: ResourceDescriptor,
+        mode: AclMode,
+        uid: string,
+        username: string,
+        options: { onlyIfHigher?: boolean } = {},
+    ): Promise<boolean> {
         const stat = await this.statUserUser(issuer, holder, resource);
         const existing = stat[resource.path] ?? [];
 
@@ -369,25 +415,13 @@ export class ACLService extends PuterService {
             }
         }
 
-        // Resolve the resource's own uid — first element of the ancestor
-        // chain is the resource itself (see ResourceDescriptor docstring).
-        const ancestors = await resource.resolveAncestors();
-        const self = ancestors[0];
-        if (!self)
-            throw new HttpError(
-                400,
-                'resource has no ancestor chain (is it root?)',
-                { legacyCode: 'bad_request' },
-            );
-        const uid = self.uid;
-
         const newPerm =
             mode === MANAGE_PERM_PREFIX
                 ? PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid)
                 : PermissionUtil.join('fs', uid, mode);
         await this.services.permission.grantUserUserPermission(
             issuer,
-            holder.user.username,
+            username,
             newPerm,
         );
 
@@ -400,11 +434,63 @@ export class ACLService extends PuterService {
             if (existingMode === mode) continue;
             await this.services.permission.revokeUserUserPermission(
                 issuer,
-                holder.user.username,
+                username,
                 perm,
             );
         }
         return true;
+    }
+
+    /**
+     * Serialize writes to one (issuer, holder, node) triple. Fails open on a
+     * Redis error — a narrow race beats taking sharing down with the cache.
+     */
+    async #withNodeLock<T>(suffix: string, fn: () => Promise<T>): Promise<T> {
+        const key = `acl:set-user-user:${suffix}`;
+        const token = `${process.pid}:${Date.now()}:${Math.random()}`;
+        let held = false;
+
+        try {
+            for (let attempt = 0; attempt < SET_USER_LOCK_ATTEMPTS; attempt++) {
+                const claimed = await this.clients.redis.set(
+                    key,
+                    token,
+                    'EX',
+                    SET_USER_LOCK_TTL_SECONDS,
+                    'NX',
+                );
+                if (claimed === 'OK') {
+                    held = true;
+                    break;
+                }
+                await new Promise((resolve) =>
+                    setTimeout(resolve, SET_USER_LOCK_RETRY_MS),
+                );
+            }
+            if (!held) {
+                throw new HttpError(
+                    409,
+                    'another change to this share is in progress',
+                    { legacyCode: 'conflict' },
+                );
+            }
+        } catch (err) {
+            if (err instanceof HttpError) throw err;
+            // Redis unavailable — proceed unserialized rather than fail.
+            return fn();
+        }
+
+        try {
+            return await fn();
+        } finally {
+            try {
+                // Only clear our own claim — a lapsed TTL may have reassigned it.
+                const current = await this.clients.redis.get(key);
+                if (current === token) await this.clients.redis.del(key);
+            } catch {
+                // The TTL cleans up regardless.
+            }
+        }
     }
 
     /**
