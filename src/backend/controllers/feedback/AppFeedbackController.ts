@@ -62,6 +62,7 @@ export class AppFeedbackController extends PuterController {
     @Get('/target', {
         subdomain: 'api',
         requireUserActor: true,
+        requireVerified: true,
         rateLimit: {
             scope: 'app-feedback-target',
             limit: 60,
@@ -93,6 +94,7 @@ export class AppFeedbackController extends PuterController {
     @Post('/', {
         subdomain: 'api',
         requireUserActor: true,
+        requireVerified: true,
         // Submissions only ever originate from our own GUI pages (desktop
         // dialog / popup). Cross-origin browser pages get stopped here even
         // if they somehow hold a user token; non-browser clients still pass
