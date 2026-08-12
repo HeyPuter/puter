@@ -456,12 +456,14 @@ describe('AppFeedbackService owner email', () => {
             .mockResolvedValue(undefined);
     };
 
-    it('emails the confirmed owner and marks the row emailed', async () => {
+    it('emails the confirmed owner with the verified sender email + reply-to', async () => {
         const send = mockEmailReady();
         const { userId: ownerId } = await makeUser();
         await confirmOwnerEmail(ownerId);
         const app = await makeApp(ownerId, { feedbackEnabled: true });
         const { actor, userId } = await makeUser();
+        // A verified sender email is what gets shared and used as reply-to.
+        await confirmOwnerEmail(userId);
         const sender = (await server.stores.user.getById(userId))!;
 
         await submit(actor, { app: app.name, message: 'hello dev' });
@@ -474,9 +476,11 @@ describe('AppFeedbackService owner email', () => {
             expect.objectContaining({
                 owner_username: owner.username,
                 sender_username: sender.username,
+                sender_email: sender.email,
                 app_name: app.name,
                 message: 'hello dev',
             }),
+            expect.objectContaining({ replyTo: sender.email }),
         );
 
         const rows = (await server.clients.db.read(
@@ -484,6 +488,22 @@ describe('AppFeedbackService owner email', () => {
             [userId],
         )) as Array<{ email_sent: unknown }>;
         expect(Boolean(rows[0]?.email_sent)).toBe(true);
+    });
+
+    it('does not share an unverified sender email (no reply-to)', async () => {
+        const send = mockEmailReady();
+        const { userId: ownerId } = await makeUser();
+        await confirmOwnerEmail(ownerId);
+        const app = await makeApp(ownerId, { feedbackEnabled: true });
+        // Sender's email is left unverified (makeUser does not confirm it).
+        const { actor } = await makeUser();
+
+        await submit(actor, { app: app.name, message: 'hello dev' });
+
+        expect(send).toHaveBeenCalledTimes(1);
+        const [, , values, options] = send.mock.calls[0];
+        expect((values as Record<string, unknown>).sender_email).toBeNull();
+        expect((options as { replyTo?: string } | undefined)?.replyTo).toBeUndefined();
     });
 
     it('stores but does not email when the owner email is unconfirmed', async () => {

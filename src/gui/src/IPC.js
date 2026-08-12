@@ -1424,10 +1424,6 @@ const ipc_listener = async (event, handled) => {
             sent = await UIWindowAppFeedback({
                 app: app_uuid || app_name,
                 source: 'app',
-                window_options: {
-                    parent_uuid: event.data.appInstanceID,
-                    disable_parent_window: true,
-                },
             });
         } catch ( e ) {
             console.error('IPC showFeedbackDialog failed', e);

@@ -40,7 +40,7 @@ test.describe('puter.ui.showFeedbackDialog (env=app)', () => {
             const appFrame = await gotoTestApp(page, appName);
 
             await appFrame.locator('#send-feedback').click();
-            const dialog = page.locator('.window.window-app-feedback');
+            const dialog = page.locator('.app-feedback-overlay');
             await expect(dialog).toBeVisible();
 
             // The form pane only appears after the server-side target check
@@ -73,7 +73,7 @@ test.describe('puter.ui.showFeedbackDialog (env=app)', () => {
             const appFrame = await gotoTestApp(page, appName);
 
             await appFrame.locator('#send-feedback').click();
-            const dialog = page.locator('.window.window-app-feedback');
+            const dialog = page.locator('.app-feedback-overlay');
             await expect(dialog.locator('.app-feedback-form')).toBeVisible({ timeout: 15_000 });
             await dialog.locator('.app-feedback-cancel-btn').click();
 
@@ -90,7 +90,7 @@ test.describe('puter.ui.showFeedbackDialog (env=app)', () => {
             const appFrame = await gotoTestApp(page, appName);
 
             await appFrame.locator('#send-feedback').click();
-            const dialog = page.locator('.window.window-app-feedback');
+            const dialog = page.locator('.app-feedback-overlay');
             await expect(dialog.locator('.app-feedback-unavailable')).toBeVisible({ timeout: 15_000 });
             // No form to type into — feedback is strictly opt-in.
             await expect(dialog.locator('.app-feedback-form')).toBeHidden();
@@ -131,7 +131,7 @@ test.describe('dashboard app-drawer feedback control', () => {
             await feedbackBtn.click();
 
             // It opens the same dialog, targeting this app.
-            const dialog = page.locator('.window.window-app-feedback');
+            const dialog = page.locator('.app-feedback-overlay');
             await expect(dialog.locator('.app-feedback-form')).toBeVisible({ timeout: 15_000 });
             await expect(dialog.locator('.app-feedback-target-name')).toHaveText(appName);
         } finally {
@@ -173,7 +173,7 @@ test.describe('puter.ui.showFeedbackDialog (env=web popup)', () => {
         // browser-attested opener origin resolves to. On a shared dev DB
         // that app is not deterministic, so this asserts the dialog shell
         // rather than a specific pane.
-        const dialog = popup.locator('.window.window-app-feedback');
+        const dialog = popup.locator('.app-feedback-overlay');
         await expect(dialog).toBeVisible({ timeout: 60_000 });
 
         // Closing the popup without submitting reports a dismissal.

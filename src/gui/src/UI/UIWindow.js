@@ -4611,16 +4611,19 @@ function attach_dashboard_app_drawer (el_window, options) {
     const feedback_enabled = options.feedback_enabled === true
         || options.feedback_enabled === 1;
     const feedback_label = i18n('app_feedback_title');
+    // A message/comment glyph (bubble with text lines) — clearer at this size
+    // than a bare speech bubble, which reads as a magnifier.
     const feedback_btn = feedback_enabled ? `
                     <button type="button" class="dashboard-app-drawer-btn dashboard-app-drawer-feedback" title="${feedback_label}" aria-label="${feedback_label}">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11.5a7.5 7.5 0 0 1-10.9 6.7L4 19.5l1.3-4.1A7.5 7.5 0 1 1 20 11.5Z"/></svg>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="7.5" y1="9" x2="16.5" y2="9"/><line x1="7.5" y1="12.5" x2="13" y2="12.5"/></svg>
                     </button>` : '';
 
     // The toggle comes FIRST in the DOM so Tab reaches it before the
     // controls' buttons; both layers are absolutely positioned (see
-    // dashboard.css), so DOM order doesn't affect the visuals.
+    // dashboard.css), so DOM order doesn't affect the visuals. `has-feedback`
+    // widens the surface so the extra control doesn't clip the close button.
     const $drawer = $(`
-        <div class="dashboard-app-drawer collapsed">
+        <div class="dashboard-app-drawer collapsed${feedback_enabled ? ' has-feedback' : ''}">
             <button type="button" class="dashboard-app-drawer-toggle" aria-expanded="false" title="App controls" aria-label="App controls">
                 <span class="dashboard-app-drawer-grabber" aria-hidden="true"></span>
             </button>
@@ -4763,10 +4766,6 @@ function attach_dashboard_app_drawer (el_window, options) {
         UIWindowAppFeedback({
             app: options.app_uuid || app_name,
             source: 'app',
-            window_options: {
-                parent_uuid: options.element_uuid,
-                disable_parent_window: true,
-            },
         });
     });
 

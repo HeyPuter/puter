@@ -46,7 +46,7 @@ const en = {
         app_feedback_error: 'Something went wrong. Please try again.',
         app_feedback_not_available: 'This app is not accepting feedback right now.',
         app_feedback_placeholder: 'What is working well? What could be better?',
-        app_feedback_privacy_note: 'Your username will be shared with the developer so they can follow up.',
+        app_feedback_privacy_note: 'Your email address will be shared with the developer so they can respond.',
         app_feedback_rate_limited: "You've sent a lot of feedback recently. Please try again later.",
         app_feedback_sent: 'Feedback sent. Thank you!',
         app_feedback_title: 'Send Feedback',

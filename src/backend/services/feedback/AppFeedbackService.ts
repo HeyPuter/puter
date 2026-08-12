@@ -278,21 +278,31 @@ export class AppFeedbackService extends PuterService {
         }
 
         const sender = await this.stores.user.getById(senderUserId);
+        // Share the sender's email so the developer can respond — but only
+        // when it's verified. An unverified address can be anyone's (typed at
+        // signup, never proven), so using it as Reply-To would let a sender
+        // point the developer's reply at a stranger's inbox. Unverified
+        // senders still get their feedback delivered, just without a
+        // reply path. The dialog tells the user their email will be shared.
+        const senderEmail =
+            sender?.email && sender.email_confirmed ? sender.email : null;
 
-        await this.clients.email.send(owner.email, 'app-user-feedback', {
-            owner_username: owner.username,
-            // The sender's username is already visible to the app itself
-            // (puter.auth.getUser), so surfacing it here discloses nothing
-            // new — and the dialog tells the user it will be shared. The
-            // sender's email is never included.
-            sender_username: sender?.username ?? 'A Puter user',
-            // Collapse whitespace so a crafted title can't break the
-            // subject header or spoof extra lines in the body.
-            app_title: String(app.title ?? app.name).replace(/\s+/g, ' '),
-            app_name: String(app.name),
-            app_link: `${this.config.origin}/app/${encodeURIComponent(String(app.name))}`,
-            message,
-        });
+        await this.clients.email.send(
+            owner.email,
+            'app-user-feedback',
+            {
+                owner_username: owner.username,
+                sender_username: sender?.username ?? 'A Puter user',
+                sender_email: senderEmail,
+                // Collapse whitespace so a crafted title can't break the
+                // subject header or spoof extra lines in the body.
+                app_title: String(app.title ?? app.name).replace(/\s+/g, ' '),
+                app_name: String(app.name),
+                app_link: `${this.config.origin}/app/${encodeURIComponent(String(app.name))}`,
+                message,
+            },
+            senderEmail ? { replyTo: senderEmail } : {},
+        );
 
         await this.stores.appFeedback.markEmailSent(feedbackId);
     }

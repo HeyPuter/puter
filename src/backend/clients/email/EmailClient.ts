@@ -152,11 +152,16 @@ export class EmailClient extends PuterClient {
 
     // -- Public API: sending ------------------------------------------
 
-    /** Render a template and send it to `to`. */
+    /**
+     * Render a template and send it to `to`. `options.replyTo` sets the
+     * Reply-To header (e.g. so a recipient can respond to the originator of the
+     * message rather than the no-reply From address).
+     */
     async send<T extends EmailTemplateName>(
         to: string,
         template: T,
         values: Record<string, unknown> = {},
+        options: { replyTo?: string } = {},
     ): Promise<void> {
         const compiled = this.compiledTemplates[template];
         if (!compiled) {
@@ -168,6 +173,7 @@ export class EmailClient extends PuterClient {
             to,
             subject: compiled.subject(values),
             html: compiled.html(values),
+            ...(options.replyTo ? { replyTo: options.replyTo } : {}),
         });
     }
 

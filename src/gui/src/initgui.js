@@ -761,10 +761,6 @@ const postAuthActions = async (action) => {
             sent = await UIWindowAppFeedback({
                 origin,
                 source: 'web',
-                window_options: {
-                    has_head: false,
-                    cover_page: true,
-                },
             });
         } catch (e) {
             console.error('send-feedback action failed', e);
