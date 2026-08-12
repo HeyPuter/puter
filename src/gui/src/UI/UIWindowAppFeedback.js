@@ -142,7 +142,13 @@ async function UIWindowAppFeedback (options) {
         $overlay.on('mousedown', (e) => {
             if ( e.target === $overlay.get(0) && ! sending ) close();
         });
-        $overlay.find('.app-feedback-x, .app-feedback-close-btn, .app-feedback-cancel-btn').on('click', close);
+        // Same in-flight gate as Escape/backdrop: closing while the POST is
+        // pending would settle false for a submission that still lands
+        // server-side — the developer gets the email while the app is told
+        // nothing was sent.
+        $overlay.find('.app-feedback-x, .app-feedback-close-btn, .app-feedback-cancel-btn').on('click', () => {
+            if ( ! sending ) close();
+        });
 
         $overlay.find('.app-feedback-message').on('input', function () {
             $overlay.find('.app-feedback-counter').text(`${this.value.length} / ${MESSAGE_MAX_LENGTH}`);
@@ -155,6 +161,7 @@ async function UIWindowAppFeedback (options) {
             if ( ! message || sending ) return;
             sending = true;
             $btn.prop('disabled', true);
+            $overlay.find('.app-feedback-x, .app-feedback-cancel-btn').prop('disabled', true);
             $overlay.find('.app-feedback-error').hide();
             try {
                 const res = await fetch(`${window.api_origin}/app-feedback`, {
@@ -193,6 +200,7 @@ async function UIWindowAppFeedback (options) {
                 $overlay.find('.app-feedback-error').text(i18n('app_feedback_error')).show();
             } finally {
                 sending = false;
+                $overlay.find('.app-feedback-x, .app-feedback-cancel-btn').prop('disabled', false);
                 $overlay.find('.app-feedback-send-btn').prop('disabled',
                     settled || String($overlay.find('.app-feedback-message').val() || '').trim() === '');
             }

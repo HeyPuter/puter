@@ -1619,7 +1619,7 @@ input.myapps-group-name:focus {
     height: 16px;
 }
 @media (hover: hover) {
-    .app-feedback-x:hover {
+    .app-feedback-x:hover:not(:disabled) {
         background: var(--afb-hover);
         color: var(--afb-fg);
     }
@@ -1727,7 +1727,7 @@ input.myapps-group-name:focus {
     transition: background-color 0.12s ease, opacity 0.12s ease, filter 0.12s ease;
 }
 @media (hover: hover) {
-    .app-feedback-btn:hover {
+    .app-feedback-btn:hover:not(:disabled) {
         background: var(--afb-hover);
     }
 }
@@ -1746,6 +1746,12 @@ input.myapps-group-name:focus {
     opacity: 0.5;
     cursor: default;
     filter: none;
+}
+/* Cancel/X are disabled while a submit is in flight. */
+.app-feedback-btn:disabled,
+.app-feedback-x:disabled {
+    opacity: 0.5;
+    cursor: default;
 }
 
 .app-feedback-success {
