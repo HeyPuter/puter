@@ -224,6 +224,52 @@ describe('UserStore batched and uncached lookups', () => {
         expect((await server.stores.user.getByIds(null as never)).size).toBe(0);
     });
 
+    it('getByEmails resolves known emails, skips unknown ones and dedupes input', async () => {
+        const a = await makeUser();
+        const b = await makeUser();
+
+        const found = await server.stores.user.getByEmails([
+            a.email,
+            b.email,
+            a.email,
+            'nobody@nowhere.test',
+            '',
+            null as never,
+        ]);
+
+        expect(found.size).toBe(2);
+        expect(found.get(a.email)?.username).toBe(a.username);
+        expect(found.get(b.email)?.username).toBe(b.username);
+    });
+
+    it('getByEmails tolerates empty and non-array input', async () => {
+        expect((await server.stores.user.getByEmails([])).size).toBe(0);
+        expect(
+            (await server.stores.user.getByEmails(null as never)).size,
+        ).toBe(0);
+    });
+
+    it('getByEmails serves warm entries from cache and cold ones from the database', async () => {
+        const warm = await makeUser();
+        const cold = await makeUser();
+        await server.stores.user.getByEmail(warm.email);
+
+        const found = await server.stores.user.getByEmails([
+            warm.email,
+            cold.email,
+        ]);
+
+        expect(found.get(warm.email)?.id).toBe(warm.id);
+        expect(found.get(cold.email)?.id).toBe(cold.id);
+    });
+
+    it('getByEmails skips values no latin1 email column could hold', async () => {
+        // A `=`/`IN` against latin1 with a >U+00FF param is a collation error
+        // at MySQL, and no stored row could match it anyway.
+        const found = await server.stores.user.getByEmails(['ünïcodé😀@x.test']);
+        expect(found.size).toBe(0);
+    });
+
     it('getByIds serves warm ids from cache and cold ids from the database', async () => {
         const warm = await makeUser();
         const cold = await makeUser();
