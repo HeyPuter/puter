@@ -59,6 +59,15 @@ async function UIWindowAppFeedback (options) {
             ? { app: options.app }
             : { origin: options.origin };
 
+        // Mirror what AppFeedbackService actually shares: the username
+        // always, the sender's email only when it exists and is verified
+        // (unverified addresses get no Reply-To, so the developer cannot
+        // respond). The note must not promise either more or less.
+        const shares_email = Boolean(window.user?.email && window.user?.email_confirmed);
+        const privacy_note_key = shares_email
+            ? 'app_feedback_privacy_note'
+            : 'app_feedback_privacy_note_no_email';
+
         const titleId = `${modal_id}-title`;
         const h = `
             <div class="app-feedback-overlay" role="dialog" aria-modal="true" aria-labelledby="${titleId}">
@@ -87,7 +96,7 @@ async function UIWindowAppFeedback (options) {
                             <p class="app-feedback-c2a">${i18n('app_feedback_c2a')}</p>
                             <textarea class="app-feedback-message" maxlength="${MESSAGE_MAX_LENGTH}" placeholder="${html_encode(i18n('app_feedback_placeholder'))}"></textarea>
                             <div class="app-feedback-counter">0 / ${MESSAGE_MAX_LENGTH}</div>
-                            <p class="app-feedback-note">${i18n('app_feedback_privacy_note')}</p>
+                            <p class="app-feedback-note">${i18n(privacy_note_key)}</p>
                             <p class="app-feedback-error" role="alert" style="display:none;"></p>
                             <div class="app-feedback-actions">
                                 <button type="button" class="app-feedback-btn app-feedback-cancel-btn">${i18n('cancel')}</button>

@@ -322,7 +322,8 @@ export class AppFeedbackService extends PuterService {
         // signup, never proven), so using it as Reply-To would let a sender
         // point the developer's reply at a stranger's inbox. Unverified
         // senders still get their feedback delivered, just without a
-        // reply path. The dialog tells the user their email will be shared.
+        // reply path. The dialog's privacy note mirrors this split (see
+        // app_feedback_privacy_note / app_feedback_privacy_note_no_email).
         const senderEmail =
             sender?.email && sender.email_confirmed ? sender.email : null;
 
