@@ -74,6 +74,7 @@ Include:
 - Steps to reproduce
 - Potential impact
 - Suggested remediation (if available)
+- Paypal id where we can send the bounty (if eligible)
 
 We aim to acknowledge receipt within **72 hours** and provide a resolution timeline.
 
