@@ -344,6 +344,23 @@ export type EventMap = {
         data?: unknown;
         ttlSeconds?: number;
     };
+    /**
+     * An actor's permission cache generation was bumped, so peer regions must
+     * bump their own — the counter is per-cluster, so a local bump says nothing
+     * to them. Carries the actor, not the value: the number only has to
+     * change.
+     */
+    'outer.permission.generationBumped': { actorUid: string };
+    /**
+     * A flat permission entry was deleted. Grant-path flat entries carry no
+     * expiry, so without this a revoke never lands in a peer region whose KV
+     * table isn't replicated. Revoke-only: a grant that fails to replicate just
+     * denies there, which is the safe direction.
+     */
+    'outer.permission.flatInvalidated': {
+        holderUserId: number;
+        permission: string;
+    };
     'outer.fs.write-hash': { hash: string; uuid: string };
     /**
      * Cache keys the KV read cache must stop serving, because the entries
