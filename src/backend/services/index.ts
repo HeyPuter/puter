@@ -27,6 +27,7 @@ import { AuthService } from './auth/AuthService';
 import { OIDCService } from './auth/OIDCService';
 import { TokenService } from './auth/TokenService';
 import { BroadcastService } from './broadcast/BroadcastService';
+import { CacheReplicationService } from './cache/CacheReplicationService';
 import { FSService } from './fs/FSService';
 import { ServerHealthService } from './health/ServerHealthService';
 import { PuterHomepageService } from './homepage/PuterHomepageService';
@@ -62,6 +63,7 @@ declare module './types' {
         socket: SocketService;
         notification: NotificationService;
         broadcast: BroadcastService;
+        cacheReplication: CacheReplicationService;
         oidc: OIDCService;
         appIcon: AppIconService;
         defaultUser: DefaultUserService;
@@ -100,6 +102,8 @@ export const puterServices = {
     socket: SocketService,
     notification: NotificationService,
     broadcast: BroadcastService,
+    // Independent — only needs the event client and redis.
+    cacheReplication: CacheReplicationService,
     oidc: OIDCService,
     appIcon: AppIconService,
     defaultUser: DefaultUserService,
