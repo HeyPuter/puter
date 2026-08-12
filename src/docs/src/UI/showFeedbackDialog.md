@@ -27,6 +27,8 @@ None.
 ## Return value
 A `Promise` that resolves to `true` if the user submitted feedback, and `false` if the dialog was dismissed or feedback is unavailable. It never rejects.
 
+On a website that is cross-origin isolated (COOP severs the popup's connection to your page), the promise resolves `false` even though the popup stays open and the user may still submit their feedback there. Treat `false` as "not confirmed", not "not sent".
+
 ## Examples
 
 ```html;ui-show-feedback-dialog

@@ -1684,7 +1684,10 @@ class UI extends EventListener {
      *
      * @returns {Promise<boolean>} `true` when the user submitted feedback,
      *   `false` when the dialog was dismissed or feedback is unavailable.
-     *   Never rejects.
+     *   Never rejects. On a cross-origin-isolated page COOP severs the
+     *   popup's link to the opener, so the promise resolves `false` while
+     *   the popup stays open and the user may still submit — `false` means
+     *   "not confirmed", not "not sent".
      */
     async showFeedbackDialog () {
         if ( this.env === 'app' ) {
