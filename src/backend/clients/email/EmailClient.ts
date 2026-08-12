@@ -291,7 +291,14 @@ export class EmailClient extends PuterClient {
     private compileTemplates(): void {
         for (const [name, template] of Object.entries(EMAIL_TEMPLATES)) {
             this.compiledTemplates[name as EmailTemplateName] = {
-                subject: handlebars.compile(template.subject),
+                // Subjects are plain-text headers: HTML-escaping would put
+                // literal entities in front of the recipient (&amp; etc.).
+                // Header safety is handled elsewhere — the transport encodes
+                // newlines, and free-form values (e.g. app_title) collapse
+                // whitespace upstream.
+                subject: handlebars.compile(template.subject, {
+                    noEscape: true,
+                }),
                 html: handlebars.compile(dedent(template.html)),
             };
         }
