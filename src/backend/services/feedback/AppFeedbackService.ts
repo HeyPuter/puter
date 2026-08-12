@@ -92,9 +92,9 @@ export class AppFeedbackService extends PuterService {
         origin?: string;
     }): Promise<Record<string, unknown> | null> {
         if (app) {
-            return app.startsWith('app-')
-                ? await this.stores.app.getByUid(app)
-                : await this.stores.app.getByName(app);
+            // Names may legally start with "app-" (e.g. "app-center"), so a
+            // prefix heuristic would misroute them; try uid first, then name.
+            return await this.stores.app.resolveApp(app);
         }
         if (origin) {
             let uid;

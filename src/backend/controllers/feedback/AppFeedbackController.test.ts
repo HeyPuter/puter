@@ -84,9 +84,10 @@ const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
 
 const makeApp = async (
     ownerUserId: number,
-    opts: { feedbackEnabled?: boolean; indexUrl?: string } = {},
+    opts: { feedbackEnabled?: boolean; indexUrl?: string; name?: string } = {},
 ) => {
-    const name = `fdbk-app-${Math.random().toString(36).slice(2, 10)}`;
+    const name =
+        opts.name ?? `fdbk-app-${Math.random().toString(36).slice(2, 10)}`;
     return await server.stores.app.create(
         {
             name,
@@ -243,6 +244,24 @@ describe('AppFeedbackController GET /target', () => {
             'get',
             '/target',
             makeReq({ query: { app: app.uid }, actor }),
+            res,
+        );
+        expect(captured.body).toEqual({
+            enabled: true,
+            app: { name: app.name, title: app.title },
+        });
+    });
+
+    it('resolves an opted-in app whose name starts with "app-"', async () => {
+        const { userId: ownerId } = await makeUser();
+        const name = `app-fdbk-${Math.random().toString(36).slice(2, 10)}`;
+        const app = await makeApp(ownerId, { feedbackEnabled: true, name });
+        const { actor } = await makeUser();
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/target',
+            makeReq({ query: { app: name }, actor }),
             res,
         );
         expect(captured.body).toEqual({
