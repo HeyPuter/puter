@@ -64,11 +64,18 @@ const LIST_LIMIT_CAP = 200;
 export const DEFAULT_MAX_RECIPIENTS = 10;
 export const DEFAULT_MAX_ITEMS = 50;
 
+/** A success carries the created share; a failure carries why. */
 interface ShareOutcome {
     recipient: string;
-    path?: string;
     status: 'success' | 'error';
+    path?: string;
+    uid?: string;
     mode?: string;
+    uid_entry?: string;
+    is_dir?: boolean;
+    issuer?: string | null;
+    holder?: string | null;
+    created_at?: unknown;
     message?: string;
     code?: string;
 }
@@ -121,12 +128,13 @@ export class ShareController extends PuterController {
             const { recipient, item } = pairs[index];
             const label = recipient.email ?? recipient.username ?? '';
             if (outcome.status === 'fulfilled') {
+                // The whole share, not just an acknowledgement, so a caller
+                // needn't re-read to learn what it created.
                 const share = outcome.value as ResolvedShare;
                 return {
+                    ...this.#toClientShare(share),
                     recipient: label,
-                    path: share.path,
                     status: 'success',
-                    mode: share.mode,
                 };
             }
             return {
