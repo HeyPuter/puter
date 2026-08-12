@@ -114,10 +114,19 @@ export class AppFeedbackService extends PuterService {
 
     /**
      * Whether `app` (a row from AppStore) currently accepts user feedback: the
-     * developer opted in and the app has an owner to deliver to.
+     * developer opted in, the app has an owner to deliver to, and this
+     * deployment can deliver at all (email transport configured). Without a
+     * transport every submission would be stored-and-lost — the rows have no
+     * other read path — while the sender is told it was sent, so the feature
+     * reports itself unavailable instead.
      */
     acceptsFeedback(app: Record<string, unknown> | null): boolean {
-        return Boolean(app && app.feedback_enabled && app.owner_user_id);
+        return Boolean(
+            this.clients.email.isConfigured &&
+            app &&
+            app.feedback_enabled &&
+            app.owner_user_id,
+        );
     }
 
     /**

@@ -99,6 +99,14 @@ const makeApp = async (
     );
 };
 
+// Feedback is only offered when the deployment can deliver it (email
+// transport configured); most tests want that baseline without asserting
+// anything about the mail itself.
+const mockEmailConfigured = () =>
+    vi.spyOn(server.clients.email, 'isConfigured', 'get').mockReturnValue(
+        true,
+    );
+
 const confirmOwnerEmail = async (userId: number) => {
     await server.clients.db.write(
         'UPDATE `user` SET `email_confirmed` = ? WHERE `id` = ?',
@@ -222,6 +230,7 @@ describe('AppFeedbackController GET /target', () => {
     });
 
     it('reports enabled:false for an app that has not opted in', async () => {
+        mockEmailConfigured();
         const { userId: ownerId } = await makeUser();
         const app = await makeApp(ownerId);
         const { actor } = await makeUser();
@@ -236,6 +245,7 @@ describe('AppFeedbackController GET /target', () => {
     });
 
     it('reports enabled:true with canonical title/name for an opted-in app', async () => {
+        mockEmailConfigured();
         const { userId: ownerId } = await makeUser();
         const app = await makeApp(ownerId, { feedbackEnabled: true });
         const { actor } = await makeUser();
@@ -253,6 +263,7 @@ describe('AppFeedbackController GET /target', () => {
     });
 
     it('resolves an opted-in app whose name starts with "app-"', async () => {
+        mockEmailConfigured();
         const { userId: ownerId } = await makeUser();
         const name = `app-fdbk-${Math.random().toString(36).slice(2, 10)}`;
         const app = await makeApp(ownerId, { feedbackEnabled: true, name });
@@ -271,6 +282,7 @@ describe('AppFeedbackController GET /target', () => {
     });
 
     it('resolves an origin to the app whose index_url it matches', async () => {
+        mockEmailConfigured();
         const { userId: ownerId } = await makeUser();
         const app = await makeApp(ownerId, { feedbackEnabled: true });
         const origin = new URL(app.index_url).origin;
@@ -286,6 +298,22 @@ describe('AppFeedbackController GET /target', () => {
             enabled: true,
             app: { name: app.name, title: app.title },
         });
+    });
+
+    it('reports enabled:false when the email transport is unconfigured', async () => {
+        // No mockEmailConfigured(): this is the self-hosted no-SMTP default.
+        // Feedback that can never be delivered must not be solicited.
+        const { userId: ownerId } = await makeUser();
+        const app = await makeApp(ownerId, { feedbackEnabled: true });
+        const { actor } = await makeUser();
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/target',
+            makeReq({ query: { app: app.name }, actor }),
+            res,
+        );
+        expect(captured.body).toMatchObject({ enabled: false });
     });
 
     it('reports enabled:false for an origin with no registered app', async () => {
@@ -330,6 +358,7 @@ describe('AppFeedbackController POST /', () => {
     });
 
     it('throws 403 feedback_not_enabled when the app has not opted in', async () => {
+        mockEmailConfigured();
         const { userId: ownerId } = await makeUser();
         const app = await makeApp(ownerId);
         const { actor } = await makeUser();
@@ -354,7 +383,23 @@ describe('AppFeedbackController POST /', () => {
         ).rejects.toMatchObject({ statusCode: 403 });
     });
 
+    it('throws 403 feedback_not_enabled when the email transport is unconfigured', async () => {
+        // No mockEmailConfigured(): the opted-in app must still refuse — a
+        // stored row nothing can read, sold to the sender as delivered, is
+        // worse than an honest refusal.
+        const { userId: ownerId } = await makeUser();
+        const app = await makeApp(ownerId, { feedbackEnabled: true });
+        const { actor } = await makeUser();
+        await expect(
+            submit(actor, { app: app.name, message: 'into the void' }),
+        ).rejects.toMatchObject({
+            statusCode: 403,
+            legacyCode: 'feedback_not_enabled',
+        });
+    });
+
     it('throws 400 when the message exceeds the length limit', async () => {
+        mockEmailConfigured();
         const { userId: ownerId } = await makeUser();
         const app = await makeApp(ownerId, { feedbackEnabled: true });
         const { actor } = await makeUser();
@@ -369,6 +414,7 @@ describe('AppFeedbackController POST /', () => {
     });
 
     it('stores a normalized row and responds with an empty object', async () => {
+        mockEmailConfigured();
         const { userId: ownerId } = await makeUser();
         const app = await makeApp(ownerId, { feedbackEnabled: true });
         const { actor, userId } = await makeUser();
@@ -399,6 +445,7 @@ describe('AppFeedbackController POST /', () => {
     });
 
     it('records the attested origin on web submissions', async () => {
+        mockEmailConfigured();
         const { userId: ownerId } = await makeUser();
         const app = await makeApp(ownerId, { feedbackEnabled: true });
         const origin = new URL(app.index_url).origin;
@@ -417,6 +464,7 @@ describe('AppFeedbackController POST /', () => {
     });
 
     it('enforces the per-user-per-app daily cap with 429', async () => {
+        mockEmailConfigured();
         const { userId: ownerId } = await makeUser();
         const app = await makeApp(ownerId, { feedbackEnabled: true });
         const { actor, userId } = await makeUser();
@@ -445,6 +493,7 @@ describe('AppFeedbackController POST /', () => {
     });
 
     it('rolls back the stored row when a concurrent burst breaches the cap', async () => {
+        mockEmailConfigured();
         const { userId: ownerId } = await makeUser();
         const app = await makeApp(ownerId, { feedbackEnabled: true });
         const { actor, userId } = await makeUser();
@@ -481,6 +530,7 @@ describe('AppFeedbackController POST /', () => {
     });
 
     it('enforces the per-user daily cap across apps with 429', async () => {
+        mockEmailConfigured();
         const { userId: ownerId } = await makeUser();
         const target = await makeApp(ownerId, { feedbackEnabled: true });
         const other = await makeApp(ownerId, { feedbackEnabled: true });
@@ -503,9 +553,7 @@ describe('AppFeedbackController POST /', () => {
 
 describe('AppFeedbackService owner email', () => {
     const mockEmailReady = () => {
-        vi.spyOn(server.clients.email, 'isConfigured', 'get').mockReturnValue(
-            true,
-        );
+        mockEmailConfigured();
         return vi
             .spyOn(server.clients.email, 'send')
             .mockResolvedValue(undefined);
