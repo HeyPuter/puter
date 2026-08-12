@@ -38,7 +38,7 @@ import {
 } from '../../util/concurrency.js';
 import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
 import { PuterController } from '../types.js';
-import { FS_COSTS } from './costs.js';
+import { STORAGE_OP_COSTS } from '../../services/metering/costs.js';
 import {
     FS_MULTIPART_LIMIT,
     FS_MUTATE_LIMIT,
@@ -117,18 +117,24 @@ const DEFAULT_BATCH_WRITE_SIDE_EFFECT_CONCURRENCY = 8;
 
 @Controller('/fs')
 export class FSController extends PuterController {
+    // Object-store requests are reported here because the filesystem is what
+    // makes them. Bytes leaving the server are not: they are metered for every
+    // response, so `MeteringService` prices them.
     override getReportedCosts() {
-        return Object.entries(FS_COSTS).map(([usageType, ucentsPerUnit]) => ({
-            usageType,
-            ucentsPerUnit,
-            unit: 'byte',
-            source: 'controller:fs',
-        }));
+        return Object.entries(STORAGE_OP_COSTS).map(
+            ([usageType, ucentsPerUnit]) => ({
+                usageType,
+                ucentsPerUnit,
+                unit: 'operation',
+                source: 'controller:fs',
+            }),
+        );
     }
 
     @Post('/startWrite', {
         subdomain: 'api',
         requireVerified: true,
+        requireCredits: true,
         rateLimit: FS_MULTIPART_LIMIT,
     })
     async startWrite(
@@ -191,6 +197,7 @@ export class FSController extends PuterController {
     @Post('/startBatchWrite', {
         subdomain: 'api',
         requireVerified: true,
+        requireCredits: true,
         rateLimit: FS_MULTIPART_LIMIT,
     })
     async startBatchWrites(
@@ -295,6 +302,7 @@ export class FSController extends PuterController {
     @Post('/completeWrite', {
         subdomain: 'api',
         requireVerified: true,
+        requireCredits: true,
         rateLimit: FS_MULTIPART_LIMIT,
     })
     async completeWrite(
@@ -330,6 +338,7 @@ export class FSController extends PuterController {
     @Post('/completeBatchWrite', {
         subdomain: 'api',
         requireVerified: true,
+        requireCredits: true,
         rateLimit: FS_MULTIPART_LIMIT,
     })
     async completeBatchWrites(
@@ -397,6 +406,7 @@ export class FSController extends PuterController {
     @Post('/signMultipartParts', {
         subdomain: 'api',
         requireVerified: true,
+        requireCredits: true,
         rateLimit: FS_MULTIPART_LIMIT,
     })
     async signMultipartParts(
@@ -414,6 +424,7 @@ export class FSController extends PuterController {
     @Post('/write', {
         subdomain: 'api',
         requireVerified: true,
+        requireCredits: true,
         rateLimit: FS_WRITE_LIMIT,
         concurrent: FS_WRITE_CONCURRENT,
     })
@@ -465,6 +476,7 @@ export class FSController extends PuterController {
     @Post('/batchWrite', {
         subdomain: 'api',
         requireVerified: true,
+        requireCredits: true,
         rateLimit: FS_WRITE_LIMIT,
         concurrent: FS_WRITE_CONCURRENT,
     })
@@ -1295,6 +1307,7 @@ export class FSController extends PuterController {
     @Get('/read', {
         subdomain: 'api',
         requireVerified: true,
+        requireCredits: true,
         rateLimit: FS_READ_LIMIT,
         concurrent: FS_READ_CONCURRENT,
     })
@@ -1341,38 +1354,12 @@ export class FSController extends PuterController {
         );
         res.status(range ? 206 : 200);
 
-        const metering = this.services.metering as
-            | {
-                  batchIncrementUsages?: (
-                      actor: unknown,
-                      entries: unknown[],
-                  ) => void;
-              }
-            | undefined;
-
         try {
             await pipeline(download.body, res);
         } catch {
             // Client disconnect or upstream stream error — pipeline already
             // tore down both ends. Response is partially sent; nothing to do.
             return;
-        }
-
-        // Meter egress only on successful completion.
-        if (metering?.batchIncrementUsages && download.contentLength) {
-            try {
-                const bytes = download.contentLength;
-                metering.batchIncrementUsages(actor, [
-                    {
-                        usageType: 'filesystem:egress:bytes',
-                        usageAmount: bytes,
-                        costOverride:
-                            FS_COSTS['filesystem:egress:bytes'] * bytes,
-                    },
-                ]);
-            } catch {
-                // ignore — metering is non-critical.
-            }
         }
     }
 
@@ -1542,6 +1529,7 @@ export class FSController extends PuterController {
     @Post('/copy', {
         subdomain: 'api',
         requireVerified: true,
+        requireCredits: true,
         rateLimit: FS_MUTATE_LIMIT,
     })
     async copyEntry(req: Request, res: Response) {

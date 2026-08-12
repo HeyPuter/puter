@@ -3,23 +3,26 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { Readable } from 'node:stream';
+import type { Request } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { runWithContext } from '../../core/context.js';
 import { configContainer } from '../../exports.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -1062,5 +1065,106 @@ describe('S3ObjectStore batching and command shapes', () => {
             name: 'AbortMultipartUploadCommand',
             input: { Bucket: bucket, Key: 'k', UploadId: 'upload-1' },
         });
+    });
+});
+
+describe('S3ObjectStore request accounting', () => {
+    const opsFor = async (fn: () => Promise<unknown>) => {
+        const req = {} as Request;
+        await runWithContext({ req }, fn);
+        return req.storageOps;
+    };
+
+    it('counts a server-side upload, read and copy by class', async () => {
+        const key = `ops-${uuidv4()}`;
+        const ops = await opsFor(async () => {
+            await putObject(key, 'hello');
+            const read = await store().getObjectStream(
+                { bucket, objectKey: key },
+                region,
+            );
+            await readAll(read.body);
+            await store().headObjectSize(bucket, key, region);
+            await store().copyObject(
+                {
+                    sourceBucket: bucket,
+                    sourceKey: key,
+                    destinationBucket: bucket,
+                    destinationKey: `${key}-copy`,
+                },
+                region,
+            );
+        });
+
+        expect(ops).toEqual({ write: 2, read: 2 });
+    });
+
+    it('counts removals separately, one per batch request', async () => {
+        const key = `ops-${uuidv4()}`;
+        const ops = await opsFor(async () => {
+            await putObject(key, 'hello');
+            await store().deleteObject(bucket, key, region);
+            await store().deleteObjects(
+                { bucket, objectKeys: [`${key}-a`, `${key}-b`] },
+                region,
+            );
+            await store().deleteObjects({ bucket, objectKeys: [] }, region);
+        });
+
+        expect(ops).toEqual({ write: 1, delete: 2 });
+    });
+
+    it('counts the uploads a signed multipart hands off to the client', async () => {
+        const { store: fake } = makeFakeStore({
+            respond: (command) =>
+                command.name === 'CreateMultipartUploadCommand'
+                    ? { UploadId: 'upload-1' }
+                    : {},
+            maxSingleUploadSize: 10,
+            partSize: 10,
+            realPresign: true,
+        });
+
+        const ops = await opsFor(() =>
+            fake.batchCreateSignedUploadUrls(
+                [
+                    {
+                        bucket,
+                        objectKey: 'k',
+                        contentType: 'text/plain',
+                        size: 25,
+                        uploadMode: 'multipart',
+                        expiresInSeconds: 300,
+                    },
+                ],
+                region,
+            ),
+        );
+
+        // One to open the upload, then one per part the client will send.
+        expect(ops).toEqual({ write: 4 });
+    });
+
+    it('counts a signed single upload the client makes directly', async () => {
+        const ops = await opsFor(() =>
+            store().createSignedUploadUrl(
+                {
+                    bucket,
+                    objectKey: 'k',
+                    contentType: 'text/plain',
+                    size: 1,
+                    uploadMode: 'single',
+                    expiresInSeconds: 300,
+                },
+                region,
+            ),
+        );
+
+        expect(ops).toEqual({ write: 1 });
+    });
+
+    it('tallies nothing outside a request', async () => {
+        const key = `ops-${uuidv4()}`;
+        await expect(putObject(key, 'hello')).resolves.not.toThrow();
     });
 });

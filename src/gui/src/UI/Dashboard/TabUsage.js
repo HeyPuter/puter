@@ -316,7 +316,7 @@ async function update_usage_details ($el_window) {
 
             // Format units for display
             let formattedUnits;
-            if ( key.startsWith('filesystem:') && key.endsWith(':bytes') ) {
+            if ( key.endsWith(':bytes') ) {
                 formattedUnits = window.byte_format(rawUnits);
             } else {
                 formattedUnits = window.number_format(rawUnits, { decimals: 0, thousandSeparator: ',' });

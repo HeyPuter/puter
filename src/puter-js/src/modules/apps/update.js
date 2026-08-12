@@ -2,8 +2,8 @@ import * as utils from '../../lib/utils.js';
 import { addUserIteration } from './lib/appUsers.js';
 import { toAppObject } from './lib/appObject.js';
 
-/** @typedef {import('../../../types/modules/apps').App} App */
-/** @typedef {import('../../../types/modules/apps').UpdateAppAttributes} UpdateAppAttributes */
+/** @typedef {import('./types.js').App} App */
+/** @typedef {import('./types.js').UpdateAppAttributes} UpdateAppAttributes */
 
 /**
  * Updates attributes of the app with the given name.

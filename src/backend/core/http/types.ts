@@ -72,8 +72,8 @@ export type RoutePath = string | RegExp | Array<string | RegExp>;
  * middleware chain in this order:
  *
  *     subdomain → requireAuth (+ suspended) → emailConfirmed →
- *     requireUserActor → adminOnly → allowedAppIds →
- *     caller `middleware: []` → handler
+ *     requireUserActor → adminOnly → allowedAppIds → rateLimit →
+ *     requireCredits → concurrent → caller `middleware: []` → handler
  *
  * `requireUserActor`, `adminOnly`, and `allowedAppIds` all imply `requireAuth`;
  * the materializer dedupes so only one auth gate ends up in the chain.
@@ -315,6 +315,23 @@ export interface RouteOptions {
         scope?: string;
         backend?: 'memory' | 'redis' | 'kv';
     };
+
+    /**
+     * Reject an account with nothing left of its usage budget with 402
+     * `insufficient_funds`.
+     *
+     * For routes that spend metered resources on the caller's behalf — moving
+     * file content, making object-store requests. Not for the routes that show
+     * an account what it has or let it delete things: an account that has run
+     * out still needs to be able to see its files, clear space, and reach its
+     * billing pages, and blocking that leaves no way out other than paying.
+     *
+     * Anonymous callers and worker sessions pass; see `requireCreditsGate`.
+     * Rate limits remain the bound on request _count_ — this bounds spend, and
+     * lags the traffic that produced it by the metering buffer window, so it
+     * stops sustained usage rather than a burst.
+     */
+    requireCredits?: boolean;
 
     // Reserved — wire as the corresponding features/services land:
     // bodyFiles?: string[];      // multer-style multipart fields

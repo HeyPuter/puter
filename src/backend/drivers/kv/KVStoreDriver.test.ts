@@ -82,7 +82,10 @@ describe('KVStoreDriver', () => {
 
         it('coerces a non-string key to a string before lookup', async () => {
             const res = await inCtx(async () => {
-                await target.set({ key: 123 as unknown as string, value: 'numeric' });
+                await target.set({
+                    key: 123 as unknown as string,
+                    value: 'numeric',
+                });
                 return target.get({ key: '123' });
             });
             expect(res).toBe('numeric');
@@ -142,7 +145,11 @@ describe('KVStoreDriver', () => {
         it('honours expireAt — past timestamps make the value invisible', async () => {
             const past = Math.floor(Date.now() / 1000) - 10;
             const res = await inCtx(async () => {
-                await target.set({ key: 'gone', value: 'soon', expireAt: past });
+                await target.set({
+                    key: 'gone',
+                    value: 'soon',
+                    expireAt: past,
+                });
                 return target.get({ key: 'gone' });
             });
             expect(res).toBeNull();
@@ -236,9 +243,7 @@ describe('KVStoreDriver', () => {
         });
 
         it('returns true even when the key never existed', async () => {
-            const res = await inCtx(() =>
-                target.del({ key: 'never-existed' }),
-            );
+            const res = await inCtx(() => target.del({ key: 'never-existed' }));
             expect(res).toBe(true);
         });
 
@@ -422,70 +427,70 @@ describe('KVStoreDriver', () => {
             expect(res).toMatchObject({ n: 1 });
         });
 
-        it.each([
-            ['incr' as const],
-            ['decr' as const],
-        ])('%s rejects a missing key', async (op) => {
-            await expect(
-                inCtx(() =>
-                    target[op]({
-                        key: undefined,
-                        pathAndAmountMap: { n: 1 },
-                    }),
-                ),
-            ).rejects.toMatchObject({ statusCode: 400 });
-        });
+        it.each([['incr' as const], ['decr' as const]])(
+            '%s rejects a missing key',
+            async (op) => {
+                await expect(
+                    inCtx(() =>
+                        target[op]({
+                            key: undefined,
+                            pathAndAmountMap: { n: 1 },
+                        }),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
 
-        it.each([
-            ['incr' as const],
-            ['decr' as const],
-        ])('%s rejects a missing pathAndAmountMap', async (op) => {
-            await expect(
-                inCtx(() =>
-                    target[op]({
-                        key: 'k',
-                        pathAndAmountMap: undefined as unknown as Record<
-                            string,
-                            number
-                        >,
-                    }),
-                ),
-            ).rejects.toMatchObject({ statusCode: 400 });
-        });
+        it.each([['incr' as const], ['decr' as const]])(
+            '%s rejects a missing pathAndAmountMap',
+            async (op) => {
+                await expect(
+                    inCtx(() =>
+                        target[op]({
+                            key: 'k',
+                            pathAndAmountMap: undefined as unknown as Record<
+                                string,
+                                number
+                            >,
+                        }),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
 
-        it.each([
-            ['incr' as const],
-            ['decr' as const],
-        ])('%s rejects a non-object pathAndAmountMap', async (op) => {
-            await expect(
-                inCtx(() =>
-                    target[op]({
-                        key: 'k',
-                        pathAndAmountMap: 'nope' as unknown as Record<
-                            string,
-                            number
-                        >,
-                    }),
-                ),
-            ).rejects.toMatchObject({ statusCode: 400 });
-        });
+        it.each([['incr' as const], ['decr' as const]])(
+            '%s rejects a non-object pathAndAmountMap',
+            async (op) => {
+                await expect(
+                    inCtx(() =>
+                        target[op]({
+                            key: 'k',
+                            pathAndAmountMap: 'nope' as unknown as Record<
+                                string,
+                                number
+                            >,
+                        }),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
 
         // A path walking the prototype chain is a client error, not an
         // opaque 500 out of the document client.
-        it.each([
-            ['incr' as const],
-            ['decr' as const],
-        ])('%s rejects a prototype-walking path as a 400', async (op) => {
-            await expect(
-                inCtx(() =>
-                    target[op]({
-                        key: 'proto-test',
-                        pathAndAmountMap: { 'constructor.prototype.x': 1 },
-                    }),
-                ),
-            ).rejects.toMatchObject({ statusCode: 400 });
-            expect(({} as Record<string, unknown>).x).toBeUndefined();
-        });
+        it.each([['incr' as const], ['decr' as const]])(
+            '%s rejects a prototype-walking path as a 400',
+            async (op) => {
+                await expect(
+                    inCtx(() =>
+                        target[op]({
+                            key: 'proto-test',
+                            pathAndAmountMap: { 'constructor.prototype.x': 1 },
+                        }),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+                expect(({} as Record<string, unknown>).x).toBeUndefined();
+            },
+        );
     });
 
     describe('expireAt / expire', () => {
@@ -673,9 +678,7 @@ describe('KVStoreDriver', () => {
 
         it('rejects an empty key', async () => {
             await expect(
-                inCtx(() =>
-                    target.add({ key: '', pathAndValueMap: { x: 1 } }),
-                ),
+                inCtx(() => target.add({ key: '', pathAndValueMap: { x: 1 } })),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
     });
@@ -712,9 +715,7 @@ describe('KVStoreDriver', () => {
 
         it('rejects a missing key', async () => {
             await expect(
-                inCtx(() =>
-                    target.remove({ key: undefined, paths: ['x'] }),
-                ),
+                inCtx(() => target.remove({ key: undefined, paths: ['x'] })),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
     });
@@ -876,10 +877,7 @@ describe('KVStoreDriver', () => {
             )) as { id: number; uid: string };
         };
 
-        const asApp = (
-            owner: Actor,
-            app: { id: number; uid: string },
-        ): Actor =>
+        const asApp = (owner: Actor, app: { id: number; uid: string }): Actor =>
             buildActor({
                 user: owner.user,
                 app: { uid: app.uid, id: app.id },
@@ -940,7 +938,7 @@ describe('KVStoreDriver', () => {
                 calendar.uid,
                 appDataPermission(contacts.uid, 'kv', 'get'),
             );
-            
+
             // Also the positive control for the `not.toHaveBeenCalled()`
             // assertions below: it proves the spy is attached to the same
             // service instance the driver consults, so those negatives mean
@@ -1494,6 +1492,94 @@ describe('KVStoreDriver', () => {
             for (const name of methods) {
                 expect(APP_DATA_KV_METHOD_OPS).toHaveProperty(name);
             }
+        });
+    });
+
+    // ── Budget enforcement ───────────────────────────────────────────
+
+    describe('budget enforcement', () => {
+        // Spend the actor's whole monthly allowance, so the next call is the
+        // first one it can't afford.
+        const exhaust = async (spender: Actor) => {
+            const sub =
+                await server.services.metering.getActorSubscription(spender);
+            await server.services.metering.incrementUsage(
+                spender,
+                'kv:read',
+                1,
+                sub.monthUsageAllowance,
+            );
+        };
+
+        it('refuses reads and writes once the allowance is spent', async () => {
+            await inCtx(() => target.set({ key: 'k', value: 'v' }));
+            await exhaust(actor);
+
+            await expect(
+                inCtx(() => target.get({ key: 'k' })),
+            ).rejects.toMatchObject({
+                statusCode: 402,
+                legacyCode: 'insufficient_funds',
+            });
+            await expect(
+                inCtx(() => target.set({ key: 'k2', value: 'v' })),
+            ).rejects.toMatchObject({ statusCode: 402 });
+            // `list` hands back the values unless asked otherwise, which is a
+            // read like any other.
+            await expect(inCtx(() => target.list({}))).rejects.toMatchObject({
+                statusCode: 402,
+            });
+            await expect(
+                inCtx(() => target.list({ as: 'values' })),
+            ).rejects.toMatchObject({ statusCode: 402 });
+        });
+
+        it('still lets the account see which keys it has, so it can pick what to clear', async () => {
+            await inCtx(async () => {
+                await target.set({ key: 'keep', value: 'v' });
+                await target.set({ key: 'drop', value: 'v' });
+            });
+            await exhaust(actor);
+
+            const keys = await inCtx(() => target.list({ as: 'keys' }));
+            expect(keys).toEqual(expect.arrayContaining(['keep', 'drop']));
+
+            await expect(
+                inCtx(() => target.del({ key: 'drop' })),
+            ).resolves.toBe(true);
+            expect(await inCtx(() => target.list({ as: 'keys' }))).toEqual([
+                'keep',
+            ]);
+        });
+
+        it('still lets the account get rid of what it stored', async () => {
+            await inCtx(async () => {
+                await target.set({ key: 'k', value: 'v' });
+                await target.set({ key: 'obj', value: { a: 1, b: 2 } });
+            });
+            await exhaust(actor);
+
+            await expect(inCtx(() => target.del({ key: 'k' }))).resolves.toBe(
+                true,
+            );
+            await expect(
+                inCtx(() => target.remove({ key: 'obj', paths: ['a'] })),
+            ).resolves.not.toThrow();
+            await expect(inCtx(() => target.flush({}))).resolves.toBe(true);
+        });
+
+        it('exempts a worker session', async () => {
+            const worker = makeActor({
+                session: { uid: 'worker-session', kind: 'worker' },
+            });
+            await exhaust(worker);
+
+            await expect(
+                inCtx(() => target.set({ key: 'k', value: 'v' }), worker),
+            ).resolves.toBe(true);
+            await expect(
+                inCtx(() => target.get({ key: 'k' }), worker),
+            ).resolves.toBe('v');
         });
     });
 });

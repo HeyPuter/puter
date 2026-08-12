@@ -139,3 +139,7 @@ playwright-report/
 src/config.js
 ssl
 ssl/
+
+# Generated from the JSDoc in src/ by `npm run build:types`; shipped in the
+# published tarball (see `files`), never committed.
+/types/

@@ -4,16 +4,88 @@ import { PuterModule } from '../lib/PuterModule.js';
 import PuterDialog from './PuterDialog.js';
 import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
 
-/** @typedef {import('../../types/modules/auth').DetailedAppUsage} DetailedAppUsage */
-/** @typedef {import('../../types/modules/auth').MonthlyUsage} MonthlyUsage */
-/** @typedef {import('../../types/modules/auth').SignInResult} SignInResult */
-/** @typedef {import('../../types/modules/auth').User} User */
+/**
+ * Puter user details, as returned by `getUser()`.
+ *
+ * @typedef {Object} User
+ * @property {string} uuid Unique identifier of the user.
+ * @property {string} username The user's username.
+ * @property {boolean | number} [email_confirmed] Whether the user's email address has been confirmed.
+ * @property {number} [actual_free_storage] The user's free storage.
+ * @property {string} [app_name] The current active app.
+ * @property {number} [created_ts] When the account was created, in unix seconds. Only returned to user
+ * tokens — apps acting on a user's behalf do not receive it.
+ * @property {Record<string, unknown>} [feature_flags]
+ * @property {boolean} [hasDevAccountAccess]
+ * @property {boolean} [is_temp] Whether the user's account is temporary.
+ * @property {number} [last_activity_ts] The user's last active timestamp.
+ * @property {boolean} [otp]
+ * @property {number} [paid_storage] The amount of paid storage.
+ * @property {string} [referral_code] The user's referral code.
+ * @property {boolean | number} [requires_email_confirmation] Whether the user's account needs email confirmation.
+ * @property {boolean} [subscribed] Whether the user is subscribed.
+ */
+
+/**
+ * Information about the user's resource allowance and consumption.
+ *
+ * @typedef {Object} AllowanceInfo
+ * @property {number} monthUsageAllowance Total resource allowance for the month.
+ * @property {number} remaining The remaining allowance that can be used.
+ */
+
+/**
+ * Total usage for a single application.
+ *
+ * @typedef {Object} AppUsage
+ * @property {number} count Number of Puter API calls for the application.
+ * @property {number} total Total resources consumed by the application.
+ */
+
+/**
+ * Usage information for a single API.
+ *
+ * @typedef {Object} APIUsage
+ * @property {number} cost Total resource consumed by this API.
+ * @property {number} count Number of times the API is called.
+ * @property {number} units Units of measurement for the API (e.g. tokens for AI calls, bytes for FS
+ * operations).
+ */
+
+/**
+ * The user's monthly resource usage in the Puter ecosystem. Resources are
+ * measured in microcents (e.g. `$0.01` = `1,000,000`).
+ *
+ * @typedef {Object} MonthlyUsage
+ * @property {AllowanceInfo} allowanceInfo The user's resource allowance and consumption.
+ * @property {Record<string, AppUsage>} appTotals Total usage by application, keyed by application id.
+ * @property {Record<string, APIUsage>} usage Usage information per API, keyed by API name.
+ */
+
+/**
+ * Detailed resource usage statistics for a specific application. Resources are
+ * measured in microcents (e.g. `$0.01` = `1,000,000`).
+ *
+ * @typedef {{ total: number } & Record<string, APIUsage>} DetailedAppUsage
+ */
+
+/**
+ * The result of a sign-in operation.
+ *
+ * @typedef {Object} SignInResult
+ * @property {boolean} success Whether the sign-in operation was successful.
+ * @property {string} token The authentication token.
+ * @property {string} [app_uid] Unique identifier of the application.
+ * @property {string} [username] Username of the user who signed in.
+ * @property {string} [error] Error message if the sign-in operation failed.
+ * @property {string} [msg] Additional message about the sign-in operation.
+ */
 
 /**
  * The `puter.auth` module. Most Puter methods authenticate on their own; these
  * are for apps that drive the sign-in flow themselves.
  */
-class Auth extends PuterModule {
+export class AuthModule extends PuterModule {
     // Used to generate a unique message id for each message sent to the host environment
     // we start from 1 because 0 is falsy and we want to avoid that for the message id
     #messageID = 1;
@@ -322,5 +394,17 @@ class Auth extends PuterModule {
         return await resp.json();
     }
 }
+
+/**
+ * The public face of the module: derived from the class, with the internal
+ * `puter` handle and the legacy `authToken` accessor omitted.
+ *
+ * @typedef {import('../lib/types.js').OmitMembers<
+ *     typeof AuthModule,
+ *     'puter' | 'authToken'
+ * >} AuthConstructor
+ */
+
+export const Auth = /** @type {AuthConstructor} */ (AuthModule);
 
 export default Auth;

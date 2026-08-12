@@ -21,7 +21,6 @@ import type { RequestHandler } from 'express';
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
 import type { puterClients } from '../../../clients';
-import { FS_COSTS } from '../../../controllers/fs/costs';
 import type { puterServices } from '../../../services';
 import type { puterStores } from '../../../stores';
 import type { IConfig, LayerInstances } from '../../../types';
@@ -592,45 +591,20 @@ export const createPuterSiteMiddleware = (
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.status(statusOverride ?? (range ? 206 : 200));
 
-        // Best-effort egress metering against the site owner. The request
-        // itself is unauthenticated (public site visitor), so we can't use
-        // req.actor — charge the account that hosts the file. Same cost
-        // key as FS read egress (`filesystem:egress:bytes`). Fires once
-        // the body stream ends so we only meter bytes actually delivered
-        // (not aborted mid-stream).
-        const metering = layers.services.metering as unknown as
-            | {
-                  batchIncrementUsages?: (
-                      actor: unknown,
-                      entries: unknown[],
-                  ) => void;
-              }
-            | undefined;
-        if (metering?.batchIncrementUsages && download.contentLength) {
-            const ownerActor = {
-                user: {
-                    uuid: owner.uuid,
-                    id: owner.id,
-                    username: owner.username,
-                    suspended: !!owner.suspended,
-                },
-            };
-            download.body.once('end', () => {
-                try {
-                    const bytes = download.contentLength!;
-                    metering.batchIncrementUsages!(ownerActor, [
-                        {
-                            usageType: 'filesystem:egress:bytes',
-                            usageAmount: bytes,
-                            costOverride:
-                                FS_COSTS['filesystem:egress:bytes'] * bytes,
-                        },
-                    ]);
-                } catch {
-                    // ignore — non-critical.
-                }
-            });
-        }
+        // Name who this response's bytes are billed to; the egress middleware
+        // does the metering. A visitor carrying a token pays for what they
+        // fetch, and the account hosting the site covers everyone else —
+        // hosting is unauthenticated by design, so most visitors are nobody in
+        // particular. Set unconditionally because hosting subdomains are not
+        // metered by default: this is what opts the response in.
+        req.egressActor = req.actor ?? {
+            user: {
+                uuid: owner.uuid,
+                id: owner.id,
+                username: owner.username,
+                suspended: !!owner.suspended,
+            },
+        };
 
         req.on('close', () => download.body.destroy());
         download.body.on('error', (err) => res.destroy(err));

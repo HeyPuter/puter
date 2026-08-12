@@ -697,6 +697,36 @@ describe('MeteringService', () => {
             auxSpy.mockRestore();
         });
 
+        // The per-app aggregate is what an app's developer reads. Usage with no
+        // app behind it belongs to nobody there, and writing it anyway costs a
+        // record per shard on every increment — which, now that ordinary
+        // traffic is metered, is most of them.
+        it('writes no per-app aggregate for an actor with no app', async () => {
+            const auxSpy = vi.spyOn(server.stores.meteringBuffer, 'incrAux');
+            await target.batchIncrementUsages(actor, [
+                { usageType: 'egress:bytes', usageAmount: 10, costOverride: 1 },
+            ]);
+            const keys = auxSpy.mock.calls.map(([input]) => input.key);
+            expect(
+                keys.some((key) => key.startsWith(`${METRICS_PREFIX}:app:`)),
+            ).toBe(false);
+            auxSpy.mockRestore();
+        });
+
+        it('still writes the per-app aggregate for an app actor', async () => {
+            const appActor: Actor = { ...actor, app: { uid: 'batch-app' } };
+            await target.batchIncrementUsages(appActor, [
+                { usageType: 'egress:bytes', usageAmount: 10, costOverride: 1 },
+            ]);
+            await waitFor(async () => {
+                const usage = await target.getActorAppUsage(
+                    appActor,
+                    'batch-app',
+                );
+                expect(usage.total).toBe(1);
+            });
+        });
+
         it('raises an alarm for any negative costOverride in the batch', async () => {
             const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
             await target.batchIncrementUsages(actor, [
@@ -709,6 +739,228 @@ describe('MeteringService', () => {
                 'info',
             );
             alarmSpy.mockRestore();
+        });
+    });
+
+    // ── bufferIncrementUsages ────────────────────────────────────────
+
+    describe('bufferIncrementUsages', () => {
+        it('writes nothing until the buffer is flushed', async () => {
+            target.bufferIncrementUsages(actor, [
+                {
+                    usageType: 'egress:bytes',
+                    usageAmount: 100,
+                    costOverride: 5,
+                },
+            ]);
+            const before = await target.getActorCurrentMonthUsageDetails(actor);
+            expect(before.usage.total ?? 0).toBe(0);
+
+            await target.flushBufferedUsages();
+
+            const after = await target.getActorCurrentMonthUsageDetails(actor);
+            expect(after.usage.total).toBe(5);
+            expect(after.usage[escape('egress:bytes')]).toMatchObject({
+                units: 100,
+                cost: 5,
+            });
+        });
+
+        it('collapses an actor’s buffered usage into one write per type', async () => {
+            for (let i = 0; i < 5; i++) {
+                target.bufferIncrementUsages(actor, [
+                    {
+                        usageType: 'egress:bytes',
+                        usageAmount: 10,
+                        costOverride: 2,
+                    },
+                    {
+                        usageType: 'storage:read:ops',
+                        usageAmount: 1,
+                        costOverride: 1,
+                    },
+                ]);
+            }
+            const incrSpy = vi.spyOn(server.stores.meteringBuffer, 'incr');
+            await target.flushBufferedUsages();
+            expect(incrSpy).toHaveBeenCalledOnce();
+            incrSpy.mockRestore();
+
+            const { usage } =
+                await target.getActorCurrentMonthUsageDetails(actor);
+            expect(usage[escape('egress:bytes')]).toMatchObject({
+                units: 50,
+                cost: 10,
+                // One write stands in for all five requests.
+                count: 1,
+            });
+            expect(usage[escape('storage:read:ops')]).toMatchObject({
+                units: 5,
+                cost: 5,
+            });
+        });
+
+        it('keeps actors and their apps in separate buckets', async () => {
+            const other = makeActor();
+            const appActor: Actor = { ...actor, app: { uid: 'app-1' } };
+            target.bufferIncrementUsages(actor, [
+                { usageType: 'egress:bytes', usageAmount: 10, costOverride: 1 },
+            ]);
+            target.bufferIncrementUsages(appActor, [
+                { usageType: 'egress:bytes', usageAmount: 20, costOverride: 2 },
+            ]);
+            target.bufferIncrementUsages(other, [
+                { usageType: 'egress:bytes', usageAmount: 40, costOverride: 4 },
+            ]);
+            await target.flushBufferedUsages();
+
+            const mine = await target.getActorCurrentMonthUsageDetails(actor);
+            const theirs = await target.getActorCurrentMonthUsageDetails(other);
+            expect(mine.usage.total).toBe(3);
+            expect(theirs.usage.total).toBe(4);
+            await waitFor(async () => {
+                const appUsage = await target.getActorAppUsage(
+                    appActor,
+                    'app-1',
+                );
+                expect(appUsage.total).toBe(2);
+            });
+        });
+
+        it('ignores the system actor, empty lists, and unusable entries', async () => {
+            const incrSpy = vi.spyOn(server.stores.meteringBuffer, 'incr');
+            target.bufferIncrementUsages(SYSTEM_ACTOR, [
+                { usageType: 'egress:bytes', usageAmount: 1, costOverride: 1 },
+            ]);
+            target.bufferIncrementUsages(actor, []);
+            target.bufferIncrementUsages(actor, [
+                { usageType: '', usageAmount: 5, costOverride: 5 },
+                { usageType: 'egress:bytes', usageAmount: 0, costOverride: 5 },
+            ]);
+            await target.flushBufferedUsages();
+            expect(incrSpy).not.toHaveBeenCalled();
+            incrSpy.mockRestore();
+        });
+
+        // A cycle holds a bucket for every actor active in the window. Firing
+        // them all into one tick is how a flush becomes a latency spike for
+        // everything else on those connections.
+        it('paces the writes rather than releasing every bucket at once', async () => {
+            const concurrency = (target.constructor as typeof MeteringService)
+                .USAGE_FLUSH_CONCURRENCY;
+            let inFlight = 0;
+            let peak = 0;
+            const spy = vi
+                .spyOn(server.stores.meteringBuffer, 'incr')
+                .mockImplementation(async () => {
+                    inFlight++;
+                    peak = Math.max(peak, inFlight);
+                    await new Promise((resolve) => setTimeout(resolve, 1));
+                    inFlight--;
+                    return { res: { total: 0 }, exact: false };
+                });
+
+            try {
+                for (let i = 0; i < concurrency * 3; i++) {
+                    target.bufferIncrementUsages(makeActor(), [
+                        {
+                            usageType: 'egress:bytes',
+                            usageAmount: 1,
+                            costOverride: 1,
+                        },
+                    ]);
+                }
+                await target.flushBufferedUsages();
+                expect(spy).toHaveBeenCalledTimes(concurrency * 3);
+                expect(peak).toBeLessThanOrEqual(concurrency);
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it('joins a cycle already running instead of stacking another', async () => {
+            let started = 0;
+            const spy = vi
+                .spyOn(server.stores.meteringBuffer, 'incr')
+                .mockImplementation(async () => {
+                    started++;
+                    await new Promise((resolve) => setTimeout(resolve, 20));
+                    return { res: { total: 0 }, exact: false };
+                });
+
+            try {
+                target.bufferIncrementUsages(actor, [
+                    {
+                        usageType: 'egress:bytes',
+                        usageAmount: 1,
+                        costOverride: 1,
+                    },
+                ]);
+                await Promise.all([
+                    target.flushBufferedUsages(),
+                    target.flushBufferedUsages(),
+                    target.flushBufferedUsages(),
+                ]);
+                expect(started).toBe(1);
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it('flushes early once too many actors are buffered', async () => {
+            const limit = (target.constructor as typeof MeteringService)
+                .USAGE_BUFFER_LIMIT;
+            (target.constructor as typeof MeteringService).USAGE_BUFFER_LIMIT =
+                2;
+            try {
+                for (const each of [makeActor(), makeActor()]) {
+                    target.bufferIncrementUsages(each, [
+                        {
+                            usageType: 'egress:bytes',
+                            usageAmount: 1,
+                            costOverride: 1,
+                        },
+                    ]);
+                }
+                await waitFor(() => {
+                    expect(
+                        (
+                            target as unknown as {
+                                usageBuffer: Map<string, unknown>;
+                            }
+                        ).usageBuffer.size,
+                    ).toBe(0);
+                });
+            } finally {
+                (
+                    target.constructor as typeof MeteringService
+                ).USAGE_BUFFER_LIMIT = limit;
+            }
+        });
+
+        it('drains on prepare-shutdown, while the layers it writes through are up', async () => {
+            target.bufferIncrementUsages(actor, [
+                {
+                    usageType: 'egress:bytes',
+                    usageAmount: 4_096,
+                    costOverride: 512,
+                },
+            ]);
+
+            // Shutdown hooks run clients first, so a drain deferred to
+            // `onServerShutdown` would be writing through a closed stack.
+            await target.onServerPrepareShutdown();
+
+            expect(
+                (target as unknown as { usageBuffer: Map<string, unknown> })
+                    .usageBuffer.size,
+            ).toBe(0);
+            const { usage } =
+                await target.getActorCurrentMonthUsageDetails(actor);
+            expect(usage[escape('egress:bytes')]).toMatchObject({
+                units: 4_096,
+                cost: 512,
+            });
         });
     });
 
@@ -1054,6 +1306,149 @@ describe('MeteringService', () => {
             expect(
                 await target.hasEnoughCredits(actor, Number.MAX_SAFE_INTEGER),
             ).toBe(false);
+        });
+    });
+
+    // ── hasAnyUsageCached ────────────────────────────────────────────
+
+    describe('hasAnyUsageCached', () => {
+        type CreditCache = Map<
+            string,
+            { hasCredits: boolean; expiresAt: number }
+        >;
+        const creditCache = () =>
+            (target as unknown as { creditCache: CreditCache }).creditCache;
+        const creditRefreshes = () =>
+            (
+                target as unknown as {
+                    creditRefreshes: Map<string, Promise<void>>;
+                }
+            ).creditRefreshes;
+
+        it('answers the same as hasAnyUsage', async () => {
+            const sub = await target.getActorSubscription(actor);
+            expect(await target.hasAnyUsageCached(actor)).toBe(true);
+
+            await target.incrementUsage(
+                actor,
+                'kv:read',
+                1,
+                sub.monthUsageAllowance,
+            );
+            expect(await target.hasAnyUsageCached(actor)).toBe(false);
+        });
+
+        it('is answered by the increment that spent the budget, without a read of its own', async () => {
+            const sub = await target.getActorSubscription(actor);
+            // Nothing has asked about this actor yet, so the only thing that
+            // can have filled the cache is the increment itself.
+            expect(creditCache().has(actor.user.uuid!)).toBe(false);
+
+            await target.incrementUsage(
+                actor,
+                'kv:read',
+                1,
+                sub.monthUsageAllowance,
+            );
+
+            const entry = creditCache().get(actor.user.uuid!);
+            expect(entry?.hasCredits).toBe(false);
+
+            const usageSpy = vi.spyOn(target, 'getActorAddons');
+            expect(await target.hasAnyUsageCached(actor)).toBe(false);
+            expect(usageSpy).not.toHaveBeenCalled();
+            usageSpy.mockRestore();
+        });
+
+        it('serves a stale answer and replaces it behind the request', async () => {
+            expect(await target.hasAnyUsageCached(actor)).toBe(true);
+
+            const sub = await target.getActorSubscription(actor);
+            await server.stores.meteringBuffer.incr({
+                key: `${METRICS_PREFIX}:actor:${actor.user.uuid}:${new Date().toISOString().slice(0, 7)}`,
+                pathAndAmountMap: { total: sub.monthUsageAllowance },
+            });
+
+            const entry = creditCache().get(actor.user.uuid!)!;
+            entry.expiresAt = Date.now() - 1;
+
+            // The stale answer is what this call returns...
+            expect(await target.hasAnyUsageCached(actor)).toBe(true);
+            // ...and the refresh it kicked off is what the next one sees.
+            await creditRefreshes().get(actor.user.uuid!);
+            expect(await target.hasAnyUsageCached(actor)).toBe(false);
+        });
+
+        it('shares one refresh across concurrent callers with nothing cached', async () => {
+            expect(creditCache().has(actor.user.uuid!)).toBe(false);
+
+            const addonsSpy = vi.spyOn(target, 'getActorAddons');
+            const answers = await Promise.all(
+                Array.from({ length: 8 }, () =>
+                    target.hasAnyUsageCached(actor),
+                ),
+            );
+
+            expect(answers).toEqual(Array(8).fill(true));
+            // Without single-flight this is one read per caller — the cache is
+            // empty until the first refresh resolves, so every one of them
+            // misses.
+            expect(addonsSpy).toHaveBeenCalledTimes(1);
+            expect(creditRefreshes().size).toBe(0);
+            addonsSpy.mockRestore();
+        });
+
+        it('drops the cached answer when credit is added', async () => {
+            const sub = await target.getActorSubscription(actor);
+            await target.incrementUsage(
+                actor,
+                'kv:read',
+                1,
+                sub.monthUsageAllowance,
+            );
+            expect(await target.hasAnyUsageCached(actor)).toBe(false);
+
+            await target.updateAddonCredit(actor.user.uuid!, 5_000);
+            expect(await target.hasAnyUsageCached(actor)).toBe(true);
+        });
+
+        it('drops the cached answer when the subscription changes', async () => {
+            expect(await target.hasAnyUsageCached(actor)).toBe(true);
+            expect(creditCache().has(actor.user.uuid!)).toBe(true);
+
+            target.invalidateActorSubscription(actor.user.uuid!);
+            expect(creditCache().has(actor.user.uuid!)).toBe(false);
+        });
+
+        it('treats a policy with no metered allowance as never out of budget', async () => {
+            target.registerPolicy({
+                id: 'test-unmetered',
+                monthUsageAllowance: 0,
+                monthlyStorageAllowance: 0,
+            } as never);
+            target.registerSubscriptionResolver(() => 'test-unmetered');
+            target.invalidateActorSubscription(actor.user.uuid!);
+
+            const addonsSpy = vi.spyOn(target, 'getActorAddons');
+            expect(await target.hasAnyUsageCached(actor)).toBe(true);
+            // An unmetered policy has nothing to run out of, so the reads that
+            // would answer the question are never made.
+            expect(addonsSpy).not.toHaveBeenCalled();
+            addonsSpy.mockRestore();
+        });
+
+        it('does not block when the balance cannot be read', async () => {
+            const failing = vi
+                .spyOn(target, 'getActorAddons')
+                .mockRejectedValue(new Error('store down'));
+            expect(await target.hasAnyUsageCached(actor)).toBe(true);
+            failing.mockRestore();
+        });
+
+        it('has no answer to give for an actor with no user', async () => {
+            expect(await target.hasAnyUsageCached({ user: {} } as Actor)).toBe(
+                true,
+            );
         });
     });
 

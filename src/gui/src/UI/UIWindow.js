@@ -2214,7 +2214,8 @@ async function UIWindow (options) {
             $('.window').css('pointer-events', 'initial');
             const new_width = $(el_window_sidebar).width();
             // save new width in the cloud, to user's settings
-            puter.kv.set({ key: 'window_sidebar_width', value: new_width });
+            puter.kv.set({ key: 'window_sidebar_width', value: new_width })
+                .catch(err => console.warn('Could not save window_sidebar_width:', err));
             // save new width locally, to window object
             window.window_sidebar_width = new_width;
             window.a_window_sidebar_is_resizing = false;

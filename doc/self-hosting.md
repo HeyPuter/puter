@@ -370,6 +370,37 @@ Default is 100 MB per user.
 
 Set `is_storage_limited: false` for unlimited (bounded by host disk).
 
+### Usage metering and budgets
+
+Puter meters what an account costs to serve — bytes sent back, object-store
+requests, KV capacity, AI tokens — against a monthly budget, and refuses the
+operations that spend it once that budget is gone. The refusal is a `402` with
+code `insufficient_funds`; reads that only describe things, and every kind of
+deletion, stay available so an account can always see what it has and clear it.
+
+On a self-hosted install this is almost certainly not what you want. There is
+nowhere to buy more, so accounts are held to the free monthly allowance
+(US$0.25 of measured cost — roughly 2 GiB of downloads) and start being refused
+after that. Turn it off:
+
+```json
+"unlimitedMetering": true
+```
+
+Every account then resolves to an unlimited policy. Usage is still recorded, so
+the dashboard still shows what is being consumed; nothing is ever refused for
+lack of budget.
+
+To keep the budgets but stop them blocking anything — recording only:
+
+```json
+"meteringEnforcement": { "enabled": false }
+```
+
+Calls driven by a deployed worker are exempt from enforcement by default,
+because a worker has no prompt to show and nobody watching it fail. Set
+`"meteringEnforcement": { "workers": true }` to include them.
+
 ### Captcha on signup / login
 
 Built-in proof-of-work captcha — no external service needed.

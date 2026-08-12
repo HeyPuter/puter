@@ -9,7 +9,7 @@ import { req } from './lib/req.js';
  * permission and retries (with a short backoff to ride out server-side cache
  * invalidation), returning the fs item on success or `undefined` if denied.
  *
- * @param {import('../../../types/puter').Puter} puter
+ * @param {import('../../index.js').Puter} puter
  * @param {'read' | 'write'} access
  * @param {string | { uid: string }} appUidOrObject
  * @returns {Promise<Record<string, unknown> | undefined>}

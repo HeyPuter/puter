@@ -9,9 +9,59 @@ import {
     vi,
 } from 'vitest';
 import { setupTestServer } from '../../testUtil.ts';
-import type { SystemKVStore } from './SystemKVStore.ts';
+import {
+    chunkPathsForIncr,
+    INCR_EXPRESSION_BUDGET_BYTES,
+    incrExpressionBytes,
+    type SystemKVStore,
+} from './SystemKVStore.ts';
 import { PuterServer } from '../../server.ts';
 import type { Actor } from '../../core/actor.ts';
+
+describe('incr expression sizing', () => {
+    const longPath = (i: number): string =>
+        `together:meta-llama/Meta-Llama-3_dot_1-405B-Instruct-Turbo:kind${i}.units`;
+
+    it('grows with the length of the path names, not just their count', () => {
+        const long = Array.from({ length: 10 }, (_, i) => longPath(i));
+        const short = Array.from({ length: 10 }, (_, i) => `m${i}.units`);
+        expect(incrExpressionBytes(long)).toBeGreaterThan(
+            incrExpressionBytes(short),
+        );
+    });
+
+    it('keeps every batch within the budget', () => {
+        const paths = Array.from({ length: 120 }, (_, i) => longPath(i));
+        const batches = chunkPathsForIncr(paths);
+
+        expect(batches.length).toBeGreaterThan(1);
+        for (const batch of batches) {
+            expect(incrExpressionBytes(batch)).toBeLessThanOrEqual(
+                INCR_EXPRESSION_BUDGET_BYTES,
+            );
+        }
+        expect(batches.flat()).toEqual(paths);
+    });
+
+    it('leaves paths that already fit in a single batch', () => {
+        const paths = ['total', 'ai:chat.units', 'ai:chat.cost'];
+        expect(chunkPathsForIncr(paths)).toEqual([paths]);
+    });
+
+    it('still batches a path that cannot fit on its own', () => {
+        // A caller narrowing down a rejection needs the single-path attempt to
+        // happen rather than being handed nothing to try.
+        const enormous = `${'x'.repeat(INCR_EXPRESSION_BUDGET_BYTES)}.units`;
+        expect(chunkPathsForIncr([enormous, 'total'])).toEqual([
+            [enormous],
+            ['total'],
+        ]);
+    });
+
+    it('makes no batches out of no paths', () => {
+        expect(chunkPathsForIncr([])).toEqual([]);
+    });
+});
 
 describe('SystemKVStore', () => {
     let server: PuterServer;

@@ -2,7 +2,7 @@ import * as utils from '../../lib/utils.js';
 import { dataUriByteLength, isPlainObject, toDataUriIfBlob } from './lib/args.js';
 import { toAudioElement } from './lib/media.js';
 
-/** @typedef {import('../../../types/modules/ai').Speech2SpeechOptions} Speech2SpeechOptions */
+/** @typedef {import('./types.js').Speech2SpeechOptions} Speech2SpeechOptions */
 
 const MAX_INPUT_SIZE = 25 * 1024 * 1024;
 

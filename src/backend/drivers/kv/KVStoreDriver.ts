@@ -33,6 +33,7 @@ import {
     appDataSharingAllowed,
 } from '../../services/permission/appDataScopes.js';
 import type { KVOpts, KVUsage } from '../../stores/systemKv/SystemKVStore.js';
+import { assertActorHasCredits } from '../../services/metering/enforcement.js';
 import { KV_COSTS } from './costs.js';
 
 /**
@@ -44,6 +45,18 @@ type KvCallArgs = {
     expireAt?: unknown;
     ttl?: unknown;
 };
+
+/**
+ * Methods that stay available to an account with nothing left of its budget.
+ * Each one only ever reduces what the account is storing, and turning those
+ * away would leave no way to stop spending other than paying.
+ *
+ * `list` is here for the step before that: deleting a key means knowing it
+ * exists, and `flush` — the only alternative — takes everything. It is gated
+ * again inside the method for the forms that return values, which are a read
+ * like any other.
+ */
+const CREDIT_UNGATED_KV_METHODS = new Set(['del', 'remove', 'flush', 'list']);
 
 /**
  * KV store driver implementing the `puter-kvstore` interface.
@@ -138,6 +151,19 @@ export class KVStoreDriver extends PuterDriver {
 
     async #opts(method: string, args: KvCallArgs): Promise<KVOpts> {
         const actor = Context.get('actor') as Actor | undefined;
+
+        // Every method resolves its options here first, so this is the one
+        // place the budget gate has to go. `CREDIT_UNGATED_KV_METHODS` is what
+        // stays reachable after it: an account that has run out still has to be
+        // able to get its data out of the way of the next thing it stores.
+        if (!CREDIT_UNGATED_KV_METHODS.has(method)) {
+            await assertActorHasCredits(
+                this.services.metering,
+                actor,
+                this.config,
+            );
+        }
+
         const appUuid = args.optConfig?.appUuid;
         // Through the issuer chain, not `actor.app`: an access-token actor
         // carries no app of its own, so keying off `app` would read a token an
@@ -255,6 +281,19 @@ export class KVStoreDriver extends PuterDriver {
                         (e as Error).message,
                     ),
                 );
+        }
+        if (usage.cachedRead > 0) {
+            // A tenth of a read's rate is small enough that a metering write per
+            // call would cost more than the call records, which would undo the
+            // saving the cache exists for. Buffered in with the actor's other
+            // sub-microcent usage and written once for all of it.
+            metering.bufferIncrementUsages(actor, [
+                {
+                    usageType: 'kv:read:cached',
+                    usageAmount: usage.cachedRead,
+                    costOverride: KV_COSTS['kv:read:cached'] * usage.cachedRead,
+                },
+            ]);
         }
         if (usage.write > 0) {
             void metering
@@ -395,6 +434,16 @@ export class KVStoreDriver extends PuterDriver {
         optConfig?: { appUuid?: string };
     }): Promise<unknown> {
         const opts = await this.#opts('list', args);
+        // Naming what it holds is how an account with nothing left decides what
+        // to delete, so the keys stay readable. Reading the values back out is
+        // the same egress every other read is turned away for.
+        if (args.as !== 'keys') {
+            await assertActorHasCredits(
+                this.services.metering,
+                opts.actor,
+                this.config,
+            );
+        }
         const { res, usage } = await this.stores.kv.list(
             {
                 as: args.as,

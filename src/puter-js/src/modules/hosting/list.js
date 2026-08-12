@@ -2,7 +2,7 @@ import * as utils from '../../lib/utils.js';
 import { fetchAllPages, iteratePages } from '../../lib/pagination.js';
 import { PuterJSError } from '../../lib/PuterJSError.js';
 
-/** @typedef {import('../../../types/modules/hosting').Subdomain} Subdomain */
+/** @typedef {import('./types.js').Subdomain} Subdomain */
 
 // Older backends include worker-backed subdomain rows in select results;
 // current ones exclude them server-side. Filtering here keeps the SDK's output
@@ -12,13 +12,13 @@ const withoutWorkerRows = (items) =>
 
 /**
  * @overload
- * @param {import('../../../types/shared').ListStreamOptions} options
- * @returns {AsyncIterableIterator<import('../../../types/shared').ListPage<Subdomain>>}
+ * @param {import('../../lib/types.js').ListStreamOptions} options
+ * @returns {AsyncIterableIterator<import('../../lib/types.js').ListPage<Subdomain>>}
  */
 /**
  * @overload
- * @param {import('../../../types/shared').ListPaginationOptions & ({ cursor: string | null } | { includeTotal: true })} options
- * @returns {Promise<import('../../../types/shared').ListPage<Subdomain>>}
+ * @param {import('../../lib/types.js').ListPaginationOptions & ({ cursor: string | null } | { includeTotal: true })} options
+ * @returns {Promise<import('../../lib/types.js').ListPage<Subdomain>>}
  */
 /**
  * @overload
@@ -36,7 +36,7 @@ const withoutWorkerRows = (items) =>
  *
  * @this {import('./index.js').HostingModule}
  * @param {...unknown} args
- * @returns {Promise<Subdomain[]> | Promise<import('../../../types/shared').ListPage<Subdomain>> | AsyncIterableIterator<import('../../../types/shared').ListPage<Subdomain>>}
+ * @returns {Promise<Subdomain[]> | Promise<import('../../lib/types.js').ListPage<Subdomain>> | AsyncIterableIterator<import('../../lib/types.js').ListPage<Subdomain>>}
  */
 export function list (...args) {
     const { puter } = this;
