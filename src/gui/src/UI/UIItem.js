@@ -17,7 +17,6 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import UIWindowPublishWebsite from './UIWindowPublishWebsite.js';
 import UIWindowItemProperties from './UIWindowItemProperties.js';
 import UIWindowSaveAccount from './UIWindowSaveAccount.js';
 import UIPopover from './UIPopover.js';
@@ -29,6 +28,7 @@ import path from '../lib/path.js';
 import truncate_filename from '../helpers/truncate_filename.js';
 import launch_app from '../helpers/launch_app.js';
 import open_item from '../helpers/open_item.js';
+import publish_as_website from '../helpers/publish_as_website.js';
 import mime from '../lib/mime.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js';
 
@@ -1280,25 +1280,11 @@ async function UIItem (options) {
                     html: i18n('publish_as_website'),
                     disabled: !options.is_dir,
                     onClick: async function () {
-                        if ( window.require_email_verification_to_publish_website ) {
-                            if ( window.user.is_temp &&
-                                !await UIWindowSaveAccount({
-                                    send_confirmation_code: true,
-                                    message: 'Please create an account to proceed.',
-                                    window_options: {
-                                        backdrop: true,
-                                        close_on_backdrop_click: false,
-                                    },
-                                }) )
-                            {
-                                return;
-                            }
-                            else if ( !window.user.email_confirmed && !await UIWindowEmailConfirmationRequired() )
-                            {
-                                return;
-                            }
-                        }
-                        UIWindowPublishWebsite(options.uid, $(el_item).attr('data-name'), $(el_item).attr('data-path'));
+                        await publish_as_website({
+                            uid: options.uid,
+                            name: $(el_item).attr('data-name'),
+                            path: $(el_item).attr('data-path'),
+                        });
                     },
                 });
 

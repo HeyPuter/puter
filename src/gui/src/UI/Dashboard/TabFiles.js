@@ -29,6 +29,7 @@ import truncate_filename from '../../helpers/truncate_filename.js';
 import update_title_based_on_uploads from '../../helpers/update_title_based_on_uploads.js';
 import item_icon from '../../helpers/item_icon.js';
 import new_context_menu_item from '../../helpers/new_context_menu_item.js';
+import publish_as_website from '../../helpers/publish_as_website.js';
 import ContextMenuModal from './ContextMenu/ContextMenu.js';
 import UIItemPropertiesModal from './UIItemPropertiesModal.js';
 
@@ -3782,6 +3783,7 @@ const TabFiles = {
         if ( ! targetPath ) return [];
 
         const isTrashFolder = targetPath === window.trash_path;
+        const isTrashedPath = targetPath.startsWith(`${window.trash_path}/`);
         const items = [];
 
         // New submenu (folder, text document, etc.) - not available in Trash
@@ -3979,6 +3981,45 @@ const TabFiles = {
                 html: i18n('empty_trash'),
                 onClick: function () {
                     window.empty_trash();
+                },
+            });
+        }
+
+        // Publish As Website and Properties act on the folder the menu was
+        // opened on, not on the listing's selection. The filesystem root isn't
+        // a real fsentry, and Trash itself only offers Empty Trash — same as
+        // the desktop's folder menus.
+        if ( targetPath !== '/' && ! isTrashFolder ) {
+            const targetName = path.basename(targetPath);
+
+            items.push('-');
+
+            if ( ! isTrashedPath ) {
+                items.push({
+                    html: i18n('publish_as_website'),
+                    onClick: async function () {
+                        // Publishing works off the path, but the uid is what
+                        // refreshes the folder's website badge if its row is on
+                        // screen — the dashboard tracks paths, so look it up.
+                        let uid;
+                        try {
+                            uid = (await puter.fs.stat({ path: targetPath, consistency: 'eventual' }))?.uid;
+                        } catch ( err ) {
+                            // Badge refresh is best-effort; publish still works.
+                        }
+                        await publish_as_website({ uid, name: targetName, path: targetPath });
+                    },
+                });
+            }
+
+            items.push({
+                html: i18n('properties'),
+                onClick: function () {
+                    UIItemPropertiesModal({
+                        name: targetName,
+                        path: targetPath,
+                        $container: _this.$el_window,
+                    });
                 },
             });
         }
