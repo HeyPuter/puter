@@ -66,8 +66,7 @@ const makeUser = async () => {
     return { userId: created.id, username, actor };
 };
 
-const listFor = (actor: Actor) =>
-    listRootEntries(actor, fsEntryStore, permissionService);
+const listFor = (actor: Actor) => listRootEntries(actor, fsEntryStore);
 
 describe('listRootEntries', () => {
     it('shows the actor their own home directory, exactly once', async () => {
@@ -91,7 +90,7 @@ describe('listRootEntries', () => {
         );
     });
 
-    it('adds the home of every user who has granted the actor a permission', async () => {
+    it('leaves an issuer’s home out of root when only a file was shared', async () => {
         const holder = await makeUser();
         const issuer = await makeUser();
         const shared = (await fsEntryStore.getEntryByPath(
@@ -105,9 +104,11 @@ describe('listRootEntries', () => {
 
         const entries = await listFor(holder.actor);
 
-        expect(entries.map((entry) => entry.path).sort()).toEqual(
-            [`/${holder.username}`, `/${issuer.username}`].sort(),
-        );
+        // Listing it here would advertise a folder readdir then refuses to
+        // open: the grant is on Documents, which says nothing about its parent.
+        expect(entries.map((entry) => entry.path)).toEqual([
+            `/${holder.username}`,
+        ]);
     });
 
     it('heals a home row whose path drifted from the username', async () => {

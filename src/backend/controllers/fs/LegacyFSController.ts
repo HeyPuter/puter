@@ -484,7 +484,6 @@ export class LegacyFSController extends PuterController {
             const rootChildren = await listRootEntries(
                 actor,
                 this.stores.fsEntry,
-                this.services.permission,
             );
             const rootSuggestions =
                 await this.services.suggestedApps.getSuggestedAppsForEntries(
