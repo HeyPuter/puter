@@ -149,6 +149,14 @@ async function UIWindowAppFeedback (options) {
             if ( e.key === 'Escape' && ! sending ) close();
         });
         $overlay.on('mousedown', (e) => {
+            // A press anywhere in the overlay must not reach initgui's global
+            // mousedown -> focusWindow path: mouseover_window is computed
+            // geometrically (blind to this overlay), so focusWindow would
+            // focus the app window's iframe underneath — stealing keyboard
+            // focus from the textarea and forwarding the click into the app.
+            // This handler runs before the document-level one, and undefined
+            // is the only value its guard skips.
+            window.mouseover_window = undefined;
             if ( e.target === $overlay.get(0) && ! sending ) close();
         });
         // Same in-flight gate as Escape/backdrop: closing while the POST is
