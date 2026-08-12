@@ -26,4 +26,10 @@ export const OPEN_ROUTER_MODEL_OVERRIDES: IChatModel[] = [
         subscriberOnly: true,
         minimumCredits: toMicroCents(2),
     } as IChatModel,
+    {
+        // OpenRouter names this model "Liquid AI: LFM2.5-2.6B (free)"; drop
+        // the redundant "(free)" suffix (the ":free" id already conveys it).
+        id: 'openrouter:liquid/lfm-2.5-2.6b:free',
+        name: 'Liquid AI: LFM2.5-2.6B (OpenRouter)',
+    } as IChatModel,
 ];
