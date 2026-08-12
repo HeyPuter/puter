@@ -25,6 +25,7 @@ import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequir
 import UIContextMenu from './UIContextMenu.js';
 import UIAlert from './UIAlert.js';
 import UIWindowPublishWorker from './UIWindowPublishWorker.js';
+import UIWindowShare from './UIWindowShare.js';
 import path from '../lib/path.js';
 import truncate_filename from '../helpers/truncate_filename.js';
 import launch_app from '../helpers/launch_app.js';
@@ -129,6 +130,9 @@ async function UIItem (options) {
     options.is_selected = options.is_selected ?? false;
     options.is_shortcut = options.is_shortcut ?? 0;
     options.is_trash = options.is_trash ?? false;
+    options.shared_with_me = options.shared_with_me ?? false;
+    options.share_mode = options.share_mode ?? '';
+    options.shared_by = options.shared_by ?? '';
     options.metadata = options.metadata ?? '';
     options.multiselectable = (options.multiselectable === undefined || options.multiselectable === true) ? true : false;
     options.shortcut_to = options.shortcut_to ?? '';
@@ -161,6 +165,9 @@ async function UIItem (options) {
                 data-uid="${options.uid}" 
                 data-is_dir="${options.is_dir ? 1 : 0}" 
                 data-is_trash="${options.is_trash ? 1 : 0}"
+                data-shared_with_me="${options.shared_with_me ? 1 : 0}"
+                data-share_mode="${html_encode(options.share_mode)}"
+                data-shared_by="${html_encode(options.shared_by)}"
                 data-has_website="${show_website_badge ? 1 : 0 }" 
                 data-website_url = "${website_url ? html_encode(website_url) : ''}"
                 data-immutable="${options.immutable}" 
@@ -1134,6 +1141,7 @@ async function UIItem (options) {
         // -------------------------------------------------------
         else {
             const is_trash = $(el_item).attr('data-path') === window.trash_path || $(el_item).attr('data-shortcut_to_path') === window.trash_path;
+            const is_shared_with_me = $(el_item).attr('data-shared_with_me') === '1';
             const is_shortcut = !! $(el_item).attr('data-shortcut_to_path');
             const is_weblink = isWeblinkName($(el_item).attr('data-name'));
             menu_items = [];
@@ -1569,9 +1577,45 @@ async function UIItem (options) {
                 menu_items.push(weblinkChangeIconMenuItem(el_item));
             }
             // -------------------------------------------
+            // Share
+            // -------------------------------------------
+            if ( !is_trash && !is_trashed && !is_shared_with_me ) {
+                menu_items.push({
+                    html: i18n('share_ellipsis'),
+                    onClick: async function () {
+                        UIWindowShare({
+                            path: $(el_item).attr('data-path'),
+                            name: $(el_item).attr('data-name'),
+                        });
+                    },
+                });
+            }
+            // -------------------------------------------
+            // Remove from Shared
+            // -------------------------------------------
+            // Someone else owns this, so deleting it would move their file into
+            // our trash — which the backend refuses. Give up our own access
+            // instead, which is what "remove it from my view" actually means.
+            if ( is_shared_with_me ) {
+                menu_items.push({
+                    html: i18n('share_remove_from_shared'),
+                    onClick: async function () {
+                        try {
+                            await puter.fs.unshare(
+                                $(el_item).attr('data-path'),
+                                window.user.username,
+                            );
+                            $(el_item).removeItems();
+                        } catch (e) {
+                            UIAlert({ message: e?.message ?? i18n('error') });
+                        }
+                    },
+                });
+            }
+            // -------------------------------------------
             // Delete
             // -------------------------------------------
-            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed ) {
+            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_shared_with_me ) {
                 menu_items.push({
                     html: i18n('delete'),
                     onClick: async function () {
