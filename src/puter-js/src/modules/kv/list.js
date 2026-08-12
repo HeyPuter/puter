@@ -2,16 +2,16 @@ import * as utils from '../../lib/utils.js';
 import { fetchAllPages, iteratePages } from '../../lib/pagination.js';
 import { isObject, isOptConfigShorthand } from './lib/args.js';
 
-/** @typedef {import('../../../types/modules/kv').KVListOptions} KVListOptions */
+/** @typedef {import('./types.js').KVListOptions} KVListOptions */
 /**
  * @template [T=unknown]
- * @typedef {import('../../../types/modules/kv').KVListPage<T>} KVListPage
+ * @typedef {import('./types.js').KVListPage<T>} KVListPage
  */
-/** @typedef {import('../../../types/modules/kv').KVListPaginationOptions} KVListPaginationOptions */
-/** @typedef {import('../../../types/modules/kv').KVOptConfig} KVOptConfig */
+/** @typedef {import('./types.js').KVListPaginationOptions} KVListPaginationOptions */
+/** @typedef {import('./types.js').KVOptConfig} KVOptConfig */
 /**
  * @template [T=unknown]
- * @typedef {import('../../../types/modules/kv').KVPair<T>} KVPair
+ * @typedef {import('./types.js').KVPair<T>} KVPair
  */
 
 // Page size the SDK uses when it pages on the caller's behalf (full listings

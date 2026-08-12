@@ -1,12 +1,51 @@
 import { fetchUrl } from '../lib/networkUtils.js';
 import { PuterModule } from '../lib/PuterModule.js';
 
-/** @typedef {import('../../types/modules/peer').PuterPeerMessage} PuterPeerMessage */
-/** @typedef {import('../../types/modules/peer').PuterPeerOptions} PuterPeerOptions */
+/**
+ * Options for `puter.peer.serve()` and `puter.peer.connect()`.
+ *
+ * @typedef {Object} PuterPeerOptions
+ * @property {RTCIceServer[]} [iceServers] Custom ICE servers (STUN/TURN) to use instead of the
+ * Puter-managed relays.
+ * @property {boolean} [forceRelay] Route every candidate through a TURN relay.
+ * @property {string} [anonToken] Connect without a Puter session, using a token the server issued.
+ */
 
-class PuterPeerServerConnectionEvent extends Event {
+/**
+ * Metadata about a peer user.
+ *
+ * @typedef {Object} PuterPeerUser
+ * @property {string} username
+ * @property {string} uuid
+ */
+
+/** @typedef {string | Blob | ArrayBuffer | ArrayBufferView} PuterPeerMessage */
+/** @typedef {RTCSessionDescription | RTCSessionDescriptionInit} PuterPeerDescription */
+/** @typedef {RTCIceCandidate | RTCIceCandidateInit} PuterPeerIceCandidate */
+
+/**
+ * Dispatched by `PuterPeerServer` for the `'connection'` event when a client
+ * connects.
+ */
+export class PuterPeerServerConnectionEvent extends Event {
+    /**
+     * The connection to the client.
+     *
+     * @type {PuterPeerConnection}
+     */
     conn;
+
+    /**
+     * Metadata about the connecting user, when available.
+     *
+     * @type {PuterPeerUser | undefined}
+     */
     user;
+
+    /**
+     * @param {PuterPeerConnection} connection
+     * @param {PuterPeerUser} [user]
+     */
     constructor (connection, user) {
         super('connection');
         this.conn = connection;
@@ -14,30 +53,63 @@ class PuterPeerServerConnectionEvent extends Event {
     }
 }
 
-class PuterPeerConnectionMessageEvent extends Event {
+/**
+ * Dispatched by `PuterPeerConnection` for the `'message'` event when a message
+ * is received.
+ */
+export class PuterPeerConnectionMessageEvent extends Event {
+    /**
+     * The received message payload.
+     *
+     * @type {ArrayBuffer | string}
+     */
     data;
+
+    /** @param {ArrayBuffer | string} message */
     constructor (message) {
         super('message');
         this.data = message;
     }
 }
 
-class PuterPeerConnectionOpenEvent extends Event {
+/**
+ * Dispatched by `PuterPeerConnection` for the `'open'` event when the data
+ * channel is ready.
+ */
+export class PuterPeerConnectionOpenEvent extends Event {
     constructor () {
         super('open');
     }
 }
 
-class PuterPeerConnectionCloseEvent extends Event {
+/**
+ * Dispatched by `PuterPeerConnection` for the `'close'` event when the
+ * connection closes.
+ */
+export class PuterPeerConnectionCloseEvent extends Event {
+    /**
+     * The reason the connection was closed, if one was provided.
+     *
+     * @type {string | undefined}
+     */
     reason;
+
+    /** @param {string} [reason] */
     constructor (reason = undefined) {
         super('close');
         this.reason = reason;
     }
 }
 
-class PuterPeerConnectionErrorEvent extends Event {
+/**
+ * Dispatched by `PuterPeerConnection` for the `'error'` event when a connection
+ * error occurs.
+ */
+export class PuterPeerConnectionErrorEvent extends Event {
+    /** @type {string} */
     error;
+
+    /** @param {string} error */
     constructor (error) {
         super('error');
         this.error = error;
@@ -203,14 +275,18 @@ export class PuterPeerServer extends EventTarget {
     }
 }
 
-class PuterPeerConnection extends EventTarget {
+/**
+ * A WebRTC data-channel connection to a peer. Emits `'open'`, `'message'`,
+ * `'close'`, and `'error'` events.
+ */
+export class PuterPeerConnection extends EventTarget {
     #wsconn;
     peerconnection;
 
     /**
      * Information about the user who created the server.
      *
-     * @type {import('../../types/modules/peer').PuterPeerUser | undefined}
+     * @type {PuterPeerUser | undefined}
      */
     owner;
     #peerConfig;
@@ -419,7 +495,12 @@ class PuterPeerConnection extends EventTarget {
     }
 }
 
-class Peer extends PuterModule {
+/**
+ * The `puter.peer` API. Provides WebRTC data channels with built-in signaling
+ * and TURN relays for connecting clients directly without your own signaling
+ * server. Peer connections require authentication.
+ */
+export class PeerModule extends PuterModule {
     #signallerUrl;
     #turnServers;
     #fallbackIceServers;
@@ -531,5 +612,17 @@ class Peer extends PuterModule {
         return conn;
     }
 }
+
+/**
+ * The public face of the module: derived from the class, with the internal
+ * `puter` handle and the legacy `authToken` accessor omitted.
+ *
+ * @typedef {import('../lib/types.js').OmitMembers<
+ *     typeof PeerModule,
+ *     'puter' | 'authToken'
+ * >} PeerConstructor
+ */
+
+export const Peer = /** @type {PeerConstructor} */ (PeerModule);
 
 export default Peer;

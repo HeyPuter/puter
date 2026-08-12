@@ -2,11 +2,11 @@ import * as utils from '../../lib/utils.js';
 import { hasTestModeFlag } from './lib/args.js';
 import { toAudioElement } from './lib/media.js';
 
-/** @typedef {import('../../../types/modules/ai').ListTTSEnginesOptions} ListTTSEnginesOptions */
-/** @typedef {import('../../../types/modules/ai').ListTTSVoicesOptions} ListTTSVoicesOptions */
-/** @typedef {import('../../../types/modules/ai').TTSEngine} TTSEngine */
-/** @typedef {import('../../../types/modules/ai').TTSVoice} TTSVoice */
-/** @typedef {import('../../../types/modules/ai').Txt2SpeechOptions} Txt2SpeechOptions */
+/** @typedef {import('./types.js').ListTTSEnginesOptions} ListTTSEnginesOptions */
+/** @typedef {import('./types.js').ListTTSVoicesOptions} ListTTSVoicesOptions */
+/** @typedef {import('./types.js').TTSEngine} TTSEngine */
+/** @typedef {import('./types.js').TTSVoice} TTSVoice */
+/** @typedef {import('./types.js').Txt2SpeechOptions} Txt2SpeechOptions */
 
 const MAX_INPUT_SIZE = 3000;
 

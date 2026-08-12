@@ -1,7 +1,7 @@
 import * as utils from '../../lib/utils.js';
 import { isObject, parseOptConfigThenCallbacks } from './lib/args.js';
 
-/** @typedef {import('../../../types/modules/kv').KVOptConfig} KVOptConfig */
+/** @typedef {import('./types.js').KVOptConfig} KVOptConfig */
 
 const flushDriverCall = (puter, args) =>
     utils.makeDriverMethod({ iface: 'puter-kvstore', method: 'flush', puter })(args);

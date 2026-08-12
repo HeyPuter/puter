@@ -35,6 +35,7 @@ import {
 } from '../../core/http/middleware/gates.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { ACLService } from '../../services/acl/ACLService.js';
+import { assertActorHasCredits } from '../../services/metering/enforcement.js';
 import type { SignedFile } from '../../util/fileSigning.js';
 import { verifySignature } from '../../util/fileSigning.js';
 import {
@@ -61,7 +62,6 @@ import {
     FS_SIGNED_WRITE_LIMIT,
     FS_STAT_LIMIT,
 } from './limits.js';
-import { FS_COSTS } from './costs.js';
 import {
     asRecord,
     assertAccess,
@@ -116,6 +116,14 @@ export class LegacyFSController extends PuterController {
             subdomain: 'api',
             requireVerified: true,
         } as RouteOptions;
+        // Operations that move file content or make object-store requests on
+        // the caller's behalf, and so are refused to an account with nothing
+        // left of its budget. The metadata routes above deliberately aren't:
+        // an account that has run out still has to be able to look at what it
+        // has and delete it. The signature-authorised routes aren't either —
+        // they carry no session to answer for, and `/sign` (which does) is
+        // where the URL that reaches them is minted.
+        const spends = { ...apiOptions, requireCredits: true } as RouteOptions;
         // Signed-URL routes: the handler validates the URL signature itself,
         // so no auth gate is applied (matches v1, which mounted these routers
         // with no middleware).
@@ -139,7 +147,7 @@ export class LegacyFSController extends PuterController {
             this.readdir,
         );
         router.post('/mkdir', mutate, this.mkdir);
-        router.post('/copy', mutate, this.copy);
+        router.post('/copy', { ...mutate, requireCredits: true }, this.copy);
         router.post('/move', mutate, this.move);
         router.post('/delete', mutate, this.delete);
         router.post('/rename', mutate, this.rename);
@@ -156,7 +164,7 @@ export class LegacyFSController extends PuterController {
         router.get(
             '/read',
             {
-                ...apiOptions,
+                ...spends,
                 rateLimit: FS_READ_LIMIT,
                 concurrent: FS_READ_CONCURRENT,
             },
@@ -178,7 +186,7 @@ export class LegacyFSController extends PuterController {
         router.post(
             '/batch',
             {
-                ...apiOptions,
+                ...spends,
                 rateLimit: FS_BATCH_LIMIT,
                 concurrent: FS_BATCH_CONCURRENT,
             },
@@ -188,7 +196,10 @@ export class LegacyFSController extends PuterController {
         // Signed-URL + meta routes.
         router.post(
             '/sign',
-            { ...apiOptions, rateLimit: FS_SIGN_LIMIT },
+            // Gated even though it moves nothing itself: the URL it returns
+            // outlives the request and is served by a route with no session to
+            // check, so this is the last point at which the account is known.
+            { ...spends, rateLimit: FS_SIGN_LIMIT },
             this.sign,
         );
         router.post(
@@ -249,6 +260,7 @@ export class LegacyFSController extends PuterController {
                 // (CSRF can't forge a header-credentialed request).
                 allowFullAccessToken: true,
                 requireVerified: true,
+                requireCredits: true,
                 antiCsrf: true,
                 rateLimit: FS_READ_LIMIT,
                 concurrent: FS_READ_CONCURRENT,
@@ -816,9 +828,7 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                | Record<string, unknown>
-                | null
-                | undefined,
+                Record<string, unknown> | null | undefined,
         });
         const oldPath = source.path;
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
@@ -1184,32 +1194,6 @@ export class LegacyFSController extends PuterController {
         );
         res.status(range ? 206 : 200);
 
-        // Best-effort egress metering.
-        const metering = this.services.metering as
-            | {
-                  batchIncrementUsages?: (
-                      actor: unknown,
-                      entries: unknown[],
-                  ) => void;
-              }
-            | undefined;
-        if (metering?.batchIncrementUsages && download.contentLength) {
-            download.body.once('end', () => {
-                try {
-                    const bytes = download.contentLength!;
-                    metering.batchIncrementUsages!(actor, [
-                        {
-                            usageType: 'filesystem:egress:bytes',
-                            usageAmount: bytes,
-                            costOverride:
-                                FS_COSTS['filesystem:egress:bytes'] * bytes,
-                        },
-                    ]);
-                } catch {
-                    // ignore — non-critical.
-                }
-            });
-        }
         download.body.on('error', (err) => {
             res.destroy(err);
         });
@@ -1241,6 +1225,17 @@ export class LegacyFSController extends PuterController {
 
         req.actor = assertResolvedActor(actor!);
         Context.set('actor', actor);
+
+        // And the budget gate the other read routes declare with
+        // `requireCredits`. The global auth probe only looks for `auth_token`,
+        // so `?token=` leaves `req.actor` unset for the whole gate chain and
+        // the declarative form would wave every request through — this streams
+        // file content like `/read` does, so it is refused on the same terms.
+        await assertActorHasCredits(
+            this.services.metering,
+            req.actor,
+            this.config,
+        );
 
         // Forward back to regular read after setting actor
         return this.read(req, res, undefined, { realMime: true });
@@ -1279,8 +1274,7 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            | (SignedFile & { path?: string })
-            | Record<string, never>;
+            (SignedFile & { path?: string }) | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1629,6 +1623,23 @@ export class LegacyFSController extends PuterController {
             });
         }
 
+        // Name who this response's bytes are billed to. A signature authorises
+        // access to a file; it says nothing about who is asking, so an
+        // unidentified caller is billed to the account whose file it is —
+        // otherwise a signed URL is a way to serve content for free. A caller
+        // who did identify themselves pays for what they fetch, as on a hosted
+        // site.
+        if (owner?.uuid) {
+            req.egressActor = req.actor ?? {
+                user: {
+                    uuid: owner.uuid,
+                    id: owner.id,
+                    username: owner.username,
+                    suspended: !!(owner as { suspended?: unknown }).suspended,
+                },
+            };
+        }
+
         // Directory: return a signed listing of direct children.
         // The caller only proved read access, so strip write_url from
         // each child to prevent privilege escalation via /writeFile.
@@ -1829,10 +1840,7 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            | 'see'
-            | 'list'
-            | 'read'
-            | 'write';
+            'see' | 'list' | 'read' | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',

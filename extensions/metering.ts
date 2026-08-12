@@ -3,6 +3,7 @@ import { HttpError } from '@heyputer/backend/src/core/http';
 import {
     controllersContainers,
     driversContainers,
+    servicesContainers,
 } from '@heyputer/backend/src/exports';
 import { extension } from '@heyputer/backend/src/extensions';
 import type { Request, Response } from 'express';
@@ -18,7 +19,7 @@ function collectAllCosts(): Record<string, unknown>[] {
     const all: Record<string, unknown>[] = [];
     const collect = (
         source: Record<string, unknown>,
-        kind: 'driver' | 'controller',
+        kind: 'driver' | 'controller' | 'service',
     ) => {
         for (const [name, instance] of Object.entries(source)) {
             const fn = (
@@ -43,6 +44,9 @@ function collectAllCosts(): Record<string, unknown>[] {
     };
     collect(driversContainers as Record<string, unknown>, 'driver');
     collect(controllersContainers as Record<string, unknown>, 'controller');
+    // Services report the costs that aren't tied to one endpoint — egress,
+    // which is metered for every response there is.
+    collect(servicesContainers as Record<string, unknown>, 'service');
     return all;
 }
 

@@ -176,7 +176,7 @@ export async function fsRequest (spec) {
  * up first.
  *
  * The operation is returned as `T`, so each operation declares its own public
- * signature (matching `types/modules/filesystem.d.ts`) where it is defined.
+ * signature where it is defined.
  *
  * @template {(...args: any[]) => Promise<unknown>} [T=(this: FileSystemModule, ...args: unknown[]) => Promise<unknown>]
  * @param {{

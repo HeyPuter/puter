@@ -22,14 +22,12 @@ import UIContextMenu from './UIContextMenu.js';
 import path from '../lib/path.js';
 import UITaskbarItem from './UITaskbarItem.js';
 import UIWindowLogin from './UIWindowLogin.js';
-import UIWindowPublishWebsite from './UIWindowPublishWebsite.js';
 import UIWindowItemProperties from './UIWindowItemProperties.js';
 import new_context_menu_item from '../helpers/new_context_menu_item.js';
 import refresh_item_container from '../helpers/refresh_item_container.js';
-import UIWindowSaveAccount from './UIWindowSaveAccount.js';
 import UIWindowAppFeedback from './UIWindowAppFeedback.js';
-import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js';
 import launch_app from '../helpers/launch_app.js';
+import publish_as_website from '../helpers/publish_as_website.js';
 
 import item_icon from '../helpers/item_icon.js';
 
@@ -2215,7 +2213,8 @@ async function UIWindow (options) {
             $('.window').css('pointer-events', 'initial');
             const new_width = $(el_window_sidebar).width();
             // save new width in the cloud, to user's settings
-            puter.kv.set({ key: 'window_sidebar_width', value: new_width });
+            puter.kv.set({ key: 'window_sidebar_width', value: new_width })
+                .catch(err => console.warn('Could not save window_sidebar_width:', err));
             // save new width locally, to window object
             window.window_sidebar_width = new_width;
             window.a_window_sidebar_is_resizing = false;
@@ -2569,25 +2568,11 @@ async function UIWindow (options) {
                         html: i18n('publish_as_website'),
                         disabled: !options.is_dir,
                         onClick: async function () {
-                            if ( window.require_email_verification_to_publish_website ) {
-                                if ( window.user.is_temp &&
-                                    !await UIWindowSaveAccount({
-                                        send_confirmation_code: true,
-                                        message: i18n('save_account_to_publish'),
-                                        window_options: {
-                                            backdrop: true,
-                                            close_on_backdrop_click: false,
-                                        },
-                                    }) )
-                                {
-                                    return;
-                                }
-                                else if ( !window.user.email_confirmed && !await UIWindowEmailConfirmationRequired() )
-                                {
-                                    return;
-                                }
-                            }
-                            UIWindowPublishWebsite($(el_window).attr('data-uid'), $(el_window).attr('data-name'), $(el_window).attr('data-path'));
+                            await publish_as_website({
+                                uid: $(el_window).attr('data-uid'),
+                                name: $(el_window).attr('data-name'),
+                                path: $(el_window).attr('data-path'),
+                            });
                         },
                     });
                     // -------------------------------------------

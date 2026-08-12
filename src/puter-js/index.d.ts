@@ -1,22 +1,13 @@
-import type { Puter } from './types/puter.d.ts';
-import type { AI, ChatMessage, ChatOptions, ChatResponse, ChatResponseChunk, Img2TxtOptions, Speech2SpeechOptions, Speech2TxtOptions, Txt2ImgOptions, Txt2SpeechCallable, Txt2SpeechOptions, Txt2VidOptions } from './types/modules/ai.d.ts';
-import type { Apps, AppListOptions, AppRecord, CreateAppOptions, UpdateAppAttributes } from './types/modules/apps.d.ts';
-import type { Auth, APIUsage, AllowanceInfo, AppUsage, AuthUser, DetailedAppUsage, MonthlyUsage } from './types/modules/auth.d.ts';
-import type { Debug } from './types/modules/debug.d.ts';
-import type { Driver, Drivers } from './types/modules/drivers.d.ts';
-import type { Email, EmailAttachment, EmailSendOptions, EmailSendResult } from './types/modules/email.d.ts';
-import type { FS, CopyOptions, DeleteOptions, MkdirOptions, MoveOptions, ReadOptions, ReaddirOptions, SignResult, SpaceInfo, UploadOptions, WriteOptions } from './types/modules/filesystem.d.ts';
-import type { FSItem, FileSignatureInfo, InternalFSProperties } from './types/modules/fs-item.d.ts';
-import type { Hosting, Subdomain } from './types/modules/hosting.d.ts';
-import type { KV, KVIncrementPath, KVPair } from './types/modules/kv.d.ts';
-import type { Networking, PSocket, PTLSSocket } from './types/modules/networking.d.ts';
-import type { OS } from './types/modules/os.d.ts';
-import type { Perms } from './types/modules/perms.d.ts';
-import type Peer, { PuterPeerConnection, PuterPeerServer } from './types/modules/peer.d.ts';
-import type { AlertButton, AppConnection, AppConnectionCloseEvent, CancelAwarePromise, ContextMenuItem, ContextMenuOptions, DirectoryPickerOptions, FilePickerOptions, LaunchAppOptions, MenuItem, MenubarOptions, ThemeData, UI, WindowOptions } from './types/modules/ui.d.ts';
-import type Util, { UtilRPC } from './types/modules/util.d.ts';
-import type { WorkerDeployment, WorkerInfo, WorkersHandler } from './types/modules/workers.d.ts';
-import type { APICallLogger, APILoggingConfig, PaginationOptions, PaginatedResult, PuterEnvironment, RequestCallbacks, ToolSchema } from './types/shared.d.ts';
+// The published type surface of puter.js.
+//
+// This is the only hand-written declaration file in the package: it names what
+// the SDK exports and nothing more. Every type it re-exports is generated from
+// the JSDoc in `src/` by `npm run build:types` — edit the JSDoc, not `types/`.
+
+import type { Puter } from './types/index.js';
+
+export type { Puter };
+export { puter, default } from './types/index.js';
 
 declare global {
     interface Window {
@@ -24,99 +15,208 @@ declare global {
     }
 }
 
-declare const puter: Puter;
-
-export default puter;
-export { puter };
-
+// -- Shared --
 export type {
-    AI,
-    APIUsage,
-    APICallLogger,
     APILoggingConfig,
-    AlertButton,
-    AllowanceInfo,
-    CancelAwarePromise,
-    AppConnection,
-    AppConnectionCloseEvent,
-    AppListOptions,
-    AppRecord,
-    AppUsage,
-    Apps,
-    Auth,
-    AuthUser,
+    ListPage,
+    ListPaginationOptions,
+    ListStreamOptions,
+    PaginatedResult,
+    PaginationOptions,
+    PuterEnvironment,
+    RequestCallbacks,
+    ToolSchema,
+} from './types/lib/types.js';
+export type { default as APICallLogger } from './types/lib/APICallLogger.js';
+
+// -- puter.ai --
+export type {
+    AIMessageContent,
     ChatMessage,
     ChatOptions,
     ChatResponse,
     ChatResponseChunk,
-    ContextMenuItem,
-    ContextMenuOptions,
-    CopyOptions,
+    ImageContent,
+    Img2TxtOptions,
+    ListTTSEnginesOptions,
+    ListTTSVoicesOptions,
+    Speech2SpeechOptions,
+    Speech2TxtOptions,
+    Speech2TxtResult,
+    Speech2TxtWord,
+    StreamingChatOptions,
+    TextFormatSpeech2TxtOptions,
+    Tool,
+    ToolCall,
+    TTSEngine,
+    TTSVoice,
+    Txt2ImgOptions,
+    Txt2SpeechOptions,
+    Txt2VidOptions,
+} from './types/modules/ai/types.js';
+export type { Txt2Speech } from './types/modules/ai/index.js';
+
+// -- puter.apps --
+export type {
+    App,
+    AppListOptions,
+    AppUser,
+    CheckAppNameResult,
     CreateAppOptions,
-    Debug,
-    DeleteOptions,
+    CreateAppResult,
+    GetUsersOptions,
+    UpdateAppAttributes,
+} from './types/modules/apps/types.js';
+
+// -- puter.auth --
+export type {
+    AllowanceInfo,
+    APIUsage,
+    AppUsage,
     DetailedAppUsage,
-    DirectoryPickerOptions,
-    Driver,
-    Drivers,
-    Email,
+    MonthlyUsage,
+    SignInResult,
+    User,
+} from './types/modules/Auth.js';
+
+// -- puter.debug --
+export type { Debug } from './types/modules/Debug.js';
+
+// -- puter.drivers --
+export type { Driver } from './types/modules/Drivers.js';
+
+// -- puter.email --
+export type {
     EmailAttachment,
     EmailSendOptions,
     EmailSendResult,
-    FSItem,
-    FilePickerOptions,
-    FileSignatureInfo,
-    Hosting,
-    Img2TxtOptions,
-    InternalFSProperties,
-    KV,
-    KVIncrementPath,
-    KVPair,
-    LaunchAppOptions,
-    MenuItem,
-    MenubarOptions,
+} from './types/modules/Email.js';
+
+// -- puter.fs --
+export type {
+    CopyOptions,
+    DeleteOptions,
     MkdirOptions,
-    MonthlyUsage,
     MoveOptions,
-    Networking,
-    OS,
-    PaginatedResult,
-    PaginationOptions,
-    Peer,
-    Perms,
-    PSocket,
-    PuterPeerConnection,
-    PuterPeerServer,
-    PTLSSocket,
-    Puter,
-    PuterEnvironment,
-    FS,
     ReadOptions,
     ReaddirOptions,
-    RequestCallbacks,
+    RenameOptions,
     SignResult,
     SpaceInfo,
-    Speech2SpeechOptions,
-    Speech2TxtOptions,
-    Subdomain,
-    ThemeData,
-    ToolSchema,
-    Txt2ImgOptions,
-    Txt2SpeechCallable,
-    Txt2SpeechOptions,
-    Txt2VidOptions,
-    UI,
-    UpdateAppAttributes,
+    StatOptions,
+    UploadBatchError,
+    UploadItems,
+    UploadOperationResult,
     UploadOptions,
-    Util,
-    UtilRPC,
+    WriteOptions,
+} from './types/modules/FileSystem/types.js';
+export type {
+    FileSignatureInfo,
+    FSItem,
+    InternalFSProperties,
+} from './types/modules/FSItem.js';
+
+// -- puter.hosting --
+export type { Subdomain } from './types/modules/hosting/types.js';
+
+// -- puter.kv --
+export type {
+    KVAddPath,
+    KVIncrementPath,
+    KVListOptions,
+    KVListPage,
+    KVListPaginationOptions,
+    KVListStreamOptions,
+    KVOptConfig,
+    KVPair,
+    KVScalar,
+    KVSetBatch,
+    KVSetItem,
+    KVSetObject,
+    KVUpdateObject,
+    KVUpdatePath,
+    KVValue,
+} from './types/modules/kv/types.js';
+
+// -- puter.net --
+export type { Networking, SocketEvent } from './types/modules/networking/types.js';
+export type { PSocket } from './types/modules/networking/PSocket.js';
+export type { PTLSSocket } from './types/modules/networking/PTLS.js';
+
+// -- puter.os --
+
+// -- puter.peer --
+export type {
+    PuterPeerConnection,
+    PuterPeerDescription,
+    PuterPeerIceCandidate,
+    PuterPeerMessage,
+    PuterPeerOptions,
+    PuterPeerServer,
+    PuterPeerUser,
+} from './types/modules/Peer.js';
+
+// -- puter.perms --
+export type {
+    AppDataClass,
+    AppDataFsScope,
+    AppDataKvScope,
+    AppDataScopePair,
+    AppDataScopes,
+    AppDataStore,
+} from './types/modules/perms/types.js';
+
+// -- puter.ui --
+export type { AppConnection } from './types/modules/UI.js';
+export type {
+    AlertButton,
+    AlertOptions,
+    AppConnectionCloseEvent,
+    CancelAwarePromise,
+    ColorPickerOptions,
+    ConnectionEvent,
+    ContextMenuItem,
+    ContextMenuOptions,
+    DirectoryPickerOptions,
+    FilePickerOptions,
+    FontPickerOptions,
+    LaunchAppOptions,
+    LaunchAppResult,
+    MenuItem,
+    MenubarOptions,
+    NotificationOptions,
+    PromptOptions,
+    ThemeData,
+    WindowHandle,
+    WindowIdentifier,
     WindowOptions,
+} from './types/modules/UI.js';
+
+// -- puter.util --
+export type { default as Util, UtilRPC } from './types/modules/Util.js';
+
+// -- puter.workers --
+export type {
     WorkerDeployment,
     WorkerInfo,
-    WorkersHandler,
-    WriteOptions,
-    Puter
-};
+} from './types/modules/Workers.js';
 
-// NOTE: Provider-specific response bodies (AI, drivers, workers logging stream) intentionally
-// remain loosely typed because the SDK does not yet expose stable shapes for those payloads.
+// -- Module instance types --
+//
+// Each `puter.<module>` handle. Named here rather than re-exported, because the
+// generated modules export a constructor value plus its constructor type, and
+// what a consumer annotates with is the instance.
+
+export type AI = InstanceType<import('./types/modules/ai/index.js').AIConstructor>;
+export type Apps = InstanceType<import('./types/modules/apps/index.js').AppsConstructor>;
+export type Auth = InstanceType<import('./types/modules/Auth.js').AuthConstructor>;
+export type Drivers = InstanceType<import('./types/modules/Drivers.js').DriversConstructor>;
+export type Email = InstanceType<import('./types/modules/Email.js').EmailConstructor>;
+export type FS = InstanceType<import('./types/modules/FileSystem/index.js').FSConstructor>;
+export type Hosting = InstanceType<import('./types/modules/hosting/index.js').HostingConstructor>;
+export type KV = InstanceType<import('./types/modules/kv/index.js').KVConstructor>;
+export type OS = InstanceType<import('./types/modules/os/index.js').OSConstructor>;
+export type Peer = InstanceType<import('./types/modules/Peer.js').PeerConstructor>;
+export type Perms = InstanceType<import('./types/modules/perms/index.js').PermsConstructor>;
+export type UI = InstanceType<import('./types/modules/UI.js').UIConstructor>;
+export type WorkersHandler = InstanceType<import('./types/modules/Workers.js').WorkersConstructor>;

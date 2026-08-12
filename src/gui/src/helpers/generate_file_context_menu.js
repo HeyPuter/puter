@@ -19,11 +19,11 @@
 
 import UIAlert from '../UI/UIAlert.js';
 
-import UIWindowPublishWebsite from '../UI/UIWindowPublishWebsite.js';
 import UIWindowItemProperties from '../UI/UIWindowItemProperties.js';
 import UIWindowSaveAccount from '../UI/UIWindowSaveAccount.js';
 import UIWindowEmailConfirmationRequired from '../UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowPublishWorker from '../UI/UIWindowPublishWorker.js';
+import publish_as_website from './publish_as_website.js';
 import open_item from './open_item.js';
 import launch_app from './launch_app.js';
 import path from '../lib/path.js';
@@ -101,23 +101,11 @@ const generate_file_context_menu = async function (options) {
             html: i18n('publish_as_website'),
             disabled: !fsentry.is_dir || fsentry.has_website,
             onClick: async function () {
-                if ( window.require_email_verification_to_publish_website ) {
-                    if ( window.user.is_temp &&
-                        !await UIWindowSaveAccount({
-                            send_confirmation_code: true,
-                            message: 'Please create an account to proceed.',
-                            window_options: {
-                                backdrop: true,
-                                close_on_backdrop_click: false,
-                            },
-                        }) ) {
-                        return;
-                    }
-                    else if ( !window.user.email_confirmed && !await UIWindowEmailConfirmationRequired() ) {
-                        return;
-                    }
-                }
-                UIWindowPublishWebsite(fsentry.uid, $(el_item).attr('data-name'), $(el_item).attr('data-path'));
+                await publish_as_website({
+                    uid: fsentry.uid,
+                    name: $(el_item).attr('data-name'),
+                    path: $(el_item).attr('data-path'),
+                });
             },
         });
     }

@@ -2,20 +2,11 @@ import { dedupe } from '../../../lib/networkUtils.js';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 import { fsRequest, parseOperationArgs } from './scaffold.js';
 
-/** @typedef {import('../../../../types/modules/filesystem').StatOptions} StatOptions */
-/** @typedef {import('../../../../types/modules/fs-item').FSItem} FSItem */
-
-// Results larger than this are served but never cached.
-const MAX_CACHE_SIZE = 20 * 1024 * 1024;
+/** @typedef {import('../types.js').StatOptions} StatOptions */
+/** @typedef {import('../../FSItem.js').FSItem} FSItem */
 
 /**
- * Returns information about a file or directory, addressed by `path`
- * (relative paths resolve against the app's root directory) or by `uid`.
- *
- * With `consistency: 'eventual'` a cached entry may be returned instead of
- * hitting the backend; the default `'strong'` always revalidates.
- *
- * @type {{
+ * @typedef {{
  *   (options: StatOptions): Promise<FSItem>,
  *   (
  *     path: string,
@@ -28,9 +19,24 @@ const MAX_CACHE_SIZE = 20 * 1024 * 1024;
  *     success: (value: FSItem) => void,
  *     error?: (reason: unknown) => void,
  *   ): Promise<FSItem>,
- * }}
+ * }} StatOperation
  */
-const stat = async function (...args) {
+
+// Results larger than this are served but never cached.
+const MAX_CACHE_SIZE = 20 * 1024 * 1024;
+
+/**
+ * Returns information about a file or directory, addressed by `path`
+ * (relative paths resolve against the app's root directory) or by `uid`.
+ *
+ * With `consistency: 'eventual'` a cached entry may be returned instead of
+ * hitting the backend; the default `'strong'` always revalidates.
+ *
+ * @this {import('../index.js').PuterJSFileSystemModule}
+ * @param {...unknown} args
+ * @returns {Promise<FSItem>}
+ */
+const statImpl = async function (...args) {
     const options = parseOperationArgs(args, ['path']);
 
     // consistency levels
@@ -92,5 +98,7 @@ const stat = async function (...args) {
         });
     });
 };
+
+const stat = /** @type {StatOperation} */ (statImpl);
 
 export default stat;

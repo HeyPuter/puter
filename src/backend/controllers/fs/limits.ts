@@ -36,10 +36,11 @@ import type { RouteOptions, RouteRateLimit } from '../../core/http/types';
 // plan, the dev-only `unlimited`) falls through to the base, so new plans
 // are generous by default rather than accidentally throttled.
 //
-// Storage quota already bounds total bytes. These bound request *count*,
-// which quota does not: small-file spam still costs object-store writes
-// and fsentry rows, and metadata reads cost database time while being
-// entirely free to the caller.
+// Storage quota already bounds total bytes, and egress and object-store
+// requests are metered. These bound request *count*, which neither does:
+// metadata reads cost database time while costing the caller almost
+// nothing, and metering settles seconds behind the traffic, so a limit is
+// what actually stops a runaway loop in the moment.
 
 /** Per-user sliding window. Free tiers are carved out of the paid base. */
 const userWindow = (
@@ -113,9 +114,10 @@ export const FS_READDIR_LIMIT: RouteRateLimit[] = [
 ];
 
 /**
- * Unindexed scan across the user's tree, and unmetered — `FS_COSTS` prices
- * egress bytes only, so this is the cheapest way to occupy a database
- * connection. Tightest limit in the file.
+ * Unindexed scan across the user's tree, and close to unmetered — a result set
+ * is a few hundred bytes of egress against an arbitrary amount of database
+ * work, so this is the cheapest way to occupy a connection. Tightest limit in
+ * the file.
  */
 export const FS_SEARCH_LIMIT = userWindow('fs:search', 60, 30, 10);
 export const FS_SEARCH_CONCURRENT = userConcurrent('fs:search', 5, 2, 2);

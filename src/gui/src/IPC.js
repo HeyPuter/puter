@@ -473,11 +473,15 @@ const ipc_listener = async (event, handled) => {
     // setItem
     //--------------------------------------------------------
     else if ( event.data.msg === 'setItem' && event.data.key && event.data.value ) {
+        // The legacy protocol has no failure reply for these three, and the
+        // app-side promise only settles when a message with its id comes back
+        // — so a rejected call is answered anyway rather than left hanging
+        // forever. Logged here because that is the only place it is visible.
         puter.kv.set({
             key: event.data.key,
             value: event.data.value,
             app_uid: app_uuid,
-        }).then(() => {
+        }).catch(err => console.warn('kv.setItem failed for app:', err)).then(() => {
             // send confirmation to requester window
             target_iframe.contentWindow.postMessage({
                 original_msg_id: msg_id,
@@ -491,6 +495,9 @@ const ipc_listener = async (event, handled) => {
         puter.kv.get({
             key: event.data.key,
             app_uid: app_uuid,
+        }).catch(err => {
+            console.warn('kv.getItem failed for app:', err);
+            return null;
         }).then((result) => {
             // send confirmation to requester window
             target_iframe.contentWindow.postMessage({
@@ -507,7 +514,7 @@ const ipc_listener = async (event, handled) => {
         puter.kv.del({
             key: event.data.key,
             app_uid: app_uuid,
-        }).then(() => {
+        }).catch(err => console.warn('kv.removeItem failed for app:', err)).then(() => {
             // send confirmation to requester window
             target_iframe.contentWindow.postMessage({
                 original_msg_id: msg_id,

@@ -2,7 +2,7 @@ import * as utils from '../../lib/utils.js';
 import getAbsolutePathForApp from '../FileSystem/utils/getAbsolutePathForApp.js';
 import { toVideoElement } from './lib/media.js';
 
-/** @typedef {import('../../../types/modules/ai').Txt2VidOptions} Txt2VidOptions */
+/** @typedef {import('./types.js').Txt2VidOptions} Txt2VidOptions */
 
 /**
  * @overload

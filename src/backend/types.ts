@@ -70,6 +70,50 @@ export interface IRedisConfig {
 }
 
 /**
+ * Redis-backed read cache in front of the KV store's point reads (`get`, and
+ * the per-key half of a batch `get`). Off unless `enabled` is set.
+ *
+ * Only user/app namespaces are cached; internal state under the system
+ * namespace is always read through, as are consistent reads.
+ *
+ * Turning the cache off does not clear what it already holds. Entries stop
+ * being read but also stop being invalidated, so a disable followed by a
+ * re-enable inside `ttlSeconds` can serve values written in between — wait out
+ * `ttlSeconds` before switching back on.
+ */
+export interface IKvCacheConfig {
+    /** Master switch. Default false. */
+    enabled?: boolean;
+    /** Seconds a cached value is served for. Default 60. */
+    ttlSeconds?: number;
+    /**
+     * Seconds a cached absence is served for. Shorter than `ttlSeconds` because
+     * a key that doesn't exist yet is the one most likely to appear. Default
+     * 10.
+     */
+    missTtlSeconds?: number;
+    /**
+     * Seconds after a write during which that key's reads bypass the cache.
+     * Must comfortably exceed how long a mutation takes to become visible to
+     * every reader, or a read that raced the write can re-cache the old value.
+     * Default 5.
+     */
+    blockSeconds?: number;
+    /**
+     * Largest cached entry, in bytes of serialized envelope. Bigger values are
+     * read through — they earn the least per byte of cache memory. Default
+     * 32768.
+     */
+    maxEntryBytes?: number;
+    /**
+     * Milliseconds invalidations accumulate for before one broadcast carries
+     * them all. Local invalidation is always immediate; this only batches the
+     * message to peers. 0 sends one per write. Default 250.
+     */
+    broadcastCoalesceMs?: number;
+}
+
+/**
  * Alert severity. Ordered `info` < `warning` < `error` < `critical`; each alert
  * transport takes everything at or above its own `minSeverity`, so the severity
  * a call site picks is what decides where the alarm lands.
@@ -800,6 +844,8 @@ interface IConfigOptional {
 
     dynamo: IDynamoConfig;
     redis: IRedisConfig;
+    /** Read cache in front of KV point reads. Off unless `enabled` is set. */
+    kvCache: IKvCacheConfig;
     pager: IPagerConfig;
     email: IEmailConfig;
     /** Optional — only set when SMS phone verification (Prelude) is wired in. */
@@ -916,6 +962,32 @@ interface IConfigOptional {
      * unset or non-positive value turns the check off rather than guessing.
      */
     maxGlobalUsagePerMinute?: number;
+    /**
+     * How long per-request usage (response bytes, object-store requests) is
+     * held in memory before being written, in milliseconds. This is the dial
+     * between how promptly that usage lands and how many writes it costs: every
+     * actor active in a window settles once per window, so halving it doubles
+     * the write rate. Unset uses the service default; a non-positive value is
+     * ignored.
+     */
+    meteringUsageBufferFlushMs?: number;
+    /**
+     * Whether recorded usage is also enforced: an account with nothing left of
+     * its budget is turned away from the operations that spend it (file
+     * transfers, KV calls) with a 402. Metadata reads and deletions stay open,
+     * as does serving a hosted site — those bytes are billed to the account
+     * hosting it but requested by visitors who have no say in its balance.
+     *
+     * - `enabled` — defaults to on. The switch to reach for if enforcement is
+     *   turning away traffic it shouldn't; usage is still recorded either way.
+     * - `workers` — extend enforcement to worker-driven calls. Off by default: a
+     *   worker has no prompt to show and nobody watching, so being cut off
+     *   presents as a program that started failing.
+     */
+    meteringEnforcement?: {
+        enabled?: boolean;
+        workers?: boolean;
+    };
 }
 
 /**

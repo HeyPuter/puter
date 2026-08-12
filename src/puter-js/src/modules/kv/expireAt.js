@@ -1,7 +1,7 @@
 import * as utils from '../../lib/utils.js';
 import { assertKeySize } from './lib/validate.js';
 
-/** @typedef {import('../../../types/modules/kv').KVOptConfig} KVOptConfig */
+/** @typedef {import('./types.js').KVOptConfig} KVOptConfig */
 
 /**
  * @overload

@@ -1,7 +1,7 @@
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 import { defineOperation, firstDefined } from './scaffold.js';
 
-/** @typedef {import('../../../../types/modules/filesystem').DeleteOptions} DeleteOptions */
+/** @typedef {import('../types.js').DeleteOptions} DeleteOptions */
 
 /**
  * Deletes one or more files or directories. Relative paths resolve against the

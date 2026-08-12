@@ -12,9 +12,18 @@ import { generateThumbnails } from './thumbnails.js';
 import { performSignedBatchUpload } from './signedBatchUpload.js';
 import { performLegacyBatchUpload } from './legacyBatchUpload.js';
 
-/** @typedef {import('../../../../../types/modules/filesystem').UploadItems} UploadItems */
-/** @typedef {import('../../../../../types/modules/filesystem').UploadOptions} UploadOptions */
-/** @typedef {import('../../../../../types/modules/fs-item').FSItem} FSItem */
+/** @typedef {import('../../types.js').UploadItems} UploadItems */
+/** @typedef {import('../../types.js').UploadOptions} UploadOptions */
+/** @typedef {import('../../../FSItem.js').FSItem} FSItem */
+
+/**
+ * @typedef {(
+ *   this: import('../../index.js').PuterJSFileSystemModule,
+ *   items: UploadItems,
+ *   dirPath?: string,
+ *   options?: UploadOptions,
+ * ) => Promise<FSItem | FSItem[]>} UploadOperation
+ */
 
 /**
  * Uploads local items — files, blobs, strings, directory entries, or a
@@ -29,7 +38,7 @@ import { performLegacyBatchUpload } from './legacyBatchUpload.js';
  * @param {UploadOptions} [options]
  * @returns {Promise<FSItem | FSItem[]>}
  */
-const upload = async function (items, dirPath, options = {}) {
+const uploadImpl = async function (items, dirPath, options = {}) {
     return new Promise(async (resolve, reject) => {
         // If auth token is not provided and we are in the web environment,
         // try to authenticate with Puter
@@ -187,5 +196,7 @@ const upload = async function (items, dirPath, options = {}) {
         }
     });
 };
+
+const upload = /** @type {UploadOperation} */ (uploadImpl);
 
 export default upload;

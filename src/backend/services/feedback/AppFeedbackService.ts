@@ -219,14 +219,13 @@ export class AppFeedbackService extends PuterService {
                 userCount >= AppFeedbackService.PER_USER_DAILY_LIMIT + slack
             );
         };
-        const tooManyError = () =>
-            new HttpError(
-                429,
-                'You have sent a lot of feedback recently — please try again later',
-                { legacyCode: 'too_many_requests' },
-            );
+        const tooManyError = new HttpError(
+            429,
+            'You have sent a lot of feedback recently — please try again later',
+            { legacyCode: 'too_many_requests' },
+        );
         if (await capsBreached(false)) {
-            throw tooManyError();
+            throw tooManyError;
         }
 
         const row = await this.stores.appFeedback.create({
@@ -245,7 +244,7 @@ export class AppFeedbackService extends PuterService {
         // hold.
         if (await capsBreached(true)) {
             await this.stores.appFeedback.deleteById(row.id);
-            throw tooManyError();
+            throw tooManyError;
         }
 
         // Email delivery is best-effort: any failure past this point must

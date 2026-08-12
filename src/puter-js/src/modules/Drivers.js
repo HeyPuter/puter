@@ -5,9 +5,9 @@ import { driverCallEnvelope, fetchUrl } from '../lib/networkUtils.js';
  * `puter.drivers.get()`. Calls resolve the response envelope rather than the
  * unwrapped result — see `driverCallEnvelope`.
  */
-class Driver {
+export class Driver {
     /**
-     * @param {import('../../types/puter').Puter} puter
+     * @param {import('../index.js').Puter} puter
      * @param {string} ifaceName
      */
     constructor (puter, ifaceName) {
@@ -30,8 +30,11 @@ class Driver {
     }
 }
 
-class Drivers {
-    /** @param {import('../../types/puter').Puter} puter */
+/**
+ * The `puter.drivers` module: call driver interfaces directly.
+ */
+export class DriversModule {
+    /** @param {import('../index.js').Puter} puter */
     constructor (puter) {
         this.puter = puter;
         this.drivers_ = {};
@@ -97,5 +100,17 @@ class Drivers {
         return await driver.call(methodName, parameters);
     }
 }
+
+/**
+ * The public face of the module: derived from the class, with the internal
+ * `puter` handle and the driver cache omitted.
+ *
+ * @typedef {import('../lib/types.js').OmitMembers<
+ *     typeof DriversModule,
+ *     'puter' | 'drivers_' | '_init'
+ * >} DriversConstructor
+ */
+
+export const Drivers = /** @type {DriversConstructor} */ (DriversModule);
 
 export default Drivers;
