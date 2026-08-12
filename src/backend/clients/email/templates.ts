@@ -88,9 +88,9 @@ The Puter Team
 <blockquote>{{{nl2br message}}}</blockquote>
 {{#if sender_email}}<p>Just reply to this email to respond to them directly.</p>{{/if}}
 <p>
-You're receiving this because user feedback is enabled for your app. To stop
-receiving these emails, turn off feedback for the app (e.g.
-<code>puter.apps.update({ name: '{{app_name}}', feedbackEnabled: false })</code>).
+You're receiving this because feedback is enabled for
+<a href="{{app_link}}">{{app_title}}</a> — manage it in the
+<a href="{{dev_center_link}}">Dev Center</a> under your app's settings.
 </p>
 <p>Best,<br />
 The Puter Team

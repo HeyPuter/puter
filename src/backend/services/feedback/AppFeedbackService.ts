@@ -343,6 +343,10 @@ export class AppFeedbackService extends PuterService {
                     ),
                     app_name: String(app.name),
                     app_link: `${this.config.origin}/app/${encodeURIComponent(String(app.name))}`,
+                    // The footer's "manage it" pointer — built from
+                    // config.origin like app_link so it holds on self-hosted
+                    // deployments.
+                    dev_center_link: `${this.config.origin}/app/dev-center`,
                     message,
                 },
                 senderEmail ? { replyTo: senderEmail } : {},
