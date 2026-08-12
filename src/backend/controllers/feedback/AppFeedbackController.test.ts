@@ -565,122 +565,12 @@ describe('AppFeedbackController POST /', () => {
 
 // ── Owner email delivery ────────────────────────────────────────────
 
-describe('AppFeedbackService owner email', () => {
-    const mockEmailReady = () => {
-        mockEmailConfigured();
-        return vi
-            .spyOn(server.clients.email, 'send')
-            .mockResolvedValue(undefined);
-    };
-
-    it('emails the confirmed owner with the verified sender email + reply-to', async () => {
-        const send = mockEmailReady();
-        const { userId: ownerId } = await makeUser();
-        await confirmOwnerEmail(ownerId);
-        const app = await makeApp(ownerId, { feedbackEnabled: true });
-        const { actor, userId } = await makeUser();
-        // A verified sender email is what gets shared and used as reply-to.
-        await confirmOwnerEmail(userId);
-        const sender = (await server.stores.user.getById(userId))!;
-
-        await submit(actor, { app: app.name, message: 'hello dev' });
-
-        const owner = (await server.stores.user.getById(ownerId))!;
-        expect(send).toHaveBeenCalledTimes(1);
-        expect(send).toHaveBeenCalledWith(
-            owner.email,
-            'app-user-feedback',
-            expect.objectContaining({
-                owner_username: owner.username,
-                sender_username: sender.username,
-                sender_email: sender.email,
-                app_name: app.name,
-                message: 'hello dev',
-            }),
-            expect.objectContaining({ replyTo: sender.email }),
-        );
-
-        const rows = (await server.clients.db.read(
-            'SELECT `email_sent` FROM `app_feedback` WHERE `user_id` = ?',
-            [userId],
-        )) as Array<{ email_sent: unknown }>;
-        expect(Boolean(rows[0]?.email_sent)).toBe(true);
-    });
-
-    it('does not share an unverified sender email (no reply-to)', async () => {
-        const send = mockEmailReady();
-        const { userId: ownerId } = await makeUser();
-        await confirmOwnerEmail(ownerId);
-        const app = await makeApp(ownerId, { feedbackEnabled: true });
-        // Sender's email is left unverified (makeUser does not confirm it).
-        const { actor } = await makeUser();
-
-        await submit(actor, { app: app.name, message: 'hello dev' });
-
-        expect(send).toHaveBeenCalledTimes(1);
-        const [, , values, options] = send.mock.calls[0];
-        expect((values as Record<string, unknown>).sender_email).toBeNull();
-        expect((options as { replyTo?: string } | undefined)?.replyTo).toBeUndefined();
-    });
-
-    it('stores but does not email when the owner email is unconfirmed', async () => {
-        const send = mockEmailReady();
-        const { userId: ownerId } = await makeUser();
-        const app = await makeApp(ownerId, { feedbackEnabled: true });
-        const { actor, userId } = await makeUser();
-
-        await submit(actor, { app: app.name, message: 'hello dev' });
-
-        expect(send).not.toHaveBeenCalled();
-        const rows = (await server.clients.db.read(
-            'SELECT `email_sent` FROM `app_feedback` WHERE `user_id` = ?',
-            [userId],
-        )) as Array<{ email_sent: unknown }>;
-        expect(Boolean(rows[0]?.email_sent)).toBe(false);
-    });
-
-    it('suppresses email past the per-app daily cap but still stores', async () => {
-        const send = mockEmailReady();
-        const { userId: ownerId } = await makeUser();
-        await confirmOwnerEmail(ownerId);
-        const app = await makeApp(ownerId, { feedbackEnabled: true });
-
-        // Seed the cap with already-emailed rows from other users.
-        for (
-            let i = 0;
-            i < AppFeedbackService.PER_APP_DAILY_EMAIL_LIMIT;
-            i++
-        ) {
-            const { userId: seedUserId } = await makeUser();
-            const row = await server.stores.appFeedback.create({
-                appId: app.id,
-                appUid: app.uid,
-                userId: seedUserId,
-                message: `seed ${i}`,
-            });
-            await server.stores.appFeedback.markEmailSent(row.id);
-        }
-
-        const { actor, userId } = await makeUser();
-        const captured = await submit(actor, {
-            app: app.name,
-            message: 'past the cap',
-        });
-        expect(captured.body).toEqual({});
-        expect(send).not.toHaveBeenCalled();
-
-        const rows = (await server.clients.db.read(
-            'SELECT `email_sent` FROM `app_feedback` WHERE `user_id` = ?',
-            [userId],
-        )) as Array<{ email_sent: unknown }>;
-        expect(rows).toHaveLength(1);
-        expect(Boolean(rows[0]?.email_sent)).toBe(false);
-    });
-
+// Which submissions get emailed, and what the mail contains, is service
+// logic covered in AppFeedbackService.test.ts. What the controller owes the
+// caller is that mail trouble never becomes the sender's problem.
+describe('AppFeedbackController owner email', () => {
     it('a failing email send never fails the request', async () => {
-        vi.spyOn(server.clients.email, 'isConfigured', 'get').mockReturnValue(
-            true,
-        );
+        mockEmailConfigured();
         vi.spyOn(server.clients.email, 'send').mockRejectedValue(
             new Error('smtp down'),
         );
@@ -700,27 +590,5 @@ describe('AppFeedbackService owner email', () => {
         )) as Array<{ email_sent: unknown }>;
         expect(rows).toHaveLength(1);
         expect(Boolean(rows[0]?.email_sent)).toBe(false);
-    });
-});
-
-// ── Message normalization ───────────────────────────────────────────
-
-describe('AppFeedbackService.normalizeMessage', () => {
-    it('unifies newlines, strips control chars, and trims', () => {
-        const service = server.services.appFeedback;
-        expect(service.normalizeMessage('  a\r\nb\rc   ')).toBe(
-            'a\nb\nc',
-        );
-        expect(service.normalizeMessage('keep\ttabs\nand\nnewlines')).toBe(
-            'keep\ttabs\nand\nnewlines',
-        );
-        expect(service.normalizeMessage('a\u0000b\u0007c\u007F')).toBe('abc');
-    });
-
-    it('returns null for non-strings and whitespace-only input', () => {
-        const service = server.services.appFeedback;
-        expect(service.normalizeMessage(42)).toBeNull();
-        expect(service.normalizeMessage('   \n\t  ')).toBeNull();
-        expect(service.normalizeMessage(null)).toBeNull();
     });
 });
