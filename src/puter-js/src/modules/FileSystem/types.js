@@ -270,4 +270,91 @@
  *     | unknown[]} UploadItems
  */
 
+/**
+ * How much access a share grants. Stronger modes imply the weaker ones, so
+ * `write` also allows reading. `manage` is separate: it lets the recipient
+ * re-share the item, and does not by itself allow writing.
+ *
+ * @typedef {'see' | 'list' | 'read' | 'write' | 'manage'} ShareMode
+ */
+
+/**
+ * Who a share is for. Give an `email` or a `username`; a bare string is read
+ * as an email when it contains `@` and a username otherwise.
+ *
+ * @typedef {string | { email?: string, username?: string }} ShareRecipient
+ */
+
+/**
+ * One live share.
+ *
+ * @typedef {Object} Share
+ * @property {string} uid Identifier for this share.
+ * @property {ShareMode} mode Access the recipient has.
+ * @property {string} path Path of the shared item.
+ * @property {string} entryUid UID of the shared item.
+ * @property {boolean} isDir Whether the shared item is a directory.
+ * @property {string | null} issuer Username of whoever granted it.
+ * @property {string | null} holder Username of whoever received it.
+ */
+
+/**
+ * @typedef {Object} ShareOptionsOwn
+ * @property {string} [path] Item to share. Relative paths resolve against the
+ * app's root directory.
+ * @property {string} [uid] Item to share, by UID. Use instead of `path`.
+ * @property {string[]} [paths] Several items to share in one call.
+ * @property {ShareRecipient | ShareRecipient[]} [recipient] Who to share with.
+ * @property {ShareRecipient | ShareRecipient[]} [recipients] Alias for
+ * `recipient`.
+ * @property {ShareMode} [mode] Access to grant. Defaults to `'read'`.
+ */
+
+/**
+ * @typedef {ShareOptionsOwn & RequestCallbacks<Share[]>} ShareOptions
+ */
+
+/**
+ * @typedef {Object} UnshareOptionsOwn
+ * @property {string} [path] Item to stop sharing.
+ * @property {string} [uid] Item to stop sharing, by UID.
+ * @property {ShareRecipient} [recipient] Who to withdraw access from. Pass
+ * yourself to leave a share someone else granted you.
+ */
+
+/**
+ * @typedef {UnshareOptionsOwn & RequestCallbacks<{ revoked: number }>} UnshareOptions
+ */
+
+/**
+ * @typedef {Object} ListSharedOptionsOwn
+ * @property {number} [limit] Maximum shares per page.
+ * @property {string} [cursor] Continuation token from a previous page.
+ * @property {boolean} [includeTotal] Include the total count in the response.
+ */
+
+/**
+ * @typedef {ListSharedOptionsOwn & RequestCallbacks<SharePage>} ListSharedOptions
+ */
+
+/**
+ * A page of shares. `cursor` is present only while more pages remain, so
+ * iterate until it is absent rather than counting items.
+ *
+ * @typedef {Object} SharePage
+ * @property {Share[]} items
+ * @property {string} [cursor]
+ * @property {number} [total]
+ */
+
+/**
+ * @typedef {Object} GetSharesOptionsOwn
+ * @property {string} [path] Item to inspect.
+ * @property {string} [uid] Item to inspect, by UID.
+ */
+
+/**
+ * @typedef {GetSharesOptionsOwn & RequestCallbacks<Share[]>} GetSharesOptions
+ */
+
 export {};

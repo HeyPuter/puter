@@ -9,6 +9,7 @@ import kv from './kv.suite.ts';
 import net from './net.suite.ts';
 import os from './os.suite.ts';
 import perms from './perms.suite.ts';
+import sharing from './sharing.suite.ts';
 import system from './system.suite.ts';
 import util from './util.suite.ts';
 import workers from './workers.suite.ts';
@@ -28,6 +29,7 @@ export const suites: Suite[] = [
     net,
     os,
     perms,
+    sharing,
     system,
     util,
     workers,
