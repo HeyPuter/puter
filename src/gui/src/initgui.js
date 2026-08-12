@@ -72,7 +72,7 @@ import { ThemeService } from './services/ThemeService.js';
 // silently resolve to the factory — use `window.privacy_aware_path` instead.
 import { privacy_aware_path as privacy_aware_path_factory } from './util/desktop.js';
 import { resolveAPIOrigin } from './util/apiOrigin.js';
-import { deliversTokenToOpener } from './util/popupAuth.js';
+import { deliversTokenToOpener, runsUserAppTokenExchange } from './util/popupAuth.js';
 import { verifyOidcPopupReturn } from './util/popupOidcReturn.js';
 
 const postAuthActions = async (action) => {
@@ -367,7 +367,7 @@ const postAuthActions = async (action) => {
                 });
             }
             return;
-        } else {
+        } else if ( runsUserAppTokenExchange(action) ) {
             const deliver_token_to_opener = deliversTokenToOpener(action);
             try {
                 let data = await window.getUserAppToken(new URL(window.openerOrigin).origin);
@@ -2180,37 +2180,39 @@ window.initgui = async function (options) {
                             (async () => {
                                 let closing = false;
                                 try {
-                                    let msg_id =
-                                        window.url_query_params.get('msg_id');
-                                    let data = await window.getUserAppToken(
-                                        new URL(window.openerOrigin).origin,
-                                    );
-                                    // A network failure here returns null and
-                                    // an HTTP failure returns the parsed error
-                                    // body, neither of which carries a token;
-                                    // the reads below would fault or hand the
-                                    // opener an `undefined` token.
-                                    if (!data?.token) {
-                                        throw new Error(
-                                            'user-app token exchange returned no token',
+                                    if (runsUserAppTokenExchange(action)) {
+                                        let msg_id =
+                                            window.url_query_params.get('msg_id');
+                                        let data = await window.getUserAppToken(
+                                            new URL(window.openerOrigin).origin,
                                         );
-                                    }
-                                    // This is an implicit app and the app_uid is sent back from the server
-                                    // we cache it here so that we can use it later
-                                    window.host_app_uid = data.app_uid;
-                                    // send token to parent
-                                    if (deliversTokenToOpener(action)) {
-                                        window.opener?.postMessage(
-                                            {
-                                                msg: 'puter.token',
-                                                success: true,
-                                                msg_id: msg_id,
-                                                token: data.token,
-                                                username: window.user.username,
-                                                app_uid: data.app_uid,
-                                            },
-                                            window.openerOrigin,
-                                        );
+                                        // A network failure here returns null and
+                                        // an HTTP failure returns the parsed error
+                                        // body, neither of which carries a token;
+                                        // the reads below would fault or hand the
+                                        // opener an `undefined` token.
+                                        if (!data?.token) {
+                                            throw new Error(
+                                                'user-app token exchange returned no token',
+                                            );
+                                        }
+                                        // This is an implicit app and the app_uid is sent back from the server
+                                        // we cache it here so that we can use it later
+                                        window.host_app_uid = data.app_uid;
+                                        // send token to parent
+                                        if (deliversTokenToOpener(action)) {
+                                            window.opener?.postMessage(
+                                                {
+                                                    msg: 'puter.token',
+                                                    success: true,
+                                                    msg_id: msg_id,
+                                                    token: data.token,
+                                                    username: window.user.username,
+                                                    app_uid: data.app_uid,
+                                                },
+                                                window.openerOrigin,
+                                            );
+                                        }
                                     }
                                     // close popup
                                     if (!action || action === 'sign-in') {
@@ -2273,32 +2275,34 @@ window.initgui = async function (options) {
                         if (window.embedded_in_popup)
                             (async () => {
                                 try {
-                                    let msg_id =
-                                        window.url_query_params.get('msg_id');
-                                    let data = await window.getUserAppToken(
-                                        new URL(window.openerOrigin).origin,
-                                    );
-                                    if (!data?.token) {
-                                        throw new Error(
-                                            'user-app token exchange returned no token',
+                                    if (runsUserAppTokenExchange(action)) {
+                                        let msg_id =
+                                            window.url_query_params.get('msg_id');
+                                        let data = await window.getUserAppToken(
+                                            new URL(window.openerOrigin).origin,
                                         );
-                                    }
-                                    // This is an implicit app and the app_uid is sent back from the server
-                                    // we cache it here so that we can use it later
-                                    window.host_app_uid = data.app_uid;
-                                    // send token to parent
-                                    if (deliversTokenToOpener(action)) {
-                                        window.opener?.postMessage(
-                                            {
-                                                msg: 'puter.token',
-                                                success: true,
-                                                msg_id: msg_id,
-                                                token: data.token,
-                                                username: window.user.username,
-                                                app_uid: data.app_uid,
-                                            },
-                                            window.openerOrigin,
-                                        );
+                                        if (!data?.token) {
+                                            throw new Error(
+                                                'user-app token exchange returned no token',
+                                            );
+                                        }
+                                        // This is an implicit app and the app_uid is sent back from the server
+                                        // we cache it here so that we can use it later
+                                        window.host_app_uid = data.app_uid;
+                                        // send token to parent
+                                        if (deliversTokenToOpener(action)) {
+                                            window.opener?.postMessage(
+                                                {
+                                                    msg: 'puter.token',
+                                                    success: true,
+                                                    msg_id: msg_id,
+                                                    token: data.token,
+                                                    username: window.user.username,
+                                                    app_uid: data.app_uid,
+                                                },
+                                                window.openerOrigin,
+                                            );
+                                        }
                                     }
                                 } catch (err) {
                                     console.error(
