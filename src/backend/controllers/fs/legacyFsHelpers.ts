@@ -34,6 +34,7 @@ import {
     expandTildePath,
 } from '../../services/fs/resolveNode.js';
 import {
+    NON_OWNER_SIGNATURE_TTL_SECONDS,
     signFile,
     type SigningConfig,
     type SignedFile,
@@ -520,7 +521,13 @@ export function signingConfigFromAppConfig(config: IConfig): SigningConfig {
     return { secret, apiBaseUrl };
 }
 
-/** Convenience wrapper: turn an FSEntry into a signed-file response object. */
+/**
+ * Convenience wrapper: turn an FSEntry into a signed-file response object.
+ *
+ * Pass `actorUserId` so a signature over someone else's entry — a shared file —
+ * expires rather than outliving the share (see
+ * NON_OWNER_SIGNATURE_TTL_SECONDS).
+ */
 export function signEntry(
     entry: {
         uuid: string;
@@ -530,8 +537,19 @@ export function signEntry(
         accessed: number | null;
         modified: number;
         created: number | null;
+        userId?: number;
     },
     config: SigningConfig,
+    opts: { actorUserId?: number; ttlSeconds?: number } = {},
 ): SignedFile {
-    return signFile(entry as Parameters<typeof signFile>[0], config);
+    const isForeign =
+        typeof opts.actorUserId === 'number' &&
+        typeof entry.userId === 'number' &&
+        entry.userId !== opts.actorUserId;
+    const ttlSeconds =
+        opts.ttlSeconds ??
+        (isForeign ? NON_OWNER_SIGNATURE_TTL_SECONDS : undefined);
+    return signFile(entry as Parameters<typeof signFile>[0], config, {
+        ...(ttlSeconds === undefined ? {} : { ttlSeconds }),
+    });
 }

@@ -37,7 +37,10 @@ import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { ACLService } from '../../services/acl/ACLService.js';
 import { assertActorHasCredits } from '../../services/metering/enforcement.js';
 import type { SignedFile } from '../../util/fileSigning.js';
-import { verifySignature } from '../../util/fileSigning.js';
+import {
+    NON_OWNER_SIGNATURE_TTL_SECONDS,
+    verifySignature,
+} from '../../util/fileSigning.js';
 import {
     buildHostedBackingDenial,
     hostedIndexUrlBackingIsUnavailable,
@@ -1353,7 +1356,9 @@ export class LegacyFSController extends PuterController {
                     );
                 }
 
-                const signed = signEntry(entry, signingCfg);
+                const signed = signEntry(entry, signingCfg, {
+                    actorUserId: actor.user?.id,
+                });
                 if (finalAction !== 'write') {
                     const { write_url: _, ...rest } = signed;
                     result.signatures.push({ ...rest, path: entry.path });
@@ -1464,7 +1469,9 @@ export class LegacyFSController extends PuterController {
                 'outer.gui.item.added',
                 uploadResult.fsEntry,
             );
-            const signed = signEntry(uploadResult.fsEntry, signingCfg);
+            const signed = signEntry(uploadResult.fsEntry, signingCfg, {
+                actorUserId: callerActor.user?.id,
+            });
             res.json({ ...signed, path: uploadResult.fsEntry.path });
             return;
         }
@@ -1493,7 +1500,12 @@ export class LegacyFSController extends PuterController {
                 dedupeName: true,
             });
             await this.#emitGuiEvent('outer.gui.item.added', entry);
-            res.json({ ...signEntry(entry, signingCfg), path: entry.path });
+            res.json({
+                ...signEntry(entry, signingCfg, {
+                    actorUserId: callerActor.user?.id,
+                }),
+                path: entry.path,
+            });
             return;
         }
         if (operation === 'rename') {
@@ -1512,7 +1524,12 @@ export class LegacyFSController extends PuterController {
             );
             const renamed = await this.services.fs.rename(targetEntry, newName);
             await this.#emitGuiEvent('outer.gui.item.updated', renamed);
-            res.json({ ...signEntry(renamed, signingCfg), path: renamed.path });
+            res.json({
+                ...signEntry(renamed, signingCfg, {
+                    actorUserId: callerActor.user?.id,
+                }),
+                path: renamed.path,
+            });
             return;
         }
         if (operation === 'delete' || operation === 'trash') {
@@ -1580,7 +1597,12 @@ export class LegacyFSController extends PuterController {
                     ? { old_path: targetEntry.path }
                     : undefined,
             );
-            res.json({ ...signEntry(result, signingCfg), path: result.path });
+            res.json({
+                ...signEntry(result, signingCfg, {
+                    actorUserId: callerActor.user?.id,
+                }),
+                path: result.path,
+            });
             return;
         }
 
@@ -1645,7 +1667,9 @@ export class LegacyFSController extends PuterController {
         if (entry.isDir) {
             const children = await this.services.fs.listDirectory(entry.uuid);
             const signedChildren = children.map((child) => {
-                const { write_url: _, ...rest } = signEntry(child, signingCfg);
+                const { write_url: _, ...rest } = signEntry(child, signingCfg, {
+                    ttlSeconds: NON_OWNER_SIGNATURE_TTL_SECONDS,
+                });
                 return { ...rest, path: child.path };
             });
             res.json(signedChildren);
@@ -1776,7 +1800,9 @@ export class LegacyFSController extends PuterController {
         }
 
         const signingCfg = signingConfigFromAppConfig(this.config);
-        const signed = signEntry(entry, signingCfg);
+        const signed = signEntry(entry, signingCfg, {
+            actorUserId: actor.user?.id,
+        });
         const signature = writeOk
             ? { ...signed, path: entry.path }
             : (() => {
