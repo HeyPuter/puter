@@ -297,8 +297,7 @@ export class DriverController extends PuterController {
 
         if (req.actor) {
             const permService = this.services.permission as unknown as
-                | PermissionService
-                | undefined;
+                PermissionService | undefined;
             if (permService) {
                 // Build via PermissionUtil.join so any `:` in a driver or
                 // interface name is escaped — raw interpolation would let a

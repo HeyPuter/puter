@@ -64,8 +64,7 @@ export class NotificationController extends PuterController {
             });
 
         const notifService = this.services.notification as unknown as
-            | NotificationService
-            | undefined;
+            NotificationService | undefined;
         if (notifService?.markAcknowledged) {
             await notifService.markAcknowledged(uid, userId);
         } else {
@@ -115,8 +114,7 @@ export class NotificationController extends PuterController {
             });
 
         const notifService = this.services.notification as unknown as
-            | NotificationService
-            | undefined;
+            NotificationService | undefined;
         if (notifService?.markShown) {
             await notifService.markShown(uid, userId);
         } else {
