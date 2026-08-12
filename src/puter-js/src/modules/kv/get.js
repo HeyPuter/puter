@@ -2,7 +2,7 @@ import * as utils from '../../lib/utils.js';
 import { isObject, parseOptConfigThenCallbacks } from './lib/args.js';
 import { assertKeySize } from './lib/validate.js';
 
-/** @typedef {import('../../../types/modules/kv').KVOptConfig} KVOptConfig */
+/** @typedef {import('./types.js').KVOptConfig} KVOptConfig */
 
 const getDriverCall = (puter, args) =>
     utils.makeDriverMethod({

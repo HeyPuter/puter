@@ -98,24 +98,23 @@ Follow the same layered structure inside an extension — unless it only needs a
 
 [src/puter-js/](src/puter-js/) is the public SDK. It ships live from `https://js.puter.com/v2/` with no version pinning — every existing app picks up changes immediately. Treat every observable behavior (signatures, response fields, error codes) as something a production app depends on.
 
-Layout: SDK modules in [src/puter-js/src/modules/](src/puter-js/src/modules/) (one file or directory per area — `FileSystem/`, `KV.js`, `ai/`, …), shared plumbing in [src/puter-js/src/lib/](src/puter-js/src/lib/), hand-maintained type declarations in [src/puter-js/types/](src/puter-js/types/), API tests in [src/puter-js/tests/api/](src/puter-js/tests/api/), UI e2e tests in [src/puter-js/tests/e2e/](src/puter-js/tests/e2e/), developer docs in [src/docs/](src/docs/).
+Layout: SDK modules in [src/puter-js/src/modules/](src/puter-js/src/modules/) (one file or directory per area — `FileSystem/`, `kv/`, `ai/`, …), shared plumbing in [src/puter-js/src/lib/](src/puter-js/src/lib/), generated (gitignored) type declarations in `src/puter-js/types/`, API tests in [src/puter-js/tests/api/](src/puter-js/tests/api/), UI e2e tests in [src/puter-js/tests/e2e/](src/puter-js/tests/e2e/), developer docs in [src/docs/](src/docs/).
 
-Language & typing: puter.js source is plain JavaScript — never TypeScript files — typed via JSDoc. Reference the hand-maintained declarations in [src/puter-js/types/](src/puter-js/types/) with `import(...)` types rather than re-declaring shapes:
+Language & typing: puter.js source is plain JavaScript — never TypeScript files — typed via JSDoc. **The JSDoc is the source of truth for the SDK's types.** `src/puter-js/types/` is `tsc --emitDeclarationOnly` output: the SDK build (`npm run build` in `src/puter-js`) generates it, the npm tarball ships it so TypeScript consumers get declarations, and git ignores it — it is never committed and never edited by hand. `npm run check:puterjs:types` generates it in CI and type-checks the result without `skipLibCheck`. The one hand-written declaration file is [src/puter-js/index.d.ts](src/puter-js/index.d.ts), which decides what is public and re-exports the generated names.
+
+Declare a shape where it belongs, and reference it with an `import(...)` type from elsewhere. A shape more than one file needs lives in the module's `types.js`; a shape shared across modules lives in [src/puter-js/src/lib/types.js](src/puter-js/src/lib/types.js); a shape with one consumer can stay next to it:
 
 ```js
-/** @typedef {import('../../types/modules/ai').ChatOptions} ChatOptions */
-
-/** @type {ChatOptions} */
-const options = { model: 'gpt-5-nano' };
+/** @typedef {import('./types.js').KVOptConfig} KVOptConfig */
 ```
 
-When a shape only exists locally, declare it as an inline object literal — not the `@typedef {Object}` + `@property` list form — and use `unknown` over `*`:
+Use `@typedef {Object}` + `@property` for any shape whose fields need documenting — it is the only JSDoc form that carries a doc comment per field into the generated declaration. Keep the inline object-literal form for small internal shapes with nothing to say about each field, and prefer `unknown` over `*`:
 
 ```js
 /** @typedef {{ key: string, value: unknown }} KVEntry */
 ```
 
-Public (exposed) methods must carry JSDoc types — parameters and return value, matching the `.d.ts` declarations exactly. Unexposed/private helpers are typed at the contributor's discretion: annotate where it helps the next reader, and either way keep them clean.
+Public (exposed) methods must carry JSDoc types — parameters and return value — with one `@overload` block per accepted call form, since those overloads *are* the published signature. Unexposed/private helpers are typed at the contributor's discretion: annotate where it helps the next reader, and either way keep them clean. Members tagged `@internal` are stripped from the generated declarations, so use that tag rather than `@private` to keep something off the public surface.
 
 Typing in JS files is encouraged: annotate with JSDoc `@type`/`@param`/`@returns` using the TypeScript type system, and define shared shapes with `@typedef`. API types must not be `unknown` or untyped `...args` — spell out the real parameter and return shapes; the only exception is values passed through transparently to an upstream layer that owns their type. For example:
 
@@ -133,7 +132,7 @@ Every SDK change carries all five of the following — a puter.js PR missing one
 1. **Backward compatibility.** Mandatory unless a maintainer explicitly signs off on a break. Existing call signatures keep working (including both positional and options-object forms where a method supports them); new parameters are optional with defaults that preserve old behavior; never rename or repurpose existing params, response fields, or error codes. New parameter names are `camelCase` (existing `snake_case` stays for compatibility). Say in the PR how existing callers are unaffected.
 2. **Tests.** Add or extend a suite in [tests/api/suites/](src/puter-js/tests/api/suites/) (`<area>.suite.ts`; register new suites in `suites/index.ts` — no globbing). One suite runs unchanged on node, browser, and workerd via `npm run test:puterjs`; never write a per-platform test. The runners execute the **built** bundle — run `npm run build:workerLib` after SDK changes or the suite silently tests stale code. For `puter.ui.*` methods rendered by the desktop, use the Playwright e2e harness instead — see [src/puter-js/TESTING.md](src/puter-js/TESTING.md).
 3. **Docs.** New or changed APIs update [src/docs/src/](src/docs/src/): the method page (`<Area>/<method>.md`, with frontmatter and a runnable example) and the area overview when the surface changes. Docs are the contract users code against — signatures, defaults, and return shapes must match the implementation exactly.
-4. **Types.** Update [src/puter-js/types/modules/](src/puter-js/types/modules/)`<module>.d.ts` and re-export new types through `index.d.ts` / `types/puter.d.ts`. Declarations must match runtime behavior exactly — a wrong type is worse than a missing one.
+4. **Types.** Type the change in JSDoc on the implementation, then run `npm run check:puterjs:types` to confirm it still produces declarations that type-check. Name any new type in [src/puter-js/index.d.ts](src/puter-js/index.d.ts) if consumers should be able to import it. Declarations must match runtime behavior exactly — a wrong type is worse than a missing one.
 5. **Error handling.** Reject/throw `{ message, code }` objects with stable `snake_case` codes, matching the existing modules (see `KV.js`). Validate cheap preconditions client-side before making the network call; pass backend errors through unchanged rather than swallowing or re-wrapping them. Error codes are API surface — changing one is a breaking change.
 
 [doc/contributing-apis.md](doc/contributing-apis.md) walks the full lifecycle of adding an API across backend + SDK.

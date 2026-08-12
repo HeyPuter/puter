@@ -1,7 +1,7 @@
 import { defineOperation } from './scaffold.js';
 
-/** @typedef {import('../../../../types/modules/filesystem').SpaceInfo} SpaceInfo */
-/** @typedef {import('../../../../types/shared').RequestCallbacks<SpaceInfo>} SpaceCallbacks */
+/** @typedef {import('../types.js').SpaceInfo} SpaceInfo */
+/** @typedef {import('../../../lib/types.js').RequestCallbacks<SpaceInfo>} SpaceCallbacks */
 
 /**
  * Returns the storage capacity and usage of the current user, in bytes.

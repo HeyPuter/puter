@@ -1,8 +1,8 @@
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 import { defineOperation, firstDefined } from './scaffold.js';
 
-/** @typedef {import('../../../../types/modules/filesystem').RenameOptions} RenameOptions */
-/** @typedef {import('../../../../types/modules/fs-item').FSItem} FSItem */
+/** @typedef {import('../types.js').RenameOptions} RenameOptions */
+/** @typedef {import('../../FSItem.js').FSItem} FSItem */
 
 /**
  * Renames a file or directory. The item can be addressed by `path` (relative

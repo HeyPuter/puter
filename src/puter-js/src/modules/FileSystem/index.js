@@ -26,6 +26,15 @@ import stat from './operations/stat.js';
 import upload from './operations/upload/index.js';
 import write from './operations/write.js';
 
+/**
+ * The Cloud Storage API. Lets you store and manage files and directories in
+ * the cloud.
+ *
+ * Operation implementations live under `operations/` as `this`-context
+ * functions whose JSDoc (including the per-form `@overload` declarations) is
+ * the source of truth for the public signatures — `types/` is generated from
+ * it, never edited by hand.
+ */
 export class PuterJSFileSystemModule extends PuterModule {
 
     space = space;
@@ -53,7 +62,7 @@ export class PuterJSFileSystemModule extends PuterModule {
      * Unlike the request-based modules, the socket carries the token from the
      * moment it connects, so it has to be rebuilt whenever auth state changes.
      *
-     * @param {import('../../../types/puter').Puter} puter
+     * @param {import('../../index.js').Puter} puter
      */
     constructor (puter) {
         super(puter);
@@ -304,3 +313,20 @@ export class PuterJSFileSystemModule extends PuterModule {
         }
     }
 }
+
+/**
+ * The public face of the module: derived from the class, with the internal
+ * `puter` handle, the socket plumbing, and the legacy `authToken` accessor
+ * omitted.
+ *
+ * @typedef {import('../../lib/types.js').OmitMembers<
+ *     typeof PuterJSFileSystemModule,
+ *     'puter' | 'authToken'
+ *     | 'socket' | 'cacheUpdateTimer'
+ *     | 'initializeSocket' | 'shouldUseSocketAutoUnref' | 'bindSocketEvents'
+ *     | 'onAuthStateChanged' | 'invalidateCache'
+ *     | 'startCacheUpdateTimer' | 'stopCacheUpdateTimer'
+ * >} FSConstructor
+ */
+
+export const FS = /** @type {FSConstructor} */ (PuterJSFileSystemModule);

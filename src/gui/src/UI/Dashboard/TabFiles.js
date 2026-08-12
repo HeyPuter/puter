@@ -29,6 +29,7 @@ import truncate_filename from '../../helpers/truncate_filename.js';
 import update_title_based_on_uploads from '../../helpers/update_title_based_on_uploads.js';
 import item_icon from '../../helpers/item_icon.js';
 import new_context_menu_item from '../../helpers/new_context_menu_item.js';
+import publish_as_website from '../../helpers/publish_as_website.js';
 import ContextMenuModal from './ContextMenu/ContextMenu.js';
 import UIItemPropertiesModal from './UIItemPropertiesModal.js';
 
@@ -271,14 +272,16 @@ const TabFiles = {
         this.typeSearchTerm = '';
         this.typeSearchTimeout = null;
         this.selectModeActive = false;
-        this.currentView = await puter.kv.get('view_mode') || 'list';
+        // Preference reads are best-effort: the tab renders with the
+        // defaults rather than not rendering at all.
+        this.currentView = await puter.kv.get('view_mode').catch(() => null) || 'list';
 
         // Sorting state
-        this.sortColumn = await puter.kv.get('sort_column') || 'name';
-        this.sortDirection = await puter.kv.get('sort_direction') || 'asc';
+        this.sortColumn = await puter.kv.get('sort_column').catch(() => null) || 'name';
+        this.sortDirection = await puter.kv.get('sort_direction').catch(() => null) || 'asc';
 
         // Column widths state (for resizing)
-        const savedWidths = await puter.kv.get('column_widths');
+        const savedWidths = await puter.kv.get('column_widths').catch(() => null);
         this.columnWidths = savedWidths ? JSON.parse(savedWidths) : {
             name: null, // auto/flex
             size: 100,
@@ -1567,7 +1570,8 @@ const TabFiles = {
 
             $(document).on('mouseup.colresize', function () {
                 $(document).off('mousemove.colresize mouseup.colresize');
-                puter.kv.set('column_widths', JSON.stringify(_this.columnWidths));
+                puter.kv.set('column_widths', JSON.stringify(_this.columnWidths))
+                    .catch(err => console.warn('Could not save column_widths:', err));
             });
         });
 
@@ -1611,7 +1615,8 @@ const TabFiles = {
             // Apply the new width
             _this.columnWidths[column] = Math.ceil(maxWidth);
             _this.applyColumnWidths();
-            puter.kv.set('column_widths', JSON.stringify(_this.columnWidths));
+            puter.kv.set('column_widths', JSON.stringify(_this.columnWidths))
+                .catch(err => console.warn('Could not save column_widths:', err));
         });
     },
 
@@ -1902,8 +1907,10 @@ const TabFiles = {
             this.sortDirection = 'asc';
         }
 
-        await puter.kv.set('sort_column', this.sortColumn);
-        await puter.kv.set('sort_direction', this.sortDirection);
+        await puter.kv.set('sort_column', this.sortColumn)
+            .catch(err => console.warn('Could not save sort_column:', err));
+        await puter.kv.set('sort_direction', this.sortDirection)
+            .catch(err => console.warn('Could not save sort_direction:', err));
 
         this.updateSortIndicators();
         this.renderDirectory(this.currentPath);
@@ -3275,7 +3282,8 @@ const TabFiles = {
         this.currentView = mode;
         this.applyViewMode();
 
-        puter.kv.set('view_mode', mode);
+        puter.kv.set('view_mode', mode)
+            .catch(err => console.warn('Could not save view_mode:', err));
 
         // Refresh content to update icons for the new view mode
         if ( this.currentPath ) {
@@ -3775,6 +3783,7 @@ const TabFiles = {
         if ( ! targetPath ) return [];
 
         const isTrashFolder = targetPath === window.trash_path;
+        const isTrashedPath = targetPath.startsWith(`${window.trash_path}/`);
         const items = [];
 
         // New submenu (folder, text document, etc.) - not available in Trash
@@ -3972,6 +3981,45 @@ const TabFiles = {
                 html: i18n('empty_trash'),
                 onClick: function () {
                     window.empty_trash();
+                },
+            });
+        }
+
+        // Publish As Website and Properties act on the folder the menu was
+        // opened on, not on the listing's selection. The filesystem root isn't
+        // a real fsentry, and Trash itself only offers Empty Trash — same as
+        // the desktop's folder menus.
+        if ( targetPath !== '/' && ! isTrashFolder ) {
+            const targetName = path.basename(targetPath);
+
+            items.push('-');
+
+            if ( ! isTrashedPath ) {
+                items.push({
+                    html: i18n('publish_as_website'),
+                    onClick: async function () {
+                        // Publishing works off the path, but the uid is what
+                        // refreshes the folder's website badge if its row is on
+                        // screen — the dashboard tracks paths, so look it up.
+                        let uid;
+                        try {
+                            uid = (await puter.fs.stat({ path: targetPath, consistency: 'eventual' }))?.uid;
+                        } catch ( err ) {
+                            // Badge refresh is best-effort; publish still works.
+                        }
+                        await publish_as_website({ uid, name: targetName, path: targetPath });
+                    },
+                });
+            }
+
+            items.push({
+                html: i18n('properties'),
+                onClick: function () {
+                    UIItemPropertiesModal({
+                        name: targetName,
+                        path: targetPath,
+                        $container: _this.$el_window,
+                    });
                 },
             });
         }

@@ -42,7 +42,7 @@ const createDeferred = () => {
  * within the lifetime window is then served from the one batched response.
  */
 export class GuiBootCache {
-    /** @param {import('../../../../types/puter').Puter} puter */
+    /** @param {import('../../../index.js').Puter} puter */
     constructor (puter) {
         this.puter = puter;
         this.batch = createDeferred();

@@ -48,6 +48,7 @@ import {
     subdomainGate,
 } from './core/http/middleware/gates';
 import { guiOriginGate } from './core/http/middleware/originGate';
+import { requireCreditsGate } from './core/http/middleware/credits';
 import { createStepUpGate } from './core/http/middleware/stepUpSession';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
 import {
@@ -65,6 +66,7 @@ import {
     createUserSubdomainRedirect,
     createNativeAppStatic,
 } from './core/http/middleware/hostRedirects';
+import { createEgressMeteringMiddleware } from './core/http/middleware/egressMetering';
 import { createLocalWorkerProxyMiddleware } from './core/http/middleware/localWorkerProxy';
 import { createPuterSiteMiddleware } from './core/http/middleware/puterSite';
 import { PuterRouter } from './core/http/PuterRouter';
@@ -380,6 +382,15 @@ export class PuterServer {
      *   `#materializeRoute` as those options ship.
      */
     #installGlobalMiddleware() {
+        // -- Egress metering -----------------------------------------
+        // First, so the byte counter wraps `res.write` before compression
+        // does and therefore counts what actually goes out rather than what
+        // the handler produced. Reads the actor when the response ends, by
+        // which point the auth probe below has run.
+        this.#app.use(
+            createEgressMeteringMiddleware({ services: this.services }),
+        );
+
         this.#app.use(cookieParser());
 
         this.#app.use(compression());
@@ -974,6 +985,17 @@ export class PuterServer {
             for (const rl of limits) {
                 mwChain.push(rateLimitGate(rl) as unknown as RequestHandler);
             }
+        }
+
+        // 2b''. Budget enforcement. After the rate limit so a caller over
+        // both gets the cheaper, more specific answer, and before the
+        // concurrency slot so a rejected request never takes one. Answered
+        // from the metering service's per-actor cache, so ordering it here
+        // costs a map lookup rather than a store read.
+        if (opts.requireCredits) {
+            mwChain.push(
+                requireCreditsGate(this.services.metering, this.#config),
+            );
         }
 
         // 2b'. Concurrent in-flight limiting. Same auth-ordering reason

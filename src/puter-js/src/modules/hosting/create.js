@@ -2,7 +2,7 @@ import * as utils from '../../lib/utils.js';
 import getAbsolutePathForApp from '../FileSystem/utils/getAbsolutePathForApp.js';
 import { normalizeSubdomain } from './lib/args.js';
 
-/** @typedef {import('../../../types/modules/hosting').Subdomain} Subdomain */
+/** @typedef {import('./types.js').Subdomain} Subdomain */
 
 /**
  * @overload

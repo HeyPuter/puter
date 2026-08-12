@@ -19,7 +19,7 @@ import {
     requestPermission, requestReadApps, requestReadSubdomains,
 } from './permissions.js';
 
-/** @typedef {import('../../../types/puter').Puter} Puter */
+/** @typedef {import('../../index.js').Puter} Puter */
 
 // Every `this`-context method exposed on the module, rebound in the
 // constructor so both `puter.perms.grantUser(...)` and destructured
@@ -43,8 +43,8 @@ const METHODS = [
  * The `puter.perms` module.
  *
  * Method implementations live in the sibling files as `this`-context
- * functions whose JSDoc is the source of truth for the public signatures;
- * types/modules/perms.d.ts mirrors them for TypeScript consumers of the SDK.
+ * functions whose JSDoc is the source of truth for the public signatures —
+ * `types/` is generated from it, never edited by hand.
  */
 export class PermsModule extends PuterModule {
     // Grant / revoke
