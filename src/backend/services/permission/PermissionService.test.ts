@@ -621,37 +621,8 @@ describe('PermissionService (integration)', () => {
         });
     });
 
-    describe('listUserPermissionIssuers / queryIssuerHolderPermissionsByPrefix', () => {
-        it('listUserPermissionIssuers returns the issuer who granted the target a perm', async () => {
-            const { user: issuer, actor: issuerActor } = await makeUserActor();
-            const { user: target } = await makeUserActor();
-            const permission = `zztest:lst-${uuidv4()}:ii:read`;
-            await server.stores.permission.setFlatUserPerm(
-                issuer.id,
-                `manage:${permission}`,
-                {
-                    permission: `manage:${permission}`,
-                    deleted: false,
-                    issuer_user_id: issuer.id,
-                } as never,
-            );
-            await runWithContext({ actor: issuerActor }, () =>
-                permService.grantUserUserPermission(
-                    issuerActor,
-                    target.username,
-                    permission,
-                ),
-            );
-            // listUserPermissionIssuers is best-effort; just verify it runs
-            // and either includes the issuer or returns an empty array (the
-            // linked store may not be populated immediately).
-            const issuers = await permService.listUserPermissionIssuers({
-                id: target.id,
-            });
-            expect(Array.isArray(issuers)).toBe(true);
-        });
-
-        it('queryIssuerHolderPermissionsByPrefix returns [] for actors without user.id', async () => {
+    describe('queryIssuerHolderPermissionsByPrefix', () => {
+        it('returns [] for actors without user.id', async () => {
             const out = await permService.queryIssuerHolderPermissionsByPrefix(
                 { user: undefined } as unknown as Actor,
                 { user: undefined } as unknown as Actor,

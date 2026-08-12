@@ -828,7 +828,7 @@ describe('PermissionStore', () => {
     // -- user → user ------------------------------------------------------
 
     describe('user-to-user permissions', () => {
-        it('lists issuers for a holder and clears them on revoke', async () => {
+        it('reads a holder grant back and clears it on revoke', async () => {
             const issuer = await makeUser();
             const holder = await makeUser();
             await store.upsertUserUserPerm(
@@ -837,10 +837,6 @@ describe('PermissionStore', () => {
                 'fs:u:read',
                 {},
             );
-
-            expect(
-                await store.listUserPermissionIssuerIds(holder.id),
-            ).toContain(issuer.id);
 
             const rows = await store.readLinkedUserUserPerms(holder.id, [
                 'fs:u:read',

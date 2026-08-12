@@ -1343,26 +1343,6 @@ export class PermissionService extends PuterService {
 
     // -- Issuer queries (share discovery et al) -----------------------
 
-    async listUserPermissionIssuers(user: {
-        id: number;
-    }): Promise<Array<UserRowSummary | null>> {
-        const ids = await this.stores.permission.listUserPermissionIssuerIds(
-            user.id,
-        );
-        const usersById = await this.stores.user.getByIds(ids);
-        return ids.map((id) => {
-            const u = usersById.get(id);
-            return u
-                ? {
-                      id: u.id,
-                      uuid: u.uuid,
-                      username: u.username,
-                      email: u.email,
-                  }
-                : null;
-        });
-    }
-
     async queryIssuerPermissionsByPrefix(
         issuer: { id: number },
         prefix: string,

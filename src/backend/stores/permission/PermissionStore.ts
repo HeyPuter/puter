@@ -360,14 +360,6 @@ export class PermissionStore extends PuterStore {
         );
     }
 
-    async listUserPermissionIssuerIds(holderUserId: number): Promise<number[]> {
-        const rows = await this.clients.db.read(
-            'SELECT DISTINCT issuer_user_id FROM `user_to_user_permissions` WHERE `holder_user_id` = ?',
-            [holderUserId],
-        );
-        return rows.map((r) => Number(r.issuer_user_id));
-    }
-
     // -- SQL: user-to-app permissions --------------------------------
 
     async readUserAppPerms(
