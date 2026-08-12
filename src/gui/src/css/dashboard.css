@@ -1737,7 +1737,9 @@ input.myapps-group-name:focus {
     color: #fff;
 }
 @media (hover: hover) {
-    .app-feedback-btn-primary:hover {
+    /* :not(:disabled) matches the base .app-feedback-btn hover rule's
+       specificity, so this later rule wins for primary buttons again. */
+    .app-feedback-btn-primary:hover:not(:disabled) {
         filter: brightness(1.05);
         background: linear-gradient(#34a5f8, #088ef0);
     }
