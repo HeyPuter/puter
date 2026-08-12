@@ -321,6 +321,44 @@ describe('PermissionService (integration)', () => {
             ).rejects.toMatchObject({ statusCode: 404 });
         });
 
+        it('lets a holder give up a permission it cannot manage', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: target, actor: targetActor } = await makeUserActor();
+            const permission = `zztest:self-revoke-${uuidv4()}:ii:read`;
+            await server.stores.permission.setFlatUserPerm(
+                issuer.id,
+                `manage:${permission}`,
+                {
+                    permission: `manage:${permission}`,
+                    deleted: false,
+                    issuer_user_id: issuer.id,
+                } as never,
+            );
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+            expect(await permService.check(targetActor, permission)).toBe(true);
+
+            // The holder has no manage authority here — renouncing access is
+            // allowed anyway, since it can only narrow their own reach.
+            await runWithContext({ actor: targetActor }, () =>
+                permService.revokeUserUserPermission(
+                    targetActor,
+                    target.username,
+                    permission,
+                    {},
+                    { issuerUserId: issuer.id },
+                ),
+            );
+            expect(
+                await permService.check(targetActor, permission),
+            ).toBeFalsy();
+        });
+
         it('revokeUserUserPermission throws 403 when the issuer lacks manage', async () => {
             const { actor: issuer } = await makeUserActor();
             const { user: target } = await makeUserActor();
@@ -994,6 +1032,48 @@ describe('PermissionService (integration)', () => {
             // Fails closed: the durable write went first, so a failure there
             // leaves no flat entry granting access either.
             expect(await permService.check(targetActor, permission)).toBeFalsy();
+        });
+
+        it('keeps the flat entry while another issuer still grants the permission', async () => {
+            const { user: issuerA, actor: actorA } = await makeUserActor();
+            const { user: issuerB, actor: actorB } = await makeUserActor();
+            const { user: target, actor: targetActor } = await makeUserActor();
+            const permission = `zztest:two-issuers-${uuidv4()}:ii:read`;
+            await grantManage(issuerA, permission);
+            await grantManage(issuerB, permission);
+
+            for (const actor of [actorA, actorB]) {
+                await runWithContext({ actor }, () =>
+                    permService.grantUserUserPermission(
+                        actor,
+                        target.username,
+                        permission,
+                    ),
+                );
+            }
+
+            await runWithContext({ actor: actorA }, () =>
+                permService.revokeUserUserPermission(
+                    actorA,
+                    target.username,
+                    permission,
+                ),
+            );
+
+            // B's grant stands, so the shared flat key must survive with it —
+            // the key isn't issuer-scoped and B may not resolve via the chain.
+            expect(await permService.check(targetActor, permission)).toBe(true);
+
+            await runWithContext({ actor: actorB }, () =>
+                permService.revokeUserUserPermission(
+                    actorB,
+                    target.username,
+                    permission,
+                ),
+            );
+            expect(
+                await permService.check(targetActor, permission),
+            ).toBeFalsy();
         });
 
         it('reports whether a grant was actually removed', async () => {

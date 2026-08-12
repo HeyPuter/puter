@@ -848,7 +848,11 @@ describe('PermissionStore', () => {
             expect(rows).toHaveLength(1);
             expect(rows[0].issuer_user_id).toBe(issuer.id);
 
-            await store.deleteUserUserPermByHolder(holder.id, 'fs:u:read');
+            await store.deleteUserUserPermByHolder(
+                holder.id,
+                'fs:u:read',
+                issuer.id,
+            );
             expect(
                 await store.readLinkedUserUserPerms(holder.id, ['fs:u:read']),
             ).toEqual([]);
@@ -927,6 +931,40 @@ describe('PermissionStore', () => {
             ).toEqual([]);
         });
 
+        it('revokes only the named issuer grant, not another issuer identical one', async () => {
+            const issuerA = await makeUser();
+            const issuerB = await makeUser();
+            const holder = await makeUser();
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuerA.id,
+                'fs:shared:read',
+                {},
+            );
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuerB.id,
+                'fs:shared:read',
+                {},
+            );
+
+            expect(
+                await store.deleteUserUserPermByHolder(
+                    holder.id,
+                    'fs:shared:read',
+                    issuerA.id,
+                ),
+            ).toBe(true);
+
+            // Two people can grant the same access independently; one of them
+            // withdrawing must not take the other's grant with it.
+            const rows = await store.readLinkedUserUserPerms(holder.id, [
+                'fs:shared:read',
+            ]);
+            expect(rows).toHaveLength(1);
+            expect(rows[0].issuer_user_id).toBe(issuerB.id);
+        });
+
         it('reports whether the delete matched a row', async () => {
             const issuer = await makeUser();
             const holder = await makeUser();
@@ -938,15 +976,24 @@ describe('PermissionStore', () => {
             );
 
             expect(
-                await store.deleteUserUserPermByHolder(holder.id, 'fs:u:read'),
+                await store.deleteUserUserPermByHolder(
+                    holder.id,
+                    'fs:u:read',
+                    issuer.id,
+                ),
             ).toBe(true);
             expect(
-                await store.deleteUserUserPermByHolder(holder.id, 'fs:u:read'),
+                await store.deleteUserUserPermByHolder(
+                    holder.id,
+                    'fs:u:read',
+                    issuer.id,
+                ),
             ).toBe(false);
             expect(
                 await store.deleteUserUserPermByHolder(
                     holder.id,
                     'fs:never-granted:read',
+                    issuer.id,
                 ),
             ).toBe(false);
         });

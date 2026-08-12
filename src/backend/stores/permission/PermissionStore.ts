@@ -260,14 +260,22 @@ export class PermissionStore extends PuterStore {
         });
     }
 
-    /** Returns whether a row was actually deleted. */
+    /**
+     * Remove one issuer's grant. Scoped to the issuer because grants are keyed
+     * on (holder, issuer, permission) — two people can grant the same access
+     * independently, and one withdrawing must not take the other's with it.
+     *
+     * Returns whether a row was actually deleted.
+     */
     async deleteUserUserPermByHolder(
         holderUserId: number,
         permission: string,
+        issuerUserId: number,
     ): Promise<boolean> {
         const result = await this.clients.db.write(
-            'DELETE FROM `user_to_user_permissions` WHERE `holder_user_id` = ? AND `permission` = ?',
-            [holderUserId, permission],
+            'DELETE FROM `user_to_user_permissions` WHERE `holder_user_id` = ? ' +
+                'AND `permission` = ? AND `issuer_user_id` = ?',
+            [holderUserId, permission, issuerUserId],
         );
         if (!result.anyRowsAffected) return false;
         await this.publishCacheKeys({

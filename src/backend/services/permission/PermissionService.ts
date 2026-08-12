@@ -882,6 +882,10 @@ export class PermissionService extends PuterService {
     }
 
     /**
+     * Remove the grant `actor` issued, or the one named by `opts.issuerUserId`
+     * when the caller has established authority over another issuer's grant (a
+     * resource owner clearing a delegate's re-grant).
+     *
      * Returns whether a grant was actually removed. Matching nothing isn't an
      * error (an owner has no grant row to delete), but callers must be able to
      * tell rather than reporting a removal that didn't happen.
@@ -891,6 +895,7 @@ export class PermissionService extends PuterService {
         username: string,
         permission: string,
         meta: GrantMeta = {},
+        opts: { issuerUserId?: number } = {},
     ): Promise<boolean> {
         permission = await this.rewritePermission(permission);
         const user = await this.stores.user.getByUsername(username);
@@ -899,18 +904,24 @@ export class PermissionService extends PuterService {
                 legacyCode: 'subject_does_not_exist',
             });
 
-        if (!(await this.canManagePermission(actor, permission))) {
-            throw new HttpError(403, `permission_denied: ${permission}`, {
-                legacyCode: 'permission_denied',
-            });
-        }
         if (!actor.user?.id)
             throw new HttpError(403, 'actor must be a user', {
                 legacyCode: 'forbidden',
             });
         const issuerId = actor.user.id;
 
-        await this.stores.permission.delFlatUserPerm(user.id, permission);
+        // Giving up access you hold needs no authority over the permission —
+        // it can only ever narrow what you can reach.
+        const isSelfRevoke = user.id === issuerId;
+        if (
+            !isSelfRevoke &&
+            !(await this.canManagePermission(actor, permission))
+        ) {
+            throw new HttpError(403, `permission_denied: ${permission}`, {
+                legacyCode: 'permission_denied',
+            });
+        }
+
         // Awaited (unlike the grant-path upsert): the generation bump below
         // guarantees the holder's very next check re-derives from SQL, so a
         // fire-and-forget delete here could lose the race and let that scan
@@ -921,7 +932,20 @@ export class PermissionService extends PuterService {
         const revoked = await this.stores.permission.deleteUserUserPermByHolder(
             user.id,
             permission,
+            opts.issuerUserId ?? issuerId,
         );
+
+        // The flat key isn't issuer-scoped, so it may only go once no issuer
+        // grants this any more. Dropping it while another grant stands would
+        // cut access outright for a `manage:`-only issuer, whose grant the
+        // linked chain can't resolve.
+        const remaining = await this.stores.permission.readLinkedUserUserPerms(
+            user.id,
+            [permission],
+        );
+        if (remaining.length === 0) {
+            await this.stores.permission.delFlatUserPerm(user.id, permission);
+        }
 
         // Only record a revoke that happened.
         if (revoked) {
