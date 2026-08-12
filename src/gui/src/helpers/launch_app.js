@@ -558,6 +558,13 @@ const launch_app = async (options) => {
         // Add locale to URL
         iframe_url.searchParams.append('puter.locale', window.locale);
 
+        // Newer IPC dialogs this GUI can answer, comma-separated. The SDK
+        // consults this before posting a message an older GUI has no handler
+        // for: such a message is never replied to, and a reply timeout can't
+        // stand in for the check because legitimate replies only arrive when
+        // the user closes the dialog.
+        iframe_url.searchParams.append('puter.gui_features', 'feedback-dialog');
+
         // Add options.args to URL
         iframe_url.searchParams.append('puter.args', JSON.stringify(options.args ?? {}));
 
