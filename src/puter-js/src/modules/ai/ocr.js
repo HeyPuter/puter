@@ -1,7 +1,7 @@
 import * as utils from '../../lib/utils.js';
 import { dataUriByteLength, isBlobLike, isPlainObject } from './lib/args.js';
 
-/** @typedef {import('../../../types/modules/ai').Img2TxtOptions} Img2TxtOptions */
+/** @typedef {import('./types.js').Img2TxtOptions} Img2TxtOptions */
 
 /**
  * The recognition result shapes the OCR drivers return.

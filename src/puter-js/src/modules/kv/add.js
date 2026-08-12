@@ -2,9 +2,9 @@ import * as utils from '../../lib/utils.js';
 import { isObject, isOptConfigShorthand } from './lib/args.js';
 import { assertKeySize } from './lib/validate.js';
 
-/** @typedef {import('../../../types/modules/kv').KVAddPath} KVAddPath */
-/** @typedef {import('../../../types/modules/kv').KVOptConfig} KVOptConfig */
-/** @typedef {import('../../../types/modules/kv').KVValue} KVValue */
+/** @typedef {import('./types.js').KVAddPath} KVAddPath */
+/** @typedef {import('./types.js').KVOptConfig} KVOptConfig */
+/** @typedef {import('./types.js').KVValue} KVValue */
 
 /**
  * @overload

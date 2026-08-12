@@ -10,12 +10,29 @@ export let wispInfo = {
     handler: undefined,
 };
 
-/** @typedef {import('../../../types/modules/networking').SocketEvent} SocketEvent */
+/** @typedef {import('./types.js').SocketEvent} SocketEvent */
+
+/**
+ * The payload each socket event carries.
+ *
+ * @typedef {Object} PSocketEventMap
+ * @property {void} open Fires when the socket is initialized and ready to send data.
+ * @property {Uint8Array} data Fires when the remote server sends data over the socket.
+ * @property {Error} error Fires when the socket hits an error; a `close` follows shortly after. The
+ * human-readable reason is on `error.message`.
+ * @property {boolean} close Fires when the socket is closed. `true` if it closed due to an error.
+ * @property {void} drain Fires when the write buffer has been flushed.
+ * @property {Uint8Array} tlsdata The `PTLSSocket` spelling of `data`.
+ * @property {void} tlsopen The `PTLSSocket` spelling of `open`.
+ * @property {boolean} tlsclose The `PTLSSocket` spelling of `close`.
+ */
 
 /**
  * A raw TCP socket in the browser, tunnelled over the Wisp relay. Construct it
  * with `puter.net.Socket(hostname, port)`; the connection is established
  * asynchronously, so write once `'open'` has fired.
+ *
+ * @extends {EventListener<PSocketEventMap>}
  */
 export class PSocket extends EventListener {
     _events = new Map();
@@ -92,7 +109,8 @@ export class PSocket extends EventListener {
     /**
      * Registers a handler for a socket event, the same as `on`.
      *
-     * @param {...unknown} args a `(event, handler)` pair
+     * @template {SocketEvent} K
+     * @param {[event: K, handler: (data: PSocketEventMap[K]) => void]} args
      * @returns {void}
      */
     addListener (...args) {

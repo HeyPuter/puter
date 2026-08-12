@@ -100,9 +100,10 @@ export class PTLSSocket extends PSocket {
      * `'close'` are accepted as aliases of the `tls`-prefixed events, so the
      * same handler code works against either socket type.
      *
-     * @param {string} event
-     * @param {(...args: unknown[]) => void} callback
-     * @returns {void}
+     * @template {import('./types.js').SocketEvent} K
+     * @param {K} event
+     * @param {(data: import('./PSocket.js').PSocketEventMap[K]) => void} callback
+     * @returns {this | undefined}
      */
     on (event, callback) {
         if ( event === 'data' || event === 'open' || event === 'close' ) {

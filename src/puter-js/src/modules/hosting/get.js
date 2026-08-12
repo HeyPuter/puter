@@ -1,7 +1,7 @@
 import * as utils from '../../lib/utils.js';
 import { normalizeSubdomain } from './lib/args.js';
 
-/** @typedef {import('../../../types/modules/hosting').Subdomain} Subdomain */
+/** @typedef {import('./types.js').Subdomain} Subdomain */
 
 /**
  * Retrieves a subdomain by name. Rejects if the subdomain does not exist.

@@ -35,6 +35,17 @@ import {
     normalizeLimit,
     normalizeOffset,
 } from '../../util/pagination';
+import {
+    cacheTtlSecondsFor,
+    decodeCachedRead,
+    encodeCachedHit,
+    encodeCachedMiss,
+    kvCacheKey,
+    KV_CACHE_BLOCK_MARKER,
+    resolveKvCacheSettings,
+    type KvCachedItem,
+    type KvCacheSettings,
+} from './readCache';
 
 // -- Types ------------------------------------------------------------
 
@@ -42,6 +53,13 @@ import {
 export interface KVUsage {
     read: number;
     write: number;
+    /**
+     * Units for reads the cache answered, which consumed no capacity upstream:
+     * the number the equivalent uncached read did consume, so a caller pricing
+     * these has the same quantity to price against a different rate. Kept out
+     * of `read` precisely so it can be priced differently.
+     */
+    cachedRead: number;
 }
 
 /**
@@ -82,6 +100,9 @@ const PATH_CLEANER_REGEX = /[^A-Za-z0-9_]/g;
 // is bounded; cursors are the recommended way to page.
 const MAX_LIST_OFFSET = 5000;
 const MAX_FILL_PAGES = 10;
+// Cache keys carried by one invalidation broadcast. A peer applies them in a
+// single pass either way; the cap only keeps an individual message a sane size.
+const KV_CACHE_BROADCAST_CHUNK = 500;
 
 /**
  * Marks an entry private to the app that wrote it. Beside `value`/`ttl`, so
@@ -110,21 +131,30 @@ const listFilter = (now: number, crossApp: boolean) => {
     };
 };
 
-const emptyUsage = (): KVUsage => ({ read: 0, write: 0 });
+const emptyUsage = (): KVUsage => ({ read: 0, write: 0, cachedRead: 0 });
 
 const readUsage = (units: number | undefined): KVUsage => ({
     read: Number(units ?? 0),
     write: 0,
+    cachedRead: 0,
 });
 
 const writeUsage = (units: number | undefined): KVUsage => ({
     read: 0,
     write: Number(units ?? 0),
+    cachedRead: 0,
+});
+
+const cachedReadUsage = (units: number): KVUsage => ({
+    read: 0,
+    write: 0,
+    cachedRead: units,
 });
 
 const addUsage = (a: KVUsage, b: KVUsage): KVUsage => ({
     read: a.read + b.read,
     write: a.write + b.write,
+    cachedRead: a.cachedRead + b.cachedRead,
 });
 
 const ensureActor = (opts?: KVOpts): Actor => opts?.actor ?? SYSTEM_ACTOR;
@@ -274,6 +304,58 @@ const objectsEqual = (left: unknown, right: unknown): boolean => {
 const cleanAttrName = (chunk: string): string =>
     `#${chunk.replaceAll(PATH_CLEANER_REGEX, '')}`;
 
+/** The `SET` assignment `incr` renders for one path. */
+const incrSetStatement = (valPath: string, idx: number): string => {
+    const attrName = ['value', ...valPath.split('.')]
+        .filter(Boolean)
+        .map(cleanAttrName)
+        .join('.');
+    return `${attrName} = if_not_exists(${attrName}, :start${idx}) + :incr${idx}`;
+};
+
+/**
+ * Ceiling a caller assembling its own batches should keep each one under.
+ *
+ * The store rejects an update expression past its own size limit, and that
+ * limit is on the rendered string — where every path appears twice, at its full
+ * length — so a count of paths says nothing about whether a write will be
+ * accepted. Sized below the limit so the optional TTL clause and any encoding
+ * variance still fit.
+ */
+export const INCR_EXPRESSION_BUDGET_BYTES = 3584;
+
+/** Size of the update expression `incr` would send for `paths`. */
+export const incrExpressionBytes = (paths: string[]): number =>
+    Buffer.byteLength(`SET ${paths.map(incrSetStatement).join(', ')}`);
+
+/**
+ * Split paths into batches whose expressions each fit `maxBytes`, preserving
+ * order. A path always gets a batch even when it can't fit in one: a caller
+ * narrowing down which path a rejection belongs to needs the single-path
+ * attempt to happen rather than being told it is impossible.
+ */
+export const chunkPathsForIncr = (
+    paths: string[],
+    maxBytes: number = INCR_EXPRESSION_BUDGET_BYTES,
+): string[][] => {
+    const batches: string[][] = [];
+    let batch: string[] = [];
+
+    for (const path of paths) {
+        const wouldOverflow =
+            batch.length > 0 &&
+            incrExpressionBytes([...batch, path]) > maxBytes;
+        if (wouldOverflow) {
+            batches.push(batch);
+            batch = [];
+        }
+        batch.push(path);
+    }
+    if (batch.length > 0) batches.push(batch);
+
+    return batches;
+};
+
 // -- SystemKVStore ----------------------------------------------------
 
 /**
@@ -291,7 +373,13 @@ export class SystemKVStore extends PuterStore {
     private tableName = PUTER_KV_STORE_TABLE_NAME;
     private initialized: Promise<void> | null = null;
 
+    #cache: KvCacheSettings = resolveKvCacheSettings(this.config);
+    #pendingInvalidations = new Set<string>();
+    #invalidationTimer: ReturnType<typeof setTimeout> | null = null;
+
     override async onServerStart(): Promise<void> {
+        if (this.#cache.enabled) this.#subscribeRemoteInvalidations();
+
         // For local/dynalite runs we need to create the table up front.
         // Real AWS deployments provision tables externally (Terraform), so
         // we skip — unless the operator explicitly opts in via
@@ -305,6 +393,264 @@ export class SystemKVStore extends PuterStore {
             'ttl',
         );
         await this.initialized;
+    }
+
+    override async onServerPrepareShutdown(): Promise<void> {
+        if (this.#invalidationTimer) {
+            clearTimeout(this.#invalidationTimer);
+            this.#invalidationTimer = null;
+        }
+        // Peers would otherwise keep serving entries this node invalidated in
+        // the last coalescing window.
+        this.#flushInvalidationBroadcast();
+    }
+
+    // -- Read cache ---------------------------------------------------
+
+    /**
+     * Whether reads in this namespace may be served from the cache.
+     *
+     * The system namespace is where internal state lives — metering counters,
+     * one-time codes, permission rows. Those callers read to decide something
+     * on the spot and can't be handed a value that was true a moment ago, so
+     * they always read through. It is also why nothing outside this store needs
+     * to opt in or out: the namespace already says which kind of data it is.
+     */
+    #cacheable(namespace: string): boolean {
+        return this.#cache.enabled && namespace !== SYSTEM_NAMESPACE;
+    }
+
+    /**
+     * Look `keys` up in the cache. `resolved` holds the keys the cache answered
+     * — a hit or a cached absence — and is what the caller subtracts from the
+     * set it still has to fetch.
+     */
+    async #cacheRead(
+        namespace: string,
+        keys: string[],
+    ): Promise<{
+        items: KvCachedItem[];
+        resolved: Set<string>;
+        readUnits: number;
+    }> {
+        const empty = {
+            items: [] as KvCachedItem[],
+            resolved: new Set<string>(),
+            readUnits: 0,
+        };
+        if (keys.length === 0) return empty;
+
+        try {
+            const raw =
+                keys.length === 1
+                    ? [
+                          await this.clients.redis.get(
+                              kvCacheKey(namespace, keys[0]),
+                          ),
+                      ]
+                    : await this.#cachePipelineGet(namespace, keys);
+
+            const items: KvCachedItem[] = [];
+            const resolved = new Set<string>();
+            let readUnits = 0;
+            const now = Date.now() / 1000;
+
+            keys.forEach((key, index) => {
+                const cached = decodeCachedRead(raw[index], key);
+                if (cached.state === 'hit') {
+                    // The entry carries its own deadline and the cache TTL is
+                    // only an upper bound on it, so an entry that lapsed since
+                    // it was written counts as nothing cached at all.
+                    if (cached.item.ttl && cached.item.ttl <= now) return;
+                    items.push(cached.item);
+                    resolved.add(key);
+                    readUnits += cached.readUnits;
+                    return;
+                }
+                if (cached.state === 'miss') {
+                    resolved.add(key);
+                    readUnits += cached.readUnits;
+                }
+            });
+
+            return { items, resolved, readUnits };
+        } catch (e) {
+            // A cache that is down degrades to no cache, never to an error.
+            console.warn(
+                '[kv] read cache lookup failed:',
+                (e as Error).message,
+            );
+            return empty;
+        }
+    }
+
+    /**
+     * Multi-key lookup as a pipeline rather than an `MGET`, so keys landing in
+     * different hash slots don't have to share one.
+     */
+    async #cachePipelineGet(
+        namespace: string,
+        keys: string[],
+    ): Promise<(string | null)[]> {
+        const pipeline = this.clients.redis.pipeline();
+        for (const key of keys) pipeline.get(kvCacheKey(namespace, key));
+        const results = await pipeline.exec();
+        return keys.map((_key, index) => {
+            const entry = results?.[index];
+            if (!entry || entry[0]) return null;
+            return (entry[1] as string | null) ?? null;
+        });
+    }
+
+    /**
+     * Cache what a read just fetched. `keys` is what was asked of the
+     * underlying store, so a key with no entry in `items` is cached as a known
+     * absence.
+     */
+    #cachePopulate(params: {
+        namespace: string;
+        keys: string[];
+        items: KvCachedItem[];
+        readUnitsPerKey: number;
+        startedAt: number;
+    }): void {
+        // A write that landed during this read left a block marker, and `NX`
+        // below is what keeps the pre-write value out — but only for as long as
+        // the marker lives. A read slower than that can no longer show its value
+        // is the current one, so it doesn't get to cache it.
+        if (Date.now() - params.startedAt > this.#cache.blockSeconds * 1000) {
+            return;
+        }
+
+        const now = Date.now() / 1000;
+        const byKey = new Map(params.items.map((item) => [item.key, item]));
+        const writes: Array<{ key: string; payload: string; ttl: number }> = [];
+
+        for (const key of params.keys) {
+            const item = byKey.get(key);
+            const ttl = item
+                ? cacheTtlSecondsFor(this.#cache, item.ttl, now)
+                : this.#cache.missTtlSeconds;
+            if (ttl === null) continue;
+            const payload = item
+                ? encodeCachedHit(item, params.readUnitsPerKey)
+                : encodeCachedMiss(params.readUnitsPerKey);
+            if (
+                Buffer.byteLength(payload, 'utf8') > this.#cache.maxEntryBytes
+            ) {
+                continue;
+            }
+            writes.push({
+                key: kvCacheKey(params.namespace, key),
+                payload,
+                ttl,
+            });
+        }
+        if (writes.length === 0) return;
+
+        // Deliberately not awaited: a read shouldn't wait on its own cache fill.
+        const pipeline = this.clients.redis.pipeline();
+        for (const { key, payload, ttl } of writes) {
+            pipeline.set(key, payload, 'EX', ttl, 'NX');
+        }
+        void Promise.resolve(pipeline.exec()).catch((e: unknown) => {
+            console.warn(
+                '[kv] read cache populate failed:',
+                (e as Error).message,
+            );
+        });
+    }
+
+    /**
+     * Stop serving cached reads for `keys`, here and in every peer region.
+     *
+     * Awaited for the local part so a caller's own next read can't be answered
+     * from the cache it just made wrong; the broadcast is fire-and-forget.
+     */
+    async #invalidate(namespace: string, keys: string[]): Promise<void> {
+        if (!this.#cacheable(namespace) || keys.length === 0) return;
+        const cacheKeys = [...new Set(keys)].map((key) =>
+            kvCacheKey(namespace, key),
+        );
+        await this.publishCacheKeys({
+            keys: cacheKeys,
+            serializedData: KV_CACHE_BLOCK_MARKER,
+            ttlSeconds: this.#cache.blockSeconds,
+        });
+        this.#queueInvalidationBroadcast(cacheKeys);
+    }
+
+    /**
+     * Accumulate invalidations and send them as one message.
+     *
+     * Every broadcast is serialized twice on the way out — once to dedupe it,
+     * once to sign it — and a per-write message would pay both plus its own
+     * envelope for a single cache key. Batching keeps a write-heavy namespace
+     * from turning the cache into a net cost.
+     */
+    #queueInvalidationBroadcast(cacheKeys: string[]): void {
+        for (const key of cacheKeys) this.#pendingInvalidations.add(key);
+
+        if (this.#cache.broadcastCoalesceMs === 0) {
+            this.#flushInvalidationBroadcast();
+            return;
+        }
+        if (this.#invalidationTimer) return;
+        this.#invalidationTimer = setTimeout(() => {
+            this.#invalidationTimer = null;
+            this.#flushInvalidationBroadcast();
+        }, this.#cache.broadcastCoalesceMs);
+        this.#invalidationTimer.unref?.();
+    }
+
+    #flushInvalidationBroadcast(): void {
+        if (this.#pendingInvalidations.size === 0) return;
+        const cacheKeys = [...this.#pendingInvalidations];
+        this.#pendingInvalidations.clear();
+
+        for (let i = 0; i < cacheKeys.length; i += KV_CACHE_BROADCAST_CHUNK) {
+            this.clients.event.emit(
+                'outer.kv.cacheInvalidated',
+                {
+                    cacheKeys: cacheKeys.slice(i, i + KV_CACHE_BROADCAST_CHUNK),
+                },
+                {},
+            );
+        }
+    }
+
+    /**
+     * Apply invalidations a peer region sent us.
+     *
+     * A marker, not a delete, and for the local block window rather than
+     * anything the sender named: the entry reaches this region's copy of the
+     * underlying store on its own schedule, so the point is to keep reads going
+     * through until it has.
+     */
+    #subscribeRemoteInvalidations(): void {
+        this.clients.event.on(
+            'outer.kv.cacheInvalidated',
+            (_key, data, meta) => {
+                // Our own emit reaches local listeners too, and the local half
+                // of the invalidation already ran before it went out.
+                if (!(meta as { from_outside?: boolean })?.from_outside) return;
+
+                const cacheKeys =
+                    (data as { cacheKeys?: unknown })?.cacheKeys ?? [];
+                if (!Array.isArray(cacheKeys)) return;
+                const keys = cacheKeys.filter(
+                    (key): key is string =>
+                        typeof key === 'string' && key !== '',
+                );
+                if (keys.length === 0) return;
+
+                void this.publishCacheKeys({
+                    keys,
+                    serializedData: KV_CACHE_BLOCK_MARKER,
+                    ttlSeconds: this.#cache.blockSeconds,
+                });
+            },
+        );
     }
 
     // -- Public API ---------------------------------------------------
@@ -349,9 +695,7 @@ export class SystemKVStore extends PuterStore {
     ): Promise<KVUsage> {
         if (!isCrossApp(opts) || keys.length === 0) return emptyUsage();
         const { entries, usage } = await this.getBatches(namespace, keys);
-        const isPrivate = (entries as Array<{ noShare?: boolean }>).some(
-            (entry) => entry?.noShare,
-        );
+        const isPrivate = entries.some((entry) => entry?.noShare);
         if (isPrivate) {
             throw new HttpError(
                 403,
@@ -377,33 +721,63 @@ export class SystemKVStore extends PuterStore {
 
         for (const k of keys) assertKey(k);
 
-        let kvEntries: Array<{
-            key: string;
-            value?: unknown;
-            ttl?: number;
-            noShare?: boolean;
-        }> = [];
+        let kvEntries: KvCachedItem[] = [];
         let usage = emptyUsage();
 
-        if (multi) {
-            const { entries, usage: u } = await this.getBatches(
-                namespace,
-                keys,
-            );
-            kvEntries = entries;
-            usage = u;
-        } else {
-            const response = await this.clients.dynamo.get(
-                this.tableName,
-                { namespace, key },
-                consistentRead,
-            );
-            kvEntries = response.Item
-                ? [response.Item as (typeof kvEntries)[number]]
-                : [];
-            usage = readUsage(
-                response.ConsumedCapacity?.CapacityUnits as number | undefined,
-            );
+        // A consistent read is asking for the source of truth by definition.
+        const useCache = !consistentRead && this.#cacheable(namespace);
+        // Deduped so a key repeated in a batch is looked up — and charged for —
+        // once, matching what `getBatches` already does.
+        const wanted = [...new Set(keys)];
+        let toFetch = wanted;
+
+        if (useCache) {
+            const cached = await this.#cacheRead(namespace, wanted);
+            kvEntries = cached.items;
+            usage = addUsage(usage, cachedReadUsage(cached.readUnits));
+            toFetch = wanted.filter((k) => !cached.resolved.has(k));
+        }
+
+        if (toFetch.length > 0) {
+            const startedAt = Date.now();
+            let fetched: KvCachedItem[];
+            let fetchUnits: number;
+
+            if (multi) {
+                const { entries, usage: u } = await this.getBatches(
+                    namespace,
+                    toFetch,
+                );
+                fetched = entries;
+                fetchUnits = u.read;
+            } else {
+                const response = await this.clients.dynamo.get(
+                    this.tableName,
+                    { namespace, key: toFetch[0] },
+                    consistentRead,
+                );
+                fetched = response.Item ? [response.Item as KvCachedItem] : [];
+                fetchUnits = Number(
+                    (response.ConsumedCapacity?.CapacityUnits as
+                        | number
+                        | undefined) ?? 0,
+                );
+            }
+
+            kvEntries = kvEntries.concat(fetched);
+            usage = addUsage(usage, readUsage(fetchUnits));
+
+            if (useCache) {
+                // Capacity is reported per call, not per item, so a cached read
+                // replays the batch's average rather than an exact figure.
+                this.#cachePopulate({
+                    namespace,
+                    keys: toFetch,
+                    items: fetched,
+                    readUnitsPerKey: fetchUnits / toFetch.length,
+                    startedAt,
+                });
+            }
         }
 
         const now = Date.now() / 1000;
@@ -450,6 +824,7 @@ export class SystemKVStore extends PuterStore {
             ttl: expireAt,
             ...(disableSharing ? { [KV_PRIVATE_ATTR]: true } : {}),
         });
+        await this.#invalidate(namespace, [key]);
 
         return {
             res: true,
@@ -520,6 +895,7 @@ export class SystemKVStore extends PuterStore {
         }));
 
         const response = await this.clients.dynamo.batchPut(putParams);
+        await this.#invalidate(namespace, [...byKey.keys()]);
         const units =
             response.ConsumedCapacity?.reduce(
                 (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
@@ -544,6 +920,7 @@ export class SystemKVStore extends PuterStore {
             namespace,
             key,
         });
+        await this.#invalidate(namespace, [key]);
         return {
             res: true,
             usage: addUsage(
@@ -793,6 +1170,13 @@ export class SystemKVStore extends PuterStore {
         );
         usage = addUsage(usage, writeUsage(deleteUnits));
 
+        // Exactly the keys the query saw, which is also exactly what was
+        // deleted — anything a truncated query missed is still there to read.
+        await this.#invalidate(
+            namespace,
+            entries.map((entry) => String(entry.key)),
+        );
+
         return { res: true, usage };
     }
 
@@ -805,6 +1189,7 @@ export class SystemKVStore extends PuterStore {
         const namespace = getNamespace(actor, opts);
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
         const usage = await this.rawExpireAt(namespace, key, Number(timestamp));
+        await this.#invalidate(namespace, [key]);
         return { res: undefined, usage: addUsage(probeUsage, usage) };
     }
 
@@ -818,6 +1203,7 @@ export class SystemKVStore extends PuterStore {
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
         const timestamp = Math.floor(Date.now() / 1000) + Number(ttl);
         const usage = await this.rawExpireAt(namespace, key, timestamp);
+        await this.#invalidate(namespace, [key]);
         return { res: undefined, usage: addUsage(probeUsage, usage) };
     }
 
@@ -852,14 +1238,8 @@ export class SystemKVStore extends PuterStore {
 
         const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
 
-        const setStatements = Object.entries(pathAndAmountMap).map(
-            ([valPath, _amt], idx) => {
-                const attrName = ['value', ...valPath.split('.')]
-                    .filter(Boolean)
-                    .map(cleanAttrName)
-                    .join('.');
-                return `${attrName} = if_not_exists(${attrName}, :start${idx}) + :incr${idx}`;
-            },
+        const setStatements = Object.keys(pathAndAmountMap).map(
+            (valPath, idx) => incrSetStatement(valPath, idx),
         );
         const valueAttributeValues = Object.entries(pathAndAmountMap).reduce(
             (acc, [_path, amt], idx) => {
@@ -934,6 +1314,7 @@ export class SystemKVStore extends PuterStore {
             );
             response = await runUpdate();
         }
+        await this.#invalidate(namespace, [key]);
 
         const usage = addUsage(
             probeUsage,
@@ -1024,6 +1405,7 @@ export class SystemKVStore extends PuterStore {
             valueAttributeValues,
             { ...valueAttributeNames, '#value': 'value' },
         );
+        await this.#invalidate(namespace, [key]);
 
         const usage = addUsage(
             probeUsage,
@@ -1084,6 +1466,7 @@ export class SystemKVStore extends PuterStore {
                 undefined,
                 { ...valueAttributeNames, '#value': 'value' },
             );
+            await this.#invalidate(namespace, [key]);
             return {
                 res: response.Attributes?.value,
                 usage: addUsage(
@@ -1197,6 +1580,8 @@ export class SystemKVStore extends PuterStore {
             { ...valueAttributeNames, '#value': 'value' },
         );
 
+        await this.#invalidate(namespace, [key]);
+
         const usage = addUsage(
             probeUsage,
             writeUsage(
@@ -1214,7 +1599,7 @@ export class SystemKVStore extends PuterStore {
         namespace: string,
         allKeys: string[],
     ): Promise<{
-        entries: Array<{ key: string; value?: unknown; ttl?: number }>;
+        entries: KvCachedItem[];
         usage: KVUsage;
     }> {
         const batches: string[][] = [];
@@ -1230,11 +1615,7 @@ export class SystemKVStore extends PuterStore {
                 }));
                 const response = await this.clients.dynamo.batchGet(requests);
                 const entries = (response.Responses?.[this.tableName] ??
-                    []) as Array<{
-                    key: string;
-                    value?: unknown;
-                    ttl?: number;
-                }>;
+                    []) as KvCachedItem[];
                 const units =
                     response.ConsumedCapacity?.reduce(
                         (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
@@ -1251,11 +1632,7 @@ export class SystemKVStore extends PuterStore {
                 return acc;
             },
             {
-                entries: [] as Array<{
-                    key: string;
-                    value?: unknown;
-                    ttl?: number;
-                }>,
+                entries: [] as KvCachedItem[],
                 usage: emptyUsage(),
             },
         );

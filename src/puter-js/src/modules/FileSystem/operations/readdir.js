@@ -4,9 +4,9 @@ import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 import mapV2EntryToV1 from '../utils/mapV2EntryToV1.js';
 import { fsRequest, parseOperationArgs } from './scaffold.js';
 
-/** @typedef {import('../../../../types/modules/filesystem').ReaddirOptions} ReaddirOptions */
-/** @typedef {import('../../../../types/modules/fs-item').FSItem} FSItem */
-/** @typedef {import('../../../../types/shared').ListPage<FSItem>} FSItemPage */
+/** @typedef {import('../types.js').ReaddirOptions} ReaddirOptions */
+/** @typedef {import('../../FSItem.js').FSItem} FSItem */
+/** @typedef {import('../../../lib/types.js').ListPage<FSItem>} FSItemPage */
 
 // Listings larger than this are served but never cached.
 const MAX_CACHE_SIZE = 100 * 1024 * 1024;

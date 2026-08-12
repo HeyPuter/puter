@@ -3,11 +3,28 @@ import { PuterModule } from '../lib/PuterModule.js';
 import * as utils from '../lib/utils.js';
 import { fetchAllPages, iteratePages } from '../lib/pagination.js';
 
-/** @typedef {import('../../types/modules/workers').WorkerDeployment} WorkerDeployment */
-/** @typedef {import('../../types/modules/workers').WorkerInfo} WorkerInfo */
-/** @typedef {import('../../types/shared').ListPage<WorkerInfo>} WorkerPage */
-/** @typedef {import('../../types/shared').ListPaginationOptions} ListPaginationOptions */
-/** @typedef {import('../../types/shared').ListStreamOptions} ListStreamOptions */
+/**
+ * Information about a deployed worker, as returned by `get()` and `list()`.
+ *
+ * @typedef {Object} WorkerInfo
+ * @property {string} name The name of the worker.
+ * @property {string} url The URL of the worker.
+ * @property {string} file_path The file path of the worker's source code.
+ * @property {string} file_uid The unique identifier of the worker file.
+ * @property {string} created_at The date and time when the worker was created.
+ */
+
+/**
+ * The result of a worker deployment, as returned by `create()`.
+ *
+ * @typedef {Object} WorkerDeployment
+ * @property {boolean} success Whether the worker deployment was successful.
+ * @property {string} url The URL of the deployed worker.
+ * @property {string[]} [errors] Any errors that occurred during deployment.
+ */
+/** @typedef {import('../lib/types.js').ListPage<WorkerInfo>} WorkerPage */
+/** @typedef {import('../lib/types.js').ListPaginationOptions} ListPaginationOptions */
+/** @typedef {import('../lib/types.js').ListStreamOptions} ListStreamOptions */
 
 /**
  * The `puter.workers` module: deploy and call serverless workers.
@@ -296,3 +313,15 @@ export class WorkersHandler extends PuterModule {
     }
 
 }
+
+/**
+ * The public face of the module: derived from the class, with the internal
+ * `puter` handle and the legacy `authToken` accessor omitted.
+ *
+ * @typedef {import('../lib/types.js').OmitMembers<
+ *     typeof WorkersHandler,
+ *     'puter' | 'authToken'
+ * >} WorkersConstructor
+ */
+
+export const Workers = /** @type {WorkersConstructor} */ (WorkersHandler);

@@ -5,15 +5,15 @@ import { get } from './get.js';
 import { list } from './list.js';
 import { update } from './update.js';
 
-/** @typedef {import('../../../types/puter').Puter} Puter */
+/** @typedef {import('../../index.js').Puter} Puter */
 
 /**
  * The `puter.hosting` module.
  *
  * Method implementations live in the sibling files as `this`-context
  * functions whose JSDoc (including the per-form `@overload` declarations) is
- * the source of truth for the public signatures; types/modules/hosting.d.ts
- * mirrors them for TypeScript consumers of the published SDK.
+ * the source of truth for the public signatures — `types/` is generated from
+ * it, never edited by hand.
  */
 export class HostingModule extends PuterModule {
     // The fields hold the unbound functions so they keep the full overloaded

@@ -1,12 +1,38 @@
 import path from 'path-browserify';
 
-/** @typedef {import('../../types/modules/fs-item').FSItem} FSItemType */
+/**
+ * The `/sign`-endpoint shape of an item, as `_internalProperties.file_signature`
+ * computes it. Passing it to `launch_app` lets another app open the file.
+ *
+ * @typedef {Object} FileSignatureInfo
+ * @property {string} [read_url]
+ * @property {string} [write_url]
+ * @property {string} [metadata_url]
+ * @property {number} [fsentry_accessed]
+ * @property {number} [fsentry_modified]
+ * @property {number} [fsentry_created]
+ * @property {boolean} [fsentry_is_dir]
+ * @property {number | null} [fsentry_size]
+ * @property {string} [fsentry_name]
+ * @property {string} [path]
+ * @property {string} [uid]
+ */
+
+/**
+ * Non-enumerable bag of values that are not part of the public item surface
+ * and may change or disappear.
+ *
+ * @typedef {Object} InternalFSProperties
+ * @property {string | null} [signature]
+ * @property {string | null} [expires]
+ * @property {FileSignatureInfo} file_signature
+ */
 
 /**
  * A file or a directory in the Puter file system. Accepts an entry in any of
  * the shapes the API returns it in (`is_dir`, `fsentry_is_dir`, …).
  */
-class FSItem {
+export class FSItem {
     // Declared rather than left to inference: the constructor reads each one
     // off a loosely-typed entry, which would otherwise make them all
     // `unknown` to consumers.
@@ -172,7 +198,7 @@ class FSItem {
      * Writes data to the file, replacing its contents.
      *
      * @param {string | File | Blob | ArrayBuffer | ArrayBufferView} data
-     * @returns {Promise<FSItemType>}
+     * @returns {Promise<FSItem>}
      */
     write = async function (data) {
         return puter.fs.write(this.path, data, {
@@ -183,13 +209,12 @@ class FSItem {
 
     // -- Not implemented yet --
     // These are part of the published surface but are still stubs: they accept
-    // their arguments and do nothing. Declared in types/modules/fs-item.d.ts
-    // as placeholders too.
+    // their arguments and do nothing.
 
     /**
      * Would call `callback` with the item whenever it changes.
      *
-     * @type {(callback: (item: FSItemType) => void) => void}
+     * @type {(callback: (item: FSItem) => void) => void}
      */
     watch = function (callback) {
         // todo - implement
@@ -198,7 +223,7 @@ class FSItem {
     /**
      * Would open the item in its associated app.
      *
-     * @type {(callback: (item: FSItemType) => void) => void}
+     * @type {(callback: (item: FSItem) => void) => void}
      */
     open = function (callback) {
         // todo - implement
@@ -217,7 +242,7 @@ class FSItem {
      * Renames the item.
      *
      * @param {string} newName
-     * @returns {Promise<FSItemType>}
+     * @returns {Promise<FSItem>}
      */
     rename = function (newName) {
         // Address by uid when we have one: the item may have been moved since
@@ -234,7 +259,7 @@ class FSItem {
      * @param {string} destination
      * @param {boolean} [overwrite]
      * @param {string} [newName]
-     * @returns {Promise<FSItemType>}
+     * @returns {Promise<FSItem>}
      */
     move = function (destination, overwrite = false, newName) {
         return puter.fs.move(this.path, destination, { overwrite, newName });
@@ -246,7 +271,7 @@ class FSItem {
      * @param {string} destinationDirectory
      * @param {boolean} [autoRename] pick a free name instead of conflicting
      * @param {boolean} [overwrite]
-     * @returns {Promise<FSItemType>}
+     * @returns {Promise<FSItem>}
      */
     copy = function (destinationDirectory, autoRename, overwrite = false) {
         return puter.fs.copy(this.path, destinationDirectory, {
@@ -290,7 +315,7 @@ class FSItem {
      *
      * @param {string} name
      * @param {boolean} [autoRename] pick a free name instead of conflicting
-     * @returns {Promise<FSItemType>}
+     * @returns {Promise<FSItem>}
      */
     mkdir = async function (name, autoRename = false) {
         // Don't proceed if this is not a directory, throw error
@@ -314,7 +339,7 @@ class FSItem {
     /**
      * Lists the contents of this directory.
      *
-     * @returns {Promise<FSItemType[]>}
+     * @returns {Promise<FSItem[]>}
      */
     readdir = async function () {
         // Don't proceed if this is not a directory, throw error

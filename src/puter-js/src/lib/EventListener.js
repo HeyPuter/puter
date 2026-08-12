@@ -1,6 +1,15 @@
 /**
  * Minimal named-event emitter. Subclasses declare the event names they
  * support; listening for anything else is reported and ignored.
+ *
+ * A subclass names its events — and the payload each one carries — by passing
+ * an event map through `@extends`, which is what gives callers a typed
+ * `handler` argument per event name:
+ *
+ *   /** @extends {EventListener<{ open: void, data: Uint8Array }>} *\/
+ *   class MySocket extends EventListener { ... }
+ *
+ * @template {Record<string, unknown>} [EventMap=Record<string, unknown>]
  */
 export default class EventListener {
     // Array of all supported event names.
@@ -9,7 +18,7 @@ export default class EventListener {
     // Map of eventName -> array of listeners
     #eventListeners;
 
-    /** @param {string[]} eventNames */
+    /** @param {(keyof EventMap & string)[] | string[]} eventNames */
     constructor (eventNames) {
         this.#eventNames = eventNames;
 
@@ -23,8 +32,11 @@ export default class EventListener {
     }
 
     /**
-     * @param {string} eventName
-     * @param {unknown} [data]
+     * Calls every handler registered for `eventName` with `data`.
+     *
+     * @template {keyof EventMap & string} K
+     * @param {K} eventName
+     * @param {EventMap[K]} [data]
      * @returns {void}
      */
     emit (eventName, data) {
@@ -38,8 +50,12 @@ export default class EventListener {
     }
 
     /**
-     * @param {string} eventName
-     * @param {(data: never) => void} callback
+     * Registers `callback` for `eventName`. Returns `undefined` — after
+     * reporting it — when the event is not one this emitter supports.
+     *
+     * @template {keyof EventMap & string} K
+     * @param {K} eventName
+     * @param {(data: EventMap[K]) => void} callback
      * @returns {this | undefined}
      */
     on (eventName, callback) {
@@ -52,8 +68,11 @@ export default class EventListener {
     }
 
     /**
-     * @param {string} eventName
-     * @param {(data: never) => void} callback
+     * Removes a handler previously registered with `on`.
+     *
+     * @template {keyof EventMap & string} K
+     * @param {K} eventName
+     * @param {(data: EventMap[K]) => void} callback
      * @returns {this | undefined}
      */
     off (eventName, callback) {

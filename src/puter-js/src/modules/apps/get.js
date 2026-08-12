@@ -1,8 +1,8 @@
 import * as utils from '../../lib/utils.js';
 import { addUserIteration } from './lib/appUsers.js';
 
-/** @typedef {import('../../../types/modules/apps').App} App */
-/** @typedef {import('../../../types/modules/apps').AppListOptions} AppListOptions */
+/** @typedef {import('./types.js').App} App */
+/** @typedef {import('./types.js').AppListOptions} AppListOptions */
 
 /**
  * Returns the app with the given name. Rejects if the app does not exist.

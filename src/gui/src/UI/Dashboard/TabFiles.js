@@ -271,14 +271,16 @@ const TabFiles = {
         this.typeSearchTerm = '';
         this.typeSearchTimeout = null;
         this.selectModeActive = false;
-        this.currentView = await puter.kv.get('view_mode') || 'list';
+        // Preference reads are best-effort: the tab renders with the
+        // defaults rather than not rendering at all.
+        this.currentView = await puter.kv.get('view_mode').catch(() => null) || 'list';
 
         // Sorting state
-        this.sortColumn = await puter.kv.get('sort_column') || 'name';
-        this.sortDirection = await puter.kv.get('sort_direction') || 'asc';
+        this.sortColumn = await puter.kv.get('sort_column').catch(() => null) || 'name';
+        this.sortDirection = await puter.kv.get('sort_direction').catch(() => null) || 'asc';
 
         // Column widths state (for resizing)
-        const savedWidths = await puter.kv.get('column_widths');
+        const savedWidths = await puter.kv.get('column_widths').catch(() => null);
         this.columnWidths = savedWidths ? JSON.parse(savedWidths) : {
             name: null, // auto/flex
             size: 100,
@@ -1567,7 +1569,8 @@ const TabFiles = {
 
             $(document).on('mouseup.colresize', function () {
                 $(document).off('mousemove.colresize mouseup.colresize');
-                puter.kv.set('column_widths', JSON.stringify(_this.columnWidths));
+                puter.kv.set('column_widths', JSON.stringify(_this.columnWidths))
+                    .catch(err => console.warn('Could not save column_widths:', err));
             });
         });
 
@@ -1611,7 +1614,8 @@ const TabFiles = {
             // Apply the new width
             _this.columnWidths[column] = Math.ceil(maxWidth);
             _this.applyColumnWidths();
-            puter.kv.set('column_widths', JSON.stringify(_this.columnWidths));
+            puter.kv.set('column_widths', JSON.stringify(_this.columnWidths))
+                .catch(err => console.warn('Could not save column_widths:', err));
         });
     },
 
@@ -1902,8 +1906,10 @@ const TabFiles = {
             this.sortDirection = 'asc';
         }
 
-        await puter.kv.set('sort_column', this.sortColumn);
-        await puter.kv.set('sort_direction', this.sortDirection);
+        await puter.kv.set('sort_column', this.sortColumn)
+            .catch(err => console.warn('Could not save sort_column:', err));
+        await puter.kv.set('sort_direction', this.sortDirection)
+            .catch(err => console.warn('Could not save sort_direction:', err));
 
         this.updateSortIndicators();
         this.renderDirectory(this.currentPath);
@@ -3275,7 +3281,8 @@ const TabFiles = {
         this.currentView = mode;
         this.applyViewMode();
 
-        puter.kv.set('view_mode', mode);
+        puter.kv.set('view_mode', mode)
+            .catch(err => console.warn('Could not save view_mode:', err));
 
         // Refresh content to update icons for the new view mode
         if ( this.currentPath ) {

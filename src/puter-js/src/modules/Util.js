@@ -14,7 +14,12 @@ export default class Util {
     }
 }
 
-class UtilRPC {
+/**
+ * The lower-level RPC interface used to talk to iframes: it swaps functions in
+ * a value for callback ids so the value survives `postMessage`, and resolves
+ * them back on the other side.
+ */
+export class UtilRPC {
     constructor () {
         this.callbackManager = new CallbackManager();
         this.callbackManager.attach_to_source(globalThis);

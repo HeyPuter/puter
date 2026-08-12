@@ -1,4 +1,12 @@
+/**
+ * Turns on the SDK's category loggers, either from an `enabled_logs` query
+ * parameter or on request from the parent window.
+ */
 export class Debug {
+    /**
+     * @param {import('../index.js').Puter} puter
+     * @param {Record<string, unknown>} [parameters]
+     */
     constructor (puter, parameters) {
         this.puter = puter;
         this.parameters = parameters;

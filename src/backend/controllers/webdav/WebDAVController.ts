@@ -48,6 +48,7 @@ import {
     checkRateLimit,
     computeNetworkFingerprint,
 } from '../../core/http/middleware/rateLimit.js';
+import { assertActorHasCredits } from '../../services/metering/enforcement.js';
 
 const DAV_HEADERS = {
     DAV: '1, 2, ordered-collections',
@@ -59,6 +60,13 @@ const ALLOW_METHODS =
 
 // macOS creates these files; reject them to keep the FS clean.
 const MACOS_JUNK_REGEX = /(?:^\.DS_Store$|^\._)/;
+
+/**
+ * Verbs that move file content or duplicate it in the object store, and so are
+ * refused to an account with nothing left of its budget. HEAD is here with GET
+ * because a client asking for headers is a client about to fetch the body.
+ */
+const CREDIT_GATED_DAV_METHODS = new Set(['GET', 'HEAD', 'PUT', 'COPY']);
 
 /**
  * WebDAV controller — full RFC 4918 surface on the `dav.*` subdomain.
@@ -151,6 +159,19 @@ export class WebDAVController extends PuterController {
         // HttpError, surfaced by the catch in registerRoutes.
         assertNotSuspended(actor.user);
         assertVerifiedAccount(actor.user);
+
+        // And the same budget gate the FS routes declare with
+        // `requireCredits`, for the verbs that move content — DAV serves the
+        // same files over a metered host, so leaving it out would make mounting
+        // the drive the way around enforcement. The verbs that only describe or
+        // remove things stay open, as they do over HTTP.
+        if (CREDIT_GATED_DAV_METHODS.has(req.method.toUpperCase())) {
+            await assertActorHasCredits(
+                this.services.metering,
+                actor,
+                this.config,
+            );
+        }
 
         // Expand `~`/`~/...` against the authenticated actor's username.
         // WebDAV doesn't standardize `~`, but some clients do — and the

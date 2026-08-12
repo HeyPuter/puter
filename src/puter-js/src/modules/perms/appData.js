@@ -1,9 +1,9 @@
 import { PuterJSError } from '../../lib/PuterJSError.js';
 
 /** @typedef {import('./index.js').PermsModule} PermsModule */
-/** @typedef {import('../../../types/modules/perms').AppDataScopes} AppDataScopes */
-/** @typedef {import('../../../types/modules/perms').AppDataKvScope} AppDataKvScope */
-/** @typedef {import('../../../types/modules/perms').AppDataFsScope} AppDataFsScope */
+/** @typedef {import('./types.js').AppDataScopes} AppDataScopes */
+/** @typedef {import('./types.js').AppDataKvScope} AppDataKvScope */
+/** @typedef {import('./types.js').AppDataFsScope} AppDataFsScope */
 
 // Mirrors `services/permission/appDataScopes.ts`, which stays authoritative.
 // This copy only turns a typo into a useful error instead of an opaque 403.

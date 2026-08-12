@@ -2372,15 +2372,18 @@ describe('FSController.statEntry additional branches', () => {
 // ── #getReportedCosts ───────────────────────────────────────────────
 
 describe('FSController.getReportedCosts', () => {
-    it('mirrors every FS_COSTS entry as a per-byte line item', async () => {
-        const { FS_COSTS } = await import('./costs.js');
+    it('mirrors every storage-operation price as a per-operation line item', async () => {
+        const { STORAGE_OP_COSTS } =
+            await import('../../services/metering/costs.js');
         const reported = controller.getReportedCosts();
-        expect(reported.length).toBe(Object.keys(FS_COSTS).length);
-        for (const [usageType, ucentsPerUnit] of Object.entries(FS_COSTS)) {
+        expect(reported.length).toBe(Object.keys(STORAGE_OP_COSTS).length);
+        for (const [usageType, ucentsPerUnit] of Object.entries(
+            STORAGE_OP_COSTS,
+        )) {
             expect(reported).toContainEqual({
                 usageType,
                 ucentsPerUnit,
-                unit: 'byte',
+                unit: 'operation',
                 source: 'controller:fs',
             });
         }
