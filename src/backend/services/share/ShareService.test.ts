@@ -503,6 +503,121 @@ describe('ShareService', () => {
         expect(rows).toEqual([]);
     });
 
+    it('retires grants when the file is removed through the FS', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: recipient.email },
+            mode: 'read',
+        });
+        expect(await canRead(recipient.actor, file.path)).toBe(true);
+
+        // The real delete path, not the hook. FSService emits without
+        // awaiting, so the cleanup lands shortly after `remove` resolves.
+        await server.services.fs.remove(owner.user.id, { entry: file });
+
+        let rows = [] as unknown[];
+        for (let attempt = 0; attempt < 50; attempt++) {
+            rows = await server.stores.permission.readLinkedUserUserPerms(
+                recipient.user.id,
+                [`fs:${file.uuid}:read`],
+            );
+            if (rows.length === 0) break;
+            await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        expect(rows).toEqual([]);
+        expect(await canRead(recipient.actor, file.path)).toBe(false);
+    });
+
+    describe('keeping recipients in sync', () => {
+        /** Collect one GUI event's audiences for the life of the callback. */
+        const captureAudiences = async (
+            event:
+                | 'outer.gui.item.removed'
+                | 'outer.gui.item.moved'
+                | 'outer.gui.item.updated',
+            uuid: string,
+            fn: () => Promise<void>,
+        ) => {
+            const seen: number[][] = [];
+            server.clients.event.on(event, (_key, data) => {
+                const payload = data as {
+                    user_id_list?: number[];
+                    response?: { uuid?: string };
+                };
+                if (payload.response?.uuid !== uuid) return;
+                seen.push(payload.user_id_list ?? []);
+            });
+            await fn();
+            for (let i = 0; i < 50 && seen.length === 0; i++) {
+                await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+            return seen;
+        };
+
+        it('tells a recipient when a shared file is deleted', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            // Without this the recipient's open window shows a file that is
+            // gone until their next request happens to fail.
+            const audiences = await captureAudiences(
+                'outer.gui.item.removed',
+                file.uuid,
+                async () => {
+                    await server.services.fs.remove(owner.user.id, {
+                        entry: file,
+                    });
+                },
+            );
+
+            expect(audiences.flat()).toContain(recipient.user.id);
+        });
+
+        it('tells a recipient when a shared file moves', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const audiences = await captureAudiences(
+                'outer.gui.item.moved',
+                file.uuid,
+                async () => {
+                    await server.clients.event.emitAndWait(
+                        'fs.move.node',
+                        {
+                            node: file,
+                            fromPath: file.path,
+                            toPath: `${file.path}-moved`,
+                        },
+                        {},
+                    );
+                },
+            );
+
+            expect(audiences.flat()).toContain(recipient.user.id);
+            // The owner already gets their own event from the FS layer;
+            // announcing again here would double it up.
+            expect(audiences.flat()).not.toContain(owner.user.id);
+        });
+    });
+
     it('paginates what has been shared with me', async () => {
         const owner = await makeUser();
         const recipient = await makeUser();

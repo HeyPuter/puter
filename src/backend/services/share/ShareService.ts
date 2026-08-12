@@ -83,6 +83,109 @@ export const DEFAULT_DAILY_SHARE_LIMIT = 200;
 export class ShareService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
 
+    /**
+     * FS mutations only notify the owner, leaving a recipient's open window
+     * stale. Handled here rather than per controller so the audience logic
+     * lives in one place, and over the event bus because fs is constructed
+     * first and cannot depend on this service.
+     */
+    override onServerStart(): void {
+        this.clients.event.on('fs.remove.node', (_key, data) => {
+            const entry = (data as { node?: FSEntry })?.node;
+            if (!entry?.uuid) return;
+            // Returned so an `emitAndWait` caller can observe the cleanup; the
+            // FS path uses plain `emit`, where it stays best-effort.
+            return this.#onEntryRemoved(entry).catch((err) => {
+                console.warn(
+                    '[ShareService] failed to retire grants for a deleted entry:',
+                    entry.uuid,
+                    err,
+                );
+            });
+        });
+
+        this.clients.event.on('fs.move.node', (_key, data) => {
+            const { node, fromPath } = (data ?? {}) as {
+                node?: FSEntry;
+                fromPath?: string;
+            };
+            if (!node?.uuid) return;
+            return this.#fanOutToHolders(node, 'outer.gui.item.moved', {
+                ...node,
+                from_path: fromPath,
+                from_new_service: true,
+            }).catch(() => {
+                // A stale window is better than a failed move.
+            });
+        });
+
+        this.clients.event.on('fs.write.file', (_key, data) => {
+            const entry = (data as { node?: FSEntry })?.node;
+            if (!entry?.uuid) return;
+            return this.#fanOutToHolders(entry, 'outer.gui.item.updated', {
+                ...entry,
+                from_new_service: true,
+            }).catch(() => {
+                // Same — never fail a write over its notification.
+            });
+        });
+    }
+
+    /**
+     * Retire the grants, then tell the recipients. The revoke reports exactly
+     * who lost access, which the index can no longer answer — its rows cascade
+     * away with the fsentry.
+     */
+    async #onEntryRemoved(entry: FSEntry): Promise<void> {
+        const removed = await this.onEntryDeleted(entry.uuid);
+        const holders = [
+            ...new Set(removed.map((row) => Number(row.holder_user_id))),
+        ].filter((id) => Number.isFinite(id) && id !== entry.userId);
+        if (holders.length === 0) return;
+
+        await this.#emitGui('outer.gui.item.removed', holders, {
+            ...entry,
+            from_new_service: true,
+        });
+    }
+
+    async #fanOutToHolders(
+        entry: FSEntry,
+        event: 'outer.gui.item.moved' | 'outer.gui.item.updated',
+        response: Record<string, unknown>,
+    ): Promise<void> {
+        const rows = await this.stores.share.listByFsentry(entry.id);
+        const holders = [
+            ...new Set(
+                rows.map((row: { holder_user_id: number }) =>
+                    Number(row.holder_user_id),
+                ),
+            ),
+        ].filter((id) => Number.isFinite(id) && id !== entry.userId);
+        if (holders.length === 0) return;
+
+        await this.#emitGui(event, holders, response);
+    }
+
+    async #emitGui(
+        event:
+            | 'outer.gui.item.removed'
+            | 'outer.gui.item.moved'
+            | 'outer.gui.item.updated',
+        userIds: number[],
+        response: Record<string, unknown>,
+    ): Promise<void> {
+        try {
+            await this.clients.event.emit(
+                event,
+                { user_id_list: userIds, response },
+                {},
+            );
+        } catch {
+            // Non-critical.
+        }
+    }
+
     // -- Writes -------------------------------------------------------
 
     /**
@@ -238,9 +341,15 @@ export class ShareService extends PuterService {
         return { revoked };
     }
 
-    /** Retire the grants pointing at a node that no longer exists. */
-    async onEntryDeleted(entryUid: string): Promise<void> {
-        await this.stores.permission.deleteUserUserPermsByPermissionPrefix(
+    /**
+     * Retire the grants pointing at a node that no longer exists. Returns the
+     * rows removed, which is the only record of who had access — the index rows
+     * cascade away with the fsentry.
+     */
+    async onEntryDeleted(
+        entryUid: string,
+    ): Promise<Array<{ holder_user_id: number; issuer_user_id: number }>> {
+        return this.stores.permission.deleteUserUserPermsByPermissionPrefix(
             `fs:${entryUid}`,
         );
     }
