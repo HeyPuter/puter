@@ -98,6 +98,48 @@ export interface AuditEntry {
 export class PermissionStore extends PuterStore {
     declare protected stores: LayerInstances<typeof puterStores>;
 
+    override onServerStart(): void {
+        this.#subscribeRemoteGenerationBumps();
+        this.#subscribeRemoteFlatInvalidations();
+    }
+
+    /**
+     * Apply a peer region's flat-permission delete. Independent of whether the
+     * KV table replicates: a redundant delete is a no-op, a needed one is the
+     * only thing that makes the revoke real there.
+     */
+    #subscribeRemoteFlatInvalidations(): void {
+        this.clients.event.on(
+            'outer.permission.flatInvalidated',
+            (_key, data, meta) => {
+                if (!(meta as { from_outside?: boolean })?.from_outside) return;
+                const { holderUserId, permission } = (data ?? {}) as {
+                    holderUserId?: unknown;
+                    permission?: unknown;
+                };
+                if (typeof holderUserId !== 'number') return;
+                if (typeof permission !== 'string' || permission === '') return;
+                void this.#applyFlatUserPermDelete(holderUserId, permission);
+            },
+        );
+    }
+
+    /**
+     * Apply a peer region's cache-generation bump. Our own emit reaches local
+     * listeners too, and that half already ran before it went out.
+     */
+    #subscribeRemoteGenerationBumps(): void {
+        this.clients.event.on(
+            'outer.permission.generationBumped',
+            (_key, data, meta) => {
+                if (!(meta as { from_outside?: boolean })?.from_outside) return;
+                const actorUid = (data as { actorUid?: unknown })?.actorUid;
+                if (typeof actorUid !== 'string' || actorUid === '') return;
+                void this.#applyCacheGenerationBump(actorUid);
+            },
+        );
+    }
+
     // -- Flat view (KV under system namespace) ------------------------
 
     /**
@@ -155,6 +197,23 @@ export class PermissionStore extends PuterStore {
         holderUserId: number,
         permission: string,
     ): Promise<void> {
+        await this.#applyFlatUserPermDelete(holderUserId, permission);
+        try {
+            this.clients.event.emit(
+                'outer.permission.flatInvalidated',
+                { holderUserId, permission },
+                {},
+            );
+        } catch {
+            // Peer regions keep the entry until their KV replicates the delete.
+        }
+    }
+
+    /** Local half of a flat delete. Never emits, so a remote one can't loop. */
+    async #applyFlatUserPermDelete(
+        holderUserId: number,
+        permission: string,
+    ): Promise<void> {
         const key = PermissionUtil.join(
             PERM_KEY_PREFIX,
             String(holderUserId),
@@ -201,17 +260,73 @@ export class PermissionStore extends PuterStore {
         });
     }
 
+    /** Returns whether a row was actually deleted. */
     async deleteUserUserPermByHolder(
         holderUserId: number,
         permission: string,
-    ): Promise<void> {
-        await this.clients.db.write(
+    ): Promise<boolean> {
+        const result = await this.clients.db.write(
             'DELETE FROM `user_to_user_permissions` WHERE `holder_user_id` = ? AND `permission` = ?',
             [holderUserId, permission],
         );
+        if (!result.anyRowsAffected) return false;
         await this.publishCacheKeys({
             keys: [this.#u2uCacheKey(holderUserId)],
         });
+        return true;
+    }
+
+    /**
+     * Delete every user-to-user grant at or beneath `permission`, clearing the
+     * flat KV view too, and return the rows removed so the caller can audit
+     * them and bust caches.
+     *
+     * The subject lives in the permission text rather than a column, so no
+     * foreign key can cascade it — this is how a deleted fsentry's grants get
+     * withdrawn. `permission` has no index, so this is a table scan: fine on
+     * deletion, never on a hot path.
+     */
+    async deleteUserUserPermsByPermissionPrefix(permission: string): Promise<
+        Array<{
+            holder_user_id: number;
+            issuer_user_id: number;
+            permission: string;
+        }>
+    > {
+        // See deleteAppGrantsByPermissionPrefix for why `!` is the escape.
+        const escaped = permission.replace(/([!%_])/g, '!$1');
+        const prefix = `${escaped}:%`;
+
+        const rows = (await this.clients.db.read(
+            'SELECT `holder_user_id`, `issuer_user_id`, `permission` FROM `user_to_user_permissions` ' +
+                "WHERE `permission` = ? OR `permission` LIKE ? ESCAPE '!'",
+            [permission, prefix],
+        )) as Array<{
+            holder_user_id: number;
+            issuer_user_id: number;
+            permission: string;
+        }>;
+        if (rows.length === 0) return [];
+
+        await this.clients.db.write(
+            'DELETE FROM `user_to_user_permissions` ' +
+                "WHERE `permission` = ? OR `permission` LIKE ? ESCAPE '!'",
+            [permission, prefix],
+        );
+
+        // Via delFlatUserPerm so peer regions hear about it too.
+        await Promise.all(
+            rows.map((row) =>
+                this.delFlatUserPerm(row.holder_user_id, row.permission),
+            ),
+        );
+
+        const keys = [
+            ...new Set(rows.map((r) => this.#u2uCacheKey(r.holder_user_id))),
+        ];
+        if (keys.length > 0) await this.publishCacheKeys({ keys });
+
+        return rows;
     }
 
     async auditUserUserPerm(
@@ -689,6 +804,20 @@ export class PermissionStore extends PuterStore {
     }
 
     async bumpCacheGeneration(actorUid: string): Promise<void> {
+        await this.#applyCacheGenerationBump(actorUid);
+        try {
+            this.clients.event.emit(
+                'outer.permission.generationBumped',
+                { actorUid },
+                {},
+            );
+        } catch {
+            // Peer regions fall back to their scan-cache TTL.
+        }
+    }
+
+    /** Local half of a bump. Never emits, so a remote bump can't ping-pong. */
+    async #applyCacheGenerationBump(actorUid: string): Promise<void> {
         const key = this.#cacheGenerationKey(actorUid);
         try {
             const next = await this.clients.redis.incr(key);

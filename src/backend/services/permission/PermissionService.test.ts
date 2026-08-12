@@ -943,6 +943,116 @@ describe('PermissionService (integration)', () => {
             );
         });
 
+        it('grantUserUserPermission persists the linked SQL row before resolving', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: target } = await makeUserActor();
+            const permission = `zztest:grant-sync-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+
+            // A fire-and-forget upsert leaves the flat view claiming a grant
+            // that nothing durable backs — losing it if the entry is ever
+            // dropped, with no SQL row to re-derive from.
+            const rows = await server.stores.permission.readLinkedUserUserPerms(
+                target.id,
+                [permission],
+            );
+            expect(rows).toHaveLength(1);
+            expect(rows[0].issuer_user_id).toBe(issuer.id);
+        });
+
+        it('grantUserUserPermission surfaces a failed SQL upsert instead of swallowing it', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: target, actor: targetActor } = await makeUserActor();
+            const permission = `zztest:grant-fail-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+
+            const spy = vi
+                .spyOn(server.stores.permission, 'upsertUserUserPerm')
+                .mockRejectedValue(new Error('simulated db failure'));
+            try {
+                await expect(
+                    runWithContext({ actor: issuerActor }, () =>
+                        permService.grantUserUserPermission(
+                            issuerActor,
+                            target.username,
+                            permission,
+                        ),
+                    ),
+                ).rejects.toThrow('simulated db failure');
+            } finally {
+                spy.mockRestore();
+            }
+
+            // Fails closed: the durable write went first, so a failure there
+            // leaves no flat entry granting access either.
+            expect(await permService.check(targetActor, permission)).toBeFalsy();
+        });
+
+        it('reports whether a grant was actually removed', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: target } = await makeUserActor();
+            const permission = `zztest:rvk-reports-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+
+            const first = await runWithContext({ actor: issuerActor }, () =>
+                permService.revokeUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+            expect(first).toBe(true);
+
+            // Nothing left to revoke — still not an error, but it must not
+            // claim to have removed something.
+            const second = await runWithContext({ actor: issuerActor }, () =>
+                permService.revokeUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+            expect(second).toBe(false);
+        });
+
+        it('writes no audit row for a revoke that matched nothing', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: target } = await makeUserActor();
+            const permission = `zztest:rvk-noaudit-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+
+            // Never granted, so there is no row to remove.
+            const revoked = await runWithContext({ actor: issuerActor }, () =>
+                permService.revokeUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+            expect(revoked).toBe(false);
+
+            const rows = await server.clients.db.read(
+                'SELECT `action` FROM `audit_user_to_user_permissions` WHERE `holder_user_id` = ? AND `permission` = ?',
+                [target.id, permission],
+            );
+            expect(rows).toHaveLength(0);
+        });
+
         it('scan-path warms of the flat view carry an expiry (grants are permanent)', async () => {
             const { user: issuer, actor: issuerActor } = await makeUserActor();
             const { user: target, actor: targetActor } = await makeUserActor();

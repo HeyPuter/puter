@@ -651,6 +651,129 @@ describe('PermissionStore', () => {
             expect(await store.getScanCache(nextKey)).toBeNull();
         });
 
+        it('announces a bump so peer regions can bump their own counter', async () => {
+            const actorUid = `actor-${uuidv4()}`;
+            const seen: unknown[] = [];
+            server.clients.event.on(
+                'outer.permission.generationBumped',
+                (_key, data) => {
+                    seen.push(data);
+                },
+            );
+
+            await store.bumpCacheGeneration(actorUid);
+            expect(seen).toContainEqual({ actorUid });
+        });
+
+        it('applies a remote bump without re-announcing it', async () => {
+            const actorUid = `actor-${uuidv4()}`;
+            const before = await store.getCacheGeneration(actorUid);
+            let announced = 0;
+            server.clients.event.on(
+                'outer.permission.generationBumped',
+                (_key, _data, meta) => {
+                    if (!(meta as { from_outside?: boolean })?.from_outside) {
+                        announced++;
+                    }
+                },
+            );
+
+            // What BroadcastService does with an inbound webhook event.
+            await server.clients.event.emitAndWait(
+                'outer.permission.generationBumped',
+                { actorUid },
+                { from_outside: true },
+            );
+
+            expect(await store.getCacheGeneration(actorUid)).toBeGreaterThan(
+                before,
+            );
+            // Re-announcing would ping-pong between regions forever.
+            expect(announced).toBe(0);
+        });
+
+        it('ignores a locally-emitted bump event', async () => {
+            const actorUid = `actor-${uuidv4()}`;
+            await server.clients.event.emitAndWait(
+                'outer.permission.generationBumped',
+                { actorUid },
+                {},
+            );
+            expect(await store.getCacheGeneration(actorUid)).toBe(0);
+        });
+
+        it('announces a flat delete so peer regions drop their own copy', async () => {
+            const holder = await makeUser();
+            await store.setFlatUserPerm(holder.id, 'fs:u:read', {
+                permission: 'fs:u:read',
+                deleted: false,
+            } as never);
+
+            const seen: unknown[] = [];
+            server.clients.event.on(
+                'outer.permission.flatInvalidated',
+                (_key, data) => {
+                    seen.push(data);
+                },
+            );
+
+            await store.delFlatUserPerm(holder.id, 'fs:u:read');
+            expect(seen).toContainEqual({
+                holderUserId: holder.id,
+                permission: 'fs:u:read',
+            });
+        });
+
+        it('applies a remote flat delete without re-announcing it', async () => {
+            const holder = await makeUser();
+            await store.setFlatUserPerm(holder.id, 'fs:u:read', {
+                permission: 'fs:u:read',
+                deleted: false,
+            } as never);
+            expect(
+                await store.getFlatUserPerms(holder.id, ['fs:u:read']),
+            ).toHaveLength(1);
+
+            let announced = 0;
+            server.clients.event.on(
+                'outer.permission.flatInvalidated',
+                (_key, _data, meta) => {
+                    if (!(meta as { from_outside?: boolean })?.from_outside) {
+                        announced++;
+                    }
+                },
+            );
+
+            await server.clients.event.emitAndWait(
+                'outer.permission.flatInvalidated',
+                { holderUserId: holder.id, permission: 'fs:u:read' },
+                { from_outside: true },
+            );
+
+            expect(
+                await store.getFlatUserPerms(holder.id, ['fs:u:read']),
+            ).toEqual([]);
+            expect(announced).toBe(0);
+        });
+
+        it('ignores a locally-emitted flat invalidation', async () => {
+            const holder = await makeUser();
+            await store.setFlatUserPerm(holder.id, 'fs:u:read', {
+                permission: 'fs:u:read',
+                deleted: false,
+            } as never);
+
+            await server.clients.event.emitAndWait(
+                'outer.permission.flatInvalidated',
+                { holderUserId: holder.id, permission: 'fs:u:read' },
+                {},
+            );
+
+            expect(
+                await store.getFlatUserPerms(holder.id, ['fs:u:read']),
+            ).toHaveLength(1);
+        });
+
         it('drops a scan cache entry on explicit invalidation', async () => {
             const key = store.buildScanCacheKey(`actor-${uuidv4()}`, ['p'], 0);
             await store.setScanCache(key, { allowed: false });
@@ -736,6 +859,96 @@ describe('PermissionStore', () => {
             expect(await store.readLinkedUserUserPerms(holder.id, [])).toEqual(
                 [],
             );
+        });
+
+        it('deletes every grant at or beneath a permission prefix', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const other = await makeUser();
+            const uid = uuidv4();
+
+            for (const [h, perm] of [
+                [holder, `fs:${uid}:read`],
+                [other, `fs:${uid}:write`],
+                [holder, `fs:${uid}`],
+            ] as const) {
+                await store.upsertUserUserPerm(h.id, issuer.id, perm, {});
+                await store.setFlatUserPerm(h.id, perm, {
+                    permission: perm,
+                    deleted: false,
+                } as never);
+            }
+            // A different entry must survive.
+            const keeper = `fs:${uuidv4()}:read`;
+            await store.upsertUserUserPerm(holder.id, issuer.id, keeper, {});
+
+            const removed = await store.deleteUserUserPermsByPermissionPrefix(
+                `fs:${uid}`,
+            );
+
+            expect(removed).toHaveLength(3);
+            expect(
+                await store.readLinkedUserUserPerms(holder.id, [
+                    `fs:${uid}:read`,
+                    `fs:${uid}`,
+                ]),
+            ).toEqual([]);
+            expect(
+                await store.getFlatUserPerms(holder.id, [`fs:${uid}:read`]),
+            ).toEqual([]);
+            expect(
+                await store.readLinkedUserUserPerms(holder.id, [keeper]),
+            ).toHaveLength(1);
+        });
+
+        it('does not let a wildcard in the prefix widen the match', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const victim = `fs:${uuidv4()}:read`;
+            await store.upsertUserUserPerm(holder.id, issuer.id, victim, {});
+
+            // `_` and `%` are LIKE wildcards; unescaped they would match this.
+            expect(
+                await store.deleteUserUserPermsByPermissionPrefix('fs:%'),
+            ).toEqual([]);
+            expect(
+                await store.deleteUserUserPermsByPermissionPrefix('fs:_'),
+            ).toEqual([]);
+            expect(
+                await store.readLinkedUserUserPerms(holder.id, [victim]),
+            ).toHaveLength(1);
+        });
+
+        it('returns an empty list when the prefix matches nothing', async () => {
+            expect(
+                await store.deleteUserUserPermsByPermissionPrefix(
+                    `fs:${uuidv4()}`,
+                ),
+            ).toEqual([]);
+        });
+
+        it('reports whether the delete matched a row', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                'fs:u:read',
+                {},
+            );
+
+            expect(
+                await store.deleteUserUserPermByHolder(holder.id, 'fs:u:read'),
+            ).toBe(true);
+            expect(
+                await store.deleteUserUserPermByHolder(holder.id, 'fs:u:read'),
+            ).toBe(false);
+            expect(
+                await store.deleteUserUserPermByHolder(
+                    holder.id,
+                    'fs:never-granted:read',
+                ),
+            ).toBe(false);
         });
     });
 });

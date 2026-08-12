@@ -845,7 +845,15 @@ export class PermissionService extends PuterService {
             });
         const issuerId = actor.user.id;
 
-        // Flat upsert (awaited so callers see immediate effect)
+        // Durable row before the flat view, both awaited. A `manage:`-only
+        // delegate's grant resolves via flat and not via the linked chain, so
+        // writing SQL first makes a partial failure fail closed.
+        await this.stores.permission.upsertUserUserPerm(
+            user.id,
+            issuerId,
+            permission,
+            extra,
+        );
         await this.stores.permission.setFlatUserPerm(user.id, permission, {
             ...extra,
             issuer_user_id: issuerId,
@@ -853,10 +861,7 @@ export class PermissionService extends PuterService {
             deleted: false,
         });
 
-        // Linked upsert + audit fire-and-forget.
-        this.stores.permission
-            .upsertUserUserPerm(user.id, issuerId, permission, extra)
-            .catch(() => {});
+        // Off the critical path, but a silent drop makes the log untrustworthy.
         this.stores.permission
             .auditUserUserPerm({
                 holder_user_id: user.id,
@@ -865,18 +870,28 @@ export class PermissionService extends PuterService {
                 action: 'grant',
                 reason: meta.reason ?? 'granted via PermissionService',
             })
-            .catch(() => {});
+            .catch((err) => {
+                console.warn(
+                    '[PermissionService] failed to audit user-user grant:',
+                    err,
+                );
+            });
 
         // Bust any cached "denied" reading so the grant is live immediately.
         if (user.uuid) await this.#bumpUserCacheGeneration(user.uuid);
     }
 
+    /**
+     * Returns whether a grant was actually removed. Matching nothing isn't an
+     * error (an owner has no grant row to delete), but callers must be able to
+     * tell rather than reporting a removal that didn't happen.
+     */
     async revokeUserUserPermission(
         actor: Actor,
         username: string,
         permission: string,
         meta: GrantMeta = {},
-    ): Promise<void> {
+    ): Promise<boolean> {
         permission = await this.rewritePermission(permission);
         const user = await this.stores.user.getByUsername(username);
         if (!user)
@@ -903,22 +918,33 @@ export class PermissionService extends PuterService {
         // caller gets the error — the permission is then still effectively
         // granted (flat falls back to the surviving SQL row), which is the
         // consistent, retryable outcome.
-        await this.stores.permission.deleteUserUserPermByHolder(
+        const revoked = await this.stores.permission.deleteUserUserPermByHolder(
             user.id,
             permission,
         );
-        this.stores.permission
-            .auditUserUserPerm({
-                holder_user_id: user.id,
-                issuer_user_id: issuerId,
-                permission,
-                action: 'revoke',
-                reason: meta.reason ?? 'revoked via PermissionService',
-            })
-            .catch(() => {});
 
-        // The holder loses access on their next check, not after the TTL.
+        // Only record a revoke that happened.
+        if (revoked) {
+            this.stores.permission
+                .auditUserUserPerm({
+                    holder_user_id: user.id,
+                    issuer_user_id: issuerId,
+                    permission,
+                    action: 'revoke',
+                    reason: meta.reason ?? 'revoked via PermissionService',
+                })
+                .catch((err) => {
+                    console.warn(
+                        '[PermissionService] failed to audit user-user revoke:',
+                        err,
+                    );
+                });
+        }
+
+        // Unconditional: the flat delete above can't report what it removed, so
+        // skipping the bump on a no-op risks leaving a cached allow standing.
         if (user.uuid) await this.#bumpUserCacheGeneration(user.uuid);
+        return revoked;
     }
 
     /**
