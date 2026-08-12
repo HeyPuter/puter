@@ -72,9 +72,11 @@ export class OpenRouterProvider implements IChatProvider {
     }
     /**
      * Returns a list of available model names including their aliases
+     *
+     * Retrieves all available model IDs and their aliases, flattening them into
+     * a single array of strings that can be used for model selection
+     *
      * @returns {Promise<string[]>} Array of model identifiers and their aliases
-     * @description Retrieves all available model IDs and their aliases,
-     * flattening them into a single array of strings that can be used for model selection
      */
     async list() {
         const models = await this.models();
@@ -85,10 +87,7 @@ export class OpenRouterProvider implements IChatProvider {
         return model_names;
     }
 
-    /**
-     * AI Chat completion method.
-     * See AIChatService for more details.
-     */
+    /** AI Chat completion method. See AIChatService for more details. */
     async complete({
         messages,
         stream,
@@ -279,7 +278,11 @@ export class OpenRouterProvider implements IChatProvider {
                     model.id.split('/').slice(1).join('/'),
                 ],
                 context: model.context_length,
-                max_tokens: model.top_provider.max_completion_tokens,
+                // OpenRouter leaves max_completion_tokens null when a model
+                // declares no output cap separate from its context window.
+                max_tokens:
+                    model.top_provider.max_completion_tokens ??
+                    model.context_length,
                 costs_currency: 'usd-cents',
                 input_cost_key: 'prompt',
                 output_cost_key: 'completion',

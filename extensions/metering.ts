@@ -3,6 +3,7 @@ import { HttpError } from '@heyputer/backend/src/core/http';
 import {
     controllersContainers,
     driversContainers,
+    servicesContainers,
 } from '@heyputer/backend/src/exports';
 import { extension } from '@heyputer/backend/src/extensions';
 import type { Request, Response } from 'express';
@@ -18,7 +19,7 @@ function collectAllCosts(): Record<string, unknown>[] {
     const all: Record<string, unknown>[] = [];
     const collect = (
         source: Record<string, unknown>,
-        kind: 'driver' | 'controller',
+        kind: 'driver' | 'controller' | 'service',
     ) => {
         for (const [name, instance] of Object.entries(source)) {
             const fn = (
@@ -43,6 +44,9 @@ function collectAllCosts(): Record<string, unknown>[] {
     };
     collect(driversContainers as Record<string, unknown>, 'driver');
     collect(controllersContainers as Record<string, unknown>, 'controller');
+    // Services report the costs that aren't tied to one endpoint — egress,
+    // which is metered for every response there is.
+    collect(servicesContainers as Record<string, unknown>, 'service');
     return all;
 }
 
@@ -110,26 +114,46 @@ export const handleMeteringAllCosts = async (
     res.json({ costs: cachedAllCosts });
 };
 
+/** Dashboard reads over the per-actor KV aggregates. */
+const USAGE_READ_LIMIT = {
+    scope: 'metering-usage',
+    limit: 120,
+    window: 60_000,
+    key: 'user' as const,
+};
+
 extension.get(
     '/metering/usage',
-    { subdomain: 'api', requireAuth: true },
+    { subdomain: 'api', requireAuth: true, rateLimit: USAGE_READ_LIMIT },
     handleMeteringUsage,
 );
 
 extension.get(
     '/metering/usage/:appIdOrName',
-    { subdomain: 'api', requireAuth: true },
+    { subdomain: 'api', requireAuth: true, rateLimit: USAGE_READ_LIMIT },
     handleMeteringUsageForApp,
 );
 
 extension.get(
     '/metering/globalUsage',
-    { subdomain: 'api', adminOnly: true },
+    {
+        subdomain: 'api',
+        adminOnly: true,
+        // Sums across every shard of the global aggregate. Admin-gated, so
+        // this is loop protection — but one accidental poll is an
+        // expensive minute.
+        rateLimit: {
+            scope: 'metering-global-usage',
+            limit: 10,
+            window: 60_000,
+            key: 'user',
+        },
+    },
     handleMeteringGlobalUsage,
 );
 
 extension.get(
     '/metering/allCosts',
-    { subdomain: 'api', requireAuth: true },
+    { subdomain: 'api', requireAuth: true, rateLimit: USAGE_READ_LIMIT },
     handleMeteringAllCosts,
 );

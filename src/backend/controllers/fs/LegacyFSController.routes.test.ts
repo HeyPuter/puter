@@ -21,7 +21,7 @@ import type { Request, RequestHandler, Response } from 'express';
 import { Readable, Writable } from 'node:stream';
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
@@ -377,7 +377,7 @@ describe('LegacyFSController.readdirSubdomains', () => {
             'INSERT INTO `subdomains` (`uuid`, `subdomain`, `user_id`) VALUES (?, ?, ?)',
             [uuidv4(), `sd-${Math.random().toString(36).slice(2, 8)}`, userId],
         );
-        const appActor: Actor = { ...actor, app: { uid: `app-${uuidv4()}` } };
+        const appActor = makeActor({ ...actor, app: { uid: `app-${uuidv4()}` } });
         const { res, captured } = makeRes();
         await withActor(appActor, () =>
             controller.readdirSubdomains(makeReq({ actor: appActor }), res),

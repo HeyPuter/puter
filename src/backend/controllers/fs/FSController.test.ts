@@ -21,7 +21,7 @@ import type { Request, Response } from 'express';
 import type { Readable } from 'node:stream';
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -927,7 +927,7 @@ describe('FSController.searchEntries', () => {
         const { actor: userActor } = await makeUser();
         const username = userActor.user!.username!;
         const appUid = `app-search-${uuidv4()}`;
-        const appActor: Actor = { ...userActor, app: { uid: appUid } };
+        const appActor = makeActor({ ...userActor, app: { uid: appUid } });
         const needle = `appneedle-${Math.random().toString(36).slice(2, 8)}`;
 
         // User-owned entry outside AppData — must NOT appear for the app.
@@ -978,7 +978,7 @@ describe('FSController.searchEntries', () => {
         const { actor: userActor } = await makeUser();
         const username = userActor.user!.username!;
         const appUid = `app-search-${uuidv4()}`;
-        const appActor: Actor = { ...userActor, app: { uid: appUid } };
+        const appActor = makeActor({ ...userActor, app: { uid: appUid } });
         const needle = `appneedle-${Math.random().toString(36).slice(2, 8)}`;
 
         // Only seed outside AppData — the app must not be able to find it.
@@ -1127,7 +1127,7 @@ describe('FSController.mkdirEntry', () => {
         const { actor: userActor } = await makeUser();
         const username = userActor.user!.username!;
         const appUid = `app-mkdir-${uuidv4()}`;
-        const appActor: Actor = { ...userActor, app: { uid: appUid } };
+        const appActor = makeActor({ ...userActor, app: { uid: appUid } });
         const target = `/${username}/AppData/${appUid}`;
 
         await withActor(userActor, () =>
@@ -1889,10 +1889,10 @@ describe('FSController.readdirEntries recursive', () => {
     it('masks denials for app-under-user actors as a 404 (legacy parity)', async () => {
         const { actor: userActor } = await makeUser();
         const username = userActor.user!.username!;
-        const appActor: Actor = {
+        const appActor = makeActor({
             ...userActor,
             app: { uid: `app-readdir-${uuidv4()}` },
-        };
+        });
         // The user's Documents is outside the app's AppData subtree, so the
         // app can't list it. Legacy `/readdir` masks this as a 404
         // subject_does_not_exist rather than leaking a 403.
@@ -2372,15 +2372,18 @@ describe('FSController.statEntry additional branches', () => {
 // ── #getReportedCosts ───────────────────────────────────────────────
 
 describe('FSController.getReportedCosts', () => {
-    it('mirrors every FS_COSTS entry as a per-byte line item', async () => {
-        const { FS_COSTS } = await import('./costs.js');
+    it('mirrors every storage-operation price as a per-operation line item', async () => {
+        const { STORAGE_OP_COSTS } =
+            await import('../../services/metering/costs.js');
         const reported = controller.getReportedCosts();
-        expect(reported.length).toBe(Object.keys(FS_COSTS).length);
-        for (const [usageType, ucentsPerUnit] of Object.entries(FS_COSTS)) {
+        expect(reported.length).toBe(Object.keys(STORAGE_OP_COSTS).length);
+        for (const [usageType, ucentsPerUnit] of Object.entries(
+            STORAGE_OP_COSTS,
+        )) {
             expect(reported).toContainEqual({
                 usageType,
                 ucentsPerUnit,
-                unit: 'byte',
+                unit: 'operation',
                 source: 'controller:fs',
             });
         }

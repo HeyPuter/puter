@@ -28,6 +28,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { makeActor } from '../../core/actor.js';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
@@ -281,10 +282,17 @@ describe('SubdomainDriver app-actor scoping', () => {
             appOwner,
         });
 
+    // Built through `makeActor` so `effectiveApp` is derived the way the auth
+    // path derives it. An actor literal carrying only `app` leaves it
+    // undefined, which the read gate reads as "no app acting" — such an actor
+    // would sail past the very scoping these tests exist to pin.
+    const asApp = (base: Actor, app: { uid: string; id: number }): Actor =>
+        makeActor({ ...base, app: { uid: app.uid, id: app.id } });
+
     it('lets the owning app read and update the row', async () => {
         const { actor, userId } = await makeUser();
         const app = await seedApp(userId, 'owner-app');
-        const appActor: Actor = { ...actor, app: { uid: app.uid, id: app.id } };
+        const appActor: Actor = asApp(actor, app);
         const name = uniqueName('appscope');
         const row = await seedRow(userId, name, app.id);
 
@@ -310,9 +318,8 @@ describe('SubdomainDriver app-actor scoping', () => {
         const row = await seedRow(userId, uniqueName('appdeny'), ownerApp.id);
 
         await expect(
-            withActor(
-                { ...actor, app: { uid: otherApp.uid, id: otherApp.id } },
-                () => driver.delete({ uid: row.uuid }),
+            withActor(asApp(actor, otherApp), () =>
+                driver.delete({ uid: row.uuid }),
             ),
         ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
     });
@@ -324,32 +331,88 @@ describe('SubdomainDriver app-actor scoping', () => {
         const row = await seedRow(owner.userId, uniqueName('appmix'), app.id);
 
         await expect(
-            withActor(
-                { ...stranger.actor, app: { uid: app.uid, id: app.id } },
-                () => driver.delete({ uid: row.uuid }),
+            withActor(asApp(stranger.actor, app), () =>
+                driver.delete({ uid: row.uuid }),
             ),
         ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
     });
 
-    it('lets an app read a row it owns even when the caller is a different user', async () => {
+    it('refuses an app reading a row of a different user that shares its app_owner', async () => {
         const owner = await makeUser();
         const stranger = await makeUser();
         const app = await seedApp(owner.userId, 'reader-app');
         const name = uniqueName('appread');
         const row = await seedRow(owner.userId, name, app.id);
 
-        const read = (await withActor(
-            { ...stranger.actor, app: { uid: app.uid, id: app.id } },
-            () => driver.read({ uid: row.uuid }),
-        )) as Record<string, unknown>;
+        // `app_owner` is a global app id, so every user of an app shares it.
+        // Granting on that alone would hand the owner's username, uuid and
+        // home path to anyone else acting under the same app.
+        await expect(
+            withActor(asApp(stranger.actor, app), () =>
+                driver.read({ uid: row.uuid }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
 
-        expect(read.subdomain).toBe(name);
+        await expect(
+            withActor(asApp(stranger.actor, app), () =>
+                driver.read({ id: { subdomain: name } }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403, legacyCode: 'forbidden' });
+    });
+
+    it('refuses an app reading its own user rows that belong to another app', async () => {
+        const { actor, userId } = await makeUser();
+        const ownerApp = await seedApp(userId, 'creator-app');
+        const otherApp = await seedApp(userId, 'nosy-app');
+        const scoped = uniqueName('appscoped');
+        const loose = uniqueName('apploose');
+        const scopedRow = await seedRow(userId, scoped, ownerApp.id);
+        const looseRow = await seedRow(userId, loose, null);
+
+        // Same scoping `select` applies: an app sees what it created, not
+        // everything its user owns. Rows with no owning app included.
+        for (const uid of [scopedRow.uuid, looseRow.uuid]) {
+            await expect(
+                withActor(asApp(actor, otherApp), () => driver.read({ uid })),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'forbidden',
+            });
+        }
+
+        // The user acting directly still reads both.
+        for (const uid of [scopedRow.uuid, looseRow.uuid]) {
+            const read = (await withActor(actor, () =>
+                driver.read({ uid }),
+            )) as Record<string, unknown>;
+            expect(read.uid).toBe(uid);
+        }
+    });
+
+    it('does not answer for worker rows, which belong to the workers driver', async () => {
+        const { actor, userId } = await makeUser();
+        const name = uniqueName('wk');
+        const row = await seedRow(userId, `workers.puter.${name}`, null);
+
+        // Same 404 as a miss: the name resolves globally, so a distinct
+        // refusal would confirm the row exists.
+        for (const args of [
+            { uid: row.uuid },
+            { id: { subdomain: `workers.puter.${name}` } },
+        ]) {
+            await expect(
+                withActor(actor, () => driver.read(args)),
+            ).rejects.toMatchObject({
+                statusCode: 404,
+                legacyCode: 'not_found',
+            });
+        }
     });
 
     it('scopes select to the acting app', async () => {
         const { actor, userId } = await makeUser();
         const app = await seedApp(userId, 'listing-app');
-        const appActor: Actor = { ...actor, app: { uid: app.uid, id: app.id } };
+        const appActor: Actor = asApp(actor, app);
         const appOwned = uniqueName('applist');
         const userOwned = uniqueName('userlist');
         await seedRow(userId, appOwned, app.id);

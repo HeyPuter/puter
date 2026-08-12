@@ -13,6 +13,9 @@ on:
       - 'tools/**'
       - 'package.json'
       - 'package-lock.json'
+      # The type-check job below reads these.
+      - 'tsconfig.json'
+      - 'tsconfig.build.json'
       - '.github/workflows/backend-tests.yaml'
 
 permissions:
@@ -20,6 +23,35 @@ permissions:
   pull-requests: write
 
 jobs:
+  # `tsconfig.build.json` builds with `noCheck: true`, so nothing else in CI
+  # runs the type checker and a missing export compiles to `undefined`,
+  # surfacing only when the call is finally reached at runtime. This diffs
+  # against tools/typecheck-baseline.json and fails only on *new* errors.
+  #
+  # The consuming repo runs an equivalent gate, but only once someone bumps the
+  # submodule pointer — too late to keep the error off this repo's default
+  # branch. Hence a gate here, on this repo's own pull requests.
+  #
+  # Its own job rather than a step in `test`: that one runs a base/PR matrix for
+  # coverage comparison, and the check only needs the PR ref, once.
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check (new errors only)
+        run: npm run typecheck
+
   test:
     runs-on: ubuntu-latest
     strategy:

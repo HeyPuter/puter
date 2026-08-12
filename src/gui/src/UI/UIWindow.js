@@ -2214,7 +2214,8 @@ async function UIWindow (options) {
             $('.window').css('pointer-events', 'initial');
             const new_width = $(el_window_sidebar).width();
             // save new width in the cloud, to user's settings
-            puter.kv.set({ key: 'window_sidebar_width', value: new_width });
+            puter.kv.set({ key: 'window_sidebar_width', value: new_width })
+                .catch(err => console.warn('Could not save window_sidebar_width:', err));
             // save new width locally, to window object
             window.window_sidebar_width = new_width;
             window.a_window_sidebar_is_resizing = false;
@@ -4148,22 +4149,40 @@ $.fn.focusWindow = function (event) {
  * tab AND the tile must sit on the pager page currently in view (pages are
  * laid side by side in a horizontal scroller, so an off-page tile has a
  * rendered box the user can't see). Returns the tile element, or null.
+ *
+ * An app filed away in a folder has no tile of its own while the folder is
+ * shut — its FOLDER's tile stands in, so minimizing sends the window to where
+ * the user will actually look for the app (and where opening it from will put
+ * it back). See buildGroupTileHtml for the data-group-apps this reads.
  */
 function dashboard_tile_in_view (app_name) {
     if ( ! app_name || typeof CSS === 'undefined' || ! CSS.escape ) return null;
-    const tiles = document.querySelectorAll(
-        `.dashboard-section-apps.active .myapps-tile[data-app-name="${CSS.escape(app_name)}"]`,
-    );
-    for ( const tile of tiles ) {
+    const in_view = tile => {
         const rect = tile.getBoundingClientRect();
-        if ( rect.width <= 0 || rect.height <= 0 ) continue;
+        if ( rect.width <= 0 || rect.height <= 0 ) return false;
         const scroller = tile.closest('.myapps-pager-scroller');
         const clip = (scroller || tile.parentElement).getBoundingClientRect();
         const cx = rect.left + rect.width / 2;
         const cy = rect.top + rect.height / 2;
-        if ( cx >= clip.left && cx <= clip.right && cy >= clip.top && cy <= clip.bottom ) {
-            return tile;
+        return cx >= clip.left && cx <= clip.right && cy >= clip.top && cy <= clip.bottom;
+    };
+
+    const tiles = document.querySelectorAll(
+        `.dashboard-section-apps.active .myapps-tile[data-app-name="${CSS.escape(app_name)}"]`,
+    );
+    for ( const tile of tiles ) {
+        if ( in_view(tile) ) return tile;
+    }
+
+    const folders = document.querySelectorAll('.dashboard-section-apps.active .myapps-group-tile');
+    for ( const folder of folders ) {
+        let names;
+        try {
+            names = JSON.parse(folder.dataset.groupApps || '[]');
+        } catch ( _e ) {
+            continue;
         }
+        if ( Array.isArray(names) && names.includes(app_name) && in_view(folder) ) return folder;
     }
     return null;
 }
@@ -4484,6 +4503,72 @@ function dashboard_rendered_app_icon (app_name) {
     return null;
 }
 
+// -- Drawer intro exposure decay --
+// The drawer's opening flash (see attach_dashboard_app_drawer) is pedagogy:
+// it teaches that the app's controls live in the tongue. Like the
+// dashboard's deep-link intro (TabApps.js), the lesson decays — after this
+// many deliveries, new windows keep the bare tongue and the flash stops
+// occluding the app's top edge. A delivery is counted once per window:
+// either the flash played while the user could see it, or the user opened
+// the drawer themselves (hover, tap, focus) — the stronger proof, since the
+// drawer is a headless app's only chrome and must never decay out of a
+// user's awareness. Counted per ACCOUNT in kv, not per device, for the same
+// reasons as DEEP_LINK_INTRO_SEEN_KV_KEY: the lesson lives in the user's
+// head and follows them across devices, and localStorage would bleed
+// between accounts on a shared browser.
+const DRAWER_INTRO_TEACH_COUNT = 3;
+const DRAWER_INTRO_SEEN_KV_KEY = 'dashboard_drawer_intros_seen';
+// How long the first drawer of a session waits for the stored count before
+// defaulting to "teach" — a hung kv read must not hold the intro hostage,
+// and timing out errs toward teaching once more, never toward never
+// teaching.
+const DRAWER_INTRO_KV_WAIT_MS = 400;
+
+// The session's view of the count: one kv read per session, then kept
+// current in memory so every later window decides synchronously — and
+// correctly mid-session, while this session's own increments are still in
+// flight.
+let drawer_intro_count = null;
+let drawer_intro_read = null;
+
+// The kv counter arrives as whatever the store returns (a number, a numeric
+// string, null on a failed read); anything unparseable reads as zero.
+function parse_drawer_intro_count (raw) {
+    const n = typeof raw === 'number' ? raw : parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function read_drawer_intro_count () {
+    if ( ! drawer_intro_read ) {
+        drawer_intro_read = Promise.resolve()
+            .then(() => puter.kv.get(DRAWER_INTRO_SEEN_KV_KEY))
+            .then(raw => {
+                // Merge, never overwrite: a flash this session may have
+                // bumped the local count before the read resolved.
+                drawer_intro_count = Math.max(drawer_intro_count ?? 0, parse_drawer_intro_count(raw));
+                return drawer_intro_count;
+            })
+            .catch(() => (drawer_intro_count = drawer_intro_count ?? 0));
+    }
+    return drawer_intro_read;
+}
+
+// Record one delivery. The session cache bumps first so the very next
+// window decides correctly even while the write is in flight or failing;
+// kv.incr is atomic on the server, so two devices landing at once can't
+// lose an increment, and the awaited read only CAPS the write — once the
+// lesson is learned there is nothing left to record and the key stops
+// changing. A failed write just means one more teach later.
+function record_drawer_intro_seen () {
+    drawer_intro_count = (drawer_intro_count ?? 0) + 1;
+    read_drawer_intro_count().then(() => {
+        if ( drawer_intro_count > DRAWER_INTRO_TEACH_COUNT ) return;
+        return puter.kv.incr(DRAWER_INTRO_SEEN_KV_KEY);
+    }).catch(err => {
+        console.error('Failed to record the drawer intro exposure:', err);
+    });
+}
+
 /**
  * The control drawer for headless dashboard app windows: one glass surface
  * flush with the top edge of the app (parent DOM, above the app's iframe)
@@ -4499,6 +4584,11 @@ function dashboard_rendered_app_icon (app_name) {
  * drive the collapse because mousemove inside the app's iframe is
  * invisible to the parent — the drawer itself is the only hover surface
  * there is.
+ *
+ * The self-introducing flash carries exposure decay (see the Drawer intro
+ * section above): once the account has seen the controls enough times —
+ * flash or their own hand — new windows skip it and keep the tongue.
+ * Hover, tap, and focus never decay; only the automatic flash does.
  *
  * The drawer is a CHILD of the window element, so it shows/hides/scales with
  * the window for free (minimize morphs, display:none, fullscreen requests
@@ -4574,12 +4664,30 @@ function attach_dashboard_app_drawer (el_window, options) {
         clearTimeout(collapse_timer);
         collapse_timer = setTimeout(collapse, ms);
     };
-    // Expand + auto-collapse: played once on open, so the controls
-    // introduce themselves — and retract INTO the tongue, teaching where
-    // they live — without permanently costing pixels.
+    // Expand + auto-collapse: played once on open (while the account is
+    // still learning — see below), so the controls introduce themselves —
+    // and retract INTO the tongue, teaching where they live — without
+    // permanently costing pixels.
     const flash = () => {
         expand();
         schedule_collapse(2600);
+    };
+
+    // Proof of learning, counted once per window: the flash delivered while
+    // the user could see it, or — the stronger signal — the user opening
+    // the drawer themselves. user_expand is the expansion every deliberate
+    // route goes through (hover, tap, focus); the flash records separately.
+    let intro_recorded = false;
+    const record_intro_once = () => {
+        if ( intro_recorded ) return;
+        intro_recorded = true;
+        record_drawer_intro_seen();
+    };
+    let user_opened = false;
+    const user_expand = () => {
+        user_opened = true;
+        record_intro_once();
+        expand();
     };
 
     // Hover pulls the drawer open and leaving lets it settle — mouse only:
@@ -4588,12 +4696,12 @@ function attach_dashboard_app_drawer (el_window, options) {
     // again. Touch devices open by tap instead, and since they never fire
     // pointerleave, that path self-schedules its collapse.
     $drawer.on('pointerenter', (e) => {
-        if ( e.pointerType === 'mouse' ) expand();
+        if ( e.pointerType === 'mouse' ) user_expand();
     });
     $drawer.on('pointerleave', (e) => {
         if ( e.pointerType === 'mouse' ) schedule_collapse(900);
     });
-    $drawer.on('focusin', () => expand());
+    $drawer.on('focusin', () => user_expand());
     $drawer.on('focusout', () => schedule_collapse(1100));
 
     // Pressing the drawer activates its window, as pressing a titlebar
@@ -4613,7 +4721,7 @@ function attach_dashboard_app_drawer (el_window, options) {
     $(toggle).on('click', function (e) {
         e.stopPropagation();
         if ( drawer.classList.contains('collapsed') ) {
-            expand();
+            user_expand();
             schedule_collapse(3500);
         } else if ( Date.now() - opened_at < 500 ) {
             schedule_collapse(3500);
@@ -4643,9 +4751,35 @@ function attach_dashboard_app_drawer (el_window, options) {
     el_window._dashboard_drawer_collapse = collapse;
 
     $(el_window).append($drawer);
+
+    // The intro flash, gated by exposure decay. The stored count is raced
+    // against a short cap: the first drawer of a session may not have it
+    // yet, and in practice the read (started here, resolved for good by
+    // the session cache) beats the window's own open animation — later
+    // windows decide synchronously.
+    const seen_promise = read_drawer_intro_count();
     // Two frames so the collapsed state paints first and the intro
     // morphs out of the tongue instead of popping in fully open.
-    requestAnimationFrame(() => requestAnimationFrame(flash));
+    requestAnimationFrame(() => requestAnimationFrame(async () => {
+        const seen = drawer_intro_count !== null
+            ? drawer_intro_count
+            : await Promise.race([
+                seen_promise,
+                new Promise(resolve => setTimeout(() => resolve(null), DRAWER_INTRO_KV_WAIT_MS)),
+            ]);
+        // A timed-out read (null) reads as zero: teach once more.
+        if ( (seen ?? 0) >= DRAWER_INTRO_TEACH_COUNT ) return;
+        // The user beat the intro to the drawer (hover, tap, focus) while
+        // the count was being fetched: there is nothing left to introduce,
+        // and the flash's auto-collapse would shut a drawer they are
+        // actively using.
+        if ( user_opened || ! drawer.classList.contains('collapsed') ) return;
+        // The window can already be gone (closed during its own open).
+        if ( ! drawer.isConnected ) return;
+        flash();
+        // A flash nobody could see taught nothing — don't count it.
+        if ( document.visibilityState !== 'hidden' ) record_intro_once();
+    }));
 }
 
 /**

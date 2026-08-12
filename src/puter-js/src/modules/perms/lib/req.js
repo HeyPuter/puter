@@ -6,7 +6,7 @@ import { fetchUrl } from '../../../lib/networkUtils.js';
  * than rejecting — preserved for backward compatibility, so callers keep
  * inspecting `result.error` instead of catching.
  *
- * @param {import('../../../../types/puter').Puter} puter
+ * @param {import('../../../index.js').Puter} puter
  * @param {string} route
  * @param {Record<string, unknown>} [body] - When present the request is a POST.
  * @returns {Promise<Record<string, unknown>>}

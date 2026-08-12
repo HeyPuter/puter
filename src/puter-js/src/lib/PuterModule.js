@@ -1,4 +1,4 @@
-/** @typedef {import('../../types/puter').Puter} Puter */
+/** @typedef {import('../index.js').Puter} Puter */
 
 /**
  * Base for the `puter.*` modules. Holds the owning Puter instance and reads

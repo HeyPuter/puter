@@ -439,11 +439,15 @@ const ipc_listener = async (event, handled) => {
     // setItem
     //--------------------------------------------------------
     else if ( event.data.msg === 'setItem' && event.data.key && event.data.value ) {
+        // The legacy protocol has no failure reply for these three, and the
+        // app-side promise only settles when a message with its id comes back
+        // — so a rejected call is answered anyway rather than left hanging
+        // forever. Logged here because that is the only place it is visible.
         puter.kv.set({
             key: event.data.key,
             value: event.data.value,
             app_uid: app_uuid,
-        }).then(() => {
+        }).catch(err => console.warn('kv.setItem failed for app:', err)).then(() => {
             // send confirmation to requester window
             target_iframe.contentWindow.postMessage({
                 original_msg_id: msg_id,
@@ -457,6 +461,9 @@ const ipc_listener = async (event, handled) => {
         puter.kv.get({
             key: event.data.key,
             app_uid: app_uuid,
+        }).catch(err => {
+            console.warn('kv.getItem failed for app:', err);
+            return null;
         }).then((result) => {
             // send confirmation to requester window
             target_iframe.contentWindow.postMessage({
@@ -473,7 +480,7 @@ const ipc_listener = async (event, handled) => {
         puter.kv.del({
             key: event.data.key,
             app_uid: app_uuid,
-        }).then(() => {
+        }).catch(err => console.warn('kv.removeItem failed for app:', err)).then(() => {
             // send confirmation to requester window
             target_iframe.contentWindow.postMessage({
                 original_msg_id: msg_id,
@@ -1348,16 +1355,33 @@ const ipc_listener = async (event, handled) => {
             event.data.options = {};
         }
 
-        // options.permission must be provided and be a string
-        if ( !event.data.options.permission || typeof event.data.options.permission !== 'string' )
+        // One of `permission` (a string) or `permissions` (a non-empty list of
+        // strings) must be provided. The dialog validates the strings
+        // themselves; this only rejects a shape it cannot read.
+        const requested_permissions = Array.isArray(event.data.options.permissions)
+            ? event.data.options.permissions
+            : [event.data.options.permission];
+        // Capped to match the server: otherwise the dialog renders every row and
+        // the grant 400s after Allow — consent for something ungrantable.
+        const MAX_REQUESTED_PERMISSIONS = 16;
+        if ( requested_permissions.length === 0
+            || requested_permissions.length > MAX_REQUESTED_PERMISSIONS
+            || requested_permissions.some(p => !p || typeof p !== 'string') )
         {
-            console.error('IPC requestPermission requires parameter { permission }', event.data);
+            console.error('IPC requestPermission requires parameter { permission } or { permissions }', event.data);
             respond(false);
             return;
         }
 
         let granted = await UIPermissionDialog({
-            permission: event.data.options.permission,
+            // Both forms: the dialog reads `permissions`, and `permission` keeps
+            // the single-scope path working for callers (and dialog versions)
+            // that only know the scalar. A multi-scope request with no list
+            // support is refused rather than partially granted.
+            permissions: requested_permissions,
+            permission: requested_permissions.length === 1
+                ? requested_permissions[0]
+                : undefined,
             app_uid: app_uuid,
             app_name: app_name,
         });
@@ -1960,9 +1984,10 @@ const ipc_listener = async (event, handled) => {
                 return true;
             }
 
-            // God-mode apps can close anything
+            // God-mode apps can close anything. `godmode` arrives as a
+            // boolean from /apps but was historically 0/1 — accept both.
             const app_info = await window.get_apps(app_name);
-            if ( app_info.godmode === 1 ) {
+            if ( app_info.godmode === true || app_info.godmode === 1 ) {
                 console.log(`⚠️ Allowing GODMODE app ${appInstanceID} to close app ${targetAppInstanceID}`);
                 return true;
             }

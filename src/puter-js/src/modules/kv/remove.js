@@ -2,8 +2,8 @@ import * as utils from '../../lib/utils.js';
 import { isObject } from './lib/args.js';
 import { assertKeyPresent, assertKeySize } from './lib/validate.js';
 
-/** @typedef {import('../../../types/modules/kv').KVOptConfig} KVOptConfig */
-/** @typedef {import('../../../types/modules/kv').KVValue} KVValue */
+/** @typedef {import('./types.js').KVOptConfig} KVOptConfig */
+/** @typedef {import('./types.js').KVValue} KVValue */
 
 /**
  * Removes values from a key by one or more dot-separated paths (e.g.

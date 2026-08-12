@@ -1,0 +1,30 @@
+{
+    // Generates `types/` from the JSDoc in `src/`. The JSDoc is the source of
+    // truth for the published type surface; nothing under `types/` is written
+    // by hand or committed — the SDK build regenerates it and the npm tarball
+    // ships it. `npm run check:puterjs:types` runs this and type-checks the
+    // result without skipLibCheck, which is what CI gates on.
+    "compilerOptions": {
+        "target": "es2022",
+        "lib": ["es2022", "dom", "dom.iterable"],
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
+        "allowJs": true,
+        "checkJs": false,
+        "declaration": true,
+        "emitDeclarationOnly": true,
+        "skipLibCheck": true,
+        "strict": true,
+        // Members tagged `@internal` are implementation detail and stay out of
+        // the published surface.
+        "stripInternal": true,
+        "rootDir": "src",
+        "outDir": "types"
+    },
+    "include": ["src/**/*.js"],
+    "exclude": [
+        "src/**/*.test.js",
+        "src/config.js",
+        "node_modules"
+    ]
+}

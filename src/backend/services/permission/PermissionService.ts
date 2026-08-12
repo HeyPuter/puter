@@ -957,6 +957,23 @@ export class PermissionService extends PuterService {
         }
     }
 
+    /**
+     * What `grantUserAppPermission` checks before it writes: the rewrite that
+     * decides what the row stores, and the width of the column it lands in.
+     *
+     * Exposed so a caller granting several at once can reject the whole set
+     * before committing any of it — a half-written set reads to the caller as a
+     * refusal while some access is live.
+     */
+    async assertUserAppPermissionWritable(permission: string): Promise<void> {
+        const rewritten = await this.#rewriteForUserAppWrite(permission);
+        if (rewritten.length > PERMISSION_MAX_LEN) {
+            throw new HttpError(400, 'Invalid `permission`', {
+                legacyCode: 'bad_request',
+            });
+        }
+    }
+
     async grantUserAppPermission(
         actor: Actor,
         appIdentifier: string,
@@ -1473,7 +1490,7 @@ export class PermissionService extends PuterService {
             username: user.username,
             email: user.email ?? null,
         };
-        return { user: actorUser };
+        return { user: actorUser, effectiveApp: null };
     }
 }
 

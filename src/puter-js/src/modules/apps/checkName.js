@@ -1,7 +1,7 @@
 import { fetchUrl } from '../../lib/networkUtils.js';
 import { invalidRequest } from './lib/validate.js';
 
-/** @typedef {import('../../../types/modules/apps').CheckAppNameResult} CheckAppNameResult */
+/** @typedef {import('./types.js').CheckAppNameResult} CheckAppNameResult */
 
 /**
  * Checks whether an app name is available to the user.

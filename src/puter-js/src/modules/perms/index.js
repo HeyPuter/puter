@@ -1,4 +1,5 @@
 import { PuterModule } from '../../lib/PuterModule.js';
+import { requestAppData } from './appData.js';
 import { requestReadAppRootDir, requestWriteAppRootDir } from './appRootDir.js';
 import {
     requestFolder_,
@@ -18,7 +19,7 @@ import {
     requestPermission, requestReadApps, requestReadSubdomains,
 } from './permissions.js';
 
-/** @typedef {import('../../../types/puter').Puter} Puter */
+/** @typedef {import('../../index.js').Puter} Puter */
 
 // Every `this`-context method exposed on the module, rebound in the
 // constructor so both `puter.perms.grantUser(...)` and destructured
@@ -35,14 +36,15 @@ const METHODS = [
     'requestReadPictures', 'requestWritePictures',
     'requestReadVideos', 'requestWriteVideos',
     'requestReadAppRootDir', 'requestWriteAppRootDir',
+    'requestAppData',
 ];
 
 /**
  * The `puter.perms` module.
  *
  * Method implementations live in the sibling files as `this`-context
- * functions whose JSDoc is the source of truth for the public signatures;
- * types/modules/perms.d.ts mirrors them for TypeScript consumers of the SDK.
+ * functions whose JSDoc is the source of truth for the public signatures —
+ * `types/` is generated from it, never edited by hand.
  */
 export class PermsModule extends PuterModule {
     // Grant / revoke
@@ -86,6 +88,9 @@ export class PermsModule extends PuterModule {
     // App root directory access
     requestReadAppRootDir = requestReadAppRootDir;
     requestWriteAppRootDir = requestWriteAppRootDir;
+
+    // Another app's data (KV namespace + AppData directory)
+    requestAppData = requestAppData;
 
     /** @param {Puter} puter */
     constructor (puter) {

@@ -28,10 +28,16 @@ import {
 } from 'vitest';
 import { PuterServer } from '../../server.ts';
 import { setupTestServer } from '../../testUtil.ts';
-import type { SystemKVStore } from '../systemKv/SystemKVStore.ts';
+import {
+    INCR_EXPRESSION_BUDGET_BYTES,
+    incrExpressionBytes,
+    type SystemKVStore,
+} from '../systemKv/SystemKVStore.ts';
 import {
     bucketTag,
+    chunkAmounts,
     flattenAmounts,
+    isBilledCounter,
     pairsToAmounts,
     parsePendingEntry,
     unflattenAmounts,
@@ -80,6 +86,57 @@ describe('MeteringBufferStore', () => {
             expect(
                 flattenAmounts({ total: 1, label: 'nope', nested: null }),
             ).toEqual({ total: 1 });
+        });
+
+        it('leaves a counter that already fits in one piece', () => {
+            const amounts = { total: 5, 'ai:chat.units': 2 };
+            expect(chunkAmounts(amounts)).toEqual([amounts]);
+        });
+
+        it('splits a counter too wide for one write, losing nothing', () => {
+            const amounts: Record<string, number> = {};
+            for (let i = 0; i < 200; i++) amounts[`ai${i}.units`] = i;
+
+            const chunks = chunkAmounts(amounts);
+
+            expect(chunks.length).toBeGreaterThan(1);
+            expect(Object.assign({}, ...chunks)).toEqual(amounts);
+        });
+
+        it('splits on the size of the write, not the number of paths', () => {
+            // Long usage types are the case a path count gets wrong: the name
+            // is what makes an expression long, and it lands in it twice.
+            const long: Record<string, number> = {};
+            const short: Record<string, number> = {};
+            for (let i = 0; i < 24; i++) {
+                long[
+                    `together:meta-llama/Meta-Llama-3_dot_1-405B-Instruct-Turbo:kind${i}.units`
+                ] = 1;
+                short[`m${i}.units`] = 1;
+            }
+
+            expect(chunkAmounts(short)).toHaveLength(1);
+            expect(chunkAmounts(long).length).toBeGreaterThan(1);
+            expect(Object.assign({}, ...chunkAmounts(long))).toEqual(long);
+        });
+    });
+
+    describe('counter kinds', () => {
+        it("tells an actor's own month from the aggregates", () => {
+            const uuid = '0f6a1b2c-3d4e-5f60-7182-93a4b5c6d7e8';
+            expect(isBilledCounter(`metering:actor:${uuid}:2026-08`)).toBe(
+                true,
+            );
+            expect(
+                isBilledCounter(`metering:actor:${uuid}:app:app-1:2026-08`),
+            ).toBe(false);
+            expect(isBilledCounter(`metering:actor:${uuid}:apps:2026-08`)).toBe(
+                false,
+            );
+            expect(isBilledCounter('metering:puter:412:2026-08')).toBe(false);
+            expect(isBilledCounter('metering:app:app-1:412:2026-08')).toBe(
+                false,
+            );
         });
     });
 
@@ -178,6 +235,73 @@ describe('MeteringBufferStore', () => {
             const { res } = await kv.get({ key });
             expect(res).toEqual({ total: 10, 'ai:chat': { count: 5 } });
             incrSpy.mockRestore();
+        });
+
+        it('splits a counter too wide for one expression across writes', async () => {
+            // Buffering is what makes this reachable: a single call meters a
+            // handful of paths, but a cycle's worth of calls for a busy counter
+            // adds up past what one update expression can hold.
+            const paths: Record<string, number> = {};
+            for (let i = 0; i < 60; i++) paths[`ai${i}.units`] = 1;
+            await target.incr({ key, pathAndAmountMap: paths });
+
+            const incrSpy = vi.spyOn(kv, 'incr');
+            await target.flushCycle();
+
+            expect(incrSpy.mock.calls.length).toBeGreaterThan(1);
+            for (const [input] of incrSpy.mock.calls) {
+                expect(
+                    incrExpressionBytes(Object.keys(input.pathAndAmountMap)),
+                ).toBeLessThanOrEqual(INCR_EXPRESSION_BUDGET_BYTES);
+            }
+            incrSpy.mockRestore();
+
+            const stored = flattenAmounts((await kv.get({ key })).res);
+            expect(Object.keys(stored)).toHaveLength(60);
+        });
+
+        it('settles a counter whose paths are long, losing nothing', async () => {
+            // A count-based split accepted these and the store rejected the
+            // write, which cost the whole counter: two models' worth of long
+            // usage types renders past what one expression can hold.
+            const models = [
+                'together:meta-llama/Meta-Llama-3_dot_1-405B-Instruct-Turbo',
+                'openrouter:anthropic/claude-sonnet-4_dot_5-20250929',
+            ];
+            const paths: Record<string, number> = { total: 12 };
+            for (const model of models) {
+                for (const kind of [
+                    'input_tokens',
+                    'output_tokens',
+                    'cache_read_input_tokens',
+                    'usd_cents',
+                ]) {
+                    for (const field of ['units', 'cost', 'count'])
+                        paths[`${model}:${kind}.${field}`] = 1;
+                }
+            }
+            await target.incr({ key, pathAndAmountMap: paths });
+
+            const incrSpy = vi.spyOn(kv, 'incr');
+            const logged = vi
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+            await target.flushCycle();
+            expect(logged).not.toHaveBeenCalled();
+            logged.mockRestore();
+
+            // The store the real deployment writes to rejects an expression
+            // past its limit outright, so what matters is that none of these
+            // writes was ever built that big.
+            for (const [input] of incrSpy.mock.calls) {
+                expect(
+                    incrExpressionBytes(Object.keys(input.pathAndAmountMap)),
+                ).toBeLessThanOrEqual(INCR_EXPRESSION_BUDGET_BYTES);
+            }
+            incrSpy.mockRestore();
+
+            const stored = flattenAmounts((await kv.get({ key })).res);
+            expect(stored).toEqual(paths);
         });
 
         it('counts what is already stored when it first sees a counter', async () => {
@@ -361,6 +485,9 @@ describe('MeteringBufferStore', () => {
             expect(
                 await server.clients.redis.hgetall(`meter:pending:{${tag}}`),
             ).toEqual({});
+            expect(
+                await server.clients.redis.zcard(`meter:inflight:{${tag}}`),
+            ).toBe(0);
         });
 
         it('maintains the base from what the store returned', async () => {
@@ -492,6 +619,32 @@ describe('MeteringBufferStore', () => {
             ).toEqual({});
         });
 
+        it('re-drives an abandoned claim through exactly one of two concurrent flushes', async () => {
+            const tag = bucketTag(key);
+            const nonce = 'abandonednonce';
+
+            await server.clients.redis.hset(
+                `meter:p:{${tag}}:${nonce}`,
+                'total',
+                '25',
+            );
+            await server.clients.redis.hset(
+                `meter:pending:{${tag}}`,
+                nonce,
+                `${Date.now() - 60_000}:${key}`,
+            );
+
+            // The pending index is read without removing anything, so both
+            // cycles see this claim. Only one of them may write it onward —
+            // usage counted twice here would over-bill.
+            await Promise.all([target.flushCycle(), target.flushCycle()]);
+
+            expect(await storedTotal(key)).toBe(25);
+            expect(
+                await server.clients.redis.hgetall(`meter:pending:{${tag}}`),
+            ).toEqual({});
+        });
+
         it('leaves a claim that is still fresh alone', async () => {
             const tag = bucketTag(key);
             await server.clients.redis.hset(
@@ -525,6 +678,174 @@ describe('MeteringBufferStore', () => {
             ).toEqual({});
         });
 
+        it('gives up on a path the store will never accept', async () => {
+            // Named so the give-up is remembered against a path no other test
+            // settles — the memo that stops it being rediscovered every cycle
+            // outlives this test.
+            const doomed = 'never_writable_by_this_test.units';
+            await target.incr({ key, pathAndAmountMap: { [doomed]: 5 } });
+            // A rejection, not an outage: the next attempt would be rejected
+            // identically. Re-driving it every cycle for as long as the counter
+            // exists is what turned one bad counter into a write loop.
+            const rejected = Object.assign(
+                new Error(
+                    'Invalid UpdateExpression: Expression size has exceeded the maximum allowed size',
+                ),
+                { name: 'ValidationException' },
+            );
+            const boom = vi.spyOn(kv, 'incr').mockRejectedValue(rejected);
+            const logged = vi
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+            const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
+
+            await target.flushCycle();
+            boom.mockRestore();
+
+            const tag = bucketTag(key);
+            expect(
+                await server.clients.redis.hgetall(`meter:pending:{${tag}}`),
+            ).toEqual({});
+            expect(await server.clients.redis.keys('meter:p:*')).toEqual([]);
+            // The amounts are lost, so this must not be quiet.
+            expect(logged).toHaveBeenCalledWith(
+                expect.stringContaining('unwritable path'),
+            );
+            logged.mockRestore();
+
+            // Losing an actor's own spending is somebody's money, so it pages.
+            expect(alarmSpy).toHaveBeenCalledWith(
+                `metering_usage_dropped:${key}`,
+                expect.stringContaining('under-billed'),
+                expect.objectContaining({ key, paths: [doomed] }),
+                'critical',
+                expect.objectContaining({ dedup: true }),
+            );
+            alarmSpy.mockRestore();
+
+            // And a second cycle finds nothing left to re-drive.
+            const after = vi.spyOn(kv, 'incr');
+            await target.flushCycle();
+            expect(after).not.toHaveBeenCalled();
+            after.mockRestore();
+        });
+
+        it('keeps every path an unwritable one was batched with', async () => {
+            const doomed = 'poison_path_kept_test.units';
+            await target.incr({
+                key,
+                pathAndAmountMap: {
+                    total: 9,
+                    'ai:chat.units': 4,
+                    [doomed]: 1,
+                    'egress:bytes.units': 7,
+                },
+            });
+
+            // Only the one path is refused; anything batched with it is fine.
+            const passThrough = kv.incr.bind(kv);
+            const picky = vi
+                .spyOn(kv, 'incr')
+                .mockImplementation((...args: Parameters<typeof kv.incr>) => {
+                    if (doomed in args[0].pathAndAmountMap) {
+                        return Promise.reject(
+                            Object.assign(new Error('nope'), {
+                                name: 'ValidationException',
+                            }),
+                        );
+                    }
+                    return passThrough(...args);
+                });
+            const logged = vi
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+
+            await target.flushCycle();
+            picky.mockRestore();
+            logged.mockRestore();
+
+            // The good paths land in full; only the refused one is missing.
+            const stored = flattenAmounts((await kv.get({ key })).res);
+            expect(stored).toEqual({
+                total: 9,
+                'ai:chat.units': 4,
+                'egress:bytes.units': 7,
+            });
+        });
+
+        it('records an aggregate drop without paging', async () => {
+            const aggregate = `metering:puter:7:2026-08`;
+            const doomed = 'aggregate_poison_test.units';
+            await target.incrAux({
+                key: aggregate,
+                pathAndAmountMap: { [doomed]: 3 },
+            });
+
+            const boom = vi.spyOn(kv, 'incr').mockRejectedValue(
+                Object.assign(new Error('nope'), {
+                    name: 'ValidationException',
+                }),
+            );
+            const logged = vi
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+            const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
+
+            await target.flushCycle();
+            boom.mockRestore();
+            logged.mockRestore();
+
+            expect(alarmSpy).toHaveBeenCalledWith(
+                'metering_aggregate_usage_dropped',
+                expect.stringContaining('under-count'),
+                expect.objectContaining({ key: aggregate }),
+                'warning',
+                expect.objectContaining({ dedup: true }),
+            );
+            alarmSpy.mockRestore();
+        });
+
+        it('does not write an applied chunk twice when a later one fails', async () => {
+            const paths: Record<string, number> = {};
+            for (let i = 0; i < 30; i++) paths[`ai${i}.units`] = 1;
+            await target.incr({ key, pathAndAmountMap: paths });
+
+            // Two chunks: let the first through and fail the second, the way a
+            // throttle landing mid-settle would.
+            const passThrough = kv.incr.bind(kv);
+            let call = 0;
+            const flaky = vi
+                .spyOn(kv, 'incr')
+                .mockImplementation((...args: Parameters<typeof kv.incr>) => {
+                    if (++call === 2)
+                        return Promise.reject(new Error('throttled'));
+                    return passThrough(...args);
+                });
+
+            await target.flushCycle();
+            flaky.mockRestore();
+
+            // Age the surviving claim so the sweep takes it, then let it finish.
+            const tag = bucketTag(key);
+            const pending = await server.clients.redis.hgetall(
+                `meter:pending:{${tag}}`,
+            );
+            const nonce = Object.keys(pending)[0]!;
+            await server.clients.redis.hset(
+                `meter:pending:{${tag}}`,
+                nonce,
+                `${Date.now() - 60_000}:${key}`,
+            );
+
+            await target.flushCycle();
+
+            // Every path lands exactly once: the applied chunk came off the
+            // claim as it was written, so the re-drive carried only the rest.
+            const stored = flattenAmounts((await kv.get({ key })).res);
+            expect(Object.keys(stored)).toHaveLength(30);
+            expect([...new Set(Object.values(stored))]).toEqual([1]);
+        });
+
         it('leaves the claim in place when the write onward fails', async () => {
             await target.incr({ key, pathAndAmountMap: { total: 5 } });
             const boom = vi
@@ -542,6 +863,139 @@ describe('MeteringBufferStore', () => {
             );
             expect(Object.keys(pending)).toHaveLength(1);
             expect(await storedTotal(key)).toBe(0);
+        });
+
+        it('recovers a counter whose claim never happens', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 5 } });
+            const tag = bucketTag(key);
+
+            // A cycle that takes the counter and then cannot claim it — the
+            // cache dropped the call, or the deployment went away mid-flush.
+            // Between those two steps the in-flight record is the only thing
+            // that knows this counter has amounts waiting.
+            const boom = vi
+                .spyOn(
+                    server.clients.redis as unknown as {
+                        meterClaim: () => Promise<unknown>;
+                    },
+                    'meterClaim',
+                )
+                .mockRejectedValue(new Error('cache unreachable'));
+            const warned = vi
+                .spyOn(console, 'warn')
+                .mockImplementation(() => {});
+
+            await target.flushCycle();
+            boom.mockRestore();
+
+            expect(await storedTotal(key)).toBe(0);
+            expect(
+                await server.clients.redis.zscore(
+                    `meter:inflight:{${tag}}`,
+                    key,
+                ),
+            ).not.toBeNull();
+
+            // Nothing has been in flight long enough to look abandoned yet, so
+            // a cycle right behind it leaves the counter alone.
+            await target.flushCycle();
+            expect(await storedTotal(key)).toBe(0);
+
+            // Once it has, the counter goes back on the dirty set and settles
+            // in full — the amounts were never at risk, only delayed.
+            await server.clients.redis.zadd(
+                `meter:inflight:{${tag}}`,
+                String(Date.now() - 60_000),
+                key,
+            );
+            await target.flushCycle();
+            warned.mockRestore();
+
+            expect(await storedTotal(key)).toBe(5);
+            expect(
+                await server.clients.redis.zcard(`meter:inflight:{${tag}}`),
+            ).toBe(0);
+        });
+
+        it('takes each counter for one deployment only', async () => {
+            // Two drains overlapping in time must divide a bucket rather than
+            // both working through it from the front, or the drain rate stops
+            // improving when deployments are added.
+            const keys = Array.from(
+                { length: 6 },
+                (_, i) => `${key}-share-${i}`,
+            );
+            const tag = 'mshare';
+            for (const k of keys) {
+                await server.clients.redis.sadd(`meter:dirty:{${tag}}`, k);
+            }
+
+            const drain = (): Promise<[string[], number]> =>
+                (
+                    server.clients.redis as unknown as {
+                        meterDrain: (
+                            ...args: string[]
+                        ) => Promise<[string[], number]>;
+                    }
+                ).meterDrain(
+                    `meter:dirty:{${tag}}`,
+                    `meter:inflight:{${tag}}`,
+                    '3',
+                    String(Date.now()),
+                    '60000',
+                    String(Date.now() - 30_000),
+                );
+
+            const [first, remainingAfterFirst] = await drain();
+            const [second, remainingAfterSecond] = await drain();
+
+            expect(first).toHaveLength(3);
+            expect(second).toHaveLength(3);
+            expect([...first, ...second].sort()).toEqual([...keys].sort());
+            expect(Number(remainingAfterFirst)).toBe(3);
+            expect(Number(remainingAfterSecond)).toBe(0);
+        });
+
+        it('does not write a settled counter twice when its base is not replaced', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 5 } });
+
+            // The write onward lands, then the cache call that adopts the new
+            // base fails. The amounts are already applied, so a re-drive must
+            // not apply them again.
+            const boom = vi
+                .spyOn(
+                    server.clients.redis as unknown as {
+                        meterSettle: () => Promise<unknown>;
+                    },
+                    'meterSettle',
+                )
+                .mockRejectedValue(new Error('cache unreachable'));
+            const warned = vi
+                .spyOn(console, 'warn')
+                .mockImplementation(() => {});
+
+            await target.flushCycle();
+            boom.mockRestore();
+            expect(await storedTotal(key)).toBe(5);
+
+            // Age whatever is left of the claim so the sweep takes it.
+            const tag = bucketTag(key);
+            const pending = await server.clients.redis.hgetall(
+                `meter:pending:{${tag}}`,
+            );
+            for (const nonce of Object.keys(pending)) {
+                await server.clients.redis.hset(
+                    `meter:pending:{${tag}}`,
+                    nonce,
+                    `${Date.now() - 60_000}:${key}`,
+                );
+            }
+
+            await target.flushCycle();
+            await target.flushCycle();
+            warned.mockRestore();
+
+            expect(await storedTotal(key)).toBe(5);
         });
     });
 

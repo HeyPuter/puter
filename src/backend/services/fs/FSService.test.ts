@@ -3,31 +3,43 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { Readable } from 'node:stream';
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { Actor } from '../../core/actor.js';
+import {
+    afterAll,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import { makeActor, type Actor } from '../../core/actor.js';
+import { runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { appDataPermission } from '../permission/appDataScopes.js';
 import { PuterServer } from '../../server.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { toPendingUploadSessionKey } from '../../stores/fs/pendingUploadSessionHelpers.js';
 import { setupTestServer } from '../../testUtil.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { FSService } from './FSService.js';
+import { UNLIMITED_STORAGE_ALLOWANCE } from './FSService.js';
 
 // ── Harness ─────────────────────────────────────────────────────────
 //
@@ -579,6 +591,50 @@ describe('FSService storage allowance', () => {
         ).resolves.toMatchObject({ wasOverwrite: false });
     });
 
+    it('writes past a full account when the caller waives the quota', async () => {
+        const user = await quotaUser(64);
+        await user.write('fills-it.txt', 'x'.repeat(64));
+        await expect(user.write('over.txt', 'x')).rejects.toMatchObject({
+            statusCode: 413,
+        });
+
+        await expect(
+            user.write(
+                'system.png',
+                'x'.repeat(80),
+                UNLIMITED_STORAGE_ALLOWANCE,
+            ),
+        ).resolves.toMatchObject({ wasOverwrite: false });
+    });
+
+    it('waives the quota for a batch too', async () => {
+        const user = await quotaUser(64);
+        await user.write('fills-it.txt', 'x'.repeat(64));
+
+        await expect(
+            limitedFs.batchWrites(
+                user.userId,
+                [
+                    {
+                        fileMetadata: {
+                            path: `${user.home}/Documents/sys1.txt`,
+                            size: 40,
+                        },
+                        fileContent: 'x'.repeat(40),
+                    },
+                    {
+                        fileMetadata: {
+                            path: `${user.home}/Documents/sys2.txt`,
+                            size: 40,
+                        },
+                        fileContent: 'x'.repeat(40),
+                    },
+                ],
+                UNLIMITED_STORAGE_ALLOWANCE,
+            ),
+        ).resolves.toHaveLength(2);
+    });
+
     it('never lets an override lower the ceiling', async () => {
         const user = await quotaUser(64);
         await expect(
@@ -648,6 +704,112 @@ describe('FSService storage allowance', () => {
             }),
         );
         expect(error.statusCode).toBe(413);
+    });
+
+    it('rejects a copy that would exceed the allowance', async () => {
+        const user = await quotaUser(64);
+        const { fsEntry: source } = await user.write(
+            'orig.txt',
+            'x'.repeat(40),
+        );
+        const documents = (await limitedServer.stores.fsEntry.getEntryByPath(
+            `${user.home}/Documents`,
+        ))!;
+
+        const error = await caught(() =>
+            limitedFs.copy(user.userId, {
+                source,
+                destinationParent: documents,
+                newName: 'orig-copy.txt',
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('storage_limit_reached');
+        expect(
+            await limitedServer.stores.fsEntry.getEntryByPath(
+                `${user.home}/Documents/orig-copy.txt`,
+            ),
+        ).toBeNull();
+    });
+
+    it('counts the whole subtree when copying a directory', async () => {
+        const user = await quotaUser(64);
+        await limitedFs.mkdir(user.userId, {
+            path: `${user.home}/Documents/tree`,
+        });
+        await limitedFs.write(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/tree/a.txt`,
+                size: 20,
+            },
+            fileContent: 'x'.repeat(20),
+        });
+        await limitedFs.write(user.userId, {
+            fileMetadata: {
+                path: `${user.home}/Documents/tree/b.txt`,
+                size: 20,
+            },
+            fileContent: 'x'.repeat(20),
+        });
+        const source = (await limitedServer.stores.fsEntry.getEntryByPath(
+            `${user.home}/Documents/tree`,
+        ))!;
+        const desktop = (await limitedServer.stores.fsEntry.getEntryByPath(
+            `${user.home}/Desktop`,
+        ))!;
+
+        // 40 of 64 bytes are used; duplicating the tree would need 40 more.
+        const error = await caught(() =>
+            limitedFs.copy(user.userId, {
+                source,
+                destinationParent: desktop,
+            }),
+        );
+        expect(error.statusCode).toBe(413);
+        expect(
+            await limitedServer.stores.fsEntry.getEntryByPath(
+                `${user.home}/Desktop/tree`,
+            ),
+        ).toBeNull();
+    });
+
+    it('discounts the entry an overwriting copy replaces', async () => {
+        const user = await quotaUser(64);
+        const { fsEntry: source } = await user.write('src.txt', 'x'.repeat(30));
+        await user.write('dst.txt', 'y'.repeat(30));
+        const documents = (await limitedServer.stores.fsEntry.getEntryByPath(
+            `${user.home}/Documents`,
+        ))!;
+
+        // 60 of 64 bytes are used: the copy only fits because overwriting
+        // dst.txt releases its 30 first.
+        const copy = await limitedFs.copy(user.userId, {
+            source,
+            destinationParent: documents,
+            newName: 'dst.txt',
+            overwrite: true,
+        });
+        expect(copy.size).toBe(30);
+    });
+
+    it('lets a per-request override raise the ceiling for a copy', async () => {
+        const user = await quotaUser(64);
+        const { fsEntry: source } = await user.write(
+            'over.txt',
+            'x'.repeat(40),
+        );
+        const documents = (await limitedServer.stores.fsEntry.getEntryByPath(
+            `${user.home}/Documents`,
+        ))!;
+
+        await expect(
+            limitedFs.copy(user.userId, {
+                source,
+                destinationParent: documents,
+                newName: 'over-copy.txt',
+                storageAllowanceMax: 1024,
+            }),
+        ).resolves.toMatchObject({ size: 40 });
     });
 
     it('rejects a batch signed write that would exceed the allowance', async () => {
@@ -2686,7 +2848,10 @@ describe('FSService permission rules', () => {
             `${user.home}/Documents/outside.json`,
             '{}',
         );
-        const appActor: Actor = { user: user.actor.user, app: { uid: appUid } };
+        const appActor = makeActor({
+            user: user.actor.user,
+            app: { uid: appUid },
+        });
 
         await expect(
             server.services.permission.check(
@@ -2729,5 +2894,242 @@ describe('FSService permission rules', () => {
             `fs:${file.uuid}:write`,
         );
         expect(higher).not.toContain(`fs:${file.uuid}:read`);
+    });
+});
+
+// -- Cross-app AppData (app-data:<uid>:fs:<class>) ----------------------
+
+describe('FSService — cross-app AppData access', () => {
+    let owner: TestUser;
+    let calendar: { id: number; uid: string };
+    let contacts: { id: number; uid: string };
+    let calendarActor: Actor;
+    let contactsFile: FSEntry;
+    let contactsRoot: FSEntry;
+
+    const makeRealApp = async (
+        ownerUserId: number,
+        fields: Record<string, unknown> = {},
+    ): Promise<{ id: number; uid: string }> => {
+        const name = `fsx-${uuidv4()}`;
+        return (await server.stores.app.create(
+            {
+                name,
+                title: 'FS cross-app test',
+                index_url: `https://${name}.test/`,
+                ...fields,
+            },
+            { ownerUserId },
+        )) as { id: number; uid: string };
+    };
+
+    const grant = (permission: string) =>
+        runWithContext({ actor: owner.actor }, () =>
+            server.services.permission.grantUserAppPermission(
+                owner.actor,
+                calendar.uid,
+                permission,
+            ),
+        );
+
+    const asCalendar = <T>(fn: () => T | Promise<T>) =>
+        runWithContext({ actor: calendarActor }, fn);
+
+    /** An AppData subtree with one file in it, as opening the app would leave. */
+    const seedAppData = async (
+        appUid: string,
+        name = 'state.json',
+    ): Promise<FSEntry> => {
+        await fs.mkdir(owner.userId, {
+            path: `${owner.home}/AppData/${appUid}`,
+            createMissingParents: true,
+        });
+        return writeFile(
+            owner,
+            `${owner.home}/AppData/${appUid}/${name}`,
+            '{}',
+        );
+    };
+
+    beforeEach(async () => {
+        owner = await makeUser();
+        calendar = await makeRealApp(owner.userId);
+        contacts = await makeRealApp(owner.userId);
+        calendarActor = makeActor({
+            user: owner.actor.user,
+            app: { uid: calendar.uid, id: calendar.id },
+        });
+        contactsRoot = await fs.mkdir(owner.userId, {
+            path: `${owner.home}/AppData/${contacts.uid}`,
+            createMissingParents: true,
+        });
+        contactsFile = await writeFile(
+            owner,
+            `${owner.home}/AppData/${contacts.uid}/state.json`,
+            '{"a":1}',
+        );
+    });
+
+    it('gives no access without a grant', async () => {
+        await expect(
+            server.services.permission.check(
+                calendarActor,
+                `fs:${contactsFile.uuid}:read`,
+            ),
+        ).resolves.toBe(false);
+    });
+
+    it('reads another app’s AppData with the read class', async () => {
+        await grant(appDataPermission(contacts.uid, 'fs', 'read'));
+        await expect(
+            server.services.permission.check(
+                calendarActor,
+                `fs:${contactsFile.uuid}:read`,
+            ),
+        ).resolves.toBe(true);
+        // Read does not carry write.
+        await expect(
+            server.services.permission.check(
+                calendarActor,
+                `fs:${contactsFile.uuid}:write`,
+            ),
+        ).resolves.toBe(false);
+    });
+
+    it('covers the subtree root and its descendants', async () => {
+        await grant(appDataPermission(contacts.uid, 'fs', 'read'));
+        for (const uuid of [contactsRoot.uuid, contactsFile.uuid]) {
+            await expect(
+                server.services.permission.check(
+                    calendarActor,
+                    `fs:${uuid}:read`,
+                ),
+            ).resolves.toBe(true);
+        }
+    });
+
+    it('refuses when the target app has opted out of sharing', async () => {
+        const closed = await makeRealApp(owner.userId, {
+            metadata: JSON.stringify({ share_app_data: false }),
+        });
+        const closedFile = await seedAppData(closed.uid);
+        await grant(appDataPermission(closed.uid, 'fs', 'read'));
+        await expect(
+            server.services.permission.check(
+                calendarActor,
+                `fs:${closedFile.uuid}:read`,
+            ),
+        ).resolves.toBe(false);
+    });
+
+    it('does not let a grant for one app reach another', async () => {
+        const third = await makeRealApp(owner.userId);
+        const thirdFile = await seedAppData(third.uid);
+        await grant(appDataPermission(contacts.uid, 'fs', 'read'));
+        await expect(
+            server.services.permission.check(
+                calendarActor,
+                `fs:${thirdFile.uuid}:read`,
+            ),
+        ).resolves.toBe(false);
+    });
+
+    // -- The delete guard ------------------------------------------------
+
+    it('refuses delete, move, and rename with only the write class', async () => {
+        await grant(appDataPermission(contacts.uid, 'fs', 'write'));
+        // ACL would allow all three: they ask for `fs:write`, which the grant
+        // satisfies. The guard is what separates them.
+        await expect(
+            asCalendar(() => fs.remove(owner.userId, { entry: contactsFile })),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        await expect(
+            asCalendar(() => fs.rename(contactsFile, 'renamed.json')),
+        ).rejects.toMatchObject({ statusCode: 403 });
+
+        const desktop = (await server.stores.fsEntry.getEntryByPath(
+            `${owner.home}/Desktop`,
+        ))!;
+        await expect(
+            asCalendar(() =>
+                fs.move(owner.userId, {
+                    source: contactsFile,
+                    destinationParent: desktop as unknown as FSEntry,
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('allows delete once the delete class is granted', async () => {
+        await grant(appDataPermission(contacts.uid, 'fs', 'delete'));
+        await asCalendar(() =>
+            fs.remove(owner.userId, { entry: contactsFile }),
+        );
+        expect(
+            await server.stores.fsEntry.getEntryByPath(contactsFile.path),
+        ).toBeFalsy();
+    });
+
+    it('allows rename once the delete class is granted', async () => {
+        await grant(appDataPermission(contacts.uid, 'fs', 'delete'));
+        const renamed = await asCalendar(() =>
+            fs.rename(contactsFile, 'renamed.json'),
+        );
+        expect(renamed.name).toBe('renamed.json');
+    });
+
+    it('leaves an app’s own AppData deletable', async () => {
+        // The guard must only fire on a *foreign* subtree, or every app loses
+        // the ability to clean up after itself.
+        const ownFile = await seedAppData(calendar.uid, 'own.json');
+        await asCalendar(() => fs.remove(owner.userId, { entry: ownFile }));
+        expect(
+            await server.stores.fsEntry.getEntryByPath(ownFile.path),
+        ).toBeFalsy();
+    });
+
+    it('leaves the owning user unaffected by the guard', async () => {
+        // No app actor in context at all — the plain user path must not change.
+        await fs.remove(owner.userId, { entry: contactsFile });
+        expect(
+            await server.stores.fsEntry.getEntryByPath(contactsFile.path),
+        ).toBeFalsy();
+    });
+
+    it('refuses an access-token actor whose issuer is the granted app', async () => {
+        // The token carries no `app` of its own, so a guard keyed on `actor.app`
+        // would skip entirely — failing open where the read/write implicator
+        // fails closed.
+        await grant(appDataPermission(contacts.uid, 'fs', 'write'));
+        const tokenActor = makeActor({
+            user: owner.actor.user,
+            accessToken: {
+                uid: 'tok-cross-app',
+                issuer: calendarActor,
+                fullAccess: false,
+            },
+        });
+
+        await expect(
+            runWithContext({ actor: tokenActor }, () =>
+                fs.remove(owner.userId, { entry: contactsFile }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('lets system-initiated repair through the guard', async () => {
+        // Ghost-fsentry cleanup runs during an unrelated caller's *read*, so it
+        // is not that caller's action. Without the opt-out the repair is refused
+        // and the orphaned row is never reaped.
+        await grant(appDataPermission(contacts.uid, 'fs', 'read'));
+        await asCalendar(() =>
+            fs.remove(owner.userId, {
+                entry: contactsFile,
+                systemInitiated: true,
+            }),
+        );
+        expect(
+            await server.stores.fsEntry.getEntryByPath(contactsFile.path),
+        ).toBeFalsy();
     });
 });

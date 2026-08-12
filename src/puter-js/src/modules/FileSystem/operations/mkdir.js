@@ -2,8 +2,8 @@ import path from 'path-browserify';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 import { defineOperation, firstDefined } from './scaffold.js';
 
-/** @typedef {import('../../../../types/modules/filesystem').MkdirOptions} MkdirOptions */
-/** @typedef {import('../../../../types/modules/fs-item').FSItem} FSItem */
+/** @typedef {import('../types.js').MkdirOptions} MkdirOptions */
+/** @typedef {import('../../FSItem.js').FSItem} FSItem */
 
 /**
  * Creates a directory. Relative paths resolve against the app's root

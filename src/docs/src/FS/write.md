@@ -22,9 +22,9 @@ puter.fs.write(file)
 The path to the file to write to.
 If path is not absolute, it will be resolved relative to the app's root directory.
 
-#### `data` (String|File|Blob) (required)
+#### `data` (String|File|Blob|ArrayBuffer|TypedArray) (optional)
 
-The data to write to the file.
+The data to write to the file. If omitted, an empty file is created.
 
 #### `options` (Object)
 

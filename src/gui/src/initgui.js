@@ -18,6 +18,7 @@
  */
 
 import UIDashboard from './UI/Dashboard/UIDashboard.js';
+import TabApps from './UI/Dashboard/TabApps.js';
 import UIAlert from './UI/UIAlert.js';
 import UIComponentWindow from './UI/UIComponentWindow.js';
 import UIDesktop from './UI/UIDesktop.js';
@@ -173,7 +174,7 @@ const postAuthActions = async (action) => {
     // Dashboard mode
     // -------------------------------------------------------------------------------------
     else if ( window.is_dashboard_mode ) {
-        UIDashboard();
+        const el_dashboard_promise = UIDashboard();
         // Direct landing on /app/<name>: open the app in the dashboard the
         // same way a tile launch does. The dashboard's route is slotted
         // underneath first (replaceState) and the launch re-claims
@@ -183,6 +184,7 @@ const postAuthActions = async (action) => {
         if ( window.url_paths[0]?.toLocaleLowerCase() === 'app'
             && window.url_paths[1]
             && ! window.url_query_params.has('c') ) {
+            const app_name = window.url_paths[1];
             // any query param that doesn't start with 'puter.' is passed
             // through to the app (mirrors the desktop URL-launch flow)
             const app_query_params = {};
@@ -204,20 +206,70 @@ const postAuthActions = async (action) => {
             // forever — preset the title to fall back to when the app's
             // history entry is popped.
             window.dashboard_base_title = i18n('window_title_puter');
+            // ...and make it the DOCUMENT title before the replaceState
+            // below commits the dashboard's own entry. Chrome stamps a
+            // session entry with the document title current at commit and
+            // shows that stored title in the tab strip whenever a traversal
+            // lands on the entry — so with the server's app-name title
+            // still in place, closing the app (whose close consumes the
+            // /app/<name> entry via history.back()) left the tab named
+            // after an app that was no longer on screen: the popstate
+            // handler's document.title reset updates the DOM title, but the
+            // tab strip keeps displaying the entry's stored one.
+            document.title = window.dashboard_base_title;
             window.history.replaceState(null, '', '/');
-            launch_app({
-                name: window.url_paths[1],
-                maximized: true,
-                params: app_query_params,
-                readURL: window.url_query_params.get('readURL'),
-                ...(posargs ? {
-                    args: {
-                        command_line: { args: posargs },
-                    },
-                } : {}),
-            }).catch((err) => {
-                console.error(`Failed to launch ${window.url_paths[1]} from URL:`, err);
-            });
+            // Resolve the app's info NOW, in parallel with the tile wait
+            // below, so the intro never delays the launch's own server
+            // round-trip; the result is handed to launch_app as app_obj (the
+            // same object its own fetch would produce, at the grid tiles'
+            // 128px icon size — the intro may have to DRAW a tile from it,
+            // when the landing is what installs the app). A failed prefetch
+            // hands nothing over — launch_app refetches and fails exactly
+            // the way it always did.
+            const app_info_promise = puter.apps.get(app_name, { icon_size: 128 })
+                .catch(() => null);
+            (async () => {
+                // If the app already has a tile in the Apps tab, play the
+                // whole click→morph→open sequence a real tile click plays —
+                // paced so it can be followed: the grid appears, a beat, the
+                // tile visibly acknowledges (icon ghost), a beat, and the
+                // window grows out of its slot — so the landing tells the
+                // user what is being opened and where minimize puts it back.
+                // No tile (not installed, grid too slow, apps fetch failed,
+                // animations off): the launch proceeds immediately with the
+                // plain fade, as before. The intro also steps aside on its
+                // own: user input skips its remaining beats, and once this
+                // account has watched it a few times the beats collapse for
+                // good (see beginDeepLinkLaunch).
+                let tile = null;
+                try {
+                    const el_dashboard = await el_dashboard_promise;
+                    // The app-info promise lets the intro materialize a tile
+                    // for an app the dashboard doesn't have yet — landing on
+                    // an app is what installs it (see _spliceDeepLinkApp).
+                    tile = await TabApps.beginDeepLinkLaunch(app_name, $(el_dashboard), app_info_promise);
+                } catch ( _e ) {
+                    // No dashboard window — no intro; still launch.
+                }
+                const app_obj = await app_info_promise;
+                launch_app({
+                    name: app_name,
+                    maximized: true,
+                    params: app_query_params,
+                    readURL: window.url_query_params.get('readURL'),
+                    ...(app_obj ? { app_obj } : {}),
+                    ...(posargs ? {
+                        args: {
+                            command_line: { args: posargs },
+                        },
+                    } : {}),
+                    window_options: { morph_from_dashboard_tile: true },
+                }).catch((err) => {
+                    console.error(`Failed to launch ${app_name} from URL:`, err);
+                }).finally(() => {
+                    TabApps.settleDeepLinkLaunch(app_name, tile);
+                });
+            })();
         }
     }
     // -------------------------------------------------------------------------------------
@@ -601,7 +653,18 @@ const postAuthActions = async (action) => {
     // Runs post-auth so signed-out users go through sign-in/signup first.
     // -------------------------------------------------------------------------------------
     if ( action === 'request-permission' ) {
-        const permission = window.url_query_params.get('permission');
+        // Repeated `permission=` params: one prompt can cover several scopes.
+        // Capped because this URL is supplied by whoever opened the popup, and an
+        // unbounded list would put an unreadable consent prompt in front of the
+        // user. Over the cap we drop the request rather than truncate it, since a
+        // silently shortened list would grant less than the dialog described.
+        const MAX_REQUESTED_PERMISSIONS = 16;
+        const requested_permissions = window.url_query_params
+            .getAll('permission')
+            .filter(Boolean);
+        const permissions = requested_permissions.length <= MAX_REQUESTED_PERMISSIONS
+            ? requested_permissions
+            : [];
         const msg_id = window.url_query_params.get('msg_id');
         // Browser-attested only: `openerOrigin` is the referrer, or the opener's
         // own reply to the `requestOrigin` handshake. There is deliberately no
@@ -636,7 +699,10 @@ const postAuthActions = async (action) => {
             // same origin the dialog displayed, and reject it outright
             // unless it names an app that really exists.
             granted = await UIPermissionDialog({
-                permission: permission,
+                // See IPC.js: both forms, so a single scope still works with a
+                // dialog that only understands the scalar.
+                permissions,
+                permission: permissions.length === 1 ? permissions[0] : undefined,
                 origin: origin,
             });
         } catch (e) {

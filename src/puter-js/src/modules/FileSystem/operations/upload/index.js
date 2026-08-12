@@ -6,15 +6,24 @@
 import * as utils from '../../../../lib/utils.js';
 import { showUsageLimitDialog } from '../../../UsageLimitDialog.js';
 import getAbsolutePathForApp from '../../utils/getAbsolutePathForApp.js';
-import { SIGNED_BATCH_WRITE_CAPABILITY_KEY, SIGNED_BATCH_SUPPORTED_ENVS } from './constants.js';
+import { SIGNED_BATCH_WRITE_CAPABILITY_KEY, SIGNED_BATCH_SUPPORTED_ENVS, SPACE_CHECK_MIN_BYTES } from './constants.js';
 import { normalizeUploadEntries, separateFilesAndDirs } from './entries.js';
 import { generateThumbnails } from './thumbnails.js';
 import { performSignedBatchUpload } from './signedBatchUpload.js';
 import { performLegacyBatchUpload } from './legacyBatchUpload.js';
 
-/** @typedef {import('../../../../../types/modules/filesystem').UploadItems} UploadItems */
-/** @typedef {import('../../../../../types/modules/filesystem').UploadOptions} UploadOptions */
-/** @typedef {import('../../../../../types/modules/fs-item').FSItem} FSItem */
+/** @typedef {import('../../types.js').UploadItems} UploadItems */
+/** @typedef {import('../../types.js').UploadOptions} UploadOptions */
+/** @typedef {import('../../../FSItem.js').FSItem} FSItem */
+
+/**
+ * @typedef {(
+ *   this: import('../../index.js').PuterJSFileSystemModule,
+ *   items: UploadItems,
+ *   dirPath?: string,
+ *   options?: UploadOptions,
+ * ) => Promise<FSItem | FSItem[]>} UploadOperation
+ */
 
 /**
  * Uploads local items — files, blobs, strings, directory entries, or a
@@ -29,7 +38,7 @@ import { performLegacyBatchUpload } from './legacyBatchUpload.js';
  * @param {UploadOptions} [options]
  * @returns {Promise<FSItem | FSItem[]>}
  */
-const upload = async function (items, dirPath, options = {}) {
+const uploadImpl = async function (items, dirPath, options = {}) {
     return new Promise(async (resolve, reject) => {
         // If auth token is not provided and we are in the web environment,
         // try to authenticate with Puter
@@ -125,8 +134,13 @@ const upload = async function (items, dirPath, options = {}) {
         // the user uploads a very large folder/file and then the server rejects it because there is not enough space
         //
         // Space check in 'web' environment is currently not supported since it requires permissions.
+        //
+        // Below the threshold the check costs more than it saves: the round trip
+        // is a fixed cost on every write, while the upload it would have avoided
+        // is small, and the server still rejects an over-quota write with
+        // NOT_ENOUGH_SPACE (handled by `error` above).
         let storage;
-        if ( puter.env !== 'web' ) {
+        if ( puter.env !== 'web' && totalSize >= SPACE_CHECK_MIN_BYTES ) {
             try {
                 storage = await this.space();
                 if ( storage.capacity - storage.used < totalSize ) {
@@ -182,5 +196,7 @@ const upload = async function (items, dirPath, options = {}) {
         }
     });
 };
+
+const upload = /** @type {UploadOperation} */ (uploadImpl);
 
 export default upload;

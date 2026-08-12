@@ -39,6 +39,7 @@
         "@heyputer/puter.js": "^2.5.0"
     },
     "scripts": {
+        "pretypecheck": "cd ../puter-js && npm run build:types",
         "typecheck": "tsc --noEmit -p tsconfig.json"
     }
 }

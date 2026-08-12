@@ -332,6 +332,12 @@ export type EventMap = {
         charges: UsageInput[];
     };
 
+    // ---- Workers ----
+    // Only a genuinely new worker. Redeploying an existing name updates its
+    // row instead, and never reaches here — so a listener that prices this
+    // is pricing workers that came into existence, not deploys.
+    'worker.create': { actor: Actor; workerName: string };
+
     // ---- Outer / GUI broadcast ----
     'outer.cacheUpdate': {
         cacheKey: string[];
@@ -339,6 +345,15 @@ export type EventMap = {
         ttlSeconds?: number;
     };
     'outer.fs.write-hash': { hash: string; uuid: string };
+    /**
+     * Cache keys the KV read cache must stop serving, because the entries
+     * behind them were just written somewhere else.
+     *
+     * `outer.*` rather than `outer.pubsub.*` on purpose: the cache lives in the
+     * Redis a cluster shares, so one node applying the invalidation covers the
+     * whole cluster — fanning it out to siblings would just repeat the write.
+     */
+    'outer.kv.cacheInvalidated': { cacheKeys: string[] };
     'outer.gui.item.added': GuiEvent;
     'outer.gui.item.updated': GuiEvent;
     'outer.gui.item.moved': GuiEvent;
@@ -429,6 +444,22 @@ export type EventMap = {
     [K in `route.${string}`]: RouteLifecycleEvent;
 } & {
     [K in `pubsub.login.${string}`]: { authtoken: string };
+} & {
+    /**
+     * A user's subscription now resolves to a different policy. Carried on the
+     * `outer.pubsub.*` channel so it reaches sibling nodes and peer clusters,
+     * not just the one that handled the change — every node caches the resolved
+     * policy, so a purchase is only live once they have all dropped theirs.
+     */
+    'outer.pubsub.metering.subscription-changed': { userUuid: string };
+    /**
+     * A user's purchased credit balance changed. Separate from a policy change
+     * because it moves the other half of the same budget, and carried on the
+     * `outer.pubsub.*` channel for the same reason: every node caches whether
+     * an account has budget left, so a top-up only lifts enforcement once they
+     * have all dropped that answer.
+     */
+    'outer.pubsub.metering.credits-changed': { userUuid: string };
 };
 
 /**
@@ -509,11 +540,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;

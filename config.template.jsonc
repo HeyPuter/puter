@@ -437,6 +437,24 @@
     ],
 
     // ── Metering ────────────────────────────────────────────────────────
-    // When true, all metering checks pass — no per-actor limits enforced.
-    "unlimitedMetering": false
+    // When true, every account resolves to an unlimited policy: usage is still
+    // recorded, but nothing is ever refused for lack of budget. This is the
+    // setting for a deployment with no way to buy more — without it, accounts
+    // are held to the free monthly allowance and start getting 402s from the AI
+    // surfaces, file transfers and KV once they pass it.
+    "unlimitedMetering": false,
+
+    // Whether an account that has spent its whole allowance is refused the
+    // operations that spend it — file transfers, KV calls. Recording is
+    // unaffected either way. `workers` extends the same refusal to
+    // worker-driven calls, which are exempt by default because a deployed
+    // worker has nowhere to surface a payment prompt.
+    // "meteringEnforcement": { "enabled": true, "workers": false },
+
+    // Fleet-wide spend rate, in micro-cents per minute, past which metering
+    // raises the `metering:excessiveGlobalUsageRate` alarm. Omit it (the
+    // default) to leave the check off: the only useful value is a multiple of
+    // what this deployment's normal traffic costs, so it has to be measured
+    // rather than guessed, and a stale number here alarms on healthy growth.
+    // "maxGlobalUsagePerMinute": 200000000
 }

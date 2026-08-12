@@ -62,12 +62,17 @@ import {
     normalize_single_message,
 } from './utils/Messages.js';
 import {
-    AGGREGATOR_PROVIDERS,
     compareModelPreference,
+    isIdentityKey,
+    normalizeModelKey,
 } from './utils/modelRouting.js';
+import {
+    isRouteUnhealthy,
+    markRouteUnhealthy,
+} from './utils/providerHealth.js';
 import { AIChatStream } from './utils/Streaming.js';
 
-const MAX_FALLBACKS = 4; // includes first attempt
+const MAX_ATTEMPTS = 3; // the first attempt plus two fallbacks
 
 type ProviderAttempt = {
     model: string;
@@ -127,6 +132,25 @@ const isUpstream5xx = (a: ProviderAttempt) =>
     /provider returned error|internal server error|service unavailable|bad gateway/i.test(
         a.error,
     );
+
+/**
+ * Whether a failure indicts the route rather than the request.
+ *
+ * Outages, rate limits and bad credentials will hit the next caller too, so the
+ * route is worth marking. A 4xx the upstream returned on the request's own
+ * merits (malformed tools, oversized prompt) says nothing about the route and
+ * must not take it out of rotation for everyone else. Attempts with no status
+ * at all are transport failures — treat them as route problems.
+ */
+const isRouteLevelFailure = (a: ProviderAttempt) =>
+    a.status === undefined ||
+    isRateLimit(a) ||
+    isAuthFailure(a) ||
+    isUpstream5xx(a);
+
+// One bucket can hold the same model id under several providers *and* several
+// ids under one provider, so only the pair identifies an attempt.
+const routeId = (provider: string, modelId: string) => `${provider}:${modelId}`;
 
 /**
  * Map an exhausted fallback chain to a single user-facing HttpError.
@@ -407,11 +431,19 @@ export class ChatCompletionDriver extends PuterDriver {
                     remainingCredits - approximateInputCost;
                 const maxAllowedOutputTokens =
                     maxAllowedOutputUcents / outputTokenCost;
+                // A provider may not know a model's output ceiling. Drop the
+                // term rather than let a missing value drive the cap: `null`
+                // coerces to 0, so the subtraction goes negative instead of
+                // NaN and the user is told they're out of credits.
+                const modelOutputCeiling =
+                    Number.isFinite(model.max_tokens) && model.max_tokens > 0
+                        ? model.max_tokens - approximateTokenCount
+                        : Number.POSITIVE_INFINITY;
                 const cap = Math.floor(
                     Math.min(
                         args.max_tokens ?? Number.POSITIVE_INFINITY,
                         maxAllowedOutputTokens,
-                        model.max_tokens - approximateTokenCount,
+                        modelOutputCeiling,
                     ),
                 );
                 // `cap` is the credit-bounded ceiling on output tokens. When
@@ -442,6 +474,20 @@ export class ChatCompletionDriver extends PuterDriver {
         const attempts: ProviderAttempt[] = [];
         let res: IChatCompleteResult | undefined;
 
+        // A failed route is remembered briefly so the next request skips it
+        // rather than paying its timeout again.
+        const recordFailure = (
+            modelId: string,
+            providerId: string,
+            err: unknown,
+        ) => {
+            const attempt = toAttempt(modelId, providerId, err);
+            attempts.push(attempt);
+            if (isRouteLevelFailure(attempt)) {
+                markRouteUnhealthy(providerId, modelId);
+            }
+        };
+
         try {
             res = await provider.complete({
                 ...args,
@@ -449,19 +495,17 @@ export class ChatCompletionDriver extends PuterDriver {
                 provider: model.provider,
             });
         } catch (e) {
-            attempts.push(toAttempt(model.id, model.provider!, e));
+            recordFailure(model.id, model.provider!, e);
 
-            // Fallback loop
-            const tried = [model.id];
-            const triedProviders = [model.provider!];
+            // Fallback loop — the bucket holds every provider that serves this
+            // model, ranked by `compareModelPreference`, so each miss walks one
+            // step down that order.
+            const bucketKey = model.id;
+            const tried = new Set([routeId(model.provider!, model.id)]);
             let lastError: Error | null = e as Error;
 
-            while (lastError && tried.length < MAX_FALLBACKS) {
-                const fallback = this.#findFallback(
-                    model.id,
-                    tried,
-                    triedProviders,
-                );
+            while (lastError && attempts.length < MAX_ATTEMPTS) {
+                const fallback = this.#findFallback(bucketKey, tried);
                 if (!fallback) break;
 
                 const fbProvider = this.#providers[fallback.provider!];
@@ -478,8 +522,7 @@ export class ChatCompletionDriver extends PuterDriver {
                     });
                 }
 
-                tried.push(fallback.id);
-                triedProviders.push(fallback.provider!);
+                tried.add(routeId(fallback.provider!, fallback.id));
 
                 try {
                     res = await fbProvider.complete({
@@ -491,9 +534,7 @@ export class ChatCompletionDriver extends PuterDriver {
                     lastError = null;
                 } catch (fbErr) {
                     lastError = fbErr as Error;
-                    attempts.push(
-                        toAttempt(fallback.id, fallback.provider!, fbErr),
-                    );
+                    recordFailure(fallback.id, fallback.provider!, fbErr);
                 }
             }
         }
@@ -1022,107 +1063,79 @@ export class ChatCompletionDriver extends PuterDriver {
 
     // -- Model map ---------------------------------------------------
 
+    /**
+     * Group every provider's catalog into per-model buckets.
+     *
+     * A bucket is the set of routes to one model: the vendor we integrate with
+     * directly plus every reseller carrying it. They are deliberately _not_
+     * deduplicated — the duplicates are what the fallback loop walks when a
+     * route fails. `compareModelPreference` decides who serves first, so a
+     * reseller only takes traffic once the vendor has actually failed.
+     *
+     * Entries join a bucket by identity key (see `isIdentityKey`); display
+     * names remain addressable but never merge two providers' entries.
+     */
     async #buildModelMap() {
         for (const providerName in this.#providers) {
             const provider = this.#providers[providerName];
-            const isAggregator = AGGREGATOR_PROVIDERS.has(providerName);
 
             for (const model of await provider.models()) {
-                model.id = model.id.trim().toLowerCase();
-                if (!this.#modelIdMap[model.id]) {
-                    this.#modelIdMap[model.id] = [];
-                }
-                this.#modelIdMap[model.id].push({
-                    ...model,
-                    provider: providerName,
-                });
-
+                model.id = normalizeModelKey(model.id);
                 if (model.puterId) {
-                    if (model.aliases) {
-                        model.aliases.push(model.puterId);
-                    } else {
-                        model.aliases = [model.puterId];
-                    }
+                    model.aliases = model.aliases
+                        ? [...model.aliases, model.puterId]
+                        : [model.puterId];
                 }
 
-                if (isAggregator && model.aliases) {
-                    let skip = false;
-                    for (const rawAlias of model.aliases) {
-                        const alias = rawAlias.trim().toLowerCase();
-                        const existing = this.#modelIdMap[alias];
-                        if (
-                            existing &&
-                            existing !== this.#modelIdMap[model.id]
-                        ) {
-                            if (existing.some((m) => m.provider === 'gemini')) {
-                                // Gemini is the one vendor whose resold
-                                // duplicates we keep, so a Google outage has
-                                // somewhere to fall back to. Ranking (see
-                                // `compareModelPreference`) keeps the direct
-                                // provider ahead of them.
-                                continue;
-                            }
-                            skip = true;
-                            break;
-                        }
-                    }
-                    if (skip) {
-                        // Remove the entry we just pushed; leave the bucket
-                        // intact for other providers.
-                        const bucket = this.#modelIdMap[model.id];
-                        bucket.pop();
-                        if (bucket.length === 0) {
-                            delete this.#modelIdMap[model.id];
-                        }
-                        continue;
-                    }
+                // Catalogs derive an alias by stripping the vendor org off the
+                // id, which yields '' for ids that carry no org. Drop those —
+                // an empty key would pool unrelated models together.
+                const keys = [model.id, ...(model.aliases ?? [])]
+                    .map(normalizeModelKey)
+                    .filter((key) => key.length > 0);
+
+                const bucket =
+                    keys
+                        .filter(isIdentityKey)
+                        .map((key) => this.#modelIdMap[key])
+                        .find(Boolean) ?? [];
+                bucket.push({ ...model, provider: providerName });
+
+                // First registration owns a key: a name already claimed by
+                // another model keeps pointing where it did.
+                for (const key of keys) {
+                    this.#modelIdMap[key] ??= bucket;
                 }
 
-                if (model.aliases) {
-                    for (let alias of model.aliases) {
-                        alias = alias.trim().toLowerCase();
-                        if (!this.#modelIdMap[alias]) {
-                            this.#modelIdMap[alias] =
-                                this.#modelIdMap[model.id];
-                        } else if (
-                            this.#modelIdMap[alias] !==
-                            this.#modelIdMap[model.id]
-                        ) {
-                            this.#modelIdMap[alias].push({
-                                ...model,
-                                provider: providerName,
-                            });
-                            this.#modelIdMap[model.id] =
-                                this.#modelIdMap[alias];
-                        }
-                    }
-                }
-
-                this.#modelIdMap[model.id].sort(compareModelPreference);
+                bucket.sort(compareModelPreference);
             }
         }
     }
 
     #resolveModel(modelId: string, provider?: string): IChatModel | null {
-        const models = this.#modelIdMap[modelId?.trim().toLowerCase()];
+        const models = this.#modelIdMap[normalizeModelKey(modelId ?? '')];
         if (!models || models.length === 0) return null;
-        if (!provider) return models[0];
-        return models.find((m) => m.provider === provider) ?? models[0];
+        // An explicitly requested provider is honoured even if its route is
+        // marked — the caller asked for that one, not for the cheapest hop.
+        if (provider) {
+            const pinned = models.find((m) => m.provider === provider);
+            if (pinned) return pinned;
+        }
+        return this.#preferHealthy(models) ?? models[0];
     }
 
-    #findFallback(
-        modelId: string,
-        tried: string[],
-        triedProviders: string[],
-    ): IChatModel | null {
+    #findFallback(modelId: string, tried: Set<string>): IChatModel | null {
         const models = this.#modelIdMap[modelId];
         if (!models) return null;
-        return (
-            models.find(
-                (m) =>
-                    !tried.includes(m.id) ||
-                    !triedProviders.includes(m.provider!),
-            ) ?? null
+        const untried = models.filter(
+            (m) => !tried.has(routeId(m.provider!, m.id)),
         );
+        // Degrade to a marked route rather than to no route at all: the marks
+        // are a hint about recent failures, not a quota.
+        return this.#preferHealthy(untried) ?? untried[0] ?? null;
+    }
+
+    #preferHealthy(models: IChatModel[]): IChatModel | undefined {
+        return models.find((m) => !isRouteUnhealthy(m.provider!, m.id));
     }
 }

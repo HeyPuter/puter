@@ -317,6 +317,80 @@ export class PermissionStore extends PuterStore {
         });
     }
 
+    /**
+     * Delete every app grant whose permission is exactly `permission` or sits
+     * beneath it, across both the user-to-app and dev-to-app tables, returning
+     * the rows removed so the caller can audit them and bust their caches.
+     *
+     * Kept generic — the caller owns what the prefix means. Used to withdraw
+     * cross-app data grants when their _target_ app goes away: the target lives
+     * in the permission text rather than a column, so no foreign key can
+     * cascade it. `permission` has no index, making this a table scan —
+     * acceptable on app deletion, never on a hot path.
+     */
+    async deleteAppGrantsByPermissionPrefix(permission: string): Promise<
+        Array<{
+            table: 'user_to_app_permissions' | 'dev_to_app_permissions';
+            user_id: number;
+            app_id: number;
+            permission: string;
+        }>
+    > {
+        // `_` and `%` are LIKE wildcards, so an unescaped one would widen the
+        // match beyond the intended subtree.
+        //
+        // `!` as the escape character, matching FSEntryStore: a backslash one
+        // would have to be written `ESCAPE '\\'` in the SQL text, and MySQL
+        // processes backslash escapes inside string literals, so the `'\'` a
+        // JS `'\\'` produces reads as an escaped quote and leaves the literal
+        // unterminated. SQLite and Postgres accept it, which is why only MySQL
+        // would have seen the parse error.
+        const escaped = permission.replace(/([!%_])/g, '!$1');
+        const exact = permission;
+        const prefix = `${escaped}:%`;
+
+        const removed: Array<{
+            table: 'user_to_app_permissions' | 'dev_to_app_permissions';
+            user_id: number;
+            app_id: number;
+            permission: string;
+        }> = [];
+
+        for (const table of [
+            'user_to_app_permissions',
+            'dev_to_app_permissions',
+        ] as const) {
+            const rows = (await this.clients.db.read(
+                `SELECT \`user_id\`, \`app_id\`, \`permission\` FROM \`${table}\` ` +
+                    "WHERE `permission` = ? OR `permission` LIKE ? ESCAPE '!'",
+                [exact, prefix],
+            )) as Array<{
+                user_id: number;
+                app_id: number;
+                permission: string;
+            }>;
+            if (rows.length === 0) continue;
+
+            await this.clients.db.write(
+                `DELETE FROM \`${table}\` ` +
+                    "WHERE `permission` = ? OR `permission` LIKE ? ESCAPE '!'",
+                [exact, prefix],
+            );
+            for (const row of rows) removed.push({ table, ...row });
+        }
+
+        const keys = [
+            ...new Set(
+                removed
+                    .filter((r) => r.table === 'user_to_app_permissions')
+                    .map((r) => this.#u2aCacheKey(r.user_id, r.app_id)),
+            ),
+        ];
+        if (keys.length > 0) await this.publishCacheKeys({ keys });
+
+        return removed;
+    }
+
     async auditUserAppPerm(
         entry: AuditEntry & {
             user_id: number;

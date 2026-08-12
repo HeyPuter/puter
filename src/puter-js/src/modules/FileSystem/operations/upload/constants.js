@@ -14,3 +14,7 @@ export const SIGNED_BATCH_FILE_UPLOAD_CONCURRENCY = 8;
 export const SIGNED_MULTIPART_PART_UPLOAD_CONCURRENCY = 8;
 export const SIGNED_BATCH_WRITE_UNAVAILABLE_STATUSES = new Set([404, 405, 501]);
 export const SIGNED_BATCH_SUPPORTED_ENVS = ['web', 'gui', 'app'];
+
+// Smallest upload worth a pre-flight `/df` capacity check. Anything under this
+// is cheaper to just attempt and let the server reject.
+export const SPACE_CHECK_MIN_BYTES = 1024 * 1024;

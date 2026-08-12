@@ -1112,6 +1112,14 @@ let sidebar = [
                 path: '/Perms/requestManageApps',
             },
             {
+                title: '<code>requestAppData()</code>',
+                page_title: '<code>puter.perms.requestAppData()</code>',
+                title_tag: 'puter.perms.requestAppData()',
+                icon: '/assets/img/function.svg',
+                source: '/Perms/requestAppData.md',
+                path: '/Perms/requestAppData',
+            },
+            {
                 title: '<code>requestReadSubdomains()</code>',
                 page_title: '<code>puter.perms.requestReadSubdomains()</code>',
                 title_tag: 'puter.perms.requestReadSubdomains()',
@@ -1244,6 +1252,20 @@ let sidebar = [
                 icon: '/assets/img/object.svg',
                 source: '/Objects/monthlyusage.md',
                 path: '/Objects/monthlyusage',
+            },
+            {
+                title: '<code>PuterPeerConnection</code>',
+                title_tag: 'PuterPeerConnection',
+                icon: '/assets/img/object.svg',
+                source: '/Objects/puterpeerconnection.md',
+                path: '/Objects/puterpeerconnection',
+            },
+            {
+                title: '<code>PuterPeerServer</code>',
+                title_tag: 'PuterPeerServer',
+                icon: '/assets/img/object.svg',
+                source: '/Objects/puterpeerserver.md',
+                path: '/Objects/puterpeerserver',
             },
             {
                 title: '<code>SignInResult</code>',

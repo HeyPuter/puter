@@ -21,17 +21,21 @@ import Busboy from 'busboy';
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
-import type { Actor } from '../../core/actor.js';
-import { effectiveActorApp, isAccessTokenActor } from '../../core/actor.js';
+import {
+    assertResolvedActor,
+    isAccessTokenActor,
+    makeActor,
+} from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { RouteOptions } from '../../core/http/index.js';
 import {
     assertNotSuspended,
     assertVerifiedAccount,
 } from '../../core/http/middleware/gates.js';
-import { RouteOptions } from '../../core/http/index.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import type { ACLService } from '../../services/acl/ACLService.js';
+import { assertActorHasCredits } from '../../services/metering/enforcement.js';
 import type { SignedFile } from '../../util/fileSigning.js';
 import { verifySignature } from '../../util/fileSigning.js';
 import {
@@ -40,7 +44,24 @@ import {
 } from '../../util/hostedAppBacking.js';
 import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
 import { PuterController } from '../types.js';
-import { FS_COSTS } from './costs.js';
+import {
+    FS_BATCH_CONCURRENT,
+    FS_BATCH_LIMIT,
+    FS_DF_LIMIT,
+    FS_HELPER_LIMIT,
+    FS_MUTATE_LIMIT,
+    FS_POLL_LIMIT,
+    FS_READ_CONCURRENT,
+    FS_READ_LIMIT,
+    FS_READDIR_LIMIT,
+    FS_SEARCH_CONCURRENT,
+    FS_SEARCH_LIMIT,
+    FS_SIGN_LIMIT,
+    FS_SIGNED_CONCURRENT,
+    FS_SIGNED_READ_LIMIT,
+    FS_SIGNED_WRITE_LIMIT,
+    FS_STAT_LIMIT,
+} from './limits.js';
 import {
     asRecord,
     assertAccess,
@@ -95,6 +116,14 @@ export class LegacyFSController extends PuterController {
             subdomain: 'api',
             requireVerified: true,
         } as RouteOptions;
+        // Operations that move file content or make object-store requests on
+        // the caller's behalf, and so are refused to an account with nothing
+        // left of its budget. The metadata routes above deliberately aren't:
+        // an account that has run out still has to be able to look at what it
+        // has and delete it. The signature-authorised routes aren't either —
+        // they carry no session to answer for, and `/sign` (which does) is
+        // where the URL that reaches them is minted.
+        const spends = { ...apiOptions, requireCredits: true } as RouteOptions;
         // Signed-URL routes: the handler validates the URL signature itself,
         // so no auth gate is applied (matches v1, which mounted these routers
         // with no middleware).
@@ -103,40 +132,118 @@ export class LegacyFSController extends PuterController {
         } as RouteOptions;
 
         // Core filesystem_api routes — direct handlers over the FS service.
-        router.post('/stat', apiOptions, this.stat);
-        router.post('/readdir', apiOptions, this.readdir);
-        router.post('/mkdir', apiOptions, this.mkdir);
-        router.post('/copy', apiOptions, this.copy);
-        router.post('/move', apiOptions, this.move);
-        router.post('/delete', apiOptions, this.delete);
-        router.post('/rename', apiOptions, this.rename);
-        router.post('/touch', apiOptions, this.touch);
-        router.post('/search', apiOptions, this.search);
-        router.get('/read', apiOptions, this.read);
+        // Limits come from `./limits` and carry an explicit `scope`, so these
+        // draw from the same per-user budget as their v2 counterparts rather
+        // than handing a caller a second allowance for the same operation.
+        const mutate = { ...apiOptions, rateLimit: FS_MUTATE_LIMIT };
+        router.post(
+            '/stat',
+            { ...apiOptions, rateLimit: FS_STAT_LIMIT },
+            this.stat,
+        );
+        router.post(
+            '/readdir',
+            { ...apiOptions, rateLimit: FS_READDIR_LIMIT },
+            this.readdir,
+        );
+        router.post('/mkdir', mutate, this.mkdir);
+        router.post('/copy', { ...mutate, requireCredits: true }, this.copy);
+        router.post('/move', mutate, this.move);
+        router.post('/delete', mutate, this.delete);
+        router.post('/rename', mutate, this.rename);
+        router.post('/touch', mutate, this.touch);
+        router.post(
+            '/search',
+            {
+                ...apiOptions,
+                rateLimit: FS_SEARCH_LIMIT,
+                concurrent: FS_SEARCH_CONCURRENT,
+            },
+            this.search,
+        );
+        router.get(
+            '/read',
+            {
+                ...spends,
+                rateLimit: FS_READ_LIMIT,
+                concurrent: FS_READ_CONCURRENT,
+            },
+            this.read,
+        );
         router.get(
             '/token-read',
             {
                 subdomain: 'api',
                 requireVerified: false,
                 allowAccessToken: true,
+                // An access token may or may not carry a user, so this shares
+                // the network-keyed budget the other signed routes use.
+                rateLimit: FS_SIGNED_READ_LIMIT,
             },
             this.tokenRead,
         );
 
-        router.post('/batch', apiOptions, this.batch);
+        router.post(
+            '/batch',
+            {
+                ...spends,
+                rateLimit: FS_BATCH_LIMIT,
+                concurrent: FS_BATCH_CONCURRENT,
+            },
+            this.batch,
+        );
 
         // Signed-URL + meta routes.
-        router.post('/sign', apiOptions, this.sign);
-        router.post('/writeFile', signedOptions, this.writeFile);
-        router.get('/file', signedOptions, this.file);
-        router.all('/df', apiOptions, this.df);
-        router.post('/open_item', apiOptions, this.openItem);
+        router.post(
+            '/sign',
+            // Gated even though it moves nothing itself: the URL it returns
+            // outlives the request and is served by a route with no session to
+            // check, so this is the last point at which the account is known.
+            { ...spends, rateLimit: FS_SIGN_LIMIT },
+            this.sign,
+        );
+        router.post(
+            '/writeFile',
+            {
+                ...signedOptions,
+                rateLimit: FS_SIGNED_WRITE_LIMIT,
+                concurrent: FS_SIGNED_CONCURRENT,
+            },
+            this.writeFile,
+        );
+        router.get(
+            '/file',
+            {
+                ...signedOptions,
+                rateLimit: FS_SIGNED_READ_LIMIT,
+                concurrent: FS_SIGNED_CONCURRENT,
+            },
+            this.file,
+        );
+        router.all('/df', { ...apiOptions, rateLimit: FS_DF_LIMIT }, this.df);
+        router.post(
+            '/open_item',
+            {
+                ...apiOptions,
+                // Opening an item grants an app access to a file on the user's
+                // behalf, so only the user's own credential may drive it — an
+                // app calling it for itself would be widening its own ACL.
+                requireUserActor: true,
+                allowFullAccessToken: true,
+                rateLimit: FS_HELPER_LIMIT,
+            },
+            this.openItem,
+        );
         router.post(
             '/auth/request-app-root-dir',
-            apiOptions,
+            { ...apiOptions, rateLimit: FS_SIGN_LIMIT },
             this.requestAppRootDir,
         );
-        router.post('/auth/check-app-acl', apiOptions, this.checkAppAcl);
+        router.post(
+            '/auth/check-app-acl',
+            { ...apiOptions, rateLimit: FS_SIGN_LIMIT },
+            this.checkAppAcl,
+        );
 
         // `/down` — session-auth'd file download. Unlike `/file` (signed URL)
         // this accepts a path on the user's behalf and streams as attachment.
@@ -153,7 +260,10 @@ export class LegacyFSController extends PuterController {
                 // (CSRF can't forge a header-credentialed request).
                 allowFullAccessToken: true,
                 requireVerified: true,
+                requireCredits: true,
                 antiCsrf: true,
+                rateLimit: FS_READ_LIMIT,
+                concurrent: FS_READ_CONCURRENT,
             },
             this.down,
         );
@@ -164,92 +274,102 @@ export class LegacyFSController extends PuterController {
             });
         });
 
-        router.get('/get-launch-apps', apiOptions, async (req, res) => {
-            const recommendedSvc = this.services.recommendedApps as unknown as
-                { getRecommendedApps?: () => Promise<unknown[]> } | undefined;
-            const recommended = recommendedSvc?.getRecommendedApps
-                ? await recommendedSvc.getRecommendedApps()
-                : [];
+        router.get(
+            '/get-launch-apps',
+            { ...apiOptions, rateLimit: FS_HELPER_LIMIT },
+            async (req, res) => {
+                const recommendedSvc = this.services
+                    .recommendedApps as unknown as
+                    | { getRecommendedApps?: () => Promise<unknown[]> }
+                    | undefined;
+                const recommended = recommendedSvc?.getRecommendedApps
+                    ? await recommendedSvc.getRecommendedApps()
+                    : [];
 
-            let recent: unknown[] = [];
-            const userId = req.actor?.user?.id;
-            if (userId) {
-                const recentUids =
-                    (await (
+                let recent: unknown[] = [];
+                const userId = req.actor?.user?.id;
+                if (userId) {
+                    const recentUids =
+                        (await (
+                            this.stores.app as unknown as {
+                                getRecentAppOpens?: (
+                                    id: number,
+                                    opts?: { limit?: number },
+                                ) => Promise<string[]>;
+                            }
+                        ).getRecentAppOpens?.(userId, { limit: 10 })) ?? [];
+                    // One batched read for the rows, then the backing checks
+                    // concurrently. Serially awaiting a lookup per uid put ~2
+                    // round trips of latency on every desktop boot.
+                    const appsByUid = await (
                         this.stores.app as unknown as {
-                            getRecentAppOpens?: (
-                                id: number,
-                                opts?: { limit?: number },
-                            ) => Promise<string[]>;
+                            getByUids: (
+                                uids: string[],
+                            ) => Promise<Map<string, Record<string, unknown>>>;
                         }
-                    ).getRecentAppOpens?.(userId, { limit: 10 })) ?? [];
-                // One batched read for the rows, then the backing checks
-                // concurrently. Serially awaiting a lookup per uid put ~2
-                // round trips of latency on every desktop boot.
-                const appsByUid = await (
-                    this.stores.app as unknown as {
-                        getByUids: (
-                            uids: string[],
-                        ) => Promise<Map<string, Record<string, unknown>>>;
-                    }
-                ).getByUids(recentUids);
+                    ).getByUids(recentUids);
 
-                // `recentUids` is ordered most-recent-first; preserve it.
-                const orderedApps = recentUids
-                    .map((uid) => appsByUid.get(uid))
-                    .filter((app): app is Record<string, unknown> =>
-                        Boolean(app),
+                    // `recentUids` is ordered most-recent-first; preserve it.
+                    const orderedApps = recentUids
+                        .map((uid) => appsByUid.get(uid))
+                        .filter((app): app is Record<string, unknown> =>
+                            Boolean(app),
+                        );
+
+                    // Don't hand out an index_url whose puter-hosted backing is
+                    // gone or reclaimed. The taskbar launches recents by name (so
+                    // AppDriver's guard applies), but this list is a
+                    // launch-metadata producer like any other — a future consumer
+                    // reading index_url straight off it shouldn't inherit a stale
+                    // origin.
+                    const backingGoneFlags = await Promise.all(
+                        orderedApps.map((app) =>
+                            hostedIndexUrlBackingIsUnavailable({
+                                app,
+                                subdomainStore: this.stores.subdomain,
+                                config: this.config,
+                            }).catch(() => true),
+                        ),
                     );
 
-                // Don't hand out an index_url whose puter-hosted backing is
-                // gone or reclaimed. The taskbar launches recents by name (so
-                // AppDriver's guard applies), but this list is a
-                // launch-metadata producer like any other — a future consumer
-                // reading index_url straight off it shouldn't inherit a stale
-                // origin.
-                const backingGoneFlags = await Promise.all(
-                    orderedApps.map((app) =>
-                        hostedIndexUrlBackingIsUnavailable({
-                            app,
-                            subdomainStore: this.stores.subdomain,
-                            config: this.config,
-                        }).catch(() => true),
-                    ),
-                );
+                    recent = orderedApps.map((app, index) => {
+                        const backingGone = backingGoneFlags[index];
+                        return {
+                            uuid: app.uid,
+                            name: app.name,
+                            title: app.title,
+                            icon: app.icon ?? null,
+                            godmode: Boolean(app.godmode),
+                            maximize_on_start: Boolean(app.maximize_on_start),
+                            index_url: backingGone ? null : app.index_url,
+                            ...(backingGone
+                                ? { privateAccess: buildHostedBackingDenial() }
+                                : {}),
+                            // An app with no owner isn't owned by a Puter user —
+                            // it's an "external" (origin-bootstrapped) app.
+                            external:
+                                app.owner_user_id == null ||
+                                app.owner_user_id === '',
+                        };
+                    });
+                }
 
-                recent = orderedApps.map((app, index) => {
-                    const backingGone = backingGoneFlags[index];
-                    return {
-                        uuid: app.uid,
-                        name: app.name,
-                        title: app.title,
-                        icon: app.icon ?? null,
-                        godmode: Boolean(app.godmode),
-                        maximize_on_start: Boolean(app.maximize_on_start),
-                        index_url: backingGone ? null : app.index_url,
-                        ...(backingGone
-                            ? { privateAccess: buildHostedBackingDenial() }
-                            : {}),
-                        // An app with no owner isn't owned by a Puter user —
-                        // it's an "external" (origin-bootstrapped) app.
-                        external:
-                            app.owner_user_id == null ||
-                            app.owner_user_id === '',
-                    };
-                });
-            }
+                res.json({ recommended, recent });
+            },
+        );
 
-            res.json({ recommended, recent });
-        });
-
-        router.post('/suggest_apps', apiOptions, this.suggestApps);
+        router.post(
+            '/suggest_apps',
+            { ...apiOptions, rateLimit: FS_HELPER_LIMIT },
+            this.suggestApps,
+        );
 
         // puter-js polls this to decide whether to purge its in-memory FS
         // cache. SocketService bumps a per-user Redis key on every
         // `outer.gui.item.*` mutation — read it back here.
         router.get(
             '/cache/last-change-timestamp',
-            apiOptions,
+            { ...apiOptions, rateLimit: FS_POLL_LIMIT },
             async (req, res) => {
                 const userId = req.actor?.user?.id;
                 if (!userId) {
@@ -270,10 +390,14 @@ export class LegacyFSController extends PuterController {
             },
         );
 
-        router.post('/readdir-subdomains', apiOptions, this.readdirSubdomains);
+        router.post(
+            '/readdir-subdomains',
+            { ...apiOptions, rateLimit: FS_HELPER_LIMIT },
+            this.readdirSubdomains,
+        );
         router.post(
             '/update-fsentry-thumbnail',
-            apiOptions,
+            { ...apiOptions, rateLimit: FS_HELPER_LIMIT },
             this.updateFsentryThumbnail,
         );
 
@@ -908,7 +1032,7 @@ export class LegacyFSController extends PuterController {
         const actor = this.#requireActor(req);
         // Subdomain enumeration is a user-level concern; app actors would
         // otherwise see root_dir uids pointing outside their AppData scope.
-        if (effectiveActorApp(actor)) {
+        if (actor.effectiveApp) {
             res.json([]);
             return;
         }
@@ -985,7 +1109,7 @@ export class LegacyFSController extends PuterController {
         // App-under-user actors only see entries within their AppData root;
         // user actors are unscoped. Mirrors the ACL short-circuit in
         // ACLService.check.
-        const app = effectiveActorApp(actor);
+        const app = actor.effectiveApp;
         const username = actor.user?.username;
         const pathScope =
             app && typeof username === 'string' && username.length > 0
@@ -1070,32 +1194,6 @@ export class LegacyFSController extends PuterController {
         );
         res.status(range ? 206 : 200);
 
-        // Best-effort egress metering.
-        const metering = this.services.metering as
-            | {
-                  batchIncrementUsages?: (
-                      actor: unknown,
-                      entries: unknown[],
-                  ) => void;
-              }
-            | undefined;
-        if (metering?.batchIncrementUsages && download.contentLength) {
-            download.body.once('end', () => {
-                try {
-                    const bytes = download.contentLength!;
-                    metering.batchIncrementUsages!(actor, [
-                        {
-                            usageType: 'filesystem:egress:bytes',
-                            usageAmount: bytes,
-                            costOverride:
-                                FS_COSTS['filesystem:egress:bytes'] * bytes,
-                        },
-                    ]);
-                } catch {
-                    // ignore — non-critical.
-                }
-            });
-        }
         download.body.on('error', (err) => {
             res.destroy(err);
         });
@@ -1125,8 +1223,19 @@ export class LegacyFSController extends PuterController {
         assertNotSuspended(actor!.user);
         assertVerifiedAccount(actor!.user);
 
-        req.actor = actor!;
+        req.actor = assertResolvedActor(actor!);
         Context.set('actor', actor);
+
+        // And the budget gate the other read routes declare with
+        // `requireCredits`. The global auth probe only looks for `auth_token`,
+        // so `?token=` leaves `req.actor` unset for the whole gate chain and
+        // the declarative form would wave every request through — this streams
+        // file content like `/read` does, so it is refused on the same terms.
+        await assertActorHasCredits(
+            this.services.metering,
+            req.actor,
+            this.config,
+        );
 
         // Forward back to regular read after setting actor
         return this.read(req, res, undefined, { realMime: true });
@@ -1514,6 +1623,23 @@ export class LegacyFSController extends PuterController {
             });
         }
 
+        // Name who this response's bytes are billed to. A signature authorises
+        // access to a file; it says nothing about who is asking, so an
+        // unidentified caller is billed to the account whose file it is —
+        // otherwise a signed URL is a way to serve content for free. A caller
+        // who did identify themselves pays for what they fetch, as on a hosted
+        // site.
+        if (owner?.uuid) {
+            req.egressActor = req.actor ?? {
+                user: {
+                    uuid: owner.uuid,
+                    id: owner.id,
+                    username: owner.username,
+                    suspended: !!(owner as { suspended?: unknown }).suspended,
+                },
+            };
+        }
+
         // Directory: return a signed listing of direct children.
         // The caller only proved read access, so strip write_url from
         // each child to prevent privilege escalation via /writeFile.
@@ -1581,16 +1707,25 @@ export class LegacyFSController extends PuterController {
     };
 
     /**
-     * POST /open_item — resolve an entry, grant the default suggested app write
+     * POST /open_item — resolve an entry, grant the default suggested app
      * access to it, and return a signed URL + user-app token so the launched
      * app can read/write the file via its app-under-user token.
      *
-     * Matches v1 semantics: permission is always granted as `write` — the
-     * underlying user's permission check still caps the effective access
-     * (grantUserAppPermission doesn't escalate user privileges).
+     * This is a user-authority action: it writes a user→app ACL row. Two things
+     * keep an app from opening an item to widen its own access — the caller
+     * must be the user themselves (the route gate, re-checked here because
+     * extensions can reach handlers directly), and the grant is capped at the
+     * access the caller actually proved on the entry.
      */
     openItem = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
+        if ((actor as { app?: unknown }).app) {
+            throw new HttpError(
+                403,
+                'This endpoint is only available to user sessions',
+                { legacyCode: 'forbidden' },
+            );
+        }
         const body = asRecord(req.body);
         const entry = await resolveV1Selector(this.stores.fsEntry, body);
 
@@ -1602,8 +1737,8 @@ export class LegacyFSController extends PuterController {
             'read',
         );
 
-        // Downgrade the envelope when the caller only proved read.
-        // `/writeFile`'s ACL re-check would still block the write, but
+        // Downgrade the envelope and the grant when the caller only proved
+        // read. `/writeFile`'s ACL re-check would still block the write, but
         // returning `write_url` to a read-only caller is the same
         // privilege-leak shape that `/sign` and `/readdir` strip.
         const writeOk = await this.services.acl.check(
@@ -1631,7 +1766,7 @@ export class LegacyFSController extends PuterController {
             await this.services.permission.grantUserAppPermission(
                 actor,
                 defaultAppUid,
-                `fs:${entry.uuid}:write`,
+                `fs:${entry.uuid}:${writeOk ? 'write' : 'read'}`,
                 {},
                 { reason: 'open_item' },
             );
@@ -1727,10 +1862,10 @@ export class LegacyFSController extends PuterController {
             });
 
         // Build an actor-under-user shape for the check.
-        const actorForApp = {
-            user: (req.actor as { user?: unknown }).user,
+        const actorForApp = makeActor({
+            user: req.actor!.user,
             app: { uid: (app as { uid: string }).uid },
-        } as unknown as Actor;
+        });
         const descriptor = {
             path: subject.path,
             resolveAncestors: () =>

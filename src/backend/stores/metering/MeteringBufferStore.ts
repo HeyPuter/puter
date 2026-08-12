@@ -19,7 +19,10 @@
 
 import { randomUUID } from 'node:crypto';
 import murmurhash from 'murmurhash';
-import type { RecursiveRecord } from '../systemKv/SystemKVStore';
+import {
+    chunkPathsForIncr,
+    type RecursiveRecord,
+} from '../systemKv/SystemKVStore';
 import { PuterStore } from '../types';
 
 // -- Types ------------------------------------------------------------
@@ -74,6 +77,13 @@ const SETTLE_CONCURRENCY = 20;
 /** Roughly a minute between compression reports, so they don't flood the log. */
 const CYCLES_PER_COMPRESSION_REPORT = 12;
 
+/**
+ * How many path names this deployment remembers as unwritable. Bounded because
+ * the names come from usage types, and a caller can invent those; forgetting
+ * one costs the handful of writes that identify it again.
+ */
+const UNWRITABLE_PATH_MEMO_LIMIT = 1000;
+
 // -- Keys -------------------------------------------------------------
 
 export const bucketTag = (key: string): string =>
@@ -86,6 +96,8 @@ const dirtyKey = (tag: string): string => `meter:dirty:{${tag}}`;
 const pendingKey = (tag: string, nonce: string): string =>
     `meter:p:{${tag}}:${nonce}`;
 const pendingIndexKey = (tag: string): string => `meter:pending:{${tag}}`;
+/** Counters taken off the dirty set but not yet claimed, scored by when. */
+const inflightKey = (tag: string): string => `meter:inflight:{${tag}}`;
 
 // -- Shape helpers ----------------------------------------------------
 
@@ -152,6 +164,44 @@ const toScriptArgs = (amounts: Record<string, number>): string[] => {
     return args;
 };
 
+/** The subset of `amounts` at `paths`. */
+const pickAmounts = (amounts: FlatAmounts, paths: string[]): FlatAmounts =>
+    Object.fromEntries(paths.map((path) => [path, amounts[path]!]));
+
+/**
+ * Split a counter into pieces the KV store will each accept in one write.
+ *
+ * Sized by what the write will actually be, not by how many paths it carries: a
+ * path's name is what makes an update expression long, and usage types name
+ * themselves, so a fixed count of long ones overflows where the same count of
+ * short ones is nowhere near.
+ */
+export const chunkAmounts = (amounts: FlatAmounts): FlatAmounts[] =>
+    chunkPathsForIncr(Object.keys(amounts)).map((paths) =>
+        pickAmounts(amounts, paths),
+    );
+
+/**
+ * Whether sending this write again unchanged would fail the same way. Such a
+ * write is worth narrowing down rather than retrying; a failure that isn't one
+ * of these is left for the sweep to re-drive.
+ */
+const isPermanentSettleError = (err: Error): boolean => {
+    if (err.name === 'ValidationException') return true;
+    const status = (err as { statusCode?: unknown }).statusCode;
+    return typeof status === 'number' && status >= 400 && status < 500;
+};
+
+/**
+ * Whether this counter is the one an actor's own spending is read from, as
+ * opposed to the aggregates that only feed reporting. Both are worth keeping,
+ * but losing amounts from this one under-bills a specific account, so it is
+ * escalated differently. Matches the per-actor month record `MeteringService`
+ * builds, and deliberately not its per-app or per-shard siblings.
+ */
+export const isBilledCounter = (key: string): boolean =>
+    /:actor:[^:]+:\d{4}-\d{2}$/.test(key);
+
 // -- Scripts ----------------------------------------------------------
 
 /**
@@ -176,18 +226,74 @@ return { redis.call('HGETALL', KEYS[1]), redis.call('HGETALL', KEYS[2]) }
 `;
 
 /**
- * KEYS: delta, pending, pending index. ARGV: nonce, index value, ttl.
+ * KEYS: dirty set, in-flight set. ARGV: how many, now, ttl, abandoned-before.
+ *
+ * Takes a slice of a bucket's counters for this deployment alone to flush, and
+ * records what it took. Taking them means two deployments flushing the same
+ * bucket divide it between them instead of both working through the same
+ * counters from the front, so the drain keeps up by adding deployments.
+ *
+ * What was taken has to be written down in the same step, because between here
+ * and the claim the counter has nothing else pointing at it: a deployment lost
+ * in that window would leave a delta nobody ever looks at again. Anything taken
+ * long enough ago to mean that happened goes back on the dirty set to be taken
+ * again — by whichever deployment gets to it, this one included.
+ */
+const DRAIN_SCRIPT = `
+local abandoned = redis.call('ZRANGEBYSCORE', KEYS[2], '-inf', ARGV[4]) or {}
+for i = 1, #abandoned do
+    redis.call('SADD', KEYS[1], abandoned[i])
+    redis.call('ZREM', KEYS[2], abandoned[i])
+end
+local taken = redis.call('SPOP', KEYS[1], ARGV[1]) or {}
+for i = 1, #taken do
+    redis.call('ZADD', KEYS[2], ARGV[2], taken[i])
+end
+if #taken > 0 then redis.call('PEXPIRE', KEYS[2], ARGV[3]) end
+return { taken, redis.call('SCARD', KEYS[1]) }
+`;
+
+/**
+ * KEYS: delta, pending, pending index, in-flight set. ARGV: nonce, index value,
+ * ttl, in-flight member.
  *
  * The rename is the claim, and it is atomic: if two flushes race for one delta,
  * one takes all of it and the other sees nothing. Increments arriving mid-flush
  * start a fresh delta and go out on the next cycle.
+ *
+ * The claim is also where the counter stops being in flight, in the same step:
+ * from here the pending key is what records that it has amounts waiting, so
+ * this hands the counter from one durable record to the next without a gap in
+ * between. A counter whose delta is already gone was flushed by someone else,
+ * and stops being in flight just the same.
  */
 const CLAIM_SCRIPT = `
+redis.call('ZREM', KEYS[4], ARGV[4])
 if redis.call('EXISTS', KEYS[1]) == 0 then return nil end
 redis.call('RENAME', KEYS[1], KEYS[2])
 redis.call('PEXPIRE', KEYS[2], ARGV[3])
 redis.call('HSET', KEYS[3], ARGV[1], ARGV[2])
 redis.call('PEXPIRE', KEYS[3], ARGV[3])
+return redis.call('HGETALL', KEYS[2])
+`;
+
+/**
+ * KEYS: pending (abandoned), pending (fresh), pending index. ARGV: abandoned
+ * nonce, fresh nonce, fresh index value, ttl.
+ *
+ * Re-claims an abandoned claim under a new nonce. The pending index is read
+ * without removing anything, so every deployment sees every abandoned claim at
+ * once; this rename is what stops more than one of them from writing the same
+ * amounts onward. Re-stamping the claim time also restarts the clock, so a
+ * deployment that dies holding the re-claim doesn't have it swept instantly.
+ */
+const RECLAIM_SCRIPT = `
+if redis.call('EXISTS', KEYS[1]) == 0 then return nil end
+redis.call('RENAME', KEYS[1], KEYS[2])
+redis.call('PEXPIRE', KEYS[2], ARGV[4])
+redis.call('HDEL', KEYS[3], ARGV[1])
+redis.call('HSET', KEYS[3], ARGV[2], ARGV[3])
+redis.call('PEXPIRE', KEYS[3], ARGV[4])
 return redis.call('HGETALL', KEYS[2])
 `;
 
@@ -232,7 +338,9 @@ return redis.call('HGETALL', KEYS[1])
 type ScriptRunner = {
     meterIncr(...args: string[]): Promise<[string[], string[]]>;
     meterRead(...args: string[]): Promise<[string[], string[]]>;
+    meterDrain(...args: string[]): Promise<[string[], number]>;
     meterClaim(...args: string[]): Promise<string[] | null>;
+    meterReclaim(...args: string[]): Promise<string[] | null>;
     meterSettle(...args: string[]): Promise<number>;
     meterSeed(...args: string[]): Promise<string[]>;
 };
@@ -258,7 +366,11 @@ export class MeteringBufferStore extends PuterStore {
     #definedScripts = false;
     #absorbedCount = 0;
     #flushedCount = 0;
+    #droppedPathCount = 0;
     #cyclesSinceReport = 0;
+
+    /** Path names the KV store has refused on their own; see `#settle`. */
+    #unwritablePaths = new Set<string>();
 
     // -- Lifecycle ----------------------------------------------------
 
@@ -394,9 +506,17 @@ export class MeteringBufferStore extends PuterStore {
             numberOfKeys: 2,
             lua: READ_SCRIPT,
         });
+        client.defineCommand('meterDrain', {
+            numberOfKeys: 2,
+            lua: DRAIN_SCRIPT,
+        });
         client.defineCommand('meterClaim', {
-            numberOfKeys: 3,
+            numberOfKeys: 4,
             lua: CLAIM_SCRIPT,
+        });
+        client.defineCommand('meterReclaim', {
+            numberOfKeys: 3,
+            lua: RECLAIM_SCRIPT,
         });
         client.defineCommand('meterSettle', {
             numberOfKeys: 3,
@@ -498,11 +618,24 @@ export class MeteringBufferStore extends PuterStore {
         const work: Array<() => Promise<void>> = [];
         let truncated = 0;
 
-        const buckets = await Promise.all(
+        // Settled, not all-or-nothing: one bucket the cache could not answer
+        // for must not discard the other 63 buckets' work for this cycle.
+        const drained = await Promise.allSettled(
             Array.from({ length: BUCKET_COUNT }, (_, bucket) =>
                 this.#drainBucket(`m${bucket}`),
             ),
         );
+
+        const buckets = [];
+        for (const outcome of drained) {
+            if (outcome.status === 'fulfilled') {
+                buckets.push(outcome.value);
+                continue;
+            }
+            console.warn(
+                `[metering] could not take a bucket's counters: ${(outcome.reason as Error)?.message}`,
+            );
+        }
 
         for (const bucket of buckets) {
             if (bucket.truncated) truncated++;
@@ -516,7 +649,7 @@ export class MeteringBufferStore extends PuterStore {
 
         if (truncated > 0) {
             console.warn(
-                `[metering] ${truncated} bucket(s) hit the per-cycle claim cap; the rest flush next cycle`,
+                `[metering] ${truncated} bucket(s) still held counters after this deployment took its share; they go out on a following cycle, or to another deployment`,
             );
         }
 
@@ -547,33 +680,46 @@ export class MeteringBufferStore extends PuterStore {
 
         const absorbed = this.#absorbedCount;
         const writes = this.#flushedCount;
+        const dropped = this.#droppedPathCount;
         this.#absorbedCount = 0;
         this.#flushedCount = 0;
+        this.#droppedPathCount = 0;
         this.#cyclesSinceReport = 0;
 
         if (writes === 0) return;
         console.log(
-            `[metering] buffer absorbed ${absorbed} increments into ${writes} writes (${(absorbed / writes).toFixed(2)}x)`,
+            `[metering] buffer absorbed ${absorbed} increments into ${writes} writes (${(absorbed / writes).toFixed(2)}x)` +
+                (dropped > 0 ? `, dropped ${dropped} unwritable path(s)` : ''),
         );
     }
 
+    /**
+     * Take this deployment's share of a bucket's counters, and list the claims
+     * in it that look abandoned.
+     */
     async #drainBucket(tag: string): Promise<{
         tag: string;
         keys: string[];
         orphans: Array<{ nonce: string; key: string }>;
         truncated: boolean;
     }> {
-        const redis = this.clients.redis;
-        const [popped, pending] = await Promise.all([
-            redis.spop(dirtyKey(tag), CLAIMS_PER_BUCKET),
-            redis.hgetall(pendingIndexKey(tag)),
+        const now = Date.now();
+        const cutoff = now - ORPHAN_AGE_MS;
+
+        const [drained, pending] = await Promise.all([
+            this.#redis.meterDrain(
+                dirtyKey(tag),
+                inflightKey(tag),
+                String(CLAIMS_PER_BUCKET),
+                String(now),
+                String(BUFFER_TTL_MS),
+                String(cutoff),
+            ),
+            this.clients.redis.hgetall(pendingIndexKey(tag)),
         ]);
 
-        // An empty pop can come back as nothing at all rather than an empty
-        // list, depending on the client.
-        const keys = popped ?? [];
+        const [taken, remaining] = drained ?? [[], 0];
 
-        const cutoff = Date.now() - ORPHAN_AGE_MS;
         const orphans: Array<{ nonce: string; key: string }> = [];
         for (const [nonce, encoded] of Object.entries(pending ?? {})) {
             const parsed = parsePendingEntry(encoded);
@@ -583,9 +729,11 @@ export class MeteringBufferStore extends PuterStore {
 
         return {
             tag,
-            keys,
+            keys: taken ?? [],
             orphans,
-            truncated: keys.length >= CLAIMS_PER_BUCKET,
+            // What the bucket still holds after this deployment took its share,
+            // which another deployment may be taking at the same moment.
+            truncated: Number(remaining) > 0,
         };
     }
 
@@ -595,9 +743,11 @@ export class MeteringBufferStore extends PuterStore {
             deltaKey(tag, key),
             pendingKey(tag, nonce),
             pendingIndexKey(tag),
+            inflightKey(tag),
             nonce,
             encodePendingEntry(Date.now(), key),
             String(BUFFER_TTL_MS),
+            key,
         );
         // Nothing buffered for this counter — another flush already took it.
         if (!claimed) return;
@@ -609,33 +759,124 @@ export class MeteringBufferStore extends PuterStore {
         tag: string,
         orphan: { nonce: string; key: string },
     ): Promise<void> {
-        const pairs = await this.clients.redis.hgetall(
+        const nonce = randomUUID().replace(/-/g, '');
+        const reclaimed = await this.#redis.meterReclaim(
             pendingKey(tag, orphan.nonce),
+            pendingKey(tag, nonce),
+            pendingIndexKey(tag),
+            orphan.nonce,
+            nonce,
+            encodePendingEntry(Date.now(), orphan.key),
+            String(BUFFER_TTL_MS),
         );
-        const amounts: FlatAmounts = {};
-        for (const [path, amount] of Object.entries(pairs ?? {})) {
-            amounts[path] = Number(amount);
-        }
-        if (Object.keys(amounts).length === 0) {
-            // The claimed data is gone but its index entry outlived it.
+        if (!reclaimed) {
+            // Either another flush re-claimed this first, or the claimed data
+            // is gone and only its index entry outlived it. Dropping the entry
+            // covers the second case and is a no-op for the first, which has
+            // already re-keyed it.
             await this.clients.redis.hdel(pendingIndexKey(tag), orphan.nonce);
             return;
         }
-        await this.#settle(tag, orphan.key, orphan.nonce, amounts);
+        await this.#settle(tag, orphan.key, nonce, pairsToAmounts(reclaimed));
     }
 
+    /**
+     * Write a claimed counter onward, then replace its base with what the KV
+     * store now holds.
+     *
+     * A write the store will never accept is narrowed down rather than
+     * abandoned: the batch is halved and each half tried, until either it goes
+     * through or a single path is left standing alone as the one thing that
+     * cannot be written. Only that path is given up on — everything it was
+     * batched with still lands. Amounts here are already spent, so the bar for
+     * dropping any of them is that there is provably nothing else to try.
+     */
     async #settle(
         tag: string,
         key: string,
         nonce: string,
         amounts: FlatAmounts,
     ): Promise<void> {
-        const { res } = await this.stores.kv.incr({
-            key,
-            pathAndAmountMap: amounts,
-        });
+        if (Object.keys(amounts).length === 0) {
+            // Nothing to write onward. Retire the claim rather than settling
+            // it, which would clear a base that is still good.
+            await this.#retireClaim(tag, nonce);
+            return;
+        }
 
-        const flat = flattenAmounts(res);
+        // Paths already known to be unwritable are dropped without spending a
+        // write to rediscover it, which is what keeps one bad usage type from
+        // costing a round of narrowing on every cycle for as long as it arrives.
+        const known = Object.keys(amounts).filter((path) =>
+            this.#unwritablePaths.has(path),
+        );
+        if (known.length > 0) {
+            this.#recordDrop(
+                key,
+                pickAmounts(amounts, known),
+                'known unwritable',
+            );
+            await this.#dropFromClaim(tag, nonce, known);
+        }
+
+        const pending = chunkAmounts(
+            pickAmounts(
+                amounts,
+                Object.keys(amounts).filter(
+                    (path) => !this.#unwritablePaths.has(path),
+                ),
+            ),
+        );
+
+        // Each write returns the whole counter, so the last one to succeed
+        // holds every path the KV store now has — including earlier batches and
+        // anything another deployment contributed.
+        let settled: unknown;
+        let written = 0;
+
+        while (pending.length > 0) {
+            const batch = pending.shift()!;
+            const paths = Object.keys(batch);
+            try {
+                ({ res: settled } = await this.stores.kv.incr({
+                    key,
+                    pathAndAmountMap: batch,
+                }));
+            } catch (e) {
+                const err = e as Error;
+                if (!isPermanentSettleError(err)) throw e;
+
+                if (paths.length > 1) {
+                    const middle = Math.ceil(paths.length / 2);
+                    pending.unshift(
+                        pickAmounts(batch, paths.slice(0, middle)),
+                        pickAmounts(batch, paths.slice(middle)),
+                    );
+                    continue;
+                }
+
+                this.#rememberUnwritable(paths[0]!);
+                this.#recordDrop(key, batch, err.message);
+                await this.#dropFromClaim(tag, nonce, paths);
+                continue;
+            }
+            written += paths.length;
+
+            // This batch is applied for good now, so take it off the claim
+            // before anything else can fail: a re-drive then picks up only what
+            // is still outstanding instead of adding these amounts a second
+            // time.
+            await this.#dropFromClaim(tag, nonce, paths);
+        }
+
+        if (written === 0) {
+            // Nothing reached the store, so there is no newer base to adopt —
+            // settling would replace a good one with this counter's old value.
+            await this.#retireClaim(tag, nonce);
+            return;
+        }
+
+        const flat = flattenAmounts(settled);
         await this.#redis.meterSettle(
             baseKey(tag, key),
             pendingKey(tag, nonce),
@@ -645,6 +886,66 @@ export class MeteringBufferStore extends PuterStore {
             flat['total'] === undefined ? '' : String(flat['total']),
             ...toScriptArgs(flat),
         );
+    }
+
+    /** Take paths off a claim, so a re-drive doesn't carry them again. */
+    async #dropFromClaim(
+        tag: string,
+        nonce: string,
+        paths: string[],
+    ): Promise<void> {
+        if (paths.length === 0) return;
+        await this.clients.redis.hdel(pendingKey(tag, nonce), ...paths);
+    }
+
+    #rememberUnwritable(path: string): void {
+        if (this.#unwritablePaths.size >= UNWRITABLE_PATH_MEMO_LIMIT) {
+            const oldest = this.#unwritablePaths.keys().next().value;
+            if (oldest !== undefined) this.#unwritablePaths.delete(oldest);
+        }
+        this.#unwritablePaths.add(path);
+    }
+
+    /**
+     * Say loudly that metered usage was lost. These amounts have already been
+     * spent and are gone from the cache with the claim, so nothing downstream
+     * will notice on its own — which is exactly why this cannot be a log line.
+     */
+    #recordDrop(key: string, dropped: FlatAmounts, reason: string): void {
+        const paths = Object.keys(dropped);
+        this.#droppedPathCount += paths.length;
+        console.error(
+            `[metering] dropping ${paths.length} unwritable path(s) of ${key}: ${reason}`,
+        );
+
+        if (isBilledCounter(key)) {
+            this.clients.alarm.create(
+                `metering_usage_dropped:${key}`,
+                `Usage could not be persisted for ${key} — the amounts are lost and the account is under-billed`,
+                { key, paths, amounts: dropped, reason },
+                'critical',
+                { dedup: true },
+            );
+            return;
+        }
+
+        this.clients.alarm.create(
+            'metering_aggregate_usage_dropped',
+            `An aggregate usage counter could not be persisted (${key}) — reporting totals will under-count`,
+            { key, paths, amounts: dropped, reason },
+            'warning',
+            { dedup: true },
+        );
+    }
+
+    /**
+     * Forget a claim and its index entry, leaving the base alone. Settling
+     * would also replace the base, which is only correct when something was
+     * actually written onward.
+     */
+    async #retireClaim(tag: string, nonce: string): Promise<void> {
+        await this.clients.redis.del(pendingKey(tag, nonce));
+        await this.clients.redis.hdel(pendingIndexKey(tag), nonce);
     }
 }
 

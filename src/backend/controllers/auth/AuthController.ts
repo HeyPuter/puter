@@ -27,6 +27,7 @@ import type { HttpErrorOptions } from '../../core/http/HttpError.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { antiCsrf } from '../../core/http/middleware/antiCsrf.js';
 import { generateCaptcha } from '../../core/http/middleware/captcha.js';
+import type { Actor } from '../../core/actor.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
     signStepUpToken,
@@ -60,11 +61,19 @@ import {
     generateDefaultFsentries,
     promoteToVerifiedGroup,
 } from '../../util/userProvisioning.js';
+import {
+    APP_DATA_PERMISSION_PREFIX,
+    appDataSharingAllowed,
+    parseAppDataPermission,
+} from '../../services/permission/appDataScopes.js';
 import { PuterController } from '../types.js';
 
 const USERNAME_REGEX = /^\w{1,}$/;
 const USERNAME_MAX_LENGTH = 45;
 const FINGERPRINT_MAX_LENGTH = 128;
+// One consent prompt covers a handful of scopes at most. The cap keeps a
+// crafted request from turning a single grant call into a bulk write.
+const MAX_PERMISSIONS_PER_REQUEST = 16;
 const DISPATCH_ID_MAX_LENGTH = 128;
 // Default SMS send attempts before the card fallback opens.
 const DEFAULT_CARD_FALLBACK_ATTEMPTS = 2;
@@ -74,6 +83,94 @@ const DEFAULT_CARD_FALLBACK_ATTEMPTS = 2;
 // crossed.
 const SEND_PHONE_RATE_LIMIT = 10;
 const SEND_PHONE_RATE_WINDOW_MS = 60 * 60_000;
+
+// -- Post-login route limits -----------------------------------------
+//
+// The credential legs above (login, signup, recovery, confirmation) each
+// carry their own limit. Everything a session can reach *after* signing
+// in shares the four shapes below, keyed on the actor rather than the
+// network — a per-account ceiling is the meaningful one once we know who
+// is calling.
+
+/**
+ * Mints or reconfigures a credential. Deliberately an hour-scale window: these
+ * are human actions taken a handful of times, and an unbounded rate turns one
+ * compromised session into a durable foothold.
+ */
+const CREDENTIAL_MINT_LIMIT = {
+    scope: 'auth-credential-mint',
+    limit: 20,
+    window: 60 * 60_000,
+    key: 'user',
+} as const;
+
+/**
+ * Second-factor configuration, including the verify leg. Shorter window than
+ * the mint limit because enabling 2FA legitimately involves a few attempts in a
+ * row, but unbounded verification is a TOTP brute force.
+ */
+const TWO_FACTOR_LIMIT = {
+    scope: 'auth-2fa-configure',
+    limit: 30,
+    window: 15 * 60_000,
+    key: 'user',
+} as const;
+
+/** Permission and membership writes. Never called in a loop by a client. */
+const GRANT_LIMIT = {
+    scope: 'auth-grant',
+    limit: 60,
+    window: 60_000,
+    key: 'user',
+} as const;
+
+/**
+ * Read-only checks the GUI makes on nearly every interaction. The ceiling is
+ * high enough that only a runaway loop reaches it.
+ */
+const AUTH_CHECK_LIMIT = {
+    scope: 'auth-check',
+    limit: 300,
+    window: 60_000,
+    key: 'user',
+} as const;
+
+/**
+ * Anti-CSRF token issuance. Clients mint a fresh token per protected mutation
+ * and cache nothing, so this ceiling has to clear the SUM of the budgets that
+ * spend tokens — matching any single one of them guarantees the gate fires
+ * before the mutation it guards does.
+ *
+ * What spends them: the session-authenticated download path, one token per
+ * file, at the read budget of 600/min — a multi-selection download burns tokens
+ * exactly the way a bulk delete burns its own budget, so this tracks the bulk
+ * figure used for filesystem mutations; logout at 60/min; and the
+ * session-management writes (revoke, rename), which a person triggers a handful
+ * of times. Call it ~700/min of real demand, and leave enough on top that a
+ * bulk operation runs out of files before it runs out of tokens.
+ */
+const ANTI_CSRF_MINT_LIMIT = {
+    scope: 'anticsrf',
+    limit: 1200,
+    window: 60_000,
+    key: 'user',
+} as const;
+
+/** Settings-page reads — enumerating sessions, permissions, groups. */
+const AUTH_LIST_LIMIT = {
+    scope: 'auth-list',
+    limit: 120,
+    window: 60_000,
+    key: 'user',
+} as const;
+
+/** Session plumbing: logout, GUI token, cookie sync. */
+const SESSION_LIMIT = {
+    scope: 'auth-session',
+    limit: 60,
+    window: 60_000,
+    key: 'user',
+} as const;
 // Once the threshold is crossed the fallback stays open this long, so the
 // user can finish the card flow without racing the attempt counter's expiry.
 const CARD_FALLBACK_OPEN_TTL_SECONDS = 24 * 60 * 60;
@@ -1040,6 +1137,7 @@ export class AuthController extends PuterController {
         requireUserActor: true,
         allowUnconfirmed: true,
         antiCsrf: true,
+        rateLimit: SESSION_LIMIT,
     })
     async handleLogout(req: Request, res: Response): Promise<void> {
         // Clear the session cookie + `puter_token_v2`. Nothing issues the
@@ -2703,7 +2801,25 @@ export class AuthController extends PuterController {
 
     // -- Captcha generation -------------------------------------------
 
-    @Get('/api/captcha/generate', { subdomain: '*' })
+    @Get('/api/captcha/generate', {
+        subdomain: '*',
+        // Unauthenticated, renders an image per call, and is the gate
+        // protecting /login and /signup — so bulk pre-generation is
+        // directly useful to an attacker. Per-fingerprint for fairness on
+        // shared IPs, plus a per-IP backstop against header rotation.
+        //
+        // The fingerprint bucket is the one sized for a person: a handful of
+        // refreshes while getting a captcha right. The IP bucket is not — one
+        // address is a whole office, campus or carrier gateway, and everyone
+        // behind it is signing in through the same counter, so sizing it for
+        // a browser would deny the captcha to a network rather than to an
+        // attacker. It stays wide enough for that population and narrow
+        // enough that header rotation still runs out.
+        rateLimit: [
+            { scope: 'captcha', limit: 30, window: 60_000 },
+            { scope: 'captcha-ip', limit: 3_000, window: 60_000, key: 'ip' },
+        ],
+    })
     async handleCaptchaGenerate(_req: Request, res: Response): Promise<void> {
         const difficulty =
             (this.config as { captcha?: { difficulty?: string } }).captcha
@@ -2715,6 +2831,7 @@ export class AuthController extends PuterController {
     // -- Anti-CSRF token generation ----------------------------------
 
     @Get('/get-anticsrf-token', {
+        rateLimit: ANTI_CSRF_MINT_LIMIT,
         // Anti-CSRF tokens are only consumed by `requireUserActor` routes,
         // so issuance is scoped to the same actor kind for consistency.
         requireUserActor: true,
@@ -2735,6 +2852,7 @@ export class AuthController extends PuterController {
     @Post('/auth/grant-user-user', {
         subdomain: 'api',
         requireUserActor: true,
+        rateLimit: GRANT_LIMIT,
     })
     async handleGrantUserUser(req: Request, res: Response): Promise<void> {
         const { target_username, permission, extra, meta } = req.body;
@@ -2827,13 +2945,114 @@ export class AuthController extends PuterController {
         return app.uid;
     }
 
+    /**
+     * Resolve the `permission` / `permissions` pair into the list to act on.
+     *
+     * One consent prompt can cover several scopes (read a store, write
+     * another), and a client looping the single form would have to invent its
+     * own partial-failure and rollback handling. Accepting the array keeps that
+     * in one request.
+     */
+    #appPermissionList(body: {
+        permission?: unknown;
+        permissions?: unknown;
+    }): string[] {
+        const { permission, permissions } = body;
+        if (permissions !== undefined && permissions !== null) {
+            if (permission !== undefined && permission !== null) {
+                throw new HttpError(
+                    400,
+                    'Pass `permission` or `permissions`, not both',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            if (!Array.isArray(permissions) || permissions.length === 0) {
+                throw new HttpError(400, 'Invalid `permissions`', {
+                    legacyCode: 'bad_request',
+                });
+            }
+            if (permissions.length > MAX_PERMISSIONS_PER_REQUEST) {
+                throw new HttpError(400, 'Too many `permissions`', {
+                    legacyCode: 'bad_request',
+                });
+            }
+            for (const entry of permissions) {
+                this.#validateAppPermissionParams({ permission: entry });
+                // `*` means "revoke everything" in the scalar form only —
+                // inside a list it would silently widen a targeted request.
+                if (!entry || entry === '*') {
+                    throw new HttpError(400, 'Invalid `permissions`', {
+                        legacyCode: 'bad_request',
+                    });
+                }
+            }
+            return [...new Set(permissions as string[])];
+        }
+        return typeof permission === 'string' && permission ? [permission] : [];
+    }
+
+    /**
+     * Gate a cross-app data grant: the target must exist, must not have opted
+     * out of sharing, and must be named. Also creates the target's AppData
+     * directory for an `fs` scope, since it is only created lazily when the app
+     * first runs — without this a valid grant would 404 until then.
+     */
+    async #prepareAppDataGrant(
+        actor: Actor,
+        permission: string,
+    ): Promise<void> {
+        const parsed = parseAppDataPermission(permission);
+        if (!parsed) {
+            // A bare `app-data` (or one with an empty target) would cover every
+            // app the user has by prefix implication, which no prompt can
+            // describe. Reject rather than treat it as an unrelated permission.
+            if (
+                permission === APP_DATA_PERMISSION_PREFIX ||
+                permission.startsWith(`${APP_DATA_PERMISSION_PREFIX}:`)
+            ) {
+                throw new HttpError(
+                    400,
+                    'Invalid `app-data` permission: missing target app',
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            return;
+        }
+
+        const target = await this.stores.app.getByUid(parsed.targetAppUid);
+        if (!target) {
+            throw new HttpError(
+                404,
+                `entity_not_found: app:${parsed.targetAppUid}`,
+                { legacyCode: 'subject_does_not_exist' },
+            );
+        }
+        if (!appDataSharingAllowed(target)) {
+            throw new HttpError(
+                403,
+                'This app does not share its data with other apps',
+                { legacyCode: 'forbidden' },
+            );
+        }
+
+        const username = actor.user?.username;
+        const userId = actor.user?.id;
+        if ((parsed.store === 'fs' || !parsed.store) && username && userId) {
+            await this.services.fs.mkdir(userId, {
+                path: `/${username}/AppData/${parsed.targetAppUid}`,
+                createMissingParents: true,
+            } as never);
+        }
+    }
+
     @Post('/auth/grant-user-app', {
         subdomain: 'api',
         requireUserActor: true,
+        rateLimit: GRANT_LIMIT,
     })
     async handleGrantUserApp(req: Request, res: Response): Promise<void> {
         let { app_uid } = req.body;
-        const { origin, permission, extra, meta } = req.body;
+        const { origin, permission, permissions, extra, meta } = req.body;
         this.#validateAppPermissionParams({
             app_uid,
             origin,
@@ -2841,27 +3060,43 @@ export class AuthController extends PuterController {
             extra,
             meta,
         });
+        const list = this.#appPermissionList({ permission, permissions });
         if (origin) {
             app_uid = await this.#registeredAppUidFromOrigin(origin);
         }
-        if (!app_uid || !permission) {
+        if (!app_uid || list.length === 0) {
             throw new HttpError(400, 'Missing `app_uid` or `permission`', {
                 legacyCode: 'bad_request',
             });
         }
-        await this.services.permission.grantUserAppPermission(
-            req.actor!,
-            app_uid,
-            permission,
-            extra ?? undefined,
-            meta ?? undefined,
-        );
+
+        // Validate every entry before writing any, so a bad one in the list
+        // cannot leave a partially-granted set behind: the dialog reads a 4xx as
+        // "nothing was written" and skips its withdrawal, so a partial commit
+        // leaves live access the user was told they refused. The rewrite running
+        // twice is cheaper than splitting the grant into prepare/commit.
+        for (const entry of list) {
+            await this.services.permission.assertUserAppPermissionWritable(
+                entry,
+            );
+            await this.#prepareAppDataGrant(req.actor!, entry);
+        }
+        for (const entry of list) {
+            await this.services.permission.grantUserAppPermission(
+                req.actor!,
+                app_uid,
+                entry,
+                extra ?? undefined,
+                meta ?? undefined,
+            );
+        }
         res.json({});
     }
 
     @Post('/auth/grant-user-group', {
         subdomain: 'api',
         requireUserActor: true,
+        rateLimit: GRANT_LIMIT,
     })
     async handleGrantUserGroup(req: Request, res: Response): Promise<void> {
         const { group_uid, permission, extra, meta } = req.body;
@@ -2890,6 +3125,7 @@ export class AuthController extends PuterController {
     @Post('/auth/revoke-user-user', {
         subdomain: 'api',
         requireUserActor: true,
+        rateLimit: GRANT_LIMIT,
     })
     async handleRevokeUserUser(req: Request, res: Response): Promise<void> {
         const { target_username, permission, meta } = req.body;
@@ -2912,24 +3148,28 @@ export class AuthController extends PuterController {
     @Post('/auth/revoke-user-app', {
         subdomain: 'api',
         requireUserActor: true,
+        rateLimit: GRANT_LIMIT,
     })
     async handleRevokeUserApp(req: Request, res: Response): Promise<void> {
         let { app_uid } = req.body;
-        const { origin, permission, meta } = req.body;
+        const { origin, permission, permissions, meta } = req.body;
         this.#validateAppPermissionParams({
             app_uid,
             origin,
             permission,
             meta,
         });
+        const list = this.#appPermissionList({ permission, permissions });
         if (origin) {
             app_uid = await this.#registeredAppUidFromOrigin(origin);
         }
-        if (!app_uid || !permission) {
+        if (!app_uid || list.length === 0) {
             throw new HttpError(400, 'Missing `app_uid` or `permission`', {
                 legacyCode: 'bad_request',
             });
         }
+        // Deliberately not gated by the target's sharing flag: a user must
+        // always be able to withdraw a grant, whatever the target now says.
         if (permission === '*') {
             await this.services.permission.revokeUserAppAll(
                 req.actor!,
@@ -2937,12 +3177,14 @@ export class AuthController extends PuterController {
                 meta ?? undefined,
             );
         } else {
-            await this.services.permission.revokeUserAppPermission(
-                req.actor!,
-                app_uid,
-                permission,
-                meta ?? undefined,
-            );
+            for (const entry of list) {
+                await this.services.permission.revokeUserAppPermission(
+                    req.actor!,
+                    app_uid,
+                    entry,
+                    meta ?? undefined,
+                );
+            }
         }
         res.json({});
     }
@@ -2950,6 +3192,7 @@ export class AuthController extends PuterController {
     @Post('/auth/revoke-user-group', {
         subdomain: 'api',
         requireUserActor: true,
+        rateLimit: GRANT_LIMIT,
     })
     async handleRevokeUserGroup(req: Request, res: Response): Promise<void> {
         const { group_uid, permission, meta } = req.body;
@@ -2969,7 +3212,11 @@ export class AuthController extends PuterController {
 
     // -- Permission checks -------------------------------------------
 
-    @Post('/auth/check-permissions', { subdomain: 'api', requireAuth: true })
+    @Post('/auth/check-permissions', {
+        subdomain: 'api',
+        requireAuth: true,
+        rateLimit: AUTH_CHECK_LIMIT,
+    })
     async handleCheckPermissions(req: Request, res: Response): Promise<void> {
         const { permissions } = req.body;
         if (!Array.isArray(permissions)) {
@@ -2997,7 +3244,11 @@ export class AuthController extends PuterController {
 
     // -- Session management ------------------------------------------
 
-    @Get('/auth/list-sessions', { subdomain: 'api', requireUserActor: true })
+    @Get('/auth/list-sessions', {
+        subdomain: 'api',
+        requireUserActor: true,
+        rateLimit: AUTH_LIST_LIMIT,
+    })
     async handleListSessions(req: Request, res: Response): Promise<void> {
         const sessions = await this.services.auth.listSessions(req.actor!);
         res.json(sessions);
@@ -3079,7 +3330,11 @@ export class AuthController extends PuterController {
 
     // -- Dev app permissions -----------------------------------------
 
-    @Post('/auth/grant-dev-app', { subdomain: 'api', requireUserActor: true })
+    @Post('/auth/grant-dev-app', {
+        subdomain: 'api',
+        requireUserActor: true,
+        rateLimit: GRANT_LIMIT,
+    })
     async handleGrantDevApp(req: Request, res: Response): Promise<void> {
         let { app_uid } = req.body;
         const { origin, permission, extra, meta } = req.body;
@@ -3112,6 +3367,7 @@ export class AuthController extends PuterController {
     @Post('/auth/revoke-dev-app', {
         subdomain: 'api',
         requireUserActor: true,
+        rateLimit: GRANT_LIMIT,
     })
     async handleRevokeDevApp(req: Request, res: Response): Promise<void> {
         let { app_uid } = req.body;
@@ -3147,6 +3403,7 @@ export class AuthController extends PuterController {
     @Get('/auth/list-permissions', {
         subdomain: 'api',
         requireUserActor: true,
+        rateLimit: AUTH_LIST_LIMIT,
     })
     async handleListPermissions(req: Request, res: Response): Promise<void> {
         const userId = req.actor!.user.id;
@@ -3211,7 +3468,11 @@ export class AuthController extends PuterController {
 
     // -- App origin resolution ---------------------------------------
 
-    @Post('/auth/app-uid-from-origin', { subdomain: 'api', requireAuth: true })
+    @Post('/auth/app-uid-from-origin', {
+        subdomain: 'api',
+        requireAuth: true,
+        rateLimit: AUTH_CHECK_LIMIT,
+    })
     async handleAppUidFromOrigin(req: Request, res: Response): Promise<void> {
         const origin = req.body?.origin || req.query?.origin;
         if (!origin)
@@ -3227,6 +3488,9 @@ export class AuthController extends PuterController {
     @Post('/auth/get-user-app-token', {
         subdomain: 'api',
         requireUserActor: true,
+        // Called once per app launch, and the GUI can legitimately launch
+        // several in quick succession.
+        rateLimit: { ...AUTH_CHECK_LIMIT, scope: 'app-token', limit: 120 },
     })
     async handleGetUserAppToken(req: Request, res: Response): Promise<void> {
         let { app_uid } = req.body;
@@ -3250,6 +3514,22 @@ export class AuthController extends PuterController {
             app = await this.stores.app.createFromOrigin(app_uid, origin, {
                 ownerUserId,
             });
+            // An origin's uid is a deterministic uuidv5, so a deleted app
+            // reappears here under the identical uid. Withdraw any cross-app
+            // data grants left pointing at it before this new row can inherit
+            // consent the user gave its predecessor. Only *this* path can reuse
+            // a uid: `AppStore.create` mints a random uuid4, which no deleted
+            // app can ever hold again.
+            //
+            // Called directly rather than through `app.changed`: the token is
+            // issued below, so this has to be able to stop that, and
+            // `emitAndWait` swallows listener errors. Letting it throw is the
+            // point — a sweep that failed leaves the old grants live against an
+            // app whoever controls the origin now has just claimed.
+            await this.services.appPermission.withdrawAppDataGrants(
+                app_uid,
+                'uid reused by a new app',
+            );
         }
         if (!app) {
             throw new HttpError(404, `App ${app_uid} does not exist`, {
@@ -3329,7 +3609,11 @@ export class AuthController extends PuterController {
         res.json({ token, app_uid });
     }
 
-    @Post('/auth/check-app', { subdomain: 'api', requireUserActor: true })
+    @Post('/auth/check-app', {
+        subdomain: 'api',
+        requireUserActor: true,
+        rateLimit: AUTH_CHECK_LIMIT,
+    })
     async handleCheckApp(req: Request, res: Response): Promise<void> {
         let { app_uid } = req.body;
         const { origin } = req.body;
@@ -3368,6 +3652,7 @@ export class AuthController extends PuterController {
     @Post('/auth/create-access-token', {
         subdomain: 'api',
         requireAuth: true,
+        rateLimit: CREDENTIAL_MINT_LIMIT,
     })
     async handleCreateAccessToken(req: Request, res: Response): Promise<void> {
         const { permissions, expiresIn, label } = req.body;
@@ -3436,6 +3721,7 @@ export class AuthController extends PuterController {
     @Post('/auth/configure-2fa/:action', {
         subdomain: 'api',
         requireUserActor: true,
+        rateLimit: TWO_FACTOR_LIMIT,
     })
     async handleConfigure2fa(req: Request, res: Response): Promise<void> {
         const action = req.params.action;
@@ -3566,7 +3852,11 @@ export class AuthController extends PuterController {
 
     // -- Developer profile -------------------------------------------
 
-    @Get('/get-dev-profile', { subdomain: 'api', requireUserActor: true })
+    @Get('/get-dev-profile', {
+        subdomain: 'api',
+        requireUserActor: true,
+        rateLimit: AUTH_LIST_LIMIT,
+    })
     async handleGetDevProfile(req: Request, res: Response): Promise<void> {
         const user = await this.stores.user.getById(req.actor!.user.id!, {
             force: true,
@@ -3596,7 +3886,13 @@ export class AuthController extends PuterController {
 
     // -- Group management --------------------------------------------
 
-    @Post('/group/create', { subdomain: 'api', requireUserActor: true })
+    @Post('/group/create', {
+        subdomain: 'api',
+        requireUserActor: true,
+        // Creates a persistent row per call with no quota behind it, so it
+        // sits on the hour-scale budget rather than the grant one.
+        rateLimit: { ...CREDENTIAL_MINT_LIMIT, scope: 'group-create' },
+    })
     async handleGroupCreate(req: Request, res: Response): Promise<void> {
         const extra = req.body.extra ?? {};
         const metadata = req.body.metadata ?? {};
@@ -3617,7 +3913,11 @@ export class AuthController extends PuterController {
         res.json({ uid });
     }
 
-    @Post('/group/add-users', { subdomain: 'api', requireUserActor: true })
+    @Post('/group/add-users', {
+        subdomain: 'api',
+        requireUserActor: true,
+        rateLimit: GRANT_LIMIT,
+    })
     async handleGroupAddUsers(req: Request, res: Response): Promise<void> {
         const { uid, users } = req.body ?? {};
         if (!uid)
@@ -3649,7 +3949,11 @@ export class AuthController extends PuterController {
         res.json({});
     }
 
-    @Post('/group/remove-users', { subdomain: 'api', requireUserActor: true })
+    @Post('/group/remove-users', {
+        subdomain: 'api',
+        requireUserActor: true,
+        rateLimit: GRANT_LIMIT,
+    })
     async handleGroupRemoveUsers(req: Request, res: Response): Promise<void> {
         const { uid, users } = req.body ?? {};
         if (!uid)
@@ -3681,7 +3985,11 @@ export class AuthController extends PuterController {
         res.json({});
     }
 
-    @Get('/group/list', { subdomain: 'api', requireUserActor: true })
+    @Get('/group/list', {
+        subdomain: 'api',
+        requireUserActor: true,
+        rateLimit: AUTH_LIST_LIMIT,
+    })
     async handleGroupList(req: Request, res: Response): Promise<void> {
         const userId = req.actor!.user.id!;
         const [owned, member] = await Promise.all([
@@ -3694,7 +4002,22 @@ export class AuthController extends PuterController {
         });
     }
 
-    @Get('/group/public-groups', { subdomain: 'api' })
+    @Get('/group/public-groups', {
+        subdomain: 'api',
+        // The only unauthenticated route in the group set, so IP is the
+        // only key available — and that makes the bucket an aggregate:
+        // one office, campus or carrier gateway is a single key for
+        // everybody behind it, and each of them reads this once while
+        // bootstrapping. Sized for that population of real people rather
+        // than one browser, and no wider: this sits next to the sign-in
+        // surface, so it stays a real bound on enumeration.
+        rateLimit: {
+            scope: 'public-groups',
+            limit: 1_200,
+            window: 60_000,
+            key: 'ip',
+        },
+    })
     async handleGroupPublicGroups(_req: Request, res: Response): Promise<void> {
         res.json({
             user: this.config.default_user_group ?? null,
@@ -3707,6 +4030,7 @@ export class AuthController extends PuterController {
     @Get('/get-gui-token', {
         requireUserActor: true,
         allowUnconfirmed: true,
+        rateLimit: SESSION_LIMIT,
     })
     async handleGetGuiToken(req: Request, res: Response): Promise<void> {
         if (!req.actor?.session?.uid)
@@ -3726,6 +4050,7 @@ export class AuthController extends PuterController {
     }
 
     @Get('/session/sync-cookie', {
+        rateLimit: SESSION_LIMIT,
         // Installs the session cookie. Only page script on our own origin
         // should be able to ask for that (the `tokenSource` check below is the
         // companion rule: the token has to come from an Authorization header,

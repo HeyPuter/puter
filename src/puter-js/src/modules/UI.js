@@ -3,19 +3,249 @@ import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
 
-/** @typedef {import('../../types/modules/ui').AlertButton} AlertButton */
-/** @typedef {import('../../types/modules/ui').AlertOptions} AlertOptions */
-/** @typedef {import('../../types/modules/ui').AppConnection} AppConnection */
-/** @typedef {import('../../types/modules/ui').ColorPickerOptions} ColorPickerOptions */
-/** @typedef {import('../../types/modules/ui').ConnectionEvent} ConnectionEvent */
-/** @typedef {import('../../types/modules/ui').ContextMenuOptions} ContextMenuOptions */
-/** @typedef {import('../../types/modules/ui').FontPickerOptions} FontPickerOptions */
-/** @typedef {import('../../types/modules/ui').LaunchAppOptions} LaunchAppOptions */
-/** @typedef {import('../../types/modules/ui').MenubarOptions} MenubarOptions */
-/** @typedef {import('../../types/modules/ui').ThemeData} ThemeData */
-/** @typedef {import('../../types/modules/ui').NotificationOptions} NotificationOptions */
-/** @typedef {import('../../types/modules/ui').WindowHandle} WindowHandle */
-/** @typedef {import('../../types/modules/ui').WindowOptions} WindowOptions */
+
+/**
+ * A button shown in an `alert()` dialog.
+ *
+ * @typedef {Object} AlertButton
+ * @property {string} label Text displayed on the button.
+ * @property {string} [value] Value returned when this button is pressed. Defaults to `label` if not set.
+ * @property {'primary' | 'success' | 'info' | 'warning' | 'danger'} [type] Visual style of the button.
+ */
+
+/**
+ * Options that configure an `alert()` dialog.
+ *
+ * @typedef {Object} AlertOptions
+ * @property {'primary' | 'success' | 'info' | 'warning' | 'danger'} [type] Visual style of the alert
+ * dialog.
+ * @property {string} [body_icon] Icon URL shown in the dialog body. Takes precedence over `icon`.
+ * @property {string} [icon] Icon URL shown in the dialog body, used when `body_icon` is not set.
+ */
+
+/**
+ * Options that configure a `prompt()` dialog.
+ *
+ * @typedef {Object} PromptOptions
+ * @property {string} [defaultValue] Value the input is pre-filled with.
+ */
+
+/**
+ * A single item in a context menu. The string `'-'` may be used in place of an
+ * item to render a separator.
+ *
+ * @typedef {Object} ContextMenuItem
+ * @property {string} label Text displayed for the menu item.
+ * @property {() => void} [action] Function executed when the item is clicked. Not required for items
+ * with submenus.
+ * @property {string} [icon] Icon shown next to the label. Must be a base64-encoded image data URI
+ * starting with `data:image`; other strings are ignored.
+ * @property {string} [icon_active] Icon shown when the item is hovered or active. Must be a
+ * base64-encoded image data URI starting with `data:image`; other strings are ignored.
+ * @property {boolean} [disabled] If `true`, the item is disabled and unclickable. Defaults to `false`.
+ * @property {(ContextMenuItem | '-')[]} [items] Submenu items. Specifying this creates a submenu.
+ */
+
+/**
+ * A handle to a window created by `createWindow()`.
+ *
+ * @typedef {Object} WindowHandle
+ * @property {string} id Identifier of the window, usable as the `window_id` argument to the
+ * `setWindow*` methods.
+ */
+
+/**
+ * Identifies a window: either a window id string or a window handle returned by
+ * `createWindow()`.
+ *
+ * @typedef {string | WindowHandle} WindowIdentifier
+ */
+
+/**
+ * Options that configure a context menu.
+ *
+ * @typedef {Object} ContextMenuOptions
+ * @property {(ContextMenuItem | '-')[]} items Menu items and separators. Use the string `'-'` to insert
+ * a separator.
+ * @property {'dark' | 'light'} [theme] Forces the rendered menu's color theme. Only applies when
+ * running standalone (`puter.env === 'web'`); ignored inside the Puter desktop (`puter.env === 'app'`).
+ * When unset, the menu follows the system color-scheme preference.
+ * @property {number} [x] X position of the menu, in pixels. Defaults to the cursor position.
+ * Standalone only, with the same caveat as `theme`.
+ * @property {number} [y] Y position of the menu, in pixels. Defaults to the cursor position.
+ * Standalone only, with the same caveat as `theme`.
+ */
+
+/**
+ * Options that configure a window created by `createWindow()`.
+ *
+ * @typedef {Object} WindowOptions
+ * @property {boolean} [center] If `true`, the window is placed at the center of the screen.
+ * @property {string} [content] Content of the window.
+ * @property {boolean} [disable_parent_window] If `true`, the parent window is blocked until this window
+ * is closed.
+ * @property {boolean} [has_head] If `true`, the window has a head containing the icon and close,
+ * minimize, and maximize buttons.
+ * @property {number} [height] Height of the window in pixels.
+ * @property {boolean} [is_resizable] If `true`, the user can resize the window.
+ * @property {boolean} [show_in_taskbar] If `true`, the window is represented in the taskbar.
+ * @property {string} [title] Title of the window.
+ * @property {number} [width] Width of the window in pixels.
+ */
+
+/**
+ * Options that configure `launchApp()`.
+ *
+ * @typedef {Object} LaunchAppOptions
+ * @property {string} [name] Name of the app to launch. If not provided, a new instance of the current
+ * app is launched.
+ * @property {string} [app_name] Legacy spelling of `name`.
+ * @property {Record<string, unknown>} [args] Arguments to pass to the app.
+ * @property {string[]} [file_paths] Paths of existing files to open with the launched app.
+ * @property {FSItem[]} [items] `FSItem` objects to open with the launched app.
+ * @property {string} [pseudonym] A pseudonym to launch the app under.
+ * @property {(connection: AppConnection) => void} [callback]
+ */
+
+/**
+ * Theme data delivered with the `themeChanged` event.
+ *
+ * @typedef {Object} ThemeData
+ * @property {{
+ *     primaryHue: number,
+ *     primarySaturation: string,
+ *     primaryLightness: string,
+ *     primaryAlpha: number,
+ *     primaryColor: string,
+ * }} palette `primaryHue` is the hue of the theme color; `primarySaturation` and `primaryLightness` are
+ * percentage strings including the `%` sign; `primaryAlpha` runs from `0` to `1`; `primaryColor` is a
+ * CSS color value for text.
+ */
+
+/**
+ * A single item in a menubar menu. The string `'-'` may be used in place of an
+ * item to render a separator.
+ *
+ * @typedef {Object} MenuItem
+ * @property {string} label Text displayed for the menu item.
+ * @property {string} [id]
+ * @property {() => void} [action] Function executed when the item is clicked.
+ * @property {(MenuItem | '-')[]} [items] Submenu items.
+ * @property {string} [icon] URL or data URI of an icon shown next to the label.
+ * @property {string} [icon_active] URL or data URI of an icon shown when the item is hovered or active.
+ * Falls back to `icon` if not provided.
+ * @property {boolean} [checked] If `true`, renders a checkmark next to the item. Use for toggleable
+ * options.
+ * @property {boolean} [disabled] If `true`, the item is visible but cannot be clicked.
+ */
+
+/**
+ * Options that configure the menubar set by `setMenubar()`.
+ *
+ * @typedef {Object} MenubarOptions
+ * @property {(MenuItem | '-')[]} items Menu items and separators. Use the string `'-'` to insert a
+ * separator.
+ * @property {'dark' | 'light'} [theme] Forces the rendered menubar's color theme. Only applies when
+ * running standalone (`puter.env === 'web'`); ignored inside the Puter desktop (`puter.env === 'app'`).
+ * When unset, the menubar follows the system color-scheme preference.
+ */
+
+/**
+ * Options that configure `showOpenFilePicker()`.
+ *
+ * @typedef {Object} FilePickerOptions
+ * @property {boolean} [multiple] If `true`, the user can select multiple files. Defaults to `false`.
+ * @property {string | string[]} [accept] MIME types or file extensions accepted by the picker. Defaults
+ * to `*​/*`. For example `'image/*'`, or `['.jpg', '.png']`.
+ * @property {string} [path] Initial directory to open the picker in. Defaults to the user's Desktop.
+ * The special prefix `%appdata%` resolves to the app's private appdata directory.
+ */
+
+/**
+ * Options that configure `showColorPicker()`.
+ *
+ * @typedef {Object} ColorPickerOptions
+ * @property {string} [defaultColor] The color initially selected when the picker opens.
+ */
+
+/**
+ * Options that configure `showFontPicker()`.
+ *
+ * @typedef {Object} FontPickerOptions
+ * @property {string} [defaultFont] The font initially selected when the picker opens.
+ */
+
+/**
+ * Options that configure `showDirectoryPicker()`.
+ *
+ * @typedef {Object} DirectoryPickerOptions
+ * @property {boolean} [multiple] If `true`, the user can select multiple directories. Defaults to
+ * `false`.
+ */
+
+/**
+ * Options that configure a notification shown by `notify()`.
+ *
+ * @typedef {Object} NotificationOptions
+ * @property {string} [title] Title shown in the notification.
+ * @property {string} [text] Body text shown under the title.
+ * @property {string} [icon] Icon URL or Puter icon name (for example `bell.svg`).
+ * @property {'info' | 'success' | 'warning' | 'error' | 'default'} [type] Visual style used to pick a
+ * default icon and accent color when no `icon` is provided.
+ * @property {number} [duration] Time in milliseconds before the notification auto-dismisses. Defaults
+ * to `5000`; set to `0` to keep it until dismissed.
+ * @property {boolean} [round_icon] If `true`, renders the icon as a circle.
+ * @property {boolean} [roundIcon] Alias for `round_icon`.
+ * @property {string} [uid] Optional ID to associate with the notification.
+ * @property {unknown} [value] Optional value stored on the notification element.
+ */
+
+/**
+ * Data passed to the `close` handler on an `AppConnection`.
+ *
+ * @typedef {Object} AppConnectionCloseEvent
+ * @property {string} appInstanceID Instance ID of the app that closed.
+ * @property {number} [statusCode]
+ */
+
+/**
+ * Data passed to the `connection` event handler when another app requests a
+ * connection to your app.
+ *
+ * @typedef {Object} ConnectionEvent
+ * @property {AppConnection} conn Connection to the app that initiated the request.
+ * @property {(value?: unknown) => void} accept Call `accept(value)` to accept the connection; `value`
+ * is sent back to the requester.
+ * @property {(value?: unknown) => void} reject Call `reject(value)` to reject the connection; `value`
+ * is sent back to the requester.
+ */
+
+/**
+ * The outcome the desktop reports back from a `launchApp()` request.
+ *
+ * @typedef {Object} LaunchAppResult
+ * @property {boolean} launched
+ * @property {string | null} [requestedAppName]
+ * @property {string | null} [openedAppName]
+ * @property {string | null} [appInstanceID]
+ * @property {string | null} [appUid]
+ * @property {boolean} [redirectedToFallback]
+ * @property {boolean} [deniedPrivateAccess]
+ * @property {{
+ *     hasAccess: boolean,
+ *     fallbackAppName?: string,
+ *     fallbackArgs?: Record<string, unknown>,
+ *     reason?: string,
+ * }} [privateAccess]
+ */
+
+/**
+ * A promise from a picker that also exposes `undefinedOnCancel`, which
+ * resolves to `undefined` instead of staying pending when the user cancels.
+ *
+ * @template T
+ * @typedef {Promise<T> & { undefinedOnCancel?: Promise<T | undefined> }} CancelAwarePromise
+ */
 
 const createDeferred = () => {
     let resolve;
@@ -30,12 +260,21 @@ const createDeferred = () => {
 const FILE_SAVE_CANCELLED = Symbol('FILE_SAVE_CANCELLED');
 const FILE_OPEN_CANCELLED = Symbol('FILE_OPEN_CANCELLED');
 
-// AppConnection provides an API for interacting with another app.
-// It's returned by UI methods, and cannot be constructed directly by user code.
-// For basic usage:
-// - postMessage(message)        Send a message to the target app
-// - on('message', callback)     Listen to messages from the target app
-class AppConnection extends EventListener {
+// A consent prompt covers a handful of scopes at most, and the popup carries
+// them in its URL.
+const MAX_REQUESTED_PERMISSIONS = 16;
+
+/**
+ * An interface for interacting with another app. Returned by the UI methods
+ * that launch or connect to one; it cannot be constructed directly.
+ *
+ * - `postMessage(message)` sends a message to the target app.
+ * - `on('message', handler)` listens for messages from it.
+ * - `on('close', handler)` fires when it closes.
+ *
+ * @extends {EventListener<{ message: unknown, close: AppConnectionCloseEvent }>}
+ */
+export class AppConnection extends EventListener {
     // targetOrigin for postMessage() calls to Puter
     #puterOrigin = '*';
 
@@ -50,7 +289,7 @@ class AppConnection extends EventListener {
      * Extra information the target app supplied when the connection was
      * established. Declared here because `from()` sets it on the instance.
      *
-     * @type {(Record<string, unknown> & { launchResult?: import('../../types/modules/ui').LaunchAppResult }) | undefined}
+     * @type {(Record<string, unknown> & { launchResult?: LaunchAppResult }) | undefined}
      */
     response;
 
@@ -183,7 +422,18 @@ class AppConnection extends EventListener {
     }
 }
 
-class UI extends EventListener {
+/**
+ * The UI API: tools for creating rich user interfaces and interacting with the
+ * Puter desktop environment, including dialogs, window management, file
+ * pickers, and desktop integration.
+ *
+ * @extends {EventListener<{
+ *     localeChanged: { language: string },
+ *     themeChanged: ThemeData,
+ *     connection: ConnectionEvent,
+ * }>}
+ */
+export class UIModule extends EventListener {
     // Used to generate a unique message id for each message sent to the host environment
     // we start from 1 because 0 is falsy and we want to avoid that for the message id
     #messageID = 1;
@@ -1371,7 +1621,10 @@ class UI extends EventListener {
      * the request is relayed to the desktop; on the web the permission
      * dialog is shown in a popup window on the Puter origin.
      *
-     * @param {{ permission: string }} options
+     * One prompt may cover several scopes: pass `permissions` instead of
+     * `permission` and the user answers for the whole list at once.
+     *
+     * @param {{ permission?: string, permissions?: string[] }} options
      * @returns {Promise<boolean>} `true` only if the permission was granted.
      */
     async requestPermission (options) {
@@ -1392,8 +1645,17 @@ class UI extends EventListener {
         if ( ! globalThis.open || ! globalThis.document ) {
             return false;
         }
-        const permission = options?.permission;
-        if ( typeof permission !== 'string' || permission === '' ) {
+        // The popup carries the request in its URL, so cap the list: a link is
+        // attacker-supplied, and an unbounded one could stack an unreadable
+        // consent prompt in front of the user (and overflow the URL).
+        const requested = Array.isArray(options?.permissions)
+            ? options.permissions
+            : [options?.permission];
+        if (
+            requested.length === 0 ||
+            requested.length > MAX_REQUESTED_PERMISSIONS ||
+            requested.some(p => typeof p !== 'string' || p === '')
+        ) {
             return false;
         }
 
@@ -1430,7 +1692,12 @@ class UI extends EventListener {
             // two impossible to confuse. The GUI echoes the value back verbatim as
             // a string, which the loose `!=` below compares correctly.
             const msg_id = `${this.#messageID++}-${Math.random().toString(36).slice(2, 10)}`;
-            const url = `${gui_origin}/action/request-permission?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}&permission=${encodeURIComponent(permission)}`;
+            // Repeated `permission=` params rather than a JSON blob, so the GUI
+            // reads a list of plain strings with no parsing step to get wrong.
+            const query = requested
+                .map(p => `permission=${encodeURIComponent(p)}`)
+                .join('&');
+            const url = `${gui_origin}/action/request-permission?embedded_in_popup=true&msg_id=${encodeURIComponent(msg_id)}&${query}`;
 
             // Guards against settling more than once across the message,
             // popup-closed, and dialog-cancel code paths.
@@ -1733,13 +2000,10 @@ class UI extends EventListener {
     /**
      * Asynchronously extracts entries from DataTransferItems, like files and directories.
      *
-     * @private
-     * @function
-     * @async
      * @param {DataTransferItemList} dataTransferItems - List of data transfer items from a drag-and-drop operation.
      * @param {Object} [options={}] - Optional settings.
      * @param {boolean} [options.raw=false] - Determines if the file path should be processed.
-     * @returns {Promise<Array<File|Entry>>} - A promise that resolves to an array of File or Entry objects.
+     * @returns {Promise<Array<File|FileSystemEntry>>} - A promise that resolves to an array of File or FileSystemEntry objects.
      * @throws {Error} - Throws an error if there's an EncodingError and provides information about how to solve it.
      *
      * @example
@@ -2250,19 +2514,19 @@ class UI extends EventListener {
      * @overload
      * @param {'localeChanged'} eventName
      * @param {(data: { language: string }) => void} callback
-     * @returns {void}
+     * @returns {undefined}
      */
     /**
      * @overload
      * @param {'themeChanged'} eventName
      * @param {(data: ThemeData) => void} callback
-     * @returns {void}
+     * @returns {undefined}
      */
     /**
      * @overload
      * @param {'connection'} eventName
      * @param {(data: ConnectionEvent) => void} callback
-     * @returns {void}
+     * @returns {undefined}
      */
     /**
      * Listens for a broadcast from Puter. A broadcast that already happened is
@@ -2274,7 +2538,7 @@ class UI extends EventListener {
      *
      * @param {string} eventName
      * @param {(data: unknown) => void} callback
-     * @returns {void}
+     * @returns {undefined}
      */
     on (eventName, callback) {
         super.on(eventName, callback);
@@ -2449,5 +2713,20 @@ class UI extends EventListener {
         });
     }
 }
+
+/**
+ * The public face of the module: derived from the class, with the internal
+ * `puter` handle, the legacy `authToken` accessor, and the desktop plumbing
+ * omitted.
+ *
+ * @typedef {import('../lib/types.js').OmitMembers<
+ *     typeof UIModule,
+ *     'puter' | 'authToken' | 'util' | 'messageTarget'
+ *     | 'itemWatchCallbackFunctions' | 'appInstanceID' | 'parentInstanceID'
+ *     | 'mouseX' | 'mouseY'
+ * >} UIConstructor
+ */
+
+export const UI = /** @type {UIConstructor} */ (UIModule);
 
 export default UI;

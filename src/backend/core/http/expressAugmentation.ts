@@ -18,6 +18,7 @@
  */
 
 import type { Actor } from '../actor';
+import type { StorageOpCounts } from '../storageOps';
 import type { TokenSource } from './types';
 
 /**
@@ -103,6 +104,22 @@ declare global {
              * middleware.
              */
             cookies?: Record<string, string>;
+
+            /**
+             * Who this response's egress is billed to, when that isn't the
+             * actor who made the request. Set by handlers that serve one
+             * account's bytes to an unidentified caller — a hosted site's
+             * visitor being the case that matters. Takes precedence over
+             * `actor` in the egress middleware.
+             */
+            egressActor?: Actor;
+
+            /**
+             * Object-store requests made while serving this request, by class.
+             * Tallied through `recordStorageOps` and billed when the response
+             * ends.
+             */
+            storageOps?: StorageOpCounts;
         }
     }
 }

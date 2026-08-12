@@ -371,6 +371,24 @@ describe('AlarmClient alarm registry', () => {
         expect(client.get('flap')?.occurrences).toHaveLength(2);
     });
 
+    it('caps retained occurrences while still counting every repeat', () => {
+        const client = makeClient();
+        const seen = capture(client);
+
+        for (let i = 0; i < 50; i++) {
+            client.create('hot', `occurrence ${i}`, { i });
+        }
+
+        const alarm = client.get('hot')!;
+        expect(alarm.count).toBe(50);
+        expect(alarm.occurrences).toHaveLength(20);
+        expect(alarm.timestamps).toHaveLength(20);
+        // The window kept is the most recent one, not the oldest.
+        expect(alarm.occurrences[19].message).toBe('occurrence 49');
+        // Trimming history must not rewind what the transports are told.
+        expect(seen[49]).toMatchObject({ repeatCount: 50, isRepeat: true });
+    });
+
     it('names anonymous handlers by their registration order', () => {
         const client = makeClient();
         client.addAlertHandler(async () => {

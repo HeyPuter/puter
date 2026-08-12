@@ -11,9 +11,9 @@ import { parseCallbackOptions } from './lib/args.js';
 // latency so it catches the boot burst and nothing else.
 const WHOAMI_DEDUPE_WINDOW_MS = 1000;
 
-/** @typedef {import('../../../types/modules/auth').User} User */
+/** @typedef {import('../Auth.js').User} User */
 
-/** @typedef {import('../../../types/shared').RequestCallbacks<User>} UserCallbacks */
+/** @typedef {import('../../lib/types.js').RequestCallbacks<User>} UserCallbacks */
 
 /**
  * @overload

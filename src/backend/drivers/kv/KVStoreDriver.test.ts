@@ -5,11 +5,16 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
-import { Actor } from '../../core/actor.ts';
+import { Actor, makeActor as buildActor } from '../../core/actor.ts';
 import { runWithContext } from '../../core/context.ts';
 import { PuterServer } from '../../server.ts';
-import { setupTestServer } from '../../testUtil.ts';
+import {
+    APP_DATA_KV_METHOD_OPS,
+    appDataPermission,
+} from '../../services/permission/appDataScopes.ts';
+import { createTestUser, setupTestServer } from '../../testUtil.ts';
 import { KV_COSTS } from './costs.ts';
 import type { KVStoreDriver } from './KVStoreDriver.ts';
 
@@ -29,17 +34,18 @@ describe('KVStoreDriver', () => {
     // Each test runs against a unique actor namespace so state from one test
     // never leaks into another. Mirrors the pattern used by SystemKVStore.test.
     let actor: Actor;
-    const makeActor = (overrides: Partial<Actor> = {}): Actor => ({
-        user: {
-            uuid: `test-user-${Math.random().toString(36).slice(2)}`,
-            id: 1,
-            username: 'test-user',
-            email: 'test@test.com',
-            email_confirmed: true,
-        },
-        app: { uid: 'test-app', id: 1 },
-        ...overrides,
-    });
+    const makeActor = (overrides: Partial<Actor> = {}): Actor =>
+        buildActor({
+            user: {
+                uuid: `test-user-${Math.random().toString(36).slice(2)}`,
+                id: 1,
+                username: 'test-user',
+                email: 'test@test.com',
+                email_confirmed: true,
+            },
+            app: { uid: 'test-app', id: 1 },
+            ...overrides,
+        });
     beforeEach(() => {
         actor = makeActor();
     });
@@ -76,7 +82,10 @@ describe('KVStoreDriver', () => {
 
         it('coerces a non-string key to a string before lookup', async () => {
             const res = await inCtx(async () => {
-                await target.set({ key: 123 as unknown as string, value: 'numeric' });
+                await target.set({
+                    key: 123 as unknown as string,
+                    value: 'numeric',
+                });
                 return target.get({ key: '123' });
             });
             expect(res).toBe('numeric');
@@ -136,7 +145,11 @@ describe('KVStoreDriver', () => {
         it('honours expireAt — past timestamps make the value invisible', async () => {
             const past = Math.floor(Date.now() / 1000) - 10;
             const res = await inCtx(async () => {
-                await target.set({ key: 'gone', value: 'soon', expireAt: past });
+                await target.set({
+                    key: 'gone',
+                    value: 'soon',
+                    expireAt: past,
+                });
                 return target.get({ key: 'gone' });
             });
             expect(res).toBeNull();
@@ -230,9 +243,7 @@ describe('KVStoreDriver', () => {
         });
 
         it('returns true even when the key never existed', async () => {
-            const res = await inCtx(() =>
-                target.del({ key: 'never-existed' }),
-            );
+            const res = await inCtx(() => target.del({ key: 'never-existed' }));
             expect(res).toBe(true);
         });
 
@@ -416,70 +427,70 @@ describe('KVStoreDriver', () => {
             expect(res).toMatchObject({ n: 1 });
         });
 
-        it.each([
-            ['incr' as const],
-            ['decr' as const],
-        ])('%s rejects a missing key', async (op) => {
-            await expect(
-                inCtx(() =>
-                    target[op]({
-                        key: undefined,
-                        pathAndAmountMap: { n: 1 },
-                    }),
-                ),
-            ).rejects.toMatchObject({ statusCode: 400 });
-        });
+        it.each([['incr' as const], ['decr' as const]])(
+            '%s rejects a missing key',
+            async (op) => {
+                await expect(
+                    inCtx(() =>
+                        target[op]({
+                            key: undefined,
+                            pathAndAmountMap: { n: 1 },
+                        }),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
 
-        it.each([
-            ['incr' as const],
-            ['decr' as const],
-        ])('%s rejects a missing pathAndAmountMap', async (op) => {
-            await expect(
-                inCtx(() =>
-                    target[op]({
-                        key: 'k',
-                        pathAndAmountMap: undefined as unknown as Record<
-                            string,
-                            number
-                        >,
-                    }),
-                ),
-            ).rejects.toMatchObject({ statusCode: 400 });
-        });
+        it.each([['incr' as const], ['decr' as const]])(
+            '%s rejects a missing pathAndAmountMap',
+            async (op) => {
+                await expect(
+                    inCtx(() =>
+                        target[op]({
+                            key: 'k',
+                            pathAndAmountMap: undefined as unknown as Record<
+                                string,
+                                number
+                            >,
+                        }),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
 
-        it.each([
-            ['incr' as const],
-            ['decr' as const],
-        ])('%s rejects a non-object pathAndAmountMap', async (op) => {
-            await expect(
-                inCtx(() =>
-                    target[op]({
-                        key: 'k',
-                        pathAndAmountMap: 'nope' as unknown as Record<
-                            string,
-                            number
-                        >,
-                    }),
-                ),
-            ).rejects.toMatchObject({ statusCode: 400 });
-        });
+        it.each([['incr' as const], ['decr' as const]])(
+            '%s rejects a non-object pathAndAmountMap',
+            async (op) => {
+                await expect(
+                    inCtx(() =>
+                        target[op]({
+                            key: 'k',
+                            pathAndAmountMap: 'nope' as unknown as Record<
+                                string,
+                                number
+                            >,
+                        }),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+            },
+        );
 
         // A path walking the prototype chain is a client error, not an
         // opaque 500 out of the document client.
-        it.each([
-            ['incr' as const],
-            ['decr' as const],
-        ])('%s rejects a prototype-walking path as a 400', async (op) => {
-            await expect(
-                inCtx(() =>
-                    target[op]({
-                        key: 'proto-test',
-                        pathAndAmountMap: { 'constructor.prototype.x': 1 },
-                    }),
-                ),
-            ).rejects.toMatchObject({ statusCode: 400 });
-            expect(({} as Record<string, unknown>).x).toBeUndefined();
-        });
+        it.each([['incr' as const], ['decr' as const]])(
+            '%s rejects a prototype-walking path as a 400',
+            async (op) => {
+                await expect(
+                    inCtx(() =>
+                        target[op]({
+                            key: 'proto-test',
+                            pathAndAmountMap: { 'constructor.prototype.x': 1 },
+                        }),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 400 });
+                expect(({} as Record<string, unknown>).x).toBeUndefined();
+            },
+        );
     });
 
     describe('expireAt / expire', () => {
@@ -667,9 +678,7 @@ describe('KVStoreDriver', () => {
 
         it('rejects an empty key', async () => {
             await expect(
-                inCtx(() =>
-                    target.add({ key: '', pathAndValueMap: { x: 1 } }),
-                ),
+                inCtx(() => target.add({ key: '', pathAndValueMap: { x: 1 } })),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
     });
@@ -706,9 +715,7 @@ describe('KVStoreDriver', () => {
 
         it('rejects a missing key', async () => {
             await expect(
-                inCtx(() =>
-                    target.remove({ key: undefined, paths: ['x'] }),
-                ),
+                inCtx(() => target.remove({ key: undefined, paths: ['x'] })),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
     });
@@ -726,14 +733,14 @@ describe('KVStoreDriver', () => {
 
         it('isolates values between two app actors with the same user but different apps', async () => {
             const baseUser = `user-${Math.random().toString(36).slice(2)}`;
-            const appA: Actor = {
+            const appA = buildActor({
                 user: { uuid: baseUser },
                 app: { uid: 'app-A', id: 100 },
-            };
-            const appB: Actor = {
+            });
+            const appB = buildActor({
                 user: { uuid: baseUser },
                 app: { uid: 'app-B', id: 200 },
-            };
+            });
 
             await inCtx(() => target.set({ key: 'k', value: 'A' }), appA);
             const fromB = await inCtx(() => target.get({ key: 'k' }), appB);
@@ -743,27 +750,39 @@ describe('KVStoreDriver', () => {
             expect(fromA).toBe('A');
         });
 
-        it('ignores optConfig.appUuid when the actor already has an app uid', async () => {
-            // App-actor sets a value, then tries to read with an appUuid override
-            // pointing somewhere else — driver must scrub the override.
+        it('refuses a foreign optConfig.appUuid rather than silently scrubbing it', async () => {
+            // The override used to be dropped for an app actor, which returned
+            // the app's *own* value — a success answering a different question
+            // than the caller asked. Cross-app access is now a real capability,
+            // so an override the caller cannot justify fails closed instead: an
+            // unknown target app is a 404, and a real target with no grant is a
+            // 403 (covered under cross-app access).
             const baseUser = `user-${Math.random().toString(36).slice(2)}`;
-            const appActor: Actor = {
+            const appActor = buildActor({
                 user: { uuid: baseUser },
                 app: { uid: 'real-app', id: 1 },
-            };
+            });
             await inCtx(
                 () => target.set({ key: 'k', value: 'real' }),
                 appActor,
             );
-            const res = await inCtx(
-                () =>
-                    target.get({
-                        key: 'k',
-                        optConfig: { appUuid: 'spoof-app' },
-                    }),
-                appActor,
+
+            await expect(
+                inCtx(
+                    () =>
+                        target.get({
+                            key: 'k',
+                            optConfig: { appUuid: 'spoof-app' },
+                        }),
+                    appActor,
+                ),
+            ).rejects.toMatchObject({ statusCode: 404 });
+
+            // The app's own entry is untouched and still reachable with no
+            // override — the refusal is about the override, not the namespace.
+            expect(await inCtx(() => target.get({ key: 'k' }), appActor)).toBe(
+                'real',
             );
-            expect(res).toBe('real');
         });
 
         it('uses optConfig.appUuid for a user-only (root) actor', async () => {
@@ -771,11 +790,11 @@ describe('KVStoreDriver', () => {
             // app namespace via optConfig.appUuid. Verify by reading the same
             // entry via a real app-actor for that app.
             const baseUser = `user-${Math.random().toString(36).slice(2)}`;
-            const userOnly: Actor = { user: { uuid: baseUser } };
-            const asApp: Actor = {
+            const userOnly = buildActor({ user: { uuid: baseUser } });
+            const asApp = buildActor({
                 user: { uuid: baseUser },
                 app: { uid: 'target-app', id: 1 },
-            };
+            });
 
             await inCtx(
                 () =>
@@ -811,6 +830,756 @@ describe('KVStoreDriver', () => {
                 ]),
             );
             expect(rows.length).toBe(Object.keys(KV_COSTS).length);
+        });
+    });
+
+    // -- Cross-app access (app-data:<uid>:kv:<op>) ---------------------
+    //
+    // An app may reach another app's KV namespace under the same user once the
+    // user has granted it. These tests use real user and app rows, because the
+    // grant lands in `user_to_app_permissions` and the driver resolves the
+    // target app row for its existence and sharing checks.
+    describe('cross-app access', () => {
+        const permissions = () => server.services.permission;
+
+        const makeOwner = async (): Promise<Actor> => {
+            const username = `kvx${Math.random().toString(36).slice(2, 10)}`;
+            const created = await createTestUser(server, {
+                username,
+                password: 'kv-cross-app-password',
+            });
+            const row = await server.stores.user.getByUsername(
+                created.username,
+            );
+            return buildActor({
+                user: {
+                    id: row!.id,
+                    uuid: row!.uuid,
+                    username: row!.username,
+                    email: row!.email ?? null,
+                },
+            });
+        };
+
+        const makeRealApp = async (
+            ownerUserId: number,
+            fields: Record<string, unknown> = {},
+        ): Promise<{ id: number; uid: string }> => {
+            const name = `kvx-${Math.random().toString(36).slice(2)}`;
+            return (await server.stores.app.create(
+                {
+                    name,
+                    title: 'KV cross-app test',
+                    index_url: `https://${name}.test/`,
+                    ...fields,
+                },
+                { ownerUserId },
+            )) as { id: number; uid: string };
+        };
+
+        const asApp = (owner: Actor, app: { id: number; uid: string }): Actor =>
+            buildActor({
+                user: owner.user,
+                app: { uid: app.uid, id: app.id },
+            });
+
+        /** An access token that `app` minted, as AuthService builds one. */
+        const asTokenOf = (owner: Actor, actorForApp: Actor): Actor =>
+            buildActor({
+                user: owner.user,
+                accessToken: {
+                    uid: `tok-${Math.random().toString(36).slice(2)}`,
+                    issuer: actorForApp,
+                    authorized: null,
+                },
+            });
+
+        const grant = (
+            owner: Actor,
+            granteeAppUid: string,
+            permission: string,
+        ) =>
+            runWithContext({ actor: owner }, () =>
+                permissions().grantUserAppPermission(
+                    owner,
+                    granteeAppUid,
+                    permission,
+                ),
+            );
+
+        /**
+         * The common fixture: an owner, a calendar app asking for access, a
+         * contacts app holding the data, and one seeded entry in contacts'
+         * namespace written by contacts itself.
+         */
+        const setup = async (targetFields: Record<string, unknown> = {}) => {
+            const owner = await makeOwner();
+            const calendar = await makeRealApp(owner.user.id!);
+            const contacts = await makeRealApp(owner.user.id!, targetFields);
+            const calendarActor = asApp(owner, calendar);
+            const contactsActor = asApp(owner, contacts);
+            await inCtx(
+                () => target.set({ key: 'entry', value: 'contacts-value' }),
+                contactsActor,
+            );
+            return { owner, calendar, contacts, calendarActor, contactsActor };
+        };
+
+        const crossApp = <T>(
+            actorForCall: Actor,
+            targetAppUid: string,
+            fn: (optConfig: { appUuid: string }) => T | Promise<T>,
+        ) => inCtx(() => fn({ appUuid: targetAppUid }), actorForCall);
+
+        it("reads another app's entry with a matching grant", async () => {
+            const { owner, calendar, contacts, calendarActor } = await setup();
+            await grant(
+                owner,
+                calendar.uid,
+                appDataPermission(contacts.uid, 'kv', 'get'),
+            );
+
+            // Also the positive control for the `not.toHaveBeenCalled()`
+            // assertions below: it proves the spy is attached to the same
+            // service instance the driver consults, so those negatives mean
+            // "no check happened" rather than "the spy saw nothing".
+            const spy = vi.spyOn(permissions(), 'check');
+            try {
+                const res = await crossApp(
+                    calendarActor,
+                    contacts.uid,
+                    (optConfig) => target.get({ key: 'entry', optConfig }),
+                );
+                expect(res).toBe('contacts-value');
+                expect(spy).toHaveBeenCalledWith(
+                    expect.anything(),
+                    appDataPermission(contacts.uid, 'kv', 'get'),
+                );
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it('refuses without a grant', async () => {
+            const { contacts, calendarActor } = await setup();
+            await expect(
+                crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.get({ key: 'entry', optConfig }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('404s when the target uid names no app', async () => {
+            const { calendarActor } = await setup();
+            await expect(
+                crossApp(calendarActor, 'app-does-not-exist', (optConfig) =>
+                    target.get({ key: 'entry', optConfig }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('refuses when the target app has opted out of sharing', async () => {
+            const { owner, calendar, contacts, calendarActor } = await setup({
+                metadata: JSON.stringify({ share_app_data: false }),
+            });
+            await grant(
+                owner,
+                calendar.uid,
+                appDataPermission(contacts.uid, 'kv', 'get'),
+            );
+            await expect(
+                crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.get({ key: 'entry', optConfig }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('keeps read and write distinct', async () => {
+            const { owner, calendar, contacts, calendarActor } = await setup();
+            await grant(
+                owner,
+                calendar.uid,
+                appDataPermission(contacts.uid, 'kv', 'read'),
+            );
+            expect(
+                await crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.get({ key: 'entry', optConfig }),
+                ),
+            ).toBe('contacts-value');
+            await expect(
+                crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.set({
+                        key: 'entry',
+                        value: 'overwritten',
+                        optConfig,
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it("writes into the target's namespace, where the target app sees it", async () => {
+            const { owner, calendar, contacts, calendarActor, contactsActor } =
+                await setup();
+            await grant(
+                owner,
+                calendar.uid,
+                appDataPermission(contacts.uid, 'kv', 'write'),
+            );
+            await crossApp(calendarActor, contacts.uid, (optConfig) =>
+                target.set({
+                    key: 'invite',
+                    value: 'from-calendar',
+                    optConfig,
+                }),
+            );
+            // Read back as contacts itself — proves the write landed in the
+            // target namespace rather than the caller's own.
+            expect(
+                await inCtx(() => target.get({ key: 'invite' }), contactsActor),
+            ).toBe('from-calendar');
+        });
+
+        it('keeps delete orthogonal to write', async () => {
+            const write = await setup();
+            await grant(
+                write.owner,
+                write.calendar.uid,
+                appDataPermission(write.contacts.uid, 'kv', 'write'),
+            );
+            await expect(
+                crossApp(write.calendarActor, write.contacts.uid, (optConfig) =>
+                    target.del({ key: 'entry', optConfig }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+
+            const del = await setup();
+            await grant(
+                del.owner,
+                del.calendar.uid,
+                appDataPermission(del.contacts.uid, 'kv', 'delete'),
+            );
+            await expect(
+                crossApp(del.calendarActor, del.contacts.uid, (optConfig) =>
+                    target.set({ key: 'entry', value: 'nope', optConfig }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('permits every delete op with the delete class', async () => {
+            const { owner, calendar, contacts, calendarActor } = await setup();
+            await grant(
+                owner,
+                calendar.uid,
+                appDataPermission(contacts.uid, 'kv', 'delete'),
+            );
+            const uid = contacts.uid;
+            await crossApp(calendarActor, uid, (optConfig) =>
+                target.expire({ key: 'entry', ttl: 60, optConfig }),
+            );
+            await crossApp(calendarActor, uid, (optConfig) =>
+                target.expireAt({
+                    key: 'entry',
+                    timestamp: 4_000_000_000,
+                    optConfig,
+                }),
+            );
+            await crossApp(calendarActor, uid, (optConfig) =>
+                target.del({ key: 'entry', optConfig }),
+            );
+            // `remove` needs an object value to strip a path from.
+            await crossApp(calendarActor, uid, (optConfig) =>
+                target.remove({ key: 'entry', paths: ['x'], optConfig }),
+            );
+        });
+
+        it('refuses flush at any scope, without consulting permissions', async () => {
+            const { owner, calendar, contacts, calendarActor } = await setup();
+            // App-wide grant: the widest scope that exists.
+            await grant(owner, calendar.uid, appDataPermission(contacts.uid));
+            const spy = vi.spyOn(permissions(), 'check');
+            try {
+                await expect(
+                    crossApp(calendarActor, contacts.uid, (optConfig) =>
+                        target.flush({ optConfig }),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+                expect(spy).not.toHaveBeenCalled();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it('requires the delete class for an expiry on a write', async () => {
+            const { owner, calendar, contacts, calendarActor } = await setup();
+            await grant(
+                owner,
+                calendar.uid,
+                appDataPermission(contacts.uid, 'kv', 'write'),
+            );
+            const uid = contacts.uid;
+
+            // An expiry deletes the entry once it lapses, so `write` alone is
+            // not enough — on set, on update's ttl, or per item in batchPut.
+            await expect(
+                crossApp(calendarActor, uid, (optConfig) =>
+                    target.set({
+                        key: 'entry',
+                        value: 'v',
+                        expireAt: 4_000_000_000,
+                        optConfig,
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            await expect(
+                crossApp(calendarActor, uid, (optConfig) =>
+                    target.update({
+                        key: 'doc',
+                        pathAndValueMap: { a: 1 },
+                        ttl: 60,
+                        optConfig,
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            await expect(
+                crossApp(calendarActor, uid, (optConfig) =>
+                    target.batchPut({
+                        items: [
+                            { key: 'a', value: 1 },
+                            { key: 'b', value: 2, expireAt: 4_000_000_000 },
+                        ],
+                        optConfig,
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+
+            // The same write with no expiry is fine.
+            await crossApp(calendarActor, uid, (optConfig) =>
+                target.set({ key: 'entry', value: 'v', optConfig }),
+            );
+        });
+
+        it('allows an expiry once the delete class is granted too', async () => {
+            const { owner, calendar, contacts, calendarActor } = await setup();
+            await grant(
+                owner,
+                calendar.uid,
+                appDataPermission(contacts.uid, 'kv', 'write'),
+            );
+            await grant(
+                owner,
+                calendar.uid,
+                appDataPermission(contacts.uid, 'kv', 'delete'),
+            );
+            await crossApp(calendarActor, contacts.uid, (optConfig) =>
+                target.set({
+                    key: 'entry',
+                    value: 'v',
+                    expireAt: 4_000_000_000,
+                    optConfig,
+                }),
+            );
+        });
+
+        // -- Compatibility -------------------------------------------------
+
+        it('does not consult permissions for an own-namespace call', async () => {
+            const { contactsActor } = await setup();
+            const spy = vi.spyOn(permissions(), 'check');
+            try {
+                expect(
+                    await inCtx(
+                        () => target.get({ key: 'entry' }),
+                        contactsActor,
+                    ),
+                ).toBe('contacts-value');
+                expect(spy).not.toHaveBeenCalled();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it('does not consult permissions when an app names itself', async () => {
+            const { contacts, contactsActor } = await setup();
+            const spy = vi.spyOn(permissions(), 'check');
+            try {
+                expect(
+                    await crossApp(contactsActor, contacts.uid, (optConfig) =>
+                        target.get({ key: 'entry', optConfig }),
+                    ),
+                ).toBe('contacts-value');
+                expect(spy).not.toHaveBeenCalled();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it('still honours appUuid for a user-only actor with no grant', async () => {
+            const { owner, contacts } = await setup();
+            // The user owns the data in every one of their app namespaces, so
+            // this path is deliberately ungated — tightening it would break
+            // existing dashboard and API-token callers.
+            const spy = vi.spyOn(permissions(), 'check');
+            try {
+                expect(
+                    await crossApp(owner, contacts.uid, (optConfig) =>
+                        target.get({ key: 'entry', optConfig }),
+                    ),
+                ).toBe('contacts-value');
+                expect(spy).not.toHaveBeenCalled();
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        // -- Per-key privacy ----------------------------------------------
+
+        it('hides an entry the owning app marked private', async () => {
+            const { owner, calendar, contacts, calendarActor, contactsActor } =
+                await setup();
+            await inCtx(
+                () =>
+                    target.set({
+                        key: 'token',
+                        value: 'oauth-secret',
+                        optConfig: { disableSharing: true },
+                    }),
+                contactsActor,
+            );
+            // The widest possible grant still does not reach it.
+            await grant(owner, calendar.uid, appDataPermission(contacts.uid));
+
+            // Absent, not refused: the flag must not confirm what is stored.
+            expect(
+                await crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.get({ key: 'token', optConfig }),
+                ),
+            ).toBeNull();
+            // Its unflagged neighbour is still visible.
+            expect(
+                await crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.get({ key: 'entry', optConfig }),
+                ),
+            ).toBe('contacts-value');
+            // And the owning app sees its own entry normally.
+            expect(
+                await inCtx(() => target.get({ key: 'token' }), contactsActor),
+            ).toBe('oauth-secret');
+        });
+
+        it('omits private entries from a cross-app list but not the owner’s', async () => {
+            const { owner, calendar, contacts, calendarActor, contactsActor } =
+                await setup();
+            await inCtx(
+                () =>
+                    target.set({
+                        key: 'token',
+                        value: 'oauth-secret',
+                        optConfig: { disableSharing: true },
+                    }),
+                contactsActor,
+            );
+            await grant(owner, calendar.uid, appDataPermission(contacts.uid));
+
+            const seen = (await crossApp(
+                calendarActor,
+                contacts.uid,
+                (optConfig) => target.list({ as: 'keys', optConfig }),
+            )) as string[];
+            expect(seen).toContain('entry');
+            expect(seen).not.toContain('token');
+
+            const own = (await inCtx(
+                () => target.list({ as: 'keys' }),
+                contactsActor,
+            )) as string[];
+            expect(own).toContain('token');
+        });
+
+        it('refuses cross-app writes and deletes against a private entry', async () => {
+            const { owner, calendar, contacts, calendarActor, contactsActor } =
+                await setup();
+            await inCtx(
+                () =>
+                    target.set({
+                        key: 'token',
+                        value: 'oauth-secret',
+                        optConfig: { disableSharing: true },
+                    }),
+                contactsActor,
+            );
+            await grant(owner, calendar.uid, appDataPermission(contacts.uid));
+
+            // A write must refuse rather than behave as absent — treating it as
+            // missing would overwrite the value the flag exists to protect.
+            await expect(
+                crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.set({ key: 'token', value: 'clobbered', optConfig }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            await expect(
+                crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.del({ key: 'token', optConfig }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+
+            // Still intact for its owner.
+            expect(
+                await inCtx(() => target.get({ key: 'token' }), contactsActor),
+            ).toBe('oauth-secret');
+        });
+
+        it('gates a token an app minted, not just the app itself', async () => {
+            const { owner, contacts, calendarActor } = await setup();
+            // An access-token actor carries no `app` of its own — the app is on
+            // `accessToken.issuer`. Reading `actor.app` here would take the
+            // ungated user-token branch and hand the token the whole namespace.
+            const token = asTokenOf(owner, calendarActor);
+            await expect(
+                crossApp(token, contacts.uid, (optConfig) =>
+                    target.get({ key: 'entry', optConfig }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('resolves a token to its minting app, not to a bare user', async () => {
+            const { owner, contacts, calendarActor } = await setup();
+            const token = asTokenOf(owner, calendarActor);
+            const spy = vi.spyOn(permissions(), 'check');
+            try {
+                await expect(
+                    crossApp(token, contacts.uid, (optConfig) =>
+                        target.get({ key: 'entry', optConfig }),
+                    ),
+                ).rejects.toMatchObject({ statusCode: 403 });
+                // The ungated user-token branch never consults permissions at
+                // all, so the call itself is the evidence the token was read as
+                // app-scoped.
+                expect(spy).toHaveBeenCalledWith(
+                    expect.anything(),
+                    appDataPermission(contacts.uid, 'kv', 'get'),
+                );
+            } finally {
+                spy.mockRestore();
+            }
+        });
+
+        it('reads through a token that carries the scope itself', async () => {
+            const { owner, calendar, contacts, calendarActor } = await setup();
+            const permission = appDataPermission(contacts.uid, 'kv', 'read');
+            await grant(owner, calendar.uid, permission);
+
+            // A scoped token does not inherit its issuer's grants — it needs
+            // the row too. Both halves have to line up for the read to land.
+            const token = asTokenOf(owner, calendarActor);
+            await server.clients.db.write(
+                'INSERT INTO `access_token_permissions` (`token_uid`, `permission`) VALUES (?, ?)',
+                [token.accessToken!.uid, permission],
+            );
+
+            expect(
+                await crossApp(token, contacts.uid, (optConfig) =>
+                    target.get({ key: 'entry', optConfig }),
+                ),
+            ).toBe('contacts-value');
+        });
+
+        it("files a token's own writes under the minting app's namespace", async () => {
+            const owner = await makeOwner();
+            const calendar = await makeRealApp(owner.user.id!);
+            const calendarActor = asApp(owner, calendar);
+            const token = asTokenOf(owner, calendarActor);
+
+            await inCtx(() => target.set({ key: 'own', value: 'v' }), token);
+            // Not the shared global namespace: the gate reads the token as
+            // app-scoped, so the store has to file it the same way.
+            expect(
+                await inCtx(() => target.get({ key: 'own' }), calendarActor),
+            ).toBe('v');
+        });
+
+        it('honours disableSharing on a batch write', async () => {
+            const { owner, calendar, contacts, calendarActor, contactsActor } =
+                await setup();
+            await inCtx(
+                () =>
+                    target.batchPut({
+                        items: [
+                            { key: 'b1', value: 'v1' },
+                            { key: 'b2', value: 'v2' },
+                        ],
+                        optConfig: { disableSharing: true },
+                    }),
+                contactsActor,
+            );
+            await grant(owner, calendar.uid, appDataPermission(contacts.uid));
+
+            // Silently dropping the flag here would hand a granted app entries
+            // the owner asked to keep to itself.
+            expect(
+                await crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.get({ key: ['b1', 'b2'], optConfig }),
+                ),
+            ).toEqual([null, null]);
+            expect(
+                await inCtx(
+                    () => target.get({ key: ['b1', 'b2'] }),
+                    contactsActor,
+                ),
+            ).toEqual(['v1', 'v2']);
+        });
+
+        it('refuses disableSharing on a cross-app write', async () => {
+            const { owner, calendar, contacts, calendarActor } = await setup();
+            await grant(owner, calendar.uid, appDataPermission(contacts.uid));
+            // Otherwise one app could hide data inside another app's namespace.
+            await expect(
+                crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.set({
+                        key: 'sneaky',
+                        value: 'v',
+                        optConfig: { ...optConfig, disableSharing: true },
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+
+        it('lets the owning app clear the flag by rewriting the entry', async () => {
+            const { owner, calendar, contacts, calendarActor, contactsActor } =
+                await setup();
+            await inCtx(
+                () =>
+                    target.set({
+                        key: 'token',
+                        value: 'secret',
+                        optConfig: { disableSharing: true },
+                    }),
+                contactsActor,
+            );
+            await grant(owner, calendar.uid, appDataPermission(contacts.uid));
+            expect(
+                await crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.get({ key: 'token', optConfig }),
+                ),
+            ).toBeNull();
+
+            // `put` replaces the item, so a write without the flag re-shares it.
+            await inCtx(
+                () => target.set({ key: 'token', value: 'now-public' }),
+                contactsActor,
+            );
+            expect(
+                await crossApp(calendarActor, contacts.uid, (optConfig) =>
+                    target.get({ key: 'token', optConfig }),
+                ),
+            ).toBe('now-public');
+        });
+
+        it('maps every public driver method to an op', () => {
+            // A method added without a mapping resolves to `undefined` and fails
+            // closed at the call site — correct, but silently unreachable across
+            // apps. This fails instead, so the omission is a decision.
+            const methods = Object.getOwnPropertyNames(
+                Object.getPrototypeOf(target) as object,
+            ).filter(
+                (name) =>
+                    name !== 'constructor' &&
+                    name !== 'getReportedCosts' &&
+                    typeof (target as unknown as Record<string, unknown>)[
+                        name
+                    ] === 'function',
+            );
+            expect(methods.length).toBeGreaterThan(0);
+            for (const name of methods) {
+                expect(APP_DATA_KV_METHOD_OPS).toHaveProperty(name);
+            }
+        });
+    });
+
+    // ── Budget enforcement ───────────────────────────────────────────
+
+    describe('budget enforcement', () => {
+        // Spend the actor's whole monthly allowance, so the next call is the
+        // first one it can't afford.
+        const exhaust = async (spender: Actor) => {
+            const sub =
+                await server.services.metering.getActorSubscription(spender);
+            await server.services.metering.incrementUsage(
+                spender,
+                'kv:read',
+                1,
+                sub.monthUsageAllowance,
+            );
+        };
+
+        it('refuses reads and writes once the allowance is spent', async () => {
+            await inCtx(() => target.set({ key: 'k', value: 'v' }));
+            await exhaust(actor);
+
+            await expect(
+                inCtx(() => target.get({ key: 'k' })),
+            ).rejects.toMatchObject({
+                statusCode: 402,
+                legacyCode: 'insufficient_funds',
+            });
+            await expect(
+                inCtx(() => target.set({ key: 'k2', value: 'v' })),
+            ).rejects.toMatchObject({ statusCode: 402 });
+            // `list` hands back the values unless asked otherwise, which is a
+            // read like any other.
+            await expect(inCtx(() => target.list({}))).rejects.toMatchObject({
+                statusCode: 402,
+            });
+            await expect(
+                inCtx(() => target.list({ as: 'values' })),
+            ).rejects.toMatchObject({ statusCode: 402 });
+        });
+
+        it('still lets the account see which keys it has, so it can pick what to clear', async () => {
+            await inCtx(async () => {
+                await target.set({ key: 'keep', value: 'v' });
+                await target.set({ key: 'drop', value: 'v' });
+            });
+            await exhaust(actor);
+
+            const keys = await inCtx(() => target.list({ as: 'keys' }));
+            expect(keys).toEqual(expect.arrayContaining(['keep', 'drop']));
+
+            await expect(
+                inCtx(() => target.del({ key: 'drop' })),
+            ).resolves.toBe(true);
+            expect(await inCtx(() => target.list({ as: 'keys' }))).toEqual([
+                'keep',
+            ]);
+        });
+
+        it('still lets the account get rid of what it stored', async () => {
+            await inCtx(async () => {
+                await target.set({ key: 'k', value: 'v' });
+                await target.set({ key: 'obj', value: { a: 1, b: 2 } });
+            });
+            await exhaust(actor);
+
+            await expect(inCtx(() => target.del({ key: 'k' }))).resolves.toBe(
+                true,
+            );
+            await expect(
+                inCtx(() => target.remove({ key: 'obj', paths: ['a'] })),
+            ).resolves.not.toThrow();
+            await expect(inCtx(() => target.flush({}))).resolves.toBe(true);
+        });
+
+        it('exempts a worker session', async () => {
+            const worker = makeActor({
+                session: { uid: 'worker-session', kind: 'worker' },
+            });
+            await exhaust(worker);
+
+            await expect(
+                inCtx(() => target.set({ key: 'k', value: 'v' }), worker),
+            ).resolves.toBe(true);
+            await expect(
+                inCtx(() => target.get({ key: 'k' }), worker),
+            ).resolves.toBe('v');
         });
     });
 });

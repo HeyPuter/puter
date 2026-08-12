@@ -2,19 +2,19 @@ import * as utils from '../../lib/utils.js';
 import { isBatchSetItem, isObject, parseTrailingArgs } from './lib/args.js';
 import { assertKeyPresent, assertKeySize, assertValueSize } from './lib/validate.js';
 
-/** @typedef {import('../../../types/modules/kv').KVOptConfig} KVOptConfig */
-/** @typedef {import('../../../types/modules/kv').KVScalar} KVScalar */
+/** @typedef {import('./types.js').KVOptConfig} KVOptConfig */
+/** @typedef {import('./types.js').KVScalar} KVScalar */
 /**
  * @template [T=KVScalar]
- * @typedef {import('../../../types/modules/kv').KVSetBatch<T>} KVSetBatch
+ * @typedef {import('./types.js').KVSetBatch<T>} KVSetBatch
  */
 /**
  * @template [T=KVScalar]
- * @typedef {import('../../../types/modules/kv').KVSetItem<T>} KVSetItem
+ * @typedef {import('./types.js').KVSetItem<T>} KVSetItem
  */
 /**
  * @template [T=KVScalar]
- * @typedef {import('../../../types/modules/kv').KVSetObject<T>} KVSetObject
+ * @typedef {import('./types.js').KVSetObject<T>} KVSetObject
  */
 
 const setSingle = (puter, args) =>
