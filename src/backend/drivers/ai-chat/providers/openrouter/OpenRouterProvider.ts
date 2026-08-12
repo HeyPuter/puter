@@ -268,12 +268,17 @@ export class OpenRouterProvider implements IChatProvider {
             if (!microcentCosts.request) {
                 microcentCosts.request = 0;
             }
+            // OpenRouter appends "(free)" to the display name of its free-tier
+            // model variants. The ":free" model id already conveys that, so
+            // drop the redundant suffix from the human-facing name.
+            const displayName = model.name.replace(/\s*\(free\)\s*$/i, '');
             coerced_models.push({
                 id: `openrouter:${model.id}`,
-                name: `${model.name} (OpenRouter)`,
+                name: `${displayName} (OpenRouter)`,
                 aliases: [
                     model.id,
                     model.name,
+                    displayName,
                     `openrouter/${model.id}`,
                     model.id.split('/').slice(1).join('/'),
                 ],
