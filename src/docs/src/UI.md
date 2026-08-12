@@ -14,6 +14,7 @@ The UI API provides a comprehensive set of tools for creating rich user interfac
 - **[`puter.ui.alert()`](/UI/alert/)** - Show alert dialogs
 - **[`puter.ui.notify()`](/UI/notify/)** - Show desktop notifications
 - **[`puter.ui.prompt()`](/UI/prompt/)** - Show input prompts
+- **[`puter.ui.showFeedbackDialog()`](/UI/showFeedbackDialog/)** - Let the user send feedback to your app's developer
 
 ### Window Management
 - **[`puter.ui.createWindow()`](/UI/createWindow/)** - Create new windows

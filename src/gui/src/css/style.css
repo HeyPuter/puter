@@ -5872,6 +5872,10 @@ html.dark-mode .usage-table-show-less:hover {
     height: initial !important;
 }
 
+.device-phone .window.window-app-feedback {
+    height: initial !important;
+}
+
 .device-phone .window.window-filedialog {
     transform: none;
     width: 100% !important;

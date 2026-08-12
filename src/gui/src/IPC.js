@@ -28,6 +28,7 @@ import UIItem from './UI/UIItem.js';
 import UIPopover from './UI/UIPopover.js';
 import UIPrompt from './UI/UIPrompt.js';
 import UIWindow from './UI/UIWindow.js';
+import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
 import UIWindowColorPicker from './UI/UIWindowColorPicker.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowFontPicker from './UI/UIWindowFontPicker.js';
@@ -40,6 +41,39 @@ import { PROCESS_IPC_ATTACHED } from './definitions.js';
 import TeePromise from './util/TeePromise.js';
 
 window.ipc_handlers = {};
+
+// Abuse guard for the app-triggered feedback dialog (`showFeedbackDialog`
+// handler below). The dialog is a full-viewport modal reachable from app IPC
+// with no user-gesture requirement, so an unguarded loop of
+// `showFeedbackDialog()` calls would cover the desktop — taskbar and the
+// app's own close button included — forever. One dialog may be open at a
+// time, and every dismissal that sent nothing backs off the app's next open
+// (10s, then 60s, then blocked until the page reloads); a successful send
+// resets the backoff.
+const FEEDBACK_DISMISS_BACKOFF_MS = [10_000, 60_000, Infinity];
+let feedback_dialog_open = false;
+const feedback_dialog_backoff = new Map(); // app uid/name -> { dismissals, until }
+
+const feedback_dialog_may_open = (app_key) => {
+    if ( feedback_dialog_open ) return false;
+    const entry = feedback_dialog_backoff.get(app_key);
+    return ! entry || Date.now() >= entry.until;
+};
+
+const record_feedback_dialog_outcome = (app_key, sent) => {
+    if ( sent ) {
+        feedback_dialog_backoff.delete(app_key);
+        return;
+    }
+    const dismissals = (feedback_dialog_backoff.get(app_key)?.dismissals ?? 0) + 1;
+    const backoff = FEEDBACK_DISMISS_BACKOFF_MS[
+        Math.min(dismissals, FEEDBACK_DISMISS_BACKOFF_MS.length) - 1
+    ];
+    feedback_dialog_backoff.set(app_key, {
+        dismissals,
+        until: Date.now() + backoff,
+    });
+};
 /**
  * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI), and each other, using the postMessage API.
  * The following sets up an Inter-Process Messaging System between apps and the GUI that enables communication
@@ -1389,6 +1423,70 @@ const ipc_listener = async (event, handled) => {
         // report the user's decision to the requester window
         respond(granted === true);
         $(target_iframe).get(0)?.focus({ preventScroll: true });
+    }
+    //--------------------------------------------------------
+    // showFeedbackDialog
+    //--------------------------------------------------------
+    else if ( event.data.msg === 'showFeedbackDialog' ) {
+        // Always respond, even on failure, so the SDK's promise settles
+        // instead of hanging forever. The app can close its own window while
+        // the dialog is up, which tears down the iframe — posting into it
+        // must not throw.
+        const respond = (sent) => {
+            target_iframe?.contentWindow?.postMessage({
+                msg: 'feedbackDialogClosed',
+                sent: sent === true,
+                original_msg_id: msg_id,
+            }, '*');
+        };
+
+        // Re-entry / dismissal-backoff guard (see the state at the top of
+        // this file). Checked before the auth gate too: for a signed-out
+        // user the gate opens a full-page signup window, which an
+        // unguarded loop could spam just as effectively as the dialog.
+        const guard_key = app_uuid || app_name;
+        if ( ! feedback_dialog_may_open(guard_key) ) {
+            respond(false);
+            return;
+        }
+
+        feedback_dialog_open = true;
+        let sent = false;
+        try {
+            // auth
+            try {
+                if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+                {
+                    respond(false);
+                    return;
+                }
+            } catch ( e ) {
+                // `ipc_listener` has no outer catch, so a throw from the signup
+                // window would escape before any reply and hang the app.
+                console.error('IPC showFeedbackDialog: auth gate failed', e);
+                respond(false);
+                return;
+            }
+
+            try {
+                // The target app is this message's sender — identified by the
+                // GUI's own registry (`data-app_uuid` on the window that owns the
+                // validated source iframe), never by anything in the message, so
+                // an app can only ever open the feedback dialog for itself.
+                sent = await UIWindowAppFeedback({
+                    app: app_uuid || app_name,
+                    source: 'app',
+                });
+            } catch ( e ) {
+                console.error('IPC showFeedbackDialog failed', e);
+            }
+
+            respond(sent === true);
+            $(target_iframe).get(0)?.focus({ preventScroll: true });
+        } finally {
+            feedback_dialog_open = false;
+            record_feedback_dialog_outcome(guard_key, sent);
+        }
     }
     //--------------------------------------------------------
     // showFontPicker

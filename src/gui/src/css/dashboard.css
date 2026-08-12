@@ -1523,6 +1523,279 @@ input.myapps-group-name:focus {
     cursor: default;
 }
 
+/* App feedback modal (puter.ui.showFeedbackDialog) — a from-scratch,
+   theme-aware overlay in the spirit of the modals above, but used from more
+   than the dashboard (the desktop app-IPC path and the standalone popup too).
+   Self-contained color tokens (light default + dark override) so it themes
+   correctly wherever it's mounted, independent of the dashboard variables. */
+.app-feedback-overlay {
+    --afb-bg: #ffffff;
+    --afb-fg: #16202b;
+    --afb-muted: #64748b;
+    --afb-border: rgba(15, 23, 42, 0.12);
+    --afb-field-bg: #ffffff;
+    --afb-field-border: rgba(15, 23, 42, 0.18);
+    --afb-hover: rgba(15, 23, 42, 0.05);
+    --afb-scrim: rgba(0, 0, 0, 0.5);
+    --afb-error: #c62828;
+
+    position: fixed;
+    inset: 0;
+    /* Above app windows, the popup shell, and the drawer. */
+    z-index: 2147483000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    box-sizing: border-box;
+    background: var(--afb-scrim);
+    opacity: 0;
+    transition: opacity 0.16s ease;
+    -webkit-font-smoothing: antialiased;
+}
+.app-feedback-overlay.app-feedback-open {
+    opacity: 1;
+}
+
+@media (prefers-color-scheme: dark) {
+    .app-feedback-overlay {
+        --afb-bg: #24262c;
+        --afb-fg: #e8ecf1;
+        --afb-muted: #9aa7b4;
+        --afb-border: rgba(255, 255, 255, 0.12);
+        --afb-field-bg: #1b1d22;
+        --afb-field-border: rgba(255, 255, 255, 0.16);
+        --afb-hover: rgba(255, 255, 255, 0.08);
+        --afb-scrim: rgba(0, 0, 0, 0.66);
+        --afb-error: #ff6b81;
+    }
+}
+
+.app-feedback-modal {
+    width: min(440px, 100%);
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    background: var(--afb-bg);
+    color: var(--afb-fg);
+    border: 1px solid var(--afb-border);
+    border-radius: 14px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+    transform: translateY(8px) scale(0.98);
+    transition: transform 0.16s ease;
+    outline: none;
+}
+.app-feedback-open .app-feedback-modal {
+    transform: none;
+}
+
+.app-feedback-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 16px 0 20px;
+}
+.app-feedback-title {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 600;
+}
+.app-feedback-x {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    flex: none;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: none;
+    color: var(--afb-muted);
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
+}
+.app-feedback-x svg {
+    width: 16px;
+    height: 16px;
+}
+@media (hover: hover) {
+    .app-feedback-x:hover:not(:disabled) {
+        background: var(--afb-hover);
+        color: var(--afb-fg);
+    }
+}
+
+.app-feedback-body {
+    padding: 12px 20px 20px;
+}
+
+.app-feedback-loading {
+    text-align: center;
+    color: var(--afb-muted);
+    padding: 28px 10px;
+    font-size: 14px;
+}
+
+.app-feedback-target {
+    margin-bottom: 14px;
+}
+.app-feedback-target-title {
+    font-size: 15px;
+    font-weight: 600;
+    word-break: break-word;
+}
+.app-feedback-target-name {
+    font-size: 12px;
+    color: var(--afb-muted);
+    word-break: break-all;
+    margin-top: 2px;
+}
+
+.app-feedback-c2a {
+    margin: 0 0 10px;
+    font-size: 14px;
+    line-height: 1.45;
+}
+.app-feedback-unavailable-message {
+    margin: 8px 0 4px;
+    font-size: 14px;
+    line-height: 1.45;
+    text-align: center;
+    color: var(--afb-muted);
+}
+
+.app-feedback-message {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 130px;
+    resize: vertical;
+    padding: 10px 12px;
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.45;
+    color: var(--afb-fg);
+    background: var(--afb-field-bg);
+    border: 1px solid var(--afb-field-border);
+    border-radius: 8px;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.app-feedback-message:focus {
+    outline: none;
+    border-color: #088ef0;
+    box-shadow: 0 0 0 3px rgba(8, 142, 240, 0.18);
+}
+.app-feedback-message::placeholder {
+    color: var(--afb-muted);
+}
+
+.app-feedback-counter {
+    text-align: right;
+    font-size: 11px;
+    color: var(--afb-muted);
+    margin-top: 4px;
+}
+.app-feedback-note {
+    margin: 8px 0 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--afb-muted);
+}
+.app-feedback-error {
+    margin: 10px 0 0;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--afb-error);
+}
+
+.app-feedback-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 18px;
+}
+.app-feedback-btn {
+    padding: 8px 18px;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: 8px;
+    border: 1px solid var(--afb-field-border);
+    background: var(--afb-bg);
+    color: var(--afb-fg);
+    cursor: pointer;
+    transition: background-color 0.12s ease, opacity 0.12s ease, filter 0.12s ease;
+}
+@media (hover: hover) {
+    .app-feedback-btn:hover:not(:disabled) {
+        background: var(--afb-hover);
+    }
+}
+.app-feedback-btn-primary {
+    border-color: #088ef0;
+    background: linear-gradient(#34a5f8, #088ef0);
+    color: #fff;
+}
+@media (hover: hover) {
+    .app-feedback-btn-primary:hover {
+        filter: brightness(1.05);
+        background: linear-gradient(#34a5f8, #088ef0);
+    }
+}
+.app-feedback-btn-primary:disabled {
+    opacity: 0.5;
+    cursor: default;
+    filter: none;
+}
+/* Cancel/X are disabled while a submit is in flight. */
+.app-feedback-btn:disabled,
+.app-feedback-x:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.app-feedback-success {
+    text-align: center;
+    padding: 18px 10px 8px;
+}
+.app-feedback-success-check {
+    width: 52px;
+    height: 52px;
+    margin: 0 auto 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(34, 197, 94, 0.14);
+    color: #16a34a;
+}
+.app-feedback-success-check svg {
+    width: 28px;
+    height: 28px;
+}
+.app-feedback-success-text {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 500;
+}
+
+/* Bottom-sheet on narrow screens. */
+@media (max-width: 500px) {
+    .app-feedback-overlay {
+        padding: 0;
+        align-items: flex-end;
+    }
+    .app-feedback-modal {
+        width: 100%;
+        max-height: 92vh;
+        border-radius: 14px 14px 0 0;
+        transform: translateY(16px);
+    }
+    .app-feedback-open .app-feedback-modal {
+        transform: none;
+    }
+}
+
 /* Add-an-app chooser (see showAddAppModal): the three ways to get an app, as
    rows in the same modal shell. min-width gives the two-line rows room without
    overflowing a narrow phone; the shell's own max-width caps the other end. */
@@ -5390,6 +5663,13 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
         opacity 0.2s ease;
 }
 
+/* An opted-in app carries a third control (feedback) before minimize; widen
+   the derived open surface by one button + its 2px gap so the trailing close
+   button isn't clipped. --open-w stays derived from the same parts. */
+.dashboard-app-drawer.has-feedback {
+    --open-w: calc(12px + var(--icon) + var(--i2t) + var(--title-w) + var(--t2b) + var(--btn) + 2px + var(--btn) + 2px + var(--btn) + 10px);
+}
+
 .dashboard-app-drawer.collapsed {
     width: var(--shut-w);
     height: calc(var(--shut-h) + var(--safe-top));
@@ -5574,6 +5854,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     transition: background-color 0.12s ease;
 }
 
+.dashboard-app-drawer-feedback,
 .dashboard-app-drawer-minimize {
     margin-right: 2px;
 }

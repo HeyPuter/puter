@@ -78,6 +78,25 @@ The Puter Team
 </p>
         `,
     },
+    'app-user-feedback': {
+        subject: 'New user feedback for {{app_title}}',
+        html: `
+<p>Hi{{#if owner_username}} {{owner_username}}{{/if}},</p>
+<p>
+<strong>{{sender_username}}</strong>{{#if sender_email}} (<a href="mailto:{{sender_email}}">{{sender_email}}</a>){{/if}} sent feedback about <a href="{{app_link}}">{{app_title}}</a>:
+</p>
+<blockquote>{{{nl2br message}}}</blockquote>
+{{#if sender_email}}<p>Just reply to this email to respond to them directly.</p>{{/if}}
+<p>
+You're receiving this because feedback is enabled for
+<a href="{{app_link}}">{{app_title}}</a> — manage it in the
+<a href="{{dev_center_link}}">Dev Center</a> under your app's settings.
+</p>
+<p>Best,<br />
+The Puter Team
+</p>
+        `,
+    },
     email_change_request: {
         subject: '📝 Confirm your email change',
         html: `

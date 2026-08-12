@@ -27,6 +27,7 @@ import { AuthService } from './auth/AuthService';
 import { OIDCService } from './auth/OIDCService';
 import { TokenService } from './auth/TokenService';
 import { BroadcastService } from './broadcast/BroadcastService';
+import { AppFeedbackService } from './feedback/AppFeedbackService';
 import { FSService } from './fs/FSService';
 import { ServerHealthService } from './health/ServerHealthService';
 import { PuterHomepageService } from './homepage/PuterHomepageService';
@@ -61,6 +62,7 @@ declare module './types' {
         suggestedApps: SuggestedAppsService;
         socket: SocketService;
         notification: NotificationService;
+        appFeedback: AppFeedbackService;
         broadcast: BroadcastService;
         oidc: OIDCService;
         appIcon: AppIconService;
@@ -99,6 +101,9 @@ export const puterServices = {
     suggestedApps: SuggestedAppsService,
     socket: SocketService,
     notification: NotificationService,
+    // Declared after `auth` (origin → app uid resolution happens through
+    // AuthService.appUidFromOrigin).
+    appFeedback: AppFeedbackService,
     broadcast: BroadcastService,
     oidc: OIDCService,
     appIcon: AppIconService,

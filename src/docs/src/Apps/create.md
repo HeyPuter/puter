@@ -48,6 +48,7 @@ An object containing the options for the app to create. The object can contain t
 - `filetypeAssociations` (Array<String>) (optional): An array of strings representing the filetypes that the app can open. Defaults to `[]`. File extentions and MIME types are supported; For example, `[".txt", ".md", "application/pdf"]` would allow the app to open `.txt`, `.md`, and PDF files.
 - `dedupeName` (Boolean) (optional) - Whether to deduplicate the app name if it already exists. Defaults to `false`.
 - `background` (Boolean) (optional) - Whether the app should run in the background. Defaults to `false`.
+- `feedbackEnabled` (Boolean) (optional) - Whether users can send feedback to you through [`puter.ui.showFeedbackDialog()`](/UI/showFeedbackDialog/). Defaults to `false`.
 - `metadata` (Object) (optional) - An object containing custom metadata for the app. This can be used to store arbitrary key-value pairs associated with the app.
 
 ## Return value

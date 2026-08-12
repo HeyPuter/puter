@@ -144,6 +144,28 @@ export default suite('apps', {
         t.assert.equal(updated.description, 'New description');
     },
 
+    'feedbackEnabled round-trips on create and survives an unrelated update':
+        async (t) => {
+            // Mirrors Dev Center: create with feedback on, then a Save-style
+            // update that omits feedbackEnabled must not clear it.
+            const created = await t.puter.apps.create({
+                name: 'apps-suite-feedback',
+                indexURL: 'https://example.com/feedback',
+                feedbackEnabled: true,
+            });
+            t.assert.equal(Boolean(created.feedback_enabled), true);
+
+            const updated = await t.puter.apps.update('apps-suite-feedback', {
+                title: 'Feedback App',
+            });
+            t.assert.equal(Boolean(updated.feedback_enabled), true);
+
+            const disabled = await t.puter.apps.update('apps-suite-feedback', {
+                feedbackEnabled: false,
+            });
+            t.assert.equal(Boolean(disabled.feedback_enabled), false);
+        },
+
     'get of an unknown app rejects': async (t) => {
         await t.assert.rejects(
             () => t.puter.apps.get('apps-suite-does-not-exist'),
