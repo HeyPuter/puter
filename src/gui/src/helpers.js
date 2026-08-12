@@ -691,6 +691,7 @@ window.update_auth_data = async (auth_token, user) => {
     window.desktop_path = `/${ window.user.username }/Desktop`;
     window.home_path = `/${ window.user.username}`;
     window.public_path = `/${ window.user.username }/Public`;
+    window.shared_path = 'puter://shared';
 
     if ( window.user !== null && !window.user.is_temp ) {
         $('.user-options-login-btn, .user-options-create-account-btn').hide();

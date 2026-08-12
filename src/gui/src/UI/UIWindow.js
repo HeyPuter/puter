@@ -356,6 +356,7 @@ async function UIWindow (options) {
             h += `<div draggable="false" title="${i18n('pictures')}" class="window-sidebar-item disable-user-select ${options.path === window.pictures_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.pictures_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-pictures.svg'])}">${i18n('pictures')}</div>`;
             h += `<div draggable="false" title="${i18n('desktop')}" class="window-sidebar-item disable-user-select ${options.path === window.desktop_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.desktop_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-desktop.svg'])}">${i18n('desktop')}</div>`;
             h += `<div draggable="false" title="${i18n('videos')}" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-videos.svg'])}">${i18n('videos')}</div>`;
+            h += `<div draggable="false" title="${i18n('shared_with_me')}" class="window-sidebar-item disable-user-select ${options.path === window.shared_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.shared_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['shared-outline.svg'])}">${i18n('shared_with_me')}</div>`;
         } else {
             let items = JSON.parse(window.sidebar_items);
             // Saved sidebar orders may predate the Home entry — make sure it's always present
@@ -387,6 +388,10 @@ async function UIWindow (options) {
                 else if ( item.path === window.videos_path )
                 {
                     icon = window.icons['sidebar-folder-videos.svg'];
+                }
+                else if ( item.path === window.shared_path )
+                {
+                    icon = window.icons['shared-outline.svg'];
                 }
                 else
                 {
@@ -3397,7 +3402,14 @@ window.update_window_path = async function (el_window, target_path) {
     $(el_window).attr('data-name', html_encode(path.basename(target_path)));
 
     // /stat
-    if ( target_path !== '/' ) {
+    if ( target_path === window.shared_path ) {
+        // A query, not a directory — nothing to stat.
+        $(el_window).removeClass(`window-${ $(el_window).attr('data-uid')}`);
+        $(el_window).attr('data-uid', 'null');
+        $(el_window).find('.window-head-title').text(i18n('shared_with_me'));
+        $(el_window).find('.window-head-icon').attr('src', window.icons['shared.svg']);
+    }
+    else if ( target_path !== '/' ) {
         try {
             puter.fs.stat({ path: target_path, consistency: 'eventual' }).then(fsentry => {
                 $(el_window).removeClass(`window-${ $(el_window).attr('data-uid')}`);
