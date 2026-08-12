@@ -36,6 +36,7 @@ import { MeteringService } from './metering/MeteringService';
 import { NotificationService } from './notification/NotificationService';
 import { PermissionService } from './permission/PermissionService';
 import { DefaultUserService } from './selfhosted/DefaultUserService';
+import { ShareService } from './share/ShareService';
 import { SocketService } from './socket/SocketService';
 import { SubdomainPermissionService } from './subdomain/SubdomainPermissionService';
 import type { IPuterServiceRegistry } from './types';
@@ -53,6 +54,7 @@ declare module './types' {
         appOriginBlocklist: AppOriginBlocklistService;
         permission: PermissionService;
         acl: ACLService;
+        share: ShareService;
         token: TokenService;
         auth: AuthService;
         fs: FSService;
@@ -91,6 +93,9 @@ export const puterServices = {
     token: TokenService,
     auth: AuthService,
     fs: FSService,
+    // Needs acl (setUserUser), permission (canManagePermission) and fs
+    // (ancestor chains), so it follows all three.
+    share: ShareService,
     // AppPermissionService + SubdomainPermissionService register permission
     // rewriters/implicators only; no runtime state. Placed after fsEntry so
     // the FS rewriter runs first for `fs:/path` → `fs:<uuid>` before any

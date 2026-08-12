@@ -141,6 +141,14 @@ export class ShareStore extends PuterStore {
      * (holder, fsentry, issuer) to match the table's unique index — two people
      * with manage rights each keep their own row rather than overwriting.
      */
+    /**
+     * @param {object} input
+     * @param {number} input.issuerUserId
+     * @param {number} input.holderUserId
+     * @param {number} input.fsentryId
+     * @param {string} input.mode
+     * @param {string | null} [input.recipientEmail]
+     */
     async upsertActive({
         issuerUserId,
         holderUserId,
@@ -188,6 +196,12 @@ export class ShareStore extends PuterStore {
      * Drop one active share. Omit `issuerUserId` to clear every issuer's share
      * of that node with that holder — what an owner revoking access wants.
      */
+    /**
+     * @param {object} input
+     * @param {number} input.holderUserId
+     * @param {number} input.fsentryId
+     * @param {number | null} [input.issuerUserId]
+     */
     async deleteActive({ holderUserId, fsentryId, issuerUserId = null }) {
         const scoped = issuerUserId !== null && issuerUserId !== undefined;
         const result = await this.clients.db.write(
@@ -203,6 +217,13 @@ export class ShareStore extends PuterStore {
     /**
      * Claim a pending invite for the user who signed up. Updates rather than
      * deletes, so the share survives as an index row.
+     */
+    /**
+     * @param {object} input
+     * @param {string} input.uid
+     * @param {number} input.holderUserId
+     * @param {number | null} [input.fsentryId]
+     * @param {string | null} [input.mode]
      */
     async applyPending({ uid, holderUserId, fsentryId = null, mode = null }) {
         if (!uid || !holderUserId) {
@@ -238,6 +259,44 @@ export class ShareStore extends PuterStore {
             [email],
         );
         return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+    }
+
+    // -- Daily quota --------------------------------------------------
+    //
+    // Counted in KV rather than by querying `share`, because the ceiling is on
+    // shares *created* — rows the user later revoked still spent their budget,
+    // so a COUNT of live rows would let a script recycle the same slot forever.
+
+    /** @param {number} userId */
+    async getDailyShareCount(userId) {
+        const { res } = await this.stores.kv.get({
+            key: this.#dailyQuotaKey(userId),
+        });
+        const count = /** @type {{ count?: unknown } | null} */ (res)?.count;
+        return typeof count === 'number' ? count : 0;
+    }
+
+    /**
+     * @param {number} userId
+     * @param {number} [amount]
+     * @returns {Promise<number>} The count after incrementing
+     */
+    async incrementDailyShareCount(userId, amount = 1) {
+        const { res } = await this.stores.kv.incr({
+            key: this.#dailyQuotaKey(userId),
+            pathAndAmountMap: { count: amount },
+            // Two days, so a counter written just before midnight still ages
+            // out on its own rather than lingering for the next reader.
+            expireAt: Math.floor(Date.now() / 1000) + 2 * 24 * 60 * 60,
+        });
+        const count = /** @type {{ count?: unknown } | null} */ (res)?.count;
+        return typeof count === 'number' ? count : amount;
+    }
+
+    /** @param {number} userId */
+    #dailyQuotaKey(userId) {
+        const day = new Date().toISOString().slice(0, 10);
+        return `share:quota:${userId}:${day}`;
     }
 
     // -- Internals ----------------------------------------------------

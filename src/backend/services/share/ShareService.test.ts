@@ -1,0 +1,539 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import { v4 as uuidv4 } from 'uuid';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { Actor } from '../../core/actor.js';
+import { runWithContext } from '../../core/context.js';
+import { PuterServer } from '../../server.js';
+import { createTestUser, setupTestServer } from '../../testUtil.js';
+
+describe('ShareService', () => {
+    let server: PuterServer;
+
+    beforeAll(async () => {
+        server = await setupTestServer();
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    const makeUser = async () => {
+        const username = `sh${Math.random().toString(36).slice(2, 9)}`;
+        await createTestUser(server, { username, password: 'pw-test-1234' });
+        const user = await server.stores.user.getByUsername(username);
+        if (!user) throw new Error('test user missing');
+        const email = `${username}@test.local`;
+        await server.stores.user.update(user.id, { email });
+        const fresh = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        const actor: Actor = {
+            user: fresh as Actor['user'],
+            effectiveApp: null,
+        };
+        return { user: fresh!, actor, email };
+    };
+
+    /** A real fsentry under the user's home, so ancestor chains resolve. */
+    const makeFile = async (owner: { id: number; username: string }) => {
+        const uuid = uuidv4();
+        const name = `f-${uuid.slice(0, 8)}.txt`;
+        const path = `/${owner.username}/${name}`;
+        await server.clients.db.write(
+            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, 0, ?)',
+            [uuid, name, path, owner.id, Math.floor(Date.now() / 1000)],
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(path);
+        if (!entry) throw new Error('fsentry not created');
+        return entry;
+    };
+
+    const canRead = async (actor: Actor, path: string) =>
+        server.services.acl.check(
+            actor,
+            {
+                path,
+                resolveAncestors: () => server.services.fs.getAncestorChain(path),
+            },
+            'read',
+        );
+
+    const share = (actor: Actor, input: Record<string, unknown>) =>
+        runWithContext({ actor }, () =>
+            server.services.share.share(actor, input as never),
+        );
+
+    const unshare = (actor: Actor, input: Record<string, unknown>) =>
+        runWithContext({ actor }, () =>
+            server.services.share.unshare(actor, input as never),
+        );
+
+    it('grants access and indexes the share', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        expect(await canRead(recipient.actor, file.path)).toBe(false);
+
+        const result = await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: recipient.email },
+            mode: 'read',
+        });
+
+        expect(result.mode).toBe('read');
+        expect(result.path).toBe(file.path);
+        expect(await canRead(recipient.actor, file.path)).toBe(true);
+
+        const listed = await server.services.share.listSharedWithMe(
+            recipient.actor,
+        );
+        expect(listed.items.map((i) => i.entryUid)).toContain(file.uuid);
+    });
+
+    it('resolves a recipient by username as well as email', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { username: recipient.user.username },
+            mode: 'read',
+        });
+
+        expect(await canRead(recipient.actor, file.path)).toBe(true);
+    });
+
+    it('refuses to share with yourself or with the owner', async () => {
+        const owner = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await expect(
+            share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: owner.email },
+                mode: 'read',
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('refuses an unknown mode and an unknown recipient', async () => {
+        const owner = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await expect(
+            share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: 'nobody@nowhere.test' },
+                mode: 'read',
+            }),
+        ).rejects.toMatchObject({ statusCode: 404 });
+
+        await expect(
+            share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: 'nobody@nowhere.test' },
+                mode: 'wizard',
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('hides a file from a stranger trying to share it', async () => {
+        const owner = await makeUser();
+        const stranger = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        // 404 rather than 403 — a failed share must not confirm the file
+        // exists to someone who cannot even see it.
+        await expect(
+            share(stranger.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            }),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it('revokes access and drops the index row', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: recipient.email },
+            mode: 'read',
+        });
+        expect(await canRead(recipient.actor, file.path)).toBe(true);
+
+        const result = await unshare(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: recipient.email },
+        });
+
+        expect(result.revoked).toBe(1);
+        expect(await canRead(recipient.actor, file.path)).toBe(false);
+        const listed = await server.services.share.listSharedWithMe(
+            recipient.actor,
+        );
+        expect(listed.items.map((i) => i.entryUid)).not.toContain(file.uuid);
+    });
+
+    it('refuses to revoke the owner', async () => {
+        const owner = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await expect(
+            unshare(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: owner.email },
+            }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('shows the owner a share a manage delegate issued', async () => {
+        const owner = await makeUser();
+        const delegate = await makeUser();
+        const third = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: delegate.email },
+            mode: 'manage',
+        });
+        await share(delegate.actor, {
+            uid: file.uuid,
+            recipient: { email: third.email },
+            mode: 'read',
+        });
+
+        // The owner cannot see this through the permission tables, which are
+        // keyed issuer→holder; the index is what answers it.
+        const rows = await server.services.share.listSharesOf(owner.actor, {
+            uid: file.uuid,
+        });
+        const holders = rows.map((r) => r.holder.username);
+        expect(holders).toContain(delegate.user.username);
+        expect(holders).toContain(third.user.username);
+        expect(
+            rows.find((r) => r.holder.username === third.user.username)?.issuer
+                .username,
+        ).toBe(delegate.user.username);
+    });
+
+    it('lets a delegate clear only what it issued', async () => {
+        const owner = await makeUser();
+        const delegate = await makeUser();
+        const third = await makeUser();
+        const fourth = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: delegate.email },
+            mode: 'manage',
+        });
+        await share(delegate.actor, {
+            uid: file.uuid,
+            recipient: { email: third.email },
+            mode: 'read',
+        });
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: fourth.email },
+            mode: 'read',
+        });
+
+        // Its own grant: cleared.
+        expect(
+            (
+                await unshare(delegate.actor, {
+                    uid: file.uuid,
+                    recipient: { email: third.email },
+                })
+            ).revoked,
+        ).toBe(1);
+        expect(await canRead(third.actor, file.path)).toBe(false);
+
+        // The owner's grant to someone else: untouched.
+        expect(
+            (
+                await unshare(delegate.actor, {
+                    uid: file.uuid,
+                    recipient: { email: fourth.email },
+                })
+            ).revoked,
+        ).toBe(0);
+        expect(await canRead(fourth.actor, file.path)).toBe(true);
+    });
+
+    it('lets the owner clear a grant a delegate issued', async () => {
+        const owner = await makeUser();
+        const delegate = await makeUser();
+        const third = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: delegate.email },
+            mode: 'manage',
+        });
+        await share(delegate.actor, {
+            uid: file.uuid,
+            recipient: { email: third.email },
+            mode: 'read',
+        });
+
+        const byOwner = await unshare(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: third.email },
+        });
+        expect(byOwner.revoked).toBe(1);
+        expect(await canRead(third.actor, file.path)).toBe(false);
+    });
+
+    it('lets a recipient leave a share they did not issue', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: recipient.email },
+            mode: 'read',
+        });
+
+        // Dropping your own access is always allowed, whoever granted it.
+        const left = await unshare(recipient.actor, {
+            uid: file.uuid,
+            recipient: { email: recipient.email },
+        });
+        expect(left.revoked).toBe(1);
+        expect(await canRead(recipient.actor, file.path)).toBe(false);
+    });
+
+    it('will not let leaving a share reveal a file you cannot see', async () => {
+        const owner = await makeUser();
+        const stranger = await makeUser();
+        const file = await makeFile(owner.user);
+
+        // Self-revoke skips the manage gate, so it still has to 404 here or it
+        // becomes an existence oracle for any uid a stranger cares to guess.
+        await expect(
+            unshare(stranger.actor, {
+                uid: file.uuid,
+                recipient: { email: stranger.email },
+            }),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    describe('daily quota', () => {
+        const withLimit = async (limit: number, fn: () => Promise<void>) => {
+            const cfg = (
+                server.services.share as unknown as {
+                    config: { share_daily_limit?: number };
+                }
+            ).config;
+            const previous = cfg.share_daily_limit;
+            cfg.share_daily_limit = limit;
+            try {
+                await fn();
+            } finally {
+                cfg.share_daily_limit = previous;
+            }
+        };
+
+        it('refuses a new share once the day budget is spent', async () => {
+            const owner = await makeUser();
+            const first = await makeUser();
+            const second = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await withLimit(1, async () => {
+                await share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { email: first.email },
+                    mode: 'read',
+                });
+
+                await expect(
+                    share(owner.actor, {
+                        uid: file.uuid,
+                        recipient: { email: second.email },
+                        mode: 'read',
+                    }),
+                ).rejects.toMatchObject({ statusCode: 429 });
+            });
+        });
+
+        it('does not spend budget on changing an existing share mode', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await withLimit(1, async () => {
+                await share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { email: recipient.email },
+                    mode: 'read',
+                });
+                // Same pair, new mode — reach is unchanged, so it must not
+                // count against the budget the first share already spent.
+                const upgraded = await share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { email: recipient.email },
+                    mode: 'write',
+                });
+                expect(upgraded.mode).toBe('write');
+            });
+        });
+
+        it('counts creations, so revoking does not refund the slot', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const other = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await withLimit(1, async () => {
+                await share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { email: recipient.email },
+                    mode: 'read',
+                });
+                await unshare(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { email: recipient.email },
+                });
+
+                await expect(
+                    share(owner.actor, {
+                        uid: file.uuid,
+                        recipient: { email: other.email },
+                        mode: 'read',
+                    }),
+                ).rejects.toMatchObject({ statusCode: 429 });
+            });
+        });
+
+        it('treats a non-positive limit as unlimited', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await withLimit(0, async () => {
+                const result = await share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { email: recipient.email },
+                    mode: 'read',
+                });
+                expect(result.mode).toBe('read');
+            });
+        });
+    });
+
+    it('moves an existing share to a new mode rather than stacking one', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: recipient.email },
+            mode: 'read',
+        });
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: recipient.email },
+            mode: 'write',
+        });
+
+        const rows = await server.services.share.listSharesOf(owner.actor, {
+            uid: file.uuid,
+        });
+        expect(rows).toHaveLength(1);
+        expect(rows[0].mode).toBe('write');
+    });
+
+    it('retires grants when the entry is deleted', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: recipient.email },
+            mode: 'read',
+        });
+
+        await server.services.share.onEntryDeleted(file.uuid);
+        await server.clients.db.write(
+            'DELETE FROM `fsentries` WHERE `uuid` = ?',
+            [file.uuid],
+        );
+
+        const listed = await server.services.share.listSharedWithMe(
+            recipient.actor,
+        );
+        expect(listed.items.map((i) => i.entryUid)).not.toContain(file.uuid);
+        const rows = await server.stores.permission.readLinkedUserUserPerms(
+            recipient.user.id,
+            [`fs:${file.uuid}:read`],
+        );
+        expect(rows).toEqual([]);
+    });
+
+    it('paginates what has been shared with me', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const uids: string[] = [];
+        for (let i = 0; i < 3; i++) {
+            const file = await makeFile(owner.user);
+            uids.push(file.uuid);
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+        }
+
+        const seen: string[] = [];
+        let cursor: string | undefined;
+        for (let guard = 0; guard < 6; guard++) {
+            const page = await server.services.share.listSharedWithMe(
+                recipient.actor,
+                { limit: 2, cursor },
+            );
+            seen.push(...page.items.map((i) => i.entryUid));
+            cursor = page.cursor;
+            if (!cursor) break;
+        }
+        expect(seen).toEqual(uids);
+
+        const withTotal = await server.services.share.listSharedWithMe(
+            recipient.actor,
+            { includeTotal: true },
+        );
+        expect(withTotal.total).toBe(3);
+    });
+});
