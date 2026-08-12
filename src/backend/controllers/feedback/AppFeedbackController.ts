@@ -38,8 +38,16 @@ import { PuterController } from '../types.js';
 /** Sanity cap on the raw body field; the service enforces the real limit. */
 const RAW_MESSAGE_CAP = 50_000;
 
+// Upper bound on the `app`/`origin` target params. Must not exceed the
+// `source_origin` column (VARCHAR(2048) on MySQL/Postgres): the raw origin is
+// stored verbatim, and a longer value would fail the INSERT after passing
+// every validation — or be silently truncated on non-strict MySQL.
+const TARGET_PARAM_MAX_LENGTH = 2048;
+
 const readTargetParam = (value: unknown): string | undefined => {
-    return typeof value === 'string' && value.length > 0 && value.length <= 3000
+    return typeof value === 'string' &&
+        value.length > 0 &&
+        value.length <= TARGET_PARAM_MAX_LENGTH
         ? value
         : undefined;
 };

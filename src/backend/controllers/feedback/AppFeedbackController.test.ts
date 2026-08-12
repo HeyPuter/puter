@@ -357,6 +357,20 @@ describe('AppFeedbackController POST /', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it('throws 400 when the origin exceeds the stored column size', async () => {
+        // source_origin is VARCHAR(2048) on MySQL/Postgres; a longer origin
+        // must be rejected up front, not fail (or silently truncate) at the
+        // INSERT after passing every other validation.
+        mockEmailConfigured();
+        const { userId: ownerId } = await makeUser();
+        const app = await makeApp(ownerId, { feedbackEnabled: true });
+        const origin = `${new URL(app.index_url).origin}/${'x'.repeat(2500)}`;
+        const { actor } = await makeUser();
+        await expect(
+            submit(actor, { origin, message: 'hi' }),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
     it('throws 403 feedback_not_enabled when the app has not opted in', async () => {
         mockEmailConfigured();
         const { userId: ownerId } = await makeUser();
