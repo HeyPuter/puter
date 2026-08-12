@@ -444,6 +444,42 @@ describe('AppFeedbackController POST /', () => {
         });
     });
 
+    it('rolls back the stored row when a concurrent burst breaches the cap', async () => {
+        const { userId: ownerId } = await makeUser();
+        const app = await makeApp(ownerId, { feedbackEnabled: true });
+        const { actor, userId } = await makeUser();
+        for (let i = 0; i < AppFeedbackService.PER_USER_APP_DAILY_LIMIT; i++) {
+            await server.stores.appFeedback.create({
+                appId: app.id,
+                appUid: app.uid,
+                userId,
+                message: `seed ${i}`,
+            });
+        }
+        // Simulate the losing side of the check-then-insert race: the
+        // pre-insert check reads a stale under-cap count; the post-insert
+        // recount (real implementation) sees the truth.
+        vi.spyOn(
+            server.stores.appFeedback,
+            'countByUserAndAppSince',
+        ).mockResolvedValueOnce(0);
+
+        await expect(
+            submit(actor, { app: app.name, message: 'raced past the cap' }),
+        ).rejects.toMatchObject({
+            statusCode: 429,
+            legacyCode: 'too_many_requests',
+        });
+
+        const rows = (await server.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `app_feedback` WHERE `user_id` = ?',
+            [userId],
+        )) as Array<{ n: unknown }>;
+        expect(Number(rows[0]?.n)).toBe(
+            AppFeedbackService.PER_USER_APP_DAILY_LIMIT,
+        );
+    });
+
     it('enforces the per-user daily cap across apps with 429', async () => {
         const { userId: ownerId } = await makeUser();
         const target = await makeApp(ownerId, { feedbackEnabled: true });

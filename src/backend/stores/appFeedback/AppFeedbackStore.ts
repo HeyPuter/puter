@@ -89,9 +89,10 @@ export class AppFeedbackStore extends PuterStore {
     // -- Writes -------------------------------------------------------
 
     /**
-     * Insert one feedback row. `email_sent` starts false; the service flips it
-     * with {@link markEmailSent} after the owner email actually goes out, so the
-     * email cap only counts delivered mail.
+     * Insert one feedback row. `email_sent` starts false; the service claims it
+     * with {@link markEmailSent} before sending and releases it with
+     * {@link unmarkEmailSent} if the cap was breached or the send failed, so the
+     * email cap fails closed under concurrent submissions.
      */
     async create(fields: {
         appId: number;
@@ -127,11 +128,31 @@ export class AppFeedbackStore extends PuterStore {
         return { id: Number(insertId), uid };
     }
 
-    /** Record that the owner email for this row was sent. */
+    /** Record that the owner email for this row was sent (claim a cap slot). */
     async markEmailSent(id: number): Promise<void> {
+        await this.#setEmailSent(id, true);
+    }
+
+    /**
+     * Revert {@link markEmailSent} — releases a claimed email-cap slot when the
+     * cap turned out breached or the send failed.
+     */
+    async unmarkEmailSent(id: number): Promise<void> {
+        await this.#setEmailSent(id, false);
+    }
+
+    async #setEmailSent(id: number, sent: boolean): Promise<void> {
         await this.clients.db.write(
             'UPDATE `app_feedback` SET `email_sent` = ? WHERE `id` = ?',
-            [this.clients.db.booleanValue(true), id],
+            [this.clients.db.booleanValue(sent), id],
+        );
+    }
+
+    /** Delete one feedback row. Backs the service's cap-race rollback. */
+    async deleteById(id: number): Promise<void> {
+        await this.clients.db.write(
+            'DELETE FROM `app_feedback` WHERE `id` = ?',
+            [id],
         );
     }
 }

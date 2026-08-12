@@ -188,24 +188,35 @@ export class AppFeedbackService extends PuterService {
 
         // Durable caps. Deliberately DB-backed (see class doc); the counts
         // ride the (user_id, created_at) / (app_id, created_at) indexes.
+        // `includeOwnRow` distinguishes the pre-insert check (this
+        // submission not yet counted) from the post-insert recount (it is).
         const since = Math.floor(Date.now() / 1000) - 24 * 60 * 60;
-        const [userAppCount, userCount] = await Promise.all([
-            this.stores.appFeedback.countByUserAndAppSince(
-                userId,
-                appId,
-                since,
-            ),
-            this.stores.appFeedback.countByUserSince(userId, since),
-        ]);
-        if (
-            userAppCount >= AppFeedbackService.PER_USER_APP_DAILY_LIMIT ||
-            userCount >= AppFeedbackService.PER_USER_DAILY_LIMIT
-        ) {
-            throw new HttpError(
+        const capsBreached = async (
+            includeOwnRow: boolean,
+        ): Promise<boolean> => {
+            const slack = includeOwnRow ? 1 : 0;
+            const [userAppCount, userCount] = await Promise.all([
+                this.stores.appFeedback.countByUserAndAppSince(
+                    userId,
+                    appId,
+                    since,
+                ),
+                this.stores.appFeedback.countByUserSince(userId, since),
+            ]);
+            return (
+                userAppCount >=
+                    AppFeedbackService.PER_USER_APP_DAILY_LIMIT + slack ||
+                userCount >= AppFeedbackService.PER_USER_DAILY_LIMIT + slack
+            );
+        };
+        const tooManyError = () =>
+            new HttpError(
                 429,
                 'You have sent a lot of feedback recently — please try again later',
                 { legacyCode: 'too_many_requests' },
             );
+        if (await capsBreached(false)) {
+            throw tooManyError();
         }
 
         const row = await this.stores.appFeedback.create({
@@ -216,6 +227,16 @@ export class AppFeedbackService extends PuterService {
             sourceEnv: sourceEnv ?? null,
             sourceOrigin: sourceOrigin ?? null,
         });
+
+        // The pre-check is check-then-insert, so parallel submissions (or
+        // multiple nodes) can all pass it on the same stale count. Recount
+        // with this row included and roll it back if a concurrent burst
+        // pushed past a cap — these caps must fail closed, not just usually
+        // hold.
+        if (await capsBreached(true)) {
+            await this.stores.appFeedback.deleteById(row.id);
+            throw tooManyError();
+        }
 
         // Email delivery is best-effort: any failure past this point must
         // not fail the request — the feedback is already stored.
@@ -271,9 +292,17 @@ export class AppFeedbackService extends PuterService {
         }
         if (!(await this.clients.email.validate(owner.email))) return;
 
+        // Claim an email-cap slot *before* sending: flip email_sent, recount
+        // with the claim included, and release the slot if a concurrent
+        // burst pushed past the cap. Counting before sending would fail
+        // open — parallel submissions could each read an under-cap count and
+        // all send. The cost is that a crash mid-send burns a slot without
+        // delivering; the cap is an upper bound, not a quota owed.
+        await this.stores.appFeedback.markEmailSent(feedbackId);
         const emailedToday =
             await this.stores.appFeedback.countEmailedByAppSince(appId, since);
-        if (emailedToday >= AppFeedbackService.PER_APP_DAILY_EMAIL_LIMIT) {
+        if (emailedToday > AppFeedbackService.PER_APP_DAILY_EMAIL_LIMIT) {
+            await this.stores.appFeedback.unmarkEmailSent(feedbackId);
             return;
         }
 
@@ -287,23 +316,30 @@ export class AppFeedbackService extends PuterService {
         const senderEmail =
             sender?.email && sender.email_confirmed ? sender.email : null;
 
-        await this.clients.email.send(
-            owner.email,
-            'app-user-feedback',
-            {
-                owner_username: owner.username,
-                sender_username: sender?.username ?? 'A Puter user',
-                sender_email: senderEmail,
-                // Collapse whitespace so a crafted title can't break the
-                // subject header or spoof extra lines in the body.
-                app_title: String(app.title ?? app.name).replace(/\s+/g, ' '),
-                app_name: String(app.name),
-                app_link: `${this.config.origin}/app/${encodeURIComponent(String(app.name))}`,
-                message,
-            },
-            senderEmail ? { replyTo: senderEmail } : {},
-        );
-
-        await this.stores.appFeedback.markEmailSent(feedbackId);
+        try {
+            await this.clients.email.send(
+                owner.email,
+                'app-user-feedback',
+                {
+                    owner_username: owner.username,
+                    sender_username: sender?.username ?? 'A Puter user',
+                    sender_email: senderEmail,
+                    // Collapse whitespace so a crafted title can't break the
+                    // subject header or spoof extra lines in the body.
+                    app_title: String(app.title ?? app.name).replace(
+                        /\s+/g,
+                        ' ',
+                    ),
+                    app_name: String(app.name),
+                    app_link: `${this.config.origin}/app/${encodeURIComponent(String(app.name))}`,
+                    message,
+                },
+                senderEmail ? { replyTo: senderEmail } : {},
+            );
+        } catch (e) {
+            // Release the claimed slot — the mail never went out.
+            await this.stores.appFeedback.unmarkEmailSent(feedbackId);
+            throw e;
+        }
     }
 }
