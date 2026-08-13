@@ -240,6 +240,49 @@ export class FSService extends PuterService {
             },
         });
 
+        // -- manage-inherits-from-ancestor -----------------------------
+        // `manage` on a directory covers what is inside it, the way `fs:*`
+        // access already reaches descendants through the ancestor chain.
+        // Without this the two are asymmetric: someone trusted to manage a
+        // shared folder can re-share the folder itself but nothing in it, and
+        // cannot even see who has access to a file within it.
+        //
+        // Only the parent is consulted; resolving it re-enters one level up,
+        // so a chain of depth d costs d checks rather than d².
+        permissions.registerImplicator({
+            id: 'manage-inherits-from-ancestor',
+            shortcut: true,
+            matches: (permission: string): boolean =>
+                permission.startsWith(`${MANAGE_PERM_PREFIX}:fs:`),
+            check: async ({ actor, permission }): Promise<unknown> => {
+                // Apps are bounded by their user through a separate path;
+                // widening them here would let one outrun that bound.
+                if (actor.app || actor.accessToken) return undefined;
+                if (!actor.user?.id) return undefined;
+
+                const stripped = permission.replaceAll(
+                    `${MANAGE_PERM_PREFIX}:`,
+                    '',
+                );
+                const uid = PermissionUtil.split(stripped)[1];
+                if (!uid) return undefined;
+
+                const entry = await fsEntryStore.getEntryByUuid(uid);
+                if (!entry) return undefined;
+
+                const [, parent] = await this.getAncestorChain(entry.path);
+                if (!parent) return undefined;
+
+                // uuids carry no `:`, so swapping it in leaves the manage
+                // prefixes and the mode suffix exactly as they were.
+                const held = await permissions.check(
+                    actor,
+                    permission.replace(`fs:${uid}`, `fs:${parent.uid}`),
+                );
+                return held ? {} : undefined;
+            },
+        });
+
         // -- app-owns-appdata -----------------------------------------
         // Mirror of the ACLService short-circuit at ACLService.check:
         // an app-under-user actor implicitly holds fs:<uuid>:* on any

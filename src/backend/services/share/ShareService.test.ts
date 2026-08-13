@@ -402,6 +402,178 @@ describe('ShareService', () => {
         expect(await canRead(third.actor, file.path)).toBe(false);
     });
 
+    describe('manage inherits down the tree', () => {
+        it('lets a folder delegate re-share and inspect a file inside it', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const { dir, file } = await makeDirWithFile(owner.user);
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+
+            // Authority now reaches the child the way access already did.
+            const rows = await server.services.share.listSharesOf(
+                delegate.actor,
+                { uid: file.uuid },
+            );
+            expect(rows.map((r) => r.holder.username)).toContain(
+                delegate.user.username,
+            );
+
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: third.email },
+                mode: 'read',
+            });
+            expect(await canRead(third.actor, file.path)).toBe(true);
+        });
+
+        it('revokes what a folder delegate re-shared from inside it', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const { dir, file } = await makeDirWithFile(owner.user);
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: third.email },
+                mode: 'read',
+            });
+            expect(await canRead(third.actor, file.path)).toBe(true);
+
+            // The grant on the child came from authority held on the folder,
+            // so withdrawing that authority has to reach down to it.
+            await unshare(owner.actor, {
+                uid: dir.uuid,
+                recipient: { username: delegate.user.username },
+            });
+
+            expect(await canRead(delegate.actor, file.path)).toBe(false);
+            expect(await canRead(third.actor, file.path)).toBe(false);
+        });
+
+        it('does not let plain access on a folder manage what is inside', async () => {
+            const owner = await makeUser();
+            const reader = await makeUser();
+            const third = await makeUser();
+            const { dir, file } = await makeDirWithFile(owner.user);
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: reader.email },
+                mode: 'write',
+            });
+
+            // `write` reaches the child, but managing is a separate namespace.
+            // 403 rather than 404 here: they can already see the file, so
+            // hiding it would protect nothing.
+            expect(await canRead(reader.actor, file.path)).toBe(true);
+            await expect(
+                share(reader.actor, {
+                    uid: file.uuid,
+                    recipient: { email: third.email },
+                    mode: 'read',
+                }),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('does not let manage on a file leak up to its folder', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const { dir, file } = await makeDirWithFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: delegate.email },
+                mode: 'manage',
+            });
+
+            // Inheritance runs one way; the parent is not implied by the child.
+            await expect(
+                share(delegate.actor, {
+                    uid: dir.uuid,
+                    recipient: { email: third.email },
+                    mode: 'read',
+                }),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        });
+    });
+
+    it('does not let a delegate pass on `manage` itself', async () => {
+        const owner = await makeUser();
+        const delegate = await makeUser();
+        const third = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: delegate.email },
+            mode: 'manage',
+        });
+
+        // Granting `manage` needs `manage:manage:fs:<uid>`, which only the
+        // owner holds — so delegation is one level deep by construction.
+        await expect(
+            share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: third.email },
+                mode: 'manage',
+            }),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('leaves a delegate alone when their authority survives another issuer', async () => {
+        const owner = await makeUser();
+        const delegate = await makeUser();
+        const middle = await makeUser();
+        const leaf = await makeUser();
+        const file = await makeFile(owner.user);
+
+        // `middle` manages by the owner's grant, and separately holds a plain
+        // read the delegate handed out.
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: delegate.email },
+            mode: 'manage',
+        });
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: middle.email },
+            mode: 'manage',
+        });
+        await share(delegate.actor, {
+            uid: file.uuid,
+            recipient: { email: middle.email },
+            mode: 'read',
+        });
+        await share(middle.actor, {
+            uid: file.uuid,
+            recipient: { email: leaf.email },
+            mode: 'read',
+        });
+
+        await unshare(owner.actor, {
+            uid: file.uuid,
+            recipient: { username: delegate.user.username },
+        });
+
+        // Withdrawing the delegate costs `middle` nothing it was relying on,
+        // so what `middle` granted must stand.
+        expect(await canRead(delegate.actor, file.path)).toBe(false);
+        expect(await canRead(middle.actor, file.path)).toBe(true);
+        expect(await canRead(leaf.actor, file.path)).toBe(true);
+    });
+
     it('lets a delegate clear only what it issued', async () => {
         const owner = await makeUser();
         const delegate = await makeUser();

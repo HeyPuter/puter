@@ -110,6 +110,28 @@ export class ShareStore extends PuterStore {
         return rows.map((r) => this.#normalizeRow(r));
     }
 
+    /**
+     * Active shares on a directory and everything beneath it. `manage` inherits
+     * downwards, so a revoke here has to see what rests on it.
+     *
+     * @param {number} fsentryId
+     * @param {string} path Directory path, used to match descendants.
+     */
+    async listByFsentrySubtree(fsentryId, path) {
+        // `!` escapes the LIKE wildcards so a directory named with `%` or `_`
+        // cannot widen the match into siblings.
+        const prefix = `${String(path).replace(/([!%_])/g, '!$1')}/%`;
+        const rows = await this.clients.db.read(
+            'SELECT `share`.* FROM `share` ' +
+                'JOIN `fsentries` ON `fsentries`.`id` = `share`.`fsentry_id` ' +
+                'WHERE `share`.`holder_user_id` IS NOT NULL AND ' +
+                "(`share`.`fsentry_id` = ? OR `fsentries`.`path` LIKE ? ESCAPE '!') " +
+                'ORDER BY `share`.`id`',
+            [fsentryId, prefix],
+        );
+        return rows.map((r) => this.#normalizeRow(r));
+    }
+
     async countByHolder(holderUserId) {
         const rows = await this.clients.db.read(
             'SELECT COUNT(*) AS `count` FROM `share` WHERE `holder_user_id` = ?',

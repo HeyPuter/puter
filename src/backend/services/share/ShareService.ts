@@ -233,14 +233,7 @@ export class ShareService extends PuterService {
         );
         if (isNewShare) await this.#assertDailyQuota(issuerId);
 
-        const holderActor: Actor = {
-            user: {
-                id: holder.id,
-                uuid: holder.uuid,
-                username: holder.username,
-            } as Actor['user'],
-            effectiveApp: null,
-        };
+        const holderActor: Actor = this.#actorFor(holder);
 
         await this.services.acl.setUserUser(
             actor,
@@ -367,27 +360,30 @@ export class ShareService extends PuterService {
         if (seen.has(issuerId)) return 0;
         seen.add(issuerId);
 
-        const rows = (await this.stores.share.listByFsentry(entry.id)).filter(
+        // The whole subtree, not just this node: `manage` inherits downwards,
+        // so a grant on a descendant can rest on authority held here.
+        const rows = (
+            await this.stores.share.listByFsentrySubtree(entry.id, entry.path)
+        ).filter(
             (row: { issuer_user_id: number }) =>
                 Number(row.issuer_user_id) === issuerId,
+        );
+        if (rows.length === 0) return 0;
+
+        const nodes = await this.stores.fsEntry.getEntriesByIds(
+            rows.map((row: { fsentry_id: number }) => Number(row.fsentry_id)),
         );
 
         let revoked = 0;
         for (const row of rows) {
             const holderId = Number(row.holder_user_id);
+            const node = nodes.get(Number(row.fsentry_id));
             const downstream = await this.stores.user.getById(holderId);
-            if (!downstream?.username) continue;
-
-            revoked += await this.#revokeDownstream(
-                actor,
-                entry,
-                holderId,
-                seen,
-            );
+            if (!node || !downstream?.username) continue;
 
             const { revoked: didRevoke, authorized } = await this.#revokeFor(
                 actor,
-                entry,
+                node,
                 downstream.username,
                 issuerId,
             );
@@ -395,10 +391,27 @@ export class ShareService extends PuterService {
             if (authorized) {
                 await this.stores.share.deleteActive({
                     holderUserId: holderId,
-                    fsentryId: entry.id,
+                    fsentryId: node.id,
                     issuerUserId: issuerId,
                 });
             }
+
+            // Only carry on down if this actually cost them their authority.
+            // A delegate granted `manage` by two people keeps it when one
+            // withdraws, and what they granted is not theirs to lose.
+            const stillHolds =
+                await this.services.permission.canManagePermission(
+                    this.#actorFor(downstream),
+                    `fs:${node.uuid}:read`,
+                );
+            if (stillHolds) continue;
+
+            revoked += await this.#revokeDownstream(
+                actor,
+                entry,
+                holderId,
+                seen,
+            );
         }
         return revoked;
     }
@@ -599,6 +612,18 @@ export class ShareService extends PuterService {
             createdAt: row.created_at,
             modified: entry.modified,
             size: entry.size,
+        };
+    }
+
+    /** A plain user actor, for asking the permission layer about someone else. */
+    #actorFor(user: { id: number; uuid?: string; username?: string }): Actor {
+        return {
+            user: {
+                id: user.id,
+                uuid: user.uuid,
+                username: user.username,
+            } as Actor['user'],
+            effectiveApp: null,
         };
     }
 
