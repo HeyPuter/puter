@@ -82,11 +82,12 @@ const makeReq = (init: {
     body?: unknown;
     actor?: Actor;
     query?: Record<string, unknown>;
+    headers?: Record<string, string>;
 }): Request => {
     return {
         body: init.body ?? {},
         query: init.query ?? {},
-        headers: {},
+        headers: init.headers ?? {},
         actor: init.actor,
     } as unknown as Request;
 };
@@ -430,11 +431,154 @@ describe('SystemController POST /contactUs', () => {
 
         // The row landed in the real `feedback` table for the right user.
         const rows = (await server.clients.db.read(
-            'SELECT `user_id`, `message` FROM `feedback` WHERE `user_id` = ? AND `message` = ?',
+            'SELECT `user_id`, `message`, `attachments` FROM `feedback` WHERE `user_id` = ? AND `message` = ?',
             [userId, message],
-        )) as Array<{ user_id: number; message: string }>;
+        )) as Array<{
+            user_id: number;
+            message: string;
+            attachments: string | null;
+        }>;
         expect(rows).toHaveLength(1);
         expect(rows[0]?.message).toBe(message);
+        // No files sent — the column stays null rather than an empty array.
+        expect(rows[0]?.attachments ?? null).toBeNull();
+    });
+});
+
+// ── /contactUs attachments ──────────────────────────────────────────
+
+describe('SystemController POST /contactUs — attachments', () => {
+    // A real PNG signature with a filler body; the sniffer only reads the
+    // first eight bytes, and nothing downstream decodes the image.
+    const pngBytes = (size = 64): Buffer =>
+        Buffer.concat([
+            Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+            Buffer.alloc(size - 8, 0x61),
+        ]);
+    const pngBase64 = (size = 64): string => pngBytes(size).toString('base64');
+
+    const submit = async (
+        body: Record<string, unknown>,
+        headers?: Record<string, string>,
+    ) => {
+        const { actor, userId } = await makeUser();
+        const { res, captured } = makeRes();
+        const call = callRoute(
+            'post',
+            '/contactUs',
+            makeReq({ body, actor, headers }),
+            res,
+        );
+        return { call, captured, userId, actor };
+    };
+
+    const readAttachments = async (userId: number, message: string) => {
+        const rows = (await server.clients.db.read(
+            'SELECT `attachments` FROM `feedback` WHERE `user_id` = ? AND `message` = ?',
+            [userId, message],
+        )) as Array<{ attachments: string | null }>;
+        return rows[0]?.attachments ?? null;
+    };
+
+    it('stores attachment metadata — names, types and sizes, no payloads', async () => {
+        const message = `attached ${Math.random().toString(36).slice(2)}`;
+        const { call, captured, userId } = await submit({
+            message,
+            attachments: [{ name: 'repro-step-3.png', data: pngBase64(128) }],
+        });
+        await call;
+        expect(captured.body).toEqual({});
+
+        const stored = await readAttachments(userId, message);
+        expect(JSON.parse(stored!)).toEqual([
+            { name: 'repro-step-3.png', type: 'image/png', size: 128 },
+        ]);
+    });
+
+    it('emails the files to support with sanitized names and a manifest', async () => {
+        const sendRaw = vi
+            .spyOn(server.clients.email, 'sendRaw')
+            .mockResolvedValue(null);
+        try {
+            const message = `attached ${Math.random().toString(36).slice(2)}`;
+            const { call } = await submit({
+                message,
+                // Declares .html, but the bytes are a PNG: the stored and
+                // emailed extension must follow the bytes.
+                attachments: [{ name: 'payload.html', data: pngBase64(64) }],
+            });
+            await call;
+
+            expect(sendRaw).toHaveBeenCalledTimes(1);
+            const sent = sendRaw.mock.calls[0][0] as {
+                text: string;
+                attachments: Array<{
+                    filename: string;
+                    content: Buffer;
+                    contentType: string;
+                    contentDisposition: string;
+                }>;
+            };
+            expect(sent.attachments).toHaveLength(1);
+            expect(sent.attachments[0].filename).toBe('payload.png');
+            expect(sent.attachments[0].contentType).toBe('image/png');
+            expect(sent.attachments[0].contentDisposition).toBe('attachment');
+            expect(sent.attachments[0].content.equals(pngBytes(64))).toBe(true);
+            // The body records what should have arrived, in case a gateway
+            // strips the files on the way.
+            expect(sent.text).toContain(message);
+            expect(sent.text).toContain('payload.png');
+        } finally {
+            sendRaw.mockRestore();
+        }
+    });
+
+    it('sends no attachments array shape when none were supplied', async () => {
+        const sendRaw = vi
+            .spyOn(server.clients.email, 'sendRaw')
+            .mockResolvedValue(null);
+        try {
+            const message = `plain ${Math.random().toString(36).slice(2)}`;
+            const { call } = await submit({ message });
+            await call;
+            const sent = sendRaw.mock.calls[0][0] as {
+                text: string;
+                attachments: unknown[];
+            };
+            expect(sent.attachments).toEqual([]);
+            expect(sent.text).toBe(message);
+        } finally {
+            sendRaw.mockRestore();
+        }
+    });
+
+    it.each([
+        ['a non-array field', 'not-an-array'],
+        ['too many files', Array.from({ length: 6 }, () => ({ data: 'AAAA' }))],
+        ['an unsupported type', [{ data: Buffer.from('%PDF-1.7 x').toString('base64') }]],
+        ['a script-capable SVG', [{ data: Buffer.from('<svg><script/></svg>').toString('base64') }]],
+        ['invalid base64', [{ data: 'not base64 at all!!' }]],
+        ['a missing payload', [{ name: 'a.png' }]],
+    ])('rejects %s with 400', async (_label, attachments) => {
+        const { call } = await submit({ message: 'hi', attachments });
+        await expect(call).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects a body whose declared length cannot possibly be valid', async () => {
+        const { call } = await submit(
+            { message: 'hi' },
+            { 'content-length': String(64 * 1024 * 1024) },
+        );
+        await expect(call).rejects.toMatchObject({ statusCode: 413 });
+    });
+
+    it('accepts a body whose declared length is within budget', async () => {
+        const { call, captured } = await submit(
+            { message: 'hi', attachments: [{ data: pngBase64() }] },
+            { 'content-length': '4096' },
+        );
+        await call;
+        expect(captured.body).toEqual({});
     });
 });
 
