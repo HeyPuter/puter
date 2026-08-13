@@ -580,23 +580,23 @@ describe('MeteringService', () => {
             // just been spending credit they paid for. The purchased credit must
             // shift the baseline the multiples are measured from.
             //
-            // The registered-user free allowance is 25e6 micro-cents. Purchased
-            // credit of 37.5e6 (1.5x) makes the full budget run dry at 62.5e6 —
-            // between the 2x (50e6) and 3x (75e6) allowance marks — so a small
+            // The registered-user free allowance is 50e6 micro-cents. Purchased
+            // credit of 75e6 (1.5x) makes the full budget run dry at 125e6 —
+            // between the 2x (100e6) and 3x (150e6) allowance marks — so a small
             // expense just past it crosses a from-zero multiple (old: pages)
             // without crossing a net-of-credit multiple (new: quiet).
             const creditActor: Actor = { user: makeUser() };
             const sub = await target.getActorSubscription(creditActor);
-            expect(sub.monthUsageAllowance).toBe(25_000_000);
-            await target.updateAddonCredit(creditActor.user.uuid!, 37_500_000);
+            expect(sub.monthUsageAllowance).toBe(50_000_000);
+            await target.updateAddonCredit(creditActor.user.uuid!, 75_000_000);
 
             // Burn the allowance + all credit and a bit beyond, one legit jump.
-            await target.incrementUsage(creditActor, 'ai:chat', 1, 70_000_000);
+            await target.incrementUsage(creditActor, 'ai:chat', 1, 140_000_000);
 
             // A small further expense crosses the 3x-from-zero mark but is still
             // well within (credit + 2x allowance) — it must stay quiet.
             const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
-            await target.incrementUsage(creditActor, 'ai:chat', 1, 7_500_000);
+            await target.incrementUsage(creditActor, 'ai:chat', 1, 15_000_000);
 
             expect(wasOveruseAlarmed(alarmSpy)).toBe(false);
             alarmSpy.mockRestore();

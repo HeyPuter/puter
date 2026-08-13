@@ -6,6 +6,7 @@ import {
     servicesContainers,
 } from '@heyputer/backend/src/exports';
 import { extension } from '@heyputer/backend/src/extensions';
+import { creditsPerDollarFrom } from '@heyputer/backend/src/services/metering/utils';
 import type { Request, Response } from 'express';
 
 const services = extension.import('service');
@@ -61,7 +62,15 @@ export const handleMeteringUsage = async (
         services.metering.getActorCurrentMonthUsageDetails(actor),
         services.metering.getAllowedUsage(actor),
     ]);
-    res.json({ ...actorUsage, allowanceInfo });
+    res.json({
+        ...actorUsage,
+        allowanceInfo: {
+            ...allowanceInfo,
+            // Clients render usage in credits; the amounts stay microcents so
+            // the rate can change without touching stored balances.
+            creditsPerDollar: creditsPerDollarFrom(extension.config),
+        },
+    });
 };
 
 export const handleMeteringUsageForApp = async (

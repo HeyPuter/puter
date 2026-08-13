@@ -1001,6 +1001,14 @@ interface IConfigOptional {
         enabled?: boolean;
         workers?: boolean;
     };
+
+    /**
+     * How many display credits one dollar of usage buys. Purely presentational:
+     * metering stores microcents, and clients derive every credit figure from
+     * this rate at read time, so it can change without a data migration.
+     * Default: 2000 (the free tier's 50¢ allowance reads as 1,000 credits).
+     */
+    creditsPerDollar?: number;
 }
 
 /**
