@@ -411,9 +411,28 @@ export class ShareService extends PuterService {
     async onEntryDeleted(
         entryUid: string,
     ): Promise<Array<{ holder_user_id: number; issuer_user_id: number }>> {
-        return this.stores.permission.deleteUserUserPermsByPermissionPrefix(
-            `fs:${entryUid}`,
+        const removed =
+            await this.stores.permission.deleteUserUserPermsByPermissionPrefix(
+                `fs:${entryUid}`,
+            );
+
+        // Retiring the rows is not enough: a holder's cached scan still answers
+        // "allowed" until it ages out. The revoke path bumps for this reason,
+        // and a delete has to as well or access outlives the file.
+        const holderIds = [
+            ...new Set(removed.map((row) => Number(row.holder_user_id))),
+        ].filter((id) => Number.isFinite(id));
+        await Promise.all(
+            holderIds.map(async (id) => {
+                const user = await this.stores.user.getById(id);
+                if (!user?.uuid) return;
+                await this.stores.permission.bumpCacheGeneration(
+                    `user:${user.uuid}`,
+                );
+            }),
         );
+
+        return removed;
     }
 
     // -- Reads --------------------------------------------------------
