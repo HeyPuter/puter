@@ -49,6 +49,11 @@ The app still appears in the taskbar, so the user can see it is running, show it
 or close it, and it can show itself at any time with
 [`puter.ui.showWindow()`](/UI/showWindow). Defaults to `false`.
 
+A background app closes when the app that launched it closes: it was launched to
+serve that app, and the user never saw it. Once it has been shown — by
+[`puter.ui.showWindow()`](/UI/showWindow) or by the user, from the taskbar — it is
+an ordinary window and keeps running on its own.
+
 ## Return value 
 A `Promise` that will resolve to an [`AppConnection`](/Objects/AppConnection) once the app is launched.
 

@@ -23,6 +23,7 @@ import i18n from '../i18n/i18n.js';
 import launch_app from './launch_app.js';
 import path from '../lib/path.js';
 import item_icon from './item_icon.js';
+import { is_window_on_screen } from './window_visibility.js';
 
 // Files whose app launch is still in flight, by file uid. Between the click
 // and the window's creation there is nothing in the DOM to restore, so a
@@ -268,11 +269,10 @@ Please try recreating the link.`);
         // No window yet means the first click's launch is still in
         // flight — swallow the re-click instead of duplicating it.
         if ( $win.length ) {
-            const minimized = $win.attr('data-is_minimized');
-            if ( minimized === '1' || minimized === 'true' ) {
-                $win.showWindow();
-            } else {
+            if ( is_window_on_screen($win.get(0)) ) {
                 $win.focusWindow();
+            } else {
+                $win.showWindow();
             }
         }
     }

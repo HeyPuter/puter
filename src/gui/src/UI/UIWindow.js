@@ -30,6 +30,7 @@ import launch_app from '../helpers/launch_app.js';
 import publish_as_website from '../helpers/publish_as_website.js';
 
 import item_icon from '../helpers/item_icon.js';
+import { is_window_hidden } from '../helpers/window_visibility.js';
 
 const el_body = document.getElementsByTagName('body')[0];
 const SNAP_PLACEHOLDER_DELAY_MS = 600; // delay before showing placeholder in any snap zone
@@ -302,6 +303,7 @@ async function UIWindow (options) {
                 data-user_set_url_params = "${html_encode(user_set_url_params)}"
                 data-is_panel ="${options.is_panel ? 1 : 0}"
                 data-is_visible ="${options.is_visible ? 1 : 0}"
+                ${options.launched_hidden ? 'data-launched_hidden ="1"' : ''}
                 style=" z-index: ${zindex}; 
                         ${options.right !== undefined ? `right: ${ html_encode(options.right) }; ` : ''}
                         ${options.left !== undefined ? `left: ${ html_encode(options.left) }; ` : ''}
@@ -3663,6 +3665,15 @@ $.fn.close = async function (options) {
             // close child windows
             $(`.window[data-parent_uuid="${window_uuid}"]`).close();
 
+            // An app this one launched in the background dies with it. It was
+            // launched to serve this app, not the user: it has never been on
+            // screen, nothing can talk to it once its launcher is gone, and
+            // the only sign it is still running is a dot on a tile the user
+            // never lit up. A background app that showed itself dropped the
+            // marker when it did (makeWindowVisible) — that window is the
+            // user's now, and keeps running.
+            $(`.window[data-parent_instance_id="${window_uuid}"][data-launched_hidden="1"]`).close();
+
             // notify other apps that we're closing
             window.report_app_closed(window_uuid, options.status_code ?? 0);
 
@@ -3869,6 +3880,10 @@ $.fn.makeWindowVisible = function (options) {
             $(this).attr({
                 'data-is_visible': '1',
             });
+            // Seen by the user, so no longer a window that exists purely to
+            // serve whoever launched it: it outlives its launcher from here on
+            // (see the close path's cleanup of background children).
+            $(this).removeAttr('data-launched_hidden');
 
             // if sidepanel, shift desktop toolbar to the left
             if ( $(this).attr('data-is_panel') === '1' ) {
@@ -3928,9 +3943,7 @@ $.fn.showWindow = async function (options) {
             // un-hiding it is the whole job, and the inverse of what hid it.
             // This is what makes the taskbar item a real handle on a window
             // the user cannot currently see.
-            if ( $(this).attr('data-is_visible') === '0'
-                && $(this).attr('data-is_minimized') !== '1'
-                && $(this).attr('data-is_minimized') !== 'true' ) {
+            if ( is_window_hidden(this) ) {
                 $(this).makeWindowVisible();
                 return;
             }

@@ -188,9 +188,12 @@ export class ExecService extends Service {
         }
 
         const send_child_launched_msg = (...a) => {
-            if ( ! process ) return;
             // TODO: (maybe) message process instead of iframe
             const parent_iframe = process?.references?.iframe;
+            // The app that launched this one may already be gone — a child it
+            // launched in the background is closed with it, and this fires on
+            // the way out. Nobody to tell.
+            if ( ! parent_iframe?.contentWindow ) return;
             parent_iframe.contentWindow.postMessage({
                 msg: 'childAppLaunched',
                 original_msg_id: msg_id,
@@ -227,9 +230,12 @@ export class ExecService extends Service {
                 window.report_app_closed(child_process.uuid);
             }
 
-            process.references.iframe.contentWindow.postMessage({
+            // Same here: this handler runs inside jQuery's remove(), so a throw
+            // on a dead parent would abort the removal itself and leave the
+            // window in the DOM (running dot and all).
+            parent_iframe?.contentWindow?.postMessage({
                 msg: 'appClosed',
-                appInstanceID: connection.forward.uuid,
+                appInstanceID: connection?.forward?.uuid,
                 statusCode: 0,
             }, '*');
         });

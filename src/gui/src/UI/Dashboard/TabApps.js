@@ -7,6 +7,7 @@ import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 import { parseRemovedApps, serializeRemovedApps, REMOVED_APPS_KV_KEY } from './removedApps.js';
 import { appTileLink } from './appLink.js';
+import { is_window_on_screen, is_unseen_background_window } from '../../helpers/window_visibility.js';
 import {
     APP_GROUPS_KV_KEY,
     MAX_GROUP_APPS,
@@ -248,16 +249,25 @@ function buildAddTileHtml () {
 // One instance per app when opened from the dashboard: un-hide a minimized
 // instance / focus a visible one instead of launching a duplicate. Returns
 // whether an existing window took the request.
+//
+// "Un-hide" covers a window hidden outright as well as a minimized one — an
+// app launched in the background by another app has a window from the moment
+// it starts, and with no taskbar in dashboard mode its tile is the only handle
+// on it. Focusing it instead would leave the tile dead (and hand the keyboard
+// to a window nobody can see); showWindow() tells the two cases apart.
 function focusExistingAppWindow (appName) {
     const $existing = $(`.window[data-app="${html_encode(appName)}"]`);
     if ( ! $existing.length ) return false;
-    const $win = $existing.last();
-    const minimized = $win.attr('data-is_minimized');
-    if ( minimized === '1' || minimized === 'true' ) {
-        $win.showWindow();
-    } else {
-        $win.focusWindow();
+    const $on_screen = $existing.filter((_, el) => is_window_on_screen(el)).last();
+    if ( $on_screen.length ) {
+        $on_screen.focusWindow();
+        return true;
     }
+    // Nothing on screen, so something has to be shown — and the user's own
+    // instance comes first: an instance another app launched in the background
+    // must not take the tile from the session they minimized.
+    const $seen = $existing.filter((_, el) => ! is_unseen_background_window(el));
+    ($seen.length ? $seen : $existing).last().showWindow();
     return true;
 }
 

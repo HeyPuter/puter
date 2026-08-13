@@ -705,6 +705,9 @@ const launch_app = async (options) => {
             // it's resolved, e.g. a shortcut's uid becomes its target's).
             file_uid: file_signature?.uid ?? options.file_uid,
             is_visible: !starts_hidden(app_info, options),
+            // Marks a window the user has never seen, so closing the app that
+            // launched it can take it down with it (see UIWindow's close path).
+            launched_hidden: starts_hidden(app_info, options),
             is_maximized: options.maximized,
             is_fullpage: options.is_fullpage,
             ...(options.pseudonym ? { pseudonym: options.pseudonym } : {}),
