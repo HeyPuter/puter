@@ -58,6 +58,14 @@ const APP_CENTER_APP_NAME = 'app-center';
 /** Puter's AI app builder, which generates an app from a description. */
 const BUILDER_APP_NAME = 'builder';
 
+// -- App Center discovery under search --
+// When a search matches none of the user's own apps, the same query is put to
+// the App Center catalogue, so "I don't have it" continues into "here it is"
+// without leaving the tab. Shown only on the no-local-matches state — a query
+// that found the user's apps already answered them.
+const DISCOVER_PAGE_SIZE = 8;
+const DISCOVER_DEBOUNCE_MS = 250;
+
 // -- Drag-to-reorder tuning --
 const DRAG_START_DISTANCE = 5;      // px a pointer must travel before a drag begins
 const MODE_LONGPRESS_MS = 500;      // hold on empty grid space before reorder mode engages
@@ -827,6 +835,11 @@ const TabApps = {
     // their tiles (the mirror of _removedLocal).
     _arriving: null,
     _pendingInstalls: null,
+    // Latest App Center answer for the search box ({ query, items }), plus
+    // the debounce timer and a sequence guard against out-of-order responses.
+    _discover: null,
+    _discoverTimer: null,
+    _discoverSeq: 0,
 
     html () {
         let h = '<div class="dashboard-tab-content myapps-tab">';
@@ -920,6 +933,26 @@ const TabApps = {
         $el_window.on('input', '.myapps-search', function () {
             self.updateSearchIcons($el_window);
             self.renderApps($el_window);
+            self._queueDiscover($el_window);
+        });
+
+        // Launch an App Center discovery straight from the search results.
+        // Distinct from '.myapps-tile': discovery tiles take no part in
+        // drag-reorder, folders, or the running-dot machinery.
+        const launchDiscovery = function () {
+            const name = this.dataset.appName;
+            if ( ! name || TabApps._launchingApps.has(name) ) return;
+            TabApps._launchingApps.add(name);
+            launch_app({ name, maximized: true })
+                .catch(err => console.error(`Failed to launch ${name}:`, err))
+                .finally(() => TabApps._launchingApps.delete(name));
+        };
+        $el_window.on('click', '.myapps-discover-tile', launchDiscovery);
+        $el_window.on('keydown', '.myapps-discover-tile', function (e) {
+            if ( e.key === 'Enter' || e.key === ' ' ) {
+                e.preventDefault();
+                launchDiscovery.call(this);
+            }
         });
 
         // Clear search on cross click
@@ -1352,7 +1385,7 @@ const TabApps = {
             this._page = 0;
             this._pageCount = 0;
             $container.html(query
-                ? '<div class="myapps-empty"><p>No apps match your search</p></div>'
+                ? `<div class="myapps-empty"><p>No apps match your search</p></div>${this._discoverHtml(query)}`
                 : buildNoAppsHtml());
             return;
         }
@@ -1419,6 +1452,89 @@ const TabApps = {
                 }
             });
         }, { passive: true });
+    },
+
+    // -- App Center discovery under search --
+
+    /**
+     * The "From the App Center" strip for the no-local-matches state, from
+     * the cached catalogue answer. Empty until the fetch for exactly this
+     * query has landed — a stale strip would answer the wrong question.
+     */
+    _discoverHtml (query) {
+        const discover = this._discover;
+        if ( ! discover || discover.query !== query || discover.items.length === 0 ) {
+            return '';
+        }
+        let h = '<div class="myapps-discover">';
+        h += '<div class="myapps-discover-title">From the App Center</div>';
+        h += '<div class="myapps-discover-row">';
+        for ( const item of discover.items ) {
+            h += `<div class="myapps-discover-tile" role="button" tabindex="0" data-app-name="${html_encode(item.name)}">`;
+            h += item.icon
+                ? `<img src="${html_encode(item.icon)}" alt="" draggable="false">`
+                : '<div class="myapps-discover-tile-blank"></div>';
+            h += `<span>${html_encode(item.title)}</span>`;
+            h += '</div>';
+        }
+        h += '</div></div>';
+        return h;
+    },
+
+    /** Debounced catalogue lookup for the current search box contents. */
+    _queueDiscover ($el_window) {
+        clearTimeout(this._discoverTimer);
+        const query = String($el_window.find('.myapps-search').val() || '').trim();
+        if ( ! query ) {
+            this._discover = null;
+            return;
+        }
+        // Already answered — nothing to fetch, nothing to re-render.
+        if ( this._discover?.query === query ) return;
+        const self = this;
+        this._discoverTimer = setTimeout(async () => {
+            const seq = ++self._discoverSeq;
+            let items = [];
+            try {
+                const resp = await fetch(
+                    `${window.api_origin}/marketplace/search?q=${encodeURIComponent(query)}&page=1&pageSize=${DISCOVER_PAGE_SIZE}`,
+                );
+                if ( resp.ok ) {
+                    const body = await resp.json();
+                    items = Array.isArray(body?.items) ? body.items : [];
+                }
+            } catch {
+                // Offline or the catalogue is down — the empty state simply
+                // stays as it was.
+            }
+            // A newer keystroke owns the strip now.
+            if ( seq !== self._discoverSeq ) return;
+
+            // What the user already has isn't a discovery.
+            const owned = new Set();
+            for ( const app of self._apps || [] ) {
+                if ( app.name ) owned.add(String(app.name).toLowerCase());
+                if ( app.uid || app.uuid ) owned.add(String(app.uid || app.uuid).toLowerCase());
+            }
+            self._discover = {
+                query,
+                items: items
+                    .filter(item => item?.item_name
+                        && ! owned.has(String(item.item_name).toLowerCase())
+                        && ! owned.has(String(item.item_id || '').toLowerCase()))
+                    .map(item => ({
+                        name: String(item.item_name),
+                        title: String(item.item_title || item.item_name),
+                        icon: typeof item.icon_url === 'string' ? item.icon_url : null,
+                    })),
+            };
+            // Only the empty state renders the strip, so only re-render if
+            // the query in the box is still the one this answer belongs to.
+            const current = String($el_window.find('.myapps-search').val() || '').trim();
+            if ( current === query ) {
+                self.renderApps($el_window, { preservePage: true, instant: true });
+            }
+        }, DISCOVER_DEBOUNCE_MS);
     },
 
     // Mark tiles whose app has a live window (visible OR minimized — both
