@@ -35,11 +35,17 @@ const mode_label = (mode) => {
  * @param {object} options
  * @param {string} options.path Item to share.
  * @param {string} [options.name] Display name; defaults to the path's basename.
+ * @param {string} [options.owner] Owner's username; defaults to the first path
+ *   segment, which is not the current user when a `manage` recipient opens this.
  */
 async function UIWindowShare (options) {
     options = options ?? {};
     const item_path = options.path;
     const item_name = options.name ?? path.basename(item_path);
+    const item_owner =
+        options.owner
+        ?? item_path?.split('/').filter(Boolean)[0]
+        ?? window.user.username;
 
     let h = '';
     h += '<div class="share-dialog">';
@@ -104,7 +110,7 @@ async function UIWindowShare (options) {
         let rows = '';
         // The owner's access comes from owning the item, so it can't be revoked
         rows += '<div class="share-row">';
-        rows += `<span class="share-row-who">${html_encode(options.owner ?? window.user.username)}</span>`;
+        rows += `<span class="share-row-who">${html_encode(item_owner)}${item_owner === window.user.username ? ` (${i18n('share_you')})` : ''}</span>`;
         rows += `<span class="share-row-owner">${i18n('share_owner')}</span>`;
         rows += '</div>';
 
