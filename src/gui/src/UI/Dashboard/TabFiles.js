@@ -1936,6 +1936,14 @@ const TabFiles = {
         const _this = this;
         if ( ! targetPath ) return;
 
+        // A listing rebuild is already in flight. renderDirectory() clears
+        // `.files` before its readdir resolves, so a row drawn now survives the
+        // clear and ends up stranded in whatever directory the rebuild lands
+        // on — a row for `targetPath/New Folder` sitting in another folder's
+        // listing, with the rename editor open on it. Drop the click instead,
+        // exactly as renderDirectory drops navigation clicks while it renders.
+        if ( this.renderingDirectory ) return;
+
         // Invoked from a sidebar or breadcrumb menu for a folder that isn't
         // the one on screen — go there first, so the row (and the rename that
         // follows) happens where the folder lives rather than as a phantom row
