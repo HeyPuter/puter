@@ -422,6 +422,43 @@ describe('FSService write payload handling', () => {
         expect(error.statusCode).toBe(400);
         expect(error.message).toBe('Unsupported file content payload');
     });
+
+    it('fails only the request when the source aborts mid-stream', async () => {
+        // A client disconnecting mid-upload destroys the source. The byte
+        // counter sitting between it and the upload must not turn that into an
+        // unhandled 'error' event, which would end the whole process.
+        const uncaught: unknown[] = [];
+        const onUncaught = (error: unknown) => uncaught.push(error);
+        process.on('uncaughtException', onUncaught);
+
+        const source = new Readable({
+            read() {
+                this.push('partial');
+                this.destroy(
+                    Object.assign(new Error('aborted'), {
+                        code: 'ECONNRESET',
+                    }),
+                );
+            },
+        });
+
+        try {
+            const outcome = await write('aborted.bin', source).then(
+                () => null,
+                (error: unknown) => error,
+            );
+            expect(outcome).toBeInstanceOf(Error);
+            // Drain the microtask and nextTick queues so a stray 'error'
+            // event has somewhere to land before the assertion below.
+            await new Promise((resolve) => setImmediate(resolve));
+        } finally {
+            process.off('uncaughtException', onUncaught);
+        }
+
+        expect(uncaught).toEqual([]);
+        // Generous timeout: the object-store client retries the torn-off body
+        // before giving up, which puts the rejection just past the default.
+    }, 20_000);
 });
 
 describe('FSService overwrite and dedupe resolution', () => {

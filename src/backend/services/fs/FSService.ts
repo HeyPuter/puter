@@ -20,7 +20,7 @@
 import { createHash } from 'node:crypto';
 import { posix as pathPosix } from 'node:path';
 import type { TransformCallback } from 'node:stream';
-import { Readable, Transform } from 'node:stream';
+import { pipeline, Readable, Transform } from 'node:stream';
 import { v4 as uuidv4 } from 'uuid';
 import {
     BinaryPayload,
@@ -886,10 +886,18 @@ export class FSService extends PuterService {
             },
         });
 
-        source.on('error', (error) => {
-            countingStream.destroy(error);
+        // `pipeline` rather than `pipe` plus a hand-rolled 'error' forward: it
+        // keeps an 'error' listener attached to `countingStream` for the whole
+        // lifetime of the stream, and tears down both ends whichever one fails.
+        // The consumer is an object-store upload that may not have subscribed
+        // yet when a client disconnects mid-request, and destroying a Transform
+        // that nobody is listening to raises an unhandled 'error' event — which
+        // ends the process rather than just the request.
+        pipeline(source, countingStream, (error) => {
+            if (error) {
+                console.warn('upload stream ended early:', error.message);
+            }
         });
-        source.pipe(countingStream);
 
         return {
             stream: countingStream,

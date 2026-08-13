@@ -239,7 +239,12 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
+        | 'sms'
+        | 'rcs'
+        | 'whatsapp'
+        | 'viber'
+        | 'zalo'
+        | 'telegram';
 }
 
 /**
@@ -631,6 +636,14 @@ interface IConfigOptional {
      * (the default) leaves console output human-readable for local/dev.
      */
     log_format: 'json' | 'text';
+    /**
+     * Keep serving after an uncaught exception instead of exiting. Uncaught
+     * exceptions are always logged either way; this only decides whether one
+     * ends the process. Default: false, matching Node's own behavior. Set it
+     * where losing the node costs more than running a possibly-degraded one — a
+     * small pool behind a health check that replaces bad nodes anyway.
+     */
+    keep_alive_on_uncaught: boolean;
     /** Server version. Falls back to `npm_package_version`. */
     version: string;
     /**
@@ -1026,8 +1039,7 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];
