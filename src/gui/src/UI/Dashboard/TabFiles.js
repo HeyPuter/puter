@@ -3046,6 +3046,12 @@ const TabFiles = {
                     _this.folderDwellTimer = null;
                     _this.folderDwellTarget = null;
 
+                    // A row drawn ahead of its mkdir has a predicted path, not
+                    // a real one. Moving into it would either fail or — because
+                    // move treats a non-existent destination as a rename target
+                    // — quietly rename the dragged file to "New Folder".
+                    if ( isPending() ) return;
+
                     const draggedPath = $(ui.draggable).attr('data-path');
                     if ( event.ctrlKey && draggedPath?.startsWith(`${window.trash_path}/`) ) {
                         return;
@@ -3086,6 +3092,11 @@ const TabFiles = {
 
                 over: function (_event, ui) {
                     if ( $(ui.draggable).hasClass('row') ) {
+                        // Still waiting on mkdir: don't offer it as a drop
+                        // target, and don't spring-load into a path that may
+                        // not exist yet (see the drop handler above).
+                        if ( isPending() ) return;
+
                         $(el_item).addClass('selected');
 
                         const _this = TabFiles;
@@ -3149,6 +3160,7 @@ const TabFiles = {
                     if ( ! e.dataTransfer?.types?.includes('Files') ) {
                         return;
                     }
+                    if ( isPending() ) return;
 
                     const targetPath = $(el_item).attr('data-path');
 
@@ -3172,6 +3184,7 @@ const TabFiles = {
                     if ( ! e.dataTransfer?.types?.includes('Files') ) {
                         return;
                     }
+                    if ( isPending() ) return;
 
                     const targetPath = $(el_item).attr('data-path');
 
