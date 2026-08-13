@@ -45,6 +45,8 @@ A `Promise` that resolves to `{ revoked }`, where `revoked` is how many grants w
 
 An item's owner cannot be removed from their own item.
 
+Withdrawing someone's access also withdraws whatever **they** re-shared of that item. Their authority to grant came from the access being removed, so it cannot outlive it.
+
 ## Examples
 
 <strong class="example-title">Stop sharing a file</strong>

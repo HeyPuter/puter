@@ -53,6 +53,8 @@ export interface ResolvedShare {
     issuer: { username: string | null };
     holder: { username: string | null };
     createdAt: unknown;
+    /** Set when the access comes from a shared ancestor, not this node. */
+    inheritedFrom?: string | null;
 }
 
 const SHAREABLE_MODES: ReadonlySet<string> = new Set([
@@ -338,7 +340,65 @@ export class ShareService extends PuterService {
                 issuerUserId: issuer as number,
             });
         }
+
+        // Whatever the holder re-shared goes with them. Their authority to
+        // grant came from this access, so leaving those behind would let
+        // access outlive the permission it was derived from.
+        revoked += await this.#revokeDownstream(actor, entry, holder.id);
         return { revoked };
+    }
+
+    /**
+     * Withdraw everything `issuerId` granted on this node, and everything those
+     * recipients granted in turn.
+     *
+     * `seen` guards the walk: two delegates can each have granted the other,
+     * and without it the recursion would not terminate.
+     */
+    async #revokeDownstream(
+        actor: Actor,
+        entry: FSEntry,
+        issuerId: number,
+        seen: Set<number> = new Set(),
+    ): Promise<number> {
+        if (seen.has(issuerId)) return 0;
+        seen.add(issuerId);
+
+        const rows = (await this.stores.share.listByFsentry(entry.id)).filter(
+            (row: { issuer_user_id: number }) =>
+                Number(row.issuer_user_id) === issuerId,
+        );
+
+        let revoked = 0;
+        for (const row of rows) {
+            const holderId = Number(row.holder_user_id);
+            const downstream = await this.stores.user.getById(holderId);
+            if (!downstream?.username) continue;
+
+            revoked += await this.#revokeDownstream(
+                actor,
+                entry,
+                holderId,
+                seen,
+            );
+
+            if (
+                await this.#revokeFor(
+                    actor,
+                    entry,
+                    downstream.username,
+                    issuerId,
+                )
+            ) {
+                revoked++;
+            }
+            await this.stores.share.deleteActive({
+                holderUserId: holderId,
+                fsentryId: entry.id,
+                issuerUserId: issuerId,
+            });
+        }
+        return revoked;
     }
 
     /**
@@ -422,8 +482,22 @@ export class ShareService extends PuterService {
         const entry = await this.#resolveEntry(target);
         await this.#assertCanManage(actor, entry);
 
+        // Access is inherited down the tree, so a node's own rows are only
+        // half the answer — without the ancestors' the caller is told nobody
+        // can reach a file that several people can.
+        const ancestors = await this.services.fs.getAncestorChain(entry.path);
+        const inherited: Array<{ row: Record<string, unknown>; via: string }> =
+            [];
+        for (const ancestor of ancestors.slice(1)) {
+            const node = await this.stores.fsEntry.getEntryByUuid(ancestor.uid);
+            if (!node) continue;
+            for (const row of await this.stores.share.listByFsentry(node.id)) {
+                inherited.push({ row, via: ancestor.path });
+            }
+        }
+
         const rows = await this.stores.share.listByFsentry(entry.id);
-        const userIds = rows.flatMap(
+        const userIds = [...rows, ...inherited.map((i) => i.row)].flatMap(
             (row: { issuer_user_id: number; holder_user_id: number }) => [
                 Number(row.issuer_user_id),
                 Number(row.holder_user_id),
@@ -431,7 +505,27 @@ export class ShareService extends PuterService {
         );
         const users = await this.stores.user.getByIds(userIds);
 
-        return rows.map(
+        const inheritedShares: ResolvedShare[] = inherited.map(
+            ({ row, via }) => ({
+                uid: String(row.uid),
+                mode: String(row.mode),
+                path: entry.path,
+                entryUid: entry.uuid,
+                isDir: Boolean(entry.isDir),
+                issuer: {
+                    username:
+                        users.get(Number(row.issuer_user_id))?.username ?? null,
+                },
+                holder: {
+                    username:
+                        users.get(Number(row.holder_user_id))?.username ?? null,
+                },
+                createdAt: row.created_at,
+                inheritedFrom: via,
+            }),
+        );
+
+        const own: ResolvedShare[] = rows.map(
             (row: {
                 uid: string;
                 mode: string;
@@ -453,8 +547,10 @@ export class ShareService extends PuterService {
                         users.get(Number(row.holder_user_id))?.username ?? null,
                 },
                 createdAt: row.created_at,
+                inheritedFrom: null,
             }),
         );
+        return inheritedShares.concat(own);
     }
 
     // -- Internals ----------------------------------------------------

@@ -288,6 +288,40 @@ describe('ShareService', () => {
         expect(await canRead(fourth.actor, file.path)).toBe(true);
     });
 
+    it('revoking a delegate also revokes what they re-shared', async () => {
+        const owner = await makeUser();
+        const delegate = await makeUser();
+        const third = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: delegate.email },
+            mode: 'manage',
+        });
+        await share(delegate.actor, {
+            uid: file.uuid,
+            recipient: { email: third.email },
+            mode: 'read',
+        });
+        expect(await canRead(third.actor, file.path)).toBe(true);
+
+        await unshare(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: delegate.email },
+        });
+
+        // The delegate's authority to grant came from access the owner has
+        // now withdrawn, so what they granted cannot outlive it.
+        expect(await canRead(delegate.actor, file.path)).toBe(false);
+        expect(await canRead(third.actor, file.path)).toBe(false);
+        expect(
+            await server.services.share.listSharesOf(owner.actor, {
+                uid: file.uuid,
+            }),
+        ).toEqual([]);
+    });
+
     it('lets the owner clear a grant a delegate issued', async () => {
         const owner = await makeUser();
         const delegate = await makeUser();
