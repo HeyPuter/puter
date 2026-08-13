@@ -346,6 +346,188 @@ describe('puter.signup.validate event', () => {
 
 // ── Signup flow ─────────────────────────────────────────────────────
 
+// ── Concurrent claims on one address ────────────────────────────────
+//
+// The duplicate checks these flows run are not atomic with the writes that
+// follow them — the validate hook and bcrypt sit in between, and both are slow
+// enough for a second request to pass the same check. These tests fire the
+// requests together and assert the address still ends up on exactly one row.
+
+describe('concurrent claims on one email address', () => {
+    const uniq = () => Math.random().toString(36).slice(2, 10);
+
+    const countOwners = async (email: string): Promise<number> => {
+        // `email_confirmed` is TINYINT on MySQL and BOOLEAN on Postgres, so the
+        // literal has to come from the client rather than be hardcoded.
+        const isTrue = server.clients.db.booleanLiteral(true);
+        const rows = (await server.clients.db.read(
+            `SELECT COUNT(*) AS n FROM \`user\` WHERE \`email\` = ? AND (\`email_confirmed\` = ${isTrue} OR \`password\` IS NOT NULL)`,
+            [email],
+        )) as Array<{ n: number }>;
+        return Number(rows[0]?.n ?? 0);
+    };
+
+    it('lets only one of two simultaneous signups take the address', async () => {
+        const email = `race-${uniq()}@test.local`;
+        const signup = (username: string) =>
+            controller.handleSignup(
+                makeReq({ username, email, password: 'correct-horse-battery' }),
+                makeRes(),
+            );
+
+        // Distinct usernames on purpose: the UNIQUE on `username` would
+        // otherwise be what rejects the second request, and the email race
+        // would go untested.
+        const results = await Promise.allSettled([
+            signup(`r_a_${uniq()}`),
+            signup(`r_b_${uniq()}`),
+        ]);
+
+        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+        expect(await countOwners(email)).toBe(1);
+
+        const rejected = results.find((r) => r.status === 'rejected') as
+            | PromiseRejectedResult
+            | undefined;
+        expect(rejected?.reason).toMatchObject({ statusCode: 400 });
+    });
+
+    it('lets only one of many simultaneous signups take the address', async () => {
+        const email = `race-many-${uniq()}@test.local`;
+        const results = await Promise.allSettled(
+            Array.from({ length: 5 }, () =>
+                controller.handleSignup(
+                    makeReq({
+                        username: `r_m_${uniq()}`,
+                        email,
+                        password: 'correct-horse-battery',
+                    }),
+                    makeRes(),
+                ),
+            ),
+        );
+
+        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+        expect(await countOwners(email)).toBe(1);
+    });
+
+    it('rejects a signup racing an admin-provisioned placeholder claim', async () => {
+        const email = `race-pseudo-${uniq()}@test.local`;
+        // The placeholder shape signup is allowed to convert: unconfirmed,
+        // no password. Two signups both see it as claimable.
+        await server.stores.user.create({
+            username: `r_p_${uniq()}`,
+            uuid: uuidv4(),
+            password: null,
+            email,
+            clean_email: email,
+        });
+
+        const results = await Promise.allSettled([
+            controller.handleSignup(
+                makeReq({
+                    username: `r_p_a_${uniq()}`,
+                    email,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+            controller.handleSignup(
+                makeReq({
+                    username: `r_p_b_${uniq()}`,
+                    email,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ]);
+
+        expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+        expect(await countOwners(email)).toBe(1);
+    });
+
+    it('reports a duplicate address as a 400, not a constraint error', async () => {
+        const email = `dupe-${uniq()}@test.local`;
+        await controller.handleSignup(
+            makeReq({
+                username: `d_a_${uniq()}`,
+                email,
+                password: 'correct-horse-battery',
+            }),
+            makeRes(),
+        );
+
+        // The message has to be the one the pre-check produces — a user who
+        // loses the race should not be able to tell.
+        await expect(
+            controller.handleSignup(
+                makeReq({
+                    username: `d_b_${uniq()}`,
+                    email,
+                    password: 'correct-horse-battery',
+                }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message:
+                'This email already exists in our database. Please use another one.',
+        });
+    });
+
+    it('refuses to give a placeholder row a password for a taken address', async () => {
+        const email = `recover-${uniq()}@test.local`;
+        await controller.handleSignup(
+            makeReq({
+                username: `rec_own_${uniq()}`,
+                email,
+                password: 'correct-horse-battery',
+            }),
+            makeRes(),
+        );
+
+        // An unconfirmed, password-less row is allowed to sit on the same
+        // address — but password recovery accepts a username, so it can be
+        // driven for this row rather than for the account that owns the
+        // address. Setting a password here would make it a second account able
+        // to recover that inbox.
+        const placeholderName = `rec_ph_${uniq()}`;
+        const placeholder = await server.stores.user.create({
+            username: placeholderName,
+            uuid: uuidv4(),
+            password: null,
+            email,
+            clean_email: email,
+        });
+        const token = uuidv4();
+        await server.stores.user.update(placeholder.id, {
+            pass_recovery_token: token,
+        });
+
+        const jwt = server.services.token.sign(
+            'otp',
+            {
+                token,
+                user_uid: placeholder.uuid,
+                email,
+                purpose: 'pass-recovery',
+            },
+            { expiresIn: '1h' },
+        );
+
+        await expect(
+            controller.handleSetPassUsingToken(
+                makeReq({ token: jwt, password: 'another-strong-password' }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            message:
+                'This email is already in use. Recover the account that uses it instead.',
+        });
+    });
+});
+
 describe('AuthController.handleSignup', () => {
     const uniq = () => Math.random().toString(36).slice(2, 10);
 
@@ -3846,6 +4028,151 @@ describe('AuthController.handleConfirmEmail', () => {
             force: true,
         });
         expect(after!.email_confirmed).toBeFalsy();
+    });
+
+    it('strips a rival placeholder before confirming, not after', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const email = user.email as string;
+
+        // A placeholder sitting on the same address. Confirming first and
+        // demoting second would momentarily leave two rows owning it, which
+        // the unique index rejects — turning a legitimate confirmation into a
+        // 500.
+        const rival = await server.stores.user.create({
+            username: `rival_${Math.random().toString(36).slice(2, 10)}`,
+            uuid: uuidv4(),
+            password: null,
+            email,
+            clean_email: email,
+        });
+
+        const refreshed = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        const res = makeRes();
+        await controller.handleConfirmEmail(
+            makeReq({ code: refreshed!.email_confirm_code! }, { actor }),
+            res,
+        );
+
+        expect(res.body).toMatchObject({ email_confirmed: true });
+        const confirmed = await server.stores.user.getById(user.id, {
+            force: true,
+        });
+        expect(confirmed!.email_confirmed).toBe(true);
+        const strippedRival = await server.stores.user.getById(rival.id, {
+            force: true,
+        });
+        expect(strippedRival!.email).toBeNull();
+    });
+
+    it('refuses when another account already confirmed the address', async () => {
+        const email = `owned-${uniq()}@test.local`;
+
+        // Confirmed with no password is the shape an identity provider
+        // creates, and it is what the old rival check (which also demanded a
+        // password) let through. Demoting it would take the address off an
+        // account that proved it owns the inbox.
+        const owner = await server.stores.user.create({
+            username: `owner_${uniq()}`,
+            uuid: uuidv4(),
+            password: null,
+            email,
+            clean_email: email,
+            email_confirmed: true,
+        });
+
+        // A second, unconfirmed row on the same address holding a confirm
+        // code — the legacy duplicate this path used to resolve in its favour.
+        const claimant = await server.stores.user.create({
+            username: `claim_${uniq()}`,
+            uuid: uuidv4(),
+            password: null,
+            email,
+            clean_email: email,
+            email_confirm_code: '123456',
+        });
+        const actor = {
+            user: {
+                id: claimant.id,
+                uuid: claimant.uuid,
+                username: claimant.username,
+                email,
+                email_confirmed: false,
+            },
+        } as Actor;
+
+        await expect(
+            controller.handleConfirmEmail(
+                makeReq({ code: '123456' }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+
+        const untouched = await server.stores.user.getById(owner.id, {
+            force: true,
+        });
+        expect(untouched!.email).toBe(email);
+        expect(untouched!.email_confirmed).toBe(true);
+        const stillUnconfirmed = await server.stores.user.getById(claimant.id, {
+            force: true,
+        });
+        expect(stillUnconfirmed!.email_confirmed).toBeFalsy();
+    });
+});
+
+describe('AuthController.handleSaveAccount address conflicts', () => {
+    it('refuses to promote a temp account onto a taken address', async () => {
+        const email = `save-${Math.random().toString(36).slice(2, 10)}@test.local`;
+        await controller.handleSignup(
+            makeReq({
+                username: `save_own_${Math.random().toString(36).slice(2, 10)}`,
+                email,
+                password: 'correct-horse-battery',
+            }),
+            makeRes(),
+        );
+
+        const tempRes = makeRes();
+        await controller.handleSignup(makeReq({ is_temp: true }), tempRes);
+        const tempUser = (
+            tempRes.body as { user: { username: string; uuid: string } }
+        ).user;
+        const tempRow = await server.stores.user.getByUuid(tempUser.uuid);
+        const actor = {
+            user: {
+                id: tempRow!.id,
+                uuid: tempRow!.uuid,
+                username: tempRow!.username,
+                email: null,
+                email_confirmed: false,
+            },
+        } as Actor;
+
+        await expect(
+            controller.handleSaveAccount(
+                makeReq(
+                    {
+                        username: `save_new_${Math.random().toString(36).slice(2, 10)}`,
+                        email,
+                        password: 'another-strong-password',
+                    },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'email_already_in_use',
+        });
+
+        // The temp row must be left alone — a failed promotion that already
+        // wrote the username would strand the account half-converted.
+        const untouched = await server.stores.user.getById(tempRow!.id, {
+            force: true,
+        });
+        expect(untouched!.email).toBeNull();
+        expect(untouched!.password).toBeNull();
     });
 });
 
