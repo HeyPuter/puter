@@ -66,6 +66,32 @@ describe('ShareService', () => {
         return entry;
     };
 
+    /** A directory and a file inside it, so the file inherits the folder's shares. */
+    const makeDirWithFile = async (owner: { id: number; username: string }) => {
+        const dirUuid = uuidv4();
+        const dirName = `d-${dirUuid.slice(0, 8)}`;
+        const dirPath = `/${owner.username}/${dirName}`;
+        const fileUuid = uuidv4();
+        const fileName = `f-${fileUuid.slice(0, 8)}.txt`;
+        const now = Math.floor(Date.now() / 1000);
+
+        await server.clients.db.write(
+            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, 1, ?)',
+            [dirUuid, dirName, dirPath, owner.id, now],
+        );
+        await server.clients.db.write(
+            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, 0, ?)',
+            [fileUuid, fileName, `${dirPath}/${fileName}`, owner.id, now],
+        );
+
+        const dir = await server.stores.fsEntry.getEntryByPath(dirPath);
+        const file = await server.stores.fsEntry.getEntryByPath(
+            `${dirPath}/${fileName}`,
+        );
+        if (!dir || !file) throw new Error('fsentries not created');
+        return { dir, file };
+    };
+
     const canRead = async (actor: Actor, path: string) =>
         server.services.acl.check(
             actor,
@@ -240,6 +266,61 @@ describe('ShareService', () => {
             rows.find((r) => r.holder.username === third.user.username)?.issuer
                 .username,
         ).toBe(delegate.user.username);
+    });
+
+    it('reports a share on a file as inherited from the folder', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const { dir, file } = await makeDirWithFile(owner.user);
+
+        await share(owner.actor, {
+            uid: dir.uuid,
+            recipient: { email: recipient.email },
+            mode: 'read',
+        });
+
+        // Nobody was granted the file itself, so its own rows are empty — but
+        // the recipient can reach it, and the owner has to be told so.
+        const rows = await server.services.share.listSharesOf(owner.actor, {
+            uid: file.uuid,
+        });
+        const row = rows.find(
+            (r) => r.holder.username === recipient.user.username,
+        );
+        expect(row).toBeDefined();
+        expect(row?.inheritedFrom).toBe(dir.path);
+        expect(row?.mode).toBe('read');
+        expect(await canRead(recipient.actor, file.path)).toBe(true);
+    });
+
+    it('marks a share on the item itself as not inherited', async () => {
+        const owner = await makeUser();
+        const viaFolder = await makeUser();
+        const direct = await makeUser();
+        const { dir, file } = await makeDirWithFile(owner.user);
+
+        await share(owner.actor, {
+            uid: dir.uuid,
+            recipient: { email: viaFolder.email },
+            mode: 'read',
+        });
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: direct.email },
+            mode: 'write',
+        });
+
+        const rows = await server.services.share.listSharesOf(owner.actor, {
+            uid: file.uuid,
+        });
+        expect(
+            rows.find((r) => r.holder.username === direct.user.username)
+                ?.inheritedFrom,
+        ).toBeNull();
+        expect(
+            rows.find((r) => r.holder.username === viaFolder.user.username)
+                ?.inheritedFrom,
+        ).toBe(dir.path);
     });
 
     it('lets a delegate clear only what it issued', async () => {
