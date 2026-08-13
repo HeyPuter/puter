@@ -37,6 +37,7 @@ import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js'
 
 import { icons } from '../../helpers/actionIcons.js';
 import list_all_shared from '../../helpers/list_all_shared.js';
+import { remember_shared_roots } from '../../helpers/shared_access.js';
 
 const { html_encode, SelectionArea } = window;
 
@@ -2142,7 +2143,10 @@ const TabFiles = {
         let directoryContents;
         try {
             directoryContents = isSharedView
-                ? (await list_all_shared()).map((share) => ({
+                ? (await list_all_shared().then((shares) => {
+                    remember_shared_roots(shares);
+                    return shares;
+                })).map((share) => ({
                     uid: share.entryUid,
                     name: share.path.split('/').pop(),
                     path: share.path,

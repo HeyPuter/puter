@@ -1146,8 +1146,11 @@ async function UIItem (options) {
             // Someone else's, however we got here — including items reached by
             // opening a shared folder, which carry no share markers.
             const is_not_mine = !is_owned_by_me($(el_item).attr('data-path'));
-            // Re-sharing needs `manage` here; it does not inherit from a parent.
-            const can_manage_share = $(el_item).attr('data-share_mode') === 'manage';
+            // `manage` inherits downwards, so a file inside a folder you manage
+            // counts too — the row itself only carries a mode at a shared root.
+            const can_manage_share =
+                $(el_item).attr('data-share_mode') === 'manage'
+                || (await shared_mode_for($(el_item).attr('data-path'))) === 'manage';
             const is_shortcut = !! $(el_item).attr('data-shortcut_to_path');
             const is_weblink = isWeblinkName($(el_item).attr('data-name'));
             menu_items = [];

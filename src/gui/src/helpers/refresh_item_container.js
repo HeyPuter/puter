@@ -21,6 +21,7 @@ import path from '../lib/path.js';
 import UIItem from '../UI/UIItem.js';
 import item_icon from './item_icon.js';
 import list_all_shared from './list_all_shared.js';
+import { remember_shared_roots } from './shared_access.js';
 
 const refresh_item_container = function (el_item_container, options) {
     // start a transaction
@@ -128,7 +129,10 @@ const refresh_item_container = function (el_item_container, options) {
 
     // get items with subdomains/workers included to avoid per-item stat calls
     const entries_promise = is_shared_view
-        ? list_all_shared().then((shares) => shares.map((share) => ({
+        ? list_all_shared().then((shares) => {
+            remember_shared_roots(shares);
+            return shares;
+        }).then((shares) => shares.map((share) => ({
             uid: share.entryUid,
             name: path.basename(share.path),
             path: share.path,

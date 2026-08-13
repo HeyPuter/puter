@@ -20,6 +20,7 @@
 import UIWindow from './UIWindow.js';
 import path from '../lib/path.js';
 import { owner_of_path } from '../helpers/path_owner.js';
+import { invalidate_shared_roots } from '../helpers/shared_access.js';
 import { icons } from '../helpers/actionIcons.js';
 
 const MODES = ['read', 'write', 'manage'];
@@ -162,6 +163,7 @@ async function UIWindowShare (options) {
             $(el_window).find('.share-recipient').val('');
             $error.hide();
             $success.html(i18n('share_shared_with', { recipient })).show();
+            invalidate_shared_roots();
             await refresh();
         } catch (e) {
             show_error(e?.message ?? i18n('share_failed'));
@@ -178,9 +180,11 @@ async function UIWindowShare (options) {
             await puter.fs.share({ path: item_path, recipient: holder, mode });
             $error.hide();
             $success.html(i18n('share_shared_with', { recipient: holder })).show();
+            invalidate_shared_roots();
             await refresh();
         } catch (e) {
             show_error(e?.message ?? i18n('share_failed'));
+            invalidate_shared_roots();
             await refresh();
         }
     });
@@ -192,6 +196,7 @@ async function UIWindowShare (options) {
             await puter.fs.unshare(item_path, holder);
             $error.hide();
             $success.html(i18n('share_access_removed', { recipient: holder })).show();
+            invalidate_shared_roots();
             await refresh();
         } catch (e) {
             show_error(e?.message ?? i18n('share_failed'));

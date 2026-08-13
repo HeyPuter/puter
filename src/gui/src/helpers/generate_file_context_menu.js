@@ -30,6 +30,7 @@ import launch_app from './launch_app.js';
 import path from '../lib/path.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from './weblink.js';
 import { is_owned_by_me } from './path_owner.js';
+import { shared_mode_for } from './shared_access.js';
 
 /**
  * Generates context menu items for file/folder operations
@@ -57,8 +58,11 @@ const generate_file_context_menu = async function (options) {
     // Someone else's, however we got here — including items reached by opening
     // a shared folder, which carry no share markers of their own.
     const is_not_mine = !is_owned_by_me($(options.element).attr('data-path'));
-    // Re-sharing needs `manage` on this node; it does not inherit from a parent.
-    const can_manage_share = $(options.element).attr('data-share_mode') === 'manage';
+    // `manage` inherits downwards, so a file inside a folder you manage
+    // counts too — the row itself only carries a mode at a shared root.
+    const can_manage_share =
+        $(options.element).attr('data-share_mode') === 'manage'
+        || (await shared_mode_for($(options.element).attr('data-path'))) === 'manage';
     const is_worker = options.is_worker ?? false;
     const onOpen = options.onOpen;
     const is_weblink = isWeblinkName(fsentry.name ?? $(el_item).attr('data-name'));
