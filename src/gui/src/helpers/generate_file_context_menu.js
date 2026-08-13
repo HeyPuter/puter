@@ -24,6 +24,7 @@ import UIWindowItemProperties from '../UI/UIWindowItemProperties.js';
 import UIWindowSaveAccount from '../UI/UIWindowSaveAccount.js';
 import UIWindowEmailConfirmationRequired from '../UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowPublishWorker from '../UI/UIWindowPublishWorker.js';
+import UIWindowShare from '../UI/UIWindowShare.js';
 import open_item from './open_item.js';
 import launch_app from './launch_app.js';
 import path from '../lib/path.js';
@@ -50,6 +51,9 @@ const generate_file_context_menu = async function (options) {
     const fsentry = options.fsentry || {};
     const is_trash = options.is_trash ?? false;
     const is_trashed = options.is_trashed ?? false;
+    const is_shared_with_me = $(options.element).attr('data-shared_with_me') === '1';
+    // A `manage` recipient is allowed to re-share, so they still get Share…
+    const can_manage_share = $(options.element).attr('data-share_mode') === 'manage';
     const is_worker = options.is_worker ?? false;
     const onOpen = options.onOpen;
     const is_weblink = isWeblinkName(fsentry.name ?? $(el_item).attr('data-name'));
@@ -305,9 +309,45 @@ const generate_file_context_menu = async function (options) {
     }
 
     // -------------------------------------------
+    // Share
+    // -------------------------------------------
+    if ( !is_trash && !is_trashed && (!is_shared_with_me || can_manage_share) ) {
+        menu_items.push({
+            html: i18n('share_ellipsis'),
+            onClick: async function () {
+                UIWindowShare({
+                    path: $(el_item).attr('data-path'),
+                    name: $(el_item).attr('data-name'),
+                });
+            },
+        });
+    }
+
+    // -------------------------------------------
+    // Remove from Shared
+    // -------------------------------------------
+    // Can't trash someone else's file, so give up our own access instead
+    if ( is_shared_with_me ) {
+        menu_items.push({
+            html: i18n('share_remove_from_shared'),
+            onClick: async function () {
+                try {
+                    await puter.fs.unshare(
+                        $(el_item).attr('data-path'),
+                        window.user.username,
+                    );
+                    $(el_item).remove();
+                } catch (e) {
+                    UIAlert({ message: e?.message ?? i18n('error') });
+                }
+            },
+        });
+    }
+
+    // -------------------------------------------
     // Delete
     // -------------------------------------------
-    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed ) {
+    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_shared_with_me ) {
         menu_items.push({
             html: i18n('delete'),
             onClick: async function () {

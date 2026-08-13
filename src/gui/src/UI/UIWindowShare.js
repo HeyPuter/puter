@@ -19,6 +19,7 @@
 
 import UIWindow from './UIWindow.js';
 import path from '../lib/path.js';
+import { icons } from '../helpers/actionIcons.js';
 
 const MODES = ['read', 'write', 'manage'];
 
@@ -41,15 +42,15 @@ async function UIWindowShare (options) {
     const item_name = options.name ?? path.basename(item_path);
 
     let h = '';
-    h += '<div class="share-dialog" style="padding: 20px;">';
-    h += '<div class="form-error-msg" style="display:none;"></div>';
-    h += '<div class="form-success-msg" style="display:none;"></div>';
+    h += '<div class="share-dialog">';
+    h += '<div class="form-error-msg"></div>';
+    h += '<div class="form-success-msg"></div>';
 
     h += `<label for="share-recipient">${i18n('share_with')}</label>`;
-    h += '<div style="display:flex; gap:8px; margin-bottom:20px;">';
+    h += '<div class="share-dialog-row">';
     h += `<input class="share-recipient" id="share-recipient" type="text" autocomplete="off" spellcheck="false"
-                 placeholder="${html_encode(i18n('share_add_people'))}" style="flex:1;" />`;
-    h += '<select class="share-mode" style="width:120px;">';
+                 placeholder="${html_encode(i18n('share_add_people'))}" />`;
+    h += '<select class="share-mode">';
     for ( const mode of MODES ) {
         h += `<option value="${mode}">${html_encode(mode_label(mode))}</option>`;
     }
@@ -57,7 +58,7 @@ async function UIWindowShare (options) {
     h += '</div>';
     h += `<button class="share-btn button button-primary button-block button-normal">${i18n('share')}</button>`;
 
-    h += `<h2 style="font-size:14px; margin:24px 0 8px;">${i18n('share_who_has_access')}</h2>`;
+    h += `<div class="share-dialog-heading">${i18n('share_who_has_access')}</div>`;
     h += '<div class="share-list"></div>';
     h += '</div>';
 
@@ -100,18 +101,36 @@ async function UIWindowShare (options) {
     };
 
     const render = (shares) => {
-        if ( !shares.length ) {
-            $list.html(`<p style="color:#5f6b7a; font-size:13px;">${i18n('share_no_one')}</p>`);
-            return;
-        }
         let rows = '';
+        // The owner's access comes from owning the item, so it can't be revoked
+        rows += '<div class="share-row">';
+        rows += `<span class="share-row-who">${html_encode(options.owner ?? window.user.username)}</span>`;
+        rows += `<span class="share-row-owner">${i18n('share_owner')}</span>`;
+        rows += '</div>';
+
         for ( const share of shares ) {
-            rows += '<div class="share-row" style="display:flex; align-items:center; justify-content:space-between; padding:6px 0;">';
-            rows += `<span>${html_encode(share.holder ?? '')}</span>`;
-            rows += '<span style="display:flex; align-items:center; gap:10px;">';
-            rows += `<span style="color:#5f6b7a; font-size:12px;">${html_encode(mode_label(share.mode))}</span>`;
-            rows += `<button class="share-revoke button button-small" data-holder="${html_encode(share.holder ?? '')}">${i18n('share_remove_access')}</button>`;
-            rows += '</span></div>';
+            const holder = html_encode(share.holder ?? '');
+            if ( share.inheritedFrom ) {
+                // Granted on an ancestor, so it can only be changed there
+                rows += '<div class="share-row share-row-inherited">';
+                rows += `<span class="share-row-who">${holder}</span>`;
+                rows += `<span class="share-row-via">${i18n('share_inherited_via', { folder: path.basename(share.inheritedFrom) })}</span>`;
+                rows += `<span class="share-row-mode">${html_encode(mode_label(share.mode))}</span>`;
+                rows += '</div>';
+                continue;
+            }
+            rows += '<div class="share-row">';
+            rows += `<span class="share-row-who">${holder}</span>`;
+            rows += `<select class="share-row-mode-select" data-holder="${holder}">`;
+            for ( const mode of MODES ) {
+                rows += `<option value="${mode}"${mode === share.mode ? ' selected' : ''}>${html_encode(mode_label(mode))}</option>`;
+            }
+            rows += '</select>';
+            rows += `<button class="share-revoke" data-holder="${holder}" title="${html_encode(i18n('share_remove_access'))}" aria-label="${html_encode(i18n('share_remove_access'))}">${icons.trash}</button>`;
+            rows += '</div>';
+        }
+        if ( !shares.length ) {
+            rows += `<p class="share-dialog-empty">${i18n('share_no_one')}</p>`;
         }
         $list.html(rows);
     };
@@ -137,7 +156,7 @@ async function UIWindowShare (options) {
             });
             $(el_window).find('.share-recipient').val('');
             $error.hide();
-            $success.html(html_encode(i18n('share_to'))).show();
+            $success.html(i18n('share_shared_with', { recipient })).show();
             await refresh();
         } catch (e) {
             show_error(e?.message ?? i18n('share_failed'));
@@ -146,11 +165,28 @@ async function UIWindowShare (options) {
         }
     });
 
+    $(el_window).on('change', '.share-row-mode-select', async function () {
+        const holder = $(this).attr('data-holder');
+        const mode = $(this).val();
+        $(this).prop('disabled', true);
+        try {
+            await puter.fs.share({ path: item_path, recipient: holder, mode });
+            $error.hide();
+            $success.html(i18n('share_shared_with', { recipient: holder })).show();
+            await refresh();
+        } catch (e) {
+            show_error(e?.message ?? i18n('share_failed'));
+            await refresh();
+        }
+    });
+
     $(el_window).on('click', '.share-revoke', async function () {
         const holder = $(this).attr('data-holder');
         $(this).prop('disabled', true);
         try {
             await puter.fs.unshare(item_path, holder);
+            $error.hide();
+            $success.html(i18n('share_access_removed', { recipient: holder })).show();
             await refresh();
         } catch (e) {
             show_error(e?.message ?? i18n('share_failed'));

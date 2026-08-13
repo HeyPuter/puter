@@ -1142,6 +1142,8 @@ async function UIItem (options) {
         else {
             const is_trash = $(el_item).attr('data-path') === window.trash_path || $(el_item).attr('data-shortcut_to_path') === window.trash_path;
             const is_shared_with_me = $(el_item).attr('data-shared_with_me') === '1';
+            // A `manage` recipient is allowed to re-share, so they still get Share…
+            const can_manage_share = $(el_item).attr('data-share_mode') === 'manage';
             const is_shortcut = !! $(el_item).attr('data-shortcut_to_path');
             const is_weblink = isWeblinkName($(el_item).attr('data-name'));
             menu_items = [];
@@ -1579,7 +1581,7 @@ async function UIItem (options) {
             // -------------------------------------------
             // Share
             // -------------------------------------------
-            if ( !is_trash && !is_trashed && !is_shared_with_me ) {
+            if ( !is_trash && !is_trashed && (!is_shared_with_me || can_manage_share) ) {
                 menu_items.push({
                     html: i18n('share_ellipsis'),
                     onClick: async function () {
