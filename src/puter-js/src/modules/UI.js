@@ -104,6 +104,9 @@ import PuterDialog from './PuterDialog.js';
  * @property {string[]} [file_paths] Paths of existing files to open with the launched app.
  * @property {FSItem[]} [items] `FSItem` objects to open with the launched app.
  * @property {string} [pseudonym] A pseudonym to launch the app under.
+ * @property {boolean} [background] If `true`, the app starts with its window hidden, for an app
+ * launched to do work rather than to be looked at. It still appears in the taskbar, so the user can
+ * show it (or close it) at any time, and it can show itself with `puter.ui.showWindow()`.
  * @property {(connection: AppConnection) => void} [callback]
  */
 
@@ -2362,6 +2365,7 @@ export class UIModule extends EventListener {
         let pseudonym = undefined;
         let file_paths = undefined;
         let items = undefined;
+        let background = undefined;
         let app_name = nameOrOptions; // becomes string after branch below
 
         // Handle case where app_name is an options object
@@ -2373,6 +2377,7 @@ export class UIModule extends EventListener {
             callback = callback || options.callback;
             pseudonym = options.pseudonym;
             items = options.items;
+            background = options.background;
         }
 
         if ( items ) {
@@ -2399,6 +2404,7 @@ export class UIModule extends EventListener {
                 items,
                 pseudonym,
                 args,
+                background,
             },
         });
 

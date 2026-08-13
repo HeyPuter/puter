@@ -20,6 +20,7 @@
 import path from '../lib/path.js';
 import { PROCESS_IPC_ATTACHED, PROCESS_RUNNING, PortalProcess, PseudoProcess } from '../definitions.js';
 import UIWindow from '../UI/UIWindow.js';
+import { starts_hidden } from './starts_hidden.js';
 
 const normalizePrivateAccessDecision = (privateAccess) => {
     if ( !privateAccess || typeof privateAccess !== 'object' ) {
@@ -645,6 +646,10 @@ const launch_app = async (options) => {
         }
 
         // show_in_taskbar
+        // Deliberately keyed on the app's own `background`, not on this launch's:
+        // an app that always runs windowless has nothing to show in the taskbar,
+        // while a background *launch* keeps its item so the user can see that it
+        // is running and close it.
         let show_in_taskbar = app_info.background ? false : window_options?.show_in_taskbar;
         if ( window_options?.show_in_taskbar !== undefined )
         {
@@ -699,7 +704,7 @@ const launch_app = async (options) => {
             // when the same file is opened again (the signature's uid wins:
             // it's resolved, e.g. a shortcut's uid becomes its target's).
             file_uid: file_signature?.uid ?? options.file_uid,
-            is_visible: !app_info.background,
+            is_visible: !starts_hidden(app_info, options),
             is_maximized: options.maximized,
             is_fullpage: options.is_fullpage,
             ...(options.pseudonym ? { pseudonym: options.pseudonym } : {}),
@@ -712,7 +717,7 @@ const launch_app = async (options) => {
         });
 
         // If the app is not in the background, show the window
-        if ( ! app_info.background ) {
+        if ( ! starts_hidden(app_info, options) ) {
             $(el_win).show();
         }
 
@@ -754,7 +759,7 @@ const launch_app = async (options) => {
     // entry) lands on the parent's entry and the popstate handler restores
     // it. The parent keeps running while hidden — parent/child IPC works.
     if ( window.is_dashboard_mode && options.parent_instance_id
-        && options.maximized && !app_info.background && el ) {
+        && options.maximized && !starts_hidden(app_info, options) && el ) {
         const el_parent_win = window.window_for_app_instance(options.parent_instance_id);
         const parent_minimized = $(el_parent_win).attr('data-is_minimized');
         if ( el_parent_win && parent_minimized !== '1' && parent_minimized !== 'true' ) {

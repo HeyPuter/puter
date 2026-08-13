@@ -48,7 +48,7 @@ export class ExecService extends Service {
     }
 
     // This method is exposed to apps via IPCService.
-    async launchApp ({ app_name, args, pseudonym, file_paths, items }, { ipc_context, msg_id } = {}) {
+    async launchApp ({ app_name, args, pseudonym, file_paths, items, background }, { ipc_context, msg_id } = {}) {
         const app = ipc_context?.caller?.app;
         const process = ipc_context?.caller?.process;
 
@@ -98,6 +98,10 @@ export class ExecService extends Service {
             parent_instance_id: app?.appInstanceID,
             uuid: child_instance_id,
             params,
+            // A background launch starts the window hidden: the caller wants the
+            // app to do work, not to be looked at. It keeps its taskbar item, so
+            // the user can still see that it is running, show it, or close it.
+            ...(background === true ? { background: true } : {}),
             ...source_app_metadata,
             ...(connection ? {
                 parent_pseudo_id: connection.backward.uuid,

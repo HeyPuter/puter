@@ -38,6 +38,17 @@ Paths of existing files to open with the launched app.
 #### `options.pseudonym` (String)
 A pseudonym to launch the app under.
 
+#### `options.background` (Boolean)
+If `true`, the app starts with its window hidden — for an app launched to do work
+rather than to be looked at, such as one serving an API to yours over its
+[`AppConnection`](/Objects/AppConnection). Without this, Puter creates and shows
+the window before the app's own code runs, so a service app cannot avoid briefly
+appearing on screen.
+
+The app still appears in the taskbar, so the user can see it is running, show it,
+or close it, and it can show itself at any time with
+[`puter.ui.showWindow()`](/UI/showWindow). Defaults to `false`.
+
 ## Return value 
 A `Promise` that will resolve to an [`AppConnection`](/Objects/AppConnection) once the app is launched.
 
@@ -57,6 +68,28 @@ When private-access routing applies, the resolved connection may include
     <script>
         // launches the Editor app
         puter.ui.launchApp('editor');
+    </script>
+</body>
+</html>
+```
+
+Launching an app in the background to use it as a service, with no window
+appearing on screen:
+
+```html
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const service = await puter.ui.launchApp({
+                name: 'contacts',
+                args: { service: 'contacts-api' },
+                background: true,
+            });
+            service.on('message', (msg) => console.log('from contacts:', msg));
+            service.postMessage({ hello: 'there' });
+        })();
     </script>
 </body>
 </html>
