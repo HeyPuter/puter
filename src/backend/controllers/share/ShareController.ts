@@ -246,6 +246,8 @@ export class ShareController extends PuterController {
             holder: share.holder.username,
             created_at: share.createdAt,
             inherited_from: share.inheritedFrom ?? null,
+            modified: share.modified,
+            size: share.size,
         };
     }
 

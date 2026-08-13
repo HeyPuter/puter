@@ -27,7 +27,7 @@ An object with the following properties:
 
 A `Promise` that resolves to an object with:
 
-- `items` (Array) - The shares on this page. Each has `uid`, `mode`, `path`, `entryUid`, `isDir`, `issuer` and `holder`.
+- `items` (Array) - The shares on this page. Each has `uid`, `mode`, `path`, `entryUid`, `isDir`, `issuer`, `holder`, `modified` and `size`.
 - `cursor` (String) - Pass to the next call to get the following page. **Present only while more pages remain.**
 - `total` (Number) - Present only when `includeTotal` was set.
 

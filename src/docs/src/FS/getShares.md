@@ -28,7 +28,7 @@ An object with the following properties:
 
 ## Return value
 
-A `Promise` that resolves to an array of share objects, each with `uid`, `mode`, `path`, `entryUid`, `isDir`, `issuer`, `holder` and `inheritedFrom`.
+A `Promise` that resolves to an array of share objects, each with `uid`, `mode`, `path`, `entryUid`, `isDir`, `issuer`, `holder`, `inheritedFrom`, `modified` and `size`.
 
 `inheritedFrom` is the path of the shared ancestor an access comes from, or `null` when the share is on the item itself. Access inherited from a parent folder is **managed on that folder** — withdrawing it here is not possible, because the grant does not live on this item.
 

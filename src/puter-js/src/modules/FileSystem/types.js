@@ -297,6 +297,8 @@
  * @property {string | null} issuer Username of whoever granted it.
  * @property {string | null} holder Username of whoever received it.
  * @property {string | null} [inheritedFrom] Shared ancestor this access comes from, if any.
+ * @property {number} modified Last-modified time of the item, unix seconds.
+ * @property {number | null} size Size of the item in bytes; null for a directory.
  */
 
 /**

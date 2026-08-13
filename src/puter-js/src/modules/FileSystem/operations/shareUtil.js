@@ -66,4 +66,6 @@ export const toShare = (row) => ({
     issuer: /** @type {string | null} */ (row.issuer ?? null),
     holder: /** @type {string | null} */ (row.holder ?? null),
     inheritedFrom: /** @type {string | null} */ (row.inherited_from ?? null),
+    modified: /** @type {number} */ (row.modified ?? 0),
+    size: /** @type {number | null} */ (row.size ?? null),
 });

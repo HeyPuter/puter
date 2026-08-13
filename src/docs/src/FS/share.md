@@ -56,6 +56,8 @@ A `Promise` that resolves to an array of share objects, one per recipient/item p
 - `issuer` (String) - Username of whoever granted the share.
 - `holder` (String) - Username of whoever received it.
 - `inheritedFrom` (String) - Path of the shared ancestor this access comes from, or `null` when the share is on the item itself.
+- `modified` (Number) - Last-modified time of the item, in unix seconds.
+- `size` (Number) - Size of the item in bytes; `null` for a directory.
 
 Sharing the same item with the same person again **replaces** their access rather than adding a second share, so raising someone from `read` to `write` is just another call.
 
