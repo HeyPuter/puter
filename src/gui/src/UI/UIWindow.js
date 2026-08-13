@@ -255,7 +255,13 @@ async function UIWindow (options) {
         options.window_class = `${options.window_class ?? ''} window-dashboard-headless`;
     }
 
-    h += `<div class="window window-active
+    // Only a window the user can see is the active one — the same rule the
+    // window_stack push above follows. A window created hidden (a background
+    // app, a panel, a background launch) never calls focusWindow(), so marking
+    // it active here left two windows claiming the class, and anything that
+    // re-focuses "the active window" then stole the keyboard for a window
+    // nobody can see.
+    h += `<div class="window ${options.is_visible ? 'window-active' : ''}
                         ${options.app === 'explorer' ? 'window-explorer' : ''}
                         ${options.cover_page ? 'window-cover-page' : ''}
                         ${options.uid !== undefined ? `window-${options.uid}` : ''} 
@@ -3881,6 +3887,26 @@ $.fn.makeWindowInvisible = async function (options) {
             $(this).attr({
                 'data-is_visible': '0',
             });
+            // A window the user can no longer see must not stay the active one.
+            // It would keep the keyboard and — because focusWindow() disables
+            // pointer events on every OTHER app's iframe — leave the app the
+            // user was actually working in unclickable until they clicked it
+            // again. That is what an app calling puter.ui.hideWindow() on
+            // itself did to whoever launched it. Hand activation back the way
+            // closing a window does: to the top of the window stack.
+            if ( $(this).hasClass('window-active') ) {
+                const win_id = parseInt($(this).attr('data-id'));
+                $(this).removeClass('window-active');
+                // Out of the activation order until it is shown again, at which
+                // point makeWindowVisible's focusWindow() pushes it back.
+                window.window_stack = window.window_stack.filter(id => id !== win_id);
+                const $next = $(`.window[data-id="${window.window_stack[window.window_stack.length - 1]}"]`);
+                if ( $next.length && $next.attr('data-is_visible') !== '0'
+                    && $next.attr('data-is_minimized') !== '1'
+                    && $next.attr('data-is_minimized') !== 'true' ) {
+                    $next.focusWindow();
+                }
+            }
             // if sidepanel, shift desktop toolbar to the right
             if ( $(this).attr('data-is_panel') === '1' ) {
                 $('.toolbar').css('left', 'calc(50%)');
@@ -3895,6 +3921,19 @@ $.fn.makeWindowInvisible = async function (options) {
 $.fn.showWindow = async function (options) {
     $(this).each(async function () {
         if ( $(this).hasClass('window') ) {
+            // A window hidden by puter.ui.hideWindow() is not minimized: it
+            // kept its geometry and has no data-orig-* to restore, so every
+            // path below (all of which un-minimize) would leave it hidden —
+            // and stamp NaN geometry on it from the absent attributes. Simply
+            // un-hiding it is the whole job, and the inverse of what hid it.
+            // This is what makes the taskbar item a real handle on a window
+            // the user cannot currently see.
+            if ( $(this).attr('data-is_visible') === '0'
+                && $(this).attr('data-is_minimized') !== '1'
+                && $(this).attr('data-is_minimized') !== 'true' ) {
+                $(this).makeWindowVisible();
+                return;
+            }
             // show window
             const el_window = this;
 

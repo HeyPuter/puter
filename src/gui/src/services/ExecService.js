@@ -209,10 +209,13 @@ export class ExecService extends Service {
             // Send any saved broadcasts to the new app
             globalThis.services.get('broadcast').sendSavedBroadcastsTo(child_instance_id);
 
-            // If `window-active` is set (meanign the window is focused), focus the window one more time
+            // If `window-active` is set (meaning the window is focused), focus the window one more time
             // this is to ensure that the iframe is `definitely` focused and can receive keyboard events (e.g. keydown)
-            if ( $(child_process.references.el_win).hasClass('window-active') ) {
-                $(child_process.references.el_win).focusWindow();
+            // Never for a hidden window: taking the keyboard for something the
+            // user cannot see would drop them out of the app they are typing in.
+            const $child_win = $(child_process.references.el_win);
+            if ( $child_win.attr('data-is_visible') !== '0' && $child_win.hasClass('window-active') ) {
+                $child_win.focusWindow();
             }
         });
 
