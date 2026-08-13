@@ -135,6 +135,25 @@ describe('ShareService', () => {
         expect(listed.items.map((i) => i.entryUid)).toContain(file.uuid);
     });
 
+    it('carries the entry metadata the file browser renders', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: recipient.email },
+            mode: 'read',
+        });
+
+        const [listed] = (
+            await server.services.share.listSharedWithMe(recipient.actor)
+        ).items;
+        expect(listed.modified).toBe(file.modified);
+        expect(Number.isFinite(listed.modified)).toBe(true);
+        expect(listed.size).toBe(file.size);
+    });
+
     it('resolves a recipient by username as well as email', async () => {
         const owner = await makeUser();
         const recipient = await makeUser();
@@ -321,6 +340,66 @@ describe('ShareService', () => {
             rows.find((r) => r.holder.username === viaFolder.user.username)
                 ?.inheritedFrom,
         ).toBe(dir.path);
+    });
+
+    it('takes downstream access with a delegate who leaves', async () => {
+        const owner = await makeUser();
+        const delegate = await makeUser();
+        const third = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: delegate.email },
+            mode: 'manage',
+        });
+        await share(delegate.actor, {
+            uid: file.uuid,
+            recipient: { email: third.email },
+            mode: 'read',
+        });
+        expect(await canRead(third.actor, file.path)).toBe(true);
+
+        // What "Remove from Shared" calls. The delegate's grant goes, and with
+        // it the authority behind everything they issued.
+        await unshare(delegate.actor, {
+            uid: file.uuid,
+            recipient: { username: delegate.user.username },
+        });
+
+        expect(await canRead(delegate.actor, file.path)).toBe(false);
+        expect(await canRead(third.actor, file.path)).toBe(false);
+    });
+
+    it('keeps the index row when the actor could not revoke anything', async () => {
+        const owner = await makeUser();
+        const delegate = await makeUser();
+        const third = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: delegate.email },
+            mode: 'manage',
+        });
+        await share(delegate.actor, {
+            uid: file.uuid,
+            recipient: { email: third.email },
+            mode: 'read',
+        });
+        await unshare(delegate.actor, {
+            uid: file.uuid,
+            recipient: { username: delegate.user.username },
+        });
+
+        // A grant the owner cannot see is a grant nobody can withdraw, so the
+        // owner's view must not go quiet while access is still live.
+        const rows = await server.services.share.listSharesOf(owner.actor, {
+            uid: file.uuid,
+        });
+        const stillListed = rows.map((r) => r.holder.username);
+        expect(stillListed).not.toContain(third.user.username);
+        expect(await canRead(third.actor, file.path)).toBe(false);
     });
 
     it('lets a delegate clear only what it issued', async () => {

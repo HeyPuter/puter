@@ -55,6 +55,8 @@ export interface ResolvedShare {
     createdAt: unknown;
     /** Set when the access comes from a shared ancestor, not this node. */
     inheritedFrom?: string | null;
+    modified: number;
+    size: number | null;
 }
 
 const SHAREABLE_MODES: ReadonlySet<string> = new Set([
@@ -325,26 +327,27 @@ export class ShareService extends PuterService {
                   ]
                 : [issuerId];
 
-        let revoked = 0;
+        // Whatever the holder re-shared goes with them, and this has to run
+        // first: when the holder is the actor, clearing their own grants would
+        // strip the very `manage` the cascade needs to do it.
+        let revoked = await this.#revokeDownstream(actor, entry, holder.id);
+
         for (const issuer of issuers) {
-            const didRevoke = await this.#revokeFor(
+            const { revoked: didRevoke, authorized } = await this.#revokeFor(
                 actor,
                 entry,
                 holder.username,
                 issuer as number,
             );
             if (didRevoke) revoked++;
-            await this.stores.share.deleteActive({
-                holderUserId: holder.id,
-                fsentryId: entry.id,
-                issuerUserId: issuer as number,
-            });
+            if (authorized) {
+                await this.stores.share.deleteActive({
+                    holderUserId: holder.id,
+                    fsentryId: entry.id,
+                    issuerUserId: issuer as number,
+                });
+            }
         }
-
-        // Whatever the holder re-shared goes with them. Their authority to
-        // grant came from this access, so leaving those behind would let
-        // access outlive the permission it was derived from.
-        revoked += await this.#revokeDownstream(actor, entry, holder.id);
         return { revoked };
     }
 
@@ -382,21 +385,20 @@ export class ShareService extends PuterService {
                 seen,
             );
 
-            if (
-                await this.#revokeFor(
-                    actor,
-                    entry,
-                    downstream.username,
-                    issuerId,
-                )
-            ) {
-                revoked++;
+            const { revoked: didRevoke, authorized } = await this.#revokeFor(
+                actor,
+                entry,
+                downstream.username,
+                issuerId,
+            );
+            if (didRevoke) revoked++;
+            if (authorized) {
+                await this.stores.share.deleteActive({
+                    holderUserId: holderId,
+                    fsentryId: entry.id,
+                    issuerUserId: issuerId,
+                });
             }
-            await this.stores.share.deleteActive({
-                holderUserId: holderId,
-                fsentryId: entry.id,
-                issuerUserId: issuerId,
-            });
         }
         return revoked;
     }
@@ -459,6 +461,8 @@ export class ShareService extends PuterService {
                 issuer: { username: issuer?.username ?? null },
                 holder: { username: actor.user.username ?? null },
                 createdAt: row.created_at,
+                modified: entry.modified,
+                size: entry.size,
             });
         }
 
@@ -522,6 +526,8 @@ export class ShareService extends PuterService {
                 },
                 createdAt: row.created_at,
                 inheritedFrom: via,
+                modified: entry.modified,
+                size: entry.size,
             }),
         );
 
@@ -548,6 +554,8 @@ export class ShareService extends PuterService {
                 },
                 createdAt: row.created_at,
                 inheritedFrom: null,
+                modified: entry.modified,
+                size: entry.size,
             }),
         );
         return inheritedShares.concat(own);
@@ -570,6 +578,8 @@ export class ShareService extends PuterService {
             issuer: { username: issuer.user.username ?? null },
             holder: { username: holder.username ?? null },
             createdAt: row.created_at,
+            modified: entry.modified,
+            size: entry.size,
         };
     }
 
@@ -703,13 +713,16 @@ export class ShareService extends PuterService {
      * `manage` grant needs `manage:manage:fs:<uid>`, which only the owner
      * holds, so a delegate withdrawing a plain `read` would otherwise fail on
      * reaching the manage form.
+     *
+     * `authorized` is false when it could manage none of them — the caller must
+     * then leave the index row alone, or it hides a grant that is still live.
      */
     async #revokeFor(
         actor: Actor,
         entry: FSEntry,
         username: string,
         issuerUserId: number,
-    ): Promise<boolean> {
+    ): Promise<{ revoked: boolean; authorized: boolean }> {
         const permissions = [
             `fs:${entry.uuid}:see`,
             `fs:${entry.uuid}:list`,
@@ -742,7 +755,7 @@ export class ShareService extends PuterService {
                 );
             if (didRevoke) revoked = true;
         }
-        return revoked;
+        return { revoked, authorized: manageable.some(Boolean) };
     }
 
     async #revokeQuietly(
