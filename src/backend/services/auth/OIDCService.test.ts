@@ -300,6 +300,110 @@ describe('OIDCService.createUserFromOIDC', () => {
             oidcConfig.disable_user_signup = prev;
         }
     });
+
+    // Two callbacks for the same brand-new identity — a second tab, a provider
+    // retry — used to each create an account and each link the same sub, since
+    // neither the address nor the sub was constrained. Later sign-ins then
+    // resolved to whichever row came back first.
+    it('creates exactly one account for two simultaneous callbacks', async () => {
+        const email = `race-${crypto.randomBytes(4).toString('hex')}@corp.example`;
+        const sub = `race-sub-${crypto.randomBytes(4).toString('hex')}`;
+
+        const results = await Promise.all([
+            runWithContext({ req }, () =>
+                oidc().createUserFromOIDC('custom-idp', {
+                    sub,
+                    email,
+                    email_verified: true,
+                }),
+            ),
+            runWithContext({ req }, () =>
+                oidc().createUserFromOIDC('custom-idp', {
+                    sub,
+                    email,
+                    email_verified: true,
+                }),
+            ),
+        ]);
+
+        expect(results.filter((r) => r.success)).toHaveLength(1);
+        // The loser reports a race, not an error — the caller re-resolves onto
+        // the winner rather than showing the user a failure.
+        const loser = results.find((r) => !r.success)!;
+        expect(loser.raced).toBe(true);
+        expect(loser.error).toBeUndefined();
+
+        const owners = (await server.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `user` WHERE `email` = ?',
+            [email],
+        )) as Array<{ n: number }>;
+        expect(Number(owners[0].n)).toBe(1);
+
+        // And exactly one link, so getByProviderSub cannot flip between
+        // accounts on subsequent sign-ins.
+        const links = (await server.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `user_oidc_providers` WHERE `provider_sub` = ?',
+            [sub],
+        )) as Array<{ n: number }>;
+        expect(Number(links[0].n)).toBe(1);
+    });
+
+    it('reports a race rather than a failure when the address is already taken', async () => {
+        const email = `taken-${crypto.randomBytes(4).toString('hex')}@corp.example`;
+        await server.stores.user.create({
+            username: `taken-${crypto.randomBytes(4).toString('hex')}`,
+            uuid: crypto.randomUUID(),
+            password: 'hashed',
+            email,
+            clean_email: email,
+        });
+
+        const result = await runWithContext({ req }, () =>
+            oidc().createUserFromOIDC('custom-idp', {
+                sub: `taken-sub-${crypto.randomBytes(4).toString('hex')}`,
+                email,
+                email_verified: true,
+            }),
+        );
+
+        expect(result.success).toBe(false);
+        expect(result.raced).toBe(true);
+    });
+
+    it('leaves no orphan account behind when the identity was linked first', async () => {
+        // The sub is already bound to another account, so `link()` throws after
+        // this call has created its own user. That account can never be signed
+        // in to, so it must not survive.
+        const sub = `orphan-sub-${crypto.randomBytes(4).toString('hex')}`;
+        const incumbent = await server.stores.user.create({
+            username: `incumbent-${crypto.randomBytes(4).toString('hex')}`,
+            uuid: crypto.randomUUID(),
+            password: null,
+            email: `incumbent-${crypto.randomBytes(4).toString('hex')}@corp.example`,
+        });
+        await server.stores.oidc.link(incumbent.id, 'custom-idp', sub, null);
+
+        const email = `orphan-${crypto.randomBytes(4).toString('hex')}@corp.example`;
+        const before = (await server.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `user`',
+        )) as Array<{ n: number }>;
+
+        const result = await runWithContext({ req }, () =>
+            oidc().createUserFromOIDC('custom-idp', {
+                sub,
+                email,
+                email_verified: true,
+            }),
+        );
+
+        expect(result.success).toBe(false);
+        expect(result.raced).toBe(true);
+        const after = (await server.clients.db.read(
+            'SELECT COUNT(*) AS n FROM `user`',
+        )) as Array<{ n: number }>;
+        expect(Number(after[0].n)).toBe(Number(before[0].n));
+        expect(await server.stores.user.getByEmail(email)).toBeNull();
+    });
 });
 
 describe('OIDCService.linkProviderToUser', () => {
