@@ -1141,8 +1141,12 @@ async function UIItem (options) {
         // -------------------------------------------------------
         else {
             const is_trash = $(el_item).attr('data-path') === window.trash_path || $(el_item).attr('data-shortcut_to_path') === window.trash_path;
-            const is_shared_with_me = $(el_item).attr('data-shared_with_me') === '1';
-            // A `manage` recipient is allowed to re-share, so they still get Share…
+            // Has its own share, so it is a row the Shared view listed.
+            const is_shared_root = $(el_item).attr('data-shared_with_me') === '1';
+            // Someone else's, however we got here — including items reached by
+            // opening a shared folder, which carry no share markers.
+            const is_not_mine = !is_owned_by_me($(el_item).attr('data-path'));
+            // Re-sharing needs `manage` here; it does not inherit from a parent.
             const can_manage_share = $(el_item).attr('data-share_mode') === 'manage';
             const is_shortcut = !! $(el_item).attr('data-shortcut_to_path');
             const is_weblink = isWeblinkName($(el_item).attr('data-name'));
@@ -1567,7 +1571,7 @@ async function UIItem (options) {
             // -------------------------------------------
             // Share
             // -------------------------------------------
-            if ( !is_trash && !is_trashed && (!is_shared_with_me || can_manage_share) ) {
+            if ( !is_trash && !is_trashed && (!is_not_mine || can_manage_share) ) {
                 menu_items.push({
                     html: i18n('share_ellipsis'),
                     onClick: async function () {
@@ -1584,7 +1588,7 @@ async function UIItem (options) {
             // Someone else owns this, so deleting it would move their file into
             // our trash — which the backend refuses. Give up our own access
             // instead, which is what "remove it from my view" actually means.
-            if ( is_shared_with_me ) {
+            if ( is_shared_root ) {
                 menu_items.push({
                     html: i18n('share_remove_from_shared'),
                     onClick: async function () {
@@ -1603,7 +1607,7 @@ async function UIItem (options) {
             // -------------------------------------------
             // Delete
             // -------------------------------------------
-            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_shared_with_me ) {
+            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_not_mine ) {
                 menu_items.push({
                     html: i18n('delete'),
                     onClick: async function () {

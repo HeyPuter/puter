@@ -19,6 +19,7 @@
 
 import UIWindow from './UIWindow.js';
 import path from '../lib/path.js';
+import { owner_of_path } from '../helpers/path_owner.js';
 import { icons } from '../helpers/actionIcons.js';
 
 const MODES = ['read', 'write', 'manage'];
@@ -43,9 +44,7 @@ async function UIWindowShare (options) {
     const item_path = options.path;
     const item_name = options.name ?? path.basename(item_path);
     const item_owner =
-        options.owner
-        ?? item_path?.split('/').filter(Boolean)[0]
-        ?? window.user.username;
+        options.owner ?? owner_of_path(item_path) ?? window.user.username;
 
     let h = '';
     h += '<div class="share-dialog">';

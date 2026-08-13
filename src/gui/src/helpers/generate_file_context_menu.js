@@ -29,6 +29,7 @@ import open_item from './open_item.js';
 import launch_app from './launch_app.js';
 import path from '../lib/path.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from './weblink.js';
+import { is_owned_by_me } from './path_owner.js';
 
 /**
  * Generates context menu items for file/folder operations
@@ -51,8 +52,12 @@ const generate_file_context_menu = async function (options) {
     const fsentry = options.fsentry || {};
     const is_trash = options.is_trash ?? false;
     const is_trashed = options.is_trashed ?? false;
-    const is_shared_with_me = $(options.element).attr('data-shared_with_me') === '1';
-    // A `manage` recipient is allowed to re-share, so they still get Share…
+    // Has its own share, so it is a row the Shared view listed and can be left.
+    const is_shared_root = $(options.element).attr('data-shared_with_me') === '1';
+    // Someone else's, however we got here — including items reached by opening
+    // a shared folder, which carry no share markers of their own.
+    const is_not_mine = !is_owned_by_me($(options.element).attr('data-path'));
+    // Re-sharing needs `manage` on this node; it does not inherit from a parent.
     const can_manage_share = $(options.element).attr('data-share_mode') === 'manage';
     const is_worker = options.is_worker ?? false;
     const onOpen = options.onOpen;
@@ -299,7 +304,7 @@ const generate_file_context_menu = async function (options) {
     // -------------------------------------------
     // Share
     // -------------------------------------------
-    if ( !is_trash && !is_trashed && (!is_shared_with_me || can_manage_share) ) {
+    if ( !is_trash && !is_trashed && (!is_not_mine || can_manage_share) ) {
         menu_items.push({
             html: i18n('share_ellipsis'),
             onClick: async function () {
@@ -314,8 +319,9 @@ const generate_file_context_menu = async function (options) {
     // -------------------------------------------
     // Remove from Shared
     // -------------------------------------------
-    // Can't trash someone else's file, so give up our own access instead
-    if ( is_shared_with_me ) {
+    // Can't trash someone else's file, so give up our own access instead. Only
+    // for an item shared directly — access to a child is held on the folder.
+    if ( is_shared_root ) {
         menu_items.push({
             html: i18n('share_remove_from_shared'),
             onClick: async function () {
@@ -335,7 +341,7 @@ const generate_file_context_menu = async function (options) {
     // -------------------------------------------
     // Delete
     // -------------------------------------------
-    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_shared_with_me ) {
+    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_not_mine ) {
         menu_items.push({
             html: i18n('delete'),
             onClick: async function () {
