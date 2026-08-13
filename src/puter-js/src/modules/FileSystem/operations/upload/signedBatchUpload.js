@@ -29,6 +29,10 @@ import { chunkArray } from './entries.js';
 export const isSignedBatchWriteUnavailableError = (error) => {
     if ( !error || typeof error !== 'object' ) return false;
     if ( error.signedBatchUnavailable === true ) return true;
+    // A partial failure proves the endpoints exist — the batch got far enough
+    // to fail per item. It carries the items' shared status, which must not be
+    // read as the endpoint's own answer.
+    if ( error.partial === true ) return false;
     const errorBody = error.body && typeof error.body === 'object'
         ? error.body
         : null;
@@ -41,6 +45,32 @@ export const isSignedBatchWriteUnavailableError = (error) => {
         return false;
     }
     return SIGNED_BATCH_WRITE_UNAVAILABLE_STATUSES.has(error.status);
+};
+
+/**
+ * The `code` / `status` shared by every failed item of a batch, if there is
+ * one. A rejection they all carry is a property of the request rather than of
+ * any single file — an over-quota account is the case that matters, since the
+ * allowance check fails the whole batch when it is completed. Hoisting it onto
+ * the thrown error is what lets callers keying on `error.code` recognise it
+ * (the SDK's own upload handler included, which prompts to free up space)
+ * instead of seeing a generic "operations failed".
+ *
+ * Mixed failures report nothing: there is no single answer, and guessing one
+ * would mislabel the others.
+ *
+ * @param {Array<{ code?: string, status?: number }>} failedItems
+ * @returns {{ code?: string, status?: number }}
+ */
+export const sharedFailureFields = (failedItems) => {
+    const shared = {};
+    for ( const field of ['code', 'status'] ) {
+        const values = new Set(failedItems.map((item) => item[field]));
+        if ( values.size === 1 && !values.has(undefined) ) {
+            shared[field] = [...values][0];
+        }
+    }
+    return shared;
 };
 
 /**
@@ -675,10 +705,13 @@ export async function performSignedBatchUpload (ctx) {
                         ? path.basename(itemPath)
                         : undefined,
                     message: toErrorMessage(item.error),
+                    code: typeof item.error?.code === 'string' ? item.error.code : undefined,
+                    status: typeof item.error?.status === 'number' ? item.error.status : undefined,
                 };
             });
             partialError.partial = true;
             partialError.failedItems = mappedFailedSignedItems;
+            Object.assign(partialError, sharedFailureFields(mappedFailedSignedItems));
             partialError.failedPaths = mappedFailedSignedItems
                 .map((item) => item.path)
                 .filter((itemPath) => typeof itemPath === 'string' && itemPath.length > 0);

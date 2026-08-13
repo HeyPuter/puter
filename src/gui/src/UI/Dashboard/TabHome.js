@@ -18,6 +18,7 @@
  */
 
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
+import { usageBudget } from './usageBudget.js';
 
 // How long a completed usage load stays fresh enough to skip a repeat. Long
 // enough to absorb the init/onActivate/routing burst on a single dashboard
@@ -542,50 +543,28 @@ const TabHome = {
         // Load monthly usage data
         try {
             const res = await puter.auth.getMonthlyUsage();
-            const monthlyAllowance =
-                res.allowanceInfo?.monthUsageAllowance || 0;
-            // Actual month-to-date spend.
-            const totalUsage = res.usage?.total ?? 0;
-            // Purchased credits extend the monthly allowance. `remaining` is the
-            // server-netted pool (allowance-left + purchased-left, with any
-            // overage already charged to credits), so subtracting the allowance
-            // portion back out isolates the purchased-credit balance — no
-            // double-counting of the overage.
-            const remaining = res.allowanceInfo?.remaining ?? 0;
-            const remainingPurchased = Math.max(
-                0,
-                remaining - Math.max(0, monthlyAllowance - totalUsage),
+            const budget = usageBudget(
+                res.usage?.total ?? 0,
+                res.allowanceInfo?.remaining ?? 0,
             );
-            // Capacity grows by whatever purchased credit is left; net usage
-            // (spend minus that credit) drives the percentage, so unused credit
-            // reads as a negative "usage" against the monthly allowance.
-            const capacity = monthlyAllowance + remainingPurchased;
-            const netUsage = totalUsage - remainingPurchased;
-            const rawPercentage = monthlyAllowance
-                ? (netUsage / monthlyAllowance) * 100
-                : 0;
-            // Text may go negative (surplus credit) but never above 100%; the
-            // bar fill is clamped to [0, 100].
-            const displayPercentage = Math.round(Math.min(100, rawPercentage));
-            const barPercentage = Math.max(0, Math.min(100, rawPercentage));
 
             $el_window
                 .find('.bento-resources-used')
                 .text(
-                    `${window.number_format(totalUsage / 100_000_000, { decimals: 2, prefix: '$' })} Used`,
+                    `${window.number_format(budget.used / 100_000_000, { decimals: 2, prefix: '$' })} Used`,
                 );
             $el_window.find('.bento-resources-capacity').text(
-                window.number_format(capacity / 100_000_000, {
+                window.number_format(budget.capacity / 100_000_000, {
                     decimals: 2,
                     prefix: '$',
                 }),
             );
             $el_window
                 .find('.bento-resources-percent')
-                .text(`${displayPercentage}%`);
+                .text(`${budget.percent}%`);
             $el_window.find('.bento-resources-bar').css({
-                width: `${barPercentage}%`,
-                'background-color': window.usage_bar_color(barPercentage),
+                width: `${budget.barPercent}%`,
+                'background-color': window.usage_bar_color(budget.barPercent),
             });
         } catch (e) {
             console.error('Failed to load monthly usage data:', e);
