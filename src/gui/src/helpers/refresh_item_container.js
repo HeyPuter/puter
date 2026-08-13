@@ -20,6 +20,7 @@
 import path from '../lib/path.js';
 import UIItem from '../UI/UIItem.js';
 import item_icon from './item_icon.js';
+import list_all_shared from './list_all_shared.js';
 
 const refresh_item_container = function (el_item_container, options) {
     // start a transaction
@@ -127,11 +128,13 @@ const refresh_item_container = function (el_item_container, options) {
 
     // get items with subdomains/workers included to avoid per-item stat calls
     const entries_promise = is_shared_view
-        ? puter.fs.listShared().then((page) => page.items.map((share) => ({
+        ? list_all_shared().then((shares) => shares.map((share) => ({
             uid: share.entryUid,
             name: path.basename(share.path),
             path: share.path,
             is_dir: share.isDir,
+            modified: share.modified,
+            size: share.size,
             // Carried so the context menu can offer "remove from shared"
             // rather than a delete the backend would refuse.
             shared_with_me: true,

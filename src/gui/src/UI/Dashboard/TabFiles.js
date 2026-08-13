@@ -36,6 +36,7 @@ import { dedupedName } from './dedupedName.js';
 import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js';
 
 import { icons } from '../../helpers/actionIcons.js';
+import list_all_shared from '../../helpers/list_all_shared.js';
 
 const { html_encode, SelectionArea } = window;
 
@@ -2141,11 +2142,13 @@ const TabFiles = {
         let directoryContents;
         try {
             directoryContents = isSharedView
-                ? (await window.puter.fs.listShared()).items.map((share) => ({
+                ? (await list_all_shared()).map((share) => ({
                     uid: share.entryUid,
                     name: share.path.split('/').pop(),
                     path: share.path,
                     is_dir: share.isDir,
+                    modified: share.modified,
+                    size: share.size,
                     shared_with_me: true,
                     share_mode: share.mode,
                     shared_by: share.issuer,
