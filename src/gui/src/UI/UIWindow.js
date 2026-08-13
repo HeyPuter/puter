@@ -356,7 +356,7 @@ async function UIWindow (options) {
             h += `<div draggable="false" title="${i18n('pictures')}" class="window-sidebar-item disable-user-select ${options.path === window.pictures_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.pictures_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-pictures.svg'])}">${i18n('pictures')}</div>`;
             h += `<div draggable="false" title="${i18n('desktop')}" class="window-sidebar-item disable-user-select ${options.path === window.desktop_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.desktop_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-desktop.svg'])}">${i18n('desktop')}</div>`;
             h += `<div draggable="false" title="${i18n('videos')}" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-videos.svg'])}">${i18n('videos')}</div>`;
-            h += `<div draggable="false" title="${i18n('shared_with_me')}" class="window-sidebar-item disable-user-select ${options.path === window.shared_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.shared_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['shared-outline.svg'])}">${i18n('shared_with_me')}</div>`;
+            h += `<div draggable="false" title="${i18n('shared')}" class="window-sidebar-item disable-user-select ${options.path === window.shared_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.shared_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-shared.svg'])}">${i18n('shared')}</div>`;
         } else {
             let items = JSON.parse(window.sidebar_items);
             // Saved sidebar orders may predate the Home entry — make sure it's always present
@@ -391,7 +391,7 @@ async function UIWindow (options) {
                 }
                 else if ( item.path === window.shared_path )
                 {
-                    icon = window.icons['shared-outline.svg'];
+                    icon = window.icons['sidebar-folder-shared.svg'];
                 }
                 else
                 {
