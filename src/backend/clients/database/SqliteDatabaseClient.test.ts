@@ -27,7 +27,7 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 61;
+const CURRENT_SCHEMA_VERSION = 63;
 const SYSTEM_USER_UUID = '5d4adce0-a381-4982-9c02-6e2540026238';
 
 const sqliteConfig = (

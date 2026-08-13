@@ -280,15 +280,19 @@ export class StaticPagesController extends PuterController {
                     (user.clean_email as string | null | undefined) ??
                     String(user.email ?? '').toLowerCase();
 
-                const [dupe] = (await this.clients.db.read(
-                    `SELECT EXISTS(
-                    SELECT 1 FROM \`user\` WHERE (\`email\` = ? OR \`clean_email\` = ?)
-                    AND \`email_confirmed\` = ${this.clients.db.booleanLiteral(true)}
-                    AND \`password\` IS NOT NULL
-                ) AS email_exists`,
-                    [user.email, cleanEmail],
-                )) as Array<{ email_exists: number }>;
-                if (dupe?.email_exists) {
+                // An account that already confirmed this address proved access
+                // to the inbox. The strip below would take it away from them,
+                // so refuse here instead. Password-less accounts count: an
+                // identity provider verified the address for those, and they
+                // are exactly what the old `password IS NOT NULL` clause let
+                // through.
+                const confirmedRival =
+                    await this.stores.user.findConfirmedOtherByEmail(
+                        user.id as number,
+                        user.email as string,
+                        cleanEmail,
+                    );
+                if (confirmedRival) {
                     res.send(
                         err('This email was confirmed on a different account.'),
                     );
@@ -300,6 +304,15 @@ export class StaticPagesController extends PuterController {
                 await this.clients.db.write(
                     'UPDATE `user` SET `unconfirmed_change_email` = NULL, `change_email_confirm_token` = NULL WHERE `unconfirmed_change_email` = ?',
                     [user.email],
+                );
+
+                // Take the address off every remaining row before confirming
+                // this one. The check above leaves only unconfirmed rows, and
+                // only one row may own an address once this one is confirmed.
+                await this.stores.user.unconfirmOthersByEmail(
+                    user.id,
+                    user.email as string,
+                    cleanEmail,
                 );
 
                 await this.stores.user.update(user.id, {

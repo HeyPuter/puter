@@ -975,6 +975,14 @@ let sidebar = [
                 path: '/UI/showDirectoryPicker',
             },
             {
+                title: '<code>showFeedbackDialog()</code>',
+                page_title: '<code>puter.ui.showFeedbackDialog()</code>',
+                title_tag: 'puter.ui.showFeedbackDialog()',
+                icon: '/assets/img/function.svg',
+                source: '/UI/showFeedbackDialog.md',
+                path: '/UI/showFeedbackDialog',
+            },
+            {
                 title: '<code>showFontPicker()</code>',
                 page_title: '<code>puter.ui.showFontPicker()</code>',
                 title_tag: 'puter.ui.showFontPicker()',

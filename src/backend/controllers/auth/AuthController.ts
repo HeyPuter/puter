@@ -52,6 +52,8 @@ import {
     createSecret as otpCreateSecret,
     verify as verifyOtp,
 } from '../../services/auth/OTPUtil.js';
+import type { UserRow } from '../../stores/user/UserStore.js';
+import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { generate_identifier } from '../../util/identifier.js';
@@ -775,11 +777,9 @@ export class AuthController extends PuterController {
         if (this.config.disable_user_signup) {
             let claimable = false;
             if (!is_temp) {
-                const existing =
-                    (await this.stores.user.getByEmail(body.email)) ??
-                    (await this.stores.user.getByCleanEmail(
-                        cleanEmail(body.email),
-                    ));
+                const existing = await this.stores.user.findEmailOwner(
+                    body.email,
+                );
                 claimable = Boolean(
                     existing &&
                     !existing.email_confirmed &&
@@ -817,28 +817,18 @@ export class AuthController extends PuterController {
         // password to an OIDC account, the owner logs in via OIDC and
         // uses the authenticated change-password flow.
         //
-        // Match on both raw `email` and canonical `clean_email` so
+        // Matching runs against both raw `email` and canonical `clean_email` so
         // gmail-style aliases (`foo.bar+tag@gmail.com` vs
         // `foobar@gmail.com`) collapse to the same account.
-        let pseudo_user = null;
-        if (!is_temp) {
-            const canonical = cleanEmail(body.email);
-            const existing =
-                (await this.stores.user.getByEmail(body.email)) ??
-                (await this.stores.user.getByCleanEmail(canonical));
-            if (existing) {
-                // Confirmed account (regardless of credential type) → reject.
-                if (existing.email_confirmed || existing.password !== null) {
-                    throw new HttpError(
-                        400,
-                        'This email already exists in our database. Please use another one.',
-                        { legacyCode: 'bad_request' },
-                    );
-                }
-                // Password-null AND unconfirmed → treat as pseudo.
-                pseudo_user = existing;
-            }
-        }
+        //
+        // This is the cheap early check: it keeps an obvious duplicate from
+        // paying for the validate hook and a bcrypt round. It is NOT the
+        // guarantee — everything between here and the insert widens the window,
+        // so the check runs again against the primary immediately before the
+        // write, and the unique index catches whatever still slips through.
+        let pseudo_user = is_temp
+            ? null
+            : await this.#resolveSignupEmailClaim(body.email);
 
         // Extension-level validation gate. Abuse-prevention extensions
         // inspect the incoming signup and can:
@@ -945,24 +935,54 @@ export class AuthController extends PuterController {
             .slice(0, 19)
             .replace('T', ' ');
 
+        // Re-run the claim against the primary now that the slow work is done.
+        // The check above ran before the validate hook (network round-trips to
+        // the abuse listeners) and before bcrypt — hundreds of milliseconds in
+        // which a concurrent signup can take the address, or claim the very
+        // placeholder row we were about to convert.
+        if (!is_temp) {
+            pseudo_user = await this.#resolveSignupEmailClaim(body.email, {
+                force: true,
+            });
+        }
+
         let user;
         if (pseudo_user) {
             // -- Pseudo-user claim (convert the placeholder row) --
-            await this.stores.user.update(pseudo_user.id, {
-                username: body.username,
-                password: password_hash,
-                uuid: user_uuid,
-                email_confirm_code,
-                email_confirm_token,
-                email_confirmed: 0,
-                requires_email_confirmation: 1,
-                last_activity_ts: signupSqlTs,
-                ...(validateEvent.reputation != null
-                    ? { reputation: validateEvent.reputation }
-                    : {}),
-                requires_phone_verification: force_phone_verification ? 1 : 0,
-                requires_card_verification: force_card_verification ? 1 : 0,
-            });
+            //
+            // Guarded, not a plain update: the address never changes hands here
+            // (the row already holds it), so the unique index has nothing to
+            // catch. Two signups that both read this row as claimable would
+            // otherwise both "succeed", the second overwriting the first's
+            // username and password on a row the first was already given a
+            // session for.
+            const claimed = await this.stores.user.claimPlaceholder(
+                pseudo_user.id,
+                {
+                    username: body.username,
+                    password: password_hash,
+                    uuid: user_uuid,
+                    email_confirm_code,
+                    email_confirm_token,
+                    email_confirmed: 0,
+                    requires_email_confirmation: 1,
+                    last_activity_ts: signupSqlTs,
+                    ...(validateEvent.reputation != null
+                        ? { reputation: validateEvent.reputation }
+                        : {}),
+                    requires_phone_verification: force_phone_verification
+                        ? 1
+                        : 0,
+                    requires_card_verification: force_card_verification ? 1 : 0,
+                },
+            );
+            if (!claimed) {
+                throw new HttpError(
+                    400,
+                    'This email already exists in our database. Please use another one.',
+                    { legacyCode: 'bad_request' },
+                );
+            }
 
             // Move from temp group to regular user group
             if (this.config.default_temp_group) {
@@ -994,37 +1014,51 @@ export class AuthController extends PuterController {
             const clientIp = req.ip || req.socket?.remoteAddress || null;
             const proxyIpChain = req.headers['x-forwarded-for'];
 
-            user = await this.stores.user.create({
-                username: body.username,
-                uuid: user_uuid,
-                password: password_hash,
-                email: is_temp ? null : body.email,
-                clean_email: is_temp ? null : cleanEmail(body.email),
-                free_storage: this.config.storage_capacity ?? null,
-                requires_email_confirmation:
-                    !is_temp || force_email_confirmation,
-                email_confirm_code,
-                email_confirm_token,
-                audit_metadata: {
-                    ip: clientIp,
-                    ip_fwd: proxyIpChain,
-                    user_agent: req.headers?.['user-agent'],
-                    origin: req.headers?.origin,
-                    fingerprint,
-                },
-                signup_ip: clientIp,
-                signup_ip_forwarded: proxyIpChain,
-                signup_user_agent: req.headers?.['user-agent'] ?? null,
-                signup_origin: (req.headers?.origin as string | null) ?? null,
-                signup_server: (this.config as { serverId?: string }).serverId,
-                referrer: req.body.referrer ?? null,
-                last_activity_ts: signupSqlTs,
-                reputation: validateEvent.reputation,
-                // Phone collected later in the verification dialog (null now).
-                phone: null,
-                requires_phone_verification: force_phone_verification,
-                requires_card_verification: force_card_verification,
-            } as never);
+            try {
+                user = await this.stores.user.create({
+                    username: body.username,
+                    uuid: user_uuid,
+                    password: password_hash,
+                    email: is_temp ? null : body.email,
+                    clean_email: is_temp ? null : cleanEmail(body.email),
+                    free_storage: this.config.storage_capacity ?? null,
+                    requires_email_confirmation:
+                        !is_temp || force_email_confirmation,
+                    email_confirm_code,
+                    email_confirm_token,
+                    audit_metadata: {
+                        ip: clientIp,
+                        ip_fwd: proxyIpChain,
+                        user_agent: req.headers?.['user-agent'],
+                        origin: req.headers?.origin,
+                        fingerprint,
+                    },
+                    signup_ip: clientIp,
+                    signup_ip_forwarded: proxyIpChain,
+                    signup_user_agent: req.headers?.['user-agent'] ?? null,
+                    signup_origin:
+                        (req.headers?.origin as string | null) ?? null,
+                    signup_server: (this.config as { serverId?: string })
+                        .serverId,
+                    referrer: req.body.referrer ?? null,
+                    last_activity_ts: signupSqlTs,
+                    reputation: validateEvent.reputation,
+                    // Phone collected later in the verification dialog (null now).
+                    phone: null,
+                    requires_phone_verification: force_phone_verification,
+                    requires_card_verification: force_card_verification,
+                } as never);
+            } catch (e) {
+                // Lost the race to another signup between the re-check above and
+                // this insert. The index is the only thing that can see that, so
+                // translate it into the answer the pre-check would have given.
+                if (!isOwnedEmailConflict(e)) throw e;
+                throw new HttpError(
+                    400,
+                    'This email already exists in our database. Please use another one.',
+                    { legacyCode: 'bad_request' },
+                );
+            }
 
             // Add to default group
             const defaultGroup = is_temp
@@ -1274,22 +1308,40 @@ export class AuthController extends PuterController {
         // after signup but before confirmation.
         await this.#validateEmail(user.email!);
 
+        // An account that already confirmed this address proved access to the
+        // inbox, and revoking it below would hand the address to whoever
+        // confirmed second. Refuse instead — a duplicate this old is data to
+        // repair, not a race to resolve.
+        const canonical = cleanEmail(user.email!);
+        const confirmedRival = await this.stores.user.findConfirmedOtherByEmail(
+            user.id,
+            user.email!,
+            canonical,
+        );
+        if (confirmedRival) {
+            throw new HttpError(
+                400,
+                'This email was confirmed on a different account.',
+                { legacyCode: 'email_already_in_use' as never },
+            );
+        }
+
+        // Revoke the address from every remaining (unconfirmed) account holding
+        // it, THEN confirm this one. Only one row may own an address, so
+        // confirming first would momentarily create a second owner — which the
+        // unique index rejects, turning a legitimate confirmation into a 500.
+        await this.stores.user.unconfirmOthersByEmail(
+            user.id,
+            user.email!,
+            canonical,
+        );
+
         await this.stores.user.update(user.id, {
             email_confirmed: 1,
             requires_email_confirmation: 0,
             email_confirm_code: null,
             email_confirm_token: null,
         });
-
-        // Revoke confirmation from any other accounts sharing this
-        // email so only the account whose owner just proved inbox
-        // access retains verified status.
-        const canonical = cleanEmail(user.email!);
-        await this.stores.user.unconfirmOthersByEmail(
-            user.id,
-            user.email!,
-            canonical,
-        );
 
         await promoteToVerifiedGroup(this.stores.group, this.config, user);
 
@@ -2277,10 +2329,26 @@ export class AuthController extends PuterController {
 
         // Atomic check: only update if the recovery token still matches
         const password_hash = await bcrypt.hash(password, 8);
-        const result = await this.clients.db.write(
-            'UPDATE `user` SET `password` = ?, `pass_recovery_token` = NULL, `change_email_confirm_token` = NULL WHERE `id` = ? AND `pass_recovery_token` = ?',
-            [password_hash, user.id, decoded.token],
-        );
+        let result;
+        try {
+            result = await this.clients.db.write(
+                'UPDATE `user` SET `password` = ?, `pass_recovery_token` = NULL, `change_email_confirm_token` = NULL WHERE `id` = ? AND `pass_recovery_token` = ?',
+                [password_hash, user.id, decoded.token],
+            );
+        } catch (e) {
+            if (!isOwnedEmailConflict(e)) throw e;
+            // Recovery can be requested by username, so this row may be an
+            // unconfirmed placeholder that shares its address with a real
+            // account. Giving it a password would make it a second account able
+            // to drive recovery for that inbox, which is the thing the address
+            // constraint exists to stop. The inbox owner has an account
+            // already — they should be recovering that one.
+            throw new HttpError(
+                400,
+                'This email is already in use. Recover the account that uses it instead.',
+                { legacyCode: 'email_already_in_use' as never },
+            );
+        }
         const affected =
             (result as { affectedRows?: number; changes?: number })
                 ?.affectedRows ??
@@ -2441,10 +2509,7 @@ export class AuthController extends PuterController {
         // aliases — which is also why the caller has to be excluded: an
         // alias of your own current address resolves back to you, and
         // "already in use" about yourself is nonsense.
-        const canonical = cleanEmail(new_email);
-        const existing =
-            (await this.stores.user.getByEmail(new_email)) ??
-            (await this.stores.user.getByCleanEmail(canonical));
+        const existing = await this.stores.user.findEmailOwner(new_email);
         if (
             existing &&
             existing.id !== req.actor!.user.id &&
@@ -2545,7 +2610,7 @@ export class AuthController extends PuterController {
         }
 
         const rows = (await this.clients.db.read(
-            'SELECT * FROM `user` WHERE `change_email_confirm_token` = ? LIMIT 1',
+            'SELECT * FROM `user` WHERE `change_email_confirm_token` = ? ORDER BY `id` ASC LIMIT 1',
             [decoded.token],
         )) as Array<Record<string, unknown>>;
         const user = rows[0] as
@@ -2566,11 +2631,12 @@ export class AuthController extends PuterController {
 
         // Re-check nobody claimed the new email meanwhile. Match raw +
         // canonical; block if any real account (confirmed OR
-        // password-holding) already owns it.
+        // password-holding) already owns it. Read the primary — the request
+        // that took the address may have landed moments ago.
         const canonical = cleanEmail(newEmail);
-        const owner =
-            (await this.stores.user.getByEmail(newEmail)) ??
-            (await this.stores.user.getByCleanEmail(canonical));
+        const owner = await this.stores.user.findEmailOwner(newEmail, {
+            force: true,
+        });
         if (
             owner &&
             owner.id !== user.id &&
@@ -2581,15 +2647,30 @@ export class AuthController extends PuterController {
             });
         }
 
-        await this.stores.user.update(user.id, {
-            email: newEmail,
-            clean_email: cleanEmail(newEmail),
-            unconfirmed_change_email: null,
-            change_email_confirm_token: null,
-            pass_recovery_token: null,
-            email_confirmed: 1,
-            requires_email_confirmation: 0,
-        });
+        // Strip the address off any unconfirmed placeholder still holding it
+        // before taking it, so this row is the only owner.
+        await this.stores.user.unconfirmOthersByEmail(
+            user.id,
+            newEmail,
+            canonical,
+        );
+
+        try {
+            await this.stores.user.update(user.id, {
+                email: newEmail,
+                clean_email: canonical,
+                unconfirmed_change_email: null,
+                change_email_confirm_token: null,
+                pass_recovery_token: null,
+                email_confirmed: 1,
+                requires_email_confirmation: 0,
+            });
+        } catch (e) {
+            if (!isOwnedEmailConflict(e)) throw e;
+            throw new HttpError(400, 'This email is already in use.', {
+                legacyCode: 'email_already_in_use' as never,
+            });
+        }
 
         await this.stores.oidc.unlinkAllByUserId(user.id);
 
@@ -2692,9 +2773,7 @@ export class AuthController extends PuterController {
         // reject on ANY confirmed account (OIDC accounts have
         // password=null but are real) — not just password-holders.
         const canonical = cleanEmail(email);
-        const existingEmail =
-            (await this.stores.user.getByEmail(email)) ??
-            (await this.stores.user.getByCleanEmail(canonical));
+        const existingEmail = await this.stores.user.findEmailOwner(email);
         if (
             existingEmail &&
             existingEmail.id !== user.id &&
@@ -2710,16 +2789,38 @@ export class AuthController extends PuterController {
         const email_confirm_code = String(crypto.randomInt(100000, 1000000));
         const email_confirm_token = uuidv4();
 
-        await this.stores.user.update(user.id, {
-            username,
-            email,
-            clean_email: cleanEmail(email),
-            password: password_hash,
-            email_confirm_code,
-            email_confirm_token,
-            email_confirmed: 0,
-            requires_email_confirmation: 1,
+        // bcrypt above is slow enough for someone else to take the address in
+        // the meantime, so re-check against the primary before the write.
+        const raced = await this.stores.user.findEmailOwner(email, {
+            force: true,
         });
+        if (
+            raced &&
+            raced.id !== user.id &&
+            (raced.email_confirmed || raced.password !== null)
+        ) {
+            throw new HttpError(400, 'This email is already in use.', {
+                legacyCode: 'email_already_in_use' as never,
+            });
+        }
+
+        try {
+            await this.stores.user.update(user.id, {
+                username,
+                email,
+                clean_email: canonical,
+                password: password_hash,
+                email_confirm_code,
+                email_confirm_token,
+                email_confirmed: 0,
+                requires_email_confirmation: 1,
+            });
+        } catch (e) {
+            if (!isOwnedEmailConflict(e)) throw e;
+            throw new HttpError(400, 'This email is already in use.', {
+                legacyCode: 'email_already_in_use' as never,
+            });
+        }
 
         // Rename the user's FS home so `/<temp>/Desktop` etc.
         // become `/<new>/Desktop`. Without this cascade, any
@@ -4425,57 +4526,7 @@ export class AuthController extends PuterController {
     // -- Private helpers ----------------------------------------------
 
     async #cascadeDeleteUser(userId: number): Promise<void> {
-        // Capture the identifiers downstream teardown needs before the row is
-        // gone — the marketplace extension cancels the user's Stripe
-        // subscriptions off `user.delete`, keyed by uuid / customer id.
-        let userUuid: string | undefined;
-        let stripeCustomerId: string | null = null;
-        try {
-            const rows = (await this.clients.db.read(
-                'SELECT `uuid`, `stripe_customer_id` FROM `user` WHERE `id` = ?',
-                [userId],
-            )) as Array<{ uuid?: string; stripe_customer_id?: string | null }>;
-            userUuid = rows[0]?.uuid;
-            stripeCustomerId = rows[0]?.stripe_customer_id ?? null;
-        } catch (e) {
-            console.warn('[cascade-delete-user] identifier lookup failed:', e);
-        }
-
-        try {
-            await this.services.fs.removeAllForUser(userId);
-        } catch (e) {
-            // Proceed with user-row delete anyway — orphaned fsentries are
-            // better than a resurrected account.
-            console.warn('[cascade-delete-user] fs cleanup failed:', e);
-        }
-
-        // Sessions FK is SET NULL, so delete explicitly to avoid dangling rows.
-        await this.clients.db.write(
-            'DELETE FROM `sessions` WHERE `user_id` = ?',
-            [userId],
-        );
-        await this.clients.db.write('DELETE FROM `user` WHERE `id` = ?', [
-            userId,
-        ]);
-        await this.stores.user.invalidateById(userId);
-
-        // Fire-and-forget: let listeners purge external state tied to the
-        // account (Stripe subscriptions are cancelled immediately, without
-        // proration). Emitted after the row delete — listeners key off the
-        // payload, not the DB row.
-        try {
-            this.clients.event?.emit(
-                'user.delete',
-                {
-                    user_id: userId,
-                    user_uuid: userUuid,
-                    stripe_customer_id: stripeCustomerId,
-                },
-                {},
-            );
-        } catch {
-            // ignore — event emission shouldn't block deletion
-        }
+        await this.services.userAccount.cascadeDelete(userId);
     }
 
     async #generateRandomUsername(): Promise<string> {
@@ -4492,6 +4543,34 @@ export class AuthController extends PuterController {
                 );
         } while (await this.stores.user.getByUsername(username));
         return username;
+    }
+
+    /**
+     * Decide whether a signup may take `email`, and hand back the placeholder
+     * row it should convert instead of inserting a new one.
+     *
+     * Throws when a live account already owns the address. Returns the
+     * unconfirmed, password-less pseudo row when one exists (admin
+     * pre-provisioning — signup claims it), or null when the address is free.
+     *
+     * Called twice per signup: once early, to fail fast before the validate
+     * hook and bcrypt, and once against the primary immediately before the
+     * write.
+     */
+    async #resolveSignupEmailClaim(
+        email: string,
+        opts: { force?: boolean } = {},
+    ): Promise<UserRow | null> {
+        const existing = await this.stores.user.findEmailOwner(email, opts);
+        if (!existing) return null;
+        if (existing.email_confirmed || existing.password !== null) {
+            throw new HttpError(
+                400,
+                'This email already exists in our database. Please use another one.',
+                { legacyCode: 'bad_request' },
+            );
+        }
+        return existing;
     }
 
     /**

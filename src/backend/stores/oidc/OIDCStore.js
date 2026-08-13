@@ -39,8 +39,11 @@ export class OIDCStore extends PuterStore {
     // -- Reads --------------------------------------------------------
 
     async getByProviderSub(provider, providerSub) {
+        // Ordered so a sub that predates the UNIQUE index (two callbacks for the
+        // same new identity used to be able to both insert) always resolves to
+        // the same link, instead of bouncing the user between two accounts.
         const rows = await this.clients.db.read(
-            'SELECT * FROM `user_oidc_providers` WHERE `provider` = ? AND `provider_sub` = ? LIMIT 1',
+            'SELECT * FROM `user_oidc_providers` WHERE `provider` = ? AND `provider_sub` = ? ORDER BY `id` ASC LIMIT 1',
             [provider, providerSub],
         );
         return rows[0] ?? null;

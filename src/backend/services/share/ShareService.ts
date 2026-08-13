@@ -532,7 +532,7 @@ export class ShareService extends PuterService {
                 issuer_user_id: number;
                 holder_user_id: number;
                 created_at: unknown;
-            }) => ({
+            }): ResolvedShare => ({
                 uid: row.uid,
                 mode: row.mode,
                 path: entry.path,

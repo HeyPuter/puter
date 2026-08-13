@@ -29,8 +29,11 @@ import truncate_filename from '../../helpers/truncate_filename.js';
 import update_title_based_on_uploads from '../../helpers/update_title_based_on_uploads.js';
 import item_icon from '../../helpers/item_icon.js';
 import new_context_menu_item from '../../helpers/new_context_menu_item.js';
+import publish_as_website from '../../helpers/publish_as_website.js';
 import ContextMenuModal from './ContextMenu/ContextMenu.js';
 import UIItemPropertiesModal from './UIItemPropertiesModal.js';
+import { dedupedName } from './dedupedName.js';
+import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js';
 
 import { icons } from '../../helpers/actionIcons.js';
 
@@ -161,7 +164,15 @@ const TabFiles = {
             if ( displayName ) {
                 $row.attr('data-name', displayName);
                 $row.find('.item-name').text(displayName);
-                $row.find('.item-name-editor').val(displayName);
+                // Never write over an open editor — a just-created row has one
+                // focused already, and mkdir's own item.added lands here right
+                // after, which would wipe out whatever the user has typed.
+                // Visibility, not the -active class: the class outlives a
+                // cancelled edit, `.hide()` does not.
+                const $editor = $row.find('.item-name-editor');
+                if ( ! $editor.is(':visible') ) {
+                    $editor.val(displayName);
+                }
             }
             if ( file.path ) $row.attr('data-path', file.path);
             if ( typeof file.type !== 'undefined' ) $row.attr('data-type', file.type || '');
@@ -206,6 +217,11 @@ const TabFiles = {
             // so a socket event must not re-add it either.
             if ( file.path === window.trash_path ) return;
 
+            // A dot-file created elsewhere must respect the same preference the
+            // listing was rendered with, or it shows up in a view that filtered
+            // its siblings out.
+            if ( ! isEntryVisible(file.name, showHiddenFiles()) ) return;
+
             // If item already exists in view, update in-place.
             const $existingRow = $(`.files-tab .files .item[data-uid='${file.uid}']`);
             if ( $existingRow.length > 0 ) {
@@ -238,7 +254,10 @@ const TabFiles = {
         };
 
         this.renderingDirectory = false;
-        this._creatingItem = false;
+        // Count, not flag: creates are started from a button that answers
+        // instantly now, so two can easily overlap and the first one finishing
+        // must not uncover the second.
+        this._creatingItem = 0;
         this.activeMenuFileUid = null;
         this.currentPath = null;
         this.currentPath = null;
@@ -1220,24 +1239,8 @@ const TabFiles = {
         });
 
         // New folder button
-        document.querySelector('.new-folder-btn').onclick = async () => {
-            if ( ! _this.currentPath ) return;
-            try {
-                const result = await puter.fs.mkdir({
-                    path: `${_this.currentPath}/New Folder`,
-                    rename: true,
-                    overwrite: false,
-                });
-                await _this.renderDirectory(_this.currentPath);
-                // Find and select the new folder, then activate rename
-                const newFolderRow = this.$el_window.find(`.files-tab .row[data-name="${result.name}"]`);
-                if ( newFolderRow.length > 0 ) {
-                    newFolderRow.addClass('selected');
-                    window.activate_item_name_editor(newFolderRow[0]);
-                }
-            } catch ( err ) {
-                // Folder creation failed silently
-            }
+        document.querySelector('.new-folder-btn').onclick = () => {
+            _this.createFolderInstant(_this.currentPath);
         };
 
         // Upload input element
@@ -1870,6 +1873,175 @@ const TabFiles = {
     },
 
     /**
+     * Puts the "No files in this directory." notice back when the listing has
+     * no rows left. The incremental add paths drop it before inserting their
+     * first row, so a create that is then undone (mkdir rejected) has to be
+     * able to restore it without refetching the directory.
+     *
+     * @returns {void}
+     */
+    renderEmptyPlaceholderIfNeeded () {
+        const $files = this.$el_window.find('.files-tab .files');
+        if ( $files.find('.item').length > 0 ) return;
+        // Match the notice by its own class: the loading overlay is a sibling
+        // in here too, and treating that as "already showing something" would
+        // leave the pane blank once the spinner is taken away.
+        if ( $files.find('.files-empty-notice').length > 0 ) return;
+        $files.append(`<div class="files-empty-notice" style="
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            pointer-events: none;
+        ">
+            No files in this directory.
+        </div>`);
+    },
+
+    /**
+     * Creates a folder in `targetPath`, putting its row on screen with the
+     * name editor open right away instead of after the mkdir round-trip — on a
+     * slow connection that wait is seconds of nothing happening.
+     *
+     * The row starts as a placeholder: a locally predicted name (see
+     * {@link dedupedName}) and a temporary uid, marked `data-pending`. When
+     * mkdir answers, the real fsentry is merged into the very object the row's
+     * listeners closed over, so rename/open/menus see the server identity from
+     * then on. The in-flight promise is parked on the row because renaming is
+     * the next thing the user does and it needs the real uid — `rename()` in
+     * createItemListeners() awaits it. If mkdir fails, the row is taken back.
+     *
+     * @param {string} targetPath - directory to create the folder in
+     * @returns {Promise<void>}
+     */
+    async createFolderInstant (targetPath) {
+        const _this = this;
+        if ( ! targetPath ) return;
+
+        // A listing rebuild is already in flight. renderDirectory() clears
+        // `.files` before its readdir resolves, so a row drawn now survives the
+        // clear and ends up stranded in whatever directory the rebuild lands
+        // on — a row for `targetPath/New Folder` sitting in another folder's
+        // listing, with the rename editor open on it. Drop the click instead,
+        // exactly as renderDirectory drops navigation clicks while it renders.
+        if ( this.renderingDirectory ) return;
+
+        // Invoked from a sidebar or breadcrumb menu for a folder that isn't
+        // the one on screen — go there first, so the row (and the rename that
+        // follows) happens where the folder lives rather than as a phantom row
+        // in the current listing.
+        if ( targetPath !== this.currentPath ) {
+            this.pushNavHistory(targetPath);
+            await this.renderDirectory(targetPath, { consistency: 'strong' });
+            if ( this.currentPath !== targetPath ) return;
+        }
+
+        const takenNames = this.$el_window.find('.files-tab .files .item')
+            .map((_i, row) => $(row).attr('data-name')).get();
+        const placeholderName = dedupedName('New Folder', takenNames);
+        const placeholder = {
+            uid: `pending-${window.global_element_id++}`,
+            name: placeholderName,
+            path: `${targetPath}/${placeholderName}`,
+            is_dir: true,
+            immutable: false,
+            size: 0,
+            modified: Math.round(Date.now() / 1000),
+        };
+
+        // mkdir's item.added is delivered to this client too (the event carries
+        // no original_client_socket_id to filter on), and until mkdir answers
+        // the row's uid is a placeholder the dedupe check in UIDashboardFileItem
+        // can't match — so without this we'd end up with two rows.
+        this._creatingItem++;
+
+        // Drop the "No files in this directory." placeholder before inserting
+        // the first row, otherwise it stays and overlaps the new item.
+        this.$el_window.find('.files-tab .files > div:not(.item)').remove();
+
+        await this.renderItem(placeholder);
+        const $row = this.$el_window.find(`.files-tab .files .item[data-uid='${placeholder.uid}']`);
+        if ( $row.length === 0 ) {
+            this._creatingItem--;
+            return;
+        }
+
+        $row.attr('data-pending', '1');
+        this.insertAtSortedPosition($row, placeholder);
+        this.applyColumnWidths();
+        this.updateFooterStats();
+
+        this.$el_window.find('.files-tab .row.selected').removeClass('selected');
+        $row.addClass('selected');
+        window.activate_item_name_editor($row[0]);
+
+        let detached = null;
+        const pending = (async () => {
+            try {
+                // Ask for the plain name and let the server dedupe, exactly as
+                // before — `placeholderName` is only what we drew in the
+                // meantime, never what we request.
+                const result = await puter.fs.mkdir({
+                    path: `${targetPath}/New Folder`,
+                    rename: true,
+                    overwrite: false,
+                });
+
+                // Re-rendered out from under us (navigation, refresh) while the
+                // request was in flight. The rebuilt listing may predate the
+                // folder, and the guard below suppressed its item.added, so
+                // hand it to the incremental adder once that guard lifts.
+                if ( ! document.body.contains($row[0]) ) {
+                    detached = result;
+                    return;
+                }
+
+                // In place, because createItemListeners() closed over this
+                // object — that is what hands the row its real uid and path.
+                Object.assign(placeholder, result);
+
+                $row.attr('data-uid', result.uid);
+                $row.attr('data-path', result.path);
+                $row.attr('data-modified', result.modified);
+                $row.removeAttr('data-pending');
+
+                // Our prediction lost a race with another client. Correct the
+                // row, but never over text the user has started typing.
+                if ( result.name !== placeholderName ) {
+                    const $editor = $row.find('.item-name-editor');
+                    $row.attr('data-name', result.name);
+                    $row.find('.item-name').text(result.name);
+                    if ( $editor.val() === placeholderName ) {
+                        $editor.val(result.name);
+                        if ( $editor.is(':focus') ) $editor.select();
+                    }
+                }
+            } catch ( err ) {
+                // The row promised a folder that doesn't exist — take it back
+                // and say why, rather than letting it vanish unexplained.
+                $row.remove();
+                _this.renderEmptyPlaceholderIfNeeded();
+                _this.updateFooterStats();
+                if ( err?.code === 'directory_depth_limit_exceeded' ) {
+                    UIAlert({ message: i18n('directory_depth_limit_exceeded') });
+                } else if ( err?.message ) {
+                    UIAlert(err.message);
+                }
+            } finally {
+                _this._creatingItem--;
+                if ( detached ) window.UIDashboardFileItem(detached);
+            }
+        })();
+
+        $row[0]._pendingCreate = pending;
+        await pending;
+    },
+
+    /**
      * Handles sort column selection or direction toggle.
      *
      * Clicking the same column toggles direction; clicking a new column
@@ -2038,7 +2210,7 @@ const TabFiles = {
         // Filter out hidden files/folders and AppData in home directory.
         // Trash is reachable from the sidebar; don't list it as a row too.
         directoryContents = directoryContents.filter(file => {
-            if ( file.name.startsWith('.') ) return false;
+            if ( ! isEntryVisible(file.name, showHiddenFiles()) ) return false;
             if ( file.name === 'AppData' && this.currentPath === window.home_path ) return false;
             if ( file.path === window.trash_path ) return false;
             return true;
@@ -2156,19 +2328,7 @@ const TabFiles = {
         }
 
         if ( directoryContents.length === 0 ) {
-            this.$el_window.find('.files-tab .files').append(`<div style="
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                pointer-events: none;
-            ">
-                No files in this directory.
-            `);
+            this.renderEmptyPlaceholderIfNeeded();
             this.updateFooterStats();
             this.updateNavButtonStates();
             this.hideSpinner();
@@ -2229,7 +2389,10 @@ const TabFiles = {
         const iconResult = await item_icon(file);
         const icon = `<img src="${html_encode(iconResult.image)}"/>`;
         const row = document.createElement("div");
-        row.setAttribute('class', `item row ${file.is_dir ? 'folder' : 'file'}`);
+        // A dot-file only reaches this point when the preference reveals it;
+        // `item-revealed` dims it the same way the desktop Explorer does.
+        const revealedClass = isHiddenName(file.name) ? ' item-revealed' : '';
+        row.setAttribute('class', `item row ${file.is_dir ? 'folder' : 'file'}${revealedClass}`);
         row.setAttribute("data-id", item_id);
         row.setAttribute("data-name", displayName);
         row.setAttribute("data-uid", file.uid);
@@ -2346,6 +2509,13 @@ const TabFiles = {
         let shift_clicked = false;
         let itemWasSelectedOnMousedown = false;
         let lastPointerType = null;
+
+        // A row rendered ahead of its mkdir (see createFolderInstant) carries a
+        // placeholder uid and path, so anything that acts on the item itself —
+        // opening it, its menus, dragging it — has to sit out until the real
+        // fsentry arrives. Renaming is the exception: it is what the open name
+        // editor is for, and it waits on the promise instead.
+        const isPending = () => el_item.getAttribute('data-pending') === '1';
 
         el_item.onpointerdown = (e) => {
             if ( e.target.classList.contains('item-more') ) return;
@@ -2491,6 +2661,7 @@ const TabFiles = {
 
         el_item.onclick = (e) => {
             if ( e.target.classList.contains('item-more') ) {
+                if ( isPending() ) return;
                 this.handleMoreClick(el_item, file, e.target);
                 return;
             }
@@ -2518,6 +2689,7 @@ const TabFiles = {
                     _this.updateFooterStats();
                     return;
                 }
+                if ( isPending() ) return;
                 if ( isFolder === "1" ) {
                     _this.pushNavHistory(file.path);
                     _this.renderDirectory(file.path);
@@ -2556,6 +2728,7 @@ const TabFiles = {
             if ( e.target.classList.contains('item-name-editor') ) {
                 return;
             }
+            if ( isPending() ) return;
             if ( isFolder === "1" ) {
                 _this.pushNavHistory(file.path);
                 _this.renderDirectory(file.path);
@@ -2568,10 +2741,19 @@ const TabFiles = {
         // --------------------------------------------------------
         // Rename
         // --------------------------------------------------------
-        function rename () {
+        async function rename () {
             if ( rename_cancelled ) {
                 rename_cancelled = false;
                 return;
+            }
+
+            // The row may have been drawn before its mkdir answered; renaming
+            // needs the real uid, and the server's name is what we diff
+            // against, so read neither until the create has settled.
+            if ( el_item._pendingCreate ) {
+                await el_item._pendingCreate;
+                // mkdir failed and took the row with it.
+                if ( ! document.body.contains(el_item) ) return;
             }
 
             const old_name = $(el_item).attr('data-name');
@@ -2664,6 +2846,10 @@ const TabFiles = {
                 e.preventDefault();
                 return;
             }
+            if ( isPending() ) {
+                e.preventDefault();
+                return;
+            }
             el_item._contextMenuShownAt = Date.now();
             e.preventDefault();
             e.stopPropagation();
@@ -2741,7 +2927,7 @@ const TabFiles = {
                     return false;
                 }
 
-                if ( $(el_item).attr('data-immutable') !== '0' ) {
+                if ( $(el_item).attr('data-immutable') !== '0' || isPending() ) {
                     $('body').css('cursor', '');
                     return false;
                 }
@@ -2865,6 +3051,12 @@ const TabFiles = {
                     _this.folderDwellTimer = null;
                     _this.folderDwellTarget = null;
 
+                    // A row drawn ahead of its mkdir has a predicted path, not
+                    // a real one. Moving into it would either fail or — because
+                    // move treats a non-existent destination as a rename target
+                    // — quietly rename the dragged file to "New Folder".
+                    if ( isPending() ) return;
+
                     const draggedPath = $(ui.draggable).attr('data-path');
                     if ( event.ctrlKey && draggedPath?.startsWith(`${window.trash_path}/`) ) {
                         return;
@@ -2905,6 +3097,11 @@ const TabFiles = {
 
                 over: function (_event, ui) {
                     if ( $(ui.draggable).hasClass('row') ) {
+                        // Still waiting on mkdir: don't offer it as a drop
+                        // target, and don't spring-load into a path that may
+                        // not exist yet (see the drop handler above).
+                        if ( isPending() ) return;
+
                         $(el_item).addClass('selected');
 
                         const _this = TabFiles;
@@ -2968,6 +3165,7 @@ const TabFiles = {
                     if ( ! e.dataTransfer?.types?.includes('Files') ) {
                         return;
                     }
+                    if ( isPending() ) return;
 
                     const targetPath = $(el_item).attr('data-path');
 
@@ -2991,6 +3189,7 @@ const TabFiles = {
                     if ( ! e.dataTransfer?.types?.includes('Files') ) {
                         return;
                     }
+                    if ( isPending() ) return;
 
                     const targetPath = $(el_item).attr('data-path');
 
@@ -3778,6 +3977,7 @@ const TabFiles = {
         if ( ! targetPath ) return [];
 
         const isTrashFolder = targetPath === window.trash_path;
+        const isTrashedPath = targetPath.startsWith(`${window.trash_path}/`);
         const items = [];
 
         // New submenu (folder, text document, etc.) - not available in Trash
@@ -3788,44 +3988,9 @@ const TabFiles = {
             // Override the "New Folder" onClick to refresh and activate rename
             if ( newMenuItems.items && newMenuItems.items.length > 0 ) {
                 const folderItem = newMenuItems.items[0]; // First item is "New Folder"
-                folderItem.onClick = async () => {
+                folderItem.onClick = () => {
                     $('.context-menu').remove();
-                    _this._creatingItem = true;
-                    try {
-                        const result = await puter.fs.mkdir({
-                            path: `${targetPath}/New Folder`,
-                            rename: true,
-                            overwrite: false,
-                        });
-                        if ( targetPath === _this.currentPath ) {
-                            // Remove empty-directory placeholder if present
-                            _this.$el_window.find('.files-tab .files > div:not(.item)').remove();
-                            // Add the new folder incrementally
-                            await _this.renderItem(result);
-                            const $newRow = _this.$el_window.find(`.files-tab .files .item[data-uid='${result.uid}']`);
-                            if ( $newRow.length > 0 ) {
-                                _this.insertAtSortedPosition($newRow, result);
-                                _this.applyColumnWidths();
-                                _this.updateFooterStats();
-                            }
-                        } else {
-                            // Created via a sidebar/breadcrumb right-click on a
-                            // folder that isn't the one on screen — navigate to
-                            // it so the rename happens where the folder lives,
-                            // not as a phantom row in the current listing.
-                            _this.pushNavHistory(targetPath);
-                            await _this.renderDirectory(targetPath, { consistency: 'strong' });
-                        }
-                        const $newRow = _this.$el_window.find(`.files-tab .files .item[data-uid='${result.uid}']`);
-                        if ( $newRow.length > 0 ) {
-                            $newRow.addClass('selected');
-                            window.activate_item_name_editor($newRow[0]);
-                        }
-                    } catch ( err ) {
-                        // Folder creation failed silently
-                    } finally {
-                        _this._creatingItem = false;
-                    }
+                    _this.createFolderInstant(targetPath);
                 };
 
                 // Override other file creation items to intercept create_file,
@@ -3833,7 +3998,7 @@ const TabFiles = {
                 const wrapWithDashboardRename = (originalOnClick) => {
                     return async () => {
                         $('.context-menu').remove();
-                        _this._creatingItem = true;
+                        _this._creatingItem++;
 
                         // Temporarily intercept create_file to capture the upload promise
                         let uploadPromise = null;
@@ -3881,7 +4046,7 @@ const TabFiles = {
                             // File creation failed silently
                         } finally {
                             window.create_file = origCreateFile;
-                            _this._creatingItem = false;
+                            _this._creatingItem--;
                         }
                     };
                 };
@@ -3968,6 +4133,19 @@ const TabFiles = {
             },
         });
 
+        // Show hidden files - the same preference the desktop Explorer toggles,
+        // so it stays in sync between the two.
+        items.push({
+            html: i18n('show_hidden'),
+            icon: showHiddenFiles() ? '✓' : '',
+            onClick: function () {
+                window.mutate_user_preferences({
+                    show_hidden_files: ! showHiddenFiles(),
+                });
+                _this.renderDirectory(_this.currentPath);
+            },
+        });
+
         // Empty Trash - only in Trash folder
         if ( isTrashFolder ) {
             items.push('-');
@@ -3975,6 +4153,45 @@ const TabFiles = {
                 html: i18n('empty_trash'),
                 onClick: function () {
                     window.empty_trash();
+                },
+            });
+        }
+
+        // Publish As Website and Properties act on the folder the menu was
+        // opened on, not on the listing's selection. The filesystem root isn't
+        // a real fsentry, and Trash itself only offers Empty Trash — same as
+        // the desktop's folder menus.
+        if ( targetPath !== '/' && ! isTrashFolder ) {
+            const targetName = path.basename(targetPath);
+
+            items.push('-');
+
+            if ( ! isTrashedPath ) {
+                items.push({
+                    html: i18n('publish_as_website'),
+                    onClick: async function () {
+                        // Publishing works off the path, but the uid is what
+                        // refreshes the folder's website badge if its row is on
+                        // screen — the dashboard tracks paths, so look it up.
+                        let uid;
+                        try {
+                            uid = (await puter.fs.stat({ path: targetPath, consistency: 'eventual' }))?.uid;
+                        } catch ( err ) {
+                            // Badge refresh is best-effort; publish still works.
+                        }
+                        await publish_as_website({ uid, name: targetName, path: targetPath });
+                    },
+                });
+            }
+
+            items.push({
+                html: i18n('properties'),
+                onClick: function () {
+                    UIItemPropertiesModal({
+                        name: targetName,
+                        path: targetPath,
+                        $container: _this.$el_window,
+                    });
                 },
             });
         }

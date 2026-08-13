@@ -48,7 +48,7 @@ export class ExecService extends Service {
     }
 
     // This method is exposed to apps via IPCService.
-    async launchApp ({ app_name, args, pseudonym, file_paths, items }, { ipc_context, msg_id } = {}) {
+    async launchApp ({ app_name, args, pseudonym, file_paths, items, background }, { ipc_context, msg_id } = {}) {
         const app = ipc_context?.caller?.app;
         const process = ipc_context?.caller?.process;
 
@@ -98,6 +98,10 @@ export class ExecService extends Service {
             parent_instance_id: app?.appInstanceID,
             uuid: child_instance_id,
             params,
+            // A background launch starts the window hidden: the caller wants the
+            // app to do work, not to be looked at. It keeps its taskbar item, so
+            // the user can still see that it is running, show it, or close it.
+            ...(background === true ? { background: true } : {}),
             ...source_app_metadata,
             ...(connection ? {
                 parent_pseudo_id: connection.backward.uuid,
@@ -205,10 +209,13 @@ export class ExecService extends Service {
             // Send any saved broadcasts to the new app
             globalThis.services.get('broadcast').sendSavedBroadcastsTo(child_instance_id);
 
-            // If `window-active` is set (meanign the window is focused), focus the window one more time
+            // If `window-active` is set (meaning the window is focused), focus the window one more time
             // this is to ensure that the iframe is `definitely` focused and can receive keyboard events (e.g. keydown)
-            if ( $(child_process.references.el_win).hasClass('window-active') ) {
-                $(child_process.references.el_win).focusWindow();
+            // Never for a hidden window: taking the keyboard for something the
+            // user cannot see would drop them out of the app they are typing in.
+            const $child_win = $(child_process.references.el_win);
+            if ( $child_win.attr('data-is_visible') !== '0' && $child_win.hasClass('window-active') ) {
+                $child_win.focusWindow();
             }
         });
 

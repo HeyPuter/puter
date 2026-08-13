@@ -15,75 +15,34 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- Grow `share` from a pending-email-invite table into the index of active
--- shares. See sqlite/0065_share_entries.sql for the column rationale.
+-- User-to-developer feedback for apps that opt in. Mirrors SQLite migration
+-- 0065. Opt-in is the new `apps.feedback_enabled` column (developer-writable
+-- through the regular `puter.apps.update` path). Each row of `app_feedback`
+-- is one message a signed-in user submitted through the GUI feedback dialog;
+-- a copy is emailed to the app owner unless the per-app daily email cap
+-- suppressed it (`email_sent` records which). `app_uid` is denormalized
+-- alongside `app_id` so rows stay attributable after an app is deleted.
+-- `created_at` is unix seconds.
 --
--- Idempotent: columns go through _puter_add_col (from mig_1), indexes and
--- foreign keys through the guarded procedure below. There is no per-file
--- applied-state tracking, so every statement must tolerate a re-run.
+-- Idempotent: the column add uses _puter_add_col (defined in mig_1, which
+-- always runs first) and the table uses `CREATE TABLE IF NOT EXISTS`, so the
+-- directory can replay safely.
 
-CALL _puter_add_col('share', 'holder_user_id', '`holder_user_id` int unsigned DEFAULT NULL');
-CALL _puter_add_col('share', 'fsentry_id', '`fsentry_id` int unsigned DEFAULT NULL');
-CALL _puter_add_col('share', 'mode', '`mode` varchar(20) DEFAULT NULL');
-CALL _puter_add_col('share', 'applied_at', '`applied_at` timestamp NULL DEFAULT NULL');
+CALL _puter_add_col('apps', 'feedback_enabled', '`feedback_enabled` tinyint(1) DEFAULT ''0''');
 
-DROP PROCEDURE IF EXISTS _puter_add_share_index_constraints;
-DELIMITER //
-CREATE PROCEDURE _puter_add_share_index_constraints()
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'share'
-      AND INDEX_NAME = 'idx_share_holder'
-  ) THEN
-    ALTER TABLE `share` ADD INDEX `idx_share_holder` (`holder_user_id`, `id`);
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'share'
-      AND INDEX_NAME = 'idx_share_fsentry'
-  ) THEN
-    ALTER TABLE `share` ADD INDEX `idx_share_fsentry` (`fsentry_id`);
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'share'
-      AND INDEX_NAME = 'idx_share_holder_entry_issuer'
-  ) THEN
-    ALTER TABLE `share` ADD UNIQUE INDEX `idx_share_holder_entry_issuer`
-      (`holder_user_id`, `fsentry_id`, `issuer_user_id`);
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'share'
-      AND CONSTRAINT_NAME = 'share_holder_user_fk'
-  ) THEN
-    ALTER TABLE `share` ADD CONSTRAINT `share_holder_user_fk`
-      FOREIGN KEY (`holder_user_id`) REFERENCES `user` (`id`)
-      ON DELETE CASCADE ON UPDATE CASCADE;
-  END IF;
-
-  -- The cascade that retires a share with its file.
-  IF NOT EXISTS (
-    SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
-    WHERE TABLE_SCHEMA = DATABASE()
-      AND TABLE_NAME = 'share'
-      AND CONSTRAINT_NAME = 'share_fsentry_fk'
-  ) THEN
-    ALTER TABLE `share` ADD CONSTRAINT `share_fsentry_fk`
-      FOREIGN KEY (`fsentry_id`) REFERENCES `fsentries` (`id`)
-      ON DELETE CASCADE ON UPDATE CASCADE;
-  END IF;
-END//
-DELIMITER ;
-
-CALL _puter_add_share_index_constraints();
-
-DROP PROCEDURE IF EXISTS _puter_add_share_index_constraints;
+CREATE TABLE IF NOT EXISTS `app_feedback` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `uid` CHAR(36) NOT NULL,
+    `app_id` INT NOT NULL,
+    `app_uid` CHAR(40) NOT NULL,
+    `user_id` INT NOT NULL,
+    `message` TEXT NOT NULL,
+    `source_env` VARCHAR(16) DEFAULT NULL,
+    `source_origin` VARCHAR(2048) DEFAULT NULL,
+    `email_sent` TINYINT(1) NOT NULL DEFAULT 0,
+    `created_at` BIGINT NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_app_feedback_uid` (`uid`),
+    KEY `idx_app_feedback_app_created` (`app_id`, `created_at`),
+    KEY `idx_app_feedback_user_created` (`user_id`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

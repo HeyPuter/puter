@@ -15,20 +15,33 @@
 -- You should have received a copy of the GNU Affero General Public License
 -- along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
--- Grow share from a pending-email-invite table into the index of active
--- shares. See sqlite/0065_share_entries.sql for the column rationale.
+-- User-to-developer feedback for apps that opt in. Mirrors SQLite migration
+-- 0065 / MySQL mysql_mig_20. Opt-in is the new `apps.feedback_enabled` column
+-- (developer-writable through the regular `puter.apps.update` path). Each row
+-- of `app_feedback` is one message a signed-in user submitted through the GUI
+-- feedback dialog; a copy is emailed to the app owner unless the per-app
+-- daily email cap suppressed it (`email_sent` records which). `app_uid` is
+-- denormalized alongside `app_id` so rows stay attributable after an app is
+-- deleted. `created_at` is unix seconds.
+--
+-- Idempotent via IF NOT EXISTS.
 
-ALTER TABLE share
-  ADD COLUMN IF NOT EXISTS holder_user_id integer
-      REFERENCES "user" (id) ON DELETE CASCADE ON UPDATE CASCADE,
-  ADD COLUMN IF NOT EXISTS fsentry_id integer
-      REFERENCES fsentries (id) ON DELETE CASCADE ON UPDATE CASCADE,
-  ADD COLUMN IF NOT EXISTS mode varchar(20),
-  ADD COLUMN IF NOT EXISTS applied_at timestamp;
+ALTER TABLE apps ADD COLUMN IF NOT EXISTS feedback_enabled boolean NOT NULL DEFAULT FALSE;
 
-CREATE INDEX IF NOT EXISTS idx_share_holder
-    ON share (holder_user_id, id);
-CREATE INDEX IF NOT EXISTS idx_share_fsentry
-    ON share (fsentry_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_share_holder_entry_issuer
-    ON share (holder_user_id, fsentry_id, issuer_user_id);
+CREATE TABLE IF NOT EXISTS app_feedback (
+    id BIGSERIAL PRIMARY KEY,
+    uid CHAR(36) NOT NULL UNIQUE,
+    app_id BIGINT NOT NULL,
+    app_uid VARCHAR(40) NOT NULL,
+    user_id BIGINT NOT NULL,
+    message TEXT NOT NULL,
+    source_env VARCHAR(16) DEFAULT NULL,
+    source_origin VARCHAR(2048) DEFAULT NULL,
+    email_sent BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_app_feedback_app_created
+    ON app_feedback (app_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_app_feedback_user_created
+    ON app_feedback (user_id, created_at);

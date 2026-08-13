@@ -127,6 +127,7 @@ const APP_BOOLEAN_COLUMNS = new Set([
     'background',
     'protected',
     'is_private',
+    'feedback_enabled',
 ]);
 
 export class AppStore extends PuterStore {
@@ -1017,6 +1018,7 @@ export class AppStore extends PuterStore {
             'approved_for_listing',
             'approved_for_opening_items',
             'approved_for_incentive_program',
+            'feedback_enabled',
         ]) {
             if (row[key] !== undefined) row[key] = Boolean(row[key]);
         }

@@ -661,6 +661,7 @@ if (window.opener) {
         provider: string,
         userinfo: { sub: string; email?: unknown; [k: string]: unknown },
         referrer?: string | null,
+        attempt = 0,
     ): Promise<
         | { error: string; code?: string; requestCode?: string }
         | {
@@ -679,8 +680,12 @@ if (window.opener) {
         const claimedEmail =
             typeof userinfo.email === 'string' ? userinfo.email : null;
         if (claimedEmail) {
-            const byEmail =
-                await this.services.oidc.findUserByEmail(claimedEmail);
+            // On the retry after a lost race, read the primary — the winning
+            // row may be younger than the replica snapshot.
+            const byEmail = await this.services.oidc.findUserByEmail(
+                claimedEmail,
+                { force: attempt > 0 },
+            );
             if (byEmail) {
                 if (!byEmail.email_confirmed) {
                     return {
@@ -707,6 +712,18 @@ if (window.opener) {
             userinfo as { sub: string; email?: string },
             referrer,
         );
+        // A concurrent callback (a second tab, a provider retry) created the
+        // account between step 2 and the insert. Nothing went wrong for the
+        // user — start over and we'll find the winner at step 1 or 2. One retry
+        // only: a second miss means something other than a race is going on.
+        if (outcome.raced && attempt === 0) {
+            return this.#resolveOrCreateOIDCUser(
+                provider,
+                userinfo,
+                referrer,
+                attempt + 1,
+            );
+        }
         if (!outcome.success || !outcome.user) {
             return {
                 error: outcome.error ?? 'Account creation failed.',

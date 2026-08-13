@@ -32,6 +32,9 @@
  * @property {boolean} [maximize_on_start] Whether the app should be maximized when it is started.
  * Default is `false`.
  * @property {boolean} [background] Whether the app should run in the background. Default is `false`.
+ * @property {boolean} [feedback_enabled] Whether users can send feedback to the app's developer through
+ * `puter.ui.showFeedbackDialog()`. Default is `false` for apps created through `puter.apps.create`; the
+ * Dev Center enables it at creation.
  * @property {string[]} [filetype_associations] The file types that the app can open. Each string is in
  * the format `".<extension>"` or `"mime/type"`, e.g. `[".txt", "image/png"]`. For a directory
  * association, the string should be `.directory`.
@@ -85,6 +88,8 @@
  * @property {boolean} [maximizeOnStart] Whether the app should be maximized when it is started.
  * Defaults to `false`.
  * @property {boolean} [background] Whether the app should run in the background. Defaults to `false`.
+ * @property {boolean} [feedbackEnabled] Whether users can send feedback to the app's developer through
+ * `puter.ui.showFeedbackDialog()`. Defaults to `false`.
  * @property {string[]} [filetypeAssociations] The filetypes that the app can open. File extensions and
  * MIME types are supported, e.g. `[".txt", ".md", "application/pdf"]`. Defaults to `[]`.
  * @property {Record<string, unknown>} [metadata] Custom metadata for the app as arbitrary key-value pairs.
@@ -105,6 +110,8 @@
  * @property {boolean} [maximizeOnStart] Whether the app should be maximized when it is started.
  * Defaults to `false`.
  * @property {boolean} [background] Whether the app should run in the background. Defaults to `false`.
+ * @property {boolean} [feedbackEnabled] Whether users can send feedback to the app's developer through
+ * `puter.ui.showFeedbackDialog()`. Omitted leaves the app's current value unchanged.
  * @property {string[]} [filetypeAssociations] The filetypes that the app can open. File extensions and
  * MIME types are supported, e.g. `[".txt", ".md", "application/pdf"]`. Defaults to `[]`.
  * @property {Record<string, unknown>} [metadata] Custom metadata for the app as arbitrary key-value pairs.

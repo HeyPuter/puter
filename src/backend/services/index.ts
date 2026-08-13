@@ -28,6 +28,7 @@ import { OIDCService } from './auth/OIDCService';
 import { TokenService } from './auth/TokenService';
 import { BroadcastService } from './broadcast/BroadcastService';
 import { CacheReplicationService } from './cache/CacheReplicationService';
+import { AppFeedbackService } from './feedback/AppFeedbackService';
 import { FSService } from './fs/FSService';
 import { ServerHealthService } from './health/ServerHealthService';
 import { PuterHomepageService } from './homepage/PuterHomepageService';
@@ -40,6 +41,7 @@ import { ShareService } from './share/ShareService';
 import { SocketService } from './socket/SocketService';
 import { SubdomainPermissionService } from './subdomain/SubdomainPermissionService';
 import type { IPuterServiceRegistry } from './types';
+import { UserAccountService } from './user/UserAccountService';
 
 /**
  * Populate `IPuterServiceInstances` (declared in `./types`) with the concrete
@@ -64,6 +66,7 @@ declare module './types' {
         suggestedApps: SuggestedAppsService;
         socket: SocketService;
         notification: NotificationService;
+        appFeedback: AppFeedbackService;
         broadcast: BroadcastService;
         cacheReplication: CacheReplicationService;
         oidc: OIDCService;
@@ -71,6 +74,7 @@ declare module './types' {
         defaultUser: DefaultUserService;
         homepage: PuterHomepageService;
         health: ServerHealthService;
+        userAccount: UserAccountService;
     }
 }
 
@@ -96,6 +100,9 @@ export const puterServices = {
     // Needs acl (setUserUser), permission (canManagePermission) and fs
     // (ancestor chains), so it follows all three.
     share: ShareService,
+    // Declared after `fs` — account teardown tears the user's filesystem down
+    // first.
+    userAccount: UserAccountService,
     // AppPermissionService + SubdomainPermissionService register permission
     // rewriters/implicators only; no runtime state. Placed after fsEntry so
     // the FS rewriter runs first for `fs:/path` → `fs:<uuid>` before any
@@ -106,6 +113,9 @@ export const puterServices = {
     suggestedApps: SuggestedAppsService,
     socket: SocketService,
     notification: NotificationService,
+    // Declared after `auth` (origin → app uid resolution happens through
+    // AuthService.appUidFromOrigin).
+    appFeedback: AppFeedbackService,
     broadcast: BroadcastService,
     // Independent — only needs the event client and redis.
     cacheReplication: CacheReplicationService,

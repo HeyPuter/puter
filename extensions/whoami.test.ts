@@ -206,6 +206,84 @@ describe('whoami extension — handleWhoami', () => {
         expect(JSON.stringify(body)).not.toContain('bootstrap-secret');
     });
 
+    it('never exposes phone, card fingerprint or signup identity', async () => {
+        const user = await seedUser();
+        await server.stores.user.update(user.id as number, {
+            phone: '+15551234567',
+            card_fingerprint: 'fp_ABC123',
+            requires_phone_verification: false,
+            requires_card_verification: false,
+        });
+        // Guard against a vacuous assertion below: the columns really do hold
+        // the values we then expect never to see on the wire.
+        const stored = await server.stores.user.getById(user.id as number, {
+            cached: false,
+            force: true,
+        });
+        expect(stored?.phone).toBe('+15551234567');
+        expect(stored?.card_fingerprint).toBe('fp_ABC123');
+
+        for (const actor of [
+            { user: { uuid: user.uuid, id: user.id as number } },
+            {
+                user: { uuid: user.uuid, id: user.id as number },
+                app: { uid: 'app-test-actor' },
+            },
+        ]) {
+            const { res, captured } = makeRes();
+            await runWithContext({ actor }, () =>
+                handleWhoami(makeReq(), res),
+            );
+
+            const body = captured.body as Record<string, unknown>;
+            expect(body.phone).toBeUndefined();
+            expect(body.card_fingerprint).toBeUndefined();
+            expect(body.password).toBeUndefined();
+            expect(body.otp_secret).toBeUndefined();
+            expect(body.signup_ip).toBeUndefined();
+            // Not just absent as a key — the values must not appear anywhere
+            // in the payload (nested under metadata, taskbar items, …).
+            const serialized = JSON.stringify(body);
+            expect(serialized).not.toContain('5551234567');
+            expect(serialized).not.toContain('fp_ABC123');
+            // The verification flags, which the GUI acts on, still ship.
+            expect(body).toHaveProperty('requires_phone_verification');
+            expect(body).toHaveProperty('requires_card_verification');
+        }
+    });
+
+    it('scrubs sensitive keys added to metadata, and leaves the cached row intact', async () => {
+        const user = await seedUser();
+        await server.stores.user.updateMetadata(user.id as number, {
+            tmp_password: 'bootstrap-secret',
+            billing: { card_fingerprint: 'fp_NESTED', tier: 'pro' },
+        });
+
+        const { res, captured } = makeRes();
+        await runWithContext(
+            { actor: { user: { uuid: user.uuid, id: user.id as number } } },
+            () => handleWhoami(makeReq(), res),
+        );
+
+        const body = captured.body as Record<string, unknown>;
+        const metadata = body.metadata as Record<string, unknown>;
+        expect(metadata.tmp_password).toBeUndefined();
+        // Nested sensitive keys are removed too; siblings survive.
+        expect(metadata.billing).toEqual({ tier: 'pro' });
+        expect(JSON.stringify(body)).not.toContain('fp_NESTED');
+
+        // The scrub works on a copy — server-side state is untouched.
+        const fresh = await server.stores.user.getById(user.id as number, {
+            cached: false,
+            force: true,
+        });
+        expect(fresh?.metadata?.tmp_password).toBe('bootstrap-secret');
+        expect(
+            (fresh?.metadata?.billing as Record<string, unknown>)
+                ?.card_fingerprint,
+        ).toBe('fp_NESTED');
+    });
+
     it('marks the user as oidc_only when password is null', async () => {
         const slug = Math.random().toString(36).slice(2, 8);
         const oidcUser = await server.stores.user.create({

@@ -94,7 +94,9 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [57, ['0062_blocked-app-origins.sql']],
     [58, ['0063_add_suspended_reason.sql']],
     [59, ['0064_abuse-moderation-events.sql']],
-    [60, ['0065_share_entries.sql']],
+    [60, ['0065_app-feedback.sql']],
+    [61, ['0066_owned-email-unique.sql']],
+    [62, ['0067_share_entries.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {

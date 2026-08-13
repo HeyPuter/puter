@@ -686,6 +686,13 @@ export class AppDriver extends PuterDriver {
                 ? 1
                 : 0;
         }
+        if (object.feedback_enabled !== undefined) {
+            out.feedback_enabled = validateBool(object.feedback_enabled, {
+                key: 'feedback_enabled',
+            })
+                ? 1
+                : 0;
+        }
         if (object.metadata !== undefined) {
             const meta = validateJsonObject(object.metadata, {
                 key: 'metadata',
@@ -946,6 +953,7 @@ export class AppDriver extends PuterDriver {
             index_url: app.index_url,
             background: Boolean(app.background),
             maximize_on_start: Boolean(app.maximize_on_start),
+            feedback_enabled: Boolean(app.feedback_enabled),
             godmode: Boolean(app.godmode),
             is_private: Boolean(app.is_private),
             protected: Boolean(app.protected),

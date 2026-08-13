@@ -663,19 +663,142 @@ describe('MeteringBufferStore', () => {
             expect(await storedTotal(key)).toBe(0);
         });
 
-        it('drops an index entry whose data is gone', async () => {
+        it('raises the alarm for an index entry whose data is gone', async () => {
+            // The claim's amounts left the cache and only the entry pointing at
+            // them survived. Nothing downstream will ever notice the gap, so
+            // dropping the entry quietly is the one thing this must not do.
             const tag = bucketTag(key);
             await server.clients.redis.hset(
                 `meter:pending:{${tag}}`,
                 'lostnonce',
                 `${Date.now() - 60_000}:${key}`,
             );
+            const logged = vi
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+            const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
 
             await target.flushCycle();
 
             expect(
                 await server.clients.redis.hgetall(`meter:pending:{${tag}}`),
             ).toEqual({});
+            expect(logged).toHaveBeenCalledWith(
+                expect.stringContaining('lost its amounts'),
+            );
+            expect(alarmSpy).toHaveBeenCalledWith(
+                `metering_claim_lost:${key}`,
+                expect.stringContaining('under-billed'),
+                { key },
+                'critical',
+                expect.objectContaining({ dedup: true }),
+            );
+            logged.mockRestore();
+            alarmSpy.mockRestore();
+        });
+
+        it('stays quiet when another flush re-keyed the claim first', async () => {
+            // Both cycles see the same abandoned claim; the one that loses the
+            // rename finds nothing where the claim used to be. That is the
+            // ordinary outcome of the race, not usage lost, and calling it loss
+            // would make the alarm fire on every deploy.
+            const tag = bucketTag(key);
+            await server.clients.redis.hset(
+                `meter:p:{${tag}}:racednonce`,
+                'total',
+                '25',
+            );
+            await server.clients.redis.hset(
+                `meter:pending:{${tag}}`,
+                'racednonce',
+                `${Date.now() - 60_000}:${key}`,
+            );
+            const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
+
+            await Promise.all([target.flushCycle(), target.flushCycle()]);
+
+            expect(await storedTotal(key)).toBe(25);
+            expect(alarmSpy).not.toHaveBeenCalledWith(
+                `metering_claim_lost:${key}`,
+                expect.anything(),
+                expect.anything(),
+                expect.anything(),
+                expect.anything(),
+            );
+            alarmSpy.mockRestore();
+        });
+
+        it('retires an abandoned claim whose amounts all landed, quietly', async () => {
+            // Every path was written onward and taken off the claim, and then
+            // the deployment went away before it could retire it. Nothing was
+            // lost here, so the sweep has to finish the bookkeeping without
+            // reporting loss — and without settling, which would replace a good
+            // base with this claim's stale view.
+            const tag = bucketTag(key);
+            await target.incr({ key, pathAndAmountMap: { total: 40 } });
+            await target.flushCycle();
+
+            await server.clients.redis.hset(
+                `meter:p:{${tag}}:appliednonce`,
+                '__claim',
+                String(Date.now() - 60_000),
+            );
+            await server.clients.redis.hset(
+                `meter:pending:{${tag}}`,
+                'appliednonce',
+                `${Date.now() - 60_000}:${key}`,
+            );
+            const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
+
+            await target.flushCycle();
+
+            expect(alarmSpy).not.toHaveBeenCalled();
+            expect(await storedTotal(key)).toBe(40);
+            expect(
+                await server.clients.redis.hgetall(`meter:pending:{${tag}}`),
+            ).toEqual({});
+            expect(
+                await server.clients.redis.hget(
+                    `meter:b:{${tag}}:${key}`,
+                    'total',
+                ),
+            ).toBe('40');
+            alarmSpy.mockRestore();
+        });
+
+        it('keeps a claim addressable once its last amount is applied', async () => {
+            // Amounts come off a claim as they land, and a hash with nothing
+            // left in it stops existing — which would make a finished claim
+            // indistinguishable from one whose amounts were lost.
+            await target.incr({ key, pathAndAmountMap: { total: 5 } });
+
+            const tag = bucketTag(key);
+            const settle = vi
+                .spyOn(
+                    server.clients.redis as unknown as {
+                        meterSettle: () => Promise<unknown>;
+                    },
+                    'meterSettle',
+                )
+                .mockImplementation(async () => {
+                    // Mid-settle: every amount has been applied and taken off
+                    // the claim, but the claim itself has not been retired.
+                    const pending = await server.clients.redis.hgetall(
+                        `meter:pending:{${tag}}`,
+                    );
+                    const nonce = Object.keys(pending)[0]!;
+                    expect(
+                        await server.clients.redis.exists(
+                            `meter:p:{${tag}}:${nonce}`,
+                        ),
+                    ).toBe(1);
+                    return 1;
+                });
+
+            await target.flushCycle();
+            settle.mockRestore();
+
+            expect(await storedTotal(key)).toBe(5);
         });
 
         it('gives up on a path the store will never accept', async () => {
@@ -996,6 +1119,111 @@ describe('MeteringBufferStore', () => {
             warned.mockRestore();
 
             expect(await storedTotal(key)).toBe(5);
+        });
+    });
+
+    describe('reconciliation', () => {
+        it('puts back a delta that fell off its dirty set', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 17 } });
+
+            // The delta survives but the working list forgot it — a failover,
+            // or a set that went while the counter it pointed at stayed. From
+            // here nothing would ever flush this: reads keep answering from it
+            // right up until the TTL takes the amounts with it.
+            const tag = bucketTag(key);
+            await server.clients.redis.del(`meter:dirty:{${tag}}`);
+            expect(await target.flushCycle()).toBe(0);
+            expect(await storedTotal(key)).toBe(0);
+
+            const logged = vi
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+            await target.reconcile();
+            expect(logged).toHaveBeenCalledWith(
+                expect.stringContaining('recovered 1 buffered counter'),
+            );
+            logged.mockRestore();
+
+            await target.flushCycle();
+            expect(await storedTotal(key)).toBe(17);
+        });
+
+        it('leaves a counter that is only between the drain and its claim', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 8 } });
+            const tag = bucketTag(key);
+
+            // Taken off the dirty set and not yet claimed. It is not lost — the
+            // in-flight record is holding it — and putting it back here would
+            // hand the same delta to two flushes at once.
+            await server.clients.redis.del(`meter:dirty:{${tag}}`);
+            await server.clients.redis.zadd(
+                `meter:inflight:{${tag}}`,
+                String(Date.now()),
+                key,
+            );
+
+            await target.reconcile();
+
+            expect(
+                await server.clients.redis.scard(`meter:dirty:{${tag}}`),
+            ).toBe(0);
+        });
+
+        it('retires what it tracks once a counter has settled', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 3 } });
+            const tag = bucketTag(key);
+            expect(
+                await server.clients.redis.smembers(`meter:tracked:{${tag}}`),
+            ).toEqual([key]);
+
+            await target.flushCycle();
+
+            // Otherwise every counter the bucket ever saw stays on the list and
+            // each sweep costs more than the last.
+            expect(
+                await server.clients.redis.smembers(`meter:tracked:{${tag}}`),
+            ).toEqual([]);
+        });
+
+        it('keeps tracking a counter that took on more mid-flush', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 3 } });
+            const tag = bucketTag(key);
+
+            // An increment landing between the claim and the settle starts a
+            // fresh delta. Retiring the entry on the settle that is finishing
+            // would leave that delta with nothing pointing at it.
+            const settle = server.clients.redis as unknown as {
+                meterSettle: (...args: string[]) => Promise<number>;
+            };
+            const real = settle.meterSettle.bind(settle);
+            const racing = vi
+                .spyOn(settle, 'meterSettle')
+                .mockImplementation(async (...args: string[]) => {
+                    await target.incr({ key, pathAndAmountMap: { total: 4 } });
+                    return real(...args);
+                });
+
+            await target.flushCycle();
+            racing.mockRestore();
+
+            expect(
+                await server.clients.redis.smembers(`meter:tracked:{${tag}}`),
+            ).toEqual([key]);
+
+            await target.flushCycle();
+            expect(await storedTotal(key)).toBe(7);
+        });
+
+        it('reports nothing when every bucket is in order', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 1 } });
+            const logged = vi
+                .spyOn(console, 'error')
+                .mockImplementation(() => {});
+
+            await target.reconcile();
+
+            expect(logged).not.toHaveBeenCalled();
+            logged.mockRestore();
         });
     });
 

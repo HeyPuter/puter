@@ -18,6 +18,7 @@
  */
 
 import { AppController } from './apps/AppController.js';
+import { AppFeedbackController } from './feedback/AppFeedbackController.js';
 import { AuthController } from './auth/AuthController.js';
 import { BroadcastController } from './broadcast/BroadcastController.js';
 import { DesktopController } from './desktop/DesktopController.js';
@@ -43,6 +44,7 @@ export const puterControllers = {
     staticPages: StaticPagesController,
     auth: AuthController,
     apps: AppController,
+    appFeedback: AppFeedbackController,
     desktop: DesktopController,
     hosting: HostingController,
     system: SystemController,

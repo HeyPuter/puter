@@ -22,13 +22,12 @@ import UIContextMenu from './UIContextMenu.js';
 import path from '../lib/path.js';
 import UITaskbarItem from './UITaskbarItem.js';
 import UIWindowLogin from './UIWindowLogin.js';
-import UIWindowPublishWebsite from './UIWindowPublishWebsite.js';
 import UIWindowItemProperties from './UIWindowItemProperties.js';
 import new_context_menu_item from '../helpers/new_context_menu_item.js';
 import refresh_item_container from '../helpers/refresh_item_container.js';
-import UIWindowSaveAccount from './UIWindowSaveAccount.js';
-import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js';
+import UIWindowAppFeedback from './UIWindowAppFeedback.js';
 import launch_app from '../helpers/launch_app.js';
+import publish_as_website from '../helpers/publish_as_website.js';
 
 import item_icon from '../helpers/item_icon.js';
 
@@ -256,7 +255,13 @@ async function UIWindow (options) {
         options.window_class = `${options.window_class ?? ''} window-dashboard-headless`;
     }
 
-    h += `<div class="window window-active
+    // Only a window the user can see is the active one — the same rule the
+    // window_stack push above follows. A window created hidden (a background
+    // app, a panel, a background launch) never calls focusWindow(), so marking
+    // it active here left two windows claiming the class, and anything that
+    // re-focuses "the active window" then stole the keyboard for a window
+    // nobody can see.
+    h += `<div class="window ${options.is_visible ? 'window-active' : ''}
                         ${options.app === 'explorer' ? 'window-explorer' : ''}
                         ${options.cover_page ? 'window-cover-page' : ''}
                         ${options.uid !== undefined ? `window-${options.uid}` : ''} 
@@ -2574,25 +2579,11 @@ async function UIWindow (options) {
                         html: i18n('publish_as_website'),
                         disabled: !options.is_dir,
                         onClick: async function () {
-                            if ( window.require_email_verification_to_publish_website ) {
-                                if ( window.user.is_temp &&
-                                    !await UIWindowSaveAccount({
-                                        send_confirmation_code: true,
-                                        message: i18n('save_account_to_publish'),
-                                        window_options: {
-                                            backdrop: true,
-                                            close_on_backdrop_click: false,
-                                        },
-                                    }) )
-                                {
-                                    return;
-                                }
-                                else if ( !window.user.email_confirmed && !await UIWindowEmailConfirmationRequired() )
-                                {
-                                    return;
-                                }
-                            }
-                            UIWindowPublishWebsite($(el_window).attr('data-uid'), $(el_window).attr('data-name'), $(el_window).attr('data-path'));
+                            await publish_as_website({
+                                uid: $(el_window).attr('data-uid'),
+                                name: $(el_window).attr('data-name'),
+                                path: $(el_window).attr('data-path'),
+                            });
                         },
                     });
                     // -------------------------------------------
@@ -3908,6 +3899,26 @@ $.fn.makeWindowInvisible = async function (options) {
             $(this).attr({
                 'data-is_visible': '0',
             });
+            // A window the user can no longer see must not stay the active one.
+            // It would keep the keyboard and — because focusWindow() disables
+            // pointer events on every OTHER app's iframe — leave the app the
+            // user was actually working in unclickable until they clicked it
+            // again. That is what an app calling puter.ui.hideWindow() on
+            // itself did to whoever launched it. Hand activation back the way
+            // closing a window does: to the top of the window stack.
+            if ( $(this).hasClass('window-active') ) {
+                const win_id = parseInt($(this).attr('data-id'));
+                $(this).removeClass('window-active');
+                // Out of the activation order until it is shown again, at which
+                // point makeWindowVisible's focusWindow() pushes it back.
+                window.window_stack = window.window_stack.filter(id => id !== win_id);
+                const $next = $(`.window[data-id="${window.window_stack[window.window_stack.length - 1]}"]`);
+                if ( $next.length && $next.attr('data-is_visible') !== '0'
+                    && $next.attr('data-is_minimized') !== '1'
+                    && $next.attr('data-is_minimized') !== 'true' ) {
+                    $next.focusWindow();
+                }
+            }
             // if sidepanel, shift desktop toolbar to the right
             if ( $(this).attr('data-is_panel') === '1' ) {
                 $('.toolbar').css('left', 'calc(50%)');
@@ -3922,6 +3933,19 @@ $.fn.makeWindowInvisible = async function (options) {
 $.fn.showWindow = async function (options) {
     $(this).each(async function () {
         if ( $(this).hasClass('window') ) {
+            // A window hidden by puter.ui.hideWindow() is not minimized: it
+            // kept its geometry and has no data-orig-* to restore, so every
+            // path below (all of which un-minimize) would leave it hidden —
+            // and stamp NaN geometry on it from the absent attributes. Simply
+            // un-hiding it is the whole job, and the inverse of what hid it.
+            // This is what makes the taskbar item a real handle on a window
+            // the user cannot currently see.
+            if ( $(this).attr('data-is_visible') === '0'
+                && $(this).attr('data-is_minimized') !== '1'
+                && $(this).attr('data-is_minimized') !== 'true' ) {
+                $(this).makeWindowVisible();
+                return;
+            }
             // show window
             const el_window = this;
 
@@ -4617,18 +4641,32 @@ function attach_dashboard_app_drawer (el_window, options) {
         : launch_icon;
     const title = options.title || app_name;
 
+    // A "Send Feedback" control, shown only when the developer opted the app
+    // in (apps.feedbackEnabled → options.feedback_enabled). The dialog also
+    // re-checks opt-in server-side, so a stale flag can't send anywhere.
+    const feedback_enabled = options.feedback_enabled === true
+        || options.feedback_enabled === 1;
+    const feedback_label = i18n('app_feedback_title');
+    // A message/comment glyph (bubble with text lines) — clearer at this size
+    // than a bare speech bubble, which reads as a magnifier.
+    const feedback_btn = feedback_enabled ? `
+                    <button type="button" class="dashboard-app-drawer-btn dashboard-app-drawer-feedback" title="${feedback_label}" aria-label="${feedback_label}">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="7.5" y1="9" x2="16.5" y2="9"/><line x1="7.5" y1="12.5" x2="13" y2="12.5"/></svg>
+                    </button>` : '';
+
     // The toggle comes FIRST in the DOM so Tab reaches it before the
     // controls' buttons; both layers are absolutely positioned (see
-    // dashboard.css), so DOM order doesn't affect the visuals.
+    // dashboard.css), so DOM order doesn't affect the visuals. `has-feedback`
+    // widens the surface so the extra control doesn't clip the close button.
     const $drawer = $(`
-        <div class="dashboard-app-drawer collapsed">
+        <div class="dashboard-app-drawer collapsed${feedback_enabled ? ' has-feedback' : ''}">
             <button type="button" class="dashboard-app-drawer-toggle" aria-expanded="false" title="App controls" aria-label="App controls">
                 <span class="dashboard-app-drawer-grabber" aria-hidden="true"></span>
             </button>
             <div class="dashboard-app-drawer-clip">
                 <div class="dashboard-app-drawer-controls">
                     <img class="dashboard-app-drawer-icon" src="${html_encode(icon)}" alt="" draggable="false">
-                    <span class="dashboard-app-drawer-title">${html_encode(title)}</span>
+                    <span class="dashboard-app-drawer-title">${html_encode(title)}</span>${feedback_btn}
                     <button type="button" class="dashboard-app-drawer-btn dashboard-app-drawer-minimize" title="Minimize to Dashboard" aria-label="Minimize to Dashboard">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     </button>
@@ -4754,6 +4792,17 @@ function attach_dashboard_app_drawer (el_window, options) {
     $drawer.find('.dashboard-app-drawer-close').on('click', function (e) {
         e.stopPropagation();
         $(el_window).close();
+    });
+    // Opens the feedback dialog for THIS app. Identify it by uid when we
+    // have one (unique, unspoofable) and fall back to the name; the dialog
+    // is modal over the app window it belongs to.
+    $drawer.find('.dashboard-app-drawer-feedback').on('click', function (e) {
+        e.stopPropagation();
+        collapse();
+        UIWindowAppFeedback({
+            app: options.app_uuid || app_name,
+            source: 'app',
+        });
     });
 
     // showWindow forces the drawer shut when the window is restored — the
