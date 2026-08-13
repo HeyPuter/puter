@@ -154,7 +154,7 @@ Pass in the `tools` parameter with the type of `web_search`.
 
 ```js
 {
-  model: 'openai/gpt-5.3-chat',
+  model: 'openai/gpt-5.6-luna',
   tools: [{type: "web_search"}]
 }
 ```
@@ -603,7 +603,7 @@ for await (const part of resp) {
         puter.print(`Loading...`);
         puter.ai
             .chat("Summarize what the User-Pays Model is: https://docs.puter.com/user-pays-model/", {
-                model: "openai/gpt-5.3-chat",
+                model: "openai/gpt-5.6-luna",
                 tools: [{ type: "web_search" }],
             })
             .then(puter.print);
