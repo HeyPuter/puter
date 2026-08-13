@@ -43,10 +43,9 @@ import { createFeedbackDialogGuard } from './util/feedbackDialogGuard.js';
 
 window.ipc_handlers = {};
 
-// Abuse guard for the app-triggered feedback dialog (`showFeedbackDialog`
-// handler below): one dialog at a time, and an app that reopens it at machine
-// speed gets backed off. Closing the dialog costs the user nothing — the next
-// human-paced open always goes through. See feedbackDialogGuard.js.
+// Re-entry guard for the app-triggered feedback dialog (`showFeedbackDialog`
+// handler below): one dialog at a time, and nothing else — reopening is always
+// allowed. See feedbackDialogGuard.js.
 const feedback_dialog_guard = createFeedbackDialogGuard();
 
 /**
@@ -1415,12 +1414,15 @@ const ipc_listener = async (event, handled) => {
             }, '*');
         };
 
-        // Re-entry / reopen-rate guard (see the state at the top of this
-        // file). Checked before the auth gate too: for a signed-out user the
-        // gate opens a full-page signup window, which an unguarded loop could
-        // spam just as effectively as the dialog.
-        const guard_key = app_uuid || app_name;
-        if ( ! feedback_dialog_guard.mayOpen(guard_key) ) {
+        // One dialog at a time (see the state at the top of this file).
+        // Checked before the auth gate too: for a signed-out user the gate
+        // opens a full-page signup window, and a second call must not stack
+        // another one on top of it.
+        if ( ! feedback_dialog_guard.mayOpen() ) {
+            // The app gets the same `false` a dismissal produces, so say why
+            // here: from the app's side a refused call is indistinguishable
+            // from a user who closed the dialog.
+            console.warn('IPC showFeedbackDialog: a feedback dialog is already open; ignoring this call');
             respond(false);
             return;
         }
@@ -1459,7 +1461,7 @@ const ipc_listener = async (event, handled) => {
             respond(sent === true);
             $(target_iframe).get(0)?.focus({ preventScroll: true });
         } finally {
-            feedback_dialog_guard.markClosed(guard_key, sent);
+            feedback_dialog_guard.markClosed();
         }
     }
     //--------------------------------------------------------

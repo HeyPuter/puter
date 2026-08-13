@@ -20,120 +20,39 @@
 import { describe, it, expect } from 'vitest';
 import { createFeedbackDialogGuard } from './feedbackDialogGuard.js';
 
-const APP = 'app-uid-1';
-
-// A guard on a clock the test drives by hand.
-const makeGuard = () => {
-    let t = 1_000_000;
-    const guard = createFeedbackDialogGuard({ now: () => t });
-    return {
-        guard,
-        advance: (ms) => { t += ms; },
-        // One full open-and-dismiss cycle, the user taking `duration` to
-        // close the dialog. Returns false if the guard refused to open it.
-        cycle: (key = APP, { duration = 5_000, sent = false } = {}) => {
-            if ( ! guard.mayOpen(key) ) return false;
-            guard.markOpened();
-            t += duration;
-            guard.markClosed(key, sent);
-            return true;
-        },
-    };
+// One open-and-close cycle, as the IPC handler runs it.
+const cycle = (guard) => {
+    if ( ! guard.mayOpen() ) return false;
+    guard.markOpened();
+    guard.markClosed();
+    return true;
 };
 
 describe('createFeedbackDialogGuard', () => {
-    it('opens for an app it has never seen', () => {
-        const { guard } = makeGuard();
-        expect(guard.mayOpen(APP)).toBe(true);
+    it('opens the first time', () => {
+        expect(createFeedbackDialogGuard().mayOpen()).toBe(true);
     });
 
-    it('reopens after a dismissal, as many times as the user asks', () => {
-        const { guard, cycle, advance } = makeGuard();
-        // The bug this guards against: closing the dialog used to cost the
-        // app its next open for 10s, then 60s, then the rest of the session.
-        for ( let i = 0; i < 5; i++ ) {
-            expect(cycle(), `open #${i + 1}`).toBe(true);
-            advance(2_000); // the user goes back and clicks "Send feedback"
+    it('reopens every time the user asks, back to back', () => {
+        // The whole point: closing the dialog must never cost the user the
+        // next one. No dismissal count, no cooldown, no "too soon".
+        const guard = createFeedbackDialogGuard();
+        for ( let i = 0; i < 20; i++ ) {
+            expect(cycle(guard), `open #${i + 1}`).toBe(true);
         }
-        expect(guard.mayOpen(APP)).toBe(true);
     });
 
-    it('reopens a second after the dialog closed', () => {
-        const { guard, cycle, advance } = makeGuard();
-        expect(cycle()).toBe(true);
-        advance(1_001);
-        expect(guard.mayOpen(APP)).toBe(true);
-    });
-
-    it('refuses a second dialog while one is open', () => {
-        const { guard } = makeGuard();
-        expect(guard.mayOpen(APP)).toBe(true);
+    it('refuses to stack a second dialog on an open one', () => {
+        const guard = createFeedbackDialogGuard();
+        expect(guard.mayOpen()).toBe(true);
         guard.markOpened();
-        expect(guard.mayOpen(APP)).toBe(false);
-        expect(guard.mayOpen('some-other-app')).toBe(false);
-        guard.markClosed(APP, false);
+        expect(guard.mayOpen()).toBe(false);
     });
 
-    it('backs off an app that reopens the instant it is dismissed', () => {
-        const { guard, cycle, advance } = makeGuard();
-        expect(cycle()).toBe(true);
-        advance(1);
-        expect(guard.mayOpen(APP)).toBe(false);
-
-        // ...and holds it off for the first tier.
-        advance(9_000);
-        expect(guard.mayOpen(APP)).toBe(false);
-    });
-
-    it('escalates while the app keeps hammering, and blocks it for good', () => {
-        const { guard, cycle, advance } = makeGuard();
-        expect(cycle()).toBe(true);
-
-        // A loop calling every 50ms. Waiting out a backoff is no escape: the
-        // attempts made during it are activity of their own, so the next tier
-        // applies rather than a clean slate.
-        const hammer = (ms) => {
-            for ( let elapsed = 0; elapsed < ms; elapsed += 50 ) {
-                advance(50);
-                if ( guard.mayOpen(APP) ) return true;
-            }
-            return false;
-        };
-
-        expect(hammer(10_000), 'first tier').toBe(false);
-        expect(hammer(60_000), 'second tier').toBe(false);
-        expect(hammer(10 * 60_000), 'blocked for the session').toBe(false);
-    });
-
-    it('lets a hammering app back in once it goes quiet', () => {
-        const { guard, cycle, advance } = makeGuard();
-        expect(cycle()).toBe(true);
-        advance(1);
-        expect(guard.mayOpen(APP)).toBe(false); // strike: 10s
-
-        // The user closes the app's own dialog loop by leaving it alone, then
-        // comes back later and asks for the form themselves.
-        advance(30_000);
-        expect(guard.mayOpen(APP)).toBe(true);
-    });
-
-    it('keeps each app on its own record', () => {
-        const { guard, cycle, advance } = makeGuard();
-        expect(cycle('noisy-app')).toBe(true);
-        advance(1);
-        expect(guard.mayOpen('noisy-app')).toBe(false);
-        expect(guard.mayOpen('quiet-app')).toBe(true);
-    });
-
-    it('clears the record when the user actually sends feedback', () => {
-        const { guard, cycle, advance } = makeGuard();
-        expect(cycle()).toBe(true);
-        advance(1);
-        expect(guard.mayOpen(APP)).toBe(false); // strike: 10s
-
-        advance(30_000);
-        expect(cycle(APP, { sent: true })).toBe(true);
-        // A send wipes the strikes, so even an immediate reopen is allowed.
-        expect(guard.mayOpen(APP)).toBe(true);
+    it('opens again as soon as the open one closes', () => {
+        const guard = createFeedbackDialogGuard();
+        guard.markOpened();
+        guard.markClosed();
+        expect(guard.mayOpen()).toBe(true);
     });
 });

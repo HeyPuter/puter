@@ -17,103 +17,47 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// A reopen this soon after the app's last dialog activity is a loop, not a
-// person: a human has to notice the dialog is gone, find the app's "Send
-// feedback" control and click it, which no click-driven flow does inside a
-// second.
-export const IMMEDIATE_REOPEN_MS = 1000;
-
-// What an app pays for each machine-speed reopen, in order.
-export const BACKOFF_MS = [10_000, 60_000, Infinity];
-
 /**
- * Abuse guard for the app-triggered feedback dialog (`showFeedbackDialog`).
+ * Re-entry guard for the app-triggered feedback dialog
+ * (`puter.ui.showFeedbackDialog`).
  *
- * The dialog is a full-viewport modal an app can open with no user gesture, so
- * an unguarded loop of `showFeedbackDialog()` calls would cover the desktop —
- * taskbar and the app's own close button included — forever.
+ * There is exactly one rule: one dialog at a time. A second one would stack a
+ * full-viewport overlay on top of the first, and closing the top one would
+ * leave the user staring at another.
  *
- * The guard keys off *how fast the app comes back*, never off how many times
- * the user said no. Closing the dialog must not cost the user their next one:
- * people close it by accident, or open it to see what it asks before they have
- * anything to write, and the app's own "Send feedback" button has to keep
- * working when they come back to it.
- *
- * So a reopen that lands within `IMMEDIATE_REOPEN_MS` of the app's last dialog
- * activity — its last dismissal, or its last attempt while backed off — is
- * refused and backs the app off (10s, then 60s, then blocked until the page
- * reloads). Hammering the guard while it is closed counts as activity too, so
- * waiting a backoff out is not a way around the escalation. Any human-paced
- * reopen clears the app's record: the tiers are only ever reached by an app
- * that reopens at machine speed several times over.
- *
- * One dialog may be open at a time, across all apps.
- *
- * @param {{ now?: () => number }} [deps] - `now` is injectable for tests.
+ * There is deliberately no rate limit. Rate limiting this dialog cost real
+ * users their "Send feedback" button — a dismissal, or a reopen the guard read
+ * as too quick, silently turned the next call into a no-op, and an app has no
+ * way to tell that from the user closing the dialog. The neighboring modals an
+ * app can open with no user gesture (`requestPermission`, `alert`, `prompt`)
+ * have no rate limit either, so this one is not the place to hold that line: a
+ * nagging app is a policy problem, not something to solve by breaking the
+ * button for everyone else.
  */
-export const createFeedbackDialogGuard = ({ now = () => Date.now() } = {}) => {
+export const createFeedbackDialogGuard = () => {
     let dialog_open = false;
-    // app uid/name -> { strikes, until, last_activity }
-    const records = new Map();
 
     return {
         /**
-         * May this app open the dialog right now? Records the attempt either
-         * way, so call it once per request and honor the answer.
+         * May the dialog open right now?
          *
-         * @param {string} key - App uid, or name when there is no uid.
-         * @returns {boolean}
+         * @returns {boolean} false only while another dialog is up.
          */
-        mayOpen (key) {
-            // Not the app's doing — another dialog is up — so this attempt
-            // earns no strike and does not count as activity.
-            if ( dialog_open ) return false;
-
-            const record = records.get(key);
-            if ( ! record ) return true;
-
-            const t = now();
-            const quiet_for = t - record.last_activity;
-            record.last_activity = t;
-
-            if ( t < record.until ) return false;
-
-            if ( quiet_for > IMMEDIATE_REOPEN_MS ) {
-                records.delete(key);
-                return true;
-            }
-
-            record.strikes += 1;
-            record.until = t + BACKOFF_MS[
-                Math.min(record.strikes, BACKOFF_MS.length) - 1
-            ];
-            return false;
+        mayOpen () {
+            return ! dialog_open;
         },
 
-        /**
-         * The dialog is up for this app (call only after `mayOpen` said yes).
-         */
+        /** The dialog is up (call only after `mayOpen` said yes). */
         markOpened () {
             dialog_open = true;
         },
 
         /**
-         * The dialog is down. A submitted message clears the app's record
-         * outright — an app whose users are actually sending feedback is not
-         * the app this guard is for.
-         *
-         * @param {string} key - The key passed to `mayOpen`.
-         * @param {boolean} sent - Did the user submit feedback?
+         * The dialog is down. Must run on every exit path — a dialog left
+         * marked open blocks every later one.
          */
-        markClosed (key, sent) {
+        markClosed () {
             dialog_open = false;
-            if ( sent === true ) {
-                records.delete(key);
-                return;
-            }
-            const record = records.get(key) ?? { strikes: 0, until: 0 };
-            record.last_activity = now();
-            records.set(key, record);
         },
     };
 };
