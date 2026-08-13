@@ -65,4 +65,5 @@ export const toShare = (row) => ({
     isDir: Boolean(row.is_dir ?? row.isDir),
     issuer: /** @type {string | null} */ (row.issuer ?? null),
     holder: /** @type {string | null} */ (row.holder ?? null),
+    inheritedFrom: /** @type {string | null} */ (row.inherited_from ?? null),
 });

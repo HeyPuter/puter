@@ -55,6 +55,7 @@ A `Promise` that resolves to an array of share objects, one per recipient/item p
 - `isDir` (Boolean) - Whether the shared item is a directory.
 - `issuer` (String) - Username of whoever granted the share.
 - `holder` (String) - Username of whoever received it.
+- `inheritedFrom` (String) - Path of the shared ancestor this access comes from, or `null` when the share is on the item itself.
 
 Sharing the same item with the same person again **replaces** their access rather than adding a second share, so raising someone from `read` to `write` is just another call.
 

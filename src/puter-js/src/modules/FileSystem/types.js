@@ -296,6 +296,7 @@
  * @property {boolean} isDir Whether the shared item is a directory.
  * @property {string | null} issuer Username of whoever granted it.
  * @property {string | null} holder Username of whoever received it.
+ * @property {string | null} [inheritedFrom] Shared ancestor this access comes from, if any.
  */
 
 /**
