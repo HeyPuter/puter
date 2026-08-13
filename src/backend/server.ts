@@ -51,6 +51,7 @@ import { guiOriginGate } from './core/http/middleware/originGate';
 import { requireCreditsGate } from './core/http/middleware/credits';
 import { createStepUpGate } from './core/http/middleware/stepUpSession';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
+import { installProcessGuards } from './util/processGuards';
 import {
     requireAntiCsrf,
     setAntiCsrfRedis,
@@ -102,6 +103,7 @@ export class PuterServer {
     #config: IConfig;
     #app!: ReturnType<typeof express>;
     #server: ReturnType<ReturnType<typeof express>['listen']> | null = null;
+    #removeProcessGuards: (() => void) | null = null;
 
     #ready: Promise<boolean>;
 
@@ -1230,6 +1232,13 @@ export class PuterServer {
     async start(noHttpServer = false) {
         await this.#ready;
 
+        // Installed before anything starts serving, so a fault during boot is
+        // reported too. Logging is unconditional; whether an uncaught exception
+        // ends the process is a deployment decision, hence the config gate.
+        this.#removeProcessGuards = installProcessGuards({
+            keepAliveOnUncaught: this.#config.keep_alive_on_uncaught ?? false,
+        });
+
         // Create the http server explicitly (instead of `app.listen()`) so we
         // have the server reference BEFORE listen starts — anything that needs
         // to hook into the raw server (socket.io upgrades, WebSockets, …) runs
@@ -1410,6 +1419,8 @@ export class PuterServer {
     }
 
     async shutdown() {
+        this.#removeProcessGuards?.();
+        this.#removeProcessGuards = null;
         if (this.#server) {
             console.log('PuterServer is shutting down');
             // Prepare hooks come first: SocketService's hook closes

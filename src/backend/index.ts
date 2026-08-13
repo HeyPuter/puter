@@ -208,4 +208,6 @@ if (require.main === module) {
     };
     process.on('SIGINT', shutDownProcess);
     process.on('SIGTERM', shutDownProcess);
+    // Uncaught exceptions and unhandled rejections are reported by the guards
+    // `PuterServer.start()` installs — see util/processGuards.ts.
 }
