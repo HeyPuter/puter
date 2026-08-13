@@ -33,6 +33,7 @@ import publish_as_website from '../../helpers/publish_as_website.js';
 import ContextMenuModal from './ContextMenu/ContextMenu.js';
 import UIItemPropertiesModal from './UIItemPropertiesModal.js';
 import { dedupedName } from './dedupedName.js';
+import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js';
 
 const icons = {
     document: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>`,
@@ -235,6 +236,11 @@ const TabFiles = {
             // Trash is never listed in the explorer (sidebar has its own entry),
             // so a socket event must not re-add it either.
             if ( file.path === window.trash_path ) return;
+
+            // A dot-file created elsewhere must respect the same preference the
+            // listing was rendered with, or it shows up in a view that filtered
+            // its siblings out.
+            if ( ! isEntryVisible(file.name, showHiddenFiles()) ) return;
 
             // If item already exists in view, update in-place.
             const $existingRow = $(`.files-tab .files .item[data-uid='${file.uid}']`);
@@ -2211,7 +2217,7 @@ const TabFiles = {
         // Filter out hidden files/folders and AppData in home directory.
         // Trash is reachable from the sidebar; don't list it as a row too.
         directoryContents = directoryContents.filter(file => {
-            if ( file.name.startsWith('.') ) return false;
+            if ( ! isEntryVisible(file.name, showHiddenFiles()) ) return false;
             if ( file.name === 'AppData' && this.currentPath === window.home_path ) return false;
             if ( file.path === window.trash_path ) return false;
             return true;
@@ -2390,7 +2396,10 @@ const TabFiles = {
         const iconResult = await item_icon(file);
         const icon = `<img src="${html_encode(iconResult.image)}"/>`;
         const row = document.createElement("div");
-        row.setAttribute('class', `item row ${file.is_dir ? 'folder' : 'file'}`);
+        // A dot-file only reaches this point when the preference reveals it;
+        // `item-revealed` dims it the same way the desktop Explorer does.
+        const revealedClass = isHiddenName(file.name) ? ' item-revealed' : '';
+        row.setAttribute('class', `item row ${file.is_dir ? 'folder' : 'file'}${revealedClass}`);
         row.setAttribute("data-id", item_id);
         row.setAttribute("data-name", displayName);
         row.setAttribute("data-uid", file.uid);
@@ -4125,6 +4134,19 @@ const TabFiles = {
             html: i18n('refresh'),
             onClick: function () {
                 _this.renderDirectory(_this.currentPath, { consistency: 'strong' });
+            },
+        });
+
+        // Show hidden files - the same preference the desktop Explorer toggles,
+        // so it stays in sync between the two.
+        items.push({
+            html: i18n('show_hidden'),
+            icon: showHiddenFiles() ? '✓' : '',
+            onClick: function () {
+                window.mutate_user_preferences({
+                    show_hidden_files: ! showHiddenFiles(),
+                });
+                _this.renderDirectory(_this.currentPath);
             },
         });
 
