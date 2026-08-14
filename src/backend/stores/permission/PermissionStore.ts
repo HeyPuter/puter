@@ -119,7 +119,17 @@ export class PermissionStore extends PuterStore {
                 };
                 if (typeof holderUserId !== 'number') return;
                 if (typeof permission !== 'string' || permission === '') return;
-                void this.#applyFlatUserPermDelete(holderUserId, permission);
+                // Guarded: a transient KV error applying a peer's delete must
+                // not become an unhandled rejection. The entry stays until the
+                // next invalidation or its TTL — same as a lost event.
+                this.#applyFlatUserPermDelete(holderUserId, permission).catch(
+                    (err) => {
+                        console.warn(
+                            '[PermissionStore] failed to apply remote flat-perm delete:',
+                            err,
+                        );
+                    },
+                );
             },
         );
     }
