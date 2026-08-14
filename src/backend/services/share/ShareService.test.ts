@@ -219,6 +219,33 @@ describe('ShareService', () => {
         ).rejects.toMatchObject({ statusCode: 404 });
     });
 
+    it('tells a stranger nothing about whether a recipient account exists', async () => {
+        const owner = await makeUser();
+        const stranger = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        // The recipient must resolve only after authorization: a caller who
+        // cannot manage the entry gets the same "no such subject" error for a
+        // real recipient and a made-up one, so /share cannot be used to probe
+        // which emails have accounts.
+        const probe = (email: string) =>
+            share(stranger.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+        await expect(probe(recipient.email)).rejects.toMatchObject({
+            statusCode: 404,
+            legacyCode: 'subject_does_not_exist',
+        });
+        await expect(probe('nobody@nowhere.test')).rejects.toMatchObject({
+            statusCode: 404,
+            legacyCode: 'subject_does_not_exist',
+        });
+    });
+
     it('revokes access and drops the index row', async () => {
         const owner = await makeUser();
         const recipient = await makeUser();

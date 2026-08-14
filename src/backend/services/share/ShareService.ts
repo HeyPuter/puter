@@ -203,13 +203,13 @@ export class ShareService extends PuterService {
         const issuerId = this.#requireUserId(actor);
         const mode = this.#requireMode(input.mode);
 
-        // Independent reads; the authorization check needs only the entry.
-        const [entry, holder] = await Promise.all([
-            this.#resolveEntry(input),
-            this.#resolveRecipient(input.recipient),
-        ]);
-
+        // Authorization before recipient resolution: a caller who cannot
+        // manage the entry must learn nothing from this endpoint — including
+        // whether an email or username has an account. "Recipient does not
+        // exist" may only be observed by someone entitled to share.
+        const entry = await this.#resolveEntry(input);
         await this.#assertCanManage(actor, entry);
+        const holder = await this.#resolveRecipient(input.recipient);
 
         if (holder.id === issuerId) {
             throw new HttpError(400, 'cannot share with yourself', {
