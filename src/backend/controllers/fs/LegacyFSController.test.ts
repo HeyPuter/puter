@@ -1166,6 +1166,107 @@ describe('LegacyFSController.move', () => {
         };
         expect(removedPayload.response?.uid).toBe(replaced.uuid);
     });
+
+    it('lets a share recipient trash an item into the owner’s trash', async () => {
+        const owner = await makeUser();
+        const holder = await makeUser();
+        const ownerName = owner.actor.user!.username!;
+        const sharedPath = `/${ownerName}/Documents/Contents`;
+
+        await withActor(owner.actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: sharedPath }, actor: owner.actor }),
+                makeRes().res,
+            ),
+        );
+        await withActor(owner.actor, () =>
+            controller.touch(
+                makeReq({
+                    body: { path: `${sharedPath}/note.txt` },
+                    actor: owner.actor,
+                }),
+                makeRes().res,
+            ),
+        );
+        const shared = (await server.stores.fsEntry.getEntryByPath(sharedPath))!;
+        await server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: shared.path,
+                resolveAncestors: () =>
+                    server.services.fs.getAncestorChain(shared.path),
+            },
+            'write',
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(holder.actor, () =>
+            controller.move(
+                makeReq({
+                    body: {
+                        source: `${sharedPath}/note.txt`,
+                        destination: `/${ownerName}/Trash`,
+                    },
+                    actor: holder.actor,
+                }),
+                res,
+            ),
+        );
+
+        const body = captured.body as { moved: { path: string } };
+        expect(body.moved.path).toBe(`/${ownerName}/Trash/note.txt`);
+    });
+
+    it('refuses a share recipient moving an item into their own trash', async () => {
+        const owner = await makeUser();
+        const holder = await makeUser();
+        const ownerName = owner.actor.user!.username!;
+        const holderName = holder.actor.user!.username!;
+        const sharedPath = `/${ownerName}/Documents/Shared`;
+
+        await withActor(owner.actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: sharedPath }, actor: owner.actor }),
+                makeRes().res,
+            ),
+        );
+        await withActor(owner.actor, () =>
+            controller.touch(
+                makeReq({
+                    body: { path: `${sharedPath}/theirs.txt` },
+                    actor: owner.actor,
+                }),
+                makeRes().res,
+            ),
+        );
+        const shared = (await server.stores.fsEntry.getEntryByPath(sharedPath))!;
+        await server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: shared.path,
+                resolveAncestors: () =>
+                    server.services.fs.getAncestorChain(shared.path),
+            },
+            'write',
+        );
+
+        await expect(
+            withActor(holder.actor, () =>
+                controller.move(
+                    makeReq({
+                        body: {
+                            source: `${sharedPath}/theirs.txt`,
+                            destination: `/${holderName}/Trash`,
+                        },
+                        actor: holder.actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
 });
 
 // ── search ──────────────────────────────────────────────────────────

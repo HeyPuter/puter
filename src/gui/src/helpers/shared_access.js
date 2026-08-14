@@ -76,3 +76,16 @@ export const shared_mode_for = async (path) => {
     }
     return best === null ? null : modes.get(best);
 };
+
+/**
+ * May you rename or delete the item at `item_path`? The folder holding it
+ * decides, so a shared folder stays out of reach while its contents do not.
+ *
+ * @param {string} item_path
+ * @returns {Promise<boolean>}
+ */
+export const can_restructure = async (item_path) => {
+    if ( typeof item_path !== 'string' ) return false;
+    const parent = item_path.slice(0, item_path.lastIndexOf('/'));
+    return ['write', 'manage'].includes(await shared_mode_for(parent));
+};

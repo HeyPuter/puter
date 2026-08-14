@@ -25,7 +25,10 @@ import type { Actor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
-import { assertNormalized } from '../../services/fs/resolveNode.js';
+import {
+    assertNormalized,
+    isOwnersTrash,
+} from '../../services/fs/resolveNode.js';
 import type {
     PreparedBatchWrite,
     UploadedBatchWriteItem,
@@ -1511,7 +1514,9 @@ export class FSController extends PuterController {
             await this.#resolveEntryForRequest(destinationRef);
 
         await this.#assertAccess(actor, source.path, 'write');
-        await this.#assertAccess(actor, destinationParent.path, 'write');
+        if (!isOwnersTrash(source, destinationParent)) {
+            await this.#assertAccess(actor, destinationParent.path, 'write');
+        }
 
         const moved = await this.services.fs.move(userId, {
             source,

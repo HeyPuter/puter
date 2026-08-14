@@ -3655,6 +3655,17 @@ export class FSService extends PuterService {
         // ACL plus the fs:write class already cover that.
         await this.#assertCrossAppDeleteAllowed(source.path);
         await this.#assertCanRestructure(source, userId);
+        // Write inside a shared folder reorganizes it, it does not empty it.
+        if (
+            source.userId !== userId &&
+            source.userId !== destinationParent.userId
+        ) {
+            throw new HttpError(
+                403,
+                "Cannot move an entry out of its owner's tree",
+                { legacyCode: 'forbidden' },
+            );
+        }
         if (!destinationParent.isDir) {
             throw new HttpError(400, 'Destination parent is not a directory', {
                 legacyCode: 'dest_is_not_a_directory',

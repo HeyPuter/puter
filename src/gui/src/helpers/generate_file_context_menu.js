@@ -30,7 +30,7 @@ import launch_app from './launch_app.js';
 import path from '../lib/path.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from './weblink.js';
 import { is_owned_by_me } from './path_owner.js';
-import { shared_mode_for } from './shared_access.js';
+import { can_restructure, shared_mode_for } from './shared_access.js';
 
 /**
  * Generates context menu items for file/folder operations
@@ -63,6 +63,9 @@ const generate_file_context_menu = async function (options) {
     const can_manage_share =
         $(options.element).attr('data-share_mode') === 'manage'
         || (await shared_mode_for($(options.element).attr('data-path'))) === 'manage';
+    // Renaming and deleting go by the holding folder, not by the item.
+    const may_restructure = !is_not_mine
+        || await can_restructure($(options.element).attr('data-path'));
     const is_worker = options.is_worker ?? false;
     const onOpen = options.onOpen;
     const is_weblink = isWeblinkName(fsentry.name ?? $(el_item).attr('data-name'));
@@ -345,7 +348,7 @@ const generate_file_context_menu = async function (options) {
     // -------------------------------------------
     // Delete
     // -------------------------------------------
-    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_not_mine ) {
+    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && may_restructure ) {
         menu_items.push({
             html: i18n('delete'),
             onClick: async function () {
@@ -385,7 +388,7 @@ const generate_file_context_menu = async function (options) {
     // -------------------------------------------
     // Rename
     // -------------------------------------------
-    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_trash ) {
+    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_trash && may_restructure ) {
         menu_items.push({
             html: i18n('rename'),
             onClick: function () {

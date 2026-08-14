@@ -33,7 +33,7 @@ import publish_as_website from '../helpers/publish_as_website.js';
 import mime from '../lib/mime.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js';
 import { is_owned_by_me } from '../helpers/path_owner.js';
-import { shared_mode_for } from '../helpers/shared_access.js';
+import { can_restructure, shared_mode_for } from '../helpers/shared_access.js';
 
 const AI_APP_NAME = 'ai';
 
@@ -1153,6 +1153,9 @@ async function UIItem (options) {
             const can_manage_share =
                 $(el_item).attr('data-share_mode') === 'manage'
                 || (await shared_mode_for($(el_item).attr('data-path'))) === 'manage';
+            // Renaming and deleting go by the holding folder, not by the item.
+            const may_restructure = !is_not_mine
+                || await can_restructure($(el_item).attr('data-path'));
             const is_shortcut = !! $(el_item).attr('data-shortcut_to_path');
             const is_weblink = isWeblinkName($(el_item).attr('data-name'));
             menu_items = [];
@@ -1612,7 +1615,7 @@ async function UIItem (options) {
             // -------------------------------------------
             // Delete
             // -------------------------------------------
-            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_not_mine ) {
+            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && may_restructure ) {
                 menu_items.push({
                     html: i18n('delete'),
                     onClick: async function () {
@@ -1652,7 +1655,7 @@ async function UIItem (options) {
             // -------------------------------------------
             // Rename
             // -------------------------------------------
-            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_trash ) {
+            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_trash && may_restructure ) {
                 menu_items.push({
                     html: i18n('rename'),
                     onClick: function () {

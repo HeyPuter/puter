@@ -30,6 +30,7 @@ import { HttpError } from '../../core/http/HttpError.js';
 import {
     resolveNode,
     normalizeAbsolutePath,
+    isOwnersTrash,
     joinChildPath,
     expandTildePath,
 } from '../../services/fs/resolveNode.js';
@@ -259,6 +260,24 @@ export async function assertCanCreate(
         return;
     }
     await assertAccess(aclService, fsService, actor, parentForCheck, 'write');
+}
+
+/** `write` on the destination parent, unless it is the entry's own Trash. */
+export async function assertCanMoveInto(
+    aclService: ACLService,
+    fsService: FSService,
+    actor: Actor,
+    source: FSEntry,
+    destinationParent: FSEntry,
+): Promise<void> {
+    if (isOwnersTrash(source, destinationParent)) return;
+    await assertAccess(
+        aclService,
+        fsService,
+        actor,
+        destinationParent.path,
+        'write',
+    );
 }
 
 // -- Response shaping ------------------------------------------------

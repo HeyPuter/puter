@@ -20,6 +20,7 @@
 import get_html_element_from_options from './helpers/get_html_element_from_options.js';
 import globToRegExp from './helpers/globToRegExp.js';
 import item_icon from './helpers/item_icon.js';
+import { trash_path_for } from './helpers/path_owner.js';
 import truncate_filename from './helpers/truncate_filename.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import update_username_in_gui from './helpers/update_username_in_gui.js';
@@ -1778,8 +1779,14 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
             continue;
         }
 
+        // Deleting sends an item to its owner's trash, not yours.
+        const is_trashing = dest_path === window.trash_path;
+        const item_dest_path = is_trashing
+            ? trash_path_for($(el_item).attr('data-path'))
+            : dest_path;
+
         // cannot move item to its own path, skip it
-        if ( path.dirname($(el_item).attr('data-path')) === dest_path ) {
+        if ( path.dirname($(el_item).attr('data-path')) === item_dest_path ) {
             // pause the progress-window timer while waiting for the user
             clearTimeout(progwin_timeout);
             await UIAlert(`<p>Moving <strong>${html_encode($(el_item).attr('data-name'))}</strong></p>Cannot move item to its current location.`);
@@ -1835,7 +1842,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 // --------------------------------------------------------
                 // Trashing
                 // --------------------------------------------------------
-                if ( dest_path === window.trash_path ) {
+                if ( is_trashing ) {
                     new_name = $(el_item).attr('data-uid');
                     metadata = {
                         original_name: $(el_item).attr('data-name'),
@@ -1885,7 +1892,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 // execute move
                 let resp = await puter.fs.move({
                     source: $(el_item).attr('data-uid'),
-                    destination: dest_path,
+                    destination: item_dest_path,
                     overwrite: overwrite || overwrite_all,
                     // "Keep Both" conflict resolution: move under a deduped
                     // "name (1)" style name instead of overwriting
@@ -1900,7 +1907,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 let fsentry = resp.moved;
 
                 // path must use the real name from DB
-                fsentry.path = path.join(dest_path, fsentry.name);
+                fsentry.path = path.join(item_dest_path, fsentry.name);
 
                 // skip next loop iteration because this iteration was successful
                 item_with_same_name_already_exists = false;
@@ -1935,7 +1942,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 });
 
                 // if trashing, close windows of trashed items and its descendants
-                if ( dest_path === window.trash_path ) {
+                if ( is_trashing ) {
                     $(`.window[data-path="${html_encode($(el_item).attr('data-path'))}" i]`).close();
                     // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
                     $(`.window[data-path^="${html_encode($(el_item).attr('data-path'))}/"]`).close();
@@ -1945,11 +1952,11 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 else {
                     // todo this has to be case-insensitive but the `i` selector doesn't work on ^=
                     $(`.window[data-path^="${html_encode($(el_item).attr('data-path'))}/"], .window[data-path="${html_encode($(el_item).attr('data-path'))}" i]`).each(function () {
-                        window.update_window_path(this, $(this).attr('data-path').replace($(el_item).attr('data-path'), path.join(dest_path, fsentry.name)));
+                        window.update_window_path(this, $(this).attr('data-path').replace($(el_item).attr('data-path'), path.join(item_dest_path, fsentry.name)));
                     });
                 }
 
-                if ( dest_path === window.trash_path ) {
+                if ( is_trashing ) {
                     // if trashing dir...
                     if ( $(el_item).attr('data-is_dir') === '1' ) {
                         // disassociate all its websites
@@ -1973,19 +1980,19 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
 
                 // create new item on matching containers
                 const options = {
-                    appendTo: $(`.item-container[data-path="${html_encode(dest_path)}" i]`),
+                    appendTo: $(`.item-container[data-path="${html_encode(item_dest_path)}" i]`),
                     immutable: fsentry.immutable || (fsentry.writable === false),
                     associated_app_name: fsentry.associated_app?.name,
                     uid: fsentry.uid,
                     path: fsentry.path,
                     icon: await item_icon(fsentry),
-                    name: (dest_path === window.trash_path) ? $(el_item).attr('data-name') : fsentry.name,
+                    name: is_trashing ? $(el_item).attr('data-name') : fsentry.name,
                     is_dir: fsentry.is_dir,
                     size: fsentry.size,
                     type: fsentry.type,
                     modified: fsentry.modified,
                     is_selected: false,
-                    is_shared: (dest_path === window.trash_path) ? false : fsentry.is_shared,
+                    is_shared: is_trashing ? false : fsentry.is_shared,
                     is_shortcut: fsentry.is_shortcut,
                     shortcut_to: fsentry.shortcut_to,
                     shortcut_to_path: fsentry.shortcut_to_path,
@@ -2031,7 +2038,7 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
                 });
 
                 //sort each container
-                $(`.item-container[data-path="${html_encode(dest_path)}" i]`).each(function () {
+                $(`.item-container[data-path="${html_encode(item_dest_path)}" i]`).each(function () {
                     window.sort_items(this, $(this).attr('data-sort_by'), $(this).attr('data-sort_order'));
                 });
             } catch ( err ) {

@@ -41,3 +41,12 @@ export const is_owned_by_me = (path) => {
     const owner = owner_of_path(path);
     return owner === null || owner === window.user?.username;
 };
+
+/**
+ * Trash an item at `path` belongs in — its owner's, not yours.
+ *
+ * @param {string} path
+ * @returns {string}
+ */
+export const trash_path_for = (path) =>
+    `/${owner_of_path(path) ?? window.user?.username}/Trash`;

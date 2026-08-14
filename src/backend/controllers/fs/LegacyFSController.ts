@@ -69,6 +69,7 @@ import {
     asRecord,
     assertAccess,
     assertCanCreate,
+    assertCanMoveInto,
     getBoolean,
     getString,
     loadLegacyAssociatedApps,
@@ -792,12 +793,12 @@ export class LegacyFSController extends PuterController {
             source.path,
             'write',
         );
-        await assertAccess(
+        await assertCanMoveInto(
             this.services.acl,
             this.services.fs,
             actor,
-            destinationParent.path,
-            'write',
+            source,
+            destinationParent,
         );
 
         // The v1 wire contract reports the entry an overwrite replaced
@@ -2326,12 +2327,12 @@ export class LegacyFSController extends PuterController {
                         source.path,
                         'write',
                     );
-                    await assertAccess(
+                    await assertCanMoveInto(
                         this.services.acl,
                         this.services.fs,
                         actor,
-                        destinationParent.path,
-                        'write',
+                        source,
+                        destinationParent,
                     );
                     const moved = await this.services.fs.move(userId, {
                         source,

@@ -2828,6 +2828,50 @@ describe('FSService restructuring a shared tree', () => {
         expect(renamed.userId).toBe(owner.userId);
     });
 
+    it('sends a recipient-trashed item to the owner’s trash, still owned by the owner', async () => {
+        const file = await writeFile(owner, `${shared.path}/trashed.txt`, 'x');
+        const ownerTrash = (await server.stores.fsEntry.getEntryByPath(
+            `${owner.home}/Trash`,
+        ))!;
+
+        const moved = await asHolder(() =>
+            fs.move(holder.userId, {
+                source: file,
+                destinationParent: ownerTrash,
+                newName: file.uuid,
+            }),
+        );
+
+        expect(moved.path).toBe(`${owner.home}/Trash/${file.uuid}`);
+        expect(moved.userId).toBe(owner.userId);
+        expect(await stillThere(file.path)).toBe(false);
+    });
+
+    it('puts a trashed item beyond the recipient’s reach', async () => {
+        const file = await writeFile(owner, `${shared.path}/hidden.txt`, 'x');
+        const ownerTrash = (await server.stores.fsEntry.getEntryByPath(
+            `${owner.home}/Trash`,
+        ))!;
+
+        const moved = await asHolder(() =>
+            fs.move(holder.userId, {
+                source: file,
+                destinationParent: ownerTrash,
+                newName: file.uuid,
+            }),
+        );
+
+        const reachable = await server.services.acl.check(
+            holder.actor,
+            {
+                path: moved.path,
+                resolveAncestors: () => fs.getAncestorChain(moved.path),
+            },
+            'see',
+        );
+        expect(reachable).toBe(false);
+    });
+
     it('refuses to let a recipient delete the shared folder itself', async () => {
         const error = await caught(() =>
             asHolder(() =>
