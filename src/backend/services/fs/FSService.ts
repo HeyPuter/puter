@@ -359,6 +359,8 @@ export class FSService extends PuterService {
             see: ['list', 'read', 'write'],
             list: ['read', 'write'],
             read: ['write'],
+            // Widens to nothing, but still emits the manage arm.
+            write: [],
         };
         permissions.registerExploder({
             id: 'fs-access-levels',

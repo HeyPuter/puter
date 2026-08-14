@@ -180,19 +180,10 @@ export class ACLService extends PuterService {
             if (actor.accessToken.fullAccess) return true;
 
             for (const ancestor of ancestors) {
-                const permissions =
-                    mode === MANAGE_PERM_PREFIX
-                        ? [
-                              PermissionUtil.join(
-                                  MANAGE_PERM_PREFIX,
-                                  'fs',
-                                  ancestor.uid,
-                              ),
-                          ]
-                        : MODES_ABOVE[mode].map((m) =>
-                              PermissionUtil.join('fs', ancestor.uid, m),
-                          );
-                for (const permission of permissions) {
+                for (const permission of this.#permissionsFor(
+                    ancestor.uid,
+                    mode,
+                )) {
                     if (
                         await this.stores.permission.hasAccessTokenPerm(
                             actor.accessToken.uid,
@@ -227,27 +218,28 @@ export class ACLService extends PuterService {
         // Widen the scan to all "higher" modes (`write` covers `read`/`list`/
         // `see`, etc.) so granting a stronger mode implies the weaker ones.
         for (const ancestor of ancestors) {
-            const permissions =
-                mode === MANAGE_PERM_PREFIX
-                    ? [
-                          PermissionUtil.join(
-                              MANAGE_PERM_PREFIX,
-                              'fs',
-                              ancestor.uid,
-                          ),
-                      ]
-                    : MODES_ABOVE[mode].map((m) =>
-                          PermissionUtil.join('fs', ancestor.uid, m),
-                      );
             const reading = await this.services.permission.scan(
                 actor,
-                permissions,
+                this.#permissionsFor(ancestor.uid, mode),
             );
             const options = PermissionUtil.readingToOptions(reading);
             if (options.length > 0) return true;
         }
 
         return false;
+    }
+
+    /**
+     * Permissions on `uid` that satisfy `mode`. `manage` sits above the whole
+     * family — it answers any mode, but nothing answers it.
+     */
+    #permissionsFor(uid: string, mode: AclMode): string[] {
+        const manage = PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid);
+        if (mode === MANAGE_PERM_PREFIX) return [manage];
+        return [
+            ...MODES_ABOVE[mode].map((m) => PermissionUtil.join('fs', uid, m)),
+            manage,
+        ];
     }
 
     /**

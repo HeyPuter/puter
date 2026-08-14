@@ -522,6 +522,39 @@ describe('ACLService.check — stronger modes imply weaker ones', () => {
         ]);
     });
 
+    it.each(['see', 'list', 'read', 'write'] as const)(
+        'answers %s from a manage grant on the same node',
+        async (mode) => {
+            const { service, services } = makeService();
+            services.permission.scan.mockImplementation(
+                async (_actor: unknown, permissions: string[]) =>
+                    permissions.includes('manage:fs:uid\\C/other/f')
+                        ? [{ $: 'option', key: 'k' }]
+                        : [],
+            );
+            expect(
+                await service.check(issuerActor, resource('/other/f'), mode),
+            ).toBe(true);
+        },
+    );
+
+    it('answers write from a manage grant on an ancestor directory', async () => {
+        const { service, services } = makeService();
+        services.permission.scan.mockImplementation(
+            async (_actor: unknown, permissions: string[]) =>
+                permissions.includes('manage:fs:uid\\C/other')
+                    ? [{ $: 'option', key: 'k' }]
+                    : [],
+        );
+        expect(
+            await service.check(
+                issuerActor,
+                resource('/other/deep/file.txt'),
+                'write',
+            ),
+        ).toBe(true);
+    });
+
     it('inherits access granted on an ancestor directory', async () => {
         const { service, services } = makeService();
         services.permission.scan.mockImplementation(
@@ -565,6 +598,21 @@ describe('ACLService.check — scoped tokens and manage', () => {
                 scopedTokenActor(),
                 resource('/issuer/projects'),
                 MANAGE_PERM_PREFIX,
+            ),
+        ).toBe(true);
+    });
+
+    it('accepts a manage grant recorded against the token for a write', async () => {
+        const { service, stores } = makeService();
+        stores.permission.hasAccessTokenPerm.mockImplementation(
+            async (_uid: string, permission: string) =>
+                permission === 'manage:fs:uid\\C/issuer/projects',
+        );
+        expect(
+            await service.check(
+                scopedTokenActor(),
+                resource('/issuer/projects'),
+                'write',
             ),
         ).toBe(true);
     });

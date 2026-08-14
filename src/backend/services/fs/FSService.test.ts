@@ -2948,6 +2948,13 @@ describe('FSService permission rules', () => {
         );
         expect(higher).not.toContain(`fs:${file.uuid}:read`);
     });
+
+    it('lets a manage grant answer a write on the narrowest mode', async () => {
+        const higher = await server.services.permission.getHigherPermissions(
+            `fs:${file.uuid}:write`,
+        );
+        expect(higher).toContain(`manage:fs:${file.uuid}`);
+    });
 });
 
 // -- Cross-app AppData (app-data:<uid>:fs:<class>) ----------------------
