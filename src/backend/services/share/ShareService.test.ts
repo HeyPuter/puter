@@ -82,9 +82,18 @@ describe('ShareService', () => {
             'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, 1, ?)',
             [dirUuid, dirName, dirPath, owner.id, now],
         );
+        const dirRow = await server.stores.fsEntry.getEntryByPath(dirPath);
         await server.clients.db.write(
-            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, 0, ?)',
-            [fileUuid, fileName, `${dirPath}/${fileName}`, owner.id, now],
+            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, 0, ?, ?, ?)',
+            [
+                fileUuid,
+                fileName,
+                `${dirPath}/${fileName}`,
+                owner.id,
+                now,
+                dirRow!.id,
+                dirUuid,
+            ],
         );
 
         const dir = await server.stores.fsEntry.getEntryByPath(dirPath);

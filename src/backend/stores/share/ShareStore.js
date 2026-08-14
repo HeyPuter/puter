@@ -111,23 +111,25 @@ export class ShareStore extends PuterStore {
     }
 
     /**
-     * Active shares on a directory and everything beneath it. `manage` inherits
-     * downwards, so a revoke here has to see what rests on it.
+     * Active shares on a directory and everything beneath it. Walks by parent
+     * linkage, not path prefix — `fsentries.path` is lazily backfilled and NULL
+     * on old rows, so a LIKE would skip those descendants' shares.
      *
      * @param {number} fsentryId
-     * @param {string} path Directory path, used to match descendants.
      */
-    async listByFsentrySubtree(fsentryId, path) {
-        // `!` escapes the LIKE wildcards so a directory named with `%` or `_`
-        // cannot widen the match into siblings.
-        const prefix = `${String(path).replace(/([!%_])/g, '!$1')}/%`;
+    async listByFsentrySubtree(fsentryId) {
         const rows = await this.clients.db.read(
-            'SELECT `share`.* FROM `share` ' +
-                'JOIN `fsentries` ON `fsentries`.`id` = `share`.`fsentry_id` ' +
-                'WHERE `share`.`holder_user_id` IS NOT NULL AND ' +
-                "(`share`.`fsentry_id` = ? OR `fsentries`.`path` LIKE ? ESCAPE '!') " +
+            'WITH RECURSIVE `subtree`(`id`) AS (' +
+                'SELECT `id` FROM `fsentries` WHERE `id` = ? ' +
+                'UNION ALL ' +
+                'SELECT `f`.`id` FROM `fsentries` `f` ' +
+                'JOIN `subtree` `s` ON `f`.`parent_id` = `s`.`id`' +
+                ') ' +
+                'SELECT `share`.* FROM `share` ' +
+                'JOIN `subtree` ON `share`.`fsentry_id` = `subtree`.`id` ' +
+                'WHERE `share`.`holder_user_id` IS NOT NULL ' +
                 'ORDER BY `share`.`id`',
-            [fsentryId, prefix],
+            [fsentryId],
         );
         return rows.map((r) => this.#normalizeRow(r));
     }

@@ -262,6 +262,43 @@ describe('ShareStore', () => {
             holder = await makeUser();
         });
 
+        it('finds a subtree share even when the descendant has no path yet', async () => {
+            const now = Math.floor(Date.now() / 1000);
+            const dirUuid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, 1, ?)',
+                [dirUuid, `d-${dirUuid.slice(0, 8)}`, `/x/${dirUuid}`, issuer.id, now],
+            );
+            const dirRows = await server.clients.db.read(
+                'SELECT `id` FROM `fsentries` WHERE `uuid` = ?',
+                [dirUuid],
+            );
+            const dirId = Number(dirRows[0].id);
+
+            const childUuid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, NULL, ?, 0, ?, ?, ?)',
+                [childUuid, `f-${childUuid.slice(0, 8)}`, issuer.id, now, dirId, dirUuid],
+            );
+            const childRows = await server.clients.db.read(
+                'SELECT `id` FROM `fsentries` WHERE `uuid` = ?',
+                [childUuid],
+            );
+            const childId = Number(childRows[0].id);
+
+            await store.upsertActive({
+                issuerUserId: issuer.id,
+                holderUserId: holder.id,
+                fsentryId: childId,
+                mode: 'read',
+            });
+
+            const rows = await store.listByFsentrySubtree(dirId);
+            expect(
+                rows.some((r) => Number(r.fsentry_id) === childId),
+            ).toBe(true);
+        });
+
         it('records an active share and lists it for the holder', async () => {
             const entry = await makeEntry(issuer);
             const created = await store.upsertActive({

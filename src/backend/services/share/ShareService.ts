@@ -356,7 +356,7 @@ export class ShareService extends PuterService {
         // The whole subtree, not just this node: `manage` inherits downwards,
         // so a grant on a descendant can rest on authority held here.
         const rows = (
-            await this.stores.share.listByFsentrySubtree(entry.id, entry.path)
+            await this.stores.share.listByFsentrySubtree(entry.id)
         ).filter(
             (row: { issuer_user_id: number }) =>
                 Number(row.issuer_user_id) === issuerId,
