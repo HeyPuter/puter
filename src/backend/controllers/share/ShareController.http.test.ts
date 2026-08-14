@@ -120,6 +120,44 @@ describe('share endpoints over HTTP', () => {
         expect(after.items.find((i) => i.uid_entry === file.uid)).toBeUndefined();
     });
 
+    it('revokes every item in the request, not just the first', async () => {
+        const owner = env.users.user;
+        const recipient = env.users.other;
+        const fileA = await makeFile(owner);
+        const fileB = await makeFile(owner);
+
+        for (const file of [fileA, fileB]) {
+            const res = await post('/share', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: file.uid }],
+                mode: 'read',
+            });
+            expect(res.status).toBe(200);
+        }
+
+        // A truncated revoke is a silent security failure: the caller is told
+        // "success" while items after the first keep their grants.
+        const revokeRes = await post('/share/revoke', owner.token, {
+            recipients: [recipient.username],
+            items: [{ uid: fileA.uid }, { uid: fileB.uid }],
+        });
+        expect(revokeRes.status).toBe(200);
+        expect(await revokeRes.json()).toMatchObject({
+            status: 'success',
+            revoked: 2,
+        });
+
+        const afterRes = await get('/share/shared-with-me', recipient.token, {});
+        const after = (await afterRes.json()) as {
+            items: Array<Record<string, unknown>>;
+        };
+        for (const file of [fileA, fileB]) {
+            expect(
+                after.items.find((i) => i.uid_entry === file.uid),
+            ).toBeUndefined();
+        }
+    });
+
     it('reports per-pair outcomes when only some recipients resolve', async () => {
         const owner = env.users.user;
         const file = await makeFile(owner);

@@ -159,7 +159,12 @@ export class ShareController extends PuterController {
         });
     }
 
-    /** POST /share/revoke — withdraw a recipient's access to an item. */
+    /**
+     * POST /share/revoke — withdraw recipients' access to items. Same fan-out
+     * contract as POST /share: every (recipient, item) pair is its own revoke
+     * with its own outcome. Silently dropping pairs after the first would leave
+     * access standing that the caller believes is gone.
+     */
     @Post('/revoke', {
         subdomain: 'api',
         requireVerified: true,
@@ -169,14 +174,53 @@ export class ShareController extends PuterController {
     async revokeShare(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
         const body = this.#body(req);
-        const [recipient] = this.#recipients(body);
-        const [item] = this.#items(body);
+        const recipients = this.#recipients(body);
+        const items = this.#items(body);
 
-        const result = await this.services.share.unshare(actor, {
-            ...item,
-            recipient,
+        const pairs = recipients.flatMap((recipient) =>
+            items.map((item) => ({ recipient, item })),
+        );
+
+        const settled = await runWithConcurrencyLimitSettled(
+            pairs,
+            SHARE_CONCURRENCY,
+            ({ recipient, item }) =>
+                this.services.share.unshare(actor, { ...item, recipient }),
+        );
+
+        let revoked = 0;
+        const results: ShareOutcome[] = settled.map((outcome, index) => {
+            const { recipient, item } = pairs[index];
+            const label = recipient.email ?? recipient.username ?? '';
+            if (outcome.status === 'fulfilled') {
+                revoked += outcome.value.revoked;
+                return {
+                    recipient: label,
+                    ...(item.path ? { path: item.path } : {}),
+                    ...(item.uid ? { uid: item.uid } : {}),
+                    status: 'success',
+                };
+            }
+            return {
+                recipient: label,
+                ...(item.path ? { path: item.path } : {}),
+                ...(item.uid ? { uid: item.uid } : {}),
+                status: 'error',
+                ...this.#errorShape(outcome.reason),
+            };
         });
-        res.json({ status: 'success', revoked: result.revoked });
+
+        const succeeded = results.filter((r) => r.status === 'success').length;
+        res.json({
+            status:
+                succeeded === results.length
+                    ? 'success'
+                    : succeeded > 0
+                      ? 'mixed'
+                      : 'aborted',
+            revoked,
+            results,
+        });
     }
 
     /**
