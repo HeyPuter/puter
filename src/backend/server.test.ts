@@ -250,3 +250,53 @@ describe('PuterServer host header validation — permissive modes', () => {
         expect(res.status).toBe(200);
     });
 });
+
+describe('PuterServer subdomain offset for multi-label root domains', () => {
+    let server: PuterServer;
+    let port: number;
+
+    beforeAll(async () => {
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.example.com',
+                origin: `http://puter.example.com:${port}`,
+                api_base_url: `http://api.puter.example.com:${port}`,
+                static_hosting_domain: 'site.puter.example.com',
+            } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    it('does not treat the last root label as a user subdomain', async () => {
+        // Express's default `subdomain offset` is 2, which misparses
+        // `puter.bhhaihuan.com` as having a `puter` subdomain and 302-loops.
+        const res = await rawRequest(port, '/', {
+            host: 'puter.example.com',
+        });
+        expect(res.status).not.toBe(302);
+        expect(res.headers.location).toBeUndefined();
+    });
+
+    it('still redirects real user subdomains to the hosting domain', async () => {
+        const res = await rawRequest(port, '/', {
+            host: 'foo.puter.example.com',
+        });
+        expect(res.status).toBe(302);
+        expect(res.headers.location).toBe(
+            'http://foo.site.puter.example.com/',
+        );
+    });
+
+    it('still exempts reserved subdomains from the redirect', async () => {
+        const res = await rawRequest(port, '/', {
+            host: 'api.puter.example.com',
+        });
+        expect(res.status).not.toBe(302);
+    });
+});

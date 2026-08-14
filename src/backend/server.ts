@@ -94,6 +94,19 @@ import type {
     WithLifecycle,
 } from './types';
 
+/**
+ * Number of trailing hostname labels Express should treat as the root domain.
+ * `config.domain` may itself be a subdomain of the operator's registrable
+ * domain (e.g. `puter.example.com`); the offset must match its full label count
+ * or the last root label is misread as a user subdomain. Falls back to
+ * Express's default of 2 when the domain is unset or single-label.
+ */
+const subdomainOffsetForDomain = (domain: string | undefined): number => {
+    const host = (domain ?? '').split(':')[0].replace(/^\./, '');
+    const labels = host.split('.').filter(Boolean).length;
+    return labels >= 2 ? labels : 2;
+};
+
 export class PuterServer {
     clients!: LayerInstances<typeof puterClients>;
     stores!: LayerInstances<typeof puterStores>;
@@ -242,6 +255,15 @@ export class PuterServer {
         // Cloudflare/nginx hop). Never `true` in prod: that trusts every hop
         // and makes XFF forgeable.
         this.#app.set('trust proxy', this.#config.trust_proxy ?? false);
+        // Express assumes a two-label root domain (`subdomain offset` default
+        // 2). A self-hosted root like `puter.example.com` would otherwise have
+        // its last label misread as a user subdomain, tripping the
+        // user-subdomain redirect into a 302 loop. Match the offset to the
+        // configured root domain's label count instead.
+        this.#app.set(
+            'subdomain offset',
+            subdomainOffsetForDomain(this.#config.domain),
+        );
         this.#installGlobalMiddleware();
 
         // Instantiate drivers BEFORE controllers so controllers can receive
