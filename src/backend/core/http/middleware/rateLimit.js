@@ -116,6 +116,20 @@ async function checkMemory(key, limit, windowMs) {
 
 // -- Redis backend ---------------------------------------------------
 
+// ioredis MULTI/EXEC reports per-command failures inside the exec() result
+// (as `[err, res]` pairs) rather than throwing, so a failed command's result
+// reads as `undefined` — and `Number(undefined)` is NaN, which every
+// comparison below treats as "under the limit". Pull results through this so
+// a command failure surfaces like a thrown one instead of silently admitting.
+function multiResult(results, i) {
+    const entry = results[i];
+    if (Array.isArray(entry)) {
+        if (entry[0]) throw entry[0];
+        return entry[1];
+    }
+    return entry;
+}
+
 async function checkRedis(
     /** @type {import('ioredis').Cluster} */
     redis,
@@ -144,9 +158,7 @@ async function checkRedis(
         .pexpire(redisKey, windowMs)
         .exec();
 
-    const count = Number(
-        Array.isArray(results[2]) ? results[2][1] : results[2],
-    );
+    const count = Number(multiResult(results, 2));
     if (count > limit) {
         await redis.zrem(redisKey, member);
         return false;
@@ -216,7 +228,7 @@ async function acquireMemoryConcurrent(key, limit) {
     };
 }
 
-async function acquireRedisConcurrent(redis, key, limit) {
+async function acquireRedisConcurrent(redis, key, limit, retried = false) {
     const redisKey = `concurrent:${key}`;
     const member = `${Date.now()}-${crypto.randomUUID()}`;
     // One sorted-set member per held slot, scored by acquire time — the same
@@ -231,20 +243,32 @@ async function acquireRedisConcurrent(redis, key, limit) {
     // nobody is actually using. Here the sweep below drops each slot on its own
     // age, so a leak drains on schedule no matter how hard anyone retries.
     const now = Date.now();
-    const results = await redis
-        .multi()
-        // Slots older than the orphan window belonged to a process that died
-        // before releasing; drop them before counting.
-        .zremrangebyscore(redisKey, 0, now - ORPHAN_SAFETY_TTL_MS)
-        .zadd(redisKey, now, member)
-        .zcard(redisKey)
-        // Key-level TTL is only garbage collection for a bucket that goes
-        // quiet — the per-member sweep above is what bounds a live one.
-        .expire(redisKey, ORPHAN_SAFETY_TTL_SEC)
-        .exec();
-    const count = Number(
-        Array.isArray(results[2]) ? results[2][1] : results[2],
-    );
+    let count;
+    try {
+        const results = await redis
+            .multi()
+            // Slots older than the orphan window belonged to a process that
+            // died before releasing; drop them before counting.
+            .zremrangebyscore(redisKey, 0, now - ORPHAN_SAFETY_TTL_MS)
+            .zadd(redisKey, now, member)
+            .zcard(redisKey)
+            // Key-level TTL is only garbage collection for a bucket that goes
+            // quiet — the per-member sweep above is what bounds a live one.
+            .expire(redisKey, ORPHAN_SAFETY_TTL_SEC)
+            .exec();
+        count = Number(multiResult(results, 2));
+    } catch (err) {
+        // Keys left behind by the INCR-counter version of this backend are
+        // plain strings, so every zset command above fails WRONGTYPE — while
+        // the EXPIRE at the end still succeeds, meaning steady traffic keeps
+        // refreshing the stale key and it never ages out on its own. Drop the
+        // legacy key and count against a clean one.
+        if (!retried && /WRONGTYPE/.test(err?.message ?? '')) {
+            await redis.del(redisKey);
+            return acquireRedisConcurrent(redis, key, limit, true);
+        }
+        throw err;
+    }
     if (count > limit) {
         await redis.zrem(redisKey, member);
         return { ok: false };
