@@ -351,6 +351,14 @@ function buildNoAppsHtml () {
     return h;
 }
 
+// A search that matched none of the user's apps. Unlike buildNoAppsHtml this
+// is a line ABOVE the grid rather than a stand-in for it: the grid still has
+// the add-an-app tile in it, which is the one useful answer to a search for an
+// app you don't have.
+function buildNoMatchesHtml () {
+    return '<div class="myapps-empty myapps-empty-notice"><p>No apps match your search</p></div>';
+}
+
 // iOS-home-screen-style pager: fixed cols × rows pages in a horizontal
 // scroll-snap scroller, with page dots below and hover arrows for mouse users.
 // Takes grid ITEMS (see buildGridItems) — an app or a folder both occupy one
@@ -1355,23 +1363,30 @@ const TabApps = {
             ? list.map(app => ({ type: 'app', app }))
             : buildGridItems(list, this._groups);
 
-        if ( items.length === 0 ) {
+        // No apps at all, and nothing typed: there is no grid to page through,
+        // so the empty state stands in for the whole of it.
+        if ( items.length === 0 && ! query ) {
             this._layout = null;
             this._page = 0;
             this._pageCount = 0;
-            $container.html(query
-                ? '<div class="myapps-empty"><p>No apps match your search</p></div>'
-                : buildNoAppsHtml());
+            $container.html(buildNoAppsHtml());
             return;
         }
+
+        // A search that matched nothing still has a grid — the tail tile is in
+        // it (below) — so the "nothing matched" line sits ABOVE that grid
+        // rather than replacing it.
+        const no_matches = query && items.length === 0;
 
         // The add-an-app tile rides at the tail of the grid: after every app,
         // on the last page, and nowhere else — a drag can't place an app past
         // it (see _updatePlaceholder) and a newly installed app arrives before
         // it. Pushed here, so it counts as a slot when the pages are laid out
-        // below. Search results leave it out: a query asks which apps you
-        // HAVE, and a tile that matches nothing has no business in the answer.
-        if ( ! query ) items.push({ type: 'add' });
+        // below. Searching keeps it: "which of my apps is this" and "I don't
+        // have it, get me one" are the same question asked a moment apart, and
+        // the tile answers the second — never more so than when the query
+        // matched nothing and it is the only thing left to offer.
+        items.push({ type: 'add' });
 
         const layout = this.computeLayout($container);
         if ( ! layout ) {
@@ -1388,7 +1403,8 @@ const TabApps = {
         this._pageCount = Math.ceil(items.length / layout.perPage);
         this._page = Math.min(Math.floor(anchorIndex / layout.perPage), this._pageCount - 1);
 
-        $container.html(buildPagerHtml(items, layout, instant));
+        $container.html((no_matches ? buildNoMatchesHtml() : '')
+            + buildPagerHtml(items, layout, instant));
         // A tile mid-arrival (a deep-link landing installing its app — see
         // _spliceDeepLinkApp) stays parked invisible across re-renders; the
         // intro's arrival beat, not the render, is what reveals it.

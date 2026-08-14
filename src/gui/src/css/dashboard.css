@@ -913,6 +913,14 @@ input.myapps-search:disabled {
     margin: 0;
 }
 
+/* The search's "nothing matched" line, which stands above a grid rather than
+   in place of one (the add-an-app tile is still down there): it takes only the
+   height it needs, and leaves the rest of the column to the pager. */
+.myapps-empty-notice {
+    flex: 0 0 auto;
+    padding: 20px 0 18px;
+}
+
 /* iOS-style pager: pages snap horizontally, dots below, hover arrows */
 
 .myapps-pager {
