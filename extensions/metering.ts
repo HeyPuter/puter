@@ -122,17 +122,18 @@ export const handleMeteringUsage = async (
                 allowanceInfo.monthUsageAllowance,
                 multiplier,
             ),
-            addons: {
-                ...allowanceInfo.addons,
-                purchasedCredits: toCredits(
-                    allowanceInfo.addons.purchasedCredits,
-                    multiplier,
-                ),
-                consumedPurchaseCredits: toCredits(
-                    allowanceInfo.addons.consumedPurchaseCredits,
-                    multiplier,
-                ),
-            },
+            // Monetary addon fields scale; absent ones stay absent rather
+            // than materializing as NaN/null. purchasedStorage is bytes.
+            addons: Object.fromEntries(
+                Object.entries(allowanceInfo.addons ?? {}).map(([k, v]) => [
+                    k,
+                    (k === 'purchasedCredits' ||
+                        k === 'consumedPurchaseCredits') &&
+                    typeof v === 'number'
+                        ? toCredits(v, multiplier)
+                        : v,
+                ]),
+            ),
             unit: 'credits',
         },
     });
