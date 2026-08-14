@@ -19,19 +19,25 @@
 
 /**
  * Usage renders in credits, a display unit layered over the microcents the
- * server stores and returns. The rate comes from the server
- * (`allowanceInfo.creditsPerDollar`) so a deployment can rescale it in config
- * without a client release; this default only covers a server that predates
- * the field.
+ * server stores and returns. The rate comes only from the server
+ * (`allowanceInfo.creditsPerDollar`, set in deployment config) — the client
+ * carries no rate of its own. A server that doesn't send one gets the
+ * pre-credits dollar rendering instead.
  */
-export const DEFAULT_CREDITS_PER_DOLLAR = 2000;
 
-/** The display rate from a `getMonthlyUsage()` response, or the default. */
+/** The display rate from a `getMonthlyUsage()` response, or null. */
 export const creditsRate = (allowanceInfo) => {
     const rate = allowanceInfo?.creditsPerDollar;
-    return Number.isFinite(rate) && rate > 0
-        ? rate
-        : DEFAULT_CREDITS_PER_DOLLAR;
+    return Number.isFinite(rate) && rate > 0 ? rate : null;
+};
+
+/** Dollar fallback for deployments with no configured display rate. */
+export const formatDollarsFromMicrocents = (microcents) => {
+    const mc = Number.isFinite(microcents) ? microcents : 0;
+    return window.number_format(mc / 100_000_000, {
+        decimals: 2,
+        prefix: '$',
+    });
 };
 
 export const creditsFromMicrocents = (microcents, rate) => {

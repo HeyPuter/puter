@@ -25,26 +25,18 @@ export const toMicroCents = (dollars: number): number =>
     dollars * 1_000_000 * 100;
 
 /**
- * How many display credits one dollar of usage buys. Credits are a display unit
- * only — metering stores and charges microcents; every credit figure a client
- * shows is derived from this rate at read time, so changing it never touches
- * stored balances.
- *
- * 2,000 makes the free tier's 50¢ allowance an even 1,000-credit base, which
- * paid plans are phrased as clean multiples of.
+ * The deployment's credits display rate, or null when none is configured.
+ * Credits are a display unit only — metering stores and charges microcents;
+ * every credit figure a client shows is derived from this rate at read time, so
+ * changing it never touches stored balances. The rate lives exclusively in
+ * deployment config: there is no default, and a deployment without one renders
+ * usage in dollars instead.
  */
-export const CREDITS_PER_DOLLAR_DEFAULT = 2000;
-
 export const creditsPerDollarFrom = (config: {
     creditsPerDollar?: number;
-}): number => {
+}): number | null => {
     const rate = config.creditsPerDollar;
     return typeof rate === 'number' && Number.isFinite(rate) && rate > 0
         ? rate
-        : CREDITS_PER_DOLLAR_DEFAULT;
+        : null;
 };
-
-export const microCentsToCredits = (
-    microCents: number,
-    creditsPerDollar: number,
-): number => (microCents * creditsPerDollar) / 100_000_000;

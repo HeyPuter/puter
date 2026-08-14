@@ -17,13 +17,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
-    DEFAULT_CREDITS_PER_DOLLAR,
     creditsFromMicrocents,
     creditsRate,
     formatCredits,
     formatCreditsFromMicrocents,
+    formatDollarsFromMicrocents,
 } from './credits.js';
 
 describe('creditsRate', () => {
@@ -31,32 +31,19 @@ describe('creditsRate', () => {
         expect(creditsRate({ creditsPerDollar: 1000 })).toBe(1000);
     });
 
-    it('falls back for servers that predate the field', () => {
-        expect(creditsRate({})).toBe(DEFAULT_CREDITS_PER_DOLLAR);
-        expect(creditsRate(undefined)).toBe(DEFAULT_CREDITS_PER_DOLLAR);
-        expect(creditsRate({ creditsPerDollar: 0 })).toBe(
-            DEFAULT_CREDITS_PER_DOLLAR,
-        );
-        expect(creditsRate({ creditsPerDollar: -5 })).toBe(
-            DEFAULT_CREDITS_PER_DOLLAR,
-        );
+    it('is null when the server sends no usable rate — the client holds none', () => {
+        expect(creditsRate({})).toBeNull();
+        expect(creditsRate(undefined)).toBeNull();
+        expect(creditsRate({ creditsPerDollar: 0 })).toBeNull();
+        expect(creditsRate({ creditsPerDollar: -5 })).toBeNull();
+        expect(creditsRate({ creditsPerDollar: 'many' })).toBeNull();
     });
 });
 
 describe('creditsFromMicrocents', () => {
-    it('scales by the rate: $1 of usage = rate credits', () => {
+    it('scales by whatever rate the server sent: $1 of usage = rate credits', () => {
         expect(creditsFromMicrocents(100_000_000, 100)).toBe(100);
         expect(creditsFromMicrocents(100_000_000, 1000)).toBe(1000);
-    });
-
-    it('the free 50¢ allowance at the default rate is the 1,000-credit base', () => {
-        expect(
-            creditsFromMicrocents(50_000_000, DEFAULT_CREDITS_PER_DOLLAR),
-        ).toBe(1000);
-        // Basic's $9 allowance is 18x that base.
-        expect(
-            creditsFromMicrocents(900_000_000, DEFAULT_CREDITS_PER_DOLLAR),
-        ).toBe(18_000);
     });
 
     it('tolerates missing input', () => {
@@ -85,11 +72,28 @@ describe('formatCredits', () => {
 });
 
 describe('formatCreditsFromMicrocents', () => {
-    it('formats straight from server amounts', () => {
-        // $0.37 spent of Basic's $9 allowance at the default rate.
-        expect(formatCreditsFromMicrocents(37_000_000, 2000)).toBe('740');
-        expect(formatCreditsFromMicrocents(900_000_000, 2000)).toBe('18,000');
+    it('formats straight from server amounts at the server rate', () => {
+        expect(formatCreditsFromMicrocents(37_000_000, 100)).toBe('37');
+        expect(formatCreditsFromMicrocents(900_000_000, 100)).toBe('900');
         // A single cheap API call: a fraction of one credit, still visible.
-        expect(formatCreditsFromMicrocents(2_000, 2000)).toBe('0.04');
+        expect(formatCreditsFromMicrocents(2_000, 100)).toBe('<0.01');
+    });
+});
+
+describe('formatDollarsFromMicrocents', () => {
+    beforeEach(() => {
+        globalThis.window = globalThis.window ?? {};
+        globalThis.window.number_format = vi.fn(
+            (n, { decimals, prefix }) => `${prefix}${n.toFixed(decimals)}`,
+        );
+    });
+
+    afterEach(() => {
+        delete globalThis.window.number_format;
+    });
+
+    it('renders the pre-credits dollar string for rate-less deployments', () => {
+        expect(formatDollarsFromMicrocents(37_000_000)).toBe('$0.37');
+        expect(formatDollarsFromMicrocents(undefined)).toBe('$0.00');
     });
 });

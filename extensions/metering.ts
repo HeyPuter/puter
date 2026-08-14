@@ -62,13 +62,14 @@ export const handleMeteringUsage = async (
         services.metering.getActorCurrentMonthUsageDetails(actor),
         services.metering.getAllowedUsage(actor),
     ]);
+    const creditsPerDollar = creditsPerDollarFrom(extension.config);
     res.json({
         ...actorUsage,
         allowanceInfo: {
             ...allowanceInfo,
-            // Clients render usage in credits; the amounts stay microcents so
-            // the rate can change without touching stored balances.
-            creditsPerDollar: creditsPerDollarFrom(extension.config),
+            // The amounts stay microcents; when the deployment configures a
+            // display rate, clients render them as credits instead of dollars.
+            ...(creditsPerDollar ? { creditsPerDollar } : {}),
         },
     });
 };

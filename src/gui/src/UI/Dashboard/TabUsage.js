@@ -17,8 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { creditsRate, formatCreditsFromMicrocents } from './credits.js';
+import { creditsRate, formatCreditsFromMicrocents, formatDollarsFromMicrocents } from './credits.js';
 import { usageBudget } from './usageBudget.js';
+
+// Whether the server sent a credits display rate — decides whether the
+// usage surfaces render credits or fall back to dollars.
+let usageShowsCredits = false;
 
 // Sort state for the usage table
 let usageTableSortState = {
@@ -238,7 +242,7 @@ function renderUsageTable () {
         <tr>
             <th data-sort="resource" class="sortable-th">Resource ${getSortIcon('resource')}</th>
             <th>Units</th>
-            <th data-sort="cost" class="sortable-th">${i18n('credits')} ${getSortIcon('cost')}</th>
+            <th data-sort="cost" class="sortable-th">${usageShowsCredits ? i18n('credits') : 'Cost'} ${getSortIcon('cost')}</th>
         </tr>
     </thead>`;
 
@@ -276,10 +280,18 @@ function renderUsageTable () {
 async function update_usage_details ($el_window) {
     const monthlyUsagePromise = puter.auth.getMonthlyUsage().then(res => {
         const budget = usageBudget(res.usage?.total ?? 0, res.allowanceInfo?.remaining ?? 0);
+        // Credits only when the server sends a display rate (set in the
+        // deployment's config); dollars otherwise.
         const rate = creditsRate(res.allowanceInfo);
+        usageShowsCredits = !!rate;
+        const amount = (mc) => rate
+            ? formatCreditsFromMicrocents(mc, rate)
+            : formatDollarsFromMicrocents(mc);
 
-        $('#total-usage').html(formatCreditsFromMicrocents(budget.used, rate));
-        $('#total-capacity').html(`${formatCreditsFromMicrocents(budget.capacity, rate)} ${i18n('credits')}`);
+        $('#total-usage').html(amount(budget.used));
+        $('#total-capacity').html(rate
+            ? `${amount(budget.capacity)} ${i18n('credits')}`
+            : amount(budget.capacity));
         $('.usage-progbar-percent').html(`${budget.percent }%`);
         $('.usage-progbar').css({
             width: `${budget.barPercent }%`,
@@ -310,7 +322,7 @@ async function update_usage_details ($el_window) {
                 rawUnits: rawUnits,
                 formattedUnits: formattedUnits,
                 rawCost: rawCost,
-                formattedCost: formatCreditsFromMicrocents(rawCost, rate),
+                formattedCost: rate ? formatCreditsFromMicrocents(rawCost, rate) : formatDollarsFromMicrocents(rawCost),
             });
         }
 
