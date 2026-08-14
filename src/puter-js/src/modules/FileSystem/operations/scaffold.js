@@ -8,6 +8,7 @@
 // positional arguments and the request they make.
 
 import * as utils from '../../../lib/utils.js';
+import { promptIfStorageLimitError } from './storageLimitPrompt.js';
 
 /** @typedef {import('../index.js').PuterJSFileSystemModule} FileSystemModule */
 
@@ -151,6 +152,14 @@ export async function fsRequest (spec) {
 
         prepareXhr?.(xhr);
 
+        // Storage refusals (413 on copy, mkdir, ...) prompt the user to
+        // upgrade the same way an over-quota upload does — on the reject path
+        // only, so the prompt fires once however many callbacks are attached.
+        const rejectWithPrompt = (e) => {
+            promptIfStorageLimitError(e);
+            reject(e);
+        };
+
         // `transform` has to run before the callbacks so that they and the
         // promise agree on the value, which rules out `setupXhrEventHandlers`'
         // own success callback.
@@ -163,7 +172,7 @@ export async function fsRequest (spec) {
                 if ( typeof error === 'function' ) error(e);
                 reject(e);
             }
-        }, reject);
+        }, rejectWithPrompt);
 
         xhr.send(body === undefined ? undefined : JSON.stringify(body));
     });

@@ -4,8 +4,8 @@
 // `/batch` path when signed writes are unavailable).
 
 import * as utils from '../../../../lib/utils.js';
-import { showUsageLimitDialog } from '../../../UsageLimitDialog.js';
 import getAbsolutePathForApp from '../../utils/getAbsolutePathForApp.js';
+import { promptIfStorageLimitError } from '../storageLimitPrompt.js';
 import { SIGNED_BATCH_WRITE_CAPABILITY_KEY, SIGNED_BATCH_SUPPORTED_ENVS, SPACE_CHECK_MIN_BYTES } from './constants.js';
 import { normalizeUploadEntries, separateFilesAndDirs } from './entries.js';
 import { generateThumbnails } from './thumbnails.js';
@@ -52,18 +52,8 @@ const uploadImpl = async function (items, dirPath, options = {}) {
         }
 
         const error = (e) => {
-            // Check for storage limit errors and show upgrade dialog
-            const isStorageError =
-                e?.code === 'NOT_ENOUGH_SPACE' ||
-                e?.status === 413 ||
-                e?.code === 'storage_limit_reached';
-            if ( isStorageError ) {
-                if ( puter.env === 'app' ) {
-                    puter.ui.requestUpgrade();
-                } else {
-                    showUsageLimitDialog('Not enough storage space available.<br>Please upgrade to continue.');
-                }
-            }
+            // Out of storage: prompt the user to upgrade, then reject as usual.
+            promptIfStorageLimitError(e);
 
             // if error callback is provided, call it
             if ( options.error && typeof options.error === 'function' )
