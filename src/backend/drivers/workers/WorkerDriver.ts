@@ -63,6 +63,38 @@ const MAX_WORKERS_PER_USER = 100;
 export const INTERNAL_ADMISSION_BYPASS = Symbol(
     'workers.internalAdmissionBypass',
 );
+
+/**
+ * Opt-in key for `create()` that deploys under a caller-chosen script name and
+ * grouping instead of the default one-script-per-`workerName` layout, and skips
+ * the `subdomains` bookkeeping entirely.
+ *
+ * It exists for callers that derive a script's identity from something they
+ * already own — where its source file lives, say — and so have nothing to look
+ * up when a request arrives and no row to keep in sync with the filesystem.
+ * Everything else about the deploy is deliberately unchanged: same source read,
+ * same preamble, same token minting, so a second deploy path cannot drift from
+ * this one.
+ *
+ * A symbol for the same reason as `INTERNAL_ADMISSION_BYPASS`: `JSON.parse` can
+ * never produce one, so a request body cannot reach it. Choosing a script name
+ * is choosing what a deploy overwrites, and that has to stay in-process.
+ */
+export const INTERNAL_DEPLOY_TARGET = Symbol('workers.internalDeployTarget');
+
+export interface InternalDeployTarget {
+    /** Script name to deploy under, in place of `workerName`. */
+    scriptName: string;
+    /** Grouping to deploy into, in place of the configured default. */
+    namespace?: string;
+    /**
+     * Labels stored alongside the script. A name derived from a hash cannot be
+     * read backwards, so labels are the only way to enumerate afterwards which
+     * scripts belong to what.
+     */
+    tags?: string[];
+}
+
 const MAX_SOURCE_SIZE = 10 * 1024 * 1024; // 10 MB
 // How far to scan an app's child apps when resolving which workers it may
 // see. A user is capped at MAX_WORKERS_PER_USER workers, so only that many
@@ -233,9 +265,13 @@ export class WorkerDriver extends PuterDriver {
         filePath: string;
         authorization?: string;
         [INTERNAL_ADMISSION_BYPASS]?: boolean;
+        [INTERNAL_DEPLOY_TARGET]?: InternalDeployTarget;
     }): Promise<unknown> {
         const actor = this.#requireActor();
         const skipAdmission = args[INTERNAL_ADMISSION_BYPASS] === true;
+        const deployTarget = this.#validateDeployTarget(
+            args[INTERNAL_DEPLOY_TARGET],
+        );
         if (!skipAdmission) this.#requireVerified(actor);
         const workerName = String(args.workerName ?? '').toLowerCase();
         const filePath = String(args.filePath ?? '');
@@ -263,8 +299,11 @@ export class WorkerDriver extends PuterDriver {
         // installs without Cloudflare configured. Both are reads — nothing is
         // written before #requireCfConfig.
         const boundApp = await this.#resolveWorkerAppBinding(actor, appId);
-        const existingSub =
-            await this.stores.subdomain.getBySubdomain(subdomainName);
+        // A deploy target names its own script, so `workerName` never becomes a
+        // subdomain and cannot collide with one somebody else owns.
+        const existingSub = deployTarget
+            ? null
+            : await this.stores.subdomain.getBySubdomain(subdomainName);
         if (existingSub) {
             await this.#checkWorkerWriteAccess(
                 existingSub,
@@ -278,12 +317,19 @@ export class WorkerDriver extends PuterDriver {
         this.#requireCfConfig();
 
         // Quota check — count existing workers.puter.* subdomains owned by user
-        const existingWorkers = skipAdmission
-            ? []
-            : await this.stores.subdomain.listByUserIdAndPrefix(
-                  actor.user.id,
-                  WORKER_SUBDOMAIN_PREFIX,
-              );
+        //
+        // A deploy target creates no such row, so this count can neither see
+        // its scripts nor be grown by them; running it would only make an
+        // unrelated worker quota decide whether these deploy. Whatever bounds
+        // them has to be counted where they actually live, and belongs to the
+        // caller that owns their lifecycle.
+        const existingWorkers =
+            skipAdmission || deployTarget
+                ? []
+                : await this.stores.subdomain.listByUserIdAndPrefix(
+                      actor.user.id,
+                      WORKER_SUBDOMAIN_PREFIX,
+                  );
         if (existingWorkers.length >= MAX_WORKERS_PER_USER) {
             throw new HttpError(
                 403,
@@ -334,7 +380,12 @@ export class WorkerDriver extends PuterDriver {
         const sourceCode = loaded.buffer.toString('utf-8');
 
         // Create subdomain entry
-        if (existingSub) {
+        if (deployTarget) {
+            // Deliberately no row: the script's identity comes from the caller,
+            // which can recompute it whenever it needs to. A row here would be
+            // a second copy of that identity to keep in sync with the source
+            // file, which is the thing this path exists to avoid.
+        } else if (existingSub) {
             // Update root_dir if worker already exists
             const updated = await this.stores.subdomain.update(
                 String(existingSub.uuid),
@@ -383,9 +434,10 @@ export class WorkerDriver extends PuterDriver {
 
         // Deploy to Cloudflare
         const cfResult = await this.#cfDeploy(
-            workerName,
+            deployTarget?.scriptName ?? workerName,
             authorization,
             preamble + sourceCode,
+            deployTarget,
         );
         return cfResult;
     }
@@ -557,6 +609,7 @@ export class WorkerDriver extends PuterDriver {
         workerName: string,
         authorization: string,
         code: string,
+        target?: InternalDeployTarget,
     ): Promise<Record<string, unknown>> {
         if (USE_LOCAL_WORKERD) {
             return this.services.localworkerservice.cfDeployLocal(
@@ -570,6 +623,7 @@ export class WorkerDriver extends PuterDriver {
             body_part: 'swCode',
             compatibility_flags: ['global_fetch_strictly_public'],
             compatibility_date: '2025-07-15',
+            ...(target?.tags ? { tags: target.tags } : {}),
             bindings: [
                 {
                     type: 'secret_text',
@@ -591,11 +645,14 @@ export class WorkerDriver extends PuterDriver {
             new Blob([code], { type: 'application/javascript' }),
         );
 
-        const res = await fetch(`${this.#cfBaseUrl}/scripts/${workerName}/`, {
-            method: 'PUT',
-            headers: { Authorization: `Bearer ${cfg.XAUTHKEY}` },
-            body: form,
-        });
+        const res = await fetch(
+            `${this.#deployBaseUrl(target)}/scripts/${workerName}/`,
+            {
+                method: 'PUT',
+                headers: { Authorization: `Bearer ${cfg.XAUTHKEY}` },
+                body: form,
+            },
+        );
         const json = (await res.json()) as {
             success?: boolean;
             errors?: Array<{ message: string }>;
@@ -605,7 +662,9 @@ export class WorkerDriver extends PuterDriver {
             return {
                 success: true,
                 errors: [],
-                url: `https://${workerName}.puter.work`,
+                // A caller that named the script also owns how it is reached;
+                // the per-worker subdomain below is not where it answers.
+                url: target ? null : `https://${workerName}.puter.work`,
             };
         }
 
@@ -654,6 +713,39 @@ export class WorkerDriver extends PuterDriver {
         return actor as Actor & {
             user: { id: number; uuid: string; username: string };
         };
+    }
+
+    /**
+     * Only in-process code can supply a deploy target, so this is not a trust
+     * boundary — it is a guard against a caller putting a path separator or a
+     * space into a name that is about to be interpolated into a request URL,
+     * where it would silently address something other than what was meant.
+     */
+    #validateDeployTarget(
+        target: InternalDeployTarget | undefined,
+    ): InternalDeployTarget | undefined {
+        if (!target) return undefined;
+        const invalid =
+            !WORKER_NAME_REGEX.test(target.scriptName) ||
+            (target.namespace !== undefined &&
+                !WORKER_NAME_REGEX.test(target.namespace));
+        if (invalid) {
+            throw new HttpError(500, 'Invalid internal deploy target', {
+                legacyCode: 'internal_error',
+            });
+        }
+        return target;
+    }
+
+    /**
+     * Where scripts are written. The configured default is resolved once at
+     * startup; a deploy target picks its own grouping per call, which is what
+     * keeps its scripts out of the default one entirely.
+     */
+    #deployBaseUrl(target?: InternalDeployTarget): string {
+        if (!target?.namespace) return this.#cfBaseUrl;
+        const cfg = this.#workerConfig();
+        return `${CF_BASE_URL}/${cfg.ACCOUNTID}/workers/dispatch/namespaces/${target.namespace}`;
     }
 
     #requireCfConfig(): void {
