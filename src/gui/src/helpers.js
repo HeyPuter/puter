@@ -1352,7 +1352,10 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
                         }
                     }
                     else {
-                        if ( err.message ) {
+                        // An out-of-storage copy already shows the SDK's
+                        // upgrade dialog — a second, generic alert on top of
+                        // it would just bury the actionable one.
+                        if ( err.message && err.code !== 'storage_limit_reached' ) {
                             UIAlert(err.message);
                         }
                         item_with_same_name_already_exists = false;
@@ -1488,7 +1491,13 @@ window.copy_items = function (el_items, dest_path) {
                         }
                     }
                     else {
-                        if ( err.message ) {
+                        // An out-of-storage copy already shows the SDK's
+                        // upgrade dialog — a second, generic alert on top of
+                        // it would just bury the actionable one.
+                        if ( err.code === 'storage_limit_reached' ) {
+                            // handled by the SDK prompt
+                        }
+                        else if ( err.message ) {
                             UIAlert(err.message);
                         }
                         else if ( err ) {
