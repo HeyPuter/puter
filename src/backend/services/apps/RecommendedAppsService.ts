@@ -48,6 +48,7 @@ const RECOMMENDED_APP_NAMES = [
     'ai-image-project',
     'chess',
     'checkers',
+    'backgammon',
     'blockup',
     'basketball-tap',
 ];
