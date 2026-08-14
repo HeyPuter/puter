@@ -71,6 +71,24 @@ import {
  *   serving.
  */
 
+/**
+ * Reserved folder at a site root holding server-side worker source
+ * (`__workers/<name>.worker.js`). Its contents are backend code — users' trade
+ * secrets live there — so nothing under it is ever served: not directly, not
+ * via the folder→index.html fallback, and not as a custom error page target.
+ * Matched on the decoded, normalized path, and case-insensitively, so no
+ * alternate spelling of the same entry can reach the bytes.
+ *
+ * Matched at ANY depth, not just the site root: site roots can nest, and a site
+ * rooted above another site would otherwise serve the inner site's `__workers/`
+ * as ordinary content under `/inner/__workers/...`.
+ */
+const WORKERS_FOLDER = '__workers';
+const isWorkersSourcePath = (urlPath: string): boolean =>
+    urlPath
+        .split('/')
+        .some((segment) => segment.toLowerCase() === WORKERS_FOLDER);
+
 const SUBDOMAIN_404 = `<div style="font-size: 20px;
         text-align: center;
         height: calc(100vh);
@@ -493,9 +511,14 @@ export const createPuterSiteMiddleware = (
         // Subdomain hosting bypasses ACL by design: anything the owner placed
         // under the registered root_dir is treated as public. Path traversal
         // is blocked above by `pathPosix.normalize` anchoring at `/`.
-        let entry = isConfigRequest
-            ? null
-            : await layers.stores.fsEntry.getEntryByPath(filePath);
+        // `__workers/` is carved out of that bypass: worker source is the one
+        // thing under a site root that is NOT public. Treated exactly like the
+        // config file — no lookup at all, so the folder→index.html fallback
+        // below can't resolve into it either.
+        let entry =
+            isConfigRequest || isWorkersSourcePath(resolvedUrlPath)
+                ? null
+                : await layers.stores.fsEntry.getEntryByPath(filePath);
         if (entry?.isDir) {
             // Folder request → fall back to <folder>/index.html, the same
             // way `/` is rewritten to `/index.html` at the site root above.
@@ -513,7 +536,13 @@ export const createPuterSiteMiddleware = (
         let statusOverride: number | undefined;
         if (!entry || entry.isDir) {
             const errorTarget = resolveErrorTarget(siteConfig, 404, rootPath);
-            if (errorTarget) {
+            // A config pointing `errors.404.file` into `__workers/` would
+            // publish worker source through the error page — refuse it the
+            // same way a nonexistent target is refused.
+            if (
+                errorTarget &&
+                !isWorkersSourcePath(errorTarget.absPath.slice(rootPath.length))
+            ) {
                 const candidate = await layers.stores.fsEntry.getEntryByPath(
                     errorTarget.absPath,
                 );

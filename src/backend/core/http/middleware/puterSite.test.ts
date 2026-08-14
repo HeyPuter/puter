@@ -1206,3 +1206,166 @@ describe('createPuterSiteMiddleware — .puter_site_config', () => {
         expect(String(out.body)).toContain('Not Found');
     });
 });
+
+// ── __workers/ (worker source) ──────────────────────────────────────
+//
+// `__workers/` at a site root holds server-side worker source. It is the
+// one thing under a site root that is NOT public: users' backend code can
+// carry trade secrets, so every route to those bytes — direct request,
+// folder fallback, custom error page — must dead-end in the same 404 a
+// missing path produces.
+
+describe('createPuterSiteMiddleware — __workers/ is never served', () => {
+    const setupSiteWithWorker = async () => {
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `dw-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        await server.services.fs.mkdir(owner.id, {
+            path: `${homePath}/__workers`,
+            createMissingParents: true,
+        });
+        await writeFile(
+            owner.id,
+            `${homePath}/__workers/matchmaking.worker.js`,
+            Buffer.from('export default { secret: true };'),
+            'application/javascript',
+        );
+        return { owner, homePath, sub };
+    };
+
+    const request = async (sub: string, path: string) => {
+        const mw = buildMiddleware();
+        const { res, out } = makeRes();
+        await mw(
+            makeReq({ hostname: `${sub}.site.puter.localhost`, path }),
+            res,
+            vi.fn(),
+        );
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        return out;
+    };
+
+    it('404s a direct request for a worker source file that exists', async () => {
+        const { sub } = await setupSiteWithWorker();
+        const out = await request(sub, '/__workers/matchmaking.worker.js');
+        expect(out.statusCode).toBe(404);
+        expect(String(out.body)).not.toContain('secret');
+    });
+
+    it('404s the folder itself — no index.html fallback into it', async () => {
+        const { owner, homePath, sub } = await setupSiteWithWorker();
+        await writeFile(
+            owner.id,
+            `${homePath}/__workers/index.html`,
+            Buffer.from('<html>listing</html>'),
+            'text/html',
+        );
+        for (const path of ['/__workers', '/__workers/']) {
+            const out = await request(sub, path);
+            expect(out.statusCode).toBe(404);
+            expect(String(out.body)).not.toContain('listing');
+        }
+    });
+
+    it('404s case variants and URL-encoded spellings of the folder', async () => {
+        const { sub } = await setupSiteWithWorker();
+        for (const path of [
+            '/__Workers/matchmaking.worker.js',
+            '/__WORKERS/matchmaking.worker.js',
+            '/%5F%5Fworkers/matchmaking.worker.js',
+            '/a/../__workers/matchmaking.worker.js',
+        ]) {
+            const out = await request(sub, path);
+            expect(out.statusCode).toBe(404);
+            expect(String(out.body)).not.toContain('secret');
+        }
+    });
+
+    it('404s __workers/ at any depth — a site rooted above another site must not serve the inner one', async () => {
+        // Same FS layout, but the serving site is rooted one level up:
+        // the worker source now sits at /inner/__workers/… from its
+        // point of view, and must be just as unreachable.
+        const owner = await makeUserWithHome();
+        const homePath = `/${owner.username}`;
+        await server.services.fs.mkdir(owner.id, {
+            path: `${homePath}/inner/__workers`,
+            createMissingParents: true,
+        });
+        await writeFile(
+            owner.id,
+            `${homePath}/inner/__workers/matchmaking.worker.js`,
+            Buffer.from('export default { secret: true };'),
+            'application/javascript',
+        );
+        const homeEntry = await server.stores.fsEntry.getEntryByPath(homePath);
+        const sub = `dwo-${Math.random().toString(36).slice(2, 8)}`;
+        await server.stores.subdomain.create({
+            userId: owner.id,
+            subdomain: sub,
+            rootDirId: homeEntry!.id,
+        });
+        const out = await request(
+            sub,
+            '/inner/__workers/matchmaking.worker.js',
+        );
+        expect(out.statusCode).toBe(404);
+        expect(String(out.body)).not.toContain('secret');
+    });
+
+    it('refuses a custom error page that points into __workers/', async () => {
+        // `errors.404.file` aimed at worker source would publish it on
+        // every missing path — the rule is ignored and the default 404
+        // page served instead.
+        const { owner, homePath, sub } = await setupSiteWithWorker();
+        await writeFile(
+            owner.id,
+            `${homePath}/.puter_site_config`,
+            Buffer.from(
+                JSON.stringify({
+                    errors: {
+                        '404': {
+                            file: '/__workers/matchmaking.worker.js',
+                            status: 200,
+                        },
+                    },
+                }),
+            ),
+            'application/json',
+        );
+        const out = await request(sub, '/no-such-page');
+        expect(out.statusCode).toBe(404);
+        expect(String(out.body)).not.toContain('secret');
+        expect(String(out.body)).toContain('Not Found');
+    });
+
+    it('still applies an SPA fallback to __workers/ requests when the target is outside the folder', async () => {
+        // The block hides the folder; it does not exempt those URLs from
+        // the site's own 404 handling. A fallback pointing at a public
+        // file keeps working — the fiction is "this path does not exist",
+        // and this is exactly what a missing path serves.
+        const { owner, homePath, sub } = await setupSiteWithWorker();
+        const shell = Buffer.from('<html>spa-shell</html>');
+        await writeFile(owner.id, `${homePath}/index.html`, shell, 'text/html');
+        await writeFile(
+            owner.id,
+            `${homePath}/.puter_site_config`,
+            Buffer.from(
+                JSON.stringify({
+                    errors: { '404': { file: '/index.html', status: 200 } },
+                }),
+            ),
+            'application/json',
+        );
+        const out = await request(sub, '/__workers/matchmaking.worker.js');
+        expect(out.statusCode).toBe(200);
+        const piped = out.body as Buffer | undefined;
+        expect(Buffer.isBuffer(piped)).toBe(true);
+        expect(piped!.equals(shell)).toBe(true);
+    });
+});
