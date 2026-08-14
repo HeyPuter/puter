@@ -231,18 +231,18 @@ export class ShareService extends PuterService {
                 row.holder_user_id === holder.id &&
                 row.issuer_user_id === issuerId,
         );
-        if (isNewShare) await this.#assertDailyQuota(issuerId);
-
-        const holderActor: Actor = this.#actorFor(holder);
-
-        await this.services.acl.setUserUser(
-            actor,
-            holderActor,
-            this.#descriptorFor(entry),
-            mode,
-        );
+        const releaseQuota = isNewShare
+            ? await this.#reserveDailyQuota(issuerId)
+            : null;
 
         try {
+            await this.services.acl.setUserUser(
+                actor,
+                this.#actorFor(holder),
+                this.#descriptorFor(entry),
+                mode,
+            );
+
             const row = await this.stores.share.upsertActive({
                 issuerUserId: issuerId,
                 holderUserId: holder.id,
@@ -250,19 +250,12 @@ export class ShareService extends PuterService {
                 mode,
                 recipientEmail: holder.email ?? null,
             });
-            if (isNewShare) {
-                await this.stores.share
-                    .incrementDailyShareCount(issuerId)
-                    .catch(() => {
-                        // A share that already landed must not fail over its
-                        // own bookkeeping.
-                    });
-            }
             return this.#resolve(row, entry, actor, holder);
         } catch (err) {
-            // The entry went away between the grant and the index write, so
-            // the grant now points at nothing. Undo it rather than leave an
-            // invisible permission behind.
+            // Nothing was shared, so hand the slot back and undo any grant —
+            // the entry can go away between the grant and the index write,
+            // leaving a permission pointing at nothing.
+            await releaseQuota?.();
             await this.#revokeQuietly(actor, entry, holder.username, issuerId);
             throw err;
         }
@@ -699,24 +692,42 @@ export class ShareService extends PuterService {
     }
 
     /**
+     * Take a slot out of today's budget, returning the release for it.
+     *
+     * The increment is the check: it is atomic, so concurrent callers get
+     * distinct numbers and only those landing at or under the limit proceed.
+     * Counting first and writing after would let N concurrent requests each
+     * read the same count and all pass — with a limit of 3 and 12 in flight,
+     * all 12 got through.
+     *
      * Counted per creation rather than against live rows, so revoking and
-     * re-sharing can't recycle the same slot. Checked before the write and
-     * incremented after, so concurrent shares can overshoot by at most the
-     * request's fan-out — fine for an abuse bound.
+     * re-sharing can't recycle a slot.
      */
-    async #assertDailyQuota(userId: number): Promise<void> {
+    async #reserveDailyQuota(userId: number): Promise<() => Promise<void>> {
         const limit =
             this.config.share_daily_limit ?? DEFAULT_DAILY_SHARE_LIMIT;
-        if (limit <= 0) return;
+        const noop = async () => {};
+        if (limit <= 0) return noop;
 
-        const used = await this.stores.share.getDailyShareCount(userId);
-        if (used < limit) return;
+        const release = async (): Promise<void> => {
+            try {
+                await this.stores.share.incrementDailyShareCount(userId, -1);
+            } catch {
+                // A leaked slot costs the user one share until midnight;
+                // failing the request over it would cost them more.
+            }
+        };
 
-        throw new HttpError(
-            429,
-            `daily share limit reached (${limit}); try again tomorrow`,
-            { legacyCode: 'share_daily_limit_reached' },
-        );
+        const used = await this.stores.share.incrementDailyShareCount(userId);
+        if (used > limit) {
+            await release();
+            throw new HttpError(
+                429,
+                `daily share limit reached (${limit}); try again tomorrow`,
+                { legacyCode: 'share_daily_limit_reached' },
+            );
+        }
+        return release;
     }
 
     async #assertCanSee(actor: Actor, entry: FSEntry): Promise<void> {
