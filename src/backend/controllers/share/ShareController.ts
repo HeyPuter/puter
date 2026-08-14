@@ -26,6 +26,7 @@ import type {
     ShareRecipient,
     ShareTarget,
 } from '../../services/share/ShareService.js';
+import { expandTildePath } from '../../services/fs/resolveNode.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { normalizeLimit } from '../../util/pagination.js';
 import { PuterController } from '../types.js';
@@ -101,7 +102,7 @@ export class ShareController extends PuterController {
         const actor = this.#requireActor(req);
         const body = this.#body(req);
         const recipients = this.#recipients(body);
-        const items = this.#items(body);
+        const items = this.#items(body, actor);
         const mode = typeof body.mode === 'string' ? body.mode : 'read';
 
         // Every (recipient, item) pair is a distinct (holder, entry) key, so
@@ -175,7 +176,7 @@ export class ShareController extends PuterController {
         const actor = this.#requireActor(req);
         const body = this.#body(req);
         const recipients = this.#recipients(body);
-        const items = this.#items(body);
+        const items = this.#items(body, actor);
 
         const pairs = recipients.flatMap((recipient) =>
             items.map((item) => ({ recipient, item })),
@@ -262,7 +263,8 @@ export class ShareController extends PuterController {
         const query = this.#query(req);
         const target: ShareTarget = {};
         if (typeof query.uid === 'string') target.uid = query.uid;
-        if (typeof query.path === 'string') target.path = query.path;
+        if (typeof query.path === 'string')
+            target.path = expandTildePath(query.path, actor.user?.username);
         if (!target.uid && !target.path) {
             throw new HttpError(400, 'one of `uid` or `path` is required', {
                 legacyCode: 'bad_request',
@@ -358,7 +360,8 @@ export class ShareController extends PuterController {
         return out;
     }
 
-    #items(body: Record<string, unknown>): ShareTarget[] {
+    #items(body: Record<string, unknown>, actor: Actor): ShareTarget[] {
+        const username = actor.user?.username;
         const raw = body.items ?? body.item ?? body.path ?? body.uid;
         const list = Array.isArray(raw) ? raw : [raw];
         const out: ShareTarget[] = [];
@@ -366,14 +369,21 @@ export class ShareController extends PuterController {
             if (typeof entry === 'string') {
                 const value = entry.trim();
                 if (!value) continue;
+                // Tilde-rooted strings are paths, as the legacy FS routes treat them.
+                const isPath = value.startsWith('/') || value.startsWith('~');
                 out.push(
-                    value.startsWith('/') ? { path: value } : { uid: value },
+                    isPath
+                        ? { path: expandTildePath(value, username) }
+                        : { uid: value },
                 );
                 continue;
             }
             if (entry && typeof entry === 'object') {
                 const item = entry as Record<string, unknown>;
-                const path = typeof item.path === 'string' ? item.path : '';
+                const path =
+                    typeof item.path === 'string'
+                        ? expandTildePath(item.path, username)
+                        : '';
                 const uid = typeof item.uid === 'string' ? item.uid : '';
                 if (path || uid) out.push(path ? { path } : { uid });
             }

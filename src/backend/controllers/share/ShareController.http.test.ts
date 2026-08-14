@@ -158,6 +158,39 @@ describe('share endpoints over HTTP', () => {
         }
     });
 
+    it('accepts tilde-rooted paths the way the FS routes do', async () => {
+        const owner = env.users.user;
+        const recipient = env.users.other;
+        const file = await makeFile(owner);
+        const tildePath = `~/${file.path.split('/').pop()}`;
+
+        const shareRes = await post('/share', owner.token, {
+            recipients: [recipient.username],
+            items: [tildePath],
+            mode: 'read',
+        });
+        expect(shareRes.status).toBe(200);
+        expect(await shareRes.json()).toMatchObject({ status: 'success' });
+
+        const listRes = await get('/share/shares', owner.token, {
+            path: tildePath,
+        });
+        expect(listRes.status).toBe(200);
+        const listed = (await listRes.json()) as {
+            items: Array<{ holder: string }>;
+        };
+        expect(
+            listed.items.some((i) => i.holder === recipient.username),
+        ).toBe(true);
+
+        const revokeRes = await post('/share/revoke', owner.token, {
+            recipients: [recipient.username],
+            items: [tildePath],
+        });
+        expect(revokeRes.status).toBe(200);
+        expect(await revokeRes.json()).toMatchObject({ revoked: 1 });
+    });
+
     it('reports per-pair outcomes when only some recipients resolve', async () => {
         const owner = env.users.user;
         const file = await makeFile(owner);
