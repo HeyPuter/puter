@@ -59,14 +59,41 @@ export const is_window_on_screen = (el_window) => {
 
 /**
  * Whether this window exists only to serve the app that launched it: started
- * hidden by a background launch and never shown since. UIWindow stamps the
- * marker at creation and drops it the first time the window becomes visible,
- * because from then on the window is the user's — theirs to keep when the app
- * that launched it closes, and theirs to come back to when they reopen the app.
+ * hidden AND launched by another app (data-parent_instance_id), and never
+ * shown since. UIWindow stamps the hidden marker at creation and drops it the
+ * first time the window becomes visible, because from then on the window is
+ * the user's — theirs to keep when the app that launched it closes, and theirs
+ * to come back to when they reopen the app.
+ *
+ * The launcher is half of the definition, not decoration. An app that is
+ * ALWAYS windowless (`background` on the app itself) also starts hidden, but
+ * when the USER opens it there is nobody it is serving: it is the instance
+ * their tile has to find, or every click would start another one they cannot
+ * see.
  *
  * @param {Element} [el_window] a `.window` element
  * @returns {boolean}
  */
 export const is_unseen_background_window = (el_window) => {
-    return attr(el_window, 'data-launched_hidden') === '1';
+    return attr(el_window, 'data-launched_hidden') === '1'
+        && !! attr(el_window, 'data-parent_instance_id');
+};
+
+/**
+ * Of the windows an app has open, the ones that are the USER's. An instance
+ * another app launched in the background and never showed exists to serve that
+ * app alone, so everything the user drives — reopening the app, its running
+ * dot, its taskbar item, the dashboard's Back/Forward — has to look straight
+ * past it and act on the user's own instances instead, launching a fresh one
+ * when there are none. (Paths that act on the APP rather than on a window it
+ * happens to have open — uninstall, and the launcher's close taking its
+ * background children down with it — deliberately keep the unfiltered list.)
+ *
+ * @param {ArrayLike<Element>} [el_windows] `.window` elements: a jQuery set, a
+ *   NodeList, or an array
+ * @returns {Element[]}
+ */
+export const user_facing_windows = (el_windows) => {
+    return Array.prototype.filter.call(el_windows ?? [],
+        el_window => ! is_unseen_background_window(el_window));
 };

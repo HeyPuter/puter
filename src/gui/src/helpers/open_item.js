@@ -23,7 +23,7 @@ import i18n from '../i18n/i18n.js';
 import launch_app from './launch_app.js';
 import path from '../lib/path.js';
 import item_icon from './item_icon.js';
-import { is_window_on_screen } from './window_visibility.js';
+import { is_window_on_screen, user_facing_windows } from './window_visibility.js';
 
 // Files whose app launch is still in flight, by file uid. Between the click
 // and the window's creation there is nothing in the DOM to restore, so a
@@ -263,9 +263,13 @@ Please try recreating the link.`);
     // user goes looking for a window they minimized — so restore that
     // window (edits intact) instead of minting a second instance.
     //----------------------------------------------------------------
+    // The user's own windows only: a file opened in an instance another app
+    // launched in the background is not a window the row can switch to, so the
+    // click launches the file the normal way instead of surfacing that one.
     else if ( window.is_dashboard_mode && !associated_app_name && target_file_uid
-        && ($(`.window[data-file_uid="${html_encode(target_file_uid)}"]`).length || file_launch_in_flight(target_file_uid)) ) {
-        const $win = $(`.window[data-file_uid="${html_encode(target_file_uid)}"]`).last();
+        && (user_facing_windows($(`.window[data-file_uid="${html_encode(target_file_uid)}"]`)).length
+            || file_launch_in_flight(target_file_uid)) ) {
+        const $win = $(user_facing_windows($(`.window[data-file_uid="${html_encode(target_file_uid)}"]`))).last();
         // No window yet means the first click's launch is still in
         // flight — swallow the re-click instead of duplicating it.
         if ( $win.length ) {

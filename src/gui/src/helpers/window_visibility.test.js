@@ -20,7 +20,12 @@
 // @vitest-environment jsdom
 
 import { describe, it, expect } from 'vitest';
-import { is_window_hidden, is_window_on_screen, is_unseen_background_window } from './window_visibility.js';
+import {
+    is_window_hidden,
+    is_window_on_screen,
+    is_unseen_background_window,
+    user_facing_windows,
+} from './window_visibility.js';
 
 // A `.window` element carrying the given data- attributes, in the shapes
 // UIWindow actually writes them (is_visible as 0/1, is_minimized as either
@@ -31,8 +36,13 @@ const win = (attrs = {}) => {
     el.setAttribute('data-is_visible', attrs.visible ?? '1');
     if ( attrs.minimized !== undefined ) el.setAttribute('data-is_minimized', attrs.minimized);
     if ( attrs.launched_hidden ) el.setAttribute('data-launched_hidden', '1');
+    if ( attrs.parent ) el.setAttribute('data-parent_instance_id', attrs.parent);
     return el;
 };
+
+// The window a background launch makes: hidden, and serving the app whose
+// instance id it carries.
+const helper_win = (attrs = {}) => win({ visible: '0', launched_hidden: true, parent: 'parent-uuid', ...attrs });
 
 describe('is_window_hidden', () => {
     it('is false for a window on screen', () => {
@@ -82,10 +92,10 @@ describe('is_window_on_screen', () => {
 
 describe('is_unseen_background_window', () => {
     it('is true only while a background launch has never been shown', () => {
-        expect(is_unseen_background_window(win({ visible: '0', launched_hidden: true }))).toBe(true);
+        expect(is_unseen_background_window(helper_win())).toBe(true);
         // makeWindowVisible drops the marker the first time the window is
         // shown, whether the app showed itself or the user did.
-        expect(is_unseen_background_window(win({ visible: '1' }))).toBe(false);
+        expect(is_unseen_background_window(win({ visible: '1', parent: 'parent-uuid' }))).toBe(false);
     });
 
     it('is false for an ordinary window, minimized or not', () => {
@@ -96,7 +106,60 @@ describe('is_unseen_background_window', () => {
         expect(is_unseen_background_window(win({ visible: '0' }))).toBe(false);
     });
 
+    it('is false for a windowless app the USER opened', () => {
+        // `background` on the app itself starts every instance hidden, with no
+        // launcher to serve. This one is the user's: their tile has to find it
+        // rather than start another invisible instance on every click.
+        expect(is_unseen_background_window(win({ visible: '0', launched_hidden: true }))).toBe(false);
+    });
+
     it('is false for a missing element', () => {
         expect(is_unseen_background_window(null)).toBe(false);
+    });
+});
+
+describe('user_facing_windows', () => {
+    it('drops the instances another app launched in the background', () => {
+        const mine = win({ minimized: 'true' });
+        expect(user_facing_windows([mine, helper_win()])).toEqual([mine]);
+    });
+
+    it('is empty when every instance is a background helper', () => {
+        // What makes the dashboard tile launch a FRESH instance instead of
+        // handing the user the window its launcher is talking to.
+        expect(user_facing_windows([helper_win()])).toEqual([]);
+    });
+
+    it('keeps a background instance once it has been shown', () => {
+        // makeWindowVisible drops the marker: from then on the window is the
+        // user's, and the tile/taskbar/history paths act on it again.
+        const shown = win({ visible: '1', parent: 'parent-uuid' });
+        expect(user_facing_windows([shown])).toEqual([shown]);
+    });
+
+    it('keeps windows the app merely hid, and minimized ones', () => {
+        const hidden_by_app = win({ visible: '0' });
+        const minimized = win({ minimized: '1' });
+        expect(user_facing_windows([hidden_by_app, minimized]))
+            .toEqual([hidden_by_app, minimized]);
+    });
+
+    it('preserves order, so callers can keep taking the last one', () => {
+        const first = win();
+        const second = win();
+        expect(user_facing_windows([first, helper_win(), second]))
+            .toEqual([first, second]);
+    });
+
+    it('takes any array-like: a NodeList as well as an array', () => {
+        // Call sites pass jQuery sets; jsdom's NodeList stands in for one.
+        const host = document.createElement('div');
+        host.append(win(), helper_win());
+        expect(user_facing_windows(host.querySelectorAll('.window'))).toHaveLength(1);
+    });
+
+    it('is empty for nothing at all', () => {
+        expect(user_facing_windows()).toEqual([]);
+        expect(user_facing_windows([])).toEqual([]);
     });
 });

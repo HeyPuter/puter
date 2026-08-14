@@ -28,6 +28,7 @@ import generate_file_context_menu from '../../helpers/generate_file_context_menu
 import truncate_filename from '../../helpers/truncate_filename.js';
 import update_title_based_on_uploads from '../../helpers/update_title_based_on_uploads.js';
 import item_icon from '../../helpers/item_icon.js';
+import { user_facing_windows } from '../../helpers/window_visibility.js';
 import new_context_menu_item from '../../helpers/new_context_menu_item.js';
 import publish_as_website from '../../helpers/publish_as_website.js';
 import ContextMenuModal, { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
@@ -2489,9 +2490,12 @@ const TabFiles = {
     updateOpenFileDots () {
         if ( ! this.$el_window ) return;
         const open_uids = new Set();
-        $('.window[data-file_uid]').each(function () {
-            open_uids.add($(this).attr('data-file_uid'));
-        });
+        // The user's own windows only (user_facing_windows): a file an app
+        // opened in a helper it launched in the background is not a window
+        // the row can switch to, so the dot would point nowhere.
+        for ( const el_window of user_facing_windows($('.window[data-file_uid]')) ) {
+            open_uids.add($(el_window).attr('data-file_uid'));
+        }
         this.$el_window.find('.files-tab .files .row').each(function () {
             const uid = ($(this).attr('data-shortcut_to') || $(this).attr('data-uid') || '').toLowerCase();
             $(this).toggleClass('file-is-open', open_uids.has(uid));

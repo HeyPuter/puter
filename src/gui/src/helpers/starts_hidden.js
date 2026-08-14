@@ -23,8 +23,10 @@
  * for one (`puter.ui.launchApp(name, args, { background: true })`), which lets a
  * dual-purpose app serve another app without a window flashing on screen.
  *
- * A background *launch* keeps its taskbar item, so the user can see that it is
- * running, show it, or close it; an app that is always windowless has none.
+ * Either way the window starts out of sight and out of reach: no taskbar item,
+ * no running dot, and not what reopening the app finds (see
+ * user_facing_windows) — it earns all three the moment it first becomes
+ * visible, and an always-windowless app never asks for a taskbar item at all.
  *
  * @param {{ background?: boolean }} [appInfo] the app record being launched
  * @param {{ background?: boolean }} [options] this launch's options

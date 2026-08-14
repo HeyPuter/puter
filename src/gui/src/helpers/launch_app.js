@@ -647,9 +647,10 @@ const launch_app = async (options) => {
 
         // show_in_taskbar
         // Deliberately keyed on the app's own `background`, not on this launch's:
-        // an app that always runs windowless has nothing to show in the taskbar,
-        // while a background *launch* keeps its item so the user can see that it
-        // is running and close it.
+        // an app that always runs windowless has nothing to put in the taskbar,
+        // ever. A background *launch* is a normal app that happens to start
+        // hidden, so it keeps asking for an item — UIWindow just holds it back
+        // until the window is first shown (see its taskbar block).
         let show_in_taskbar = app_info.background ? false : window_options?.show_in_taskbar;
         if ( window_options?.show_in_taskbar !== undefined )
         {

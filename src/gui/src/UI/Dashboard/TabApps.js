@@ -7,7 +7,7 @@ import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 import { parseRemovedApps, serializeRemovedApps, REMOVED_APPS_KV_KEY } from './removedApps.js';
 import { appTileLink } from './appLink.js';
-import { is_window_on_screen, is_unseen_background_window } from '../../helpers/window_visibility.js';
+import { is_window_on_screen, user_facing_windows } from '../../helpers/window_visibility.js';
 import {
     APP_GROUPS_KV_KEY,
     MAX_GROUP_APPS,
@@ -251,23 +251,24 @@ function buildAddTileHtml () {
 // whether an existing window took the request.
 //
 // "Un-hide" covers a window hidden outright as well as a minimized one — an
-// app launched in the background by another app has a window from the moment
-// it starts, and with no taskbar in dashboard mode its tile is the only handle
-// on it. Focusing it instead would leave the tile dead (and hand the keyboard
-// to a window nobody can see); showWindow() tells the two cases apart.
+// app can hide itself with puter.ui.hideWindow(), and with no taskbar in
+// dashboard mode its tile is the only way back to it. Focusing it instead
+// would leave the tile dead (and hand the keyboard to a window nobody can
+// see); showWindow() tells the two cases apart.
+//
+// Only the user's own instances count (user_facing_windows): an instance
+// another app launched in the background is that app's private helper, so the
+// tile must not reopen it — the click launches a fresh instance and the helper
+// stays hidden, still serving whoever launched it.
 function focusExistingAppWindow (appName) {
-    const $existing = $(`.window[data-app="${html_encode(appName)}"]`);
+    const $existing = $(user_facing_windows($(`.window[data-app="${html_encode(appName)}"]`)));
     if ( ! $existing.length ) return false;
     const $on_screen = $existing.filter((_, el) => is_window_on_screen(el)).last();
     if ( $on_screen.length ) {
         $on_screen.focusWindow();
         return true;
     }
-    // Nothing on screen, so something has to be shown — and the user's own
-    // instance comes first: an instance another app launched in the background
-    // must not take the tile from the session they minimized.
-    const $seen = $existing.filter((_, el) => ! is_unseen_background_window(el));
-    ($seen.length ? $seen : $existing).last().showWindow();
+    $existing.last().showWindow();
     return true;
 }
 
@@ -1077,7 +1078,11 @@ const TabApps = {
             const appUid = $(this).attr('data-app-uid');
             const targetLink = $(this).attr('data-target-link');
             const noUninstall = APP_NAMES_NO_UNINSTALL.has((appName || '').toLowerCase());
-            const isRunning = !! appName && $(`.window[data-app="${html_encode(appName)}"]`).length > 0;
+            // Same window set the running dot counts: Quit is offered for what
+            // the user has open, not for a helper another app is running in
+            // the background (which is that app's to close, and dies with it).
+            const isRunning = !! appName
+                && user_facing_windows($(`.window[data-app="${html_encode(appName)}"]`)).length > 0;
 
             // Every app opens in a new browser tab the way tiles did before
             // in-page windows: external tiles via their site link, everything
@@ -1113,7 +1118,10 @@ const TabApps = {
                 items.push({
                     html: 'Quit',
                     onClick: () => {
-                        $(`.window[data-app="${html_encode(appName)}"]`).close();
+                        // Re-read at click time (the set can change while the
+                        // menu is open), and quit only what the menu offered:
+                        // a background helper stays up for the app using it.
+                        $(user_facing_windows($(`.window[data-app="${html_encode(appName)}"]`))).close();
                     },
                 });
             }
@@ -1426,8 +1434,14 @@ const TabApps = {
     // anything inside it is running — the apps it hides are exactly the ones
     // whose state the user can't otherwise see. Cheap enough to re-run
     // wholesale on every open/close/render.
+    //
+    // The dot means "you have this app open", so it counts the user's windows
+    // only (user_facing_windows): a helper another app launched in the
+    // background is not something the user can switch to or quit, and lighting
+    // the dot for it would promise a window the tile will not open.
     updateRunningDots ($el_window) {
-        const isRunning = name => !! name && $(`.window[data-app="${html_encode(name)}"]`).length > 0;
+        const isRunning = name => !! name
+            && user_facing_windows($(`.window[data-app="${html_encode(name)}"]`)).length > 0;
         for ( const tile of $el_window.find('.myapps-tile').toArray() ) {
             const running = tile.dataset.groupId
                 ? parseTileGroupApps(tile).some(isRunning)
