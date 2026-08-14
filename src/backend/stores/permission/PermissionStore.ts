@@ -234,6 +234,37 @@ export class PermissionStore extends PuterStore {
         return all.filter((row) => wanted.has(row.permission));
     }
 
+    /**
+     * Read-after-write variant of {@link readLinkedUserUserPerms}: skips the row
+     * cache and queries the primary, so a check that immediately follows a
+     * write on this holder cannot be misled by replica lag or by a stale cached
+     * row set. Re-warms the cache with what the primary returned — the plain
+     * read path would otherwise re-cache the replica's stale view.
+     */
+    async readLinkedUserUserPermsFromPrimary(
+        holderUserId: number,
+        permissions: string[],
+    ): Promise<LinkedUserUserPermRow[]> {
+        if (permissions.length === 0) return [];
+        const rows = await this.clients.db.pread(
+            'SELECT * FROM `user_to_user_permissions` WHERE `holder_user_id` = ?',
+            [holderUserId],
+        );
+        const decoded = rows.map((row) =>
+            this.#decodeExtra<LinkedUserUserPermRow>(row),
+        );
+        this.clients.redis
+            .set(
+                this.#u2uCacheKey(holderUserId),
+                JSON.stringify(decoded),
+                'EX',
+                U2U_CACHE_TTL_SECONDS,
+            )
+            .catch(() => {});
+        const wanted = new Set(permissions);
+        return decoded.filter((row) => wanted.has(row.permission));
+    }
+
     async upsertUserUserPerm(
         holderUserId: number,
         issuerUserId: number,

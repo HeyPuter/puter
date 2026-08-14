@@ -939,10 +939,17 @@ export class PermissionService extends PuterService {
         // grants this any more. Dropping it while another grant stands would
         // cut access outright for a `manage:`-only issuer, whose grant the
         // linked chain can't resolve.
-        const remaining = await this.stores.permission.readLinkedUserUserPerms(
-            user.id,
-            [permission],
-        );
+        //
+        // Must read the primary: the delete above just landed there, and a
+        // replica (or the row cache the plain read would re-warm from it) can
+        // still show the deleted row. Skipping the flat delete on that stale
+        // view leaves a no-TTL flat grant standing with no SQL rows behind
+        // it — permanent, invisible access.
+        const remaining =
+            await this.stores.permission.readLinkedUserUserPermsFromPrimary(
+                user.id,
+                [permission],
+            );
         if (remaining.length === 0) {
             await this.stores.permission.delFlatUserPerm(user.id, permission);
         }

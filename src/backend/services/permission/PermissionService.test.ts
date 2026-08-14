@@ -952,6 +952,54 @@ describe('PermissionService (integration)', () => {
             );
         });
 
+        it('drops the flat entry even when a lagging replica still shows the deleted row', async () => {
+            const { user: issuer, actor: issuerActor } = await makeUserActor();
+            const { user: target } = await makeUserActor();
+            const permission = `zztest:rvk-lag-${uuidv4()}:ii:read`;
+            await grantManage(issuer, permission);
+            await runWithContext({ actor: issuerActor }, () =>
+                permService.grantUserUserPermission(
+                    issuerActor,
+                    target.username,
+                    permission,
+                ),
+            );
+
+            // Simulate replica lag at the store boundary (sqlite has no
+            // replica to lag): the plain read path keeps returning the row
+            // the revoke just deleted from the primary. The remaining-check
+            // must go through the primary-read variant instead — trusting
+            // the replica view (or re-warming the row cache from it) skips
+            // the flat delete and leaves a no-TTL flat grant standing with
+            // no SQL rows behind it.
+            const staleRow = {
+                holder_user_id: target.id,
+                issuer_user_id: issuer.id,
+                permission,
+                extra: {},
+            };
+            const spy = vi
+                .spyOn(server.stores.permission, 'readLinkedUserUserPerms')
+                .mockResolvedValue([staleRow as never]);
+            try {
+                await runWithContext({ actor: issuerActor }, () =>
+                    permService.revokeUserUserPermission(
+                        issuerActor,
+                        target.username,
+                        permission,
+                    ),
+                );
+            } finally {
+                spy.mockRestore();
+            }
+
+            const flat = await server.stores.permission.getFlatUserPerms(
+                target.id,
+                [permission],
+            );
+            expect(flat.filter((v) => !v.deleted)).toHaveLength(0);
+        });
+
         it('grantUserUserPermission persists the linked SQL row before resolving', async () => {
             const { user: issuer, actor: issuerActor } = await makeUserActor();
             const { user: target } = await makeUserActor();
