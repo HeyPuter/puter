@@ -389,7 +389,10 @@ export class SubdomainDriver extends PuterDriver {
         try {
             this.clients.event.emit(
                 'subdomain.update',
-                { subdomain: row.subdomain as string },
+                {
+                    subdomain: row.subdomain as string,
+                    uid: String(row.uuid),
+                },
                 {},
             );
         } catch {
@@ -434,7 +437,10 @@ export class SubdomainDriver extends PuterDriver {
         try {
             this.clients.event.emit(
                 'subdomain.delete',
-                { subdomain: row.subdomain as string },
+                {
+                    subdomain: row.subdomain as string,
+                    uid: String(row.uuid),
+                },
                 {},
             );
         } catch {

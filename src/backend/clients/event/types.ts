@@ -367,8 +367,10 @@ export type EventMap = {
     }>;
 
     // ---- Subdomains ----
-    'subdomain.delete': { subdomain: string };
-    'subdomain.update': { subdomain: string };
+    // `uid` is the row uuid — for `delete` it is the only surviving handle a
+    // listener can use to find state keyed to the row after it is gone.
+    'subdomain.delete': { subdomain: string; uid?: string };
+    'subdomain.update': { subdomain: string; uid?: string };
     'site.htmlServed': {
         subdomain: string;
         entry: unknown;
@@ -540,10 +542,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
