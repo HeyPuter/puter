@@ -38,6 +38,7 @@ import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js'
 import { icons } from '../../helpers/actionIcons.js';
 import list_all_shared from '../../helpers/list_all_shared.js';
 import { remember_shared_roots } from '../../helpers/shared_access.js';
+import { shared_crumbs_for } from '../../helpers/share_paths.js';
 
 const { html_encode, SelectionArea } = window;
 
@@ -2148,14 +2149,19 @@ const TabFiles = {
                     return shares;
                 })).map((share) => ({
                     uid: share.entryUid,
-                    name: share.path.split('/').pop(),
+                    name: share.name ?? share.path.split('/').pop(),
                     path: share.path,
                     is_dir: share.isDir,
+                    // A share row has no fsentry behind it to stat, so the
+                    // listing carries what the icon needs.
+                    type: share.type,
+                    thumbnail: share.thumbnail,
                     modified: share.modified,
                     size: share.size,
                     shared_with_me: true,
                     share_mode: share.mode,
                     shared_by: share.issuer,
+                    owner: share.owner,
                 }))
                 : await window.puter.fs.readdir(readdirArg);
         } catch ( err ) {
@@ -4604,6 +4610,17 @@ const TabFiles = {
         const dirs = (abs_path === '/' ? [''] : abs_path.split('/'));
         const dirpaths = (abs_path === '/' ? ['/'] : []);
         const path_seperator_html = `<img class="path-seperator" draggable="false" src="${html_encode(window.icons['triangle-right.svg'])}">`;
+
+        // Someone else's tree is shown from the share down, not from their home.
+        const shared = shared_crumbs_for(abs_path);
+        if ( shared ) {
+            let str = `${path_seperator_html}<span class="dirname" data-path="${html_encode(window.shared_path)}">${html_encode(i18n('shared'))}</span>`;
+            for ( const crumb of shared ) {
+                str += `${path_seperator_html}<span class="dirname" data-path="${html_encode(crumb.path)}">${html_encode(crumb.label)}</span>`;
+            }
+            return str;
+        }
+
         if ( dirs.length > 1 ) {
             for ( let i = 0; i < dirs.length; i++ ) {
                 dirpaths[i] = '';

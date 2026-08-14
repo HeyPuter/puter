@@ -30,7 +30,7 @@ import launch_app from '../helpers/launch_app.js';
 import publish_as_website from '../helpers/publish_as_website.js';
 
 import item_icon from '../helpers/item_icon.js';
-import { parent_path_for } from '../helpers/share_paths.js';
+import { shared_crumbs_for } from '../helpers/share_paths.js';
 
 const el_body = document.getElementsByTagName('body')[0];
 const SNAP_PLACEHOLDER_DELAY_MS = 600; // delay before showing placeholder in any snap zone
@@ -1211,10 +1211,7 @@ async function UIWindow (options) {
         // Up button
         // --------------------------------------------------------
         $(el_window_navbar_up_btn).on('click', function (e) {
-            const target_path = parent_path_for(
-                $(el_window).attr('data-path'),
-                (p) => path.resolve(path.join(p, '..')),
-            );
+            const target_path = path.resolve(path.join($(el_window).attr('data-path'), '..'));
             // if ctrl/cmd are pressed, open in new window
             if ( e.ctrlKey || e.metaKey && (target_path !== undefined && target_path !== null) ) {
                 UIWindow({
@@ -3281,6 +3278,17 @@ window.navbar_path = (abs_path) => {
     const dirs = (abs_path === '/' ? [''] : abs_path.split('/'));
     const dirpaths = (abs_path === '/' ? ['/'] : []);
     const path_seperator_html = `<img class="path-seperator" draggable="false" src="${html_encode(window.icons['triangle-right.svg'])}">`;
+
+    // Someone else's tree is shown from the share down, not from their home.
+    const shared = shared_crumbs_for(abs_path);
+    if ( shared ) {
+        let str = `${path_seperator_html}<span class="window-navbar-path-dirname" data-path="${html_encode(window.shared_path)}">${html_encode(i18n('shared'))}</span>`;
+        for ( const crumb of shared ) {
+            str += `${path_seperator_html}<span class="window-navbar-path-dirname" data-path="${html_encode(crumb.path)}">${html_encode(crumb.label)}</span>`;
+        }
+        return str;
+    }
+
     if ( dirs.length > 1 ) {
         for ( let i = 0; i < dirs.length; i++ ) {
             dirpaths[i] = '';

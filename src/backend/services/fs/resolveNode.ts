@@ -21,7 +21,6 @@ import { posix as pathPosix } from 'node:path';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
-import { parseSharePath } from './sharePaths.js';
 
 /**
  * Resolve an entry by one of several reference shapes (path, uid, id) to a
@@ -177,29 +176,6 @@ export function expandTildePath(path: string, username?: string): string {
         });
     }
     return `/${username}${trimmed.slice(1)}`;
-}
-
-/**
- * Expand a caller-supplied path to the real one it names: `~/share/<uid>/…`
- * addresses an entry through a share, `~/…` the caller's own home. Translation
- * only — whether they may touch it is still ACL's answer, exactly as for a
- * request passing the uid directly.
- */
-export async function expandUserPath(
-    fsEntryStore: FSEntryStore,
-    path: string,
-    username?: string,
-): Promise<string> {
-    const parsed = parseSharePath(path);
-    if (!parsed) return expandTildePath(path, username);
-
-    const root = await fsEntryStore.getEntryByUuid(parsed.rootUid);
-    if (!root) {
-        throw new HttpError(404, `Entry not found: ${path}`, {
-            legacyCode: 'subject_does_not_exist',
-        });
-    }
-    return parsed.rest ? `${root.path}/${parsed.rest}` : root.path;
 }
 
 /**

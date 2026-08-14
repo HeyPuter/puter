@@ -27,6 +27,7 @@ import type {
     ShareTarget,
 } from '../../services/share/ShareService.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
+import { signEntryThumbnail } from '../fs/legacyFsHelpers.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { normalizeLimit } from '../../util/pagination.js';
 import { PuterController } from '../types.js';
@@ -125,26 +126,28 @@ export class ShareController extends PuterController {
             },
         );
 
-        const results: ShareOutcome[] = settled.map((outcome, index) => {
-            const { recipient, item } = pairs[index];
-            const label = recipient.email ?? recipient.username ?? '';
-            if (outcome.status === 'fulfilled') {
-                // The whole share, not just an acknowledgement, so a caller
-                // needn't re-read to learn what it created.
-                const share = outcome.value as ResolvedShare;
+        const results: ShareOutcome[] = await Promise.all(
+            settled.map(async (outcome, index) => {
+                const { recipient, item } = pairs[index];
+                const label = recipient.email ?? recipient.username ?? '';
+                if (outcome.status === 'fulfilled') {
+                    // The whole share, not just an acknowledgement, so a caller
+                    // needn't re-read to learn what it created.
+                    const share = outcome.value as ResolvedShare;
+                    return {
+                        ...(await this.#toClientShare(share)),
+                        recipient: label,
+                        status: 'success',
+                    };
+                }
                 return {
-                    ...this.#toClientShare(share),
                     recipient: label,
-                    status: 'success',
+                    ...(item.path ? { path: item.path } : {}),
+                    status: 'error',
+                    ...this.#errorShape(outcome.reason),
                 };
-            }
-            return {
-                recipient: label,
-                ...(item.path ? { path: item.path } : {}),
-                status: 'error',
-                ...this.#errorShape(outcome.reason),
-            };
-        });
+            }),
+        );
 
         this.#notifyRecipients(actor, settled, pairs);
 
@@ -245,7 +248,9 @@ export class ShareController extends PuterController {
         });
 
         res.json({
-            items: page.items.map((share) => this.#toClientShare(share)),
+            items: await Promise.all(
+                page.items.map((share) => this.#toClientShare(share)),
+            ),
             ...(page.cursor ? { cursor: page.cursor } : {}),
             ...(page.total !== undefined ? { total: page.total } : {}),
         });
@@ -272,7 +277,11 @@ export class ShareController extends PuterController {
         }
 
         const shares = await this.services.share.listSharesOf(actor, target);
-        res.json({ items: shares.map((share) => this.#toClientShare(share)) });
+        res.json({
+            items: await Promise.all(
+                shares.map((share) => this.#toClientShare(share)),
+            ),
+        });
     }
 
     // -- Helpers ------------------------------------------------------
@@ -280,12 +289,31 @@ export class ShareController extends PuterController {
     /**
      * Only ever the username — never the internal id, and never an email the
      * caller didn't already supply.
+     *
+     * `thumbnail` is stored as an `s3://bucket/key` URI, so it is swapped for a
+     * signed URL rather than emitted: the raw value names internal storage and
+     * no client can render it.
      */
-    #toClientShare(share: ResolvedShare) {
+    async #toClientShare(share: ResolvedShare) {
+        const thumbnail =
+            share.thumbnail === undefined
+                ? undefined
+                : await signEntryThumbnail(
+                      this.clients.event,
+                      share.entryUid,
+                      share.thumbnail,
+                  );
         return {
             uid: share.uid,
             mode: share.mode,
             path: share.path,
+            // A share listing has no fsentry behind it for a client to stat.
+            ...(share.name === undefined ? {} : { name: share.name }),
+            ...(share.type === undefined ? {} : { type: share.type }),
+            ...(thumbnail === undefined ? {} : { thumbnail }),
+            ...(share.owner === undefined
+                ? {}
+                : { owner: share.owner.username }),
             uid_entry: share.entryUid,
             is_dir: share.isDir,
             issuer: share.issuer.username,

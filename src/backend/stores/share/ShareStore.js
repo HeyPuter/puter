@@ -100,24 +100,6 @@ export class ShareStore extends PuterStore {
         };
     }
 
-    /**
-     * The holder's active shares among `fsentryIds`. Used to find which of an
-     * entry's ancestors the holder actually reached it through.
-     *
-     * @param {number} holderUserId
-     * @param {number[]} fsentryIds
-     */
-    async listByHolderAmong(holderUserId, fsentryIds) {
-        const ids = [...new Set(fsentryIds.map(Number).filter(Boolean))];
-        if (ids.length === 0) return [];
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `share` WHERE `holder_user_id` = ? AND ' +
-                `\`fsentry_id\` IN (${ids.map(() => '?').join(', ')})`,
-            [holderUserId, ...ids],
-        );
-        return rows.map((r) => this.#normalizeRow(r));
-    }
-
     /** Everyone with an active share on one node, whoever issued it. */
     async listByFsentry(fsentryId) {
         const rows = await this.clients.db.read(

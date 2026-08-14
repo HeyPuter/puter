@@ -19,9 +19,9 @@
 
 import list_all_shared from './list_all_shared.js';
 
-// Mode held on each shared root, by path. A `readdir` inside a shared folder
-// returns plain entries, so nothing else records what we hold above them.
-const modes = new Map();
+// What we hold on each shared root, by path: `{ mode, name }`. A `readdir`
+// inside a shared folder returns plain entries, so nothing else records it.
+const roots = new Map();
 let loaded = false;
 let inflight = null;
 
@@ -30,16 +30,17 @@ let inflight = null;
  * share withdrawn elsewhere does not linger.
  */
 export const remember_shared_roots = (shares) => {
-    modes.clear();
+    roots.clear();
     for ( const share of shares ) {
-        if ( share?.path && share?.mode ) modes.set(share.path, share.mode);
+        if ( ! share?.path || ! share?.mode ) continue;
+        roots.set(share.path, { mode: share.mode, name: share.name });
     }
     loaded = true;
 };
 
 /** Drop what we know; the next lookup re-reads it. */
 export const invalidate_shared_roots = () => {
-    modes.clear();
+    roots.clear();
     loaded = false;
     inflight = null;
 };
@@ -68,14 +69,29 @@ const load_once = () => {
 export const shared_mode_for = async (path) => {
     if ( typeof path !== 'string' || path === '' ) return null;
     await load_once();
+    return shared_root_for(path)?.mode ?? null;
+};
 
+/**
+ * The shared root `path` sits in, from what is already loaded — no await, so
+ * render paths can use it. Returns null when nothing is known yet; callers
+ * that can tolerate a round trip should await `shared_mode_for` first.
+ *
+ * @param {string} path
+ * @returns {{path: string, mode: string, name: string|undefined}|null}
+ */
+export const shared_root_for = (path) => {
+    if ( typeof path !== 'string' || path === '' ) return null;
     let best = null;
-    for ( const root of modes.keys() ) {
+    for ( const root of roots.keys() ) {
         if ( path !== root && ! path.startsWith(`${root}/`) ) continue;
         if ( best === null || root.length > best.length ) best = root;
     }
-    return best === null ? null : modes.get(best);
+    return best === null ? null : { path: best, ...roots.get(best) };
 };
+
+/** Kick off the load so a later sync lookup has something to answer with. */
+export const prime_shared_roots = () => load_once();
 
 /**
  * May you rename or delete the item at `item_path`? The folder holding it

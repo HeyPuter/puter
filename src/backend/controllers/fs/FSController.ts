@@ -29,7 +29,6 @@ import {
     assertNormalized,
     isOwnersTrash,
 } from '../../services/fs/resolveNode.js';
-import { SharePathMasker } from './legacyFsHelpers.js';
 import type {
     PreparedBatchWrite,
     UploadedBatchWriteItem,
@@ -194,9 +193,7 @@ export class FSController extends PuterController {
             }, 'emitStartWriteDirectoryEvents');
         }
         res.json(
-            this.#withoutStorageInternals(
-                await this.#withClientFsEntry(response),
-            ),
+            this.#withoutStorageInternals(this.#withClientFsEntry(response)),
         );
     }
 
@@ -299,12 +296,8 @@ export class FSController extends PuterController {
             }, 'emitStartBatchWriteDirectoryEvents');
         }
         res.json(
-            await Promise.all(
-                responses.map(async (r) =>
-                    this.#withoutStorageInternals(
-                        await this.#withClientFsEntry(r),
-                    ),
-                ),
+            responses.map((r) =>
+                this.#withoutStorageInternals(this.#withClientFsEntry(r)),
             ),
         );
     }
@@ -338,7 +331,7 @@ export class FSController extends PuterController {
             requestBody.guiMetadata,
         );
         res.json(
-            await this.#withRequiredClientFsEntry({
+            this.#withRequiredClientFsEntry({
                 ...response,
                 fsEntry: writeResponse.fsEntry,
             }),
@@ -389,9 +382,7 @@ export class FSController extends PuterController {
             },
         );
         res.json(
-            await Promise.all(
-                updatedResponse.map((r) => this.#withRequiredClientFsEntry(r)),
-            ),
+            updatedResponse.map((r) => this.#withRequiredClientFsEntry(r)),
         );
     }
 
@@ -482,7 +473,7 @@ export class FSController extends PuterController {
             response,
             requestBody.guiMetadata,
         );
-        res.json(await this.#withRequiredClientFsEntry(updatedResponse));
+        res.json(this.#withRequiredClientFsEntry(updatedResponse));
     }
 
     @Post('/batchWrite', {
@@ -830,11 +821,7 @@ export class FSController extends PuterController {
                 },
             );
             res.json(
-                await Promise.all(
-                    updatedResponses.map((r) =>
-                        this.#withRequiredClientFsEntry(r),
-                    ),
-                ),
+                updatedResponses.map((r) => this.#withRequiredClientFsEntry(r)),
             );
             return;
         }
@@ -956,9 +943,7 @@ export class FSController extends PuterController {
             },
         );
         res.json(
-            await Promise.all(
-                updatedResponses.map((r) => this.#withRequiredClientFsEntry(r)),
-            ),
+            updatedResponses.map((r) => this.#withRequiredClientFsEntry(r)),
         );
     }
 
@@ -986,7 +971,7 @@ export class FSController extends PuterController {
             await this.services.suggestedApps.getSuggestedApps(entry);
 
         res.json({
-            ...(await this.#toClientEntry(entry)),
+            ...this.#toClientEntry(entry),
             ...(subtreeSize !== undefined ? { size: subtreeSize } : {}),
         });
     }
@@ -999,7 +984,7 @@ export class FSController extends PuterController {
      * (with public folders enabled) any authenticated user. The legacy read
      * path already curates its output; this does the same for the v2 routes.
      */
-    async #toClientEntry(entry: FSEntry): Promise<ClientFSEntry> {
+    #toClientEntry(entry: FSEntry): ClientFSEntry {
         // Allowlist, not a denylist: a denylist silently ships every column
         // added to `fsentries` later. Omits the numeric primary keys (`id`,
         // `parentId`, `associatedAppId`), the storage columns, the owning
@@ -1012,9 +997,7 @@ export class FSController extends PuterController {
             uuid: entry.uuid,
             uid: entry.uid ?? entry.uuid,
             parentUid: entry.parentUid ?? null,
-            path: await SharePathMasker.forRequest(this.services.share).mask(
-                entry.path,
-            ),
+            path: entry.path,
             name: entry.name,
             isDir: entry.isDir,
             isShortcut: entry.isShortcut,
@@ -1045,13 +1028,13 @@ export class FSController extends PuterController {
      * The return type is the sanitized counterpart, so a caller cannot keep
      * treating the result as though it still held a full `FSEntry`.
      */
-    async #withClientFsEntry<T extends { fsEntry?: FSEntry }>(
+    #withClientFsEntry<T extends { fsEntry?: FSEntry }>(
         response: T,
-    ): Promise<Omit<T, 'fsEntry'> & { fsEntry?: ClientFSEntry }> {
+    ): Omit<T, 'fsEntry'> & { fsEntry?: ClientFSEntry } {
         const { fsEntry, ...rest } = response;
         return {
             ...rest,
-            ...(fsEntry ? { fsEntry: await this.#toClientEntry(fsEntry) } : {}),
+            ...(fsEntry ? { fsEntry: this.#toClientEntry(fsEntry) } : {}),
         };
     }
 
@@ -1068,12 +1051,12 @@ export class FSController extends PuterController {
     }
 
     /** Same, for the responses whose `fsEntry` is always present. */
-    async #withRequiredClientFsEntry<T extends { fsEntry: FSEntry }>(
+    #withRequiredClientFsEntry<T extends { fsEntry: FSEntry }>(
         response: T,
-    ): Promise<Omit<T, 'fsEntry'> & { fsEntry: ClientFSEntry }> {
+    ): Omit<T, 'fsEntry'> & { fsEntry: ClientFSEntry } {
         return {
             ...response,
-            fsEntry: await this.#toClientEntry(response.fsEntry),
+            fsEntry: this.#toClientEntry(response.fsEntry),
         };
     }
 
@@ -1263,7 +1246,7 @@ export class FSController extends PuterController {
         );
         return Promise.all(
             entries.map(async (entry) => ({
-                ...(await this.#toClientEntry(entry)),
+                ...this.#toClientEntry(entry),
                 // Fields the client cannot derive on its own.
                 type: fsEntryMimeType(entry),
                 thumbnail: await signEntryThumbnail(
@@ -1426,7 +1409,7 @@ export class FSController extends PuterController {
                 ) ?? false,
         });
         this.#emitGuiItemAdded(entry);
-        res.json(await this.#toClientEntry(entry));
+        res.json(this.#toClientEntry(entry));
     }
 
     @Post('/touch', {
@@ -1466,7 +1449,7 @@ export class FSController extends PuterController {
             createMissingParents:
                 this.#toBoolean(body.create_missing_parents) ?? false,
         });
-        res.json(await this.#toClientEntry(entry));
+        res.json(this.#toClientEntry(entry));
     }
 
     @Post('/rename', {
@@ -1489,7 +1472,7 @@ export class FSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const renamed = await this.services.fs.rename(userId, entry, newName);
         this.#emitGuiItemUpdated(renamed);
-        res.json(await this.#toClientEntry(renamed));
+        res.json(this.#toClientEntry(renamed));
     }
 
     @Post('/delete', {
@@ -1545,7 +1528,7 @@ export class FSController extends PuterController {
                 this.#toBoolean(body.dedupe_name ?? body.change_name) ?? false,
         });
         this.#emitGuiItemMoved(source, moved);
-        res.json(await this.#toClientEntry(moved));
+        res.json(this.#toClientEntry(moved));
     }
 
     @Post('/copy', {
@@ -1582,7 +1565,7 @@ export class FSController extends PuterController {
                 : {}),
         });
         this.#emitGuiItemAdded(copy);
-        res.json(await this.#toClientEntry(copy));
+        res.json(this.#toClientEntry(copy));
     }
 
     @Post('/mkshortcut', {
@@ -1615,7 +1598,7 @@ export class FSController extends PuterController {
             dedupeName: this.#toBoolean(body.dedupe_name) ?? true,
         });
         this.#emitGuiItemAdded(shortcut);
-        res.json(await this.#toClientEntry(shortcut));
+        res.json(this.#toClientEntry(shortcut));
     }
 
     // -- Read-side helpers -----------------------------------------------
@@ -1645,11 +1628,7 @@ export class FSController extends PuterController {
         const ref = {
             path:
                 rawPath !== undefined
-                    ? await mod.expandUserPath(
-                          this.stores.fsEntry,
-                          rawPath,
-                          username,
-                      )
+                    ? mod.expandTildePath(rawPath, username)
                     : undefined,
             uid:
                 typeof source.uid === 'string'

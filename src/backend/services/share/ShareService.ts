@@ -17,12 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { contentType as contentTypeFromMime } from 'mime-types';
 import type { Actor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { FSEntry } from '../../stores/fs/FSEntry';
 import type { LayerInstances } from '../../types';
 import type { AclMode } from '../acl/ACLService';
-import { toSharePath } from '../fs/sharePaths.js';
 import type { puterServices } from '../index';
 import { PuterService } from '../types';
 
@@ -48,13 +48,17 @@ export interface ShareInput extends ShareTarget {
 export interface ResolvedShare {
     uid: string;
     mode: string;
-    /** `~/share/<entryUid>` in a holder's listing; the real path in an owner's. */
     path: string;
-    /** The entry's own name, which a share path no longer carries. */
+    /**
+     * The entry's own name, content type and thumbnail. A share listing has no
+     * fsentry behind it for the client to stat for them.
+     */
     name?: string;
+    type?: string | null;
+    thumbnail?: string | null;
     entryUid: string;
     isDir: boolean;
-    /** Whose entry it is — the masked path no longer says. */
+    /** Whose entry it is. */
     owner?: { username: string | null };
     issuer: { username: string | null };
     holder: { username: string | null };
@@ -488,10 +492,12 @@ export class ShareService extends PuterService {
             items.push({
                 uid: row.uid,
                 mode: row.mode,
-                // The address the recipient can actually use — their own view
-                // of the entry, not where the owner keeps it.
-                path: toSharePath(entry.uuid),
+                path: entry.path,
                 name: entry.name,
+                type: entry.isDir
+                    ? 'folder'
+                    : contentTypeFromMime(entry.name) || null,
+                thumbnail: entry.thumbnail ?? null,
                 entryUid: entry.uuid,
                 isDir: Boolean(entry.isDir),
                 owner: { username: owner?.username ?? null },
@@ -774,46 +780,6 @@ export class ShareService extends PuterService {
 
     #isTrashed(entry: FSEntry): boolean {
         return /^\/[^/]+\/Trash(\/|$)/u.test(entry.path);
-    }
-
-    // -- Virtual share paths ------------------------------------------
-
-    /**
-     * The share root `path` hangs from, for `actor` — the deepest ancestor they
-     * hold a share on, so a file is addressed relative to its shared folder.
-     */
-    async findShareRoot(
-        actor: Actor,
-        path: string,
-    ): Promise<{ uid: string; path: string } | null> {
-        const holderId = actor.user?.id;
-        if (typeof holderId !== 'number') return null;
-
-        const ancestors = await this.services.fs.getAncestorChain(path);
-        if (ancestors.length === 0) return null;
-
-        const entries = await this.stores.fsEntry.getEntriesByPaths(
-            ancestors.map((a) => a.path),
-        );
-        const byId = new Map<number, { uid: string; path: string }>();
-        for (const ancestor of ancestors) {
-            const entry = entries.get(ancestor.path);
-            if (entry) byId.set(entry.id, ancestor);
-        }
-
-        const shares = await this.stores.share.listByHolderAmong(holderId, [
-            ...byId.keys(),
-        ]);
-        if (shares.length === 0) return null;
-
-        // `ancestors` runs deepest-first, so the first hit is the nearest root.
-        const shared = new Set(
-            shares.map((row: { fsentry_id: number }) => Number(row.fsentry_id)),
-        );
-        for (const [id, ancestor] of byId) {
-            if (shared.has(id)) return ancestor;
-        }
-        return null;
     }
 
     /**

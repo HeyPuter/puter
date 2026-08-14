@@ -17,74 +17,112 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { is_share_path, parent_path_for } from './share_paths.js';
-import { trash_path_for } from './path_owner.js';
-
-const UID = 'a4332293-4dbe-4f50-a9bc-2835928ce076';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { shared_crumbs_for } from './share_paths.js';
+import {
+    invalidate_shared_roots,
+    remember_shared_roots,
+} from './shared_access.js';
 
 beforeEach(() => {
-    globalThis.window = { shared_path: 'puter://shared', user: { username: 'me' } };
+    globalThis.window = {
+        user: { username: 'sharemate' },
+        shared_path: 'puter://shared',
+    };
+    invalidate_shared_roots();
 });
 
-describe('is_share_path', () => {
-    it('recognizes a shared root and what is under it', () => {
-        expect(is_share_path(`~/share/${UID}`)).toBe(true);
-        expect(is_share_path(`~/share/${UID}/a/b.txt`)).toBe(true);
+describe('shared_crumbs_for', () => {
+    it('leaves the viewer’s own paths unmasked', () => {
+        remember_shared_roots([]);
+        expect(shared_crumbs_for('/sharemate/Documents/a.txt')).toBeNull();
     });
 
-    it('leaves a real folder at ~/share alone', () => {
-        expect(is_share_path('~/share')).toBe(false);
-        expect(is_share_path('~/share/notes.txt')).toBe(false);
+    it('shows a shared root by its own name', () => {
+        remember_shared_roots([
+            {
+                path: '/jfcastro/Pictures/_CodeSignature',
+                mode: 'manage',
+                name: '_CodeSignature',
+            },
+        ]);
+
+        expect(
+            shared_crumbs_for('/jfcastro/Pictures/_CodeSignature'),
+        ).toEqual([
+            { label: '_CodeSignature', path: '/jfcastro/Pictures/_CodeSignature' },
+        ]);
     });
 
-    it('leaves ordinary paths alone', () => {
-        expect(is_share_path('/me/Documents/a.txt')).toBe(false);
-        expect(is_share_path(undefined)).toBe(false);
+    it('keeps the real path on every crumb below the root', () => {
+        remember_shared_roots([
+            {
+                path: '/jfcastro/Pictures/_CodeSignature',
+                mode: 'manage',
+                name: '_CodeSignature',
+            },
+        ]);
+
+        expect(
+            shared_crumbs_for(
+                '/jfcastro/Pictures/_CodeSignature/sub/CodeResources',
+            ),
+        ).toEqual([
+            {
+                label: '_CodeSignature',
+                path: '/jfcastro/Pictures/_CodeSignature',
+            },
+            {
+                label: 'sub',
+                path: '/jfcastro/Pictures/_CodeSignature/sub',
+            },
+            {
+                label: 'CodeResources',
+                path: '/jfcastro/Pictures/_CodeSignature/sub/CodeResources',
+            },
+        ]);
     });
-});
 
-describe('parent_path_for', () => {
-    const resolve = vi.fn((p) => `resolved(${p})`);
+    it('never shows the owner or their folders above the share', () => {
+        remember_shared_roots([
+            {
+                path: '/jfcastro/Documents/Contents',
+                mode: 'write',
+                name: 'Contents',
+            },
+        ]);
 
-    beforeEach(() => resolve.mockClear());
+        const labels = shared_crumbs_for(
+            '/jfcastro/Documents/Contents/deep/f.txt',
+        ).map((c) => c.label);
+        expect(labels).toEqual(['Contents', 'deep', 'f.txt']);
+        expect(labels).not.toContain('jfcastro');
+        expect(labels).not.toContain('Documents');
+    });
 
-    it('sends a shared root back to the Shared view', () => {
-        expect(parent_path_for(`~/share/${UID}`, resolve)).toBe(
-            'puter://shared',
+    it('falls back to the leaf alone when the share list is not loaded', () => {
+        expect(shared_crumbs_for('/jfcastro/Documents/Contents/f.txt')).toEqual(
+            [
+                {
+                    label: 'f.txt',
+                    path: '/jfcastro/Documents/Contents/f.txt',
+                },
+            ],
         );
-        expect(resolve).not.toHaveBeenCalled();
     });
 
-    it('resolves normally inside a shared root', () => {
-        expect(parent_path_for(`~/share/${UID}/a/b.txt`, resolve)).toBe(
-            `resolved(~/share/${UID}/a/b.txt)`,
-        );
-    });
+    it('prefers the nearest shared root', () => {
+        remember_shared_roots([
+            { path: '/jfcastro/Documents', mode: 'read', name: 'Documents' },
+            {
+                path: '/jfcastro/Documents/Contents',
+                mode: 'write',
+                name: 'Contents',
+            },
+        ]);
 
-    it('resolves ordinary paths normally', () => {
-        expect(parent_path_for('/me/Documents/a.txt', resolve)).toBe(
-            'resolved(/me/Documents/a.txt)',
-        );
-    });
-});
-
-describe('trash_path_for', () => {
-    it('uses the owner carried on the entry for a masked path', () => {
-        expect(trash_path_for(`~/share/${UID}/a.txt`, 'jf')).toBe('/jf/Trash');
-    });
-
-    it('reads the owner off an ordinary path', () => {
-        expect(trash_path_for('/jf/Documents/a.txt')).toBe('/jf/Trash');
-    });
-
-    it('prefers an explicit owner over the path', () => {
-        expect(trash_path_for('/jf/Documents/a.txt', 'other')).toBe(
-            '/other/Trash',
-        );
-    });
-
-    it('falls back to your own trash when nothing names an owner', () => {
-        expect(trash_path_for(`~/share/${UID}/a.txt`)).toBe('/me/Trash');
+        expect(
+            shared_crumbs_for('/jfcastro/Documents/Contents/f.txt')[0].label,
+        ).toBe('Contents');
     });
 });

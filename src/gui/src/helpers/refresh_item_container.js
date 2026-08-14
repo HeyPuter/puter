@@ -139,6 +139,8 @@ const refresh_item_container = function (el_item_container, options) {
             name: share.name ?? path.basename(share.path),
             path: share.path,
             is_dir: share.isDir,
+            type: share.type,
+            thumbnail: share.thumbnail,
             modified: share.modified,
             size: share.size,
             // Carried so the context menu can offer "remove from shared"
@@ -146,7 +148,7 @@ const refresh_item_container = function (el_item_container, options) {
             shared_with_me: true,
             share_mode: share.mode,
             shared_by: share.issuer,
-            owner: share.owner?.username,
+            owner: share.owner,
             metadata: '',
         })))
         : puter.fs.readdir({ path: container_path, consistency: options.consistency ?? 'eventual' });

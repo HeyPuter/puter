@@ -17,33 +17,48 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-/**
- * The client half of the `~/share/<uid>/…` addresses the backend hands out for
- * anything reached through a share. Mirrors `services/fs/sharePaths.ts`.
- */
-
-const SHARE_ROOT = '~/share';
-const UID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { owner_of_path } from './path_owner.js';
+import { prime_shared_roots, shared_root_for } from './shared_access.js';
 
 /**
- * @param {string} p
- * @returns {boolean}
- */
-export const is_share_path = (p) => {
-    if ( typeof p !== 'string' || ! p.startsWith(`${SHARE_ROOT}/`) ) return false;
-    return UID.test(p.slice(SHARE_ROOT.length + 1).split('/')[0] ?? '');
-};
-
-/**
- * Where "up" leads from `p`. A shared root's parent is the Shared view rather
- * than `~/share`, which is an address the backend does not serve.
+ * What the directory bar shows for a path. Only the label changes — every
+ * segment keeps the real path it navigates to.
  *
- * @param {string} p
- * @param {(p: string) => string} resolve fallback for ordinary paths
- * @returns {string}
+ * Someone else's tree is shown from the share down, so a recipient sees
+ * `Shared › Contents › sub` rather than the owner's `jfcastro › Documents ›
+ * Contents › sub`, which says where they keep it and what sits beside it.
  */
-export const parent_path_for = (p, resolve) => {
-    if ( ! is_share_path(p) ) return resolve(p);
-    const rest = p.slice(SHARE_ROOT.length + 1);
-    return rest.includes('/') ? resolve(p) : window.shared_path;
+
+/**
+ * @typedef {{label: string, path: string}} PathCrumb
+ */
+
+/**
+ * @param {string} abs_path
+ * @returns {PathCrumb[]|null} null when the path is the viewer's own
+ */
+export const shared_crumbs_for = (abs_path) => {
+    if ( typeof abs_path !== 'string' || ! abs_path.startsWith('/') ) return null;
+
+    const owner = owner_of_path(abs_path);
+    if ( owner === null || owner === window.user?.username ) return null;
+
+    // The exact cut needs the share listing; without it, fall back to showing
+    // only the leaf so nothing above it leaks, and prime for the next render.
+    const root = shared_root_for(abs_path);
+    if ( ! root ) {
+        prime_shared_roots();
+        const leaf = abs_path.slice(abs_path.lastIndexOf('/') + 1);
+        return [{ label: leaf, path: abs_path }];
+    }
+
+    const crumbs = [{ label: root.name ?? root.path.split('/').pop(), path: root.path }];
+    if ( abs_path !== root.path ) {
+        let cursor = root.path;
+        for ( const segment of abs_path.slice(root.path.length + 1).split('/') ) {
+            cursor += `/${segment}`;
+            crumbs.push({ label: segment, path: cursor });
+        }
+    }
+    return crumbs;
 };

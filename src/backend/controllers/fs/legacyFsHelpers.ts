@@ -32,10 +32,8 @@ import {
     normalizeAbsolutePath,
     isOwnersTrash,
     joinChildPath,
-    expandUserPath,
+    expandTildePath,
 } from '../../services/fs/resolveNode.js';
-import { maskUnder } from '../../services/fs/sharePaths.js';
-import type { ShareService } from '../../services/share/ShareService.js';
 import {
     NON_OWNER_SIGNATURE_TTL_SECONDS,
     signFile,
@@ -110,7 +108,7 @@ export async function resolveV1Selector(
     if (typeof raw === 'string') {
         const isPath = raw.startsWith('/') || raw.startsWith('~');
         const ref = isPath
-            ? { path: await expandUserPath(fsEntryStore, raw, username) }
+            ? { path: expandTildePath(raw, username) }
             : { uid: raw };
         const entry = await resolveNode(fsEntryStore, ref, { required: true });
         if (!entry)
@@ -142,7 +140,7 @@ export async function resolveV1Selector(
     const ref = {
         path:
             rawPath !== undefined
-                ? await expandUserPath(fsEntryStore, rawPath, username)
+                ? expandTildePath(rawPath, username)
                 : undefined,
         uid:
             typeof record.uid === 'string'
@@ -263,67 +261,6 @@ export async function assertCanCreate(
     }
     await assertAccess(aclService, fsService, actor, parentForCheck, 'write');
 }
-
-// -- Share path masking ----------------------------------------------
-
-/**
- * Rewrites outgoing paths so a recipient sees `~/share/<root-uid>/…` rather
- * than where the owner keeps the file. Memoized per request — a readdir shapes
- * every child through one instance.
- */
-export class SharePathMasker {
-    #roots = new Map<string, { uid: string; path: string } | null>();
-
-    private constructor(
-        private readonly actor: Actor | undefined,
-        private readonly shareService: ShareService,
-    ) {}
-
-    /** The masker for the current request, creating it on first use. */
-    static forRequest(shareService: ShareService): SharePathMasker {
-        const cached = Context.get(MASKER_CONTEXT_KEY);
-        if (cached instanceof SharePathMasker) return cached;
-        const masker = new SharePathMasker(Context.get('actor'), shareService);
-        try {
-            Context.set(MASKER_CONTEXT_KEY, masker);
-        } catch {
-            // Outside a request scope (tests, internal calls) — no memo.
-        }
-        return masker;
-    }
-
-    /**
-     * `path` as the actor should see it. Their own entries pass through
-     * untouched, so only paths reached through a share are ever rewritten.
-     */
-    async mask(path: string): Promise<string> {
-        const username = this.actor?.user?.username;
-        if (!username || typeof path !== 'string') return path;
-        if (path === `/${username}` || path.startsWith(`/${username}/`)) {
-            return path;
-        }
-
-        const root = await this.#rootFor(path);
-        if (!root) return path;
-        return maskUnder(path, root.path, root.uid) ?? path;
-    }
-
-    async #rootFor(path: string) {
-        // Keyed by parent: siblings in a listing share one lookup.
-        const key = pathPosix.dirname(path);
-        if (!this.#roots.has(key)) {
-            this.#roots.set(
-                key,
-                this.actor
-                    ? await this.shareService.findShareRoot(this.actor, path)
-                    : null,
-            );
-        }
-        return this.#roots.get(key) ?? null;
-    }
-}
-
-const MASKER_CONTEXT_KEY = 'fs.sharePathMasker';
 
 /** `write` on the destination parent, unless it is the entry's own Trash. */
 export async function assertCanMoveInto(
@@ -492,13 +429,9 @@ export async function toLegacyEntry(
             getById: (id: number) => Promise<Record<string, unknown> | null>;
         };
         appsById?: Map<number, Record<string, unknown>>;
-        masker?: SharePathMasker;
     } = {},
 ): Promise<Record<string, unknown>> {
-    const visiblePath = opts.masker
-        ? await opts.masker.mask(entry.path)
-        : entry.path;
-    const dirname = pathPosix.dirname(visiblePath);
+    const dirname = pathPosix.dirname(entry.path);
     const mimeType = fsEntryMimeType(entry);
 
     const pathComponents = entry.path.split('/');
@@ -511,7 +444,7 @@ export async function toLegacyEntry(
         uuid: entry.uuid,
         parent_id: entry.parentUid,
         parent_uid: entry.parentUid,
-        path: visiblePath,
+        path: entry.path,
         dirname,
         dirpath: dirname,
         name: entry.name,
@@ -579,7 +512,7 @@ export async function toLegacyEntry(
     return response;
 }
 
-export { normalizeAbsolutePath, expandUserPath };
+export { normalizeAbsolutePath };
 
 // -- Signing ---------------------------------------------------------
 

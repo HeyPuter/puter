@@ -70,8 +70,6 @@ import {
     assertAccess,
     assertCanCreate,
     assertCanMoveInto,
-    expandUserPath,
-    SharePathMasker,
     getBoolean,
     getString,
     loadLegacyAssociatedApps,
@@ -446,7 +444,6 @@ export class LegacyFSController extends PuterController {
         ]);
 
         const shaped = await toLegacyEntry(this.clients.event, entry, {
-            masker: this.#masker(),
             fsEntryStore: this.stores.fsEntry,
             userStore: this.stores.user as unknown as {
                 getById: (
@@ -509,8 +506,6 @@ export class LegacyFSController extends PuterController {
             const shaped = await Promise.all(
                 rootChildren.map((c) =>
                     toLegacyEntry(this.clients.event, c, {
-                        masker: this.#masker(),
-                        userStore: this.#legacyUserStore(),
                         appsById: rootAppsById,
                     }),
                 ),
@@ -592,11 +587,7 @@ export class LegacyFSController extends PuterController {
 
         const shaped = await Promise.all(
             children.map((c) =>
-                toLegacyEntry(this.clients.event, c, {
-                    masker: this.#masker(),
-                    userStore: this.#legacyUserStore(),
-                    appsById,
-                }),
+                toLegacyEntry(this.clients.event, c, { appsById }),
             ),
         );
 
@@ -629,20 +620,14 @@ export class LegacyFSController extends PuterController {
         // When `parent` is a path string, use it directly without requiring
         // the entry to exist — `services.fs.mkdir` honors `create_missing_parents`
         // and will materialize any missing intermediate directories.
-        let targetPath = await expandUserPath(
-            this.stores.fsEntry,
-            rawPath,
-            actor.user?.username,
-        );
+        let targetPath = rawPath;
         if (body.parent !== undefined && !rawPath.startsWith('/')) {
             let parentPath: string;
             if (
                 typeof body.parent === 'string' &&
                 (body.parent.startsWith('/') || body.parent.startsWith('~'))
             ) {
-                parentPath = await expandUserPath(
-                    this.stores.fsEntry,
-
+                parentPath = this.#expandTilde(
                     body.parent,
                     actor.user?.username,
                 );
@@ -698,11 +683,7 @@ export class LegacyFSController extends PuterController {
         });
         await this.#emitGuiEvent('outer.gui.item.added', entry);
 
-        res.json(
-            await toLegacyEntry(this.clients.event, entry, {
-                masker: this.#masker(),
-            }),
-        );
+        res.json(await toLegacyEntry(this.clients.event, entry));
     };
 
     copy = async (req: Request, res: Response): Promise<void> => {
@@ -769,7 +750,6 @@ export class LegacyFSController extends PuterController {
         // Legacy response shape: `[{copied: fsentry, overwritten?}]`.
         // Array is historical — originally supported bulk copy.
         const legacyEntryOpts = {
-            masker: this.#masker(),
             fsEntryStore: this.stores.fsEntry,
             userStore: this.stores.user as unknown as {
                 getById: (
@@ -868,7 +848,6 @@ export class LegacyFSController extends PuterController {
 
         // Legacy response shape: `{moved: fsentry, old_path, overwritten?}`.
         const legacyEntryOpts = {
-            masker: this.#masker(),
             fsEntryStore: this.stores.fsEntry,
             userStore: this.stores.user as unknown as {
                 getById: (
@@ -923,9 +902,7 @@ export class LegacyFSController extends PuterController {
                     descendants_only: descendantsOnly,
                 });
                 removedEntries.push(
-                    await toLegacyEntry(this.clients.event, entry, {
-                        masker: this.#masker(),
-                    }),
+                    await toLegacyEntry(this.clients.event, entry),
                 );
             }
             res.json(removedEntries);
@@ -973,11 +950,7 @@ export class LegacyFSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const renamed = await this.services.fs.rename(userId, entry, newName);
         await this.#emitGuiEvent('outer.gui.item.updated', renamed);
-        res.json(
-            await toLegacyEntry(this.clients.event, renamed, {
-                masker: this.#masker(),
-            }),
-        );
+        res.json(await toLegacyEntry(this.clients.event, renamed));
     };
 
     touch = async (req: Request, res: Response): Promise<void> => {
@@ -985,16 +958,11 @@ export class LegacyFSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const body = asRecord(req.body);
 
-        const requestedPath = getString(body, 'path');
-        if (!requestedPath)
+        const rawPath = getString(body, 'path');
+        if (!rawPath)
             throw new HttpError(400, '`path` is required', {
                 legacyCode: 'bad_request',
             });
-        const rawPath = await expandUserPath(
-            this.stores.fsEntry,
-            requestedPath,
-            actor.user?.username,
-        );
 
         const parentPath = pathPosix.dirname(
             rawPath.startsWith('/') ? rawPath : `/${rawPath}`,
@@ -1158,11 +1126,7 @@ export class LegacyFSController extends PuterController {
             pathScope,
         );
         const shaped = await Promise.all(
-            results.map((r) =>
-                toLegacyEntry(this.clients.event, r, {
-                    masker: this.#masker(),
-                }),
-            ),
+            results.map((r) => toLegacyEntry(this.clients.event, r)),
         );
         res.json(shaped);
     };
@@ -1893,11 +1857,7 @@ export class LegacyFSController extends PuterController {
             path: rootPath,
             createMissingParents: true,
         });
-        res.json(
-            await toLegacyEntry(this.clients.event, entry, {
-                masker: this.#masker(),
-            }),
-        );
+        res.json(await toLegacyEntry(this.clients.event, entry));
     };
 
     /**
@@ -2032,9 +1992,7 @@ export class LegacyFSController extends PuterController {
         // per-op extras (e.g. `old_path` for moves).
         try {
             const response = {
-                ...(await toLegacyEntry(this.clients.event, entry, {
-                    masker: this.#masker(),
-                })),
+                ...(await toLegacyEntry(this.clients.event, entry)),
                 ...extra,
                 from_new_service: true,
             };
@@ -2205,9 +2163,7 @@ export class LegacyFSController extends PuterController {
                         });
                     }
                     const parentPath = getString(record, 'path') ?? '';
-                    const expandedParent = await expandUserPath(
-                        this.stores.fsEntry,
-
+                    const expandedParent = this.#expandTilde(
                         parentPath,
                         username,
                     );
@@ -2263,7 +2219,6 @@ export class LegacyFSController extends PuterController {
                     shaped = await toLegacyEntry(
                         this.clients.event,
                         response.fsEntry,
-                        { masker: this.#masker() },
                     );
                 } else if (op === 'mkdir') {
                     const parentPath = getString(record, 'path') ?? '';
@@ -2273,9 +2228,7 @@ export class LegacyFSController extends PuterController {
                             legacyCode: 'bad_request',
                         });
                     }
-                    const expandedParent = await expandUserPath(
-                        this.stores.fsEntry,
-
+                    const expandedParent = this.#expandTilde(
                         parentPath,
                         username,
                     );
@@ -2305,9 +2258,7 @@ export class LegacyFSController extends PuterController {
                             ) ?? false,
                     });
                     await this.#emitGuiEvent('outer.gui.item.added', entry);
-                    shaped = await toLegacyEntry(this.clients.event, entry, {
-                        masker: this.#masker(),
-                    });
+                    shaped = await toLegacyEntry(this.clients.event, entry);
                 } else if (op === 'shortcut') {
                     const parentPath = getString(record, 'path') ?? '';
                     const name = getString(record, 'name');
@@ -2330,9 +2281,7 @@ export class LegacyFSController extends PuterController {
                         this.stores.fsEntry,
                         { uid: shortcutToUid },
                     );
-                    const expandedParent = await expandUserPath(
-                        this.stores.fsEntry,
-
+                    const expandedParent = this.#expandTilde(
                         parentPath,
                         username,
                     );
@@ -2361,9 +2310,7 @@ export class LegacyFSController extends PuterController {
                         dedupeName: getBoolean(record, 'dedupe_name') ?? true,
                     });
                     await this.#emitGuiEvent('outer.gui.item.added', link);
-                    shaped = await toLegacyEntry(this.clients.event, link, {
-                        masker: this.#masker(),
-                    });
+                    shaped = await toLegacyEntry(this.clients.event, link);
                 } else if (op === 'move') {
                     const source = await resolveV1Selector(
                         this.stores.fsEntry,
@@ -2397,9 +2344,7 @@ export class LegacyFSController extends PuterController {
                     await this.#emitGuiEvent('outer.gui.item.moved', moved, {
                         old_path: source.path,
                     });
-                    shaped = await toLegacyEntry(this.clients.event, moved, {
-                        masker: this.#masker(),
-                    });
+                    shaped = await toLegacyEntry(this.clients.event, moved);
                 } else if (op === 'delete') {
                     const entry = await resolveV1Selector(
                         this.stores.fsEntry,
@@ -2570,18 +2515,14 @@ export class LegacyFSController extends PuterController {
         return [];
     }
 
-    /**
-     * A listing carries `owner` so a client can still tell whose an entry is: a
-     * masked path no longer says, and addressing the owner's Trash needs it.
-     */
-    #legacyUserStore() {
-        return this.stores.user as unknown as {
-            getById: (id: number) => Promise<Record<string, unknown> | null>;
-        };
-    }
-
-    #masker(): SharePathMasker {
-        return SharePathMasker.forRequest(this.services.share);
+    #expandTilde(path: string, username: string | undefined): string {
+        if (!path) return path;
+        if (path !== '~' && !path.startsWith('~/')) return path;
+        if (!username)
+            throw new HttpError(400, 'Unable to resolve home path', {
+                legacyCode: 'bad_request',
+            });
+        return `/${username}${path.slice(1)}`;
     }
 
     #serializeBatchError(err: unknown): Record<string, unknown> {
