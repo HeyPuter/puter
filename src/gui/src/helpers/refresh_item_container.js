@@ -134,7 +134,9 @@ const refresh_item_container = function (el_item_container, options) {
             return shares;
         }).then((shares) => shares.map((share) => ({
             uid: share.entryUid,
-            name: path.basename(share.path),
+            // A share path is `~/share/<uid>`, so the name comes off the
+            // share rather than off the path.
+            name: share.name ?? path.basename(share.path),
             path: share.path,
             is_dir: share.isDir,
             modified: share.modified,
@@ -144,6 +146,7 @@ const refresh_item_container = function (el_item_container, options) {
             shared_with_me: true,
             share_mode: share.mode,
             shared_by: share.issuer,
+            owner: share.owner?.username,
             metadata: '',
         })))
         : puter.fs.readdir({ path: container_path, consistency: options.consistency ?? 'eventual' });
@@ -249,6 +252,7 @@ const refresh_item_container = function (el_item_container, options) {
                             shared_with_me: fsentry.shared_with_me,
                             share_mode: fsentry.share_mode,
                             shared_by: fsentry.shared_by,
+                            owner: fsentry.owner?.username ?? fsentry.owner,
                         });
                     }
                 }

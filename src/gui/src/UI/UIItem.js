@@ -135,6 +135,7 @@ async function UIItem (options) {
     options.shared_with_me = options.shared_with_me ?? false;
     options.share_mode = options.share_mode ?? '';
     options.shared_by = options.shared_by ?? '';
+    options.owner = options.owner ?? '';
     options.metadata = options.metadata ?? '';
     options.multiselectable = (options.multiselectable === undefined || options.multiselectable === true) ? true : false;
     options.shortcut_to = options.shortcut_to ?? '';
@@ -170,6 +171,7 @@ async function UIItem (options) {
                 data-shared_with_me="${options.shared_with_me ? 1 : 0}"
                 data-share_mode="${html_encode(options.share_mode)}"
                 data-shared_by="${html_encode(options.shared_by)}"
+                data-owner="${html_encode(options.owner)}"
                 data-has_website="${show_website_badge ? 1 : 0 }" 
                 data-website_url = "${website_url ? html_encode(website_url) : ''}"
                 data-immutable="${options.immutable}" 

@@ -1782,7 +1782,10 @@ window.move_items = async function (el_items, dest_path, is_undo = false) {
         // Deleting sends an item to its owner's trash, not yours.
         const is_trashing = dest_path === window.trash_path;
         const item_dest_path = is_trashing
-            ? trash_path_for($(el_item).attr('data-path'))
+            ? trash_path_for(
+                $(el_item).attr('data-path'),
+                $(el_item).attr('data-owner'),
+            )
             : dest_path;
 
         // cannot move item to its own path, skip it
