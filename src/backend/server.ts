@@ -52,6 +52,7 @@ import { requireCreditsGate } from './core/http/middleware/credits';
 import { createStepUpGate } from './core/http/middleware/stepUpSession';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
 import { installProcessGuards } from './util/processGuards';
+import { subdomainOffsetForDomain } from './util/subdomains';
 import {
     requireAntiCsrf,
     setAntiCsrfRedis,
@@ -242,6 +243,14 @@ export class PuterServer {
         // Cloudflare/nginx hop). Never `true` in prod: that trusts every hop
         // and makes XFF forgeable.
         this.#app.set('trust proxy', this.#config.trust_proxy ?? false);
+        // Every subdomain gate reads `req.subdomains`, which express derives by
+        // dropping `subdomain offset` labels from the right of the hostname.
+        // The offset is the root domain's own label count, so a deployment on
+        // `puter.example.com` doesn't read `puter` as an active subdomain.
+        this.#app.set(
+            'subdomain offset',
+            subdomainOffsetForDomain(this.#config.domain),
+        );
         this.#installGlobalMiddleware();
 
         // Instantiate drivers BEFORE controllers so controllers can receive

@@ -212,6 +212,67 @@ describe('PuterServer host header validation', () => {
     });
 });
 
+/**
+ * Express reads subdomains relative to a fixed label count, so a root domain
+ * deeper than two labels is the case that breaks: `puter` reads as an active
+ * subdomain of the root origin itself, which bounces every root request into
+ * the user-site redirect.
+ */
+describe('PuterServer subdomain routing on a multi-label root domain', () => {
+    let server: PuterServer;
+    let port: number;
+
+    beforeAll(async () => {
+        port = await allocateEphemeralPort();
+        server = await setupTestServer(
+            {
+                port,
+                domain: 'puter.example.localhost',
+                origin: `http://puter.example.localhost:${port}`,
+                api_base_url: `http://api.puter.example.localhost:${port}`,
+                static_hosting_domain: 'site.puter.example.localhost',
+                static_hosting_domain_alt: 'host.puter.example.localhost',
+                private_app_hosting_domain: 'app.puter.example.localhost',
+                private_app_hosting_domain_alt: 'dev.puter.example.localhost',
+            } as unknown as IConfig,
+            { listen: true },
+        );
+    });
+
+    afterAll(async () => {
+        await server?.shutdown();
+    });
+
+    // Host headers here carry no port: the redirect under test compares the
+    // host against `domain`, which is how it arrives from a proxy in practice.
+    it('serves the root origin instead of redirecting it to the hosting domain', async () => {
+        const res = await rawRequest(port, '/', {
+            host: 'puter.example.localhost',
+        });
+        expect(res.status).not.toBe(302);
+        expect(res.headers.location).toBeUndefined();
+    });
+
+    it('still redirects a user subdomain of that domain to the hosting domain', async () => {
+        const res = await rawRequest(port, '/some/path', {
+            host: 'alice.puter.example.localhost',
+        });
+        expect(res.status).toBe(302);
+        expect(res.headers.location).toBe(
+            'http://alice.site.puter.example.localhost/some/path',
+        );
+    });
+
+    it('still recognizes reserved subdomains of that domain', async () => {
+        const res = await rawRequest(port, '/healthcheck', {
+            host: 'api.puter.example.localhost',
+            origin: 'https://third-party.example',
+        });
+        expect(res.headers.location).toBeUndefined();
+        expect(res.headers['access-control-allow-credentials']).toBe('true');
+    });
+});
+
 describe('PuterServer host header validation — permissive modes', () => {
     let server: PuterServer;
     let port: number;
