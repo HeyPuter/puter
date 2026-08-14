@@ -68,10 +68,19 @@ async function UIWindowShare (options) {
     h += '<div class="share-list"></div>';
     h += '</div>';
 
+    // One dialog per item — window-level single_instance would refocus a
+    // dialog still bound to a different file.
+    const $existing = $('.window[data-app="share"]').filter(
+        (_, el) => $(el).attr('data-share-path') === item_path,
+    );
+    if ( $existing.length ) {
+        $existing.focusWindow();
+        return;
+    }
+
     const el_window = await UIWindow({
-        title: `${i18n('share')} — ${html_encode(item_name)}`,
+        title: `${i18n('share')} — ${item_name}`,
         app: 'share',
-        single_instance: true,
         icon: window.icons['share-outline.svg'],
         uid: null,
         is_dir: false,
@@ -96,6 +105,7 @@ async function UIWindowShare (options) {
         window_css: { height: 'initial' },
         body_css: { width: 'initial', padding: '0', 'background-color': 'rgb(245 247 249)' },
     });
+    $(el_window).attr('data-share-path', item_path);
 
     const $error = $(el_window).find('.form-error-msg');
     const $success = $(el_window).find('.form-success-msg');
