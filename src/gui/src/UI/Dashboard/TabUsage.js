@@ -17,11 +17,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { creditsRate, formatCreditsFromMicrocents, formatDollarsFromMicrocents } from './credits.js';
+import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
 import { usageBudget } from './usageBudget.js';
 
-// Whether the server sent a credits display rate — decides whether the
-// usage surfaces render credits or fall back to dollars.
+// Whether the server reported credits — decides whether the usage surfaces
+// render credits or fall back to dollars.
 let usageShowsCredits = false;
 
 // Sort state for the usage table
@@ -280,16 +280,16 @@ function renderUsageTable () {
 async function update_usage_details ($el_window) {
     const monthlyUsagePromise = puter.auth.getMonthlyUsage().then(res => {
         const budget = usageBudget(res.usage?.total ?? 0, res.allowanceInfo?.remaining ?? 0);
-        // Credits only when the server sends a display rate (set in the
-        // deployment's config); dollars otherwise.
-        const rate = creditsRate(res.allowanceInfo);
-        usageShowsCredits = !!rate;
-        const amount = (mc) => rate
-            ? formatCreditsFromMicrocents(mc, rate)
-            : formatDollarsFromMicrocents(mc);
+        // The server reports credits (already scaled) or raw amounts (no
+        // multiplier configured), and says which via the unit flag.
+        const inCredits = usageIsCredits(res.allowanceInfo);
+        usageShowsCredits = inCredits;
+        const amount = (v) => inCredits
+            ? formatCredits(v)
+            : formatDollarsFromMicrocents(v);
 
         $('#total-usage').html(amount(budget.used));
-        $('#total-capacity').html(rate
+        $('#total-capacity').html(inCredits
             ? `${amount(budget.capacity)} ${i18n('credits')}`
             : amount(budget.capacity));
         $('.usage-progbar-percent').html(`${budget.percent }%`);
@@ -322,7 +322,7 @@ async function update_usage_details ($el_window) {
                 rawUnits: rawUnits,
                 formattedUnits: formattedUnits,
                 rawCost: rawCost,
-                formattedCost: rate ? formatCreditsFromMicrocents(rawCost, rate) : formatDollarsFromMicrocents(rawCost),
+                formattedCost: inCredits ? formatCredits(rawCost) : formatDollarsFromMicrocents(rawCost),
             });
         }
 

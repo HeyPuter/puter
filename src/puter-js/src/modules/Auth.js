@@ -32,7 +32,7 @@ import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
  * @typedef {Object} AllowanceInfo
  * @property {number} monthUsageAllowance Total resource allowance for the month.
  * @property {number} remaining The remaining allowance that can be used.
- * @property {number} [creditsPerDollar] Display rate: how many credits one dollar of usage represents.
+ * @property {string} [unit] 'credits' when the server already scaled every monetary field to display credits; absent for raw amounts.
  */
 
 /**

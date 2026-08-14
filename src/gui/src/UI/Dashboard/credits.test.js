@@ -19,36 +19,17 @@
 
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import {
-    creditsFromMicrocents,
-    creditsRate,
     formatCredits,
-    formatCreditsFromMicrocents,
     formatDollarsFromMicrocents,
+    usageIsCredits,
 } from './credits.js';
 
-describe('creditsRate', () => {
-    it('reads the server-provided rate', () => {
-        expect(creditsRate({ creditsPerDollar: 1000 })).toBe(1000);
-    });
-
-    it('is null when the server sends no usable rate — the client holds none', () => {
-        expect(creditsRate({})).toBeNull();
-        expect(creditsRate(undefined)).toBeNull();
-        expect(creditsRate({ creditsPerDollar: 0 })).toBeNull();
-        expect(creditsRate({ creditsPerDollar: -5 })).toBeNull();
-        expect(creditsRate({ creditsPerDollar: 'many' })).toBeNull();
-    });
-});
-
-describe('creditsFromMicrocents', () => {
-    it('scales by whatever rate the server sent: $1 of usage = rate credits', () => {
-        expect(creditsFromMicrocents(100_000_000, 100)).toBe(100);
-        expect(creditsFromMicrocents(100_000_000, 1000)).toBe(1000);
-    });
-
-    it('tolerates missing input', () => {
-        expect(creditsFromMicrocents(undefined, 100)).toBe(0);
-        expect(creditsFromMicrocents(NaN, 100)).toBe(0);
+describe('usageIsCredits', () => {
+    it('trusts only the explicit unit flag', () => {
+        expect(usageIsCredits({ unit: 'credits' })).toBe(true);
+        expect(usageIsCredits({})).toBe(false);
+        expect(usageIsCredits(undefined)).toBe(false);
+        expect(usageIsCredits({ unit: 'dollars' })).toBe(false);
     });
 });
 
@@ -69,14 +50,10 @@ describe('formatCredits', () => {
         expect(formatCredits(0.001)).toBe('<0.01');
         expect(formatCredits(0)).toBe('0');
     });
-});
 
-describe('formatCreditsFromMicrocents', () => {
-    it('formats straight from server amounts at the server rate', () => {
-        expect(formatCreditsFromMicrocents(37_000_000, 100)).toBe('37');
-        expect(formatCreditsFromMicrocents(900_000_000, 100)).toBe('900');
-        // A single cheap API call: a fraction of one credit, still visible.
-        expect(formatCreditsFromMicrocents(2_000, 100)).toBe('<0.01');
+    it('tolerates missing input', () => {
+        expect(formatCredits(undefined)).toBe('0');
+        expect(formatCredits(NaN)).toBe('0');
     });
 });
 
@@ -92,7 +69,7 @@ describe('formatDollarsFromMicrocents', () => {
         delete globalThis.window.number_format;
     });
 
-    it('renders the pre-credits dollar string for rate-less deployments', () => {
+    it('renders the raw-amount dollar string for unscaled deployments', () => {
         expect(formatDollarsFromMicrocents(37_000_000)).toBe('$0.37');
         expect(formatDollarsFromMicrocents(undefined)).toBe('$0.00');
     });

@@ -18,7 +18,7 @@
  */
 
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
-import { creditsRate, formatCreditsFromMicrocents, formatDollarsFromMicrocents } from './credits.js';
+import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
 import { usageBudget } from './usageBudget.js';
 
 // How long a completed usage load stays fresh enough to skip a repeat. Long
@@ -548,12 +548,12 @@ const TabHome = {
                 res.usage?.total ?? 0,
                 res.allowanceInfo?.remaining ?? 0,
             );
-            // Credits only when the server sends a display rate (set in the
-            // deployment's config); dollars otherwise.
-            const rate = creditsRate(res.allowanceInfo);
-            const amount = (mc) => rate
-                ? formatCreditsFromMicrocents(mc, rate)
-                : formatDollarsFromMicrocents(mc);
+            // The server reports credits (already scaled) or raw amounts
+            // (no multiplier configured), and says which via the unit flag.
+            const inCredits = usageIsCredits(res.allowanceInfo);
+            const amount = (v) => inCredits
+                ? formatCredits(v)
+                : formatDollarsFromMicrocents(v);
 
             $el_window
                 .find('.bento-resources-used')
@@ -561,7 +561,7 @@ const TabHome = {
             $el_window
                 .find('.bento-resources-capacity')
                 .text(
-                    rate
+                    inCredits
                         ? `${amount(budget.capacity)} ${i18n('credits')}`
                         : amount(budget.capacity),
                 );

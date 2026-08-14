@@ -18,32 +18,16 @@
  */
 
 /**
- * Usage renders in credits, a display unit layered over the microcents the
- * server stores and returns. The rate comes only from the server
- * (`allowanceInfo.creditsPerDollar`, set in deployment config) — the client
- * carries no rate of its own. A server that doesn't send one gets the
- * pre-credits dollar rendering instead.
+ * Usage renders in credits, a display unit the SERVER scales amounts into
+ * before they leave the API (a deployment-config multiplier the client never
+ * sees). A response says which unit it carries: `allowanceInfo.unit ===
+ * 'credits'` means every monetary field is already in credits; absent means
+ * raw amounts from a deployment with no multiplier, rendered as dollars.
  */
 
-/** The display rate from a `getMonthlyUsage()` response, or null. */
-export const creditsRate = (allowanceInfo) => {
-    const rate = allowanceInfo?.creditsPerDollar;
-    return Number.isFinite(rate) && rate > 0 ? rate : null;
-};
-
-/** Dollar fallback for deployments with no configured display rate. */
-export const formatDollarsFromMicrocents = (microcents) => {
-    const mc = Number.isFinite(microcents) ? microcents : 0;
-    return window.number_format(mc / 100_000_000, {
-        decimals: 2,
-        prefix: '$',
-    });
-};
-
-export const creditsFromMicrocents = (microcents, rate) => {
-    const mc = Number.isFinite(microcents) ? microcents : 0;
-    return (mc * rate) / 100_000_000;
-};
+/** Whether a `getMonthlyUsage()` response reports credits. */
+export const usageIsCredits = (allowanceInfo) =>
+    allowanceInfo?.unit === 'credits';
 
 /**
  * Credits as the raw number users see: whole credits once the amount has any
@@ -66,6 +50,11 @@ export const formatCredits = (credits) => {
     return value < 0.01 ? '<0.01' : String(Number(value.toFixed(2)));
 };
 
-/** `formatCredits` straight from a microcent amount. */
-export const formatCreditsFromMicrocents = (microcents, rate) =>
-    formatCredits(creditsFromMicrocents(microcents, rate));
+/** Dollar rendering for deployments that report raw (unscaled) amounts. */
+export const formatDollarsFromMicrocents = (microcents) => {
+    const mc = Number.isFinite(microcents) ? microcents : 0;
+    return window.number_format(mc / 100_000_000, {
+        decimals: 2,
+        prefix: '$',
+    });
+};
