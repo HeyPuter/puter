@@ -61,7 +61,7 @@ const new_context_menu_item = function (dirname, append_to_element) {
         // Web Link
         {
             html: 'Web Link',
-            icon: `<img src="${html_encode(window.icons['link.svg'])}" class="ctx-item-icon">`,
+            icon: `<img src="${html_encode(window.icons['link.svg'])}" class="ctx-item-icon ctx-item-icon-monochrome">`,
             onClick: async function () {
                 // Prompt user for URL
                 const url = await UIPrompt({

@@ -5445,8 +5445,11 @@ body.myapps-reordering .myapps-tile {
     opacity: 0.7;
 }
 
+/* Most img icons in these menus are full-color (app icons in Open With,
+   file-type icons in New) and must keep their colors in dark mode — only
+   monochrome dark glyphs opt in to inversion via .ctx-item-icon-monochrome. */
 @media (prefers-color-scheme: dark) {
-    .context-menu-modal-dialog .context-menu-item-icon img {
+    .context-menu-modal-dialog .context-menu-item-icon img.ctx-item-icon-monochrome {
         filter: invert(1);
     }
 }
