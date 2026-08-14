@@ -2762,6 +2762,120 @@ describe('FSService copy', () => {
     });
 });
 
+describe('FSService restructuring a shared tree', () => {
+    let owner: TestUser;
+    let holder: TestUser;
+    let shared: FSEntry;
+
+    const shareWrite = (entry: FSEntry) =>
+        server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: entry.path,
+                resolveAncestors: () => fs.getAncestorChain(entry.path),
+            },
+            'write',
+        );
+
+    const asHolder = <T>(run: () => Promise<T>): Promise<T> =>
+        runWithContext({ actor: holder.actor }, run);
+
+    const stillThere = async (path: string) =>
+        (await server.stores.fsEntry.getEntryByPath(path, {
+            skipCache: true,
+        })) !== null;
+
+    beforeAll(async () => {
+        owner = await makeUser();
+        holder = await makeUser();
+        shared = await fs.mkdir(owner.userId, {
+            path: `${owner.home}/Documents/Contents`,
+        });
+        await shareWrite(shared);
+    });
+
+    it('lets a recipient delete a file inside the shared folder', async () => {
+        const file = await writeFile(owner, `${shared.path}/gone.txt`, 'x');
+
+        await asHolder(() => fs.remove(holder.userId, { entry: file }));
+
+        expect(await stillThere(file.path)).toBe(false);
+    });
+
+    it('lets a recipient delete a subfolder of the shared folder', async () => {
+        const sub = await fs.mkdir(owner.userId, {
+            path: `${shared.path}/sub`,
+        });
+        await writeFile(owner, `${sub.path}/deep.txt`, 'x');
+
+        await asHolder(() =>
+            fs.remove(holder.userId, { entry: sub, recursive: true }),
+        );
+
+        expect(await stillThere(sub.path)).toBe(false);
+        expect(await stillThere(`${sub.path}/deep.txt`)).toBe(false);
+    });
+
+    it('lets a recipient rename a file inside the shared folder', async () => {
+        const file = await writeFile(owner, `${shared.path}/before.txt`, 'x');
+
+        const renamed = await asHolder(() =>
+            fs.rename(holder.userId, file, 'after.txt'),
+        );
+
+        expect(renamed.path).toBe(`${shared.path}/after.txt`);
+        expect(renamed.userId).toBe(owner.userId);
+    });
+
+    it('refuses to let a recipient delete the shared folder itself', async () => {
+        const error = await caught(() =>
+            asHolder(() =>
+                fs.remove(holder.userId, { entry: shared, recursive: true }),
+            ),
+        );
+
+        expect(error.statusCode).toBe(403);
+        expect(error.legacyCode).toBe('forbidden');
+        expect(await stillThere(shared.path)).toBe(true);
+    });
+
+    it('refuses to let a recipient rename the shared folder itself', async () => {
+        const error = await caught(() =>
+            asHolder(() => fs.rename(holder.userId, shared, 'Renamed')),
+        );
+
+        expect(error.statusCode).toBe(403);
+        expect(await stillThere(shared.path)).toBe(true);
+    });
+
+    it('refuses to let a recipient rename a file shared directly with them', async () => {
+        const file = await writeFile(owner, `${owner.home}/direct.txt`, 'x');
+        await shareWrite(file);
+
+        const error = await caught(() =>
+            asHolder(() => fs.rename(holder.userId, file, 'mine.txt')),
+        );
+
+        expect(error.statusCode).toBe(403);
+        expect(await stillThere(file.path)).toBe(true);
+    });
+
+    it('refuses a stranger with no share at all', async () => {
+        const stranger = await makeUser();
+        const file = await writeFile(owner, `${shared.path}/private.txt`, 'x');
+
+        const error = await caught(() =>
+            runWithContext({ actor: stranger.actor }, () =>
+                fs.remove(stranger.userId, { entry: file }),
+            ),
+        );
+
+        expect(error.statusCode).toBe(403);
+        expect(await stillThere(file.path)).toBe(true);
+    });
+});
+
 describe('FSService access checks', () => {
     let owner: TestUser;
     let stranger: TestUser;

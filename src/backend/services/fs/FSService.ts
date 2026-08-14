@@ -3253,15 +3253,7 @@ export class FSService extends PuterService {
         entry: FSEntry,
         newName: string,
     ): Promise<FSEntry> {
-        if (entry.userId !== userId) {
-            // Same policy as remove/move: ACL write on a shared entry does not
-            // extend to restructuring the owner's tree.
-            throw new HttpError(
-                403,
-                'Cannot rename an entry owned by another user',
-                { legacyCode: 'forbidden' },
-            );
-        }
+        await this.#assertCanRestructure(entry, userId);
         if (newName.includes('/'))
             throw new HttpError(400, 'Name cannot contain a slash', {
                 legacyCode: 'bad_request',
@@ -3389,6 +3381,35 @@ export class FSService extends PuterService {
         }
     }
 
+    /**
+     * Rename, move and delete are authorized by `write` on the parent, not on
+     * the entry — which is what lets a share recipient reorganize inside a
+     * shared folder without reaching the shared folder itself.
+     */
+    async #assertCanRestructure(entry: FSEntry, userId: number): Promise<void> {
+        if (entry.userId === userId) return;
+
+        const actor = Context.get('actor') as Actor | undefined;
+        const parentPath = pathPosix.dirname(entry.path);
+        if (actor && parentPath !== '/') {
+            const allowed = await this.services.acl.check(
+                actor,
+                {
+                    path: parentPath,
+                    resolveAncestors: () => this.getAncestorChain(parentPath),
+                },
+                'write',
+            );
+            if (allowed) return;
+        }
+
+        throw new HttpError(
+            403,
+            'Cannot restructure an entry owned by another user',
+            { legacyCode: 'forbidden' },
+        );
+    }
+
     async remove(
         userId: number,
         input: {
@@ -3407,20 +3428,11 @@ export class FSService extends PuterService {
         if (!input.systemInitiated) {
             await this.#assertCrossAppDeleteAllowed(entry.path);
         }
-        if (entry.userId !== userId) {
-            // Defensive — only the owner should be hitting this path; higher
-            // layers grant access via ACL, not raw ownership, but we still
-            // want to avoid a misrouted call taking out someone else's tree.
-            throw new HttpError(
-                403,
-                'Cannot remove an entry owned by another user',
-                { legacyCode: 'forbidden' },
-            );
-        }
+        await this.#assertCanRestructure(entry, userId);
 
         if (entry.isDir) {
             const descendants = await this.stores.fsEntry.listDescendantsByPath(
-                userId,
+                entry.userId,
                 entry.path,
             );
             if (descendants.length > 0 && !input.recursive) {
@@ -3642,13 +3654,7 @@ export class FSService extends PuterService {
         // The source only: moving *into* another app's AppData is a write, and
         // ACL plus the fs:write class already cover that.
         await this.#assertCrossAppDeleteAllowed(source.path);
-        if (source.userId !== userId) {
-            throw new HttpError(
-                403,
-                'Cannot move an entry owned by another user',
-                { legacyCode: 'forbidden' },
-            );
-        }
+        await this.#assertCanRestructure(source, userId);
         if (!destinationParent.isDir) {
             throw new HttpError(400, 'Destination parent is not a directory', {
                 legacyCode: 'dest_is_not_a_directory',
@@ -3715,7 +3721,7 @@ export class FSService extends PuterService {
 
         if (source.isDir && source.path !== finalPath) {
             await this.stores.fsEntry.updatePathPrefixForUser(
-                userId,
+                source.userId,
                 source.path,
                 finalPath,
             );
