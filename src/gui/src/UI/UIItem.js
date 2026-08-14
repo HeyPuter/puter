@@ -32,6 +32,8 @@ import open_item from '../helpers/open_item.js';
 import publish_as_website from '../helpers/publish_as_website.js';
 import mime from '../lib/mime.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js';
+import { is_owned_by_me } from '../helpers/path_owner.js';
+import { shared_mode_for } from '../helpers/shared_access.js';
 
 const AI_APP_NAME = 'ai';
 
