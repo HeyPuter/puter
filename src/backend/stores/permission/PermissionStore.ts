@@ -257,6 +257,7 @@ export class PermissionStore extends PuterStore {
         );
         await this.publishCacheKeys({
             keys: [this.#u2uCacheKey(holderUserId)],
+            broadcast: true,
         });
     }
 
@@ -280,6 +281,7 @@ export class PermissionStore extends PuterStore {
         if (!result.anyRowsAffected) return false;
         await this.publishCacheKeys({
             keys: [this.#u2uCacheKey(holderUserId)],
+            broadcast: true,
         });
         return true;
     }
@@ -332,7 +334,8 @@ export class PermissionStore extends PuterStore {
         const keys = [
             ...new Set(rows.map((r) => this.#u2uCacheKey(r.holder_user_id))),
         ];
-        if (keys.length > 0) await this.publishCacheKeys({ keys });
+        if (keys.length > 0)
+            await this.publishCacheKeys({ keys, broadcast: true });
 
         return rows;
     }
@@ -405,6 +408,7 @@ export class PermissionStore extends PuterStore {
         );
         await this.publishCacheKeys({
             keys: [this.#u2aCacheKey(userId, appId)],
+            broadcast: true,
         });
     }
 
@@ -419,6 +423,7 @@ export class PermissionStore extends PuterStore {
         );
         await this.publishCacheKeys({
             keys: [this.#u2aCacheKey(userId, appId)],
+            broadcast: true,
         });
     }
 
@@ -429,6 +434,7 @@ export class PermissionStore extends PuterStore {
         );
         await this.publishCacheKeys({
             keys: [this.#u2aCacheKey(userId, appId)],
+            broadcast: true,
         });
     }
 
@@ -501,7 +507,8 @@ export class PermissionStore extends PuterStore {
                     .map((r) => this.#u2aCacheKey(r.user_id, r.app_id)),
             ),
         ];
-        if (keys.length > 0) await this.publishCacheKeys({ keys });
+        if (keys.length > 0)
+            await this.publishCacheKeys({ keys, broadcast: true });
 
         return removed;
     }
@@ -706,6 +713,7 @@ export class PermissionStore extends PuterStore {
     async invalidateAccessTokenPerms(tokenUid: string): Promise<void> {
         await this.publishCacheKeys({
             keys: [this.#tokenCacheKey(tokenUid)],
+            broadcast: true,
         });
     }
 

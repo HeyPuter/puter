@@ -854,6 +854,35 @@ describe('PermissionStore', () => {
             ).toEqual([]);
         });
 
+        it('broadcasts a revoked row-cache key so peer regions drop it too', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            await store.upsertUserUserPerm(
+                holder.id,
+                issuer.id,
+                'fs:u:read',
+                {},
+            );
+
+            const seen: unknown[] = [];
+            server.clients.event.on('outer.cacheUpdate', (_key, data) => {
+                seen.push(data);
+            });
+
+            await store.deleteUserUserPermByHolder(
+                holder.id,
+                'fs:u:read',
+                issuer.id,
+            );
+
+            // Without the broadcast, a peer region's warm `perms:u2u:holder:*`
+            // cache keeps serving the revoked row for its full TTL — and every
+            // scan there re-warms the flat view from it.
+            expect(seen).toContainEqual({
+                cacheKey: [`perms:u2u:holder:${holder.id}`],
+            });
+        });
+
         it('returns nothing for an empty permission list', async () => {
             const holder = await makeUser();
             expect(await store.readLinkedUserUserPerms(holder.id, [])).toEqual(
