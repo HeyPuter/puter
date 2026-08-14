@@ -921,64 +921,6 @@ input.myapps-search:disabled {
     padding: 20px 0 18px;
 }
 
-/* "From the App Center" strip under a search with no local matches. */
-.myapps-discover {
-    padding: 0 8px 16px;
-}
-
-.myapps-discover-title {
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--dashboard-text-tertiary);
-    margin-bottom: 10px;
-    text-align: center;
-}
-
-.myapps-discover-row {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 14px;
-}
-
-.myapps-discover-tile {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    width: 96px;
-    padding: 10px 4px;
-    border-radius: 10px;
-    cursor: pointer;
-    text-align: center;
-}
-
-.myapps-discover-tile:hover,
-.myapps-discover-tile:focus-visible {
-    background: var(--dashboard-hover-bg, rgba(127, 127, 127, 0.12));
-}
-
-.myapps-discover-tile img,
-.myapps-discover-tile-blank {
-    width: 48px;
-    height: 48px;
-    border-radius: 10px;
-    object-fit: cover;
-}
-
-.myapps-discover-tile-blank {
-    background: rgba(127, 127, 127, 0.15);
-}
-
-.myapps-discover-tile span {
-    font-size: 12px;
-    color: var(--dashboard-text-secondary);
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
 /* iOS-style pager: pages snap horizontally, dots below, hover arrows */
 
 .myapps-pager {
