@@ -959,6 +959,28 @@ describe('acquireConcurrent — orphan recovery (redis)', () => {
 
         expect((await acquireConcurrent(key, 1)).ok).toBe(true);
     });
+
+    it('heals a legacy string counter key and enforces the limit again', async () => {
+        // The pre-zset implementation stored these buckets as INCR string
+        // counters. Against such a key every zset command fails WRONGTYPE
+        // inside the MULTI while the trailing EXPIRE succeeds — so traffic
+        // kept the stale key alive indefinitely, and the undefined zcard
+        // result (NaN) admitted every caller unbounded.
+        // The file-level afterEach resets wiring to memory after every test,
+        // so re-point the default at this suite's redis for this test.
+        configureRateLimit({ default: 'redis', redis });
+        const key = 'legacy-counter';
+        await redis.set(`concurrent:${key}`, '7');
+
+        const first = await acquireConcurrent(key, 1);
+        expect(first.ok).toBe(true);
+        // The key was rebuilt as a zset and the cap is live again.
+        expect(await redis.type(`concurrent:${key}`)).toBe('zset');
+        expect((await acquireConcurrent(key, 1)).ok).toBe(false);
+
+        await first.release();
+        expect((await acquireConcurrent(key, 1)).ok).toBe(true);
+    });
 });
 
 // ── concurrency: subscription-based limits ──────────────────────────
