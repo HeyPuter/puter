@@ -6,6 +6,10 @@ import {
     servicesContainers,
 } from '@heyputer/backend/src/exports';
 import { extension } from '@heyputer/backend/src/extensions';
+import {
+    creditMultiplierFrom,
+    toCredits,
+} from '@heyputer/backend/src/services/metering/utils';
 import type { Request, Response } from 'express';
 
 const services = extension.import('service');
@@ -50,6 +54,40 @@ function collectAllCosts(): Record<string, unknown>[] {
     return all;
 }
 
+// -- Credits scaling ---------------------------------------------------
+//
+// When the deployment configures a credit multiplier, every monetary amount
+// is scaled to display credits BEFORE it leaves the server — raw metered
+// amounts are never reported. Counts, units, and byte figures pass through
+// untouched. A response that was scaled says so (`unit: 'credits'`); without
+// a configured multiplier amounts pass through raw and clients render them
+// as dollars.
+
+/** The per-usage-type records of a UsageByType map, costs scaled. */
+const scaleUsageByType = (
+    usage: Record<string, unknown>,
+    multiplier: number,
+): Record<string, unknown> => {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(usage)) {
+        if (key === 'total') {
+            out.total = toCredits(Number(value) || 0, multiplier);
+        } else if (
+            value &&
+            typeof value === 'object' &&
+            typeof (value as { cost?: unknown }).cost === 'number'
+        ) {
+            out[key] = {
+                ...(value as Record<string, unknown>),
+                cost: toCredits((value as { cost: number }).cost, multiplier),
+            };
+        } else {
+            out[key] = value;
+        }
+    }
+    return out;
+};
+
 export const handleMeteringUsage = async (
     _req: Request,
     res: Response,
@@ -61,7 +99,44 @@ export const handleMeteringUsage = async (
         services.metering.getActorCurrentMonthUsageDetails(actor),
         services.metering.getAllowedUsage(actor),
     ]);
-    res.json({ ...actorUsage, allowanceInfo });
+    const multiplier = creditMultiplierFrom(extension.config);
+    if (!multiplier) {
+        res.json({ ...actorUsage, allowanceInfo });
+        return;
+    }
+    res.json({
+        usage: scaleUsageByType(
+            actorUsage.usage as unknown as Record<string, unknown>,
+            multiplier,
+        ),
+        appTotals: Object.fromEntries(
+            Object.entries(actorUsage.appTotals).map(([appId, totals]) => [
+                appId,
+                { ...totals, total: toCredits(totals.total, multiplier) },
+            ]),
+        ),
+        allowanceInfo: {
+            ...allowanceInfo,
+            remaining: toCredits(allowanceInfo.remaining, multiplier),
+            monthUsageAllowance: toCredits(
+                allowanceInfo.monthUsageAllowance,
+                multiplier,
+            ),
+            // Monetary addon fields scale; absent ones stay absent rather
+            // than materializing as NaN/null. purchasedStorage is bytes.
+            addons: Object.fromEntries(
+                Object.entries(allowanceInfo.addons ?? {}).map(([k, v]) => [
+                    k,
+                    (k === 'purchasedCredits' ||
+                        k === 'consumedPurchaseCredits') &&
+                    typeof v === 'number'
+                        ? toCredits(v, multiplier)
+                        : v,
+                ]),
+            ),
+            unit: 'credits',
+        },
+    });
 };
 
 export const handleMeteringUsageForApp = async (
@@ -92,7 +167,18 @@ export const handleMeteringUsageForApp = async (
             actor,
             appId,
         );
-    res.json(appUsage);
+    const multiplier = creditMultiplierFrom(extension.config);
+    if (!multiplier) {
+        res.json(appUsage);
+        return;
+    }
+    res.json({
+        ...scaleUsageByType(
+            appUsage as unknown as Record<string, unknown>,
+            multiplier,
+        ),
+        unit: 'credits',
+    });
 };
 
 export const handleMeteringGlobalUsage = async (
@@ -109,7 +195,23 @@ export const handleMeteringAllCosts = async (
     res: Response,
 ): Promise<void> => {
     if (!cachedAllCosts) {
-        cachedAllCosts = collectAllCosts();
+        const raw = collectAllCosts();
+        const multiplier = creditMultiplierFrom(extension.config);
+        // Price the catalogue in the same unit the usage endpoints report:
+        // per-unit credits when a multiplier is configured, raw otherwise.
+        cachedAllCosts = multiplier
+            ? raw.map(({ ucentsPerUnit, costs_currency: _cc, ...rest }) =>
+                  typeof ucentsPerUnit === 'number'
+                      ? {
+                            ...rest,
+                            creditsPerUnit: toCredits(
+                                ucentsPerUnit,
+                                multiplier,
+                            ),
+                        }
+                      : rest,
+              )
+            : raw;
     }
     res.json({ costs: cachedAllCosts });
 };

@@ -331,6 +331,18 @@ export class MeteringService extends PuterService {
     }
 
     /**
+     * The registered policy for a subscription id, extension-registered
+     * policies first (they shadow the built-ins, matching how
+     * `#resolveActorSubscription` searches). Lets pricing surfaces derive
+     * display figures from the same allowance metering actually enforces.
+     */
+    getRegisteredPolicy(id: string): SubscriptionPolicy | undefined {
+        return [...this.extraPolicies, ...SUB_POLICIES].find(
+            (p) => p.id === id,
+        );
+    }
+
+    /**
      * Register a resolver that maps an actor to a subscription id. The first
      * resolver that returns a non-empty id wins; later resolvers are skipped.
      */

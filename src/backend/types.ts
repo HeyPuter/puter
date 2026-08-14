@@ -1001,6 +1001,15 @@ interface IConfigOptional {
         enabled?: boolean;
         workers?: boolean;
     };
+
+    /**
+     * Display multiplier converting metered amounts into the "credits" clients
+     * show. Applied server-side by the usage-reporting endpoints, so raw
+     * metered amounts never leave the API; purely presentational, so it can
+     * change without a data migration. No default — when unset, the endpoints
+     * report raw amounts and clients render dollars.
+     */
+    creditMultiplier?: number;
 }
 
 /**
