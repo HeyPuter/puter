@@ -79,7 +79,10 @@ describe('share consistency across KV, SQL and Redis', () => {
         const found = await server.stores.user.getByUsername(username);
         if (!found) throw new Error('test user missing');
         const email = `${username}@test.local`;
-        await server.stores.user.update(found.id, { email });
+        await server.stores.user.update(found.id, {
+            email,
+            email_confirmed: true,
+        });
         const user = await server.stores.user.getById(found.id, {
             force: true,
         });

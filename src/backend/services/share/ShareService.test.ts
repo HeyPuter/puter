@@ -41,7 +41,10 @@ describe('ShareService', () => {
         const user = await server.stores.user.getByUsername(username);
         if (!user) throw new Error('test user missing');
         const email = `${username}@test.local`;
-        await server.stores.user.update(user.id, { email });
+        await server.stores.user.update(user.id, {
+            email,
+            email_confirmed: true,
+        });
         const fresh = await server.stores.user.getById(user.id, {
             force: true,
         });
@@ -200,6 +203,33 @@ describe('ShareService', () => {
                 mode: 'wizard',
             }),
         ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('does not resolve an email its account has not confirmed', async () => {
+        const owner = await makeUser();
+        const squatter = await makeUser();
+        await server.stores.user.update(squatter.user.id, {
+            email_confirmed: false,
+        });
+        const file = await makeFile(owner.user);
+
+        await expect(
+            share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: squatter.email },
+                mode: 'read',
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 404,
+            legacyCode: 'user_does_not_exist',
+        });
+
+        // A username names exactly one account, confirmed or not.
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { username: squatter.user.username },
+            mode: 'read',
+        });
     });
 
     it('hides a file from a stranger trying to share it', async () => {

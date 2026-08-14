@@ -661,7 +661,10 @@ export class ShareService extends PuterService {
             : username
               ? await this.stores.user.getByUsername(username)
               : null;
-        if (!user?.username) {
+        // An unconfirmed email is a claim, not an identity: resolving it would
+        // hand the share to whoever registered the address first.
+        const unconfirmedEmailMatch = Boolean(email) && !user?.email_confirmed;
+        if (!user?.username || unconfirmedEmailMatch) {
             throw new HttpError(404, 'Recipient does not exist', {
                 legacyCode: 'user_does_not_exist',
             });
