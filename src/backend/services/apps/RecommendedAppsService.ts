@@ -49,6 +49,7 @@ const RECOMMENDED_APP_NAMES = [
     'chess',
     'checkers',
     'backgammon',
+    'klondike',
     'blockup',
     'basketball-tap',
 ];
