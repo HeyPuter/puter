@@ -52,6 +52,7 @@ When in doubt, return less. Auth-, permission-, or data-export-related changes d
 - **Test new behavior.** Every new function, endpoint, driver method, or logic branch gets a test; every bug fix gets a regression test that fails before the fix. If something is genuinely hard to test, skip it but say so in the PR.
 - **Boy Scout Rule, proportional to the change.** Fix the obvious typo or dead import in files you're already touching; don't ride a refactor along with a bug fix.
 - **Understand what you commit.** AI assistance is fine; shipping code you couldn't defend in review is not.
+- **A limit change is not done until the docs change with it.** Every rate limit, concurrency cap, quota, and allowance in the code is published in [src/docs/src/rate-limits-and-quotas.md](src/docs/src/rate-limits-and-quotas.md) — an undisclosed limit is one developers discover as a service failure. If a PR moves any of these numbers, the same PR updates that page. The numbers live in `src/backend/controllers/fs/limits.ts` (filesystem), `src/backend/drivers/util/aiLimits.ts` (all AI drivers), per-driver `rateLimit`/`concurrent` configs, and `src/backend/data/subPolicies/` (free-tier allowances).
 
 ---
 
