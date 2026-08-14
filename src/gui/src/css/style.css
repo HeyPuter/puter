@@ -2445,6 +2445,93 @@ label {
     position: relative;
 }
 
+/* Contact Us attachments (screenshots and screen recordings on bug reports) */
+.feedback-form {
+    border: 1px dashed transparent;
+    border-radius: 4px;
+    /* Hold the dashed drop outline off the fields without shifting them. */
+    margin: -6px;
+    padding: 6px;
+}
+
+.feedback-form-dragover {
+    border-color: #4092da;
+    background-color: rgb(64 146 218 / 6%);
+}
+
+.feedback-attachments {
+    margin-top: 10px;
+}
+
+.feedback-attach-hint {
+    display: block;
+    margin-top: 6px;
+    font-size: 12px;
+    color: #5f6b7a;
+}
+
+.feedback-attachment-list {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+}
+
+.feedback-attachment {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    margin-bottom: 4px;
+    font-size: 13px;
+    border: 1px solid #dfe3e8;
+    border-radius: 4px;
+    background-color: #fff;
+}
+
+.feedback-attachment-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.feedback-attachment-size {
+    flex-shrink: 0;
+    color: #5f6b7a;
+    font-size: 12px;
+}
+
+.feedback-attachment-remove {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: 3px;
+    background: none;
+    color: #5f6b7a;
+    font-size: 17px;
+    line-height: 18px;
+    cursor: pointer;
+}
+
+.feedback-attachment-remove:hover:not(:disabled) {
+    background-color: #eef1f4;
+    color: #12181f;
+}
+
+.feedback-attachment-remove:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.feedback-error {
+    margin: 10px 0 0;
+    font-size: 13px;
+    color: #b3261e;
+}
+
 .save-account-success {
     display: none;
     padding: 30px;
@@ -5932,6 +6019,10 @@ html.dark-mode .usage-table-show-less:hover {
 }
 
 .device-phone .send-feedback-btn {
+    width: 100%;
+}
+
+.device-phone .feedback-attach-btn {
     width: 100%;
 }
 

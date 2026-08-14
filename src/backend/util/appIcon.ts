@@ -17,6 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { decodeStrictBase64, sniffImageMime } from './mediaSniff.js';
+
+// Re-exported because this module was the original home of the sniffer; the
+// implementation now lives in mediaSniff.js alongside the video counterpart.
+export { sniffImageMime };
+
 // Always routes through the backend `/app-icon/<uid>/<size>` endpoint rather
 // than the `puter-app-icons` subdomain directly. Some apps (especially those
 // imported with a URL icon column that predates the sharp pipeline) only have
@@ -56,93 +62,15 @@ interface TrustedIconHostConfig {
 }
 
 const RAW_BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/;
-const BASE64_CHARS_REGEX = /^[A-Za-z0-9+/]*={0,2}$/;
 // `data:<type>/<subtype>[;param[=value]]…,<payload>`. The parameter list is
 // matched as a group of its own so it can be checked exhaustively — the
 // previous prefix-scan only looked at the bytes before the first `;` or `,`
 // and never inspected the payload at all.
 const DATA_URL_REGEX =
     /^data:([a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*)((?:;[a-z0-9!#$&^_.+-]+(?:=[^;,]*)?)*),([\s\S]*)$/i;
-// Cap on how far into a payload we look for the `<svg` root element. SVG is
-// the one allow-listed type without a fixed-offset magic number; a file that
-// buries its root past this much leading comment/PI text is not something we
-// need to accept.
-const SVG_SNIFF_WINDOW = 8 * 1024;
-
-/**
- * Decode strict base64 — no whitespace, correct padding, and byte-for-byte
- * round-trip. `Buffer.from(s, 'base64')` silently skips characters it doesn't
- * recognise, so `iVBORw0KGgo=" onerror=alert(1)` decodes without complaint; the
- * round-trip is what rejects it.
- */
-function decodeStrictBase64(value: string): Buffer | null {
-    if (!BASE64_CHARS_REGEX.test(value)) return null;
-    if (value.length === 0 || value.length % 4 !== 0) return null;
-    try {
-        const decoded = Buffer.from(value, 'base64');
-        if (decoded.length === 0) return null;
-        const stripped = value.replace(/=+$/, '');
-        const reencoded = decoded.toString('base64').replace(/=+$/, '');
-        return stripped === reencoded ? decoded : null;
-    } catch {
-        return null;
-    }
-}
-
 /** `image/jpg` is a common misspelling of `image/jpeg`; treat them as one. */
 function canonicalImageMime(mime: string): string {
     return mime === 'image/jpg' ? 'image/jpeg' : mime;
-}
-
-function looksLikeSvg(bytes: Buffer): boolean {
-    let head = bytes.subarray(0, SVG_SNIFF_WINDOW).toString('utf8');
-    if (head.charCodeAt(0) === 0xfeff) head = head.slice(1);
-    // Must open as markup (rules out arbitrary text that merely mentions
-    // `<svg` somewhere), and must actually contain an `<svg` root.
-    if (!head.trimStart().startsWith('<')) return false;
-    return /<svg[\s/>]/i.test(head);
-}
-
-/**
- * Identify image bytes by content, returning a canonical allow-listed MIME type
- * or null. Signature-based: the declared MIME on a data URL is caller input and
- * cannot be trusted to describe the payload.
- */
-export function sniffImageMime(bytes: Buffer): string | null {
-    if (
-        bytes.length >= 8 &&
-        bytes[0] === 0x89 &&
-        bytes[1] === 0x50 &&
-        bytes[2] === 0x4e &&
-        bytes[3] === 0x47 &&
-        bytes[4] === 0x0d &&
-        bytes[5] === 0x0a &&
-        bytes[6] === 0x1a &&
-        bytes[7] === 0x0a
-    ) {
-        return 'image/png';
-    }
-    if (
-        bytes.length >= 3 &&
-        bytes[0] === 0xff &&
-        bytes[1] === 0xd8 &&
-        bytes[2] === 0xff
-    ) {
-        return 'image/jpeg';
-    }
-    if (bytes.length >= 6) {
-        const head = bytes.subarray(0, 6).toString('latin1');
-        if (head === 'GIF87a' || head === 'GIF89a') return 'image/gif';
-    }
-    if (
-        bytes.length >= 12 &&
-        bytes.subarray(0, 4).toString('latin1') === 'RIFF' &&
-        bytes.subarray(8, 12).toString('latin1') === 'WEBP'
-    ) {
-        return 'image/webp';
-    }
-    if (looksLikeSvg(bytes)) return 'image/svg+xml';
-    return null;
 }
 
 export interface IconDataUrlVerdict {
