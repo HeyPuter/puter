@@ -3246,7 +3246,20 @@ export class FSService extends PuterService {
      * Rename an entry in place. The name changes and path rewrites; if the
      * entry is a directory, descendant paths are rewritten too.
      */
-    async rename(entry: FSEntry, newName: string): Promise<FSEntry> {
+    async rename(
+        userId: number,
+        entry: FSEntry,
+        newName: string,
+    ): Promise<FSEntry> {
+        if (entry.userId !== userId) {
+            // Same policy as remove/move: ACL write on a shared entry does not
+            // extend to restructuring the owner's tree.
+            throw new HttpError(
+                403,
+                'Cannot rename an entry owned by another user',
+                { legacyCode: 'forbidden' },
+            );
+        }
         if (newName.includes('/'))
             throw new HttpError(400, 'Name cannot contain a slash', {
                 legacyCode: 'bad_request',

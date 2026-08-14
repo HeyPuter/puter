@@ -946,7 +946,8 @@ export class LegacyFSController extends PuterController {
             'write',
         );
 
-        const renamed = await this.services.fs.rename(entry, newName);
+        const userId = this.#getActorUserId(req);
+        const renamed = await this.services.fs.rename(userId, entry, newName);
         await this.#emitGuiEvent('outer.gui.item.updated', renamed);
         res.json(await toLegacyEntry(this.clients.event, renamed));
     };
@@ -1522,7 +1523,11 @@ export class LegacyFSController extends PuterController {
                 targetEntry.path,
                 'write',
             );
-            const renamed = await this.services.fs.rename(targetEntry, newName);
+            const renamed = await this.services.fs.rename(
+                userId,
+                targetEntry,
+                newName,
+            );
             await this.#emitGuiEvent('outer.gui.item.updated', renamed);
             res.json({
                 ...signEntry(renamed, signingCfg, {

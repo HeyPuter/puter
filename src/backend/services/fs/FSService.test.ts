@@ -2111,7 +2111,7 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
             `${user.home}/Documents/before.txt`,
             'x',
         );
-        const renamed = await fs.rename(entry, 'after.txt');
+        const renamed = await fs.rename(user.userId, entry, 'after.txt');
 
         expect(renamed.name).toBe('after.txt');
         expect(renamed.path).toBe(`${user.home}/Documents/after.txt`);
@@ -2124,7 +2124,7 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
         });
         await writeFile(user, `${user.home}/Documents/olddir/inner.txt`, 'x');
 
-        await fs.rename(dir, 'newdir');
+        await fs.rename(user.userId, dir, 'newdir');
 
         expect(
             await entryAt(user, '/Documents/newdir/inner.txt'),
@@ -2140,18 +2140,34 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
         );
         await writeFile(user, `${user.home}/Documents/taken.txt`, 'x');
 
-        expect((await caught(() => fs.rename(entry, 'a/b'))).message).toBe(
+        expect((await caught(() => fs.rename(user.userId, entry, 'a/b'))).message).toBe(
             'Name cannot contain a slash',
         );
-        expect((await caught(() => fs.rename(entry, '   '))).message).toBe(
+        expect((await caught(() => fs.rename(user.userId, entry, '   '))).message).toBe(
             'Name cannot be empty',
         );
         expect(
-            (await caught(() => fs.rename(entry, 'taken.txt'))).statusCode,
+            (await caught(() => fs.rename(user.userId, entry, 'taken.txt'))).statusCode,
         ).toBe(409);
 
         // Renaming to the current name is a no-op that returns the same row.
-        await expect(fs.rename(entry, 'ren.txt')).resolves.toBe(entry);
+        await expect(fs.rename(user.userId, entry, 'ren.txt')).resolves.toBe(entry);
+    });
+
+    it("refuses to rename another user's entry, matching remove and move", async () => {
+        const other = await makeUser();
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/theirs.txt`,
+            'x',
+        );
+
+        // A write-mode share recipient passes the ACL but must not be able to
+        // restructure the owner's tree — the same policy remove/move enforce.
+        await expect(
+            fs.rename(other.userId, entry, 'renamed.txt'),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        expect(await entryAt(user, '/Documents/theirs.txt')).not.toBeNull();
     });
 
     it('creates a shortcut, conflicts on a taken name and dedupes on request', async () => {
@@ -2707,7 +2723,7 @@ describe('FSService copy', () => {
         expect(first.path).toBe(`${user.home}/Desktop/phantom.txt`);
 
         // Renaming the occupant frees the path...
-        await fs.rename(first, 'phantom-renamed.txt');
+        await fs.rename(user.userId, first, 'phantom-renamed.txt');
 
         // ...so an immediate re-copy must succeed. A stale path-cache entry
         // for the old name used to surface a phantom conflict here — and a
@@ -3081,7 +3097,7 @@ describe('FSService — cross-app AppData access', () => {
             asCalendar(() => fs.remove(owner.userId, { entry: contactsFile })),
         ).rejects.toMatchObject({ statusCode: 403 });
         await expect(
-            asCalendar(() => fs.rename(contactsFile, 'renamed.json')),
+            asCalendar(() => fs.rename(owner.userId, contactsFile, 'renamed.json')),
         ).rejects.toMatchObject({ statusCode: 403 });
 
         const desktop = (await server.stores.fsEntry.getEntryByPath(
@@ -3110,7 +3126,7 @@ describe('FSService — cross-app AppData access', () => {
     it('allows rename once the delete class is granted', async () => {
         await grant(appDataPermission(contacts.uid, 'fs', 'delete'));
         const renamed = await asCalendar(() =>
-            fs.rename(contactsFile, 'renamed.json'),
+            fs.rename(owner.userId, contactsFile, 'renamed.json'),
         );
         expect(renamed.name).toBe('renamed.json');
     });

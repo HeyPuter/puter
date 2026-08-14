@@ -1466,7 +1466,8 @@ export class FSController extends PuterController {
         const entry = await this.#resolveEntryForRequest(body);
         await this.#assertAccess(actor, entry.path, 'write');
 
-        const renamed = await this.services.fs.rename(entry, newName);
+        const userId = this.#getActorUserId(req);
+        const renamed = await this.services.fs.rename(userId, entry, newName);
         this.#emitGuiItemUpdated(renamed);
         res.json(this.#toClientEntry(renamed));
     }
