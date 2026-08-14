@@ -743,6 +743,17 @@ export class FSService extends PuterService {
         return Math.max(allowanceMax, storageAllowanceMaxOverride);
     }
 
+    /**
+     * Whose allowance a write to `path` draws on — the owner of the tree it
+     * lands in, which is not the writer when the folder was shared with them.
+     */
+    async #storageOwnerOf(path: string, actingUserId: number): Promise<number> {
+        const home = `/${this.#normalizePath(path).split('/')[1] ?? ''}`;
+        if (home === '/') return actingUserId;
+        const entry = await this.stores.fsEntry.getEntryByPath(home);
+        return entry?.userId ?? actingUserId;
+    }
+
     async #assertStorageAllowance(
         userId: number,
         incomingSize: number,
@@ -1409,23 +1420,36 @@ export class FSService extends PuterService {
             }
         }
 
-        const sizeChanges = preparedBatch.items.map((item) => {
+        // One batch can straddle two trees, and each owner pays for its own.
+        const sizeChangesByOwner = new Map<
+            number,
+            Array<{ incomingSize: number; existingSize: number }>
+        >();
+        for (const item of preparedBatch.items) {
             const uploadedItem = uploadedItemMap.get(item.index);
-            return {
+            const owner = await this.#storageOwnerOf(
+                item.normalizedInput.path,
+                preparedBatch.userId,
+            );
+            const sizeChanges = sizeChangesByOwner.get(owner) ?? [];
+            sizeChanges.push({
                 incomingSize: uploadedItem
                     ? uploadedItem.uploadedSize
                     : item.normalizedInput.size,
                 existingSize: item.existingEntry?.size ?? 0,
-            };
-        });
+            });
+            sizeChangesByOwner.set(owner, sizeChanges);
+        }
 
         const storageAllowanceMax =
             storageAllowanceMaxOverride ?? preparedBatch.storageAllowanceMax;
-        await this.#assertStorageAllowanceForBatch(
-            preparedBatch.userId,
-            sizeChanges,
-            storageAllowanceMax,
-        );
+        for (const [owner, sizeChanges] of sizeChangesByOwner) {
+            await this.#assertStorageAllowanceForBatch(
+                owner,
+                sizeChanges,
+                storageAllowanceMax,
+            );
+        }
     }
 
     async uploadPreparedBatchItem(
@@ -1622,11 +1646,14 @@ export class FSService extends PuterService {
         const parentPath = pathPosix.dirname(normalizedInput.path);
         const [, { parentEntries, createdDirectoryEntries }] =
             await Promise.all([
-                this.#assertStorageAllowance(
-                    userId,
-                    normalizedInput.size,
-                    existingSize,
-                    storageAllowanceMax,
+                this.#storageOwnerOf(normalizedInput.path, userId).then(
+                    (owner) =>
+                        this.#assertStorageAllowance(
+                            owner,
+                            normalizedInput.size,
+                            existingSize,
+                            storageAllowanceMax,
+                        ),
                 ),
                 this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
                     userId,
@@ -1846,15 +1873,21 @@ export class FSService extends PuterService {
                 };
             });
 
-            const allowanceChecks: Array<{
-                incomingSize: number;
-                existingSize: number;
-            }> = [];
+            const allowanceChecksByOwner = new Map<
+                number,
+                Array<{ incomingSize: number; existingSize: number }>
+            >();
             for (const item of resolvedFileItems) {
-                allowanceChecks.push({
+                const owner = await this.#storageOwnerOf(
+                    item.normalizedInput.path,
+                    userId,
+                );
+                const checks = allowanceChecksByOwner.get(owner) ?? [];
+                checks.push({
                     incomingSize: item.normalizedInput.size,
                     existingSize: item.existingEntry?.size ?? 0,
                 });
+                allowanceChecksByOwner.set(owner, checks);
             }
             const [
                 ,
@@ -1863,10 +1896,14 @@ export class FSService extends PuterService {
                     createdDirectoryEntries: createdParentDirectoryEntries,
                 },
             ] = await Promise.all([
-                this.#assertStorageAllowanceForBatch(
-                    userId,
-                    allowanceChecks,
-                    storageAllowanceMax,
+                Promise.all(
+                    [...allowanceChecksByOwner].map(([owner, checks]) =>
+                        this.#assertStorageAllowanceForBatch(
+                            owner,
+                            checks,
+                            storageAllowanceMax,
+                        ),
+                    ),
                 ),
                 this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
                     userId,
@@ -2690,8 +2727,12 @@ export class FSService extends PuterService {
         normalizedInput.thumbnail = null;
 
         const existingSize = existingEntry?.size ?? 0;
-        await this.#assertStorageAllowance(
+        const storageOwner = await this.#storageOwnerOf(
+            normalizedInput.path,
             userId,
+        );
+        await this.#assertStorageAllowance(
+            storageOwner,
             normalizedInput.size,
             existingSize,
             storageAllowanceMax,
@@ -2728,7 +2769,7 @@ export class FSService extends PuterService {
         }
         if (uploadedSize > normalizedInput.size) {
             await this.#assertStorageAllowance(
-                userId,
+                storageOwner,
                 uploadedSize,
                 existingSize,
                 storageAllowanceMax,
@@ -3163,7 +3204,6 @@ export class FSService extends PuterService {
         let created: FSEntry;
         try {
             created = await this.stores.fsEntry.createNonFileEntry({
-                userId,
                 parent,
                 name,
                 kind: 'directory',
@@ -3235,7 +3275,6 @@ export class FSService extends PuterService {
             });
         }
         const created = await this.stores.fsEntry.createNonFileEntry({
-            userId,
             parent,
             name,
             kind: 'empty-file',
@@ -3329,7 +3368,6 @@ export class FSService extends PuterService {
             }
         }
         const created = await this.stores.fsEntry.createNonFileEntry({
-            userId,
             parent: input.parent,
             name,
             kind: 'shortcut',
@@ -3341,13 +3379,6 @@ export class FSService extends PuterService {
 
     // -- Mutation: remove / move / copy ---------------------------------
 
-    /**
-     * Remove an entry. For directories, descendants are walked and removed
-     * (both DB rows and S3 objects). Emits `fs.remove.node` per file so the
-     * thumbnail extension (and any other listener) can clean up side state.
-     *
-     * Does NOT enforce ACL — caller (controller) performs the `write` check.
-     */
     /**
      * Delete, move, and rename all ask ACL for `fs:write`, which cannot tell
      * them apart from an ordinary write — so the delete class is enforced here
@@ -3410,6 +3441,14 @@ export class FSService extends PuterService {
         );
     }
 
+    /**
+     * Remove an entry. For directories, descendants are walked and removed
+     * (both DB rows and S3 objects). Emits `fs.remove.node` per file so the
+     * thumbnail extension (and any other listener) can clean up side state.
+     *
+     * The caller checks `write` on the entry; the parent check that governs
+     * restructuring is enforced here.
+     */
     async remove(
         userId: number,
         input: {
@@ -3722,9 +3761,20 @@ export class FSService extends PuterService {
                 this.#stripReservedMetadataKeys(input.newMetadata),
             );
 
+        // Moving your entry into another tree hands it over, bytes included,
+        // so they have to fit the new owner's allowance.
+        const newOwnerId = destinationParent.userId;
+        if (newOwnerId !== source.userId) {
+            await this.#assertStorageAllowance(
+                newOwnerId,
+                await this.#entryStorageSize(source),
+            );
+        }
+
         const updated = await this.stores.fsEntry.updateEntry(source.uuid, {
             name,
             path: finalPath,
+            userId: newOwnerId,
             parentId: destinationParent.id,
             parentUid: destinationParent.uuid,
             ...(metadataPatch !== undefined ? { metadata: metadataPatch } : {}),
@@ -3735,6 +3785,7 @@ export class FSService extends PuterService {
                 source.userId,
                 source.path,
                 finalPath,
+                newOwnerId,
             );
         }
 
@@ -3802,7 +3853,7 @@ export class FSService extends PuterService {
         // the allowance as writing them. Check before the overwrite below
         // removes anything, and credit what that removal frees.
         await this.#assertStorageAllowance(
-            userId,
+            destinationParent.userId,
             await this.#entryStorageSize(source),
             collision && input.overwrite
                 ? await this.#entryStorageSize(collision)
@@ -3851,7 +3902,6 @@ export class FSService extends PuterService {
         // 2) Walk descendants; for each, compute new path by swapping prefix
         // 3) Create a new row (files copy S3 object; dirs just insert)
         const newRoot = await this.stores.fsEntry.createNonFileEntry({
-            userId,
             parent: destinationParent,
             name,
             kind: 'directory',
@@ -3882,7 +3932,6 @@ export class FSService extends PuterService {
             }
             const copied = descendant.isDir
                 ? await this.stores.fsEntry.createNonFileEntry({
-                      userId,
                       parent: newParent,
                       name: descendant.name,
                       kind: 'directory',
@@ -3918,7 +3967,6 @@ export class FSService extends PuterService {
     ): Promise<FSEntry> {
         if (source.isSymlink) {
             return this.stores.fsEntry.createNonFileEntry({
-                userId,
                 parent: destinationParent,
                 name: newName,
                 kind: 'symlink',
@@ -3929,7 +3977,6 @@ export class FSService extends PuterService {
         }
         if (source.isShortcut) {
             return this.stores.fsEntry.createNonFileEntry({
-                userId,
                 parent: destinationParent,
                 name: newName,
                 kind: 'shortcut',
@@ -3945,7 +3992,6 @@ export class FSService extends PuterService {
         // the source as another empty-file entry instead of touching S3.
         if (hasNoBackingS3Object(source)) {
             return this.stores.fsEntry.createNonFileEntry({
-                userId,
                 parent: destinationParent,
                 name: newName,
                 kind: 'empty-file',
