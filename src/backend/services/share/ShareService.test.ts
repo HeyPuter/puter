@@ -1035,7 +1035,9 @@ describe('ShareService', () => {
                 recipient: { username: recipient.user.username },
                 mode: 'read',
             });
-            await server.services.share.notifyRecipients(owner.actor, [shared]);
+            await server.services.shareNotification.notifyShared(owner.actor, [
+                shared,
+            ]);
 
             // Re-sharing what they already have is not new reach, and a second
             // item inside the window still doesn't earn a second interruption.
@@ -1049,7 +1051,7 @@ describe('ShareService', () => {
                 recipient: { username: recipient.user.username },
                 mode: 'read',
             });
-            await server.services.share.notifyRecipients(owner.actor, [
+            await server.services.shareNotification.notifyShared(owner.actor, [
                 again,
                 other,
             ]);

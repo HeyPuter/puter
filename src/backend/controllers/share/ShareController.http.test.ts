@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 
 /**
@@ -189,6 +189,53 @@ describe('share endpoints over HTTP', () => {
         });
         expect(revokeRes.status).toBe(200);
         expect(await revokeRes.json()).toMatchObject({ revoked: 1 });
+    });
+
+    it('tells the recipient over the wire, once for the whole batch', async () => {
+        const owner = env.users.user;
+        const recipient = env.users.other;
+        const [a, b] = [await makeFile(owner), await makeFile(owner)];
+
+        // This pair is shared between tests, and a notification is claimed once
+        // per window — release it so what's under test here is the batching.
+        const [issuer, holder] = await Promise.all([
+            env.server.stores.user.getByUsername(owner.username),
+            env.server.stores.user.getByUsername(recipient.username),
+        ]);
+        await env.server.clients.redis.del(
+            `share:notify:${issuer!.id}:${holder!.id}`,
+        );
+
+        const seen: Array<{ userIds: number[]; payload: Record<string, unknown> }> = [];
+        const notification = env.server.services.notification;
+        const original = notification.notify.bind(notification);
+        notification.notify = async (userIds, payload) => {
+            seen.push({ userIds, payload });
+            return original(userIds, payload);
+        };
+
+        try {
+            const res = await post('/share', owner.token, {
+                items: [{ path: a.path }, { path: b.path }],
+                recipients: [{ username: recipient.username }],
+                mode: 'read',
+            });
+            expect(res.status).toBe(200);
+
+            // Delivery is off the response path, so it may land just after.
+            await vi.waitFor(() => expect(seen.length).toBeGreaterThan(0), {
+                timeout: 5000,
+            });
+        } finally {
+            notification.notify = original;
+        }
+
+        // Two items, one recipient — one notification carrying the count.
+        expect(seen).toHaveLength(1);
+        expect(seen[0].payload).toMatchObject({
+            source: 'sharing',
+            fields: { count: 2 },
+        });
     });
 
     it('reports per-pair outcomes when only some recipients resolve', async () => {

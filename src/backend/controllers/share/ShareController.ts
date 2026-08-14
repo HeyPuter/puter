@@ -154,16 +154,14 @@ export class ShareController extends PuterController {
             }),
         );
 
-        // Off the response path — a share must not fail because its
-        // notification didn't land.
-        void this.services.share
-            .notifyRecipients(
-                actor,
-                settled.flatMap((outcome) =>
-                    outcome.status === 'fulfilled' ? [outcome.value] : [],
-                ),
-            )
-            .catch(() => {});
+        // Off the response path: a share that landed must not be reported as
+        // failed because telling the recipient didn't.
+        void this.services.shareNotification.notifyShared(
+            actor,
+            settled
+                .filter((o) => o.status === 'fulfilled')
+                .map((o) => (o as PromiseFulfilledResult<ResolvedShare>).value),
+        );
 
         const succeeded = results.filter((r) => r.status === 'success').length;
         res.json({

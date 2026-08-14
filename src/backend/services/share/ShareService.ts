@@ -496,57 +496,6 @@ export class ShareService extends PuterService {
         }
     }
 
-    /**
-     * Tell recipients they were given something: one notification per recipient
-     * per request, and at most one per sharer per window.
-     *
-     * Only shares that created new reach count. A mode change is not something
-     * to interrupt someone for, and re-sharing what they already have spends no
-     * quota — so the window is what keeps that from becoming a way to spam.
-     */
-    async notifyRecipients(actor: Actor, shares: ResolvedShare[]) {
-        const counts = new Map<number, number>();
-        for (const share of shares) {
-            if (!share.isNew || !share.holderId) continue;
-            counts.set(share.holderId, (counts.get(share.holderId) ?? 0) + 1);
-        }
-        if (counts.size === 0) return;
-
-        const issuerId = this.#requireUserId(actor);
-        const username = actor.user.username;
-        await Promise.all(
-            [...counts].map(async ([holderId, count]) => {
-                if (!(await this.#claimNotifySlot(issuerId, holderId))) return;
-                await this.services.notification.notify([holderId], {
-                    source: 'sharing',
-                    title: `${username} shared ${count === 1 ? 'an item' : `${count} items`} with you`,
-                    template: 'file-shared-with-you',
-                    fields: { username, count },
-                });
-            }),
-        );
-    }
-
-    /** False when this pair was already notified inside the window. */
-    async #claimNotifySlot(
-        issuerId: number,
-        holderId: number,
-    ): Promise<boolean> {
-        try {
-            const claimed = await this.clients.redis.set(
-                `share:notify:${issuerId}:${holderId}`,
-                '1',
-                'EX',
-                SHARE_NOTIFY_WINDOW_SECONDS,
-                'NX',
-            );
-            return claimed === 'OK';
-        } catch {
-            // Notifying twice beats going silent when the cache is down.
-            return true;
-        }
-    }
-
     /** Whether `issuerId` already grants `holderId` anything on this node. */
     async #hasGrantFrom(
         entry: FSEntry,
