@@ -247,8 +247,10 @@ export class FSService extends PuterService {
         // shared folder can re-share the folder itself but nothing in it, and
         // cannot even see who has access to a file within it.
         //
-        // Only the parent is consulted; resolving it re-enters one level up,
-        // so a chain of depth d costs d checks rather than d².
+        // The whole chain is answered in one pass: split the path into its
+        // ancestors, then look the corresponding grants up in bulk. Recursing a
+        // level at a time would re-enter the permission scan once per level.
+        const permissionStore = this.stores.permission;
         permissions.registerImplicator({
             id: 'manage-inherits-from-ancestor',
             shortcut: true,
@@ -268,17 +270,35 @@ export class FSService extends PuterService {
                 if (!uid) return undefined;
 
                 const entry = await fsEntryStore.getEntryByUuid(uid);
-                if (!entry) return undefined;
+                // Owning the entry is `is-owner`'s answer to give, and it runs
+                // first — there is nothing to inherit on your own tree.
+                if (!entry || entry.userId === actor.user.id) return undefined;
 
-                const [, parent] = await this.getAncestorChain(entry.path);
-                if (!parent) return undefined;
-
-                // uuids carry no `:`, so swapping it in leaves the manage
-                // prefixes and the mode suffix exactly as they were.
-                const held = await permissions.check(
-                    actor,
-                    permission.replace(`fs:${uid}`, `fs:${parent.uid}`),
+                const ancestors = (
+                    await this.getAncestorChain(entry.path)
+                ).slice(1);
+                if (ancestors.length === 0) return undefined;
+                const wanted = ancestors.map((ancestor) =>
+                    PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', ancestor.uid),
                 );
+
+                // Read the stores rather than re-entering `scan`, which would
+                // cost one recursive scan per ancestor. A `manage:fs:*` grant
+                // reaches a user three ways — issued to them, group-issued, or
+                // sitting in the flat view — and each store answers the whole
+                // list at once.
+                const [linked, group, flat] = await Promise.all([
+                    permissionStore.readLinkedUserUserPerms(
+                        actor.user.id,
+                        wanted,
+                    ),
+                    permissionStore.readUserGroupPerms(actor.user.id, wanted),
+                    permissionStore.getFlatUserPerms(actor.user.id, wanted),
+                ]);
+                const held =
+                    linked.length > 0 ||
+                    group.length > 0 ||
+                    flat.some((value) => value && !value.deleted);
                 return held ? {} : undefined;
             },
         });
@@ -748,10 +768,36 @@ export class FSService extends PuterService {
      * lands in, which is not the writer when the folder was shared with them.
      */
     async #storageOwnerOf(path: string, actingUserId: number): Promise<number> {
-        const home = `/${this.#normalizePath(path).split('/')[1] ?? ''}`;
-        if (home === '/') return actingUserId;
-        const entry = await this.stores.fsEntry.getEntryByPath(home);
-        return entry?.userId ?? actingUserId;
+        const owners = await this.#storageOwnersOf([path], actingUserId);
+        return owners.get(path) ?? actingUserId;
+    }
+
+    /**
+     * As above, for a batch. Every item under one home resolves to the same
+     * owner, so the distinct homes are read in a single query rather than one
+     * lookup per item.
+     */
+    async #storageOwnersOf(
+        paths: string[],
+        actingUserId: number,
+    ): Promise<Map<string, number>> {
+        const homeOf = new Map<string, string>();
+        for (const path of paths) {
+            homeOf.set(
+                path,
+                `/${this.#normalizePath(path).split('/')[1] ?? ''}`,
+            );
+        }
+        const homes = [...new Set(homeOf.values())].filter(
+            (home) => home !== '/',
+        );
+        const entries = await this.stores.fsEntry.getEntriesByPaths(homes);
+        return new Map(
+            paths.map((path) => [
+                path,
+                entries.get(homeOf.get(path) as string)?.userId ?? actingUserId,
+            ]),
+        );
     }
 
     async #assertStorageAllowance(
@@ -1421,16 +1467,18 @@ export class FSService extends PuterService {
         }
 
         // One batch can straddle two trees, and each owner pays for its own.
+        const owners = await this.#storageOwnersOf(
+            preparedBatch.items.map((item) => item.normalizedInput.path),
+            preparedBatch.userId,
+        );
         const sizeChangesByOwner = new Map<
             number,
             Array<{ incomingSize: number; existingSize: number }>
         >();
         for (const item of preparedBatch.items) {
             const uploadedItem = uploadedItemMap.get(item.index);
-            const owner = await this.#storageOwnerOf(
-                item.normalizedInput.path,
-                preparedBatch.userId,
-            );
+            const owner =
+                owners.get(item.normalizedInput.path) ?? preparedBatch.userId;
             const sizeChanges = sizeChangesByOwner.get(owner) ?? [];
             sizeChanges.push({
                 incomingSize: uploadedItem
@@ -1873,15 +1921,16 @@ export class FSService extends PuterService {
                 };
             });
 
+            const owners = await this.#storageOwnersOf(
+                resolvedFileItems.map((item) => item.normalizedInput.path),
+                userId,
+            );
             const allowanceChecksByOwner = new Map<
                 number,
                 Array<{ incomingSize: number; existingSize: number }>
             >();
             for (const item of resolvedFileItems) {
-                const owner = await this.#storageOwnerOf(
-                    item.normalizedInput.path,
-                    userId,
-                );
+                const owner = owners.get(item.normalizedInput.path) ?? userId;
                 const checks = allowanceChecksByOwner.get(owner) ?? [];
                 checks.push({
                     incomingSize: item.normalizedInput.size,

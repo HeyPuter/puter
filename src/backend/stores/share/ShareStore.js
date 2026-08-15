@@ -102,10 +102,32 @@ export class ShareStore extends PuterStore {
 
     /** Everyone with an active share on one node, whoever issued it. */
     async listByFsentry(fsentryId) {
+        return this.listByFsentries([fsentryId]);
+    }
+
+    /** As above, across several nodes in one query. */
+    async listByFsentries(fsentryIds) {
+        if (fsentryIds.length === 0) return [];
+        const placeholders = fsentryIds.map(() => '?').join(', ');
         const rows = await this.clients.db.read(
-            'SELECT * FROM `share` WHERE `fsentry_id` = ? AND ' +
-                '`holder_user_id` IS NOT NULL ORDER BY `id`',
-            [fsentryId],
+            `SELECT * FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders}) ` +
+                'AND `holder_user_id` IS NOT NULL ORDER BY `id`',
+            fsentryIds,
+        );
+        return rows.map((r) => this.#normalizeRow(r));
+    }
+
+    /**
+     * Every active share the holder has on any of `fsentryIds`. Used to find
+     * which shared root an entry was reached through, in one round trip.
+     */
+    async listByHolderAndFsentries(holderUserId, fsentryIds) {
+        if (fsentryIds.length === 0) return [];
+        const placeholders = fsentryIds.map(() => '?').join(', ');
+        const rows = await this.clients.db.read(
+            `SELECT * FROM \`share\` WHERE \`holder_user_id\` = ? AND ` +
+                `\`fsentry_id\` IN (${placeholders}) ORDER BY \`id\``,
+            [holderUserId, ...fsentryIds],
         );
         return rows.map((r) => this.#normalizeRow(r));
     }
@@ -130,6 +152,27 @@ export class ShareStore extends PuterStore {
                 'WHERE `share`.`holder_user_id` IS NOT NULL ' +
                 'ORDER BY `share`.`id`',
             [fsentryId],
+        );
+        return rows.map((r) => this.#normalizeRow(r));
+    }
+
+    /**
+     * Active shares on one node or any of its ancestors, named by path. One
+     * query, because this sits behind every file-write event — the caller
+     * derives the ancestor paths from the entry's own path for free.
+     *
+     * @param {number} fsentryId
+     * @param {string[]} ancestorPaths
+     */
+    async listReaching(fsentryId, ancestorPaths) {
+        const placeholders = ancestorPaths.map(() => '?').join(', ');
+        const rows = await this.clients.db.read(
+            'SELECT `share`.* FROM `share` ' +
+                'JOIN `fsentries` `f` ON `share`.`fsentry_id` = `f`.`id` ' +
+                'WHERE `share`.`holder_user_id` IS NOT NULL AND ' +
+                `(\`share\`.\`fsentry_id\` = ?${ancestorPaths.length > 0 ? ` OR \`f\`.\`path\` IN (${placeholders})` : ''}) ` +
+                'ORDER BY `share`.`id`',
+            [fsentryId, ...ancestorPaths],
         );
         return rows.map((r) => this.#normalizeRow(r));
     }
@@ -162,16 +205,17 @@ export class ShareStore extends PuterStore {
 
     /**
      * Record an active share, or move an existing one to a new mode. Keyed on
-     * (holder, fsentry, issuer) to match the table's unique index — two people
-     * with manage rights each keep their own row rather than overwriting.
-     */
-    /**
+     * (holder, fsentry, issuer), so two people with manage rights keep their
+     * own rows. One statement, so concurrent shares of the same triple settle
+     * on one row rather than one of them failing the unique key.
+     *
      * @param {object} input
      * @param {number} input.issuerUserId
      * @param {number} input.holderUserId
      * @param {number} input.fsentryId
      * @param {string} input.mode
      * @param {string | null} [input.recipientEmail]
+     * @param {string | null} [input.issuerAppUid]
      */
     async upsertActive({
         issuerUserId,
@@ -179,6 +223,7 @@ export class ShareStore extends PuterStore {
         fsentryId,
         mode,
         recipientEmail = null,
+        issuerAppUid = null,
     }) {
         if (!issuerUserId || !holderUserId || !fsentryId || !mode) {
             throw new Error(
@@ -186,41 +231,54 @@ export class ShareStore extends PuterStore {
             );
         }
 
-        const existing = await this.clients.db.read(
-            'SELECT `uid` FROM `share` WHERE `holder_user_id` = ? AND ' +
-                '`fsentry_id` = ? AND `issuer_user_id` = ? LIMIT 1',
-            [holderUserId, fsentryId, issuerUserId],
+        // A share issued through an app is attributed to the user, because the
+        // grant is theirs. `data` records which app asked for it, so the owner
+        // can tell an app-issued share from one they made themselves.
+        const data = JSON.stringify(
+            issuerAppUid ? { issuedByApp: issuerAppUid } : {},
         );
-        if (existing[0]?.uid) {
-            await this.clients.db.write(
-                'UPDATE `share` SET `mode` = ? WHERE `uid` = ?',
-                [mode, existing[0].uid],
-            );
-            return this.getByUid(existing[0].uid);
-        }
-
-        const uid = uuidv4();
         await this.clients.db.write(
             'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
-                '`holder_user_id`, `fsentry_id`, `mode`, `applied_at`) ' +
-                'VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)',
+                '`holder_user_id`, `fsentry_id`, `mode`, `data`, `applied_at`) ' +
+                'VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) ' +
+                this.clients.db.upsertClause(
+                    ['holder_user_id', 'fsentry_id', 'issuer_user_id'],
+                    ['mode', 'data'],
+                ),
             [
-                uid,
+                uuidv4(),
                 issuerUserId,
                 recipientEmail ?? '',
                 holderUserId,
                 fsentryId,
                 mode,
+                data,
+                mode,
+                data,
             ],
         );
-        return this.getByUid(uid);
+        return this.getActive({ holderUserId, fsentryId, issuerUserId });
+    }
+
+    /**
+     * @param {object} input
+     * @param {number} input.holderUserId
+     * @param {number} input.fsentryId
+     * @param {number} input.issuerUserId
+     */
+    async getActive({ holderUserId, fsentryId, issuerUserId }) {
+        const rows = await this.clients.db.read(
+            'SELECT * FROM `share` WHERE `holder_user_id` = ? AND ' +
+                '`fsentry_id` = ? AND `issuer_user_id` = ? LIMIT 1',
+            [holderUserId, fsentryId, issuerUserId],
+        );
+        return this.#normalizeRow(rows[0]) ?? null;
     }
 
     /**
      * Drop one active share. Omit `issuerUserId` to clear every issuer's share
      * of that node with that holder — what an owner revoking access wants.
-     */
-    /**
+     *
      * @param {object} input
      * @param {number} input.holderUserId
      * @param {number} input.fsentryId
@@ -241,8 +299,7 @@ export class ShareStore extends PuterStore {
     /**
      * Claim a pending invite for the user who signed up. Updates rather than
      * deletes, so the share survives as an index row.
-     */
-    /**
+     *
      * @param {object} input
      * @param {string} input.uid
      * @param {number} input.holderUserId
@@ -286,10 +343,8 @@ export class ShareStore extends PuterStore {
     }
 
     // -- Daily quota --------------------------------------------------
-    //
-    // Counted in KV rather than by querying `share`, because the ceiling is on
-    // shares *created* — rows the user later revoked still spent their budget,
-    // so a COUNT of live rows would let a script recycle the same slot forever.
+    // Counted in KV, not by querying `share`: the ceiling is on shares
+    // *created*, so a COUNT of live rows would let a revoke recycle the slot.
 
     /** @param {number} userId */
     async getDailyShareCount(userId) {
@@ -310,7 +365,7 @@ export class ShareStore extends PuterStore {
             key: this.#dailyQuotaKey(userId),
             pathAndAmountMap: { count: amount },
             // Two days, so a counter written just before midnight still ages
-            // out on its own rather than lingering for the next reader.
+            // out on its own.
             expireAt: Math.floor(Date.now() / 1000) + 2 * 24 * 60 * 60,
         });
         const count = /** @type {{ count?: unknown } | null} */ (res)?.count;

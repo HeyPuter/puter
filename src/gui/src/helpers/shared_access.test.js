@@ -25,76 +25,89 @@ import {
     shared_mode_for,
 } from './shared_access.js';
 
+const CONTENTS = '11111111-1111-1111-1111-111111111111';
+const PHOTOS = '22222222-2222-2222-2222-222222222222';
+const BUDGET = '33333333-3333-3333-3333-333333333333';
+const REPORT = '44444444-4444-4444-4444-444444444444';
+
 describe('shared_access', () => {
     beforeEach(() => {
         invalidate_shared_roots();
+        globalThis.window = { user: { username: 'sharemate' } };
+        // Shared roots arrive masked: `/{owner}/{uid}/{name}`.
         remember_shared_roots([
-            { path: '/jf/Documents/Contents', mode: 'write' },
-            { path: '/jf/Photos', mode: 'read' },
-            { path: '/jf/Budget', mode: 'manage' },
-            { path: '/jf/report.pdf', mode: 'write' },
+            { path: `/jf/${CONTENTS}/Contents`, mode: 'write' },
+            { path: `/jf/${PHOTOS}/Photos`, mode: 'read' },
+            { path: `/jf/${BUDGET}/Budget`, mode: 'manage' },
+            { path: `/jf/${REPORT}/report.pdf`, mode: 'write' },
         ]);
     });
 
     describe('shared_mode_for', () => {
         it('reports the mode held on a shared root', async () => {
-            expect(await shared_mode_for('/jf/Photos')).toBe('read');
+            expect(await shared_mode_for(`/jf/${PHOTOS}/Photos`)).toBe('read');
         });
 
         it('inherits the mode down into the folder', async () => {
-            expect(await shared_mode_for('/jf/Photos/2024/a.jpg')).toBe('read');
+            expect(await shared_mode_for(`/jf/${PHOTOS}/Photos/2024/a.jpg`)).toBe('read');
         });
 
         it('prefers the nearest shared ancestor', async () => {
             remember_shared_roots([
                 { path: '/jf/Documents', mode: 'read' },
-                { path: '/jf/Documents/Contents', mode: 'write' },
+                { path: `/jf/${CONTENTS}/Contents`, mode: 'write' },
             ]);
-            expect(await shared_mode_for('/jf/Documents/Contents/a.txt')).toBe(
+            expect(await shared_mode_for(`/jf/${CONTENTS}/Contents/a.txt`)).toBe(
                 'write',
             );
         });
 
         it('reports nothing outside every shared root', async () => {
-            expect(await shared_mode_for('/jf/Private/a.txt')).toBe(null);
+            expect(await shared_mode_for(`/jf/${CONTENTS}/Private/a.txt`)).toBe(null);
         });
     });
 
     describe('can_restructure', () => {
         it('allows an item inside a folder shared for writing', async () => {
             expect(
-                await can_restructure('/jf/Documents/Contents/a.txt'),
+                await can_restructure(`/jf/${CONTENTS}/Contents/a.txt`),
             ).toBe(true);
         });
 
         it('allows an item nested deeper in that folder', async () => {
             expect(
-                await can_restructure('/jf/Documents/Contents/sub/a.txt'),
+                await can_restructure(`/jf/${CONTENTS}/Contents/sub/a.txt`),
             ).toBe(true);
         });
 
         it('allows an item inside a folder shared for managing', async () => {
-            expect(await can_restructure('/jf/Budget/q1.xlsx')).toBe(true);
+            expect(await can_restructure(`/jf/${BUDGET}/Budget/q1.xlsx`)).toBe(true);
         });
 
         it('refuses the shared folder itself', async () => {
-            expect(await can_restructure('/jf/Documents/Contents')).toBe(false);
+            expect(await can_restructure(`/jf/${CONTENTS}/Contents`)).toBe(false);
         });
 
         it('refuses a file shared directly', async () => {
-            expect(await can_restructure('/jf/report.pdf')).toBe(false);
+            expect(await can_restructure(`/jf/${REPORT}/report.pdf`)).toBe(false);
         });
 
         it('refuses inside a folder shared read-only', async () => {
-            expect(await can_restructure('/jf/Photos/a.jpg')).toBe(false);
+            expect(await can_restructure(`/jf/${PHOTOS}/Photos/a.jpg`)).toBe(false);
         });
 
         it('refuses a path that is not shared at all', async () => {
-            expect(await can_restructure('/jf/Private/a.txt')).toBe(false);
+            expect(await can_restructure(`/jf/${CONTENTS}/Private/a.txt`)).toBe(false);
         });
 
         it('refuses a non-string path', async () => {
             expect(await can_restructure(undefined)).toBe(false);
+        });
+
+        it('allows your own items, shared or not', async () => {
+            expect(await can_restructure('/sharemate/Documents/a.txt')).toBe(
+                true,
+            );
         });
     });
 });

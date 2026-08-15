@@ -6,6 +6,14 @@ platforms: [websites, apps, nodejs, workers]
 
 This method gives another Puter user access to a file or directory you own, or one you have been given `manage` access to.
 
+> **What an app can share.** An app never gets more reach than it was given. It
+> can share its own AppData, and files the user specifically granted it, at up
+> to the level of access it holds itself — so an app with read access can grant
+> read, and nothing more. Files its user owns but never handed to the app stay
+> out of reach, and `listShared()` shows an app only the shares it can reach.
+> Shares an app creates are attributed to the user and carry `issuedByApp`, so
+> the owner can tell them apart in [`getShares()`](/FS/getShares/).
+
 ## Syntax
 
 ```js
@@ -50,7 +58,7 @@ A `Promise` that resolves to an array of share objects, one per recipient/item p
 
 - `uid` (String) - Identifier for this share.
 - `mode` (String) - Access the recipient now has.
-- `path` (String) - Path of the shared item.
+- `path` (String) - Path of the shared item, masked when you do not own it (see [`listShared()`](/FS/listShared/)).
 - `entryUid` (String) - UID of the shared item.
 - `isDir` (Boolean) - Whether the shared item is a directory.
 - `issuer` (String) - Username of whoever granted the share.

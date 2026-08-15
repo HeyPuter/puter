@@ -63,9 +63,16 @@ export const toShare = (row) => ({
     path: /** @type {string} */ (row.path),
     entryUid: /** @type {string} */ (row.uid_entry ?? row.entryUid),
     isDir: Boolean(row.is_dir ?? row.isDir),
+    // A share listing has no fsentry behind it to stat, so the row carries
+    // what a file browser needs to render the item. Absent elsewhere.
+    name: /** @type {string | null} */ (row.name ?? null),
+    type: /** @type {string | null} */ (row.type ?? null),
+    thumbnail: /** @type {string | null} */ (row.thumbnail ?? null),
+    owner: /** @type {string | null} */ (row.owner ?? null),
     issuer: /** @type {string | null} */ (row.issuer ?? null),
     holder: /** @type {string | null} */ (row.holder ?? null),
     inheritedFrom: /** @type {string | null} */ (row.inherited_from ?? null),
+    issuedByApp: /** @type {string | null} */ (row.issued_by_app ?? null),
     modified: /** @type {number} */ (row.modified ?? 0),
     size: /** @type {number | null} */ (row.size ?? null),
 });

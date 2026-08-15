@@ -294,9 +294,18 @@
  * @property {string} path Path of the shared item.
  * @property {string} entryUid UID of the shared item.
  * @property {boolean} isDir Whether the shared item is a directory.
+ * @property {string | null} name The item's name. Only set by `listShared()`.
+ * @property {string | null} type The item's content type, or `'folder'`. Only
+ * set by `listShared()`.
+ * @property {string | null} thumbnail URL of the item's thumbnail, if it has
+ * one. Only set by `listShared()`.
+ * @property {string | null} owner Username of the item's owner. Only set by
+ * `listShared()`.
  * @property {string | null} issuer Username of whoever granted it.
  * @property {string | null} holder Username of whoever received it.
  * @property {string | null} [inheritedFrom] Shared ancestor this access comes from, if any.
+ * @property {string | null} [issuedByApp] UID of the app that asked for this
+ * share, or `null` when a person made it directly.
  * @property {number} modified Last-modified time of the item, unix seconds.
  * @property {number | null} size Size of the item in bytes; null for a directory.
  */

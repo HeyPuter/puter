@@ -391,6 +391,8 @@ const en = {
         share_failed: 'Could not share this item.',
         share_shared_with: 'Shared with {{recipient}}',
         share_access_removed: 'Removed {{recipient}}',
+        share_confirm_remove: 'Remove {{recipient}}’s access to this item?',
+        share_remove: 'Remove',
         share_you: 'you',
         share_inherited_via: 'via {{folder}}',
         share_with: 'Share with:',

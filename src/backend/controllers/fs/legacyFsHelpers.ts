@@ -35,6 +35,10 @@ import {
     expandTildePath,
 } from '../../services/fs/resolveNode.js';
 import {
+    maskEntryPath,
+    resolveSharePath,
+} from '../../services/fs/sharePathMask.js';
+import {
     NON_OWNER_SIGNATURE_TTL_SECONDS,
     signFile,
     type SigningConfig,
@@ -95,6 +99,22 @@ export function getBoolean(
 // username, read from the ALS-backed Context. Legacy clients send tilde-
 // rooted paths (e.g. `~/AppData/<app-uid>/...`); FSController does the same
 // expansion via its own `#normalizePath` helper.
+/**
+ * Everything a client-authored path needs before it names a row: `~` expanded,
+ * and a masked share path turned back into the owner's real one.
+ */
+export async function expandClientPath(
+    fsEntryStore: FSEntryStore,
+    raw: string,
+    username?: string,
+): Promise<string> {
+    return resolveSharePath(
+        fsEntryStore,
+        Context.get('actor'),
+        expandTildePath(raw, username),
+    );
+}
+
 export async function resolveV1Selector(
     fsEntryStore: FSEntryStore,
     raw: unknown,
@@ -108,7 +128,7 @@ export async function resolveV1Selector(
     if (typeof raw === 'string') {
         const isPath = raw.startsWith('/') || raw.startsWith('~');
         const ref = isPath
-            ? { path: expandTildePath(raw, username) }
+            ? { path: await expandClientPath(fsEntryStore, raw, username) }
             : { uid: raw };
         const entry = await resolveNode(fsEntryStore, ref, { required: true });
         if (!entry)
@@ -140,7 +160,7 @@ export async function resolveV1Selector(
     const ref = {
         path:
             rawPath !== undefined
-                ? expandTildePath(rawPath, username)
+                ? await expandClientPath(fsEntryStore, rawPath, username)
                 : undefined,
         uid:
             typeof record.uid === 'string'
@@ -431,7 +451,10 @@ export async function toLegacyEntry(
         appsById?: Map<number, Record<string, unknown>>;
     } = {},
 ): Promise<Record<string, unknown>> {
-    const dirname = pathPosix.dirname(entry.path);
+    // Someone else's entry is published under its masked path; the owner's
+    // real one, and everything above the share, stays server-side.
+    const publishedPath = maskEntryPath(entry);
+    const dirname = pathPosix.dirname(publishedPath);
     const mimeType = fsEntryMimeType(entry);
 
     const pathComponents = entry.path.split('/');
@@ -444,7 +467,7 @@ export async function toLegacyEntry(
         uuid: entry.uuid,
         parent_id: entry.parentUid,
         parent_uid: entry.parentUid,
-        path: entry.path,
+        path: publishedPath,
         dirname,
         dirpath: dirname,
         name: entry.name,

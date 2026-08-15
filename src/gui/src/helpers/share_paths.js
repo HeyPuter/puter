@@ -17,48 +17,69 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { owner_of_path } from './path_owner.js';
-import { prime_shared_roots, shared_root_for } from './shared_access.js';
+/**
+ * Items other people share with you arrive as `/{owner}/{uid}/{name}[/…]`.
+ * The `{uid}` segment stands in for wherever the owner keeps the item, so the
+ * path is addressable without saying anything about their folders.
+ *
+ * Everything here reads that shape directly. Nothing needs the share listing,
+ * so it all works on a deep link or a restored window.
+ */
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * What the directory bar shows for a path. Only the label changes — every
- * segment keeps the real path it navigates to.
- *
- * Someone else's tree is shown from the share down, so a recipient sees
- * `Shared › Contents › sub` rather than the owner's `jfcastro › Documents ›
- * Contents › sub`, which says where they keep it and what sits beside it.
+ * @typedef {{owner: string, uid: string, segments: string[]}} SharedPathParts
  */
+
+/**
+ * @param {string} abs_path
+ * @returns {SharedPathParts|null} null when the path is not a shared one
+ */
+export const parse_shared_path = (abs_path) => {
+    if ( typeof abs_path !== 'string' || ! abs_path.startsWith('/') ) return null;
+    const [owner, uid, ...segments] = abs_path.slice(1).split('/');
+    if ( ! owner || ! uid || ! UUID.test(uid) ) return null;
+    if ( segments.length === 0 ) return null;
+    return { owner, uid, segments };
+};
+
+/** The shared item itself, as opposed to something inside it. */
+export const is_share_root = (abs_path) =>
+    parse_shared_path(abs_path)?.segments.length === 1;
+
+/**
+ * Where the Up button goes. Above a shared item there is only the owner's own
+ * folder, which is not yours to open — so the Shared view stands in for it.
+ *
+ * @param {string} abs_path
+ * @returns {string}
+ */
+export const parent_path_for = (abs_path) => {
+    if ( abs_path === window.shared_path ) return abs_path;
+    if ( is_share_root(abs_path) ) return window.shared_path;
+    const parent = abs_path.slice(0, abs_path.lastIndexOf('/'));
+    return parent === '' ? '/' : parent;
+};
 
 /**
  * @typedef {{label: string, path: string}} PathCrumb
  */
 
 /**
+ * What the directory bar shows for a path. Only the label changes — every
+ * segment keeps the real path it navigates to.
+ *
  * @param {string} abs_path
  * @returns {PathCrumb[]|null} null when the path is the viewer's own
  */
 export const shared_crumbs_for = (abs_path) => {
-    if ( typeof abs_path !== 'string' || ! abs_path.startsWith('/') ) return null;
+    const parts = parse_shared_path(abs_path);
+    if ( ! parts || parts.owner === window.user?.username ) return null;
 
-    const owner = owner_of_path(abs_path);
-    if ( owner === null || owner === window.user?.username ) return null;
-
-    // The exact cut needs the share listing; without it, fall back to showing
-    // only the leaf so nothing above it leaks, and prime for the next render.
-    const root = shared_root_for(abs_path);
-    if ( ! root ) {
-        prime_shared_roots();
-        const leaf = abs_path.slice(abs_path.lastIndexOf('/') + 1);
-        return [{ label: leaf, path: abs_path }];
-    }
-
-    const crumbs = [{ label: root.name ?? root.path.split('/').pop(), path: root.path }];
-    if ( abs_path !== root.path ) {
-        let cursor = root.path;
-        for ( const segment of abs_path.slice(root.path.length + 1).split('/') ) {
-            cursor += `/${segment}`;
-            crumbs.push({ label: segment, path: cursor });
-        }
-    }
-    return crumbs;
+    let cursor = `/${parts.owner}/${parts.uid}`;
+    return parts.segments.map((segment) => {
+        cursor += `/${segment}`;
+        return { label: segment, path: cursor };
+    });
 };

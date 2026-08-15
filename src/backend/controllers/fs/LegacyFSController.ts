@@ -41,6 +41,7 @@ import {
     NON_OWNER_SIGNATURE_TTL_SECONDS,
     verifySignature,
 } from '../../util/fileSigning.js';
+import { maskEntryPath } from '../../services/fs/sharePathMask.js';
 import {
     buildHostedBackingDenial,
     hostedIndexUrlBackingIsUnavailable,
@@ -831,7 +832,9 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                Record<string, unknown> | null | undefined,
+                | Record<string, unknown>
+                | null
+                | undefined,
         });
         const oldPath = source.path;
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
@@ -1278,7 +1281,8 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            (SignedFile & { path?: string }) | Record<string, never>;
+            | (SignedFile & { path?: string })
+            | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1338,7 +1342,7 @@ export class LegacyFSController extends PuterController {
                     const writeOk = await this.services.acl.check(
                         actor,
                         {
-                            path: entry.path,
+                            path: maskEntryPath(entry),
                             resolveAncestors: () =>
                                 this.services.fs.getAncestorChain(entry.path),
                         },
@@ -1363,9 +1367,15 @@ export class LegacyFSController extends PuterController {
                 });
                 if (finalAction !== 'write') {
                     const { write_url: _, ...rest } = signed;
-                    result.signatures.push({ ...rest, path: entry.path });
+                    result.signatures.push({
+                        ...rest,
+                        path: maskEntryPath(entry),
+                    });
                 } else {
-                    result.signatures.push({ ...signed, path: entry.path });
+                    result.signatures.push({
+                        ...signed,
+                        path: maskEntryPath(entry),
+                    });
                 }
             } catch {
                 // Silently skip unresolvable items.
@@ -1474,7 +1484,7 @@ export class LegacyFSController extends PuterController {
             const signed = signEntry(uploadResult.fsEntry, signingCfg, {
                 actorUserId: callerActor.user?.id,
             });
-            res.json({ ...signed, path: uploadResult.fsEntry.path });
+            res.json({ ...signed, path: maskEntryPath(uploadResult.fsEntry) });
             return;
         }
 
@@ -1506,7 +1516,7 @@ export class LegacyFSController extends PuterController {
                 ...signEntry(entry, signingCfg, {
                     actorUserId: callerActor.user?.id,
                 }),
-                path: entry.path,
+                path: maskEntryPath(entry),
             });
             return;
         }
@@ -1534,7 +1544,7 @@ export class LegacyFSController extends PuterController {
                 ...signEntry(renamed, signingCfg, {
                     actorUserId: callerActor.user?.id,
                 }),
-                path: renamed.path,
+                path: maskEntryPath(renamed),
             });
             return;
         }
@@ -1607,7 +1617,7 @@ export class LegacyFSController extends PuterController {
                 ...signEntry(result, signingCfg, {
                     actorUserId: callerActor.user?.id,
                 }),
-                path: result.path,
+                path: maskEntryPath(result),
             });
             return;
         }
@@ -1670,13 +1680,18 @@ export class LegacyFSController extends PuterController {
         // Directory: return a signed listing of direct children.
         // The caller only proved read access, so strip write_url from
         // each child to prevent privilege escalation via /writeFile.
+        //
+        // Child paths are the owner's real ones — there is no actor here to
+        // mask for. Accepted: a signature is minted and handed out by the
+        // owner, so the layout it reveals is theirs to reveal, and the child
+        // signatures expire; the paths are the only part that outlives them.
         if (entry.isDir) {
             const children = await this.services.fs.listDirectory(entry.uuid);
             const signedChildren = children.map((child) => {
                 const { write_url: _, ...rest } = signEntry(child, signingCfg, {
                     ttlSeconds: NON_OWNER_SIGNATURE_TTL_SECONDS,
                 });
-                return { ...rest, path: child.path };
+                return { ...rest, path: maskEntryPath(child) };
             });
             res.json(signedChildren);
             return;
@@ -1773,7 +1788,7 @@ export class LegacyFSController extends PuterController {
         const writeOk = await this.services.acl.check(
             actor,
             {
-                path: entry.path,
+                path: maskEntryPath(entry),
                 resolveAncestors: () =>
                     this.services.fs.getAncestorChain(entry.path),
             },
@@ -1783,7 +1798,7 @@ export class LegacyFSController extends PuterController {
         const suggested =
             (await this.services.suggestedApps?.getSuggestedApps({
                 name: entry.name,
-                path: entry.path,
+                path: maskEntryPath(entry),
             })) ?? [];
 
         let token: string | null = null;
@@ -1810,10 +1825,10 @@ export class LegacyFSController extends PuterController {
             actorUserId: actor.user?.id,
         });
         const signature = writeOk
-            ? { ...signed, path: entry.path }
+            ? { ...signed, path: maskEntryPath(entry) }
             : (() => {
                   const { write_url: _, ...rest } = signed;
-                  return { ...rest, path: entry.path };
+                  return { ...rest, path: maskEntryPath(entry) };
               })();
         res.json({
             signature,
@@ -1871,7 +1886,10 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            'see' | 'list' | 'read' | 'write';
+            | 'see'
+            | 'list'
+            | 'read'
+            | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',

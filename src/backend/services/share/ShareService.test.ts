@@ -575,6 +575,34 @@ describe('ShareService', () => {
         });
     });
 
+    it('inherits a group-issued manage grant down the tree', async () => {
+        const owner = await makeUser();
+        const member = await makeUser();
+        const { dir, file } = await makeDirWithFile(owner.user);
+
+        const groupUid = await server.stores.group.create({
+            ownerUserId: owner.user.id,
+        });
+        const group = (await server.stores.group.getByUid(groupUid))!;
+        await server.stores.group.addUsers(groupUid, [member.user.username!]);
+        await runWithContext({ actor: owner.actor }, () =>
+            server.services.permission.grantUserGroupPermission(
+                owner.actor,
+                { id: Number(group.id), uid: groupUid },
+                `manage:fs:${dir.uuid}`,
+            ),
+        );
+
+        // The grant sits on the folder and reached the member through the
+        // group; inheritance must carry it to the file the same as a direct
+        // grant would.
+        const held = await server.services.permission.canManagePermission(
+            member.actor,
+            `fs:${file.uuid}:read`,
+        );
+        expect(held).toBe(true);
+    });
+
     it('does not let a delegate pass on `manage` itself', async () => {
         const owner = await makeUser();
         const delegate = await makeUser();
@@ -907,6 +935,313 @@ describe('ShareService', () => {
         expect(rows[0].mode).toBe('write');
     });
 
+    it('keeps a mode change from tearing down the share it failed on', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { username: recipient.user.username },
+            mode: 'read',
+        });
+        expect(await canRead(recipient.actor, file.path)).toBe(true);
+
+        // Fail the index write the way a lost connection would.
+        const upsert = server.stores.share.upsertActive.bind(
+            server.stores.share,
+        );
+        server.stores.share.upsertActive = async () => {
+            throw new Error('index write failed');
+        };
+        try {
+            await expect(
+                share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { username: recipient.user.username },
+                    mode: 'write',
+                }),
+            ).rejects.toThrow('index write failed');
+        } finally {
+            server.stores.share.upsertActive = upsert;
+        }
+
+        // The rollback may only undo reach this call created; the read the
+        // recipient already had is not this call's to take away.
+        expect(await canRead(recipient.actor, file.path)).toBe(true);
+    });
+
+    it('settles concurrent shares of the same pair on one row', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        const results = await Promise.allSettled(
+            Array.from({ length: 4 }, () =>
+                share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { username: recipient.user.username },
+                    mode: 'read',
+                }),
+            ),
+        );
+        expect(results.every((r) => r.status === 'fulfilled')).toBe(true);
+        expect(await server.stores.share.listByFsentry(file.id)).toHaveLength(
+            1,
+        );
+        expect(await canRead(recipient.actor, file.path)).toBe(true);
+    });
+
+    it('retires a manage delegate’s grant when the entry is deleted', async () => {
+        const owner = await makeUser();
+        const delegate = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { username: delegate.user.username },
+            mode: 'manage',
+        });
+        expect(await canRead(delegate.actor, file.path)).toBe(true);
+
+        await server.services.share.onEntryDeleted(file.uuid);
+
+        // `manage:fs:<uuid>` does not sit under the `fs:<uuid>` prefix, and it
+        // answers every mode — leaving it behind outlives the file.
+        expect(
+            await server.stores.permission.readLinkedUserUserPerms(
+                delegate.user.id,
+                [`manage:fs:${file.uuid}`],
+            ),
+        ).toEqual([]);
+    });
+
+    it('notifies a recipient once per window, not once per re-share', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const first = await makeFile(owner.user);
+        const second = await makeFile(owner.user);
+
+        const notified: number[][] = [];
+        const notify = server.services.notification.notify.bind(
+            server.services.notification,
+        );
+        server.services.notification.notify = (async (ids: number[]) => {
+            notified.push(ids);
+        }) as never;
+        try {
+            const shared = await share(owner.actor, {
+                uid: first.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            await server.services.share.notifyRecipients(owner.actor, [shared]);
+
+            // Re-sharing what they already have is not new reach, and a second
+            // item inside the window still doesn't earn a second interruption.
+            const again = await share(owner.actor, {
+                uid: first.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            const other = await share(owner.actor, {
+                uid: second.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            await server.services.share.notifyRecipients(owner.actor, [
+                again,
+                other,
+            ]);
+        } finally {
+            server.services.notification.notify = notify;
+        }
+
+        expect(notified).toEqual([[recipient.user.id]]);
+    });
+
+    describe('an app is bounded by what it was given', () => {
+        const makeApp = async (ownerUserId) =>
+            server.stores.app.create(
+                {
+                    name: `share-app-${uuidv4()}`,
+                    title: 'Share app',
+                    index_url: `https://share-${uuidv4()}.test/`,
+                },
+                { ownerUserId },
+            );
+
+        const asApp = (owner, app) => ({
+            user: owner.user,
+            app: { uid: app.uid, id: app.id },
+        });
+
+        /** A real entry under the app's own AppData for `owner`. */
+        const makeAppDataFile = async (owner, app) => {
+            const now = Math.floor(Date.now() / 1000);
+            let parentId = null;
+            let parentUid = null;
+            let dirPath = `/${owner.user.username}`;
+            for (const segment of ['AppData', app.uid]) {
+                dirPath = `${dirPath}/${segment}`;
+                const uuid = uuidv4();
+                await server.clients.db.write(
+                    'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, 1, ?, ?, ?)',
+                    [uuid, segment, dirPath, owner.user.id, now, parentId, parentUid],
+                );
+                const row = await server.stores.fsEntry.getEntryByPath(dirPath);
+                parentId = row.id;
+                parentUid = row.uuid;
+            }
+            const uuid = uuidv4();
+            const filePath = `${dirPath}/state.json`;
+            await server.clients.db.write(
+                'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, 0, ?, ?, ?)',
+                [uuid, 'state.json', filePath, owner.user.id, now, parentId, parentUid],
+            );
+            return server.stores.fsEntry.getEntryByPath(filePath);
+        };
+
+        it('shares a file in its own AppData without any extra grant', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeAppDataFile(owner, app);
+
+            const result = await share(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            expect(result.mode).toBe('read');
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+        });
+
+        it('refuses a file of its user’s that it was never given', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeFile(owner.user);
+
+            // The user owns it and could share it themselves; the app cannot,
+            // because the file was never handed to the app.
+            await expect(
+                share(asApp(owner, app), {
+                    uid: file.uuid,
+                    recipient: { username: recipient.user.username },
+                    mode: 'read',
+                }),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            expect(await canRead(recipient.actor, file.path)).toBe(false);
+        });
+
+        it('shares a file it was specifically granted', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeFile(owner.user);
+
+            await runWithContext({ actor: owner.actor }, () =>
+                server.services.permission.grantUserAppPermission(
+                    owner.actor,
+                    app.uid,
+                    `fs:${file.uuid}:read`,
+                ),
+            );
+
+            const result = await share(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            expect(result.mode).toBe('read');
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+        });
+
+        // 403 rather than 404: the app can see the file, so there is no
+        // existence to protect — only the wider mode is refused.
+        it('cannot hand out more than it holds', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeFile(owner.user);
+
+            await runWithContext({ actor: owner.actor }, () =>
+                server.services.permission.grantUserAppPermission(
+                    owner.actor,
+                    app.uid,
+                    `fs:${file.uuid}:read`,
+                ),
+            );
+
+            await expect(
+                share(asApp(owner, app), {
+                    uid: file.uuid,
+                    recipient: { username: recipient.user.username },
+                    mode: 'write',
+                }),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('records which app asked, so the owner can tell', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeAppDataFile(owner, app);
+
+            await share(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            const shares = await runWithContext({ actor: owner.actor }, () =>
+                server.services.share.listSharesOf(owner.actor, {
+                    uid: file.uuid,
+                }),
+            );
+            expect(shares[0].issuedByApp).toBe(app.uid);
+        });
+
+        it('lists only the shares it can reach in shared-with-me', async () => {
+            const owner = await makeUser();
+            const holder = await makeUser();
+            const app = await makeApp(holder.user.id);
+            const reachable = await makeFile(owner.user);
+            const hidden = await makeFile(owner.user);
+
+            for (const file of [reachable, hidden]) {
+                await share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { username: holder.user.username },
+                    mode: 'read',
+                });
+            }
+            await runWithContext({ actor: holder.actor }, () =>
+                server.services.permission.grantUserAppPermission(
+                    holder.actor,
+                    app.uid,
+                    `fs:${reachable.uuid}:read`,
+                ),
+            );
+
+            const asHolder = await server.services.share.listSharedWithMe(
+                holder.actor,
+            );
+            expect(asHolder.items.map((i) => i.entryUid)).toEqual(
+                expect.arrayContaining([reachable.uuid, hidden.uuid]),
+            );
+
+            // The app sees only the one its user handed it.
+            const asAppActor = await server.services.share.listSharedWithMe(
+                asApp(holder, app),
+            );
+            const listed = asAppActor.items.map((i) => i.entryUid);
+            expect(listed).toContain(reachable.uuid);
+            expect(listed).not.toContain(hidden.uuid);
+        });
+    });
+
     it('retires grants when the entry is deleted', async () => {
         const owner = await makeUser();
         const recipient = await makeUser();
@@ -1010,6 +1345,34 @@ describe('ShareService', () => {
                     await server.services.fs.remove(owner.user.id, {
                         entry: file,
                     });
+                },
+            );
+
+            expect(audiences.flat()).toContain(recipient.user.id);
+        });
+
+        it('tells a folder recipient when a file inside it changes', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir, file } = await makeDirWithFile(owner.user);
+
+            // The share is on the folder; the changed file has no row of its
+            // own, so the fan-out has to look upward to find the audience.
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const audiences = await captureAudiences(
+                'outer.gui.item.updated',
+                file.uuid,
+                async () => {
+                    await server.clients.event.emitAndWait(
+                        'fs.write.file',
+                        { node: file },
+                        {},
+                    );
                 },
             );
 

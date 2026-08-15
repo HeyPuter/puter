@@ -121,6 +121,72 @@ export default suite('sharing', {
         t.assert.ok(failed, 'sharing with an unknown user should reject');
     },
 
+    'a recipient gets a masked path that still resolves': async (t) => {
+        const path = scratch(t, 'masked');
+        await t.puter.fs.write(path, 'masked content');
+        await t.puter.fs.share(path, t.env.users.other.username, 'read');
+
+        const page = await fetch(
+            `${t.env.apiOrigin}/share/shared-with-me?limit=200`,
+            {
+                headers: {
+                    Authorization: `Bearer ${t.env.users.other.token}`,
+                    Origin: t.env.apiOrigin,
+                },
+            },
+        ).then((r) => r.json() as Promise<{ items: Record<string, string>[] }>);
+
+        const listed = page.items.find((item) => item.uid_entry);
+        const shared = page.items.find(
+            (item) => item.name === path.split('/').pop(),
+        );
+        t.assert.ok(listed && shared, 'the share should be listed');
+
+        // The owner's folder is not in it, but the backend still resolves it.
+        t.assert.ok(
+            !shared!.path.includes('/sharing-'),
+            `path should be masked, got ${shared!.path}`,
+        );
+        t.assert.equal(shared!.path, `${home(t)}/${shared!.uid_entry}/${shared!.name}`);
+
+        const read = await fetch(
+            `${t.env.apiOrigin}/read?${new URLSearchParams({ file: shared!.path })}`,
+            {
+                headers: {
+                    Authorization: `Bearer ${t.env.users.other.token}`,
+                    Origin: t.env.apiOrigin,
+                },
+            },
+        );
+        t.assert.equal(read.status, 200);
+        t.assert.equal(await read.text(), 'masked content');
+    },
+
+    'listShared carries what a file browser needs to render an item': async (
+        t,
+    ) => {
+        const path = scratch(t, 'render');
+        await t.puter.fs.write(path, 'x');
+        await t.puter.fs.share(path, t.env.users.other.username, 'read');
+
+        const page = await fetch(
+            `${t.env.apiOrigin}/share/shared-with-me?limit=200`,
+            {
+                headers: {
+                    Authorization: `Bearer ${t.env.users.other.token}`,
+                    Origin: t.env.apiOrigin,
+                },
+            },
+        ).then((r) => r.json() as Promise<{ items: Record<string, unknown>[] }>);
+
+        const shared = page.items.find(
+            (item) => item.name === path.split('/').pop(),
+        );
+        t.assert.ok(shared, 'the share should be listed');
+        t.assert.equal(shared!.owner, t.env.users.user.username);
+        t.assert.equal(typeof shared!.type, 'string');
+    },
+
     'unsharing something never shared reports nothing revoked': async (t) => {
         const path = scratch(t, 'noop');
         await t.puter.fs.write(path, 'x');

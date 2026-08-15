@@ -1214,8 +1214,16 @@ describe('LegacyFSController.move', () => {
             ),
         );
 
-        const body = captured.body as { moved: { path: string } };
-        expect(body.moved.path).toBe(`/${ownerName}/Trash/note.txt`);
+        // The move landed in the owner's trash, but the recipient is told so
+        // in masked form — the owner's real layout stays theirs.
+        const body = captured.body as { moved: { uid: string; path: string } };
+        expect(body.moved.path).toBe(
+            `/${ownerName}/${body.moved.uid}/note.txt`,
+        );
+        const moved = await server.stores.fsEntry.getEntryByUuid(
+            body.moved.uid,
+        );
+        expect(moved!.path).toBe(`/${ownerName}/Trash/note.txt`);
     });
 
     it('refuses a share recipient moving an item into their own trash', async () => {
@@ -1687,8 +1695,11 @@ describe('LegacyFSController.writeFile (write IDOR)', () => {
             ),
         );
 
-        // The write landed on the signed file …
-        expect((captured.body as { path?: string }).path).toBe(target);
+        // The write landed on the signed file — reported masked, since the
+        // attacker doesn't own it …
+        expect((captured.body as { path?: string }).path).toBe(
+            `/${victim.actor.user!.username}/${entry!.uuid}/secret.txt`,
+        );
         // … and never created the attacker-named sibling.
         const siblingEntry =
             await server.stores.fsEntry.getEntryByPath(sibling);

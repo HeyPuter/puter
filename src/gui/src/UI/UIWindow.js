@@ -30,7 +30,7 @@ import launch_app from '../helpers/launch_app.js';
 import publish_as_website from '../helpers/publish_as_website.js';
 
 import item_icon from '../helpers/item_icon.js';
-import { shared_crumbs_for } from '../helpers/share_paths.js';
+import { parent_path_for, shared_crumbs_for } from '../helpers/share_paths.js';
 import { is_window_hidden, is_unseen_background_window, user_facing_windows } from '../helpers/window_visibility.js';
 
 const el_body = document.getElementsByTagName('body')[0];
@@ -1230,7 +1230,11 @@ async function UIWindow (options) {
         // Up button
         // --------------------------------------------------------
         $(el_window_navbar_up_btn).on('click', function (e) {
-            const target_path = path.resolve(path.join($(el_window).attr('data-path'), '..'));
+            // Above a shared item is its owner's folder, which is not ours to
+            // open — `parent_path_for` sends us to Shared instead.
+            const target_path = parent_path_for(
+                path.resolve($(el_window).attr('data-path')),
+            );
             // if ctrl/cmd are pressed, open in new window
             if ( e.ctrlKey || e.metaKey && (target_path !== undefined && target_path !== null) ) {
                 UIWindow({
@@ -3365,7 +3369,7 @@ window.update_window_path = async function (el_window, target_path) {
         }
 
         // disabled Up button if this is root
-        if ( target_path === '/' )
+        if ( target_path === '/' || target_path === window.shared_path )
         {
             $(el_window_navbar_up_btn).addClass('window-navbar-btn-disabled');
         }

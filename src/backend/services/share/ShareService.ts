@@ -18,13 +18,19 @@
  */
 
 import { contentType as contentTypeFromMime } from 'mime-types';
-import type { Actor } from '../../core/actor';
+import { posix as pathPosix } from 'node:path';
+import { userRelatedActor, type Actor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { FSEntry } from '../../stores/fs/FSEntry';
 import type { LayerInstances } from '../../types';
 import type { AclMode } from '../acl/ACLService';
 import type { puterServices } from '../index';
 import { PuterService } from '../types';
+import {
+    learnShareRoots,
+    maskEntryPath,
+    resolveSharePath,
+} from '../fs/sharePathMask';
 
 // -- Types ------------------------------------------------------------
 
@@ -65,8 +71,16 @@ export interface ResolvedShare {
     createdAt: unknown;
     /** Set when the access comes from a shared ancestor, not this node. */
     inheritedFrom?: string | null;
+    /** The app that asked for this share, when one did. */
+    issuedByApp?: string | null;
     modified: number;
     size: number | null;
+    /**
+     * Set by `share()` only, and never sent to a client: who to notify, and
+     * whether this call created reach that didn't exist before.
+     */
+    holderId?: number;
+    isNew?: boolean;
 }
 
 const SHAREABLE_MODES: ReadonlySet<string> = new Set([
@@ -77,8 +91,60 @@ const SHAREABLE_MODES: ReadonlySet<string> = new Set([
     'manage',
 ]);
 
+/**
+ * Every permission a share of one node can rest on. `manage` is spelled with
+ * the prefix leading, so a prefix match on `fs:<uuid>` does not reach it.
+ */
+/** The app recorded on a share row, when one issued it. */
+const issuedByApp = (row: { data?: unknown }): string | null => {
+    const value = (row.data as { issuedByApp?: unknown } | null)?.issuedByApp;
+    return typeof value === 'string' && value !== '' ? value : null;
+};
+
+export const entryPermissions = (uuid: string): string[] => [
+    `fs:${uuid}:see`,
+    `fs:${uuid}:list`,
+    `fs:${uuid}:read`,
+    `fs:${uuid}:write`,
+    `manage:fs:${uuid}`,
+];
+
 /** Shares one user may create per UTC day, absent a config override. */
 export const DEFAULT_DAILY_SHARE_LIMIT = 200;
+
+/**
+ * How long a recipient stays quiet after one sharer reaches them. Re-sharing an
+ * item the recipient already has is not new reach and costs no quota, so
+ * without a window it is an unmetered way to keep interrupting someone.
+ */
+export const SHARE_NOTIFY_WINDOW_SECONDS = 15 * 60;
+
+/**
+ * What a share recipient's browser is told about someone else's entry.
+ *
+ * Curated rather than the row: the row carries the owner's real path, their
+ * numeric id, storage internals and the capability tokens — none of which are a
+ * recipient's to see. The path is the entry masked against itself, which always
+ * resolves; running outside a request, there is no per-request masker to
+ * consult for a deeper root.
+ */
+const holderPayload = (entry: FSEntry): Record<string, unknown> => ({
+    uid: entry.uuid,
+    uuid: entry.uuid,
+    name: entry.name,
+    path: maskedSelfPath(entry, entry.path),
+    is_dir: Boolean(entry.isDir),
+    size: entry.size ?? null,
+    modified: entry.modified,
+    from_new_service: true,
+});
+
+/** `/<owner>/<uuid>/<name>` for a path in the owner's tree. */
+const maskedSelfPath = (entry: FSEntry, realPath: string): string => {
+    const owner = realPath.split('/')[1];
+    const name = realPath.split('/').pop();
+    return owner && name ? `/${owner}/${entry.uuid}/${name}` : realPath;
+};
 
 // -- ShareService -----------------------------------------------------
 
@@ -125,9 +191,10 @@ export class ShareService extends PuterService {
             };
             if (!node?.uuid) return;
             return this.#fanOutToHolders(node, 'outer.gui.item.moved', {
-                ...node,
-                from_path: fromPath,
-                from_new_service: true,
+                ...holderPayload(node),
+                from_path: fromPath
+                    ? maskedSelfPath(node, fromPath)
+                    : undefined,
             }).catch(() => {
                 // A stale window is better than a failed move.
             });
@@ -136,10 +203,11 @@ export class ShareService extends PuterService {
         this.clients.event.on('fs.write.file', (_key, data) => {
             const entry = (data as { node?: FSEntry })?.node;
             if (!entry?.uuid) return;
-            return this.#fanOutToHolders(entry, 'outer.gui.item.updated', {
-                ...entry,
-                from_new_service: true,
-            }).catch(() => {
+            return this.#fanOutToHolders(
+                entry,
+                'outer.gui.item.updated',
+                holderPayload(entry),
+            ).catch(() => {
                 // Same — never fail a write over its notification.
             });
         });
@@ -157,10 +225,11 @@ export class ShareService extends PuterService {
         ].filter((id) => Number.isFinite(id) && id !== entry.userId);
         if (holders.length === 0) return;
 
-        await this.#emitGui('outer.gui.item.removed', holders, {
-            ...entry,
-            from_new_service: true,
-        });
+        await this.#emitGui(
+            'outer.gui.item.removed',
+            holders,
+            holderPayload(entry),
+        );
     }
 
     async #fanOutToHolders(
@@ -168,7 +237,9 @@ export class ShareService extends PuterService {
         event: 'outer.gui.item.moved' | 'outer.gui.item.updated',
         response: Record<string, unknown>,
     ): Promise<void> {
-        const rows = await this.stores.share.listByFsentry(entry.id);
+        // Ancestors too: someone given a folder sees what happens inside it,
+        // and the changed file itself carries no share of its own.
+        const rows = await this.#sharesReaching(entry);
         const holders = [
             ...new Set(
                 rows.map((row: { holder_user_id: number }) =>
@@ -179,6 +250,25 @@ export class ShareService extends PuterService {
         if (holders.length === 0) return;
 
         await this.#emitGui(event, holders, response);
+    }
+
+    /**
+     * Active shares on this node or on anything above it. Runs behind every
+     * write event, so the ancestor paths come off the entry's own path and the
+     * whole answer is one query.
+     */
+    async #sharesReaching(
+        entry: FSEntry,
+    ): Promise<Array<{ holder_user_id: number }>> {
+        const ancestorPaths: string[] = [];
+        for (
+            let cursor = pathPosix.dirname(entry.path);
+            cursor !== '/' && cursor !== '.';
+            cursor = pathPosix.dirname(cursor)
+        ) {
+            ancestorPaths.push(cursor);
+        }
+        return this.stores.share.listReaching(entry.id, ancestorPaths);
     }
 
     async #emitGui(
@@ -217,8 +307,8 @@ export class ShareService extends PuterService {
         // manage the entry must learn nothing from this endpoint — including
         // whether an email or username has an account. "Recipient does not
         // exist" may only be observed by someone entitled to share.
-        const entry = await this.#resolveEntry(input);
-        await this.#assertCanManage(actor, entry);
+        const entry = await this.#resolveEntry(input, actor);
+        await this.#assertCanManage(actor, entry, mode);
         const holder = await this.#resolveRecipient(input.recipient);
 
         if (holder.id === issuerId) {
@@ -236,18 +326,25 @@ export class ShareService extends PuterService {
         // shouldn't spend budget — only a share to someone who doesn't already
         // have one on this node counts.
         const existing = await this.stores.share.listByFsentry(entry.id);
-        const isNewShare = !existing.some(
+        const indexed = existing.some(
             (row: { holder_user_id: number; issuer_user_id: number }) =>
                 row.holder_user_id === holder.id &&
                 row.issuer_user_id === issuerId,
         );
-        const releaseQuota = isNewShare
-            ? await this.#reserveDailyQuota(issuerId)
-            : null;
+        // A grant can predate the index, so the index alone can't say whether
+        // this recipient already had reach here.
+        const hadAccess =
+            indexed || (await this.#hasGrantFrom(entry, holder.id, issuerId));
+        const releaseQuota = hadAccess
+            ? null
+            : await this.#reserveDailyQuota(issuerId);
 
         try {
+            // The grant is user-to-user and belongs to the user, so an app
+            // issues it on their behalf rather than in its own name. Which app
+            // asked is recorded on the index row below.
             await this.services.acl.setUserUser(
-                actor,
+                userRelatedActor(actor),
                 this.#actorFor(holder),
                 this.#descriptorFor(entry),
                 mode,
@@ -259,16 +356,92 @@ export class ShareService extends PuterService {
                 fsentryId: entry.id,
                 mode,
                 recipientEmail: holder.email ?? null,
+                issuerAppUid: actor.app?.uid ?? null,
             });
-            return this.#resolve(row, entry, actor, holder);
+            return {
+                ...this.#resolve(row, entry, actor, holder),
+                holderId: holder.id,
+                isNew: !hadAccess,
+            };
         } catch (err) {
-            // Nothing was shared, so hand the slot back and undo any grant —
-            // the entry can go away between the grant and the index write,
-            // leaving a permission pointing at nothing.
             await releaseQuota?.();
-            await this.#revokeQuietly(actor, entry, holder.username, issuerId);
+            // Undo only reach this call created. Rolling back a mode change
+            // would revoke access the caller already had and leave the index
+            // row pointing at a grant that no longer exists.
+            if (!hadAccess) {
+                await this.#revokeQuietly(
+                    userRelatedActor(actor),
+                    entry,
+                    holder.username,
+                    issuerId,
+                );
+            }
             throw err;
         }
+    }
+
+    /**
+     * Tell recipients they were given something: one notification per recipient
+     * per request, and at most one per sharer per window.
+     *
+     * Only shares that created new reach count. A mode change is not something
+     * to interrupt someone for, and re-sharing what they already have spends no
+     * quota — so the window is what keeps that from becoming a way to spam.
+     */
+    async notifyRecipients(actor: Actor, shares: ResolvedShare[]) {
+        const counts = new Map<number, number>();
+        for (const share of shares) {
+            if (!share.isNew || !share.holderId) continue;
+            counts.set(share.holderId, (counts.get(share.holderId) ?? 0) + 1);
+        }
+        if (counts.size === 0) return;
+
+        const issuerId = this.#requireUserId(actor);
+        const username = actor.user.username;
+        await Promise.all(
+            [...counts].map(async ([holderId, count]) => {
+                if (!(await this.#claimNotifySlot(issuerId, holderId))) return;
+                await this.services.notification.notify([holderId], {
+                    source: 'sharing',
+                    title: `${username} shared ${count === 1 ? 'an item' : `${count} items`} with you`,
+                    template: 'file-shared-with-you',
+                    fields: { username, count },
+                });
+            }),
+        );
+    }
+
+    /** False when this pair was already notified inside the window. */
+    async #claimNotifySlot(
+        issuerId: number,
+        holderId: number,
+    ): Promise<boolean> {
+        try {
+            const claimed = await this.clients.redis.set(
+                `share:notify:${issuerId}:${holderId}`,
+                '1',
+                'EX',
+                SHARE_NOTIFY_WINDOW_SECONDS,
+                'NX',
+            );
+            return claimed === 'OK';
+        } catch {
+            // Notifying twice beats going silent when the cache is down.
+            return true;
+        }
+    }
+
+    /** Whether `issuerId` already grants `holderId` anything on this node. */
+    async #hasGrantFrom(
+        entry: FSEntry,
+        holderId: number,
+        issuerId: number,
+    ): Promise<boolean> {
+        const rows = await this.stores.permission.readLinkedUserUserPerms(
+            holderId,
+            entryPermissions(entry.uuid),
+        );
+        return rows.some((row) => Number(row.issuer_user_id) === issuerId);
     }
 
     /**
@@ -281,7 +454,7 @@ export class ShareService extends PuterService {
     ): Promise<{ revoked: number }> {
         const issuerId = this.#requireUserId(actor);
         const [entry, holder] = await Promise.all([
-            this.#resolveEntry(input),
+            this.#resolveEntry(input, actor),
             this.#resolveRecipient(input.recipient),
         ]);
 
@@ -326,11 +499,12 @@ export class ShareService extends PuterService {
         // Whatever the holder re-shared goes with them, and this has to run
         // first: when the holder is the actor, clearing their own grants would
         // strip the very `manage` the cascade needs to do it.
-        let revoked = await this.#revokeDownstream(actor, entry, holder.id);
+        const writer = userRelatedActor(actor);
+        let revoked = await this.#revokeDownstream(writer, entry, holder.id);
 
         for (const issuer of issuers) {
             const { revoked: didRevoke, authorized } = await this.#revokeFor(
-                actor,
+                writer,
                 entry,
                 holder.username,
                 issuer as number,
@@ -373,15 +547,24 @@ export class ShareService extends PuterService {
         );
         if (rows.length === 0) return 0;
 
-        const nodes = await this.stores.fsEntry.getEntriesByIds(
-            rows.map((row: { fsentry_id: number }) => Number(row.fsentry_id)),
-        );
+        const [nodes, holders] = await Promise.all([
+            this.stores.fsEntry.getEntriesByIds(
+                rows.map((row: { fsentry_id: number }) =>
+                    Number(row.fsentry_id),
+                ),
+            ),
+            this.stores.user.getByIds(
+                rows.map((row: { holder_user_id: number }) =>
+                    Number(row.holder_user_id),
+                ),
+            ),
+        ]);
 
         let revoked = 0;
         for (const row of rows) {
             const holderId = Number(row.holder_user_id);
             const node = nodes.get(Number(row.fsentry_id));
-            const downstream = await this.stores.user.getById(holderId);
+            const downstream = holders.get(holderId);
             if (!node || !downstream?.username) continue;
 
             const { revoked: didRevoke, authorized } = await this.#revokeFor(
@@ -427,9 +610,12 @@ export class ShareService extends PuterService {
     async onEntryDeleted(
         entryUid: string,
     ): Promise<Array<{ holder_user_id: number; issuer_user_id: number }>> {
+        // Two prefixes, because `manage:fs:<uuid>` does not sit under
+        // `fs:<uuid>` — leaving it behind would keep a live grant on a node
+        // that no longer exists, and `manage` answers every mode.
         const removed =
-            await this.stores.permission.deleteUserUserPermsByPermissionPrefix(
-                `fs:${entryUid}`,
+            await this.stores.permission.deleteUserUserPermsByPermissionPrefixes(
+                [`fs:${entryUid}`, `manage:fs:${entryUid}`],
             );
 
         // Retiring the rows is not enough: a holder's cached scan still answers
@@ -438,14 +624,11 @@ export class ShareService extends PuterService {
         const holderIds = [
             ...new Set(removed.map((row) => Number(row.holder_user_id))),
         ].filter((id) => Number.isFinite(id));
-        await Promise.all(
-            holderIds.map(async (id) => {
-                const user = await this.stores.user.getById(id);
-                if (!user?.uuid) return;
-                await this.stores.permission.bumpCacheGeneration(
-                    `user:${user.uuid}`,
-                );
-            }),
+        const holders = await this.stores.user.getByIds(holderIds);
+        await this.stores.permission.bumpCacheGenerations(
+            [...holders.values()]
+                .filter((user) => user.uuid)
+                .map((user) => `user:${user.uuid}`),
         );
 
         return removed;
@@ -483,16 +666,26 @@ export class ShareService extends PuterService {
             ...[...entries.values()].map((entry) => entry.userId),
         ]);
 
+        // Everything listed here is a shared root, so record them all: entries
+        // reached by opening one keep the same masked root and stay navigable.
+        await learnShareRoots([...entries.values()], actor);
+
+        // A session sees everything shared with it. An app sees only the part
+        // of that its user handed to the app — this listing is otherwise the
+        // one share surface with no per-entry check behind it.
+        const reachable = await this.#reachableBy(actor, [...entries.values()]);
+
         const items: ResolvedShare[] = [];
         for (const row of page.items) {
             const entry = entries.get(Number(row.fsentry_id));
             if (!entry || this.#isTrashed(entry)) continue;
+            if (!reachable.has(entry.uuid)) continue;
             const issuer = issuers.get(Number(row.issuer_user_id));
             const owner = issuers.get(Number(entry.userId));
             items.push({
                 uid: row.uid,
                 mode: row.mode,
-                path: entry.path,
+                path: maskEntryPath(entry),
                 name: entry.name,
                 type: entry.isDir
                     ? 'folder'
@@ -526,22 +719,33 @@ export class ShareService extends PuterService {
         actor: Actor,
         target: ShareTarget,
     ): Promise<ResolvedShare[]> {
-        const entry = await this.#resolveEntry(target);
+        const entry = await this.#resolveEntry(target, actor);
         await this.#assertCanManage(actor, entry);
 
         // Access is inherited down the tree, so a node's own rows are only
         // half the answer — without the ancestors' the caller is told nobody
         // can reach a file that several people can.
-        const ancestors = await this.services.fs.getAncestorChain(entry.path);
+        const ancestors = (
+            await this.services.fs.getAncestorChain(entry.path)
+        ).slice(1);
+        const ancestorNodes = await this.stores.fsEntry.getEntriesByPaths(
+            ancestors.map((ancestor) => ancestor.path),
+        );
+        // The ancestor a share was granted on is published masked too: to a
+        // delegate, the folder above their share is still the owner's business.
+        const viaById = new Map(
+            [...ancestorNodes.values()].map((node) => [
+                node.id,
+                maskEntryPath(node),
+            ]),
+        );
         const inherited: Array<{ row: Record<string, unknown>; via: string }> =
-            [];
-        for (const ancestor of ancestors.slice(1)) {
-            const node = await this.stores.fsEntry.getEntryByUuid(ancestor.uid);
-            if (!node) continue;
-            for (const row of await this.stores.share.listByFsentry(node.id)) {
-                inherited.push({ row, via: ancestor.path });
-            }
-        }
+            (await this.stores.share.listByFsentries([...viaById.keys()])).map(
+                (row: { fsentry_id: number }) => ({
+                    row,
+                    via: viaById.get(Number(row.fsentry_id)) as string,
+                }),
+            );
 
         const rows = await this.stores.share.listByFsentry(entry.id);
         const userIds = [...rows, ...inherited.map((i) => i.row)].flatMap(
@@ -551,12 +755,13 @@ export class ShareService extends PuterService {
             ],
         );
         const users = await this.stores.user.getByIds(userIds);
+        const maskedPath = maskEntryPath(entry);
 
         const inheritedShares: ResolvedShare[] = inherited.map(
             ({ row, via }) => ({
                 uid: String(row.uid),
                 mode: String(row.mode),
-                path: entry.path,
+                path: maskedPath,
                 entryUid: entry.uuid,
                 isDir: Boolean(entry.isDir),
                 issuer: {
@@ -568,6 +773,7 @@ export class ShareService extends PuterService {
                         users.get(Number(row.holder_user_id))?.username ?? null,
                 },
                 createdAt: row.created_at,
+                issuedByApp: issuedByApp(row),
                 inheritedFrom: via,
                 modified: entry.modified,
                 size: entry.size,
@@ -581,10 +787,11 @@ export class ShareService extends PuterService {
                 issuer_user_id: number;
                 holder_user_id: number;
                 created_at: unknown;
+                data?: unknown;
             }): ResolvedShare => ({
                 uid: row.uid,
                 mode: row.mode,
-                path: entry.path,
+                path: maskedPath,
                 entryUid: entry.uuid,
                 isDir: Boolean(entry.isDir),
                 issuer: {
@@ -596,6 +803,7 @@ export class ShareService extends PuterService {
                         users.get(Number(row.holder_user_id))?.username ?? null,
                 },
                 createdAt: row.created_at,
+                issuedByApp: issuedByApp(row),
                 inheritedFrom: null,
                 modified: entry.modified,
                 size: entry.size,
@@ -615,7 +823,7 @@ export class ShareService extends PuterService {
         return {
             uid: row.uid,
             mode: row.mode,
-            path: entry.path,
+            path: maskEntryPath(entry),
             entryUid: entry.uuid,
             isDir: Boolean(entry.isDir),
             issuer: { username: issuer.user.username ?? null },
@@ -657,11 +865,17 @@ export class ShareService extends PuterService {
         return mode as AclMode;
     }
 
-    async #resolveEntry(target: ShareTarget): Promise<FSEntry> {
+    async #resolveEntry(target: ShareTarget, actor?: Actor): Promise<FSEntry> {
         const entry = target.uid
             ? await this.stores.fsEntry.getEntryByUuid(target.uid)
             : target.path
-              ? await this.stores.fsEntry.getEntryByPath(target.path)
+              ? await this.stores.fsEntry.getEntryByPath(
+                    await resolveSharePath(
+                        this.stores.fsEntry,
+                        actor,
+                        target.path,
+                    ),
+                )
               : null;
         if (!entry) {
             throw new HttpError(404, 'Subject does not exist', {
@@ -695,12 +909,23 @@ export class ShareService extends PuterService {
      * already answers. Reported as the ACL's own safe error so a caller who
      * can't even see the node learns nothing from the difference.
      */
-    async #assertCanManage(actor: Actor, entry: FSEntry): Promise<void> {
+    async #assertCanManage(
+        actor: Actor,
+        entry: FSEntry,
+        mode: AclMode = 'see',
+    ): Promise<void> {
+        // Authority to share lives with the user: they own the node, or hold a
+        // `manage` grant on it. An app inherits that authority but is not the
+        // one who has it, so this asks the user behind the actor.
         const allowed = await this.services.permission.canManagePermission(
-            actor,
+            userRelatedActor(actor),
             `fs:${entry.uuid}:read`,
         );
-        if (allowed) return;
+        // Reach is the second, independent bound: a credential may only hand
+        // out access it holds itself. For a session that is a no-op; for an app
+        // it is what keeps sharing to its own AppData and the files it was
+        // given, rather than everything its user owns.
+        if (allowed && (await this.#hasOwnReach(actor, entry, mode))) return;
 
         const safe = await this.services.acl.getSafeAclError(
             actor,
@@ -713,16 +938,40 @@ export class ShareService extends PuterService {
     }
 
     /**
+     * Of `entries`, the uuids the acting credential reaches in its own right. A
+     * plain session reaches all of them; the checks only run for an app or a
+     * token, where each one is a cached scan.
+     */
+    async #reachableBy(actor: Actor, entries: FSEntry[]): Promise<Set<string>> {
+        if (!actor.app && !actor.accessToken) {
+            return new Set(entries.map((entry) => entry.uuid));
+        }
+        const checks = await Promise.all(
+            entries.map(async (entry) =>
+                (await this.#hasOwnReach(actor, entry, 'see'))
+                    ? entry.uuid
+                    : null,
+            ),
+        );
+        return new Set(checks.filter((uuid): uuid is string => uuid !== null));
+    }
+
+    /** Whether the acting credential itself reaches `entry` at `mode`. */
+    async #hasOwnReach(
+        actor: Actor,
+        entry: FSEntry,
+        mode: AclMode,
+    ): Promise<boolean> {
+        if (!actor.app && !actor.accessToken) return true;
+        return this.services.acl.check(actor, this.#descriptorFor(entry), mode);
+    }
+
+    /**
      * Take a slot out of today's budget, returning the release for it.
      *
      * The increment is the check: it is atomic, so concurrent callers get
-     * distinct numbers and only those landing at or under the limit proceed.
-     * Counting first and writing after would let N concurrent requests each
-     * read the same count and all pass — with a limit of 3 and 12 in flight,
-     * all 12 got through.
-     *
-     * Counted per creation rather than against live rows, so revoking and
-     * re-sharing can't recycle a slot.
+     * distinct numbers and only those at or under the limit proceed. Counting
+     * first and writing after would let them all read the same count and pass.
      */
     async #reserveDailyQuota(userId: number): Promise<() => Promise<void>> {
         const limit =
@@ -786,9 +1035,8 @@ export class ShareService extends PuterService {
      * Clear whichever modes the recipient holds on this node.
      *
      * Skips any the actor can't manage rather than aborting: stripping a
-     * `manage` grant needs `manage:manage:fs:<uid>`, which only the owner
-     * holds, so a delegate withdrawing a plain `read` would otherwise fail on
-     * reaching the manage form.
+     * `manage` grant needs authority only the owner has, so a delegate
+     * withdrawing a plain `read` would otherwise fail on reaching it.
      *
      * `authorized` is false when it could manage none of them — the caller must
      * then leave the index row alone, or it hides a grant that is still live.
@@ -799,13 +1047,7 @@ export class ShareService extends PuterService {
         username: string,
         issuerUserId: number,
     ): Promise<{ revoked: boolean; authorized: boolean }> {
-        const permissions = [
-            `fs:${entry.uuid}:see`,
-            `fs:${entry.uuid}:list`,
-            `fs:${entry.uuid}:read`,
-            `fs:${entry.uuid}:write`,
-            `manage:fs:${entry.uuid}`,
-        ];
+        const permissions = entryPermissions(entry.uuid);
         const isSelf = username === actor.user.username;
         const manageable = isSelf
             ? permissions.map(() => true)

@@ -29,6 +29,10 @@ import {
     assertNormalized,
     isOwnersTrash,
 } from '../../services/fs/resolveNode.js';
+import {
+    maskEntryPath,
+    resolveSharePath,
+} from '../../services/fs/sharePathMask.js';
 import type {
     PreparedBatchWrite,
     UploadedBatchWriteItem,
@@ -147,7 +151,7 @@ export class FSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
         const requestBody = this.#withGuiMetadata(req.body, req.body);
-        requestBody.fileMetadata = this.#normalizeFileMetadataPath(
+        requestBody.fileMetadata = await this.#normalizeFileMetadataPath(
             req,
             requestBody.fileMetadata,
             requestBody,
@@ -218,7 +222,7 @@ export class FSController extends PuterController {
                           req.body,
                       );
                       normalizedRequestBody.fileMetadata =
-                          this.#normalizeFileMetadataPath(
+                          await this.#normalizeFileMetadataPath(
                               req,
                               normalizedRequestBody.fileMetadata,
                               normalizedRequestBody,
@@ -438,7 +442,7 @@ export class FSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
         const requestBody = this.#withGuiMetadata(req.body, req.body);
-        requestBody.fileMetadata = this.#normalizeFileMetadataPath(
+        requestBody.fileMetadata = await this.#normalizeFileMetadataPath(
             req,
             requestBody.fileMetadata,
             requestBody,
@@ -452,7 +456,7 @@ export class FSController extends PuterController {
         await this.#assertWriteAccess(req, requestBody.fileMetadata, {
             pathAlreadyNormalized: true,
         });
-        const normalizedPath = this.#normalizePath(
+        const normalizedPath = await this.#resolveClientPath(
             requestBody.fileMetadata.path,
         );
         const uploadTracker = await this.#createUploadTracker(
@@ -558,7 +562,7 @@ export class FSController extends PuterController {
                         ...parsedManifest,
                         items: parsedManifest.items.map((item) => ({
                             ...item,
-                            fileMetadata: this.#normalizeFileMetadataPath(
+                            fileMetadata: this.#expandFileMetadataPath(
                                 req,
                                 item.fileMetadata,
                                 item,
@@ -589,7 +593,12 @@ export class FSController extends PuterController {
                                         ...item,
                                         fileMetadata:
                                             await this.#resolveAssociatedAppMetadata(
-                                                item.fileMetadata,
+                                                {
+                                                    ...item.fileMetadata,
+                                                    path: await this.#unmaskPath(
+                                                        item.fileMetadata.path,
+                                                    ),
+                                                },
                                                 item,
                                                 appUidLookupCache,
                                                 userId,
@@ -834,7 +843,7 @@ export class FSController extends PuterController {
                           req.body,
                       );
                       normalizedRequestBody.fileMetadata =
-                          this.#normalizeFileMetadataPath(
+                          await this.#normalizeFileMetadataPath(
                               req,
                               normalizedRequestBody.fileMetadata,
                               normalizedRequestBody,
@@ -997,7 +1006,7 @@ export class FSController extends PuterController {
             uuid: entry.uuid,
             uid: entry.uid ?? entry.uuid,
             parentUid: entry.parentUid ?? null,
-            path: entry.path,
+            path: maskEntryPath(entry),
             name: entry.name,
             isDir: entry.isDir,
             isShortcut: entry.isShortcut,
@@ -1387,7 +1396,7 @@ export class FSController extends PuterController {
         // would compute a wrong parent for `~/...` inputs (e.g. dirname of
         // `/~/Documents/foo` is `/~/Documents`, not `/<username>/Documents`).
         const username = this.#getActorUsername(req);
-        const path = this.#normalizePath(rawPath, username);
+        const path = await this.#resolveClientPath(rawPath, username);
         if (path === '/')
             throw new HttpError(400, 'Cannot mkdir at root', {
                 legacyCode: 'bad_request',
@@ -1428,7 +1437,7 @@ export class FSController extends PuterController {
             });
 
         const username = this.#getActorUsername(req);
-        const path = this.#normalizePath(rawPath, username);
+        const path = await this.#resolveClientPath(rawPath, username);
         if (path === '/')
             throw new HttpError(400, 'Cannot touch root', {
                 legacyCode: 'bad_request',
@@ -1628,7 +1637,7 @@ export class FSController extends PuterController {
         const ref = {
             path:
                 rawPath !== undefined
-                    ? mod.expandTildePath(rawPath, username)
+                    ? await this.#resolveClientPath(rawPath, username)
                     : undefined,
             uid:
                 typeof source.uid === 'string'
@@ -2183,7 +2192,8 @@ export class FSController extends PuterController {
         // the ActorUser type. Access via the escape hatch until a proper
         // storage-quota mechanism is in place.
         const actorUser = req.actor?.user as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
 
         const candidates = [
             this.#toStorageCapacityCandidate(actorUser?.free_storage),
@@ -2194,6 +2204,18 @@ export class FSController extends PuterController {
             return undefined;
         }
         return Math.max(...candidates);
+    }
+
+    /**
+     * `#normalizePath`, plus turning a masked share path back into the owner's
+     * real one. Every client-authored path goes through here.
+     */
+    async #resolveClientPath(path: string, username?: string): Promise<string> {
+        return resolveSharePath(
+            this.stores.fsEntry,
+            Context.get('actor'),
+            this.#normalizePath(path, username),
+        );
     }
 
     #normalizePath(path: string, username?: string): string {
@@ -2226,7 +2248,7 @@ export class FSController extends PuterController {
         return normalizedPath;
     }
 
-    #normalizeFileMetadataPath(
+    #expandFileMetadataPath(
         req: Request,
         fileMetadata: FSEntryWriteInput | undefined,
         fallbackSource?: unknown,
@@ -2241,11 +2263,36 @@ export class FSController extends PuterController {
             });
         }
 
-        const username = this.#getActorUsername(req);
         return {
             ...resolvedFileMetadata,
-            path: this.#normalizePath(resolvedFileMetadata.path, username),
+            path: this.#normalizePath(
+                resolvedFileMetadata.path,
+                this.#getActorUsername(req),
+            ),
         };
+    }
+
+    /** As above, plus turning a masked share path into the owner's real one. */
+    async #normalizeFileMetadataPath(
+        req: Request,
+        fileMetadata: FSEntryWriteInput | undefined,
+        fallbackSource?: unknown,
+    ): Promise<FSEntryWriteInput> {
+        const expanded = this.#expandFileMetadataPath(
+            req,
+            fileMetadata,
+            fallbackSource,
+        );
+        return { ...expanded, path: await this.#unmaskPath(expanded.path) };
+    }
+
+    /** The un-masking half, for callers that already expanded the path. */
+    async #unmaskPath(path: string): Promise<string> {
+        return resolveSharePath(
+            this.stores.fsEntry,
+            Context.get('actor'),
+            path,
+        );
     }
 
     #extractGuiMetadata(
@@ -2326,7 +2373,7 @@ export class FSController extends PuterController {
         }
         const normalizedFileMetadata = options?.pathAlreadyNormalized
             ? fileMetadata
-            : this.#normalizeFileMetadataPath(req, fileMetadata);
+            : await this.#normalizeFileMetadataPath(req, fileMetadata);
         if (!normalizedFileMetadata) {
             throw new HttpError(400, 'Missing path', {
                 legacyCode: 'bad_request',
@@ -2489,7 +2536,7 @@ export class FSController extends PuterController {
         requestBody: SignedWriteRequest,
         response: SignedWriteResponse,
     ): Promise<void> {
-        const normalizedPath = this.#normalizePath(
+        const normalizedPath = await this.#resolveClientPath(
             requestBody.fileMetadata.path,
         );
         const pendingResponse = {

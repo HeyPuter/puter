@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { readFileSync } from 'fs';
@@ -662,7 +663,7 @@ describe('PermissionStore', () => {
             );
 
             await store.bumpCacheGeneration(actorUid);
-            expect(seen).toContainEqual({ actorUid });
+            expect(seen).toContainEqual({ actorUids: [actorUid] });
         });
 
         it('applies a remote bump without re-announcing it', async () => {
@@ -681,7 +682,7 @@ describe('PermissionStore', () => {
             // What BroadcastService does with an inbound webhook event.
             await server.clients.event.emitAndWait(
                 'outer.permission.generationBumped',
-                { actorUid },
+                { actorUids: [actorUid] },
                 { from_outside: true },
             );
 
@@ -696,7 +697,7 @@ describe('PermissionStore', () => {
             const actorUid = `actor-${uuidv4()}`;
             await server.clients.event.emitAndWait(
                 'outer.permission.generationBumped',
-                { actorUid },
+                { actorUids: [actorUid] },
                 {},
             );
             expect(await store.getCacheGeneration(actorUid)).toBe(0);
@@ -719,8 +720,7 @@ describe('PermissionStore', () => {
 
             await store.delFlatUserPerm(holder.id, 'fs:u:read');
             expect(seen).toContainEqual({
-                holderUserId: holder.id,
-                permission: 'fs:u:read',
+                entries: [{ holderUserId: holder.id, permission: 'fs:u:read' }],
             });
         });
 
@@ -746,7 +746,11 @@ describe('PermissionStore', () => {
 
             await server.clients.event.emitAndWait(
                 'outer.permission.flatInvalidated',
-                { holderUserId: holder.id, permission: 'fs:u:read' },
+                {
+                    entries: [
+                        { holderUserId: holder.id, permission: 'fs:u:read' },
+                    ],
+                },
                 { from_outside: true },
             );
 
@@ -765,7 +769,11 @@ describe('PermissionStore', () => {
 
             await server.clients.event.emitAndWait(
                 'outer.permission.flatInvalidated',
-                { holderUserId: holder.id, permission: 'fs:u:read' },
+                {
+                    entries: [
+                        { holderUserId: holder.id, permission: 'fs:u:read' },
+                    ],
+                },
                 {},
             );
 

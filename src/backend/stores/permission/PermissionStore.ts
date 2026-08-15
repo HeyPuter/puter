@@ -85,6 +85,12 @@ export interface AuditEntry {
     [k: string]: unknown;
 }
 
+/** One entry in the flat KV view, as addressed by a delete. */
+export interface FlatPermRef {
+    holderUserId: number;
+    permission: string;
+}
+
 /**
  * PermissionStore owns the _persistence_ side of permissions:
  *
@@ -104,7 +110,7 @@ export class PermissionStore extends PuterStore {
     }
 
     /**
-     * Apply a peer region's flat-permission delete. Independent of whether the
+     * Apply a peer region's flat-permission deletes. Independent of whether the
      * KV table replicates: a redundant delete is a no-op, a needed one is the
      * only thing that makes the revoke real there.
      */
@@ -113,29 +119,32 @@ export class PermissionStore extends PuterStore {
             'outer.permission.flatInvalidated',
             (_key, data, meta) => {
                 if (!(meta as { from_outside?: boolean })?.from_outside) return;
-                const { holderUserId, permission } = (data ?? {}) as {
-                    holderUserId?: unknown;
-                    permission?: unknown;
-                };
-                if (typeof holderUserId !== 'number') return;
-                if (typeof permission !== 'string' || permission === '') return;
+                const raw = (data as { entries?: unknown })?.entries;
+                if (!Array.isArray(raw)) return;
+                const entries = raw.filter(
+                    (entry): entry is FlatPermRef =>
+                        typeof (entry as FlatPermRef)?.holderUserId ===
+                            'number' &&
+                        typeof (entry as FlatPermRef)?.permission ===
+                            'string' &&
+                        (entry as FlatPermRef).permission !== '',
+                );
+                if (entries.length === 0) return;
                 // Guarded: a transient KV error applying a peer's delete must
                 // not become an unhandled rejection. The entry stays until the
                 // next invalidation or its TTL — same as a lost event.
-                this.#applyFlatUserPermDelete(holderUserId, permission).catch(
-                    (err) => {
-                        console.warn(
-                            '[PermissionStore] failed to apply remote flat-perm delete:',
-                            err,
-                        );
-                    },
-                );
+                this.#applyFlatUserPermDeletes(entries).catch((err) => {
+                    console.warn(
+                        '[PermissionStore] failed to apply remote flat-perm deletes:',
+                        err,
+                    );
+                });
             },
         );
     }
 
     /**
-     * Apply a peer region's cache-generation bump. Our own emit reaches local
+     * Apply a peer region's cache-generation bumps. Our own emit reaches local
      * listeners too, and that half already ran before it went out.
      */
     #subscribeRemoteGenerationBumps(): void {
@@ -143,9 +152,16 @@ export class PermissionStore extends PuterStore {
             'outer.permission.generationBumped',
             (_key, data, meta) => {
                 if (!(meta as { from_outside?: boolean })?.from_outside) return;
-                const actorUid = (data as { actorUid?: unknown })?.actorUid;
-                if (typeof actorUid !== 'string' || actorUid === '') return;
-                void this.#applyCacheGenerationBump(actorUid);
+                const raw = (data as { actorUids?: unknown })?.actorUids;
+                if (!Array.isArray(raw)) return;
+                const actorUids = raw.filter(
+                    (uid): uid is string =>
+                        typeof uid === 'string' && uid !== '',
+                );
+                if (actorUids.length === 0) return;
+                void Promise.all(
+                    actorUids.map((uid) => this.#applyCacheGenerationBump(uid)),
+                );
             },
         );
     }
@@ -207,29 +223,41 @@ export class PermissionStore extends PuterStore {
         holderUserId: number,
         permission: string,
     ): Promise<void> {
-        await this.#applyFlatUserPermDelete(holderUserId, permission);
+        await this.delFlatUserPerms([{ holderUserId, permission }]);
+    }
+
+    /**
+     * Delete many flat entries and tell peer regions once. Retiring a shared
+     * directory can touch hundreds of grants; one event per grant would put
+     * that whole fan-out on the cross-region path.
+     */
+    async delFlatUserPerms(entries: FlatPermRef[]): Promise<void> {
+        if (entries.length === 0) return;
+        await this.#applyFlatUserPermDeletes(entries);
         try {
             this.clients.event.emit(
                 'outer.permission.flatInvalidated',
-                { holderUserId, permission },
+                { entries },
                 {},
             );
         } catch {
-            // Peer regions keep the entry until their KV replicates the delete.
+            // Peer regions keep the entries until their KV replicates.
         }
     }
 
     /** Local half of a flat delete. Never emits, so a remote one can't loop. */
-    async #applyFlatUserPermDelete(
-        holderUserId: number,
-        permission: string,
-    ): Promise<void> {
-        const key = PermissionUtil.join(
-            PERM_KEY_PREFIX,
-            String(holderUserId),
-            permission,
+    async #applyFlatUserPermDeletes(entries: FlatPermRef[]): Promise<void> {
+        await Promise.all(
+            entries.map(({ holderUserId, permission }) =>
+                this.stores.kv.del({
+                    key: PermissionUtil.join(
+                        PERM_KEY_PREFIX,
+                        String(holderUserId),
+                        permission,
+                    ),
+                }),
+            ),
         );
-        await this.stores.kv.del({ key });
     }
 
     // -- SQL: user-to-user permissions -------------------------------
@@ -344,14 +372,33 @@ export class PermissionStore extends PuterStore {
             permission: string;
         }>
     > {
+        return this.deleteUserUserPermsByPermissionPrefixes([permission]);
+    }
+
+    /** As above, for several prefixes in one scan. */
+    async deleteUserUserPermsByPermissionPrefixes(
+        permissions: string[],
+    ): Promise<
+        Array<{
+            holder_user_id: number;
+            issuer_user_id: number;
+            permission: string;
+        }>
+    > {
+        if (permissions.length === 0) return [];
         // See deleteAppGrantsByPermissionPrefix for why `!` is the escape.
-        const escaped = permission.replace(/([!%_])/g, '!$1');
-        const prefix = `${escaped}:%`;
+        const where = permissions
+            .map(() => "(`permission` = ? OR `permission` LIKE ? ESCAPE '!')")
+            .join(' OR ');
+        const params = permissions.flatMap((permission) => [
+            permission,
+            `${permission.replace(/([!%_])/g, '!$1')}:%`,
+        ]);
 
         const rows = (await this.clients.db.read(
             'SELECT `holder_user_id`, `issuer_user_id`, `permission` FROM `user_to_user_permissions` ' +
-                "WHERE `permission` = ? OR `permission` LIKE ? ESCAPE '!'",
-            [permission, prefix],
+                `WHERE ${where}`,
+            params,
         )) as Array<{
             holder_user_id: number;
             issuer_user_id: number;
@@ -360,16 +407,17 @@ export class PermissionStore extends PuterStore {
         if (rows.length === 0) return [];
 
         await this.clients.db.write(
-            'DELETE FROM `user_to_user_permissions` ' +
-                "WHERE `permission` = ? OR `permission` LIKE ? ESCAPE '!'",
-            [permission, prefix],
+            `DELETE FROM \`user_to_user_permissions\` WHERE ${where}`,
+            params,
         );
 
-        // Via delFlatUserPerm so peer regions hear about it too.
-        await Promise.all(
-            rows.map((row) =>
-                this.delFlatUserPerm(row.holder_user_id, row.permission),
-            ),
+        // One batched invalidation, so retiring a busy directory doesn't put a
+        // row-sized fan-out on the cross-region path.
+        await this.delFlatUserPerms(
+            rows.map((row) => ({
+                holderUserId: row.holder_user_id,
+                permission: row.permission,
+            })),
         );
 
         const keys = [
@@ -853,11 +901,20 @@ export class PermissionStore extends PuterStore {
     }
 
     async bumpCacheGeneration(actorUid: string): Promise<void> {
-        await this.#applyCacheGenerationBump(actorUid);
+        await this.bumpCacheGenerations([actorUid]);
+    }
+
+    /** Bump several actors and tell peer regions once. */
+    async bumpCacheGenerations(actorUids: string[]): Promise<void> {
+        const unique = [...new Set(actorUids.filter(Boolean))];
+        if (unique.length === 0) return;
+        await Promise.all(
+            unique.map((uid) => this.#applyCacheGenerationBump(uid)),
+        );
         try {
             this.clients.event.emit(
                 'outer.permission.generationBumped',
-                { actorUid },
+                { actorUids: unique },
                 {},
             );
         } catch {

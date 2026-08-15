@@ -18,6 +18,8 @@
  */
 
 import list_all_shared from './list_all_shared.js';
+import { is_owned_by_me } from './path_owner.js';
+import { is_share_root } from './share_paths.js';
 
 // What we hold on each shared root, by path: `{ mode, name }`. A `readdir`
 // inside a shared folder returns plain entries, so nothing else records it.
@@ -73,9 +75,7 @@ export const shared_mode_for = async (path) => {
 };
 
 /**
- * The shared root `path` sits in, from what is already loaded — no await, so
- * render paths can use it. Returns null when nothing is known yet; callers
- * that can tolerate a round trip should await `shared_mode_for` first.
+ * The shared root `path` sits in, from what is already loaded.
  *
  * @param {string} path
  * @returns {{path: string, mode: string, name: string|undefined}|null}
@@ -90,18 +90,20 @@ export const shared_root_for = (path) => {
     return best === null ? null : { path: best, ...roots.get(best) };
 };
 
-/** Kick off the load so a later sync lookup has something to answer with. */
-export const prime_shared_roots = () => load_once();
-
 /**
- * May you rename or delete the item at `item_path`? The folder holding it
- * decides, so a shared folder stays out of reach while its contents do not.
+ * May you rename or delete the item at `item_path`?
+ *
+ * The folder holding it decides, which is what the backend enforces too. A
+ * shared item is therefore fixed — its folder belongs to its owner — while
+ * anything inside a folder you can write to is yours to reorganize.
  *
  * @param {string} item_path
  * @returns {Promise<boolean>}
  */
 export const can_restructure = async (item_path) => {
     if ( typeof item_path !== 'string' ) return false;
+    if ( is_owned_by_me(item_path) ) return true;
+    if ( is_share_root(item_path) ) return false;
     const parent = item_path.slice(0, item_path.lastIndexOf('/'));
     return ['write', 'manage'].includes(await shared_mode_for(parent));
 };

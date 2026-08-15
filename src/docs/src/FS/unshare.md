@@ -6,6 +6,14 @@ platforms: [websites, apps, nodejs, workers]
 
 This method withdraws a user's access to a file or directory.
 
+> **What an app can share.** An app never gets more reach than it was given. It
+> can share its own AppData, and files the user specifically granted it, at up
+> to the level of access it holds itself — so an app with read access can grant
+> read, and nothing more. Files its user owns but never handed to the app stay
+> out of reach, and `listShared()` shows an app only the shares it can reach.
+> Shares an app creates are attributed to the user and carry `issuedByApp`, so
+> the owner can tell them apart in [`getShares()`](/FS/getShares/).
+
 ## Syntax
 
 ```js

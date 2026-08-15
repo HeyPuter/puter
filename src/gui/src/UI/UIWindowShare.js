@@ -18,17 +18,32 @@
  */
 
 import UIWindow from './UIWindow.js';
+import UIAlert from './UIAlert.js';
 import path from '../lib/path.js';
 import { owner_of_path } from '../helpers/path_owner.js';
 import { invalidate_shared_roots } from '../helpers/shared_access.js';
 import { icons } from '../helpers/actionIcons.js';
 
+// Offered when granting. The API accepts `see` and `list` too, but they are a
+// developer-level distinction with no place in this dialog — a row already set
+// to one is shown as-is rather than quietly rounded up to `read`.
 const MODES = ['read', 'write', 'manage'];
 
 const mode_label = (mode) => {
     if ( mode === 'write' ) return i18n('share_access_write');
     if ( mode === 'manage' ) return i18n('share_access_manage');
-    return i18n('share_access_read');
+    if ( mode === 'read' ) return i18n('share_access_read');
+    return mode;
+};
+
+const options_for = (current) => {
+    const modes = MODES.includes(current) ? MODES : [current, ...MODES];
+    return modes
+        .map(
+            (mode) =>
+                `<option value="${html_encode(mode)}"${mode === current ? ' selected' : ''}>${html_encode(mode_label(mode))}</option>`,
+        )
+        .join('');
 };
 
 /**
@@ -56,11 +71,7 @@ async function UIWindowShare (options) {
     h += '<div class="share-dialog-row">';
     h += `<input class="share-recipient" id="share-recipient" type="text" autocomplete="off" spellcheck="false"
                  placeholder="${html_encode(i18n('share_add_people'))}" />`;
-    h += '<select class="share-mode">';
-    for ( const mode of MODES ) {
-        h += `<option value="${mode}">${html_encode(mode_label(mode))}</option>`;
-    }
-    h += '</select>';
+    h += `<select class="share-mode">${options_for('read')}</select>`;
     h += '</div>';
     h += `<button class="share-btn button button-primary button-block button-normal">${i18n('share')}</button>`;
 
@@ -116,6 +127,11 @@ async function UIWindowShare (options) {
         $error.html(html_encode(message)).show();
     };
 
+    const show_success = (message) => {
+        $error.hide();
+        $success.html(message).show();
+    };
+
     const render = (shares) => {
         let rows = '';
         // The owner's access comes from owning the item, so it can't be revoked
@@ -137,11 +153,7 @@ async function UIWindowShare (options) {
             }
             rows += '<div class="share-row">';
             rows += `<span class="share-row-who">${holder}</span>`;
-            rows += `<select class="share-row-mode-select" data-holder="${holder}">`;
-            for ( const mode of MODES ) {
-                rows += `<option value="${mode}"${mode === share.mode ? ' selected' : ''}>${html_encode(mode_label(mode))}</option>`;
-            }
-            rows += '</select>';
+            rows += `<select class="share-row-mode-select" data-holder="${holder}">${options_for(share.mode)}</select>`;
             rows += `<button class="share-revoke" data-holder="${holder}" title="${html_encode(i18n('share_remove_access'))}" aria-label="${html_encode(i18n('share_remove_access'))}">${icons.trash}</button>`;
             rows += '</div>';
         }
@@ -172,7 +184,7 @@ async function UIWindowShare (options) {
             });
             $(el_window).find('.share-recipient').val('');
             $error.hide();
-            $success.html(i18n('share_shared_with', { recipient })).show();
+            show_success(i18n('share_shared_with', { recipient: html_encode(recipient) }));
             invalidate_shared_roots();
             await refresh();
         } catch (e) {
@@ -188,8 +200,7 @@ async function UIWindowShare (options) {
         $(this).prop('disabled', true);
         try {
             await puter.fs.share({ path: item_path, recipient: holder, mode });
-            $error.hide();
-            $success.html(i18n('share_shared_with', { recipient: holder })).show();
+            show_success(i18n('share_shared_with', { recipient: html_encode(holder) }));
             invalidate_shared_roots();
             await refresh();
         } catch (e) {
@@ -201,11 +212,18 @@ async function UIWindowShare (options) {
 
     $(el_window).on('click', '.share-revoke', async function () {
         const holder = $(this).attr('data-holder');
+        const confirmed = await UIAlert({
+            message: i18n('share_confirm_remove', { recipient: holder }),
+            buttons: [
+                { label: i18n('share_remove'), value: true, type: 'primary' },
+                { label: i18n('cancel'), value: false },
+            ],
+        });
+        if ( ! confirmed ) return;
         $(this).prop('disabled', true);
         try {
             await puter.fs.unshare(item_path, holder);
-            $error.hide();
-            $success.html(i18n('share_access_removed', { recipient: holder })).show();
+            show_success(i18n('share_access_removed', { recipient: html_encode(holder) }));
             invalidate_shared_roots();
             await refresh();
         } catch (e) {

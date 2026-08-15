@@ -20,7 +20,7 @@
 import type { Request, Response } from 'express';
 import type { Actor } from '../../core/actor.js';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
-import { HttpError } from '../../core/http/HttpError.js';
+import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import type {
     ResolvedShare,
     ShareRecipient,
@@ -85,6 +85,12 @@ interface ShareOutcome {
 /**
  * Sharing endpoints. `ShareService` owns the semantics; this layer parses
  * input, bounds fan-out, and shapes responses.
+ *
+ * Apps and tokens are admitted rather than gated out, because `ShareService`
+ * bounds them properly: authority to share comes from the user behind the
+ * actor, and the actor must additionally reach the node in its own right. An
+ * app therefore shares its own AppData and the files it was given, and nothing
+ * else its user happens to own.
  */
 @Controller('/share')
 export class ShareController extends PuterController {
@@ -96,7 +102,6 @@ export class ShareController extends PuterController {
     @Post('', {
         subdomain: 'api',
         requireVerified: true,
-        requireUserActor: true,
         rateLimit: SHARE_LIMIT,
     })
     async createShares(req: Request, res: Response): Promise<void> {
@@ -149,7 +154,16 @@ export class ShareController extends PuterController {
             }),
         );
 
-        this.#notifyRecipients(actor, settled, pairs);
+        // Off the response path — a share must not fail because its
+        // notification didn't land.
+        void this.services.share
+            .notifyRecipients(
+                actor,
+                settled.flatMap((outcome) =>
+                    outcome.status === 'fulfilled' ? [outcome.value] : [],
+                ),
+            )
+            .catch(() => {});
 
         const succeeded = results.filter((r) => r.status === 'success').length;
         res.json({
@@ -172,7 +186,6 @@ export class ShareController extends PuterController {
     @Post('/revoke', {
         subdomain: 'api',
         requireVerified: true,
-        requireUserActor: true,
         rateLimit: SHARE_LIMIT,
     })
     async revokeShare(req: Request, res: Response): Promise<void> {
@@ -234,7 +247,6 @@ export class ShareController extends PuterController {
     @Get('/shared-with-me', {
         subdomain: 'api',
         requireVerified: true,
-        requireUserActor: true,
         rateLimit: SHARE_LIST_LIMIT,
     })
     async listSharedWithMe(req: Request, res: Response): Promise<void> {
@@ -260,7 +272,6 @@ export class ShareController extends PuterController {
     @Get('/shares', {
         subdomain: 'api',
         requireVerified: true,
-        requireUserActor: true,
         rateLimit: SHARE_LIST_LIMIT,
     })
     async listSharesOf(req: Request, res: Response): Promise<void> {
@@ -319,6 +330,7 @@ export class ShareController extends PuterController {
             issuer: share.issuer.username,
             holder: share.holder.username,
             created_at: share.createdAt,
+            issued_by_app: share.issuedByApp ?? null,
             inherited_from: share.inheritedFrom ?? null,
             modified: share.modified,
             size: share.size,
@@ -436,57 +448,13 @@ export class ShareController extends PuterController {
      * generic error rather than leaking an internal message.
      */
     #errorShape(reason: unknown): { message: string; code?: string } {
-        const err = reason as {
-            statusCode?: number;
-            message?: string;
-            fields?: { code?: string };
-        };
-        if (typeof err?.statusCode === 'number' && err.statusCode < 500) {
-            return {
-                message: err.message ?? 'Request failed',
-                ...(err.fields?.code ? { code: err.fields.code } : {}),
-            };
+        if (!isHttpError(reason) || reason.statusCode >= 500) {
+            return { message: 'Request failed' };
         }
-        return { message: 'Request failed' };
-    }
-
-    /**
-     * One notification per recipient who gained access, off the response path —
-     * a share must not fail because its notification didn't land.
-     */
-    #notifyRecipients(
-        actor: Actor,
-        settled: PromiseSettledResult<unknown>[],
-        pairs: Array<{ recipient: ShareRecipient; item: ShareTarget }>,
-    ): void {
-        const byRecipient = new Map<string, number>();
-        settled.forEach((outcome, index) => {
-            if (outcome.status !== 'fulfilled') return;
-            const label =
-                pairs[index].recipient.email ??
-                pairs[index].recipient.username ??
-                '';
-            byRecipient.set(label, (byRecipient.get(label) ?? 0) + 1);
-        });
-        if (byRecipient.size === 0) return;
-
-        void (async () => {
-            try {
-                for (const [label, count] of byRecipient) {
-                    const user = label.includes('@')
-                        ? await this.stores.user.getByEmail(label)
-                        : await this.stores.user.getByUsername(label);
-                    if (!user) continue;
-                    await this.services.notification.notify([user.id], {
-                        source: 'sharing',
-                        title: `${actor.user.username} shared ${count === 1 ? 'an item' : `${count} items`} with you`,
-                        template: 'file-shared-with-you',
-                        fields: { username: actor.user.username, count },
-                    });
-                }
-            } catch {
-                // Never fail a completed share over its notification.
-            }
-        })();
+        const code = reason.legacyCode ?? reason.code;
+        return {
+            message: reason.message || 'Request failed',
+            ...(code ? { code } : {}),
+        };
     }
 }

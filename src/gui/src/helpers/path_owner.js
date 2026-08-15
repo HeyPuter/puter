@@ -43,9 +43,7 @@ export const is_owned_by_me = (path) => {
 };
 
 /**
- * Trash an item belongs in — its owner's, not yours. A shared item's path is
- * masked (`~/share/<uid>/…`) and names nobody, so the owner is read off the
- * entry when the path cannot supply it.
+ * Trash an item belongs in — its owner's, not yours.
  *
  * @param {string} path
  * @param {string} [owner] username from the entry, when known
