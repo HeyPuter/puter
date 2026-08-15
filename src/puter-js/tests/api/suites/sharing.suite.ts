@@ -142,12 +142,12 @@ export default suite('sharing', {
         );
         t.assert.ok(listed && shared, 'the share should be listed');
 
-        // The owner's folder is not in it, but the backend still resolves it.
-        t.assert.ok(
-            !shared!.path.includes('/sharing-'),
-            `path should be masked, got ${shared!.path}`,
+        // The exact masked shape: owner, entry uid, leaf name — and nothing
+        // of the owner's tree between them. The backend still resolves it.
+        t.assert.equal(
+            shared!.path,
+            `${home(t)}/${shared!.uid_entry}/${shared!.name}`,
         );
-        t.assert.equal(shared!.path, `${home(t)}/${shared!.uid_entry}/${shared!.name}`);
 
         const read = await fetch(
             `${t.env.apiOrigin}/read?${new URLSearchParams({ file: shared!.path })}`,
