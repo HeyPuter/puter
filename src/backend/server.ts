@@ -757,6 +757,11 @@ export class PuterServer {
                     // direction: an error tagged as caused by an upstream
                     // provider or a misbehaving client gets exposed to
                     // the user but does not alarm at all.
+                    //
+                    // `noAlarm` beats both: the call site already decided
+                    // this failure isn't worth recording (e.g. an upstream
+                    // rate limit on a free model, where the volume tracks
+                    // traffic and there's nothing to act on).
                     const FORCED_ALERT_CODES = new Map<string, PagerSeverity>([
                         ['upstream_rate_limited', 'info'],
                         // Our credentials for a provider stopped working —
@@ -765,6 +770,7 @@ export class PuterServer {
                     ]);
                     const SKIP_ALERT_PREFIXES = /^(upstream_|client_)/;
                     const isHttp = isHttpError(err);
+                    if (isHttp && err.noAlarm) return;
                     const status = isHttp ? err.statusCode : 500;
                     const legacyCode = isHttp ? (err.legacyCode ?? '') : '';
                     const forcedSeverity = FORCED_ALERT_CODES.get(legacyCode);

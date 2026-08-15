@@ -5,26 +5,27 @@ import { HttpError } from '@heyputer/backend/src/core/http';
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 /**
- * Process input messages from Puter's normalized format to OpenAI's format
- * May make changes in-place.
+ * Process input messages from Puter's normalized format to OpenAI's format May
+ * make changes in-place.
  *
- * @param {Array<Message>} messages - array of normalized messages
- * @returns {Array<Message>} - array of messages in OpenAI format
+ * @param {Message[]} messages - Array of normalized messages
+ * @returns {Message[]} - Array of messages in OpenAI format
  */
 export const process_input_messages = async (messages) => {
     for (const msg of messages) {
@@ -357,10 +358,22 @@ export const create_chat_stream_handler =
         }
 
         // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
-        const usage = usage_calculator({
-            usage: last_usage,
-            extra_content: last_extra_content,
-        });
+        // No usage chunk means there is nothing to meter from — reaching into
+        // a null usage object here used to throw, which took down a response
+        // the upstream had already produced *and* skipped its billing. Leave
+        // the usage undefined instead; the driver charges an estimate for a
+        // stream that produced output nobody reported.
+        const usage = last_usage
+            ? usage_calculator({
+                  usage: last_usage,
+                  extra_content: last_extra_content,
+              })
+            : undefined;
+        // The calculator just metered. Reported here, not only via `end`:
+        // a throw in the block flushes below (a malformed tool-call payload,
+        // say) must not leave a metered stream looking unmetered — the driver
+        // would charge its estimate on top.
+        chatStream.reportUsage(usage);
 
         if (mode === 'text') textblock.end();
         if (mode === 'tool') toolblock.end();
@@ -433,7 +446,13 @@ export const create_chat_stream_handler_responses_api =
         }
 
         // TODO DS: this is a bit too abstracted... this is basically just doing the metering now
-        const usage = usage_calculator({ usage: last_usage });
+        // Missing usage is left undefined rather than fed to the calculator —
+        // see the sibling handler above, including why usage is reported
+        // before the block flushes.
+        const usage = last_usage
+            ? usage_calculator({ usage: last_usage })
+            : undefined;
+        chatStream.reportUsage(usage);
 
         if (mode === 'text') textblock.end();
         if (mode === 'tool') toolblock.end();
@@ -443,7 +462,13 @@ export const create_chat_stream_handler_responses_api =
     };
 
 export const handle_completion_output = async (
-    /** @type {Record<string,unknown> & {usage_calculator:(args: {usage: import("openai/resources/completions.mjs").CompletionUsage})=> unknown }}*/
+    /**
+     * @type {Record<string, unknown> & {
+     *     usage_calculator: (args: {
+     *         usage: import('openai/resources/completions.mjs').CompletionUsage;
+     *     }) => unknown;
+     * }}
+     */
     { deviations, stream, completion, moderate, usage_calculator, finally_fn },
 ) => {
     deviations = Object.assign(
@@ -470,17 +495,10 @@ export const handle_completion_output = async (
 
     if (finally_fn) await finally_fn();
 
-    // We need to moderate the completion too
-    const mod_text = completion.choices[0].message.content;
-    if (moderate && mod_text !== null) {
-        const moderation_result = await moderate(mod_text);
-        if (moderation_result.flagged) {
-            throw new HttpError(400, 'message is not allowed', {
-                legacyCode: 'bad_request',
-            });
-        }
-    }
-
+    // Metered before moderation: the completion exists and the upstream has
+    // billed us for it whether or not we go on to withhold it, and running
+    // the moderation gate first meant a flagged completion was served to
+    // nobody and charged to nobody.
     const ret = completion.choices[0];
     const completion_usage = deviations.coerce_completion_usage(completion);
     ret.usage = usage_calculator
@@ -492,13 +510,30 @@ export const handle_completion_output = async (
               input_tokens: completion_usage.prompt_tokens,
               output_tokens: completion_usage.completion_tokens,
           };
+
+    const mod_text = completion.choices[0].message.content;
+    if (moderate && mod_text !== null) {
+        const moderation_result = await moderate(mod_text);
+        if (moderation_result.flagged) {
+            // `code` tells the driver this is a refusal of a completion that
+            // was produced and charged, not a route failure — retrying it on
+            // a fallback provider would bill the account again for another
+            // completion the user will never see.
+            throw new HttpError(400, 'message is not allowed', {
+                legacyCode: 'bad_request',
+                code: 'moderation_flagged',
+            });
+        }
+    }
+
     return ret;
 };
 
 /**
- *
  * @param {object} params
- * @param {(args: {usage: import("openai/resources/completions.mjs").CompletionUsage})=> unknown } params.usage_calculator
+ * @param {(args: {
+ *     usage: import('openai/resources/completions.mjs').CompletionUsage;
+ * }) => unknown} params.usage_calculator
  * @returns
  */
 export const handle_completion_output_responses_api = async ({
@@ -559,17 +594,6 @@ export const handle_completion_output_responses_api = async ({
         });
     }
 
-    // We need to moderate the completion too
-    const mod_text = completion.output_text;
-    if (moderate && mod_text !== null) {
-        const moderation_result = await moderate(mod_text);
-        if (moderation_result.flagged) {
-            throw new HttpError(400, 'message is not allowed', {
-                legacyCode: 'bad_request',
-            });
-        }
-    }
-
     const ret = {
         finish_reason: 'stop',
         index: 0,
@@ -599,6 +623,9 @@ export const handle_completion_output_responses_api = async ({
 
     delete ret.type;
 
+    // Metered before moderation, same as the sibling handler above: the
+    // completion exists and the upstream has billed us for it whether or not
+    // we go on to withhold it.
     ret.usage = usage_calculator
         ? usage_calculator({
               ...completion,
@@ -608,5 +635,17 @@ export const handle_completion_output_responses_api = async ({
               input_tokens: completion.usage.input_tokens,
               output_tokens: completion.usage.output_tokens,
           };
+
+    const mod_text = completion.output_text;
+    if (moderate && mod_text !== null) {
+        const moderation_result = await moderate(mod_text);
+        if (moderation_result.flagged) {
+            throw new HttpError(400, 'message is not allowed', {
+                legacyCode: 'bad_request',
+                code: 'moderation_flagged',
+            });
+        }
+    }
+
     return ret;
 };

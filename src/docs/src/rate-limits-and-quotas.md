@@ -31,6 +31,10 @@ What usage costs (the big three):
 - **AI** — priced per model and per token/second/character. `puter.ai.listModels()` reports models; the per-model rates are served by the API (`GET /metering/allCosts`) rather than printed here, because a single number would be wrong for every model.
 - **KV and storage operations** — small per-operation costs; reads served from cache are charged a fraction of an uncached read.
 
+A streamed AI response that stops before the model reports its token counts — an upstream error part-way through the response, say — is still charged, on an estimate of what it streamed. A request that produced no output is not charged at all.
+
+AI requests you have in flight count against the balance while they run, at the most they could cost, and are reconciled to their real cost when they finish. Several expensive completions started at once therefore see each other's spend rather than each being told the whole balance is available — the later ones get `402 insufficient_funds` if the balance can't cover them all.
+
 ## Rate limits
 
 Every limit is a rolling window, keyed per user. Where three numbers are shown they are **paid / free / anonymous** — "paid" is any subscription tier.

@@ -148,10 +148,13 @@ const completeFake = (args: Record<string, unknown>) =>
         } as never),
     );
 
-const errorFor = async (thrown: unknown): Promise<HttpError> => {
+const errorFor = async (
+    thrown: unknown,
+    args: Record<string, unknown> = {},
+): Promise<HttpError> => {
     vi.spyOn(FakeChatProvider.prototype, 'complete').mockRejectedValue(thrown);
     try {
-        await completeFake({});
+        await completeFake(args);
     } catch (e) {
         return e as HttpError;
     }
@@ -255,6 +258,32 @@ describe('ChatCompletionDriver exhausted-chain classification', () => {
         expect(err.statusCode).toBe(429);
         expect(err).toMatchObject({ legacyCode: 'upstream_rate_limited' });
         expect(err.message).toBe('AI provider rate limit exceeded');
+    });
+
+    it('mutes the alarm when every rate-limited attempt was on a free model', async () => {
+        // `fake` is priced at zero throughout: an upstream throttle there is
+        // expected and costs nobody anything, so the caller still gets the
+        // 429 but nothing is recorded.
+        const err = await errorFor(
+            Object.assign(new Error('slow down'), { status: 429 }),
+        );
+        expect(err.noAlarm).toBe(true);
+    });
+
+    it('keeps the alarm when a paid model is the one being rate limited', async () => {
+        const err = await errorFor(
+            Object.assign(new Error('slow down'), { status: 429 }),
+            { model: 'costly' },
+        );
+        expect(err).toMatchObject({ legacyCode: 'upstream_rate_limited' });
+        expect(err.noAlarm).toBe(false);
+    });
+
+    it('leaves non-rate-limit failures on a free model alarming as usual', async () => {
+        const err = await errorFor(
+            Object.assign(new Error('invalid api key'), { status: 401 }),
+        );
+        expect(err.noAlarm).toBeFalsy();
     });
 
     it('classifies a rate limit reported only in the message text', async () => {
@@ -411,9 +440,9 @@ describe('ChatCompletionDriver cross-provider fallback', () => {
             Object.assign(new Error('azure down'), { status: 503 }),
         );
         const openai = vi.spyOn(OpenAiChatProvider.prototype, 'complete');
-        vi.spyOn(server.services.metering, 'hasEnoughCredits')
-            .mockResolvedValueOnce(true) // pre-flight
-            .mockResolvedValue(false); // drained by a parallel request
+        vi.spyOn(server.services.metering, 'getRemainingUsage')
+            .mockResolvedValueOnce(1_000_000) // pre-flight
+            .mockResolvedValue(0); // drained by a parallel request
 
         await expect(completeShared()).rejects.toMatchObject({
             statusCode: 402,

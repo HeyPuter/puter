@@ -1991,6 +1991,94 @@ describe('MeteringService', () => {
         });
     });
 
+    // -- Credit holds --------------------------------------------------
+
+    describe('reserveCredits', () => {
+        it('takes what an in-flight operation could spend out of the spendable balance', async () => {
+            const before = await target.getRemainingUsage(actor);
+            expect(before).toBeGreaterThan(0);
+
+            const hold = await target.reserveCredits(actor, 1000);
+
+            expect(await target.getRemainingUsage(actor)).toBe(before - 1000);
+            await hold.release();
+            expect(await target.getRemainingUsage(actor)).toBe(before);
+        });
+
+        it('stacks holds, so parallel operations see each other', async () => {
+            const before = await target.getRemainingUsage(actor);
+
+            const first = await target.reserveCredits(actor, 400);
+            const second = await target.reserveCredits(actor, 600);
+
+            expect(await target.getRemainingUsage(actor)).toBe(before - 1000);
+            await first.release();
+            await second.release();
+        });
+
+        it('never reports a negative balance, however much is held', async () => {
+            const before = await target.getRemainingUsage(actor);
+            const hold = await target.reserveCredits(actor, before * 10);
+
+            expect(await target.getRemainingUsage(actor)).toBe(0);
+            await hold.release();
+        });
+
+        it('leaves the reported balance alone — a hold is not usage', async () => {
+            const { remaining } = await target.getAllowedUsage(actor);
+            const hold = await target.reserveCredits(actor, 1000);
+
+            expect((await target.getAllowedUsage(actor)).remaining).toBe(
+                remaining,
+            );
+            await hold.release();
+        });
+
+        it('releasing twice gives the budget back once', async () => {
+            const before = await target.getRemainingUsage(actor);
+            const hold = await target.reserveCredits(actor, 500);
+            await hold.release();
+            await hold.release();
+
+            expect(await target.getRemainingUsage(actor)).toBe(before);
+        });
+
+        it('holds nothing for the system actor or a zero amount', async () => {
+            const before = await target.getRemainingUsage(actor);
+            await (await target.reserveCredits(actor, 0)).release();
+            expect(await target.getRemainingUsage(actor)).toBe(before);
+        });
+
+        // A stream can outlive the hold's TTL; extending is what keeps its
+        // in-flight spend visible for the whole generation.
+        it('extend gives a hold another full TTL from now', async () => {
+            const before = await target.getRemainingUsage(actor);
+            const hold = await target.reserveCredits(actor, 750, {
+                ttlMs: 500,
+            });
+
+            // Let the original deadline lapse entirely...
+            await new Promise((r) => setTimeout(r, 620));
+            expect(await target.getRemainingUsage(actor)).toBe(before);
+
+            // ...extending brings the still-running operation's hold back.
+            await hold.extend?.();
+            expect(await target.getRemainingUsage(actor)).toBe(before - 750);
+
+            await hold.release();
+            expect(await target.getRemainingUsage(actor)).toBe(before);
+        });
+
+        it('extend after release does not resurrect the hold', async () => {
+            const before = await target.getRemainingUsage(actor);
+            const hold = await target.reserveCredits(actor, 300);
+            await hold.release();
+            await hold.extend?.();
+
+            expect(await target.getRemainingUsage(actor)).toBe(before);
+        });
+    });
+
     // ── Resolver registration ────────────────────────────────────────
 
     describe('resolver registration', () => {

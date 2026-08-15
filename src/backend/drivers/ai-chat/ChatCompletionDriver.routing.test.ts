@@ -293,6 +293,73 @@ describe('ChatCompletionDriver duplicate-model fallback', () => {
     });
 });
 
+// Each attempt in a fallback chain is a whole completion at that model's
+// prices, so each one has to clear the credit gate on its own. The chain used
+// to re-check with a nominal 1-microcent amount, which any account with a
+// fraction of a credit left passed — three attempts could cost three times
+// what the balance allowed.
+describe('ChatCompletionDriver credit gate across the fallback chain', () => {
+    it('runs the full gate once per attempt, not a nominal re-check', async () => {
+        // Observed, not stubbed — the counter that shows each attempt did a
+        // real balance read of its own.
+        const remaining = vi.spyOn(
+            server.services.metering,
+            'getRemainingUsage',
+        );
+
+        const attempts = await attemptsFor('deepseek-v4-pro');
+
+        expect(attempts).toHaveLength(3);
+        // The balance is read for each attempt because each one's
+        // affordability and output cap are decided at that model's prices
+        // against what's actually left.
+        expect(remaining.mock.calls.length).toBeGreaterThanOrEqual(
+            attempts.length,
+        );
+        remaining.mockRestore();
+    });
+
+    it('aborts the chain when the balance runs out mid-fallback', async () => {
+        const actor = {
+            user: {
+                uuid: `routing-gate-${Math.random().toString(36).slice(2)}`,
+                username: 'routing-gate-user',
+                email: 'routing-gate@test.com',
+            },
+        } as never;
+        const metering = server.services.metering;
+
+        // The first attempt fails upstream, and while it does, a "parallel
+        // request" spends the rest of the month's allowance — real usage
+        // rows, not a stubbed balance — so the next attempt's gate reads an
+        // account with nothing left.
+        createMock.mockImplementation(async () => {
+            const { remaining } = await metering.getAllowedUsage(actor);
+            await metering.incrementUsage(
+                actor,
+                'test:parallel-spend',
+                1,
+                remaining,
+            );
+            throw new Error('upstream down');
+        });
+
+        await expect(
+            withTestActor(
+                () =>
+                    driver.complete({
+                        model: 'deepseek-v4-pro',
+                        messages: [{ role: 'user', content: 'hi' }],
+                    }),
+                actor,
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 402,
+            legacyCode: 'insufficient_funds',
+        });
+    });
+});
+
 describe('ChatCompletionDriver unhealthy-route skipping', () => {
     it('skips a route marked by an earlier failure and serves the next one', async () => {
         markRouteUnhealthy('deepseek', 'deepseek-v4-pro');
