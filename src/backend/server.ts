@@ -41,6 +41,8 @@ import {
     allowedAppIdsGate,
     noUserSessionGate,
     requireAuthGate,
+    requireCardVerifiedGate,
+    requirePhoneVerifiedGate,
     requireVerifiedAccount,
     requireNonAccessTokenGate,
     requireUserActorGate,
@@ -49,6 +51,8 @@ import {
 } from './core/http/middleware/gates';
 import { guiOriginGate } from './core/http/middleware/originGate';
 import { requireCreditsGate } from './core/http/middleware/credits';
+import { requireSubscriptionGate } from './core/http/middleware/subscription';
+import { validateSubscriptionRequirement } from './services/metering/enforcement';
 import { createStepUpGate } from './core/http/middleware/stepUpSession';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
 import { installProcessGuards } from './util/processGuards';
@@ -753,6 +757,11 @@ export class PuterServer {
                     // direction: an error tagged as caused by an upstream
                     // provider or a misbehaving client gets exposed to
                     // the user but does not alarm at all.
+                    //
+                    // `noAlarm` beats both: the call site already decided
+                    // this failure isn't worth recording (e.g. an upstream
+                    // rate limit on a free model, where the volume tracks
+                    // traffic and there's nothing to act on).
                     const FORCED_ALERT_CODES = new Map<string, PagerSeverity>([
                         ['upstream_rate_limited', 'info'],
                         // Our credentials for a provider stopped working —
@@ -761,6 +770,7 @@ export class PuterServer {
                     ]);
                     const SKIP_ALERT_PREFIXES = /^(upstream_|client_)/;
                     const isHttp = isHttpError(err);
+                    if (isHttp && err.noAlarm) return;
                     const status = isHttp ? err.statusCode : 500;
                     const legacyCode = isHttp ? (err.legacyCode ?? '') : '';
                     const forcedSeverity = FORCED_ALERT_CODES.get(legacyCode);
@@ -841,6 +851,20 @@ export class PuterServer {
         const mwChain: RequestHandler[] = [];
         const opts = route.options;
 
+        // Validated here rather than trusted, and by the same function the
+        // driver decorator uses: a malformed requirement is a boot failure
+        // naming the route, never a gate that quietly admits everyone.
+        const subscriptionRequirement =
+            opts.requireSubscription === undefined
+                ? undefined
+                : validateSubscriptionRequirement(
+                      opts.requireSubscription,
+                      `route ${route.method.toUpperCase()} ${routerPrefix}${String(route.path)}: requireSubscription`,
+                  );
+        const requiresSubscription =
+            subscriptionRequirement !== undefined &&
+            subscriptionRequirement !== false;
+
         // 1. Subdomain routing. Routes that specify `subdomain` only match
         // that subdomain(s). Routes WITHOUT a `subdomain` option (and that
         // aren't `use` middleware) are restricted to the root origin — this
@@ -889,7 +913,10 @@ export class PuterServer {
             opts.adminOnly ||
             opts.allowedAppIds ||
             opts.requireVerified ||
-            opts.noUserSession,
+            opts.noUserSession ||
+            opts.requirePhoneVerified ||
+            opts.requireCardVerified ||
+            requiresSubscription,
         );
         if (needsAuth) {
             mwChain.push(requireAuthGate());
@@ -973,6 +1000,32 @@ export class PuterServer {
             mwChain.push(
                 requireVerifiedGate(
                     Boolean(this.#config.strict_email_verification_required),
+                ),
+            );
+        }
+
+        // 2a'. Per-factor verification gates. Opt-in, and independent of the
+        // default-on pending-verification gate above: these require the factor
+        // to have actually been verified, for routes worth that friction.
+        if (opts.requirePhoneVerified) {
+            mwChain.push(requirePhoneVerifiedGate());
+        }
+        if (opts.requireCardVerified) {
+            mwChain.push(requireCardVerifiedGate());
+        }
+
+        // 2a''. Plan enforcement. Before the rate limit — the same order the
+        // driver dispatch path uses — so an account on a plan that never
+        // included this route is told to upgrade rather than to slow down,
+        // and doesn't spend a rate-limit token on a request that can never
+        // pass. Also before the budget gate: "your plan doesn't include this"
+        // beats "you're out of credits" that a top-up wouldn't fix.
+        if (requiresSubscription) {
+            mwChain.push(
+                requireSubscriptionGate(
+                    this.services.metering,
+                    this.#config,
+                    subscriptionRequirement!,
                 ),
             );
         }

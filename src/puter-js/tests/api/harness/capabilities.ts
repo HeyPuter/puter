@@ -89,6 +89,13 @@ export const loadPuterJsTestOptions = (
     const capabilities: string[] = [];
     let configOverrides: ConfigOverrides = {
         workers: { localServer: 'true' },
+        // The seeded accounts are on the free plan, and these suites are about
+        // whether the SDK and the wire surfaces behave — not about who is
+        // entitled to them. Leaving the plan gate on would turn every
+        // subscriber-only route (the OpenAI/Anthropic-compatible ones) into a
+        // 402 here. The gate itself is covered against those exact routes in
+        // `controllers/puterai/PuterAIController.subscription.http.test.ts`.
+        meteringEnforcement: { subscriptions: false },
     };
 
     for (const mapping of MAPPINGS) {

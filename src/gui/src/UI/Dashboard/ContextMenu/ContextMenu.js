@@ -109,9 +109,11 @@ export default class ContextMenuModal {
         const width = isMobile ? viewportWidth * 0.9 : modalWidth;
 
         // Center over the target horizontally, clamped to the viewport. (The
-        // old code hardcoded left:300px on non-touch devices — which route here
-        // whenever maxTouchPoints > 0, e.g. touchscreen laptops — so the menu
-        // opened nowhere near the item on a wide screen.)
+        // old code hardcoded left:300px on non-touch devices — which used to
+        // route here whenever maxTouchPoints > 0, e.g. touchscreen laptops —
+        // so the menu opened nowhere near the item on a wide screen. Mouse
+        // interactions now get the desktop UIContextMenu instead; this modal
+        // is only for touch invocations and touch-first devices.)
         const itemCenter = targetRect.left + (targetRect.width / 2);
         let left = itemCenter - width / 2;
         left = Math.max(margin, Math.min(left, viewportWidth - width - margin));

@@ -19,6 +19,11 @@ let sidebar = [
                 path: '/security',
             },
             {
+                title: 'Rate Limits and Quotas',
+                source: '/rate-limits-and-quotas.md',
+                path: '/rate-limits-and-quotas',
+            },
+            {
                 title: 'User-Pays Model',
                 source: '/user-pays-model.md',
                 path: '/user-pays-model',

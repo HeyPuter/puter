@@ -7,6 +7,7 @@ import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 import { parseRemovedApps, serializeRemovedApps, REMOVED_APPS_KV_KEY } from './removedApps.js';
 import { appTileLink } from './appLink.js';
+import { is_window_on_screen, user_facing_windows } from '../../helpers/window_visibility.js';
 import {
     APP_GROUPS_KV_KEY,
     MAX_GROUP_APPS,
@@ -248,16 +249,26 @@ function buildAddTileHtml () {
 // One instance per app when opened from the dashboard: un-hide a minimized
 // instance / focus a visible one instead of launching a duplicate. Returns
 // whether an existing window took the request.
+//
+// "Un-hide" covers a window hidden outright as well as a minimized one — an
+// app can hide itself with puter.ui.hideWindow(), and with no taskbar in
+// dashboard mode its tile is the only way back to it. Focusing it instead
+// would leave the tile dead (and hand the keyboard to a window nobody can
+// see); showWindow() tells the two cases apart.
+//
+// Only the user's own instances count (user_facing_windows): an instance
+// another app launched in the background is that app's private helper, so the
+// tile must not reopen it — the click launches a fresh instance and the helper
+// stays hidden, still serving whoever launched it.
 function focusExistingAppWindow (appName) {
-    const $existing = $(`.window[data-app="${html_encode(appName)}"]`);
+    const $existing = $(user_facing_windows($(`.window[data-app="${html_encode(appName)}"]`)));
     if ( ! $existing.length ) return false;
-    const $win = $existing.last();
-    const minimized = $win.attr('data-is_minimized');
-    if ( minimized === '1' || minimized === 'true' ) {
-        $win.showWindow();
-    } else {
-        $win.focusWindow();
+    const $on_screen = $existing.filter((_, el) => is_window_on_screen(el)).last();
+    if ( $on_screen.length ) {
+        $on_screen.focusWindow();
+        return true;
     }
+    $existing.last().showWindow();
     return true;
 }
 
@@ -338,6 +349,14 @@ function buildNoAppsHtml () {
     h += '<p>No apps installed yet</p>';
     h += '</div>';
     return h;
+}
+
+// A search that matched none of the user's apps. Unlike buildNoAppsHtml this
+// is a line ABOVE the grid rather than a stand-in for it: the grid still has
+// the add-an-app tile in it, which is the one useful answer to a search for an
+// app you don't have.
+function buildNoMatchesHtml () {
+    return '<div class="myapps-empty myapps-empty-notice"><p>No apps match your search</p></div>';
 }
 
 // iOS-home-screen-style pager: fixed cols × rows pages in a horizontal
@@ -1067,7 +1086,11 @@ const TabApps = {
             const appUid = $(this).attr('data-app-uid');
             const targetLink = $(this).attr('data-target-link');
             const noUninstall = APP_NAMES_NO_UNINSTALL.has((appName || '').toLowerCase());
-            const isRunning = !! appName && $(`.window[data-app="${html_encode(appName)}"]`).length > 0;
+            // Same window set the running dot counts: Quit is offered for what
+            // the user has open, not for a helper another app is running in
+            // the background (which is that app's to close, and dies with it).
+            const isRunning = !! appName
+                && user_facing_windows($(`.window[data-app="${html_encode(appName)}"]`)).length > 0;
 
             // Every app opens in a new browser tab the way tiles did before
             // in-page windows: external tiles via their site link, everything
@@ -1103,7 +1126,10 @@ const TabApps = {
                 items.push({
                     html: 'Quit',
                     onClick: () => {
-                        $(`.window[data-app="${html_encode(appName)}"]`).close();
+                        // Re-read at click time (the set can change while the
+                        // menu is open), and quit only what the menu offered:
+                        // a background helper stays up for the app using it.
+                        $(user_facing_windows($(`.window[data-app="${html_encode(appName)}"]`))).close();
                     },
                 });
             }
@@ -1337,23 +1363,30 @@ const TabApps = {
             ? list.map(app => ({ type: 'app', app }))
             : buildGridItems(list, this._groups);
 
-        if ( items.length === 0 ) {
+        // No apps at all, and nothing typed: there is no grid to page through,
+        // so the empty state stands in for the whole of it.
+        if ( items.length === 0 && ! query ) {
             this._layout = null;
             this._page = 0;
             this._pageCount = 0;
-            $container.html(query
-                ? '<div class="myapps-empty"><p>No apps match your search</p></div>'
-                : buildNoAppsHtml());
+            $container.html(buildNoAppsHtml());
             return;
         }
+
+        // A search that matched nothing still has a grid — the tail tile is in
+        // it (below) — so the "nothing matched" line sits ABOVE that grid
+        // rather than replacing it.
+        const no_matches = query && items.length === 0;
 
         // The add-an-app tile rides at the tail of the grid: after every app,
         // on the last page, and nowhere else — a drag can't place an app past
         // it (see _updatePlaceholder) and a newly installed app arrives before
         // it. Pushed here, so it counts as a slot when the pages are laid out
-        // below. Search results leave it out: a query asks which apps you
-        // HAVE, and a tile that matches nothing has no business in the answer.
-        if ( ! query ) items.push({ type: 'add' });
+        // below. Searching keeps it: "which of my apps is this" and "I don't
+        // have it, get me one" are the same question asked a moment apart, and
+        // the tile answers the second — never more so than when the query
+        // matched nothing and it is the only thing left to offer.
+        items.push({ type: 'add' });
 
         const layout = this.computeLayout($container);
         if ( ! layout ) {
@@ -1370,7 +1403,8 @@ const TabApps = {
         this._pageCount = Math.ceil(items.length / layout.perPage);
         this._page = Math.min(Math.floor(anchorIndex / layout.perPage), this._pageCount - 1);
 
-        $container.html(buildPagerHtml(items, layout, instant));
+        $container.html((no_matches ? buildNoMatchesHtml() : '')
+            + buildPagerHtml(items, layout, instant));
         // A tile mid-arrival (a deep-link landing installing its app — see
         // _spliceDeepLinkApp) stays parked invisible across re-renders; the
         // intro's arrival beat, not the render, is what reveals it.
@@ -1416,8 +1450,14 @@ const TabApps = {
     // anything inside it is running — the apps it hides are exactly the ones
     // whose state the user can't otherwise see. Cheap enough to re-run
     // wholesale on every open/close/render.
+    //
+    // The dot means "you have this app open", so it counts the user's windows
+    // only (user_facing_windows): a helper another app launched in the
+    // background is not something the user can switch to or quit, and lighting
+    // the dot for it would promise a window the tile will not open.
     updateRunningDots ($el_window) {
-        const isRunning = name => !! name && $(`.window[data-app="${html_encode(name)}"]`).length > 0;
+        const isRunning = name => !! name
+            && user_facing_windows($(`.window[data-app="${html_encode(name)}"]`)).length > 0;
         for ( const tile of $el_window.find('.myapps-tile').toArray() ) {
             const running = tile.dataset.groupId
                 ? parseTileGroupApps(tile).some(isRunning)

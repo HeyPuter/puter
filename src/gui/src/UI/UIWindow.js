@@ -31,6 +31,7 @@ import publish_as_website from '../helpers/publish_as_website.js';
 
 import item_icon from '../helpers/item_icon.js';
 import { shared_crumbs_for } from '../helpers/share_paths.js';
+import { is_window_hidden, is_unseen_background_window, user_facing_windows } from '../helpers/window_visibility.js';
 
 const el_body = document.getElementsByTagName('body')[0];
 const SNAP_PLACEHOLDER_DELAY_MS = 600; // delay before showing placeholder in any snap zone
@@ -303,6 +304,7 @@ async function UIWindow (options) {
                 data-user_set_url_params = "${html_encode(user_set_url_params)}"
                 data-is_panel ="${options.is_panel ? 1 : 0}"
                 data-is_visible ="${options.is_visible ? 1 : 0}"
+                ${options.launched_hidden ? 'data-launched_hidden ="1"' : ''}
                 style=" z-index: ${zindex}; 
                         ${options.right !== undefined ? `right: ${ html_encode(options.right) }; ` : ''}
                         ${options.left !== undefined ? `left: ${ html_encode(options.left) }; ` : ''}
@@ -584,8 +586,38 @@ async function UIWindow (options) {
         $el_parent_window.find('iframe').blur();
     }
 
+    // if directory, set window_nav_history and window_nav_history_current_position
+    if ( options.is_dir ) {
+        window.window_nav_history[win_id] = [options.path];
+        window.window_nav_history_current_position[win_id] = 0;
+    }
+
+    // get all the elements needed
+    const el_window = document.querySelector(`#window-${win_id}`);
+    const el_window_head = document.querySelector(`#window-${win_id} > .window-head`);
+    const el_window_sidebar = document.querySelector(`#window-${win_id} > .window-sidebar`);
+    const el_window_head_title = document.querySelector(`#window-${win_id} > .window-head .window-head-title`);
+    const el_window_head_icon = document.querySelector(`#window-${win_id} > .window-head .window-head-icon`);
+    const el_window_head_scale_btn = document.querySelector(`#window-${win_id} > .window-head > .window-scale-btn`);
+    const el_window_navbar_back_btn = document.querySelector(`#window-${win_id} .window-navbar-btn-back`);
+    const el_window_navbar_forward_btn = document.querySelector(`#window-${win_id} .window-navbar-btn-forward`);
+    const el_window_navbar_up_btn = document.querySelector(`#window-${win_id} .window-navbar-btn-up`);
+    const el_window_body = document.querySelector(`#window-${win_id} > .window-body`);
+    const el_window_app_iframe = document.querySelector(`#window-${win_id} > .window-body > .window-app-iframe`);
+    const el_savefiledialog_filename = document.querySelector(`#window-${win_id} .savefiledialog-filename`);
+    const el_savefiledialog_save_btn = document.querySelector(`#window-${win_id} .savefiledialog-save-btn`);
+    const el_filedialog_cancel_btn = document.querySelector(`#window-${win_id} .filedialog-cancel-btn`);
+    const el_openfiledialog_open_btn = document.querySelector(`#window-${win_id} .openfiledialog-open-btn`);
+    const el_directorypicker_select_btn = document.querySelector(`#window-${win_id} .directorypicker-select-btn`);
+    const el_window_filedialog_upload_here = document.querySelector(`#window-${win_id} .window-filedialog-upload-here`);
+
     // Add Taskbar Item
-    if ( !options.is_openFileDialog && !options.is_saveFileDialog && !options.is_directoryPicker && options.show_in_taskbar ) {
+    // data-in_taskbar records that this window is one of the item's
+    // data-open-windows, so the close path only decrements a count this
+    // window actually added to (see the close handler) — the two must stay
+    // in step, and a window that never took an item must not take one away.
+    const add_taskbar_item = () => {
+        $(el_window).attr('data-in_taskbar', '1');
         // add icon if there is no similar app already open
         if ( $(`.taskbar-item[data-app="${options.app}"]`).length === 0 ) {
             UITaskbarItem({
@@ -615,32 +647,19 @@ async function UIWindow (options) {
                 $(`.taskbar-item[data-app="${options.app}"] .active-taskbar-indicator`).show();
             }
         }
+    };
+    if ( !options.is_openFileDialog && !options.is_saveFileDialog && !options.is_directoryPicker && options.show_in_taskbar ) {
+        // A window started hidden by a background launch gets no taskbar item
+        // yet: it runs for the app that launched it, and an item would both
+        // advertise and hand out an instance the user never asked for. The
+        // item is what the window earns the moment it first becomes visible
+        // — makeWindowVisible calls this, whether the app showed itself with
+        // puter.ui.showWindow() or something else revealed it. An app that is
+        // ALWAYS windowless never reaches here: launch_app leaves
+        // show_in_taskbar false for it, so it keeps having no item at all.
+        if ( options.launched_hidden ) el_window._add_taskbar_item = add_taskbar_item;
+        else add_taskbar_item();
     }
-
-    // if directory, set window_nav_history and window_nav_history_current_position
-    if ( options.is_dir ) {
-        window.window_nav_history[win_id] = [options.path];
-        window.window_nav_history_current_position[win_id] = 0;
-    }
-
-    // get all the elements needed
-    const el_window = document.querySelector(`#window-${win_id}`);
-    const el_window_head = document.querySelector(`#window-${win_id} > .window-head`);
-    const el_window_sidebar = document.querySelector(`#window-${win_id} > .window-sidebar`);
-    const el_window_head_title = document.querySelector(`#window-${win_id} > .window-head .window-head-title`);
-    const el_window_head_icon = document.querySelector(`#window-${win_id} > .window-head .window-head-icon`);
-    const el_window_head_scale_btn = document.querySelector(`#window-${win_id} > .window-head > .window-scale-btn`);
-    const el_window_navbar_back_btn = document.querySelector(`#window-${win_id} .window-navbar-btn-back`);
-    const el_window_navbar_forward_btn = document.querySelector(`#window-${win_id} .window-navbar-btn-forward`);
-    const el_window_navbar_up_btn = document.querySelector(`#window-${win_id} .window-navbar-btn-up`);
-    const el_window_body = document.querySelector(`#window-${win_id} > .window-body`);
-    const el_window_app_iframe = document.querySelector(`#window-${win_id} > .window-body > .window-app-iframe`);
-    const el_savefiledialog_filename = document.querySelector(`#window-${win_id} .savefiledialog-filename`);
-    const el_savefiledialog_save_btn = document.querySelector(`#window-${win_id} .savefiledialog-save-btn`);
-    const el_filedialog_cancel_btn = document.querySelector(`#window-${win_id} .filedialog-cancel-btn`);
-    const el_openfiledialog_open_btn = document.querySelector(`#window-${win_id} .openfiledialog-open-btn`);
-    const el_directorypicker_select_btn = document.querySelector(`#window-${win_id} .directorypicker-select-btn`);
-    const el_window_filedialog_upload_here = document.querySelector(`#window-${win_id} .window-filedialog-upload-here`);
 
     if ( el_window_filedialog_upload_here ) {
         el_window_filedialog_upload_here.addEventListener('click', function () {
@@ -3615,21 +3634,28 @@ $.fn.close = async function (options) {
             let window_uuid = $(this).attr('data-element_uuid');
             // remove all instances of win_id from window.window_stack
             window.window_stack = window.window_stack.filter(id => id !== win_id);
-            // taskbar update
-            let open_window_count = parseInt($(`.taskbar-item[data-app="${$(this).attr('data-app')}"]`).attr('data-open-windows'));
-            // update open window count of corresponding taskbar item
-            if ( open_window_count > 0 ) {
-                $(`.taskbar-item[data-app="${$(this).attr('data-app')}"]`).attr('data-open-windows', open_window_count - 1);
-            }
-            // decide whether to remove taskbar item
-            if ( open_window_count === 1 ) {
-                $(`.taskbar-item[data-app="${$(this).attr('data-app')}"] .active-taskbar-indicator`).hide();
-                window.remove_taskbar_item($(`.taskbar-item[data-app="${$(this).attr('data-app')}"][data-keep-in-taskbar="false"]`));
-            }
-            // if no more windows of this app are open, remove taskbar item
-            if ( open_window_count - 1 === 0 )
-            {
-                $(`.taskbar-item[data-app="${$(this).attr('data-app')}"] .active-taskbar-indicator`).hide();
+            // taskbar update — only for a window that IS one of the item's
+            // open windows (data-in_taskbar, stamped when it took its place
+            // in the count). A window that never counted must not decrement:
+            // an unseen background instance closing alongside the user's own
+            // window would otherwise zero the count and take the item away
+            // while that window is still open.
+            if ( $(this).attr('data-in_taskbar') === '1' ) {
+                let open_window_count = parseInt($(`.taskbar-item[data-app="${$(this).attr('data-app')}"]`).attr('data-open-windows'));
+                // update open window count of corresponding taskbar item
+                if ( open_window_count > 0 ) {
+                    $(`.taskbar-item[data-app="${$(this).attr('data-app')}"]`).attr('data-open-windows', open_window_count - 1);
+                }
+                // decide whether to remove taskbar item
+                if ( open_window_count === 1 ) {
+                    $(`.taskbar-item[data-app="${$(this).attr('data-app')}"] .active-taskbar-indicator`).hide();
+                    window.remove_taskbar_item($(`.taskbar-item[data-app="${$(this).attr('data-app')}"][data-keep-in-taskbar="false"]`));
+                }
+                // if no more windows of this app are open, remove taskbar item
+                if ( open_window_count - 1 === 0 )
+                {
+                    $(`.taskbar-item[data-app="${$(this).attr('data-app')}"] .active-taskbar-indicator`).hide();
+                }
             }
             // if a fullpage window is closed, show desktop and taskbar
             if ( $(this).attr('data-is_fullpage') === '1' ) {
@@ -3668,7 +3694,14 @@ $.fn.close = async function (options) {
                 if ( $stacked_parent.length > 0 ) {
                     $stacked_parent.removeAttr('data-minimized_for_child');
                 }
-                pop_dashboard_app_url($(this).attr('data-app'), { to_dashboard: parent_is_stacked });
+                // ...but a window the user never saw never claimed the URL in
+                // the first place (the push happens only for a window created
+                // visible), so it has no entry to consume — and consuming one
+                // would traverse out of the entry the user's OWN window of the
+                // same app owns, minimizing a window they are working in.
+                if ( ! is_unseen_background_window(this) ) {
+                    pop_dashboard_app_url($(this).attr('data-app'), { to_dashboard: parent_is_stacked });
+                }
                 // bring focus to the last window in the window-stack (only if not minimized)
                 let next_window_focused = false;
                 if ( window.window_stack.length > 0 ) {
@@ -3686,6 +3719,15 @@ $.fn.close = async function (options) {
             }
             // close child windows
             $(`.window[data-parent_uuid="${window_uuid}"]`).close();
+
+            // An app this one launched in the background dies with it. It was
+            // launched to serve this app, not the user: it has never been on
+            // screen, nothing can talk to it once its launcher is gone, and
+            // the only sign it is still running is a dot on a tile the user
+            // never lit up. A background app that showed itself dropped the
+            // marker when it did (makeWindowVisible) — that window is the
+            // user's now, and keeps running.
+            $(`.window[data-parent_instance_id="${window_uuid}"][data-launched_hidden="1"]`).close();
 
             // notify other apps that we're closing
             window.report_app_closed(window_uuid, options.status_code ?? 0);
@@ -3887,6 +3929,23 @@ window.update_window_layout = function (el_window, layout) {
 $.fn.makeWindowVisible = function (options) {
     $(this).each(async function () {
         if ( $(this).hasClass('window') ) {
+            // Seen by the user, so no longer a window that exists purely to
+            // serve whoever launched it: it outlives its launcher from here on
+            // (see the close path's cleanup of background children), and it
+            // becomes a window the user can act on — hence the taskbar item
+            // its launch deferred, and the dashboard tile's running dot.
+            // Both happen BEFORE the window shows: focusWindow() below marks
+            // the app's taskbar item active, which needs the item to exist.
+            const was_launched_hidden = $(this).attr('data-launched_hidden') === '1';
+            $(this).removeAttr('data-launched_hidden');
+            if ( was_launched_hidden ) {
+                this._add_taskbar_item?.();
+                delete this._add_taskbar_item;
+                if ( window.is_dashboard_mode && $(this).attr('data-app') ) {
+                    document.dispatchEvent(new CustomEvent('dashboard-app-windows-changed'));
+                }
+            }
+
             $(this).show();
             $(this).focusWindow();
 
@@ -3952,9 +4011,7 @@ $.fn.showWindow = async function (options) {
             // un-hiding it is the whole job, and the inverse of what hid it.
             // This is what makes the taskbar item a real handle on a window
             // the user cannot currently see.
-            if ( $(this).attr('data-is_visible') === '0'
-                && $(this).attr('data-is_minimized') !== '1'
-                && $(this).attr('data-is_minimized') !== 'true' ) {
+            if ( is_window_hidden(this) ) {
                 $(this).makeWindowVisible();
                 return;
             }
@@ -4299,6 +4356,19 @@ function restore_dashboard_favicon () {
 }
 
 /**
+ * The windows an app has that belong to the user, oldest first — the set every
+ * URL and history path here works on. An instance another app launched in the
+ * background is deliberately not among them: it owns no history entry (the
+ * push happens only for a window created visible) and it is not on screen, so
+ * a traversal must neither focus it nor "minimize" it. With none left, the
+ * entry behaves as a deep link and relaunches the app, same as if it had been
+ * closed.
+ */
+function dashboard_app_windows (app_name) {
+    return $(user_facing_windows($(`.window[data-app="${html_encode(app_name)}"]`)));
+}
+
+/**
  * Favicon for a RUNNING app window: the bitmap its own chrome already
  * shows (control-drawer icon on headless dashboard windows, head icon
  * otherwise), falling back to a dashboard tile's rendered icon. Used when
@@ -4307,7 +4377,7 @@ function restore_dashboard_favicon () {
  */
 function dashboard_app_window_icon (app_name) {
     if ( ! app_name ) return null;
-    const img = $(`.window[data-app="${html_encode(app_name)}"]`).last()
+    const img = dashboard_app_windows(app_name).last()
         .find('.dashboard-app-drawer-icon, .window-head-icon').get(0);
     return (img?.currentSrc || img?.src) || dashboard_rendered_app_icon(app_name);
 }
@@ -4419,7 +4489,7 @@ function pop_dashboard_app_url (app_name, options) {
         // Same window lookup and minimized guard as the popstate handler.
         // On the close path the window is already gone — the URL repair
         // above was the part that still mattered.
-        const $win = $(`.window[data-app="${html_encode(app_name)}"]`).last();
+        const $win = dashboard_app_windows(app_name).last();
         if ( $win.length
             && $win.attr('data-is_minimized') !== '1'
             && $win.attr('data-is_minimized') !== 'true' ) {
@@ -4468,7 +4538,7 @@ window.addEventListener('popstate', () => {
     // windows are simply gone — close consumed its entry already, or the
     // entry went stale mid-stack).
     if ( prev_app ) {
-        const $prev_win = $(`.window[data-app="${html_encode(prev_app)}"]`);
+        const $prev_win = dashboard_app_windows(prev_app);
         if ( $prev_win.length ) {
             const $win = $prev_win.last();
             const minimized = $win.attr('data-is_minimized');
@@ -4494,7 +4564,7 @@ window.addEventListener('popstate', () => {
         // ...and landed on another app's entry (Forward, or Back across
         // two stacked apps): restore its window — or relaunch it if it
         // was closed, so the entry behaves as a live deep link.
-        const $new_win = $(`.window[data-app="${html_encode(new_app)}"]`);
+        const $new_win = dashboard_app_windows(new_app);
         if ( $new_win.length ) {
             const $win = $new_win.last();
             const minimized = $win.attr('data-is_minimized');

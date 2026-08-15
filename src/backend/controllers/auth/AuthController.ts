@@ -179,6 +179,21 @@ const CARD_FALLBACK_OPEN_TTL_SECONDS = 24 * 60 * 60;
 // How long a failed-SMS-send record stays readable by its error_id — long
 // enough to cover the typical support round-trip.
 const SMS_SEND_ERROR_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+/**
+ * Whether this account has already been through the card flow. Both halves
+ * matter: the pending flag being clear only says nobody asked, while the
+ * fingerprint is the artifact a completed check leaves behind. A route that
+ * requires a verified card (`requireCardVerified`) sends users here with the
+ * flag clear and no card on file, and answering "already verified" on the flag
+ * alone would bounce them between a dialog that reports success and a route
+ * that keeps refusing.
+ */
+const cardAlreadyVerified = (user: {
+    card_fingerprint?: string | null;
+    requires_card_verification?: boolean;
+}): boolean =>
+    Boolean(user.card_fingerprint) && !user.requires_card_verification;
 const RESERVED_USERNAMES = new Set([
     'admin',
     'administrator',
@@ -1135,7 +1150,8 @@ export class AuthController extends PuterController {
                     is_temp: user!.password === null && user!.email === null,
                     ip:
                         (req?.headers?.['x-forwarded-for'] as
-                            string | undefined) ||
+                            | string
+                            | undefined) ||
                         (
                             req as unknown as {
                                 connection?: { remoteAddress?: string };
@@ -1915,7 +1931,7 @@ export class AuthController extends PuterController {
         // Phone normally comes first, but the fallback lets a phone-gated user
         // in once they've exhausted SMS attempts.
         const fallbackEligible = await this.isCardFallbackEligible(user);
-        if (!user.requires_card_verification && !fallbackEligible) {
+        if (cardAlreadyVerified(user) && !fallbackEligible) {
             res.json({ card_verified: true });
             return;
         }
@@ -2035,7 +2051,7 @@ export class AuthController extends PuterController {
             });
         // Same fallback exception as setup: card may come before phone.
         const fallbackEligible = await this.isCardFallbackEligible(user);
-        if (!user.requires_card_verification && !fallbackEligible) {
+        if (cardAlreadyVerified(user) && !fallbackEligible) {
             res.json({ card_verified: true });
             return;
         }

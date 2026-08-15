@@ -26,7 +26,12 @@ import type { Actor } from '../actor';
  * it instead of accepting any token that authenticates.
  */
 export type TokenSource =
-    'body' | 'header' | 'x-api-key' | 'cookie' | 'query' | 'handshake';
+    | 'body'
+    | 'header'
+    | 'x-api-key'
+    | 'cookie'
+    | 'query'
+    | 'handshake';
 
 /**
  * Every route method PuterRouter exposes. Mirrors the express router surface
@@ -67,8 +72,9 @@ export type RoutePath = string | RegExp | Array<string | RegExp>;
  * middleware chain in this order:
  *
  *     subdomain → requireAuth (+ suspended) → emailConfirmed →
- *     requireUserActor → adminOnly → allowedAppIds → rateLimit →
- *     requireCredits → concurrent → caller `middleware: []` → handler
+ *     requireUserActor → adminOnly → allowedAppIds → phoneVerified →
+ *     cardVerified → requireSubscription → rateLimit → requireCredits →
+ *     concurrent → caller `middleware: []` → handler
  *
  * `requireUserActor`, `adminOnly`, and `allowedAppIds` all imply `requireAuth`;
  * the materializer dedupes so only one auth gate ends up in the chain.
@@ -190,6 +196,24 @@ export interface RouteOptions {
      * an app.
      */
     requireVerified?: boolean;
+
+    /**
+     * Reject unless the user has a phone number verified on file (verified at
+     * some point, not merely never asked to). 403
+     * `phone_verification_required`. Implies `requireAuth`; independent of the
+     * default-on pending-verification gate, which only turns away accounts the
+     * abuse harness flagged.
+     *
+     * Opt-in per route, for surfaces worth the friction of an SMS round trip.
+     */
+    requirePhoneVerified?: boolean;
+
+    /**
+     * Reject unless the user has a card verified on file. 403
+     * `card_verification_required`. Same shape as `requirePhoneVerified` — the
+     * opt-in, "must have actually done it" counterpart of the pending gate.
+     */
+    requireCardVerified?: boolean;
 
     /**
      * Per-route JSON body parsing override. By default the global parser
@@ -328,6 +352,24 @@ export interface RouteOptions {
      */
     requireCredits?: boolean;
 
+    /**
+     * Reject a caller whose plan doesn't include this route with 402
+     * `subscription_required`.
+     *
+     * `true` accepts any plan that isn't one of the free ones, so a plan
+     * registered by an extension counts without being named here. An array of
+     * `SubscriptionPolicy.id`s accepts only those, for a feature that belongs
+     * to specific plans (`requireSubscription: ['business', 'pro']`).
+     *
+     * Opt-in: nothing is subscriber-only unless it says so. Implies
+     * `requireAuth` — there is no plan to read off an anonymous caller. The
+     * answer comes from the metering service's per-actor subscription cache, so
+     * the check costs a map lookup on a warm actor. Distinct from
+     * `requireCredits`, which asks whether an account has budget left rather
+     * than which plan it is on; a route may want both.
+     */
+    requireSubscription?: boolean | string[];
+
     // Reserved — wire as the corresponding features/services land:
     // bodyFiles?: string[];      // multer-style multipart fields
     // responseTimeout?: number;
@@ -393,7 +435,18 @@ export type AuthRequired<O extends RouteOptions> = O extends {
           ? true
           : O extends { noUserSession: true }
             ? true
-            : false;
+            : O extends { requirePhoneVerified: true }
+              ? true
+              : O extends { requireCardVerified: true }
+                ? true
+                : O extends {
+                        requireSubscription:
+                            | true
+                            | readonly string[]
+                            | string[];
+                    }
+                  ? true
+                  : false;
 
 /** Express `Request` with `actor` narrowed based on the route's options. */
 export type TypedRequest<O extends RouteOptions> = Omit<Request, 'actor'> & {

@@ -35,14 +35,17 @@ import {
 import { EGRESS_COSTS } from './costs';
 import type {
     AppTotals,
+    CreditHold,
     UsageAddons,
     UsageByType,
     UsageInput,
     UsageRecord,
 } from './types';
+import { NO_CREDIT_HOLD } from './types';
 
 import { LOCAL_UNLIMITED_USER } from '../../data/subPolicies/localUnlimitedUserPolicy.js';
 import { SUB_POLICIES } from '../../data/subPolicies/index.js';
+import { REGISTERED_USER_FREE } from '../../data/subPolicies/registeredUserFreePolicy.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 
 // -- Types ------------------------------------------------------------
@@ -328,6 +331,18 @@ export class MeteringService extends PuterService {
     /** Register a policy that should be available to actors. */
     registerPolicy(policy: SubscriptionPolicy): void {
         this.extraPolicies.push(policy);
+    }
+
+    /**
+     * The registered policy for a subscription id, extension-registered
+     * policies first (they shadow the built-ins, matching how
+     * `#resolveActorSubscription` searches). Lets pricing surfaces derive
+     * display figures from the same allowance metering actually enforces.
+     */
+    getRegisteredPolicy(id: string): SubscriptionPolicy | undefined {
+        return [...this.extraPolicies, ...SUB_POLICIES].find(
+            (p) => p.id === id,
+        );
     }
 
     /**
@@ -997,9 +1012,82 @@ export class MeteringService extends PuterService {
         return (res as UsageByType) || ({ total: 0 } as UsageByType);
     }
 
+    /**
+     * What an actor can commit to a new operation right now.
+     *
+     * Their balance less what other operations of theirs already have in flight
+     * (see `reserveCredits`) — which is the number a spend decision turns on,
+     * and is smaller than the balance whenever the actor has several requests
+     * running at once. `getAllowedUsage` is the one to read for reporting a
+     * balance; this one is for deciding on a spend.
+     */
     async getRemainingUsage(actor: Actor): Promise<number> {
-        const { remaining } = await this.getAllowedUsage(actor);
-        return remaining || 0;
+        const [{ remaining }, held] = await Promise.all([
+            this.getAllowedUsage(actor),
+            this.#outstandingHolds(actor),
+        ]);
+        return Math.max(0, (remaining || 0) - held);
+    }
+
+    /**
+     * Commit part of an actor's budget to an operation that is about to run.
+     *
+     * Usage is recorded when an operation finishes, so between starting and
+     * finishing it is invisible to every other request that account makes —
+     * they all read the same balance and are each told they can spend the whole
+     * of it. What an account can actually overspend by is then bounded by its
+     * concurrency limit rather than by its budget, which for an expensive model
+     * is several times the allowance.
+     *
+     * A hold makes the in-flight spend visible for as long as it lasts. Take
+     * one for what the operation could cost at worst, before the upstream call;
+     * release it once the real usage has been recorded.
+     *
+     * Never throws, and a hold that couldn't be taken is a no-op handle: not
+     * being able to reach the cache is our problem, and turning it into failed
+     * requests for everyone spending money is worse than the overshoot it would
+     * prevent.
+     */
+    async reserveCredits(
+        actor: Actor,
+        amount: number,
+        opts: { ttlMs?: number } = {},
+    ): Promise<CreditHold> {
+        const userId = actor?.user?.uuid;
+        if (!userId || isSystemActor(actor) || !(amount > 0)) {
+            return NO_CREDIT_HOLD;
+        }
+
+        const member = await this.stores.creditHold.take(
+            userId,
+            amount,
+            opts.ttlMs,
+        );
+        if (!member) return NO_CREDIT_HOLD;
+
+        let released = false;
+        return {
+            release: async () => {
+                if (released) return;
+                released = true;
+                await this.stores.creditHold.release(userId, member);
+            },
+            extend: async () => {
+                if (released) return;
+                await this.stores.creditHold.refresh(
+                    userId,
+                    member,
+                    opts.ttlMs,
+                );
+            },
+        };
+    }
+
+    /** Budget this actor has committed to requests that are still running. */
+    async #outstandingHolds(actor: Actor): Promise<number> {
+        const userId = actor?.user?.uuid;
+        if (!userId || isSystemActor(actor)) return 0;
+        return this.stores.creditHold.outstanding(userId);
     }
 
     async getAllowedUsage(actor: Actor): Promise<{
@@ -1290,10 +1378,22 @@ export class MeteringService extends PuterService {
             // asked for unlimited metering with no policy at all.
             ...(this.config.unlimitedMetering ? [LOCAL_UNLIMITED_USER] : []),
         ] as SubscriptionPolicy[];
-        return (
+        // A resolver can name a policy nobody registered — an extension that
+        // failed to load, a plan renamed on one side only. Falling through to
+        // the built-in free policy keeps callers holding a real policy: the
+        // alternative is `undefined` reaching every reader of `.id` and
+        // `.monthUsageAllowance` as a 500 rather than a downgrade.
+        const policy =
             availablePolicies.find((p) => p.id === resolvedUser) ??
-            availablePolicies.find((p) => p.id === resolvedDefault)!
+            availablePolicies.find((p) => p.id === resolvedDefault) ??
+            availablePolicies.find((p) => p.id === fallbackDefault);
+        if (policy) return policy;
+        console.warn(
+            `[metering] no registered policy for '${resolvedUser}' or` +
+                ` '${resolvedDefault}' — falling back to` +
+                ` '${REGISTERED_USER_FREE.id}'`,
         );
+        return REGISTERED_USER_FREE as SubscriptionPolicy;
     }
 
     async getActorAddons(actor: Actor): Promise<UsageAddons> {

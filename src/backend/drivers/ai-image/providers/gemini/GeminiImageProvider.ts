@@ -32,6 +32,7 @@ import type {
     IImageProvider,
 } from '../../types.js';
 import { isHttpUrl, toBase64DataUri } from '../../inputImage.js';
+import { estimateTextTokens } from '../../../util/tokenEstimate.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 
 const MIME_SIGNATURES: Record<string, string> = {
@@ -441,12 +442,7 @@ export class GeminiImageProvider implements IImageProvider {
         if (text.length === 0) return 0;
 
         // Same approximation used by chat billing flow.
-        return Math.max(
-            1,
-            Math.floor(
-                (text.length / 4 + text.split(/\s+/).length * (4 / 3)) / 2,
-            ),
-        );
+        return Math.max(1, estimateTextTokens(text));
     }
 
     #calculateTokenCostInCents(

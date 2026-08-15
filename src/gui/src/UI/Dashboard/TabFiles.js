@@ -28,9 +28,10 @@ import generate_file_context_menu from '../../helpers/generate_file_context_menu
 import truncate_filename from '../../helpers/truncate_filename.js';
 import update_title_based_on_uploads from '../../helpers/update_title_based_on_uploads.js';
 import item_icon from '../../helpers/item_icon.js';
+import { user_facing_windows } from '../../helpers/window_visibility.js';
 import new_context_menu_item from '../../helpers/new_context_menu_item.js';
 import publish_as_website from '../../helpers/publish_as_website.js';
-import ContextMenuModal from './ContextMenu/ContextMenu.js';
+import ContextMenuModal, { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import UIItemPropertiesModal from './UIItemPropertiesModal.js';
 import { dedupedName } from './dedupedName.js';
 import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js';
@@ -289,9 +290,12 @@ const TabFiles = {
             modified: 120,
         };
 
-        // Add touch-device class for touch devices to show .item-more button
-        // Use multiple detection methods since user-agent sniffing can miss devices
-        if ( window.isMobile.phone || window.isMobile.tablet || navigator.maxTouchPoints > 0 ) {
+        // Add touch-device class on touch-FIRST devices only (coarse pointer,
+        // no hover — which also catches iPads whose UA claims macOS).
+        // Deliberately not maxTouchPoints: a touch-capable laptop is still
+        // mouse-first, and this class strips pointer-events from the
+        // name/icon drag handles, degrading mouse selection and drag.
+        if ( window.isMobile.phone || window.isMobile.tablet || isTouchPrimaryDevice() ) {
             $el_window.find('.files-tab').addClass('touch-device');
         }
 
@@ -305,9 +309,11 @@ const TabFiles = {
                 _this.renderDirectory(folderPath);
             };
 
-            // Context menu for sidebar folders
+            // Context menu for sidebar folders. isTouchPrimaryDevice() covers
+            // touch-first devices the UA misses (iPadOS claims macOS) — both
+            // for accepting the taphold and for picking the touch sheet.
             $(folderElement).on('contextmenu taphold', async (e) => {
-                if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet ) {
+                if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet && !isTouchPrimaryDevice() ) {
                     return;
                 }
                 e.preventDefault();
@@ -316,7 +322,7 @@ const TabFiles = {
                 const folderPath = folderElement.getAttribute('data-path');
                 const items = _this.generateFolderContextMenu(folderPath);
 
-                if ( window.isMobile.phone || window.isMobile.tablet ) {
+                if ( window.isMobile.phone || window.isMobile.tablet || isTouchPrimaryDevice() ) {
                     const modal = new ContextMenuModal({
                         onClose: () => $(folderElement).removeClass('context-menu-active'),
                     });
@@ -515,8 +521,9 @@ const TabFiles = {
 
         // Right-click on background shows folder context menu
         $el_window.find('.files').on('contextmenu taphold', async (e) => {
-            // Dismiss taphold on non-touch devices
-            if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet ) {
+            // Dismiss taphold on non-touch devices (isTouchPrimaryDevice
+            // catches iPads whose UA claims macOS)
+            if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet && !isTouchPrimaryDevice() ) {
                 return;
             }
             // Only trigger if clicking directly on .files container (not on a row)
@@ -531,7 +538,7 @@ const TabFiles = {
                 });
                 _this.updateFooterStats();
                 const items = await _this.generateFolderContextMenu();
-                if ( window.isMobile.phone || window.isMobile.tablet ) {
+                if ( window.isMobile.phone || window.isMobile.tablet || isTouchPrimaryDevice() ) {
                     const modal = new ContextMenuModal();
                     modal.show(items, e.target.getBoundingClientRect());
                 } else {
@@ -2492,9 +2499,12 @@ const TabFiles = {
     updateOpenFileDots () {
         if ( ! this.$el_window ) return;
         const open_uids = new Set();
-        $('.window[data-file_uid]').each(function () {
-            open_uids.add($(this).attr('data-file_uid'));
-        });
+        // The user's own windows only (user_facing_windows): a file an app
+        // opened in a helper it launched in the background is not a window
+        // the row can switch to, so the dot would point nowhere.
+        for ( const el_window of user_facing_windows($('.window[data-file_uid]')) ) {
+            open_uids.add($(el_window).attr('data-file_uid'));
+        }
         this.$el_window.find('.files-tab .files .row').each(function () {
             const uid = ($(this).attr('data-shortcut_to') || $(this).attr('data-uid') || '').toLowerCase();
             $(this).toggleClass('file-is-open', open_uids.has(uid));
@@ -2531,11 +2541,13 @@ const TabFiles = {
         const isPending = () => el_item.getAttribute('data-pending') === '1';
 
         el_item.onpointerdown = (e) => {
+            // Track pointer type so onclick and the menu handlers can
+            // distinguish touch from mouse — recorded before the early
+            // returns because the '⋯' menu routing needs it too.
+            lastPointerType = e.pointerType;
+
             if ( e.target.classList.contains('item-more') ) return;
             if ( el_item.classList.contains('header') ) return;
-
-            // Track pointer type so onclick can distinguish touch from mouse.
-            lastPointerType = e.pointerType;
 
             // On touch devices, skip all selection logic here.
             // Taps are handled by onclick (opens item) and taphold (context menu),
@@ -2675,7 +2687,7 @@ const TabFiles = {
         el_item.onclick = (e) => {
             if ( e.target.classList.contains('item-more') ) {
                 if ( isPending() ) return;
-                this.handleMoreClick(el_item, file, e.target);
+                this.handleMoreClick(el_item, file, e.target, lastPointerType === 'touch');
                 return;
             }
 
@@ -2849,8 +2861,10 @@ const TabFiles = {
 
         // Right-click context menu handler (desktop) and taphold (touch devices)
         $(el_item).on('contextmenu taphold', async (e) => {
-            // Dismiss taphold on non-touch devices
-            if ( e.type === 'taphold' && !window.isMobile.phone && !window.isMobile.tablet && !(navigator.maxTouchPoints > 0) ) {
+            // A taphold only counts when it came from an actual touch — the
+            // plugin (helpers.js) also fires it for a 1s mouse-button hold,
+            // which must stay inert, touchscreen or not.
+            if ( e.type === 'taphold' && lastPointerType !== 'touch' && !window.isMobile.phone && !window.isMobile.tablet ) {
                 return;
             }
             // On iOS, both contextmenu and taphold can fire for the same long-press.
@@ -2875,7 +2889,13 @@ const TabFiles = {
                 items = await _this.generateContextMenuItems(el_item, file);
             }
 
-            if ( window.isMobile.phone || window.isMobile.tablet || navigator.maxTouchPoints > 0 ) {
+            // The touch sheet is for touch interactions and touch-first
+            // devices. A mouse right-click gets the desktop menu at the
+            // cursor — including on touch-capable laptops, whose right-clicks
+            // used to land in the sheet (centered over the row, nowhere near
+            // the pointer) via a maxTouchPoints check.
+            const touchInvoked = e.type === 'taphold' || lastPointerType === 'touch';
+            if ( window.isMobile.phone || window.isMobile.tablet || isTouchPrimaryDevice() || touchInvoked ) {
                 const modal = new ContextMenuModal();
                 modal.show(items, el_item.getBoundingClientRect(), { title: file.name });
             } else {
@@ -3772,7 +3792,7 @@ const TabFiles = {
         };
     },
 
-    async handleMoreClick (rowElement, file, targetElement) {
+    async handleMoreClick (rowElement, file, targetElement, fromTouch) {
         const selectedRows = document.querySelectorAll('.files-tab .row.selected');
 
         let items;
@@ -3783,8 +3803,10 @@ const TabFiles = {
             items = await this.generateContextMenuItems(rowElement, file);
         }
 
-        // Use mobile-friendly context menu on touch devices
-        if ( window.isMobile.phone || window.isMobile.tablet || navigator.maxTouchPoints > 0 ) {
+        // The touch sheet for touch taps and touch-first devices; a mouse
+        // click gets the desktop menu anchored to the button, also on
+        // touch-capable laptops.
+        if ( window.isMobile.phone || window.isMobile.tablet || isTouchPrimaryDevice() || fromTouch ) {
             const targetRect = targetElement.getBoundingClientRect();
             const modal = new ContextMenuModal();
             modal.show(items, targetRect, { title: file.name });

@@ -57,6 +57,13 @@ export interface UserRow {
     requires_phone_verification?: boolean;
     /** True while the account must complete credit-card verification before use. */
     requires_card_verification?: boolean;
+    /**
+     * Payment-provider fingerprint of the card this account verified with —
+     * stable per card, written only on a successful check. Its presence is what
+     * "this account verified a card" reads off; null for accounts that never
+     * did.
+     */
+    card_fingerprint?: string | null;
     password?: string;
     [k: string]: unknown;
 }

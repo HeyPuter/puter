@@ -3,7 +3,7 @@ title: CLI
 description: Manage your Puter resources directly from your terminal with the Puter CLI. Deploy static sites and serverless workers without leaving your shell.
 ---
 
-The [Puter CLI](https://www.npmjs.com/package/@heyputer/cli) lets you manage your Puter resources straight from the terminal: deploy static websites, ship serverless workers, and inspect the apps registered to your account, all without leaving your shell.
+The [Puter CLI](https://www.npmjs.com/package/@heyputer/cli) lets you manage your Puter resources straight from the terminal: deploy static websites, ship serverless workers, inspect the apps registered to your account, and explore their key-value stores, all without leaving your shell.
 
 <div class="info">The Puter CLI is in beta (0.x). Behavior may change between releases.</div>
 
@@ -80,6 +80,33 @@ Browse the apps registered to your account. These commands are read-only.
 puter app list           # list your apps
 puter app get <name>     # show one app's details
 ```
+
+## Key-value store
+
+Open an interactive JavaScript shell against one app's [key-value store](/KV/), so you can read and edit its data directly instead of going through the app. Pass an app name or a uid:
+
+```sh
+puter kv connect my-app
+```
+
+The CLI resolves the app, checks the store is reachable, and drops you at a prompt:
+
+```console
+$ puter kv connect notes
+✔ Connected to notes (app-1f2e3d4c…) · 12 keys
+kv(notes)> set("greeting", "hi")
+true
+kv(notes)> get("greeting")
+'hi'
+kv(notes)> list("gre", true)
+[ { key: 'greeting', value: 'hi' } ]
+```
+
+Every [`puter.kv`](/KV/) method is bound to the connected app and available bare, as `kv.set(…)`, and as `puter.kv.set(…)`, so examples copied from these docs run as written. Results are awaited for you — `get("k")` prints the value rather than a pending promise — and `_` holds the last result.
+
+It's a full JavaScript REPL, so multi-line input, variables, and history between sessions all work. `.help` lists the kv methods, `.clear` resets the session, and `.exit` (or Ctrl-D) quits.
+
+<div class="info">Writes through <code>puter kv connect</code> go to the connected app's store, not your user-level store — the same data the app itself reads and writes.</div>
 
 ## CLI reference
 
@@ -183,6 +210,16 @@ Show details for one app.
 | Argument | Description |
 | --- | --- |
 | `<name>` | The app to inspect. |
+
+### `puter kv connect`
+
+Open an interactive shell against an app's key-value store.
+
+| Argument | Description |
+| --- | --- |
+| `<app>` | The app whose store to connect to, by name or uid (`app-…`). |
+
+Requires a terminal — in a non-interactive context the command exits with an error rather than hanging.
 
 ## Environment variables
 

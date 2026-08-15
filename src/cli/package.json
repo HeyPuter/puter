@@ -1,7 +1,7 @@
 {
   "name": "@heyputer/cli",
-  "version": "0.1.2",
-  "description": "CLI for Puter Platform - manage your sites and workers from the terminal.",
+  "version": "0.2.0",
+  "description": "Puter CLI - developer tooling from your terminal.",
   "license": "MIT",
   "author": "Puter Technologies Inc.",
   "type": "module",

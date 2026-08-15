@@ -158,6 +158,29 @@ describe('MeteringService', () => {
             expect(policy.id).toBe('custom-default');
         });
 
+        // A resolver can name a policy nobody registered — an extension that
+        // failed to load, or a plan renamed on one side only. Every caller
+        // reads fields straight off the result, so handing back a policy is
+        // the difference between a downgrade and a 500 on every gated route.
+        it('falls back to a free policy when a resolver names an unregistered plan', async () => {
+            target.registerSubscriptionResolver(async () => 'ghost-plan');
+
+            const policy = await target.getActorSubscription(actor);
+            expect(policy.id).toBe(DEFAULT_FREE_SUBSCRIPTION);
+            expect(policy.monthUsageAllowance).toBeGreaterThan(0);
+        });
+
+        it('falls back when the default resolver names one too', async () => {
+            target.registerSubscriptionResolver(async () => 'ghost-plan');
+            target.registerDefaultSubscriptionResolver(
+                async () => 'ghost-default',
+            );
+
+            const tempActor: Actor = { user: makeUser({ email: null }) };
+            const policy = await target.getActorSubscription(tempActor);
+            expect(policy.id).toBe(DEFAULT_TEMP_SUBSCRIPTION);
+        });
+
         // Rate and concurrency gates resolve the subscription on every gated
         // request, and a resolver may reach a remote store to answer. Without
         // the cache, adding a tiered limit to a hot route would add a round
@@ -580,23 +603,23 @@ describe('MeteringService', () => {
             // just been spending credit they paid for. The purchased credit must
             // shift the baseline the multiples are measured from.
             //
-            // The registered-user free allowance is 25e6 micro-cents. Purchased
-            // credit of 37.5e6 (1.5x) makes the full budget run dry at 62.5e6 —
-            // between the 2x (50e6) and 3x (75e6) allowance marks — so a small
+            // The registered-user free allowance is 50e6 micro-cents. Purchased
+            // credit of 75e6 (1.5x) makes the full budget run dry at 125e6 —
+            // between the 2x (100e6) and 3x (150e6) allowance marks — so a small
             // expense just past it crosses a from-zero multiple (old: pages)
             // without crossing a net-of-credit multiple (new: quiet).
             const creditActor: Actor = { user: makeUser() };
             const sub = await target.getActorSubscription(creditActor);
-            expect(sub.monthUsageAllowance).toBe(25_000_000);
-            await target.updateAddonCredit(creditActor.user.uuid!, 37_500_000);
+            expect(sub.monthUsageAllowance).toBe(50_000_000);
+            await target.updateAddonCredit(creditActor.user.uuid!, 75_000_000);
 
             // Burn the allowance + all credit and a bit beyond, one legit jump.
-            await target.incrementUsage(creditActor, 'ai:chat', 1, 70_000_000);
+            await target.incrementUsage(creditActor, 'ai:chat', 1, 140_000_000);
 
             // A small further expense crosses the 3x-from-zero mark but is still
             // well within (credit + 2x allowance) — it must stay quiet.
             const alarmSpy = vi.spyOn(server.clients.alarm, 'create');
-            await target.incrementUsage(creditActor, 'ai:chat', 1, 7_500_000);
+            await target.incrementUsage(creditActor, 'ai:chat', 1, 15_000_000);
 
             expect(wasOveruseAlarmed(alarmSpy)).toBe(false);
             alarmSpy.mockRestore();
@@ -1965,6 +1988,94 @@ describe('MeteringService', () => {
 
             expect(usage.total).toBe(50);
             expect(await claimOf(actor)).toBe(1);
+        });
+    });
+
+    // -- Credit holds --------------------------------------------------
+
+    describe('reserveCredits', () => {
+        it('takes what an in-flight operation could spend out of the spendable balance', async () => {
+            const before = await target.getRemainingUsage(actor);
+            expect(before).toBeGreaterThan(0);
+
+            const hold = await target.reserveCredits(actor, 1000);
+
+            expect(await target.getRemainingUsage(actor)).toBe(before - 1000);
+            await hold.release();
+            expect(await target.getRemainingUsage(actor)).toBe(before);
+        });
+
+        it('stacks holds, so parallel operations see each other', async () => {
+            const before = await target.getRemainingUsage(actor);
+
+            const first = await target.reserveCredits(actor, 400);
+            const second = await target.reserveCredits(actor, 600);
+
+            expect(await target.getRemainingUsage(actor)).toBe(before - 1000);
+            await first.release();
+            await second.release();
+        });
+
+        it('never reports a negative balance, however much is held', async () => {
+            const before = await target.getRemainingUsage(actor);
+            const hold = await target.reserveCredits(actor, before * 10);
+
+            expect(await target.getRemainingUsage(actor)).toBe(0);
+            await hold.release();
+        });
+
+        it('leaves the reported balance alone — a hold is not usage', async () => {
+            const { remaining } = await target.getAllowedUsage(actor);
+            const hold = await target.reserveCredits(actor, 1000);
+
+            expect((await target.getAllowedUsage(actor)).remaining).toBe(
+                remaining,
+            );
+            await hold.release();
+        });
+
+        it('releasing twice gives the budget back once', async () => {
+            const before = await target.getRemainingUsage(actor);
+            const hold = await target.reserveCredits(actor, 500);
+            await hold.release();
+            await hold.release();
+
+            expect(await target.getRemainingUsage(actor)).toBe(before);
+        });
+
+        it('holds nothing for the system actor or a zero amount', async () => {
+            const before = await target.getRemainingUsage(actor);
+            await (await target.reserveCredits(actor, 0)).release();
+            expect(await target.getRemainingUsage(actor)).toBe(before);
+        });
+
+        // A stream can outlive the hold's TTL; extending is what keeps its
+        // in-flight spend visible for the whole generation.
+        it('extend gives a hold another full TTL from now', async () => {
+            const before = await target.getRemainingUsage(actor);
+            const hold = await target.reserveCredits(actor, 750, {
+                ttlMs: 500,
+            });
+
+            // Let the original deadline lapse entirely...
+            await new Promise((r) => setTimeout(r, 620));
+            expect(await target.getRemainingUsage(actor)).toBe(before);
+
+            // ...extending brings the still-running operation's hold back.
+            await hold.extend?.();
+            expect(await target.getRemainingUsage(actor)).toBe(before - 750);
+
+            await hold.release();
+            expect(await target.getRemainingUsage(actor)).toBe(before);
+        });
+
+        it('extend after release does not resurrect the hold', async () => {
+            const before = await target.getRemainingUsage(actor);
+            const hold = await target.reserveCredits(actor, 300);
+            await hold.release();
+            await hold.extend?.();
+
+            expect(await target.getRemainingUsage(actor)).toBe(before);
         });
     });
 

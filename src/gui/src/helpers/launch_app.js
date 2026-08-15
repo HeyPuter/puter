@@ -647,9 +647,10 @@ const launch_app = async (options) => {
 
         // show_in_taskbar
         // Deliberately keyed on the app's own `background`, not on this launch's:
-        // an app that always runs windowless has nothing to show in the taskbar,
-        // while a background *launch* keeps its item so the user can see that it
-        // is running and close it.
+        // an app that always runs windowless has nothing to put in the taskbar,
+        // ever. A background *launch* is a normal app that happens to start
+        // hidden, so it keeps asking for an item — UIWindow just holds it back
+        // until the window is first shown (see its taskbar block).
         let show_in_taskbar = app_info.background ? false : window_options?.show_in_taskbar;
         if ( window_options?.show_in_taskbar !== undefined )
         {
@@ -705,6 +706,9 @@ const launch_app = async (options) => {
             // it's resolved, e.g. a shortcut's uid becomes its target's).
             file_uid: file_signature?.uid ?? options.file_uid,
             is_visible: !starts_hidden(app_info, options),
+            // Marks a window the user has never seen, so closing the app that
+            // launched it can take it down with it (see UIWindow's close path).
+            launched_hidden: starts_hidden(app_info, options),
             is_maximized: options.maximized,
             is_fullpage: options.is_fullpage,
             ...(options.pseudonym ? { pseudonym: options.pseudonym } : {}),

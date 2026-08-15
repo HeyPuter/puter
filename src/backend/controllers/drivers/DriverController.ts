@@ -36,7 +36,9 @@ import {
     resolveDriverMeta,
     resolveDriverMethodConcurrent,
     resolveDriverMethodRateLimit,
+    resolveDriverMethodRequireSubscription,
 } from '../../drivers/meta.js';
+import { assertActorHasSubscription } from '../../services/metering/enforcement.js';
 import type { PermissionService } from '../../services/permission/PermissionService.js';
 import { PermissionUtil } from '../../services/permission/permissionUtil.js';
 import type { WithLifecycle } from '../../types';
@@ -297,7 +299,8 @@ export class DriverController extends PuterController {
 
         if (req.actor) {
             const permService = this.services.permission as unknown as
-                PermissionService | undefined;
+                | PermissionService
+                | undefined;
             if (permService) {
                 // Build via PermissionUtil.join so any `:` in a driver or
                 // interface name is escaped — raw interpolation would let a
@@ -323,6 +326,25 @@ export class DriverController extends PuterController {
                     );
                 }
             }
+        }
+
+        // Subscriber-only methods. Declared per-driver
+        // (`@Driver({ requireSubscription })`) because `/drivers/call` is a
+        // single route and a route option would apply to every driver at once.
+        // Checked before the rate limit — the same order the route chain uses
+        // — so a caller whose plan never included the method is told that
+        // rather than spending a bucket on it.
+        const subscriptionRequirement = resolveDriverMethodRequireSubscription(
+            driverMeta?.requireSubscription,
+            method,
+        );
+        if (subscriptionRequirement !== undefined) {
+            await assertActorHasSubscription(
+                this.services.metering,
+                req.actor,
+                subscriptionRequirement,
+                this.config,
+            );
         }
 
         // Per-method rate-limit and concurrent specs both live on the

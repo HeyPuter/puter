@@ -17,6 +17,13 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { formatCredits, formatDollarsFromMicrocents, usageIsCredits } from './credits.js';
+import { usageBudget } from './usageBudget.js';
+
+// Whether the server reported credits — decides whether the usage surfaces
+// render credits or fall back to dollars.
+let usageShowsCredits = false;
+
 // Sort state for the usage table
 let usageTableSortState = {
     column: 'cost', // default sort by cost
@@ -235,7 +242,7 @@ function renderUsageTable () {
         <tr>
             <th data-sort="resource" class="sortable-th">Resource ${getSortIcon('resource')}</th>
             <th>Units</th>
-            <th data-sort="cost" class="sortable-th">Cost ${getSortIcon('cost')}</th>
+            <th data-sort="cost" class="sortable-th">${usageShowsCredits ? i18n('credits') : 'Cost'} ${getSortIcon('cost')}</th>
         </tr>
     </thead>`;
 
@@ -272,35 +279,23 @@ function renderUsageTable () {
 
 async function update_usage_details ($el_window) {
     const monthlyUsagePromise = puter.auth.getMonthlyUsage().then(res => {
-        const monthlyAllowance = res.allowanceInfo?.monthUsageAllowance || 0;
-        // Actual month-to-date spend.
-        const totalUsage = res.usage?.total ?? 0;
-        // Purchased credits extend the monthly allowance. `remaining` is the
-        // server-netted pool (allowance-left + purchased-left, with any overage
-        // already charged to credits), so subtracting the allowance portion back
-        // out isolates the purchased-credit balance — no double-counting.
-        const remaining = res.allowanceInfo?.remaining ?? 0;
-        const remainingPurchased = Math.max(
-            0,
-            remaining - Math.max(0, monthlyAllowance - totalUsage),
-        );
-        // Capacity grows by whatever purchased credit is left; net usage (spend
-        // minus that credit) drives the percentage, so unused credit reads as a
-        // negative "usage" against the monthly allowance.
-        const capacity = monthlyAllowance + remainingPurchased;
-        const netUsage = totalUsage - remainingPurchased;
-        const rawPercentage = monthlyAllowance ? netUsage / monthlyAllowance * 100 : 0;
-        // Text may go negative (surplus credit) but never above 100%; the bar
-        // fill is clamped to [0, 100].
-        const displayPercentage = Math.round(Math.min(100, rawPercentage));
-        const barPercentage = Math.max(0, Math.min(100, rawPercentage));
+        const budget = usageBudget(res.usage?.total ?? 0, res.allowanceInfo?.remaining ?? 0);
+        // The server reports credits (already scaled) or raw amounts (no
+        // multiplier configured), and says which via the unit flag.
+        const inCredits = usageIsCredits(res.allowanceInfo);
+        usageShowsCredits = inCredits;
+        const amount = (v) => inCredits
+            ? formatCredits(v)
+            : formatDollarsFromMicrocents(v);
 
-        $('#total-usage').html(window.number_format(totalUsage / 100_000_000, { decimals: 2, prefix: '$' }));
-        $('#total-capacity').html(window.number_format(capacity / 100_000_000, { decimals: 2, prefix: '$' }));
-        $('.usage-progbar-percent').html(`${displayPercentage }%`);
+        $('#total-usage').html(amount(budget.used));
+        $('#total-capacity').html(inCredits
+            ? `${amount(budget.capacity)} ${i18n('credits')}`
+            : amount(budget.capacity));
+        $('.usage-progbar-percent').html(`${budget.percent }%`);
         $('.usage-progbar').css({
-            width: `${barPercentage }%`,
-            'background-color': window.usage_bar_color(barPercentage),
+            width: `${budget.barPercent }%`,
+            'background-color': window.usage_bar_color(budget.barPercent),
         });
 
         // Store raw data for sorting
@@ -327,7 +322,7 @@ async function update_usage_details ($el_window) {
                 rawUnits: rawUnits,
                 formattedUnits: formattedUnits,
                 rawCost: rawCost,
-                formattedCost: window.number_format(rawCost / 100_000_000, { decimals: 2, prefix: '$' }),
+                formattedCost: inCredits ? formatCredits(rawCost) : formatDollarsFromMicrocents(rawCost),
             });
         }
 

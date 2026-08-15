@@ -378,15 +378,90 @@ export const assertVerifiedAccount = (
             403,
             'Please verify your phone number to continue',
             {
-                legacyCode: 'phone_verification_required' as never,
+                legacyCode: 'phone_verification_required',
             },
         );
     }
     if (user?.requires_card_verification) {
         throw new HttpError(403, 'Please verify your card to continue', {
-            legacyCode: 'card_verification_required' as never,
+            legacyCode: 'card_verification_required',
         });
     }
+};
+
+// -- Per-verification gates ------------------------------------------
+//
+// `requireVerifiedAccount` above is the default-on gate: it turns away an
+// account that is *pending* a verification the abuse harness asked of it, and
+// says nothing about accounts that were never asked. The two gates below are
+// the opt-in counterparts of `requireVerified` (email) for the other two
+// factors: they require the verification to have actually happened, whether or
+// not this account was ever flagged for it.
+//
+// Neither factor has a boolean "verified" column — the pending flag is cleared
+// on success and the proof is the artifact left behind. `phone` is written only
+// once a code has been confirmed, and `card_fingerprint` only once a card has
+// been checked (both are also what `UserAccountService` reads as the
+// phone-verified / card-verified signals). Pending flag clear AND artifact
+// present is therefore the honest reading of "verified", and an account still
+// mid-flow fails on the flag rather than slipping through on a stale artifact.
+
+/**
+ * Reject unless the user has a phone number verified on file. 403
+ * `phone_verification_required`, the same code the pending-verification gate
+ * uses, so a client that already prompts for the SMS flow prompts here too.
+ */
+export const assertPhoneVerified = (
+    user:
+        | { phone?: unknown; requires_phone_verification?: unknown }
+        | undefined,
+): void => {
+    if (user?.phone && !user?.requires_phone_verification) return;
+    throw new HttpError(403, 'Please verify your phone number to continue', {
+        legacyCode: 'phone_verification_required',
+    });
+};
+
+/** Route-option form of {@link assertPhoneVerified} (`requirePhoneVerified`). */
+export const requirePhoneVerifiedGate = (): RequestHandler => {
+    return (req, _res, next) => {
+        try {
+            assertPhoneVerified(req.actor?.user);
+        } catch (err) {
+            next(err);
+            return;
+        }
+        next();
+    };
+};
+
+/**
+ * Reject unless the user has a card verified on file. 403
+ * `card_verification_required`, matching the pending-verification gate so the
+ * client shows the card flow it already has.
+ */
+export const assertCardVerified = (
+    user:
+        | { card_fingerprint?: unknown; requires_card_verification?: unknown }
+        | undefined,
+): void => {
+    if (user?.card_fingerprint && !user?.requires_card_verification) return;
+    throw new HttpError(403, 'Please verify your card to continue', {
+        legacyCode: 'card_verification_required',
+    });
+};
+
+/** Route-option form of {@link assertCardVerified} (`requireCardVerified`). */
+export const requireCardVerifiedGate = (): RequestHandler => {
+    return (req, _res, next) => {
+        try {
+            assertCardVerified(req.actor?.user);
+        } catch (err) {
+            next(err);
+            return;
+        }
+        next();
+    };
 };
 
 export const assertNotSuspended = (
