@@ -53,3 +53,27 @@ export interface AppTotals {
     total: number;
     count: number;
 }
+
+/**
+ * Budget committed to an operation that hasn't finished yet.
+ *
+ * Released by the code that took it, on every path out — including failure. A
+ * hold nobody releases expires on its own, so a lost release costs the account
+ * the use of that budget for a while rather than forever.
+ */
+export interface CreditHold {
+    release(): Promise<void>;
+    /**
+     * Push the hold's deadline out for an operation still running — a stream
+     * can outlive the default TTL, and a hold that expires mid-operation
+     * reopens the overspend window it was taken to close. Absent on the no-op
+     * hold; callers renew with `hold.extend?.()`.
+     */
+    extend?(): Promise<void>;
+}
+
+/**
+ * The hold that holds nothing — for paths that take no hold but still release
+ * one.
+ */
+export const NO_CREDIT_HOLD: CreditHold = { release: async () => {} };

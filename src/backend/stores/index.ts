@@ -21,6 +21,7 @@ import { AppFeedbackStore } from './appFeedback/AppFeedbackStore.js';
 import { AppStore } from './app/AppStore.js';
 import { FSEntryStore } from './fs/FSEntryStore.js';
 import { GroupStore } from './group/GroupStore.js';
+import { CreditHoldStore } from './metering/CreditHoldStore.js';
 import { MeteringBufferStore } from './metering/MeteringBufferStore.js';
 import { NotificationStore } from './notification/NotificationStore.js';
 import { OIDCStore } from './oidc/OIDCStore.js';
@@ -44,6 +45,7 @@ declare module './types.js' {
     interface IPuterStoreInstances {
         kv: SystemKVStore;
         meteringBuffer: MeteringBufferStore;
+        creditHold: CreditHoldStore;
         user: UserStore;
         app: AppStore;
         appFeedback: AppFeedbackStore;
@@ -71,6 +73,7 @@ declare module './types.js' {
 export const puterStores = {
     kv: SystemKVStore,
     meteringBuffer: MeteringBufferStore,
+    creditHold: CreditHoldStore,
     user: UserStore,
     app: AppStore,
     appFeedback: AppFeedbackStore,
