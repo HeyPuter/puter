@@ -92,7 +92,7 @@ function startRepl({ kv, prompt }) {
     server.writer = (value) =>
       value?.[KV_ERROR] !== undefined
         ? `${ui.red('Error:')} ${value[KV_ERROR]}`
-        : baseWriter(value);
+        : baseWriter.call(server, value);
 
     // Wrapped after start(): passing an `eval` to repl.start() would replace
     // the default one rather than layer on it.
