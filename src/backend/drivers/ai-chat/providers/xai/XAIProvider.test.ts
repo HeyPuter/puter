@@ -387,6 +387,42 @@ describe('XAIProvider model resolution', () => {
         );
     });
 
+    it('resolves grok-4.6 aliases to grok-4.6 with correct metering overrides', async () => {
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'ok', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 1000,
+                completion_tokens: 500,
+                prompt_tokens_details: { cached_tokens: 200 },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'grok-4.6-latest',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect(createMock.mock.calls[0]![0].model).toBe('grok-4.6');
+        expect(recordSpy).toHaveBeenCalledWith(
+            expect.any(Object),
+            expect.anything(),
+            'xai:grok-4.6',
+            {
+                prompt_tokens: 1000 * 200,
+                completion_tokens: 500 * 600,
+                cached_tokens: 200 * 50,
+            },
+        );
+    });
+
     it('falls back to the default model when given an unknown id', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce(baseCompletion);
