@@ -1,9 +1,9 @@
 import * as utils from '../../lib/utils.js';
 import { dataUriByteLength, isPlainObject, toDataUriIfBlob } from './lib/args.js';
 
-/** @typedef {import('../../../types/modules/ai').Speech2TxtOptions} Speech2TxtOptions */
-/** @typedef {import('../../../types/modules/ai').Speech2TxtResult} Speech2TxtResult */
-/** @typedef {import('../../../types/modules/ai').TextFormatSpeech2TxtOptions} TextFormatSpeech2TxtOptions */
+/** @typedef {import('./types.js').Speech2TxtOptions} Speech2TxtOptions */
+/** @typedef {import('./types.js').Speech2TxtResult} Speech2TxtResult */
+/** @typedef {import('./types.js').TextFormatSpeech2TxtOptions} TextFormatSpeech2TxtOptions */
 
 const MAX_INPUT_SIZE = 25 * 1024 * 1024;
 

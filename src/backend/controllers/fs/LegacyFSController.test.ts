@@ -21,7 +21,7 @@ import type { Request, Response } from 'express';
 import { Readable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
@@ -250,7 +250,7 @@ describe('LegacyFSController.mkdir', () => {
         const { actor: userActor } = await makeUser();
         const username = userActor.user!.username!;
         const appUid = `app-legacy-mkdir-${uuidv4()}`;
-        const appActor: Actor = { ...userActor, app: { uid: appUid } };
+        const appActor = makeActor({ ...userActor, app: { uid: appUid } });
         const parent = `/${username}/AppData`;
 
         await withActor(userActor, () =>
@@ -934,7 +934,7 @@ describe('LegacyFSController.copy', () => {
         const username = actor.user!.username!;
         const src = `/${username}/Documents/dup.txt`;
         const existing = `/${username}/Pictures/dup.txt`;
-        for ( const p of [src, existing] ) {
+        for (const p of [src, existing]) {
             await withActor(actor, () =>
                 controller.touch(
                     makeReq({ body: { path: p }, actor }),
@@ -964,9 +964,8 @@ describe('LegacyFSController.copy', () => {
             fields: { entry_name: 'dup.txt' },
         });
 
-        const replaced = (await server.stores.fsEntry.getEntryByPath(
-            existing,
-        ))!;
+        const replaced =
+            (await server.stores.fsEntry.getEntryByPath(existing))!;
 
         // With overwrite: the replaced entry rides along in the response
         // (so the caller can drop its row) and item.removed tells every
@@ -1091,7 +1090,7 @@ describe('LegacyFSController.move', () => {
         const username = actor.user!.username!;
         const src = `/${username}/Documents/clash.txt`;
         const existing = `/${username}/Pictures/clash.txt`;
-        for ( const p of [src, existing] ) {
+        for (const p of [src, existing]) {
             await withActor(actor, () =>
                 controller.touch(
                     makeReq({ body: { path: p }, actor }),
@@ -1121,9 +1120,8 @@ describe('LegacyFSController.move', () => {
             fields: { entry_name: 'clash.txt' },
         });
 
-        const replaced = (await server.stores.fsEntry.getEntryByPath(
-            existing,
-        ))!;
+        const replaced =
+            (await server.stores.fsEntry.getEntryByPath(existing))!;
 
         // With overwrite: the replaced entry rides along in the response
         // (so the caller can drop its row) and item.removed tells every
@@ -1214,7 +1212,7 @@ describe('LegacyFSController.search', () => {
         const { actor: userActor } = await makeUser();
         const username = userActor.user!.username!;
         const appUid = `app-legacy-search-${uuidv4()}`;
-        const appActor: Actor = { ...userActor, app: { uid: appUid } };
+        const appActor = makeActor({ ...userActor, app: { uid: appUid } });
         const needle = `appneedle-${Math.random().toString(36).slice(2, 8)}`;
 
         await withActor(userActor, () =>
@@ -1419,10 +1417,10 @@ describe('LegacyFSController.sign', () => {
             },
             { ownerUserId: userActor.user!.id! },
         );
-        const attackerActor: Actor = {
+        const attackerActor = makeActor({
             ...userActor,
             app: { uid: `attacker-${uuidv4()}` },
-        };
+        });
 
         const { res } = makeRes();
         await expect(
@@ -1456,7 +1454,7 @@ describe('LegacyFSController.sign', () => {
             },
             { ownerUserId: userActor.user!.id! },
         );
-        const appActor: Actor = { ...userActor, app: { uid: ownApp.uid } };
+        const appActor = makeActor({ ...userActor, app: { uid: ownApp.uid } });
 
         const { res, captured } = makeRes();
         await withActor(appActor, () =>
@@ -1736,6 +1734,185 @@ describe('LegacyFSController.openItem (write_url stripping)', () => {
     });
 });
 
+// ── openItem: the grant is a user-authority action ──────────────────
+//
+// /open_item writes a user→app ACL row. An app actor reaching it could hand
+// itself write on any file it can read — read-only access to a folder would
+// silently widen into persistent write on the files inside it, with no second
+// consent prompt. The user has to be the one opening the item, and the row it
+// leaves can never exceed what that user proved on the entry.
+
+describe('LegacyFSController.openItem (grant scope)', () => {
+    const makeApp = async (ownerUserId: number) => {
+        const name = `opener-${uuidv4()}`;
+        return (await server.stores.app.create(
+            {
+                name,
+                title: 'Opener test app',
+                index_url: `https://${name}.test/`,
+            },
+            { ownerUserId },
+        )) as { id: number; uid: string };
+    };
+
+    it('is registered behind the user-session gate', () => {
+        const router = new PuterRouter();
+        (
+            controller as unknown as {
+                registerRoutes: (r: PuterRouter) => void;
+            }
+        ).registerRoutes(router);
+        const route = router.routes.find(
+            (r) => r.method === 'post' && r.path === '/open_item',
+        );
+        expect(route?.options).toMatchObject({
+            requireUserActor: true,
+            allowFullAccessToken: true,
+        });
+    });
+
+    it('rejects an app actor, leaving no grant behind', async () => {
+        const { actor: userActor, userId } = await makeUser();
+        const username = userActor.user!.username!;
+        const target = `/${username}/Documents/app-opened.txt`;
+        await withActor(userActor, () =>
+            controller.touch(
+                makeReq({ body: { path: target }, actor: userActor }),
+                makeRes().res,
+            ),
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(target);
+        // The app holds the read the user approved, and is its own default
+        // opener — the shape that would let it widen that read into write.
+        const app = await makeApp(userId);
+        await withActor(userActor, () =>
+            server.services.permission.grantUserAppPermission(
+                userActor,
+                app.uid,
+                `fs:${entry!.uuid}:read`,
+            ),
+        );
+        const appActor = makeActor({
+            ...userActor,
+            app: { uid: app.uid, id: app.id },
+        });
+
+        const spy = vi
+            .spyOn(server.services.suggestedApps, 'getSuggestedApps')
+            .mockResolvedValue([{ uuid: app.uid }] as never);
+        try {
+            await expect(
+                withActor(appActor, () =>
+                    controller.openItem(
+                        makeReq({
+                            body: { uid: entry!.uuid },
+                            actor: appActor,
+                        }),
+                        makeRes().res,
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        } finally {
+            spy.mockRestore();
+        }
+
+        expect(
+            await server.stores.permission.hasUserAppPerm(
+                userId,
+                app.id,
+                `fs:${entry!.uuid}:write`,
+            ),
+        ).toBe(false);
+    });
+
+    it('grants the suggested app write when the caller has write', async () => {
+        const { actor, userId } = await makeUser();
+        const target = `/${actor.user!.username}/Documents/owned-open.txt`;
+        await withActor(actor, () =>
+            controller.touch(
+                makeReq({ body: { path: target }, actor }),
+                makeRes().res,
+            ),
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(target);
+        const app = await makeApp(userId);
+
+        const spy = vi
+            .spyOn(server.services.suggestedApps, 'getSuggestedApps')
+            .mockResolvedValue([{ uuid: app.uid }] as never);
+        try {
+            await withActor(actor, () =>
+                controller.openItem(
+                    makeReq({ body: { path: target }, actor }),
+                    makeRes().res,
+                ),
+            );
+        } finally {
+            spy.mockRestore();
+        }
+
+        expect(
+            await server.stores.permission.hasUserAppPerm(
+                userId,
+                app.id,
+                `fs:${entry!.uuid}:write`,
+            ),
+        ).toBe(true);
+    });
+
+    it('grants only read when the caller is a read-only sharee', async () => {
+        const victim = await makeUser();
+        const sharee = await makeUser();
+        const target = `/${victim.actor.user!.username}/Documents/ro-open.txt`;
+        await withActor(victim.actor, () =>
+            controller.touch(
+                makeReq({ body: { path: target }, actor: victim.actor }),
+                makeRes().res,
+            ),
+        );
+        const entry = await server.stores.fsEntry.getEntryByPath(target);
+        await server.services.permission.grantUserUserPermission(
+            victim.actor,
+            sharee.actor.user!.username!,
+            `fs:${entry!.uuid}:read`,
+            {},
+        );
+        const app = await makeApp(sharee.userId);
+
+        const spy = vi
+            .spyOn(server.services.suggestedApps, 'getSuggestedApps')
+            .mockResolvedValue([{ uuid: app.uid }] as never);
+        try {
+            await withActor(sharee.actor, () =>
+                controller.openItem(
+                    makeReq({
+                        body: { uid: entry!.uuid },
+                        actor: sharee.actor,
+                    }),
+                    makeRes().res,
+                ),
+            );
+        } finally {
+            spy.mockRestore();
+        }
+
+        expect(
+            await server.stores.permission.hasUserAppPerm(
+                sharee.userId,
+                app.id,
+                `fs:${entry!.uuid}:write`,
+            ),
+        ).toBe(false);
+        expect(
+            await server.stores.permission.hasUserAppPerm(
+                sharee.userId,
+                app.id,
+                `fs:${entry!.uuid}:read`,
+            ),
+        ).toBe(true);
+    });
+});
+
 // ── requestAppRootDir ───────────────────────────────────────────────
 
 describe('LegacyFSController.requestAppRootDir', () => {
@@ -1766,10 +1943,10 @@ describe('LegacyFSController.requestAppRootDir', () => {
     it('rejects with 403 when the actor.app.uid differs from the requested app_uid', async () => {
         const { actor } = await makeUser();
         const { res } = makeRes();
-        const appActor = {
+        const appActor = makeActor({
             ...actor,
             app: { uid: 'app-mismatch' },
-        } as unknown as Actor;
+        });
         await expect(
             withActor(appActor, () =>
                 controller.requestAppRootDir(
@@ -1787,10 +1964,10 @@ describe('LegacyFSController.requestAppRootDir', () => {
         const { actor } = await makeUser();
         const username = actor.user!.username!;
         const appUid = 'app-self';
-        const appActor = {
+        const appActor = makeActor({
             ...actor,
             app: { uid: appUid },
-        } as unknown as Actor;
+        });
         const { res, captured } = makeRes();
         await withActor(appActor, () =>
             controller.requestAppRootDir(
@@ -2463,10 +2640,10 @@ describe('LegacyFSController.sign app sandbox + write downgrade', () => {
         const { actor } = await makeUser();
         const username = actor.user!.username!;
         // Build an app-under-user actor whose AppData root is the test app.
-        const appActor = {
+        const appActor = makeActor({
             ...actor,
             app: { uid: 'sandbox-app' },
-        } as unknown as Actor;
+        });
 
         // Create a file *outside* /Documents (anywhere outside AppData/<uid>).
         const target = `/${username}/Documents/forbidden.txt`;
@@ -2730,10 +2907,10 @@ describe('LegacyFSController.suggestApps', () => {
     it('refuses to look up entries an app actor cannot see', async () => {
         const { actor: userActor } = await makeUser();
         const username = userActor.user!.username!;
-        const appActor: Actor = {
+        const appActor = makeActor({
             ...userActor,
             app: { uid: `app-suggest-${uuidv4()}` },
-        };
+        });
         const target = `/${username}/Documents/probe.txt`;
         await withActor(userActor, () =>
             controller.touch(
@@ -2801,10 +2978,10 @@ describe('LegacyFSController.suggestApps', () => {
 describe('LegacyFSController.readdirSubdomains', () => {
     it('returns an empty array for app-under-user actors', async () => {
         const { actor: userActor, userId } = await makeUser();
-        const appActor: Actor = {
+        const appActor = makeActor({
             ...userActor,
             app: { uid: `app-subd-${uuidv4()}` },
-        };
+        });
         await server.clients.db.write(
             'INSERT INTO `subdomains` (`uuid`, `subdomain`, `user_id`) VALUES (?, ?, ?)',
             [uuidv4(), `sd-${uuidv4().slice(0, 8)}`, userId],
@@ -2843,10 +3020,10 @@ describe('LegacyFSController.updateFsentryThumbnail', () => {
     it('rejects an app actor probing entries outside AppData with 404', async () => {
         const { actor: userActor } = await makeUser();
         const username = userActor.user!.username!;
-        const appActor: Actor = {
+        const appActor = makeActor({
             ...userActor,
             app: { uid: `app-thumb-${uuidv4()}` },
-        };
+        });
         const target = `/${username}/Documents/thumbme.txt`;
         await withActor(userActor, () =>
             controller.touch(
@@ -2915,40 +3092,48 @@ describe('LegacyFSController.updateFsentryThumbnail', () => {
     // object — an fs object's key is its fsentry uuid — and have the server
     // read or destroy it. Only inline image data is accepted.
     it.each([
-        ['an s3:// pointer', 's3://puter-local/00000000-0000-4000-8000-000000000000'],
+        [
+            'an s3:// pointer',
+            's3://puter-local/00000000-0000-4000-8000-000000000000',
+        ],
         ['an https URL', 'https://cdn.example.com/x.png'],
         ['a bare object key', 'thumbnails/whatever'],
-    ])('rejects %s instead of storing it verbatim', async (_label, thumbnail) => {
-        const { actor } = await makeUser();
-        const username = actor.user!.username!;
-        const target = `/${username}/Documents/thumbme3-${uuidv4()}.txt`;
-        await withActor(actor, () =>
-            controller.touch(
-                makeReq({
-                    body: { path: target, set_modified_to_now: true },
-                    actor,
-                }),
-                makeRes().res,
-            ),
-        );
-        const entry = await server.stores.fsEntry.getEntryByPath(target);
-
-        const { res } = makeRes();
-        await expect(
-            withActor(actor, () =>
-                controller.updateFsentryThumbnail(
+    ])(
+        'rejects %s instead of storing it verbatim',
+        async (_label, thumbnail) => {
+            const { actor } = await makeUser();
+            const username = actor.user!.username!;
+            const target = `/${username}/Documents/thumbme3-${uuidv4()}.txt`;
+            await withActor(actor, () =>
+                controller.touch(
                     makeReq({
-                        body: { uid: entry!.uuid, thumbnail },
+                        body: { path: target, set_modified_to_now: true },
                         actor,
                     }),
-                    res,
+                    makeRes().res,
                 ),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
+            );
+            const entry = await server.stores.fsEntry.getEntryByPath(target);
 
-        const after = await server.stores.fsEntry.getEntryByUuid(entry!.uuid);
-        expect(after?.thumbnail ?? null).toBeNull();
-    });
+            const { res } = makeRes();
+            await expect(
+                withActor(actor, () =>
+                    controller.updateFsentryThumbnail(
+                        makeReq({
+                            body: { uid: entry!.uuid, thumbnail },
+                            actor,
+                        }),
+                        res,
+                    ),
+                ),
+            ).rejects.toMatchObject({ statusCode: 400 });
+
+            const after = await server.stores.fsEntry.getEntryByUuid(
+                entry!.uuid,
+            );
+            expect(after?.thumbnail ?? null).toBeNull();
+        },
+    );
 });
 
 // ── GET /get-launch-apps ────────────────────────────────────────────

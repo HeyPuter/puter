@@ -2,10 +2,10 @@ import * as utils from '../../lib/utils.js';
 import { isObject, parseTrailingArgs } from './lib/args.js';
 import { assertKeyPresent, assertKeySize } from './lib/validate.js';
 
-/** @typedef {import('../../../types/modules/kv').KVOptConfig} KVOptConfig */
-/** @typedef {import('../../../types/modules/kv').KVUpdateObject} KVUpdateObject */
-/** @typedef {import('../../../types/modules/kv').KVUpdatePath} KVUpdatePath */
-/** @typedef {import('../../../types/modules/kv').KVValue} KVValue */
+/** @typedef {import('./types.js').KVOptConfig} KVOptConfig */
+/** @typedef {import('./types.js').KVUpdateObject} KVUpdateObject */
+/** @typedef {import('./types.js').KVUpdatePath} KVUpdatePath */
+/** @typedef {import('./types.js').KVValue} KVValue */
 
 const updateDriverCall = (puter, args) =>
     utils.makeDriverMethod({

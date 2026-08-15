@@ -23,8 +23,28 @@ export const METRICS_PREFIX = 'metering';
 export const POLICY_PREFIX = 'policy';
 /** Dots in usage types are escaped so they don't collide with kv nested paths */
 export const PERIOD_ESCAPE = '_dot_';
+/**
+ * Field on an actor's monthly usage record holding the claim for that month's
+ * recurring charges. Lives on the record itself so every read that already
+ * fetches usage can tell whether the charges are settled without a second
+ * lookup. Must match the `monthlyChargesApplied` member of `UsageByType`.
+ */
+export const MONTHLY_CHARGE_CLAIM = 'monthlyChargesApplied';
 export const DEFAULT_FREE_SUBSCRIPTION = 'user_free';
 export const DEFAULT_TEMP_SUBSCRIPTION = 'temp_free';
+
+/**
+ * The policies an account holds without paying for anything. Everything else —
+ * the paid plans registered by an extension, and the unlimited policy a
+ * deployment can turn on for itself — counts as a subscription for the purposes
+ * of `requireSubscription` (see `assertActorHasSubscription`). Kept as a set of
+ * free ids rather than a list of paid ones so a plan added by an extension is
+ * recognised without touching core.
+ */
+export const FREE_SUBSCRIPTION_IDS: ReadonlySet<string> = new Set([
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+]);
 
 // WARNING: DO NOT USE THESE IN PROD
 export const UNLIMITED_SUBSCRIPTION = 'unlimited';

@@ -2,14 +2,14 @@ import { PuterModule } from '../../lib/PuterModule.js';
 import { user } from './user.js';
 import { version } from './version.js';
 
-/** @typedef {import('../../../types/puter').Puter} Puter */
+/** @typedef {import('../../index.js').Puter} Puter */
 
 /**
  * The `puter.os` module.
  *
  * Method implementations live in the sibling files as `this`-context
- * functions whose JSDoc is the source of truth for the public signatures;
- * types/modules/os.d.ts mirrors them for TypeScript consumers of the SDK.
+ * functions whose JSDoc is the source of truth for the public signatures —
+ * `types/` is generated from it, never edited by hand.
  */
 export class OSModule extends PuterModule {
     user = user;

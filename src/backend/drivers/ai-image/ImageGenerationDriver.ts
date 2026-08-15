@@ -25,6 +25,7 @@ import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { Actor } from '../../core/actor.js';
 import { PuterDriver } from '../types.js';
+import { secureFetch } from '../../util/secureHttp.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { BytePlusImageProvider } from './providers/byteplus/BytePlusImageProvider.js';
 import { CloudflareImageProvider } from './providers/cloudflare/CloudflareImageProvider.js';
@@ -412,7 +413,11 @@ export class ImageGenerationDriver extends PuterDriver {
                 header.match(/data:(.*?);/)?.[1] ?? 'application/octet-stream';
             buffer = Buffer.from(result.substring(commaIdx + 1), 'base64');
         } else {
-            const response = await fetch(result);
+            // Provider-minted URL, but fetched with the same SSRF guards as
+            // the input paths: it reaches an unauthenticated GET whose body
+            // lands in the user's filesystem. skipProxy because generated
+            // media is ours to download directly, not user input to screen.
+            const response = await secureFetch(result, { skipProxy: true });
             if (!response.ok) {
                 throw new HttpError(
                     502,

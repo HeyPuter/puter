@@ -44,6 +44,7 @@ import type {
     SignedUploadPart,
     SignedUploadResult,
 } from './s3Types.js';
+import { recordStorageOps } from '../../core/storageOps.js';
 import { Span } from '../../util/span.js';
 import { PuterStore } from '../types.js';
 
@@ -142,6 +143,11 @@ export class S3ObjectStore extends PuterStore {
                     const url = await getSignedUrl(presignClient, command, {
                         expiresIn: expiresInSeconds,
                     });
+                    // Signing costs nothing; the upload it authorizes is a
+                    // request against the object store that we never see,
+                    // because the client makes it directly. Counted here
+                    // because here is where we know it is going to happen.
+                    recordStorageOps('write');
                     return {
                         uploadMode: 'single' as const,
                         expiresAt,
@@ -159,6 +165,7 @@ export class S3ObjectStore extends PuterStore {
                 let multipartUploadId: string | undefined;
 
                 try {
+                    recordStorageOps('write');
                     const multipartResult = await client.send(
                         new CreateMultipartUploadCommand({
                             Bucket: fileMetadata.bucket,
@@ -268,6 +275,10 @@ export class S3ObjectStore extends PuterStore {
             Math.min(60 * 60, input.expiresInSeconds),
         );
 
+        // One upload request per part, made by the client against the URLs
+        // handed back below.
+        recordStorageOps('write', input.partNumbers.length);
+
         return Promise.all(
             input.partNumbers.map(async (partNumber) => {
                 const command = new UploadPartCommand({
@@ -293,6 +304,7 @@ export class S3ObjectStore extends PuterStore {
         region: string,
     ): Promise<void> {
         const client = this.#getClientForRegion(region);
+        recordStorageOps('write');
         await client.send(
             new CompleteMultipartUploadCommand({
                 Bucket: input.bucket,
@@ -321,6 +333,7 @@ export class S3ObjectStore extends PuterStore {
         objectKey: string,
     ): Promise<void> {
         const client = this.#getClientForRegion(region);
+        recordStorageOps('delete');
         await client.send(
             new AbortMultipartUploadCommand({
                 Bucket: bucket,
@@ -346,6 +359,7 @@ export class S3ObjectStore extends PuterStore {
                   resolvedContentLength > maxSingleUploadSize;
 
         if (!shouldUseMultipart) {
+            recordStorageOps('write');
             await client.send(
                 new PutObjectCommand({
                     Bucket: input.bucket,
@@ -386,6 +400,7 @@ export class S3ObjectStore extends PuterStore {
         region: string,
     ): Promise<number | null> {
         const client = this.#getClientForRegion(region);
+        recordStorageOps('read');
         const response = await client.send(
             new HeadObjectCommand({
                 Bucket: bucket,
@@ -404,6 +419,7 @@ export class S3ObjectStore extends PuterStore {
         region: string,
     ): Promise<void> {
         const client = this.#getClientForRegion(region);
+        recordStorageOps('delete');
         await client.send(
             new DeleteObjectCommand({
                 Bucket: bucket,
@@ -427,6 +443,7 @@ export class S3ObjectStore extends PuterStore {
             offset += MAX_BATCH
         ) {
             const chunk = input.objectKeys.slice(offset, offset + MAX_BATCH);
+            recordStorageOps('delete');
             await client.send(
                 new DeleteObjectsCommand({
                     Bucket: input.bucket,
@@ -443,6 +460,7 @@ export class S3ObjectStore extends PuterStore {
     @Span('s3.copyObject')
     async copyObject(input: CopyObjectInput, region: string): Promise<void> {
         const client = this.#getClientForRegion(region);
+        recordStorageOps('write');
         await client.send(
             new CopyObjectCommand({
                 Bucket: input.destinationBucket,
@@ -464,6 +482,7 @@ export class S3ObjectStore extends PuterStore {
         region: string,
     ): Promise<GetObjectResult> {
         const client = this.#getClientForRegion(region);
+        recordStorageOps('read');
         const response = await client.send(
             new GetObjectCommand({
                 Bucket: input.bucket,
@@ -536,6 +555,7 @@ export class S3ObjectStore extends PuterStore {
         partSize: number,
     ): Promise<void> {
         const client = this.#getClientForRegion(region);
+        recordStorageOps('write');
         const createResult = await client.send(
             new CreateMultipartUploadCommand({
                 Bucket: input.bucket,
@@ -553,6 +573,7 @@ export class S3ObjectStore extends PuterStore {
         let partNumber = 1;
 
         const uploadPart = async (partBody: Buffer) => {
+            recordStorageOps('write');
             const uploadPartResult = await client.send(
                 new UploadPartCommand({
                     Bucket: input.bucket,
@@ -630,6 +651,7 @@ export class S3ObjectStore extends PuterStore {
             }
 
             if (completedParts.length === 0) {
+                recordStorageOps('delete');
                 await client.send(
                     new AbortMultipartUploadCommand({
                         Bucket: input.bucket,
@@ -637,6 +659,7 @@ export class S3ObjectStore extends PuterStore {
                         UploadId: uploadId,
                     }),
                 );
+                recordStorageOps('write');
                 await client.send(
                     new PutObjectCommand({
                         Bucket: input.bucket,
@@ -649,6 +672,7 @@ export class S3ObjectStore extends PuterStore {
                 return;
             }
 
+            recordStorageOps('write');
             await client.send(
                 new CompleteMultipartUploadCommand({
                     Bucket: input.bucket,
@@ -660,6 +684,7 @@ export class S3ObjectStore extends PuterStore {
                 }),
             );
         } catch (error) {
+            recordStorageOps('delete');
             await client
                 .send(
                     new AbortMultipartUploadCommand({

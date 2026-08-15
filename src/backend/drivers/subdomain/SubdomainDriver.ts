@@ -27,10 +27,12 @@ import {
 } from '../../services/metering/consts.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
-import type { DriverRateLimitConfig } from '../meta.js';
+import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
+import { isUniqueViolation } from '../../util/dbError.js';
+import { buildHostedSubdomainIndexUrlCandidates } from '../../util/hostedAppBacking.js';
 import { WORKER_SUBDOMAIN_PREFIX } from '../../stores/subdomain/SubdomainStore.js';
 import {
     decodeCursor,
@@ -71,9 +73,11 @@ const RESERVED_SUBDOMAINS = new Set([
  * Permission model:
  *
  * - Owner (user_id) can read/write their own subdomains
- * - App actor matching app_owner can read/write scoped subdomains
+ * - An app actor is further scoped to the rows it created (app_owner), for reads
+ *   as well as writes — never widened past its own user
  * - `system:es:write-all-owners` grants blanket write
- * - `read-all-subdomains` grants cross-user reads
+ * - `read-all-subdomains` grants cross-user reads, and is the only thing that
+ *   does
  */
 export class SubdomainDriver extends PuterDriver {
     readonly driverInterface = 'puter-subdomains';
@@ -92,6 +96,32 @@ export class SubdomainDriver extends PuterDriver {
             bySubscription: {
                 [DEFAULT_FREE_SUBSCRIPTION]: 200,
                 [DEFAULT_TEMP_SUBSCRIPTION]: 100,
+            },
+        },
+        methods: {
+            // Unlike the reads this shares an envelope with, `create`
+            // consumes a name out of a global namespace nobody gets back.
+            // A known abuse target, so it keeps its own tighter budget —
+            // but publishing a site is also something the platform does on
+            // the user's behalf (an app gets one, a worker gets one), so the
+            // floor still has to clear a handful of those back to back.
+            create: {
+                limit: 120,
+                window: 60_000,
+                bySubscription: {
+                    [DEFAULT_FREE_SUBSCRIPTION]: 60,
+                    [DEFAULT_TEMP_SUBSCRIPTION]: 30,
+                },
+            },
+        },
+    };
+
+    readonly concurrent: DriverConcurrentConfig = {
+        default: {
+            limit: 20,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 10,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 5,
             },
         },
     };
@@ -147,18 +177,58 @@ export class SubdomainDriver extends PuterDriver {
             });
         }
         await this.services.fs.checkFSAccess(entry, actor);
+
+        // A name some other user's app still points at is not free either.
+        // Deleting a hosted subdomain leaves the app row's `index_url` intact,
+        // and the GUI launcher appends `puter.auth.token` to whatever URL it is
+        // given — so registering the freed name would hand that app's launch
+        // token to whoever claimed it. The app's own owner is exempt:
+        // re-creating their site restores their app rather than hijacking it.
+        // See `util/hostedAppBacking.ts` for the wider rule.
+        //
+        // Last check before the insert on purpose: `apps.index_url` is
+        // unindexed, so this scan only runs for a request that would otherwise
+        // have created the row, and it stays behind the same root_dir gate as
+        // the existing uniqueness answer.
+        const appHoldingName = await this.stores.app.findByIndexUrlCandidates(
+            buildHostedSubdomainIndexUrlCandidates(subdomain, this.config),
+            { excludeOwnerUserId: actor.user.id },
+        );
+        if (appHoldingName) {
+            throw new HttpError(
+                409,
+                'A site with this subdomain already exists',
+                { legacyCode: 'conflict' },
+            );
+        }
+
         // `associated_app_id` is no longer accepted from clients. The
         // "associated app" for a subdomain is derived at read time from
         // `apps.owner_user_id = subdomain.user_id` + `index_url` match
         // (see `#hydrateRows`), so a subdomain row can never assert an
         // association with an app the caller doesn't own.
-        const created = await this.stores.subdomain.create({
-            userId: actor.user.id,
-            subdomain,
-            rootDirId,
-            associatedAppId: null,
-            appOwner: actor.app?.id ?? null,
-        });
+        //
+        // The uniqueness answer above is a check-then-insert, so two callers
+        // racing on the same name both pass it and the second one loses to the
+        // unique index. That is the same conflict, learned a moment later —
+        // report it the same way instead of letting the driver escape as a 500.
+        let created;
+        try {
+            created = await this.stores.subdomain.create({
+                userId: actor.user.id,
+                subdomain,
+                rootDirId,
+                associatedAppId: null,
+                appOwner: actor.app?.id ?? null,
+            });
+        } catch (err) {
+            if (!isUniqueViolation(err)) throw err;
+            throw new HttpError(
+                409,
+                'A site with this subdomain already exists',
+                { legacyCode: 'conflict' },
+            );
+        }
         const [shaped] = await this.#hydrateRows(
             created ? [created as Record<string, unknown>] : [],
         );
@@ -168,7 +238,16 @@ export class SubdomainDriver extends PuterDriver {
     async read(args: Record<string, unknown>): Promise<unknown> {
         const actor = this.#requireActor();
         const row = await this.#resolve(args);
-        if (!row)
+        // Worker deployments live in this table but aren't sites. `select`
+        // excludes them and the workers driver serves them under its own
+        // scoping, so answering for them here would make the hosting API a
+        // by-name lookup for objects it doesn't manage. Same 404 as a miss:
+        // the name is resolved globally, so a distinct refusal would confirm
+        // the row exists.
+        const isWorkerRow =
+            typeof row?.subdomain === 'string' &&
+            row.subdomain.startsWith(WORKER_SUBDOMAIN_PREFIX);
+        if (!row || isWorkerRow)
             throw new HttpError(404, 'Subdomain not found', {
                 legacyCode: 'not_found',
             });
@@ -310,7 +389,10 @@ export class SubdomainDriver extends PuterDriver {
         try {
             this.clients.event.emit(
                 'subdomain.update',
-                { subdomain: row.subdomain as string },
+                {
+                    subdomain: row.subdomain as string,
+                    uid: String(row.uuid),
+                },
                 {},
             );
         } catch {
@@ -355,7 +437,10 @@ export class SubdomainDriver extends PuterDriver {
         try {
             this.clients.event.emit(
                 'subdomain.delete',
-                { subdomain: row.subdomain as string },
+                {
+                    subdomain: row.subdomain as string,
+                    uid: String(row.uuid),
+                },
                 {},
             );
         } catch {
@@ -459,14 +544,31 @@ export class SubdomainDriver extends PuterDriver {
         }
     }
 
+    /**
+     * Both grants are nested under "the caller owns this row" on purpose.
+     *
+     * Held flat, an `app_owner` match reads as a grant in its own right — and
+     * since the owner check above it has already returned for every row the
+     * caller owns, it is only ever reached for a row owned by somebody else.
+     * `app_owner` is a global app id shared by every user of that app, so that
+     * hands one user's owner name, uuid and home path to any other user acting
+     * under the same app. `#checkWriteAccess` requires the owner match in both
+     * of its branches; this is the same rule, written as nesting.
+     *
+     * The inner check is the predicate `select` applies in SQL: an app sees
+     * what it created, not everything its user owns. Read `effectiveApp`, not
+     * `app` — an app-minted access token carries no `app` of its own and would
+     * otherwise slip past as though no app were involved.
+     */
     async #checkReadAccess(
         row: Record<string, unknown>,
         actor: Actor,
     ): Promise<void> {
-        // Owner
-        if (actor.user?.id === row.user_id) return;
-        // App actor matching app_owner
-        if (actor.app?.id && actor.app.id === row.app_owner) return;
+        if (actor.user?.id === row.user_id) {
+            const app = actor.effectiveApp;
+            if (!app?.id) return;
+            if (app.id === row.app_owner) return;
+        }
         // Cross-user read permission
         if (await this.#hasPermission(actor, 'read-all-subdomains')) return;
         throw new HttpError(403, 'Access denied', { legacyCode: 'forbidden' });
@@ -604,37 +706,6 @@ export class SubdomainDriver extends PuterDriver {
         const result = new Map<string, number>();
         if (rows.length === 0) return result;
 
-        const normalize = (v: unknown): string | null => {
-            if (typeof v !== 'string') return null;
-            const trimmed = v.trim().toLowerCase().replace(/^\./, '');
-            return trimmed || null;
-        };
-        const stripPort = (v: string): string => v.split(':')[0] || v;
-
-        const hostingDomainsRaw = [
-            normalize(this.config.static_hosting_domain),
-            normalize(this.config.static_hosting_domain_alt),
-            normalize(this.config.private_app_hosting_domain),
-            normalize(this.config.private_app_hosting_domain_alt),
-        ].filter((d): d is string => !!d);
-        const hostingDomains = [
-            ...new Set([
-                ...hostingDomainsRaw,
-                ...hostingDomainsRaw.map(stripPort),
-            ]),
-        ];
-        if (hostingDomains.length === 0) return result;
-
-        const configuredProtocol =
-            typeof this.config.protocol === 'string'
-                ? this.config.protocol.trim().replace(/:$/, '')
-                : '';
-        const protocols = [
-            ...new Set(
-                [configuredProtocol, 'https', 'http'].filter((p) => !!p),
-            ),
-        ];
-
         const userIdToRowMeta = new Map<
             number,
             Array<{ rowUuid: string; candidates: Set<string> }>
@@ -656,16 +727,10 @@ export class SubdomainDriver extends PuterDriver {
                     : '';
             if (!subdomain || !Number.isFinite(userId) || !rowUuid) continue;
 
-            const candidates = new Set<string>();
-            for (const d of hostingDomains) {
-                const host = `${subdomain}.${d}`;
-                for (const p of protocols) {
-                    const base = `${p}://${host}`;
-                    candidates.add(base);
-                    candidates.add(`${base}/`);
-                    candidates.add(`${base}/index.html`);
-                }
-            }
+            const candidates = new Set<string>(
+                buildHostedSubdomainIndexUrlCandidates(subdomain, this.config),
+            );
+            if (candidates.size === 0) continue;
             for (const c of candidates) allCandidates.add(c);
 
             if (!userIdToRowMeta.has(userId)) {

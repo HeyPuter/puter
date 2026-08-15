@@ -47,14 +47,32 @@ const ALLOWED_ERRORS = [
     'signup_blocked',
 ] as const;
 
+/**
+ * Pick the display code for a failed user resolution.
+ *
+ * A `code` is only ever set when the signup-validate harness vetoed the signup,
+ * but the code it stamps comes from an abuse listener and is not drawn from
+ * {@link ALLOWED_ERRORS} — so clamping it directly turns every vetoed OIDC
+ * signup into a bare `unauthorized`, which reads as "sign-in broke" and hides
+ * both the real cause and the Request Code that support looks the decision up
+ * by. Anything unrecognized falls back to the veto's own category instead.
+ */
+function resolutionErrorCode(code: string | undefined): string {
+    if (!code) return 'unauthorized';
+    return (ALLOWED_ERRORS as readonly string[]).includes(code)
+        ? code
+        : 'signup_blocked';
+}
+
 // GUI pages an OIDC flow may return to: /desktop, /dashboard, and direct app
-// landings (/app/<name>, mirroring APP_NAME_REGEX in AppDriver). Strict
-// whitelist — never a client-supplied URL (no open redirect).
+// landings (/app/<name> and its desktop-booted twin /desktop/app/<name>,
+// mirroring APP_NAME_REGEX in AppDriver). Strict whitelist — never a
+// client-supplied URL (no open redirect).
 function isWhitelistedReturnPath(path: string): boolean {
     return (
         path === '/desktop' ||
         path === '/dashboard' ||
-        /^\/app\/[a-zA-Z0-9_-]{1,100}$/.test(path)
+        /^(\/desktop)?\/app\/[a-zA-Z0-9_-]{1,100}$/.test(path)
     );
 }
 
@@ -210,10 +228,26 @@ export class OIDCController extends PuterController {
 
         // -- GET /auth/oidc/providers --------------------------------
         // Public — list enabled provider IDs for the frontend.
+        //
+        // Every render of a login form reads this, and with no actor the
+        // bucket is the address: one corporate egress, campus or carrier
+        // gateway stands for every person behind it. Size it for that — a
+        // large shared address is thousands of people, and a shift or class
+        // change bunches their sign-ins into the same minute — but no
+        // further. This is login surface, so the ceiling should still bound
+        // someone enumerating which identity providers a deployment accepts.
 
         router.get(
             '/auth/oidc/providers',
-            { subdomain: 'api' },
+            {
+                subdomain: 'api',
+                rateLimit: {
+                    scope: 'oidc-providers',
+                    limit: 1_200,
+                    window: 60_000,
+                    key: 'ip',
+                },
+            },
             async (_req: Request, res: Response) => {
                 const providers =
                     await this.services.oidc.getEnabledProviderIds();
@@ -403,7 +437,7 @@ export class OIDCController extends PuterController {
                         origin,
                         'login',
                         'other',
-                        resolved.code ?? 'unauthorized',
+                        resolutionErrorCode(resolved.code),
                         stateDecoded,
                         resolved.requestCode,
                         (p) => this.services.oidc.signPopupReturn(p),
@@ -441,6 +475,7 @@ export class OIDCController extends PuterController {
             const origin = this.config.origin ?? '';
             const result = await this.#processCallback(req, res, 'signup');
             if ('error' in result) {
+                console.warn(`OIDC signup callback error: ${result.error}`);
                 return res.redirect(
                     302,
                     buildErrorRedirectUrl(
@@ -469,7 +504,7 @@ export class OIDCController extends PuterController {
                         origin,
                         'signup',
                         'other',
-                        resolved.code ?? 'unauthorized',
+                        resolutionErrorCode(resolved.code),
                         stateDecoded,
                         resolved.requestCode,
                         (p) => this.services.oidc.signPopupReturn(p),
@@ -565,10 +600,26 @@ export class OIDCController extends PuterController {
 
         // -- GET /auth/revalidate-done -------------------------------
         // Landing page after revalidation; posts to opener for popup flow.
+        //
+        // Deliberately not on the `oidc-general` bucket the start/callback
+        // routes share: those exchange codes with an identity provider, this
+        // one is a constant HTML page that touches nothing. Sharing a bucket
+        // meant everyone reachable through one address — an office, a school,
+        // a carrier gateway — competed for the same 30 popup closes a minute.
+        // The replacement is sized for the humans behind one such address
+        // re-validating at once, not for a fleet: it is still auth surface,
+        // and one page view per revalidation is a low-volume event.
 
         router.get(
             '/auth/revalidate-done',
-            { subdomain: '' },
+            {
+                subdomain: '',
+                rateLimit: {
+                    scope: 'oidc-revalidate-done',
+                    limit: 600,
+                    window: 60_000,
+                },
+            },
             (_req: Request, res: Response) => {
                 const origin = this.config.origin ?? '';
                 res.set('Content-Type', 'text/html; charset=utf-8');
@@ -610,6 +661,7 @@ if (window.opener) {
         provider: string,
         userinfo: { sub: string; email?: unknown; [k: string]: unknown },
         referrer?: string | null,
+        attempt = 0,
     ): Promise<
         | { error: string; code?: string; requestCode?: string }
         | {
@@ -628,8 +680,12 @@ if (window.opener) {
         const claimedEmail =
             typeof userinfo.email === 'string' ? userinfo.email : null;
         if (claimedEmail) {
-            const byEmail =
-                await this.services.oidc.findUserByEmail(claimedEmail);
+            // On the retry after a lost race, read the primary — the winning
+            // row may be younger than the replica snapshot.
+            const byEmail = await this.services.oidc.findUserByEmail(
+                claimedEmail,
+                { force: attempt > 0 },
+            );
             if (byEmail) {
                 if (!byEmail.email_confirmed) {
                     return {
@@ -656,6 +712,18 @@ if (window.opener) {
             userinfo as { sub: string; email?: string },
             referrer,
         );
+        // A concurrent callback (a second tab, a provider retry) created the
+        // account between step 2 and the insert. Nothing went wrong for the
+        // user — start over and we'll find the winner at step 1 or 2. One retry
+        // only: a second miss means something other than a race is going on.
+        if (outcome.raced && attempt === 0) {
+            return this.#resolveOrCreateOIDCUser(
+                provider,
+                userinfo,
+                referrer,
+                attempt + 1,
+            );
+        }
         if (!outcome.success || !outcome.user) {
             return {
                 error: outcome.error ?? 'Account creation failed.',

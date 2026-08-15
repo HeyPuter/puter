@@ -22,6 +22,7 @@ import * as popupAuth from './popupAuth.js';
 import {
     deliversTokenToOpener,
     offersFederatedSignInInPopup,
+    runsUserAppTokenExchange,
 } from './popupAuth.js';
 
 describe('deliversTokenToOpener', () => {
@@ -30,6 +31,11 @@ describe('deliversTokenToOpener', () => {
         // user's credentials. Every popup path that mints a user-app token has
         // to honour this, not just the plain token exchange.
         expect(deliversTokenToOpener('request-permission')).toBe(false);
+    });
+
+    it('withholds the token from a feedback popup', () => {
+        // Sending feedback is not consent to sign the site in either.
+        expect(deliversTokenToOpener('send-feedback')).toBe(false);
     });
 
     it('delivers the token for the sign-in flows that exist to authenticate', () => {
@@ -64,6 +70,32 @@ describe('offersFederatedSignInInPopup', () => {
     it('offers it in the popups that exist to sign the user in', () => {
         for ( const action of [undefined, 'sign-in', 'login', 'signup'] ) {
             expect(offersFederatedSignInInPopup(action)).toBe(true);
+        }
+    });
+});
+
+describe('runsUserAppTokenExchange', () => {
+    it('skips the exchange entirely for a feedback popup', () => {
+        // The exchange is a write, not a read: it bootstraps an app row for
+        // the opener origin and records the user↔site relationship. The
+        // feedback flow resolves app identity read-only from the attested
+        // origin server-side, so opening (or cancelling) the dialog must not
+        // connect the site to the account.
+        expect(runsUserAppTokenExchange('send-feedback')).toBe(false);
+    });
+
+    it('runs it for sign-in, the pickers, and the permission prompt', () => {
+        // request-permission keeps the exchange: the app row it bootstraps is
+        // what a grant is written against.
+        for ( const action of [
+            undefined,
+            'sign-in',
+            'show-open-file-picker',
+            'show-directory-picker',
+            'show-save-file-picker',
+            'request-permission',
+        ] ) {
+            expect(runsUserAppTokenExchange(action)).toBe(true);
         }
     });
 });

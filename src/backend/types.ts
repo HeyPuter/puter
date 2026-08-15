@@ -70,6 +70,50 @@ export interface IRedisConfig {
 }
 
 /**
+ * Redis-backed read cache in front of the KV store's point reads (`get`, and
+ * the per-key half of a batch `get`). Off unless `enabled` is set.
+ *
+ * Only user/app namespaces are cached; internal state under the system
+ * namespace is always read through, as are consistent reads.
+ *
+ * Turning the cache off does not clear what it already holds. Entries stop
+ * being read but also stop being invalidated, so a disable followed by a
+ * re-enable inside `ttlSeconds` can serve values written in between — wait out
+ * `ttlSeconds` before switching back on.
+ */
+export interface IKvCacheConfig {
+    /** Master switch. Default false. */
+    enabled?: boolean;
+    /** Seconds a cached value is served for. Default 60. */
+    ttlSeconds?: number;
+    /**
+     * Seconds a cached absence is served for. Shorter than `ttlSeconds` because
+     * a key that doesn't exist yet is the one most likely to appear. Default
+     * 10.
+     */
+    missTtlSeconds?: number;
+    /**
+     * Seconds after a write during which that key's reads bypass the cache.
+     * Must comfortably exceed how long a mutation takes to become visible to
+     * every reader, or a read that raced the write can re-cache the old value.
+     * Default 5.
+     */
+    blockSeconds?: number;
+    /**
+     * Largest cached entry, in bytes of serialized envelope. Bigger values are
+     * read through — they earn the least per byte of cache memory. Default
+     * 32768.
+     */
+    maxEntryBytes?: number;
+    /**
+     * Milliseconds invalidations accumulate for before one broadcast carries
+     * them all. Local invalidation is always immediate; this only batches the
+     * message to peers. 0 sends one per write. Default 250.
+     */
+    broadcastCoalesceMs?: number;
+}
+
+/**
  * Alert severity. Ordered `info` < `warning` < `error` < `critical`; each alert
  * transport takes everything at or above its own `minSeverity`, so the severity
  * a call site picks is what decides where the alarm lands.
@@ -195,12 +239,7 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        | 'sms'
-        | 'rcs'
-        | 'whatsapp'
-        | 'viber'
-        | 'zalo'
-        | 'telegram';
+        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
 }
 
 /**
@@ -381,8 +420,40 @@ export interface IWispConfig {
 export interface IServerHealthConfig {
     /** DB liveness latency threshold (ms). Default 1500. */
     db_liveness_latency_fail_ms?: number;
+    /**
+     * Latency threshold for the primary-pinned probe (ms). Separate from
+     * `db_liveness_latency_fail_ms` because that one measures the local read
+     * path while this one crosses to whichever region holds the primary.
+     * Default 3000. Values at or above the 4000ms per-check timeout are moot —
+     * the check runner gives up first.
+     */
+    db_primary_liveness_latency_fail_ms?: number;
+    /**
+     * Consecutive over-threshold runs before the primary probe reports
+     * unhealthy. Default 2, i.e. sustained slowness rather than one slow round
+     * trip. A primary that errors or hangs fails on the first run regardless.
+     */
+    db_primary_liveness_breaches_to_fail?: number;
     /** Staleness threshold for the health-check loop itself (ms). */
     stale_health_loop_fail_ms?: number;
+    /**
+     * Cadence for the external-dependency probes (redis, dynamo, object store,
+     * primary database). Deliberately slower than the 5s check loop so probing
+     * a paid, rate-limited backing service stays a rounding error against real
+     * traffic. Default 30000.
+     */
+    dependency_check_interval_ms?: number;
+    /** Redis liveness latency threshold (ms). Default 1000. */
+    redis_liveness_latency_fail_ms?: number;
+    /** Dynamo liveness latency threshold (ms). Default 1500. */
+    dynamo_liveness_latency_fail_ms?: number;
+    /** Object-store liveness latency threshold (ms). Default 2000. */
+    s3_liveness_latency_fail_ms?: number;
+    /**
+     * Check names to skip registering entirely — an operator kill switch for a
+     * probe that turns out to be noisy, without waiting on a deploy.
+     */
+    disabled_checks?: string[];
 }
 
 export interface IS3LocalConfig {
@@ -560,6 +631,14 @@ interface IConfigOptional {
      * (the default) leaves console output human-readable for local/dev.
      */
     log_format: 'json' | 'text';
+    /**
+     * Keep serving after an uncaught exception instead of exiting. Uncaught
+     * exceptions are always logged either way; this only decides whether one
+     * ends the process. Default: false, matching Node's own behavior. Set it
+     * where losing the node costs more than running a possibly-degraded one — a
+     * small pool behind a health check that replaces bad nodes anyway.
+     */
+    keep_alive_on_uncaught: boolean;
     /** Server version. Falls back to `npm_package_version`. */
     version: string;
     /**
@@ -773,6 +852,8 @@ interface IConfigOptional {
 
     dynamo: IDynamoConfig;
     redis: IRedisConfig;
+    /** Read cache in front of KV point reads. Off unless `enabled` is set. */
+    kvCache: IKvCacheConfig;
     pager: IPagerConfig;
     email: IEmailConfig;
     /** Optional — only set when SMS phone verification (Prelude) is wired in. */
@@ -881,6 +962,57 @@ interface IConfigOptional {
 
     //Metering
     unlimitedMetering?: boolean;
+    /**
+     * Fleet-wide spend rate, in micro-cents per minute, past which the metering
+     * service raises an alarm. There is no defensible default here — the right
+     * number is a multiple of what this deployment's own traffic normally
+     * costs, so set it from observed rate and revisit it as traffic grows. An
+     * unset or non-positive value turns the check off rather than guessing.
+     */
+    maxGlobalUsagePerMinute?: number;
+    /**
+     * How long per-request usage (response bytes, object-store requests) is
+     * held in memory before being written, in milliseconds. This is the dial
+     * between how promptly that usage lands and how many writes it costs: every
+     * actor active in a window settles once per window, so halving it doubles
+     * the write rate. Unset uses the service default; a non-positive value is
+     * ignored.
+     */
+    meteringUsageBufferFlushMs?: number;
+    /**
+     * Whether recorded usage is also enforced: an account with nothing left of
+     * its budget is turned away from the operations that spend it (file
+     * transfers, KV calls) with a 402. Metadata reads and deletions stay open,
+     * as does serving a hosted site — those bytes are billed to the account
+     * hosting it but requested by visitors who have no say in its balance.
+     *
+     * - `enabled` — defaults to on, and covers the plan gates below as well. The
+     *   switch to reach for if enforcement is turning away traffic it
+     *   shouldn't; usage is still recorded either way.
+     * - `workers` — extend enforcement to worker-driven calls. Off by default: a
+     *   worker has no prompt to show and nobody watching, so being cut off
+     *   presents as a program that started failing.
+     * - `subscriptions` — whether surfaces that declare a plan requirement
+     *   (`requireSubscription`) enforce it. Defaults to on, and off wherever no
+     *   paid plan exists to be on (self-hosted installs ship it off). Turning
+     *   it off opens those surfaces to every account without unpicking the
+     *   declarations; `enabled: false` turns it off along with everything
+     *   else.
+     */
+    meteringEnforcement?: {
+        enabled?: boolean;
+        workers?: boolean;
+        subscriptions?: boolean;
+    };
+
+    /**
+     * Display multiplier converting metered amounts into the "credits" clients
+     * show. Applied server-side by the usage-reporting endpoints, so raw
+     * metered amounts never leave the API; purely presentational, so it can
+     * change without a data migration. No default — when unset, the endpoints
+     * report raw amounts and clients render dollars.
+     */
+    creditMultiplier?: number;
 }
 
 /**
@@ -919,7 +1051,8 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

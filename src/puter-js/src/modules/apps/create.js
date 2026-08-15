@@ -3,8 +3,8 @@ import { addUserIteration } from './lib/appUsers.js';
 import { toAppObject } from './lib/appObject.js';
 import { invalidRequest } from './lib/validate.js';
 
-/** @typedef {import('../../../types/modules/apps').CreateAppOptions} CreateAppOptions */
-/** @typedef {import('../../../types/modules/apps').CreateAppResult} CreateAppResult */
+/** @typedef {import('./types.js').CreateAppOptions} CreateAppOptions */
+/** @typedef {import('./types.js').CreateAppResult} CreateAppResult */
 
 /**
  * @overload

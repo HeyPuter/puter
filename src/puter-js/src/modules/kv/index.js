@@ -14,24 +14,33 @@ import { remove } from './remove.js';
 import { set } from './set.js';
 import { update } from './update.js';
 
-/** @typedef {import('../../../types/puter').Puter} Puter */
+/** @typedef {import('../../index.js').Puter} Puter */
 
 /**
- * The `puter.kv` module.
+ * The key-value store. Each app has its own private store within each user's
+ * account; apps cannot access other apps' stores.
  *
  * Method implementations live in the sibling files as `this`-context
  * functions whose JSDoc (including the per-form `@overload` declarations) is
- * the source of truth for the public signatures; types/modules/kv.d.ts
- * mirrors them for TypeScript consumers of the published SDK.
+ * the source of truth for the public signatures — `types/` is generated from
+ * it, never edited by hand.
  */
 export class KVModule extends PuterModule {
     /** @type {GuiBootCache} */
     guiCache;
 
-    /** The maximum allowed key size, in bytes (`1 KB`). */
+    /**
+     * The maximum allowed key size, in bytes (`1 KB`).
+     *
+     * @readonly
+     */
     MAX_KEY_SIZE = MAX_KEY_SIZE;
 
-    /** The maximum allowed value size, in bytes (`400 KB`). */
+    /**
+     * The maximum allowed value size, in bytes (`400 KB`).
+     *
+     * @readonly
+     */
     MAX_VALUE_SIZE = MAX_VALUE_SIZE;
 
     // The fields hold the unbound functions so they keep the full overloaded

@@ -1,8 +1,5 @@
 <h3 align="center">Puter.js</h3>
 
-<p align="center">The official JavaScript SDK for <a href="https://puter.com">Puter.com</a></p>
-<p align="center">Free, Serverless, Cloud and AI from the frontend code.</p>
-
 <p align="center">
     <a href="https://developer.puter.com" target="_blank">Learn More</a>
     ·
@@ -15,6 +12,12 @@
     <a href="https://twitter.com/HeyPuter">X</a>
 </p>
 
+
+<br>
+
+Puter.js gives you auth, cloud storage, database, AI, and more through a single JavaScript library. It is the go-to backend for AI-generated apps.
+
+There is nothing to configure, no API keys, no infrastructure to set up, whether you write the code yourself or have your AI tool do it. Tools like Claude Code, Codex, OpenCode, Lovable, and Replit can generate complete, production-ready apps in a single shot with fewer AI tokens.
 
 <br>
 

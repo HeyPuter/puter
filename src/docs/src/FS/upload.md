@@ -32,6 +32,21 @@ A set of key/value pairs that configure the upload process. The following option
 - `dedupeName` (Boolean) - Whether to deduplicate the file name if it already exists. Defaults to `true`. Ignored when `overwrite` is `true`.
 - `createMissingParents` (Boolean) - Whether to create missing parent directories. Defaults to `false`.
 
+The following callbacks report on the upload as it runs. `operationId` identifies the upload, so a page running several uploads at once can tell them apart:
+
+- `init` (Function) - Called with `(operationId, xhr)` once the request has been created, before it is sent. The `XMLHttpRequest` is passed so you can abort the upload yourself.
+- `start` (Function) - Called with no arguments when the upload starts sending.
+- `progress` (Function) - Called with `(operationId, progress)` as bytes are sent, where `progress` is a percentage between `0` and `100`.
+- `abort` (Function) - Called with `(operationId)` if the upload is aborted.
+
+```js
+puter.fs.upload(items, './uploads', {
+    progress: (operationId, progress) => {
+        console.log(`${Math.round(progress)}%`);
+    },
+});
+```
+
 ## Return value
 
 Returns a `Promise` that resolves to:
@@ -39,7 +54,9 @@ Returns a `Promise` that resolves to:
 - A single [`FSItem`](/Objects/fsitem/) object if `items` parameter contains one item
 - An array of [`FSItem`](/Objects/fsitem/) objects if `items` parameter contains multiple items
 
-If any part of the upload fails, the promise is rejected — it never resolves to a mix of items and errors. The rejection value always carries a `message`, and a `failedItems` array when individual items failed rather than the request as a whole. A partially failed upload is not rolled back: the items that were written stay written.
+If any part of the upload fails, the promise is rejected — it never resolves to a mix of items and errors. The rejection value always carries a `message`, and a `failedItems` array when individual items failed rather than the request as a whole. Each entry in `failedItems` carries the `path`, `message`, and — when the server gave one — the `code` and `status` for that item. A partially failed upload is not rolled back: the items that were written stay written.
+
+When every failed item failed the same way, that `code` and `status` are also set on the rejection value itself, because the cause belongs to the request rather than to any one file. An upload that exceeds the account's storage quota is the common case: it rejects with `code: 'storage_limit_reached'` and `status: 413` however many files were in it.
 
 On `nodejs` and `workers`, where the upload goes through an older batch endpoint, the rejection value also carries a stable `code`:
 

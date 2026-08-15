@@ -1520,6 +1520,48 @@ describe('AppDriver hosted-subdomain ownership check', () => {
         expect(access?.reason).toBe('hosted_backing_unavailable');
     });
 
+    it('withholds the stale index_url from everyone but the owner', async () => {
+        const owner = await makeUser();
+        const other = await makeUser();
+        const sub = uniqueName('stale');
+        const row = await server.stores.subdomain.create({
+            userId: owner.userId,
+            subdomain: sub,
+        });
+
+        const created = await withActor(owner.actor, () =>
+            driver.create({
+                object: {
+                    name: uniqueName('app'),
+                    title: 'Backed App',
+                    index_url: hostedUrl(sub),
+                },
+            }),
+        );
+        await server.stores.subdomain.deleteByUuid(
+            String((row as { uuid: string }).uuid),
+            { userId: owner.userId },
+        );
+
+        // The owner still sees it — dev center renders the URL in the app's
+        // edit form, and it's their row to repoint.
+        const asOwner = await withActor(owner.actor, () =>
+            driver.read({ uid: created.uid }),
+        );
+        expect(String(asOwner.index_url)).toContain(sub);
+
+        // Anyone else gets the denial without the URL it suppresses, so a
+        // consumer that reads `index_url` without reading the verdict still
+        // can't hand it to the launcher.
+        const asOther = await withActor(other.actor, () =>
+            driver.read({ uid: created.uid }),
+        );
+        expect(asOther.index_url).toBeUndefined();
+        expect(
+            (asOther.privateAccess as { hasAccess?: boolean }).hasAccess,
+        ).toBe(false);
+    });
+
     it('denies launch when the hosted subdomain was reclaimed by another user', async () => {
         const owner = await makeUser();
         const attacker = await makeUser();

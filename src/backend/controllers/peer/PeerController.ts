@@ -19,11 +19,15 @@
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
 import { PEER_COSTS } from './costs.js';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+} from '../../services/metering/consts.js';
 
 /**
  * Constant-time secret comparison for the internal-auth header. HMAC both sides
@@ -103,17 +107,58 @@ export class PeerController extends PuterController {
     registerRoutes(router: PuterRouter): void {
         router.get(
             '/peer/signaller-info',
-            { subdomain: 'api' },
+            {
+                subdomain: 'api',
+                // Public config read — the signaller URL and the fallback
+                // ICE list, both deploy constants. Unauthenticated, so the
+                // key is the address, and one address covers every client
+                // on that network; a peer session starts with this call, so
+                // the bucket has to hold a whole network's sessions. Nothing
+                // here is secret or expensive, so the ceiling only bounds a
+                // client stuck re-reading it.
+                rateLimit: {
+                    scope: 'peer-signaller-info',
+                    limit: 3_000,
+                    window: 60_000,
+                    key: 'ip',
+                },
+            },
             this.#signallerInfo,
         );
         router.post(
             '/peer/generate-turn',
-            { subdomain: 'api', requireAuth: true },
+            {
+                subdomain: 'api',
+                requireAuth: true,
+                // Every call reaches the upstream TURN API and mints
+                // credentials against a paid allocation, so this is a
+                // spend limit as much as an abuse limit.
+                rateLimit: {
+                    scope: 'peer-generate-turn',
+                    limit: 30,
+                    window: 60_000,
+                    key: 'user',
+                    bySubscription: {
+                        [DEFAULT_FREE_SUBSCRIPTION]: 10,
+                        [DEFAULT_TEMP_SUBSCRIPTION]: 5,
+                    },
+                },
+            },
             this.#generateTurn,
         );
         router.post(
             '/turn/ingest-usage',
-            { subdomain: 'api' },
+            {
+                subdomain: 'api',
+                // Shared-secret authenticated, so this only bounds how
+                // fast someone can guess the secret.
+                rateLimit: {
+                    scope: 'turn-ingest',
+                    limit: 60,
+                    window: 60_000,
+                    key: 'ip',
+                },
+            },
             this.#ingestUsage,
         );
     }
@@ -217,13 +262,13 @@ export class PeerController extends PuterController {
                 if (!user) continue;
                 const costInMicrocents =
                     egressBytes * PEER_COSTS['turn:egress-bytes'];
-                const actor = {
+                const actor = makeActor({
                     user: {
                         uuid: user.uuid,
                         id: user.id,
                         username: user.username,
                     },
-                };
+                });
                 await this.services.metering.incrementUsage(
                     actor,
                     'turn:egress-bytes',

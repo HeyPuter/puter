@@ -500,6 +500,73 @@ describe('AppController GET /apps/:name', () => {
         expect((arr[0] as Record<string, unknown>).uid).toBe(app.uid);
         expect(arr[1]).toBeNull();
     });
+
+    // The driver is the authoritative producer of launch metadata: it runs
+    // the hosted-subdomain guard, which this route knows nothing about. The
+    // route's own entitlement re-check must never turn that denial into an
+    // affirmative verdict — the GUI launcher appends `puter.auth.token` to
+    // whatever `index_url` it is handed.
+
+    it('preserves the hosted-backing denial for the app owner', async () => {
+        const owner = await makeUser();
+        const sub = uniqueName('gone');
+        const row = await server.stores.subdomain.create({
+            userId: owner.userId,
+            subdomain: sub,
+        });
+        const app = await createApp(owner.actor, {
+            index_url: `https://${sub}.site.puter.localhost/`,
+        });
+        await server.stores.subdomain.deleteByUuid(
+            String((row as { uuid: string }).uuid),
+            { userId: owner.userId },
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(owner.actor, () =>
+            callRoute(
+                'get',
+                '/apps/:name',
+                makeReq({ params: { name: app.name }, actor: owner.actor }),
+                res,
+            ),
+        );
+        const body = captured.body as Record<string, unknown>;
+        expect(body.privateAccess).toMatchObject({
+            hasAccess: false,
+            reason: 'hosted_backing_unavailable',
+        });
+    });
+
+    it('omits the stale index_url for a non-owner', async () => {
+        const owner = await makeUser();
+        const stranger = await makeUser();
+        const sub = uniqueName('gone');
+        const row = await server.stores.subdomain.create({
+            userId: owner.userId,
+            subdomain: sub,
+        });
+        const app = await createApp(owner.actor, {
+            index_url: `https://${sub}.site.puter.localhost/`,
+        });
+        await server.stores.subdomain.deleteByUuid(
+            String((row as { uuid: string }).uuid),
+            { userId: owner.userId },
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(stranger.actor, () =>
+            callRoute(
+                'get',
+                '/apps/:name',
+                makeReq({ params: { name: app.name }, actor: stranger.actor }),
+                res,
+            ),
+        );
+        const body = captured.body as Record<string, unknown>;
+        expect(body.index_url).toBeUndefined();
+        expect(body.privateAccess).toMatchObject({ hasAccess: false });
+    });
 });
 
 // ── POST /query/app ─────────────────────────────────────────────────
@@ -949,5 +1016,27 @@ describe('AppController GET /app-icon remote icons', () => {
             res,
         );
         expect(captured.headers['content-type']).toContain('image/svg+xml');
+    });
+});
+
+// ── app-icon rate limit ─────────────────────────────────────────────
+
+describe('AppController app-icon rate limit', () => {
+    it('sizes the icon bucket for a whole network rather than one desktop', () => {
+        // Icons are unauthenticated `<img src>` targets, so the only key is
+        // the address — which one NAT shares across every desktop behind it,
+        // and each boot pulls the taskbar's icons in a burst.
+        for (const path of ['/app-icon/:app_uid', '/app-icon/:app_uid/:size']) {
+            const route = router.routes.find(
+                (r) => r.method === 'get' && r.path === path,
+            );
+            if (!route) throw new Error(`No GET ${path} route`);
+            expect(route.options.rateLimit).toEqual({
+                scope: 'app-icon',
+                limit: 12_000,
+                window: 60_000,
+                key: 'ip',
+            });
+        }
     });
 });

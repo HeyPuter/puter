@@ -34,14 +34,15 @@
  */
 
 /** Popup actions that exist to answer a question, not to authenticate. */
-const NON_AUTH_POPUP_ACTIONS = new Set(['request-permission']);
+const NON_AUTH_POPUP_ACTIONS = new Set(['request-permission', 'send-feedback']);
 
 /**
  * Whether a popup running `action` may post `puter.token` to its opener.
  *
- * The token exchange itself still runs for the excluded actions — it bootstraps
+ * For `request-permission` the token exchange itself still runs — it bootstraps
  * the app row a permission grant needs and caches `host_app_uid` — only the
- * hand-off to the opener is suppressed.
+ * hand-off to the opener is suppressed. `send-feedback` skips the exchange
+ * entirely; see {@link runsUserAppTokenExchange}.
  *
  * @param {string|null|undefined} action - The popup's `action`, as parsed from
  *   the URL (`/action/<name>` or `?action=<name>`); undefined for a plain
@@ -50,6 +51,32 @@ const NON_AUTH_POPUP_ACTIONS = new Set(['request-permission']);
  */
 export const deliversTokenToOpener = (action) =>
     !NON_AUTH_POPUP_ACTIONS.has(action);
+
+/**
+ * Popup actions that must not run the user-app token exchange at all.
+ *
+ * The exchange (`/auth/get-user-app-token`) is a write, not a read: it
+ * bootstraps an app row for the opener origin, grants
+ * `flag:app-is-authenticated` (what makes the site count as connected to the
+ * account), and creates the app's per-user AppData directory. Sign-in and
+ * file-picker popups need that, and `request-permission` needs the
+ * bootstrapped app row a grant is written against — but a send-feedback popup
+ * only ever *reads* app identity from its attested origin server-side, so
+ * merely opening (or cancelling) the feedback dialog must not record a
+ * user↔site relationship.
+ */
+const TOKEN_EXCHANGE_FREE_ACTIONS = new Set(['send-feedback']);
+
+/**
+ * Whether a popup running `action` runs the user-app token exchange.
+ *
+ * @param {string|null|undefined} action - The popup's `action`, as parsed from
+ *   the URL (`/action/<name>` or `?action=<name>`); undefined for a plain
+ *   sign-in popup.
+ * @returns {boolean} `true` if the exchange should run for this popup.
+ */
+export const runsUserAppTokenExchange = (action) =>
+    !TOKEN_EXCHANGE_FREE_ACTIONS.has(action);
 
 /*
  * On the `opener_origin` URL parameter, which this module used to gate.

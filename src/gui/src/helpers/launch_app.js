@@ -20,6 +20,7 @@
 import path from '../lib/path.js';
 import { PROCESS_IPC_ATTACHED, PROCESS_RUNNING, PortalProcess, PseudoProcess } from '../definitions.js';
 import UIWindow from '../UI/UIWindow.js';
+import { starts_hidden } from './starts_hidden.js';
 
 const normalizePrivateAccessDecision = (privateAccess) => {
     if ( !privateAccess || typeof privateAccess !== 'object' ) {
@@ -131,9 +132,12 @@ const launch_app = async (options) => {
         const launchAttributes = {
             'launch.app': options?.name ?? options?.app_obj?.name ?? 'unknown',
             'launch.dashboard_mode': !! window.is_dashboard_mode,
+            // url_paths has the `/desktop` prefix stripped, so this counts the
+            // desktop-booted landing (`/desktop/app/<name>`) as the app URL
+            // it is.
             'launch.from_app_url':
-                typeof window.location?.pathname === 'string'
-                && window.location.pathname.startsWith('/app/'),
+                window.url_paths?.[0]?.toLocaleLowerCase() === 'app'
+                && !! window.url_paths?.[1],
             'launch.has_app_obj': !! options?.app_obj,
         };
         // Exec-service launches never get the IPC listener attached below,
@@ -555,6 +559,13 @@ const launch_app = async (options) => {
         // Add locale to URL
         iframe_url.searchParams.append('puter.locale', window.locale);
 
+        // Newer IPC dialogs this GUI can answer, comma-separated. The SDK
+        // consults this before posting a message an older GUI has no handler
+        // for: such a message is never replied to, and a reply timeout can't
+        // stand in for the check because legitimate replies only arrive when
+        // the user closes the dialog.
+        iframe_url.searchParams.append('puter.gui_features', 'feedback-dialog');
+
         // Add options.args to URL
         iframe_url.searchParams.append('puter.args', JSON.stringify(options.args ?? {}));
 
@@ -635,6 +646,11 @@ const launch_app = async (options) => {
         }
 
         // show_in_taskbar
+        // Deliberately keyed on the app's own `background`, not on this launch's:
+        // an app that always runs windowless has nothing to put in the taskbar,
+        // ever. A background *launch* is a normal app that happens to start
+        // hidden, so it keeps asking for an item — UIWindow just holds it back
+        // until the window is first shown (see its taskbar block).
         let show_in_taskbar = app_info.background ? false : window_options?.show_in_taskbar;
         if ( window_options?.show_in_taskbar !== undefined )
         {
@@ -675,6 +691,9 @@ const launch_app = async (options) => {
             window_class: 'window-app',
             update_window_url: true,
             app_uuid: app_info.uuid ?? app_info.uid,
+            // Surfaced on the dashboard app-drawer as a "Send Feedback"
+            // control when the developer opted in (apps.feedbackEnabled).
+            feedback_enabled: app_info.feedback_enabled,
             top: top,
             left: left,
             height: window_height,
@@ -686,7 +705,10 @@ const launch_app = async (options) => {
             // when the same file is opened again (the signature's uid wins:
             // it's resolved, e.g. a shortcut's uid becomes its target's).
             file_uid: file_signature?.uid ?? options.file_uid,
-            is_visible: !app_info.background,
+            is_visible: !starts_hidden(app_info, options),
+            // Marks a window the user has never seen, so closing the app that
+            // launched it can take it down with it (see UIWindow's close path).
+            launched_hidden: starts_hidden(app_info, options),
             is_maximized: options.maximized,
             is_fullpage: options.is_fullpage,
             ...(options.pseudonym ? { pseudonym: options.pseudonym } : {}),
@@ -699,7 +721,7 @@ const launch_app = async (options) => {
         });
 
         // If the app is not in the background, show the window
-        if ( ! app_info.background ) {
+        if ( ! starts_hidden(app_info, options) ) {
             $(el_win).show();
         }
 
@@ -741,7 +763,7 @@ const launch_app = async (options) => {
     // entry) lands on the parent's entry and the popstate handler restores
     // it. The parent keeps running while hidden — parent/child IPC works.
     if ( window.is_dashboard_mode && options.parent_instance_id
-        && options.maximized && !app_info.background && el ) {
+        && options.maximized && !starts_hidden(app_info, options) && el ) {
         const el_parent_win = window.window_for_app_instance(options.parent_instance_id);
         const parent_minimized = $(el_parent_win).attr('data-is_minimized');
         if ( el_parent_win && parent_minimized !== '1' && parent_minimized !== 'true' ) {
@@ -770,8 +792,11 @@ const launch_app = async (options) => {
 
             // If `window-active` is set (meaning the window is focused), focus the window one more time
             // this is to ensure that the iframe is `definitely` focused and can receive keyboard events (e.g. keydown)
-            if ( $(process.references.el_win).hasClass('window-active') ) {
-                $(process.references.el_win).focusWindow();
+            // Never for a hidden window (see starts_hidden): the keyboard would
+            // go to something the user cannot see.
+            const $win = $(process.references.el_win);
+            if ( $win.attr('data-is_visible') !== '0' && $win.hasClass('window-active') ) {
+                $win.focusWindow();
             }
         });
     }

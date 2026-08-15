@@ -2,7 +2,7 @@ import * as utils from '../../lib/utils.js';
 import { parseCallbackOptions } from './lib/args.js';
 
 /** @typedef {Record<string, unknown>} VersionInfo */
-/** @typedef {import('../../../types/shared').RequestCallbacks<VersionInfo>} VersionCallbacks */
+/** @typedef {import('../../lib/types.js').RequestCallbacks<VersionInfo>} VersionCallbacks */
 
 /**
  * @overload

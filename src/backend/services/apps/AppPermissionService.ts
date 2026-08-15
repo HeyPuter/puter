@@ -19,14 +19,22 @@
 
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import type { puterStores } from '../../stores/index.js';
+import type { LayerInstances } from '../../types.js';
+import type { puterServices } from '../index.js';
+import {
+    APP_DATA_KV_OP_CLASSES,
+    APP_DATA_PERMISSION_PREFIX,
+    appDataPermission,
+    appDataSharingAllowed,
+    type AppDataKvOp,
+    type AppDataStore,
+} from '../permission/appDataScopes.js';
 import {
     MANAGE_PERM_PREFIX,
     PERMISSION_FOR_NOTHING_IN_PARTICULAR,
 } from '../permission/consts.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
-import type { LayerInstances } from '../../types.js';
-import type { puterStores } from '../../stores/index.js';
-import type { puterServices } from '../index.js';
 import { PuterService } from '../types.js';
 
 /**
@@ -202,6 +210,168 @@ export class AppPermissionService extends PuterService {
                 return PermissionUtil.join('fs', entry.uuid, access, ...rest);
             },
         });
+
+        // -- app-data:<target_app_uid>:<store>:<op> ----------------------
+        // One app reaching another's per-user state (KV namespace, AppData
+        // directory). Both live under the granting user, so the user holds them
+        // implicitly and `#scanUserApp` resolves a grant through here.
+        //
+        // No `manage:` form, deliberately: `canManagePermission` gates
+        // user-to-user and dev-app grants, so neither can hand out cross-app
+        // access without the user answering a prompt.
+        permissions.registerImplicator({
+            id: 'user-holds-own-app-data',
+            matches: (permission: string) =>
+                permission.startsWith(`${APP_DATA_PERMISSION_PREFIX}:`),
+            check: async ({ actor }): Promise<unknown> => {
+                if (actor.app || actor.accessToken) return undefined;
+                if (!actor.user?.id) return undefined;
+                return {};
+            },
+        });
+
+        // Prefix implication already covers `…:kv` and `…:<uid>` grants; this
+        // covers the class level, so a check for a concrete op also accepts the
+        // class containing it. Mirrors `fs-access-levels` in FSService.
+        permissions.registerExploder({
+            id: 'app-data-op-classes',
+            matches: (permission: string) =>
+                permission.startsWith(`${APP_DATA_PERMISSION_PREFIX}:`),
+            explode: ({ permission }) => {
+                const parts = PermissionUtil.split(permission);
+                if (parts.length < 4) return [permission];
+                const [, targetAppUid, store, op] = parts;
+                const out = [permission];
+                const push = (cls: string) => {
+                    out.push(
+                        appDataPermission(
+                            targetAppUid,
+                            store as AppDataStore,
+                            cls,
+                        ),
+                    );
+                };
+                if (store === 'kv') {
+                    for (const cls of APP_DATA_KV_OP_CLASSES[
+                        op as AppDataKvOp
+                    ] ?? []) {
+                        push(cls);
+                    }
+                }
+                // fs:read is satisfied by fs:write. `delete` is orthogonal —
+                // it implies neither, and neither implies it.
+                if (store === 'fs' && op === 'read') push('write');
+                return out;
+            },
+        });
+
+        // A cross-app grant names its target inside the permission string, so no
+        // foreign key withdraws it when that app goes away — and an
+        // origin-derived uid is regenerated verbatim if the app comes back, which
+        // would silently reattach the old consent to whoever controls the origin
+        // now. Sweep on both edges, and when an app stops sharing.
+        this.clients.event.on(
+            'app.changed',
+            async (_key: string, data: unknown) => {
+                const d = data as
+                    | {
+                          app_uid?: string;
+                          action?: string;
+                          app?: unknown;
+                          old_app?: unknown;
+                      }
+                    | undefined;
+                if (!d?.app_uid) return;
+
+                let reason: string | null = null;
+                if (d.action === 'deleted') {
+                    reason = 'target app deleted';
+                } else if (
+                    d.action === 'updated' &&
+                    appDataSharingAllowed(
+                        (d.old_app ?? {}) as { metadata?: unknown },
+                    ) &&
+                    !appDataSharingAllowed(
+                        (d.app ?? {}) as { metadata?: unknown },
+                    )
+                ) {
+                    reason = 'target app stopped sharing its data';
+                }
+                if (!reason) return;
+
+                // Best-effort here, unlike the origin-bootstrap sweep the auth
+                // controller drives: deleting or updating an app must not fail
+                // because this did. `withdrawAppDataGrants` has already raised
+                // the alarm, so the failure is not silent.
+                try {
+                    await this.withdrawAppDataGrants(d.app_uid, reason);
+                } catch {
+                    // Already alarmed and logged.
+                }
+            },
+        );
+    }
+
+    /**
+     * Withdraw every cross-app grant naming `targetAppUid`, audit each removal,
+     * and bust the holders' permission caches so the change is effective at
+     * once rather than after the scan TTL.
+     *
+     * Throws on failure. Every caller decides for itself whether a failed sweep
+     * is fatal: the event listener treats it as best-effort, because deleting
+     * an app must not fail because this did, while the origin-bootstrap path
+     * refuses to issue a token rather than let a new app inherit the consent
+     * its predecessor was given.
+     */
+    async withdrawAppDataGrants(
+        targetAppUid: string,
+        reason: string,
+    ): Promise<void> {
+        try {
+            const removed =
+                await this.stores.permission.deleteAppGrantsByPermissionPrefix(
+                    appDataPermission(targetAppUid),
+                );
+            if (removed.length === 0) return;
+
+            const usernames = new Set<string>();
+            for (const row of removed) {
+                const audit = {
+                    user_id: row.user_id,
+                    app_id: row.app_id,
+                    permission: row.permission,
+                    action: 'revoke',
+                    reason,
+                };
+                if (row.table === 'user_to_app_permissions') {
+                    await this.stores.permission.auditUserAppPerm(audit);
+                    const user = await this.stores.user.getById(row.user_id);
+                    if (user?.username) usernames.add(user.username);
+                } else {
+                    await this.stores.permission.auditDevAppPerm(audit);
+                }
+            }
+
+            if (usernames.size > 0) {
+                // A user-level bump also orphans that user's app actors, which
+                // is where these grants were being read.
+                await this.services.permission.bumpPermissionCacheForUsernames([
+                    ...usernames,
+                ]);
+            }
+        } catch (e) {
+            // A sweep that fails leaves consent live for an app the user can no
+            // longer see, so it is worth a human looking today — but nobody
+            // needs waking, since the callers that cannot tolerate it fail the
+            // request outright.
+            this.clients.alarm.create(
+                `app_data_grant_withdrawal_failed:${targetAppUid}`,
+                'Failed to withdraw cross-app data grants',
+                { targetAppUid, reason, error: e as Error },
+                'warning',
+            );
+            throw e;
+        }
     }
 
     /**

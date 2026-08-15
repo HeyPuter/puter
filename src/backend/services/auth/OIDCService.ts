@@ -20,6 +20,7 @@
 import type { LayerInstances } from '../../types';
 import type { puterServices } from '../index';
 import type { UserRow } from '../../stores/user/UserStore';
+import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
 import { PuterService } from '../types';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { generate_identifier } from '../../util/identifier.js';
@@ -399,11 +400,11 @@ export class OIDCService extends PuterService {
      * signed up as `foobar@gmail.com`. Primary email is preferred over a
      * clean_email collision.
      */
-    async findUserByEmail(email: string): Promise<UserRow | null> {
-        if (!email) return null;
-        const direct = await this.stores.user.getByEmail(email);
-        if (direct) return direct;
-        return this.stores.user.getByCleanEmail(cleanEmail(email));
+    async findUserByEmail(
+        email: string,
+        opts: { force?: boolean } = {},
+    ): Promise<UserRow | null> {
+        return this.stores.user.findEmailOwner(email, opts);
     }
 
     /**
@@ -451,6 +452,10 @@ export class OIDCService extends PuterService {
     /**
      * Create a new Puter user from OIDC claims and link the provider. Returns
      * `{ success, user, error? }`.
+     *
+     * `raced` means a concurrent callback got there first and the caller should
+     * re-resolve rather than surface an error — see
+     * `#resolveOrCreateOIDCUser`.
      */
     async createUserFromOIDC(
         providerId: string,
@@ -461,6 +466,7 @@ export class OIDCService extends PuterService {
         user?: UserRow;
         error?: string;
         code?: string;
+        raced?: boolean;
         /**
          * Support-correlation id for a vetoed signup (the abuse trail id). Safe
          * to show the user; the veto reason in `error` is not.
@@ -600,44 +606,60 @@ export class OIDCService extends PuterService {
             Boolean(validateEvent.requires_card_verification) ||
             Boolean(cfg.always_require_card_verification);
 
-        const created = await this.stores.user.create({
-            username,
-            uuid: uuidv4(),
-            password: null,
-            email,
-            clean_email: cleanEmail(email),
-            free_storage: this.config.storage_capacity ?? null,
-            // Email is provider-verified, so the email step is always skipped;
-            // the phone/card gates still apply when the harness flagged them.
-            requires_email_confirmation: false,
-            requires_phone_verification: force_phone_verification,
-            requires_card_verification: force_card_verification,
-            ...(validateEvent.reputation != null
-                ? { reputation: validateEvent.reputation }
-                : {}),
-            audit_metadata: {
-                ip: clientIp,
-                ip_fwd: proxyIpChain,
-                user_agent: req?.headers?.['user-agent'],
-                origin: req?.headers?.origin,
-            },
-            signup_ip: clientIp,
-            signup_ip_forwarded: proxyIpChain,
-            signup_user_agent: req?.headers?.['user-agent'] ?? null,
-            signup_origin: req?.headers?.origin,
-            signup_server: this.config.serverId,
-            referrer: referrer ?? null,
-        });
+        // The caller checked this email was free before we got here, but the
+        // validate hook and the blocklist checks above sit in between — long
+        // enough for a second callback (another tab, a provider retry) to have
+        // created the account. Re-check against the primary, and let the unique
+        // index catch anything still in flight.
+        if (await this.stores.user.findEmailOwner(email, { force: true })) {
+            return { success: false, raced: true };
+        }
+
+        let created: UserRow;
+        try {
+            created = await this.stores.user.create({
+                username,
+                uuid: uuidv4(),
+                password: null,
+                email,
+                clean_email: cleanEmail(email),
+                free_storage: this.config.storage_capacity ?? null,
+                // Email is provider-verified, so the email step is always
+                // skipped; the phone/card gates still apply when the harness
+                // flagged them.
+                requires_email_confirmation: false,
+                // Confirmed in the INSERT rather than a follow-up update: an
+                // unconfirmed, password-less row does not own its address, so
+                // deferring this would let two concurrent callbacks both insert
+                // and only collide when they confirm — too late to report as a
+                // race.
+                email_confirmed: true,
+                requires_phone_verification: force_phone_verification,
+                requires_card_verification: force_card_verification,
+                ...(validateEvent.reputation != null
+                    ? { reputation: validateEvent.reputation }
+                    : {}),
+                audit_metadata: {
+                    ip: clientIp,
+                    ip_fwd: proxyIpChain,
+                    user_agent: req?.headers?.['user-agent'],
+                    origin: req?.headers?.origin,
+                },
+                signup_ip: clientIp,
+                signup_ip_forwarded: proxyIpChain,
+                signup_user_agent: req?.headers?.['user-agent'] ?? null,
+                signup_origin: req?.headers?.origin,
+                signup_server: this.config.serverId,
+                referrer: referrer ?? null,
+            });
+        } catch (e) {
+            if (!isOwnedEmailConflict(e)) throw e;
+            return { success: false, raced: true };
+        }
 
         if (!created) {
             return { success: false, error: 'User creation failed.' };
         }
-
-        // Mark email as confirmed (OIDC provider already verified it).
-        await this.stores.user.update(created.id, {
-            email_confirmed: 1,
-            requires_email_confirmation: 0,
-        });
 
         // Default user group — OIDC users skip the temp group entirely since
         // the email is already verified by the IdP.
@@ -665,7 +687,30 @@ export class OIDCService extends PuterService {
 
         // Link OIDC provider (after provisioning so a failed link doesn't
         // leave an orphaned user without a home folder).
-        await this.stores.oidc.link(created.id, providerId, claims.sub, null);
+        //
+        // A 409 here means a concurrent callback for the same identity bound the
+        // sub to its own new account while we were provisioning. That leaves us
+        // holding an account nobody can ever sign in to, so tear it down and let
+        // the caller re-resolve onto the winner.
+        try {
+            await this.stores.oidc.link(
+                created.id,
+                providerId,
+                claims.sub,
+                null,
+            );
+        } catch (e) {
+            if ((e as { statusCode?: number })?.statusCode !== 409) throw e;
+            try {
+                await this.services.userAccount.cascadeDelete(created.id);
+            } catch (cleanupError) {
+                console.warn(
+                    '[oidc] failed to clean up raced account:',
+                    cleanupError,
+                );
+            }
+            return { success: false, raced: true };
+        }
 
         // Re-read so callers see email_confirmed / *_uuid / *_id fields
         // written above.

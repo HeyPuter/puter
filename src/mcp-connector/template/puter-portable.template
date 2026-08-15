@@ -17,6 +17,27 @@ if (globalThis.Cloudflare) {
     };
 }
 
+// puter.js assumes it boots once per page, so it eagerly warms state that pays
+// off over a session. This server builds an instance per request instead, and
+// every one of those is pure overhead:
+//
+//   - setAuthToken() fires POST /rao (records an app open) and GET /whoami.
+//     One MCP tool call is not an app open, and nothing here reads the cached
+//     user — puter.workers.create falls back to getUser() when it needs one.
+//   - The FileSystem module opens a socket whose only job is invalidating a
+//     cache that dies with the request. The socket object itself has to stay
+//     (fs.copy reads socket.id), so it's disconnected rather than removed.
+const trimPerRequestOverhead = (puter) => {
+    puter.request_rao_ = async () => {};
+    puter.cacheWhoami_ = async () => null;
+    if (puter.fs) {
+        puter.fs.initializeSocket = () => {};
+        try {
+            puter.fs.socket?.disconnect();
+        } catch {}
+    }
+};
+
 // Build a real puter.js instance bound to a specific auth token. Each call with
 // type 'userPuter' runs puter.js inside an isolated `with` context so concurrent
 // requests don't share global mutable state (auth token, caches, etc.).
@@ -37,6 +58,7 @@ globalThis.init_puter_portable = (auth, apiOrigin, type) => {
         with (goodContext) {
             #include "../../puter-js/dist/puter.js"
         }
+        trimPerRequestOverhead(goodContext.puter);
         goodContext.puter.setAPIOrigin(apiOrigin);
         goodContext.puter.setAuthToken(auth);
         return goodContext.puter;

@@ -22,7 +22,6 @@ import type { Request, Response } from 'express';
 import { posix as pathPosix } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { Actor } from '../../core/actor.js';
-import { effectiveActorApp } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
@@ -39,7 +38,19 @@ import {
 } from '../../util/concurrency.js';
 import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
 import { PuterController } from '../types.js';
-import { FS_COSTS } from './costs.js';
+import { STORAGE_OP_COSTS } from '../../services/metering/costs.js';
+import {
+    FS_MULTIPART_LIMIT,
+    FS_MUTATE_LIMIT,
+    FS_READ_CONCURRENT,
+    FS_READ_LIMIT,
+    FS_READDIR_LIMIT,
+    FS_SEARCH_CONCURRENT,
+    FS_SEARCH_LIMIT,
+    FS_STAT_LIMIT,
+    FS_WRITE_CONCURRENT,
+    FS_WRITE_LIMIT,
+} from './limits.js';
 import {
     assertAccess as assertLegacyAccess,
     fsEntryMimeType,
@@ -106,16 +117,26 @@ const DEFAULT_BATCH_WRITE_SIDE_EFFECT_CONCURRENCY = 8;
 
 @Controller('/fs')
 export class FSController extends PuterController {
+    // Object-store requests are reported here because the filesystem is what
+    // makes them. Bytes leaving the server are not: they are metered for every
+    // response, so `MeteringService` prices them.
     override getReportedCosts() {
-        return Object.entries(FS_COSTS).map(([usageType, ucentsPerUnit]) => ({
-            usageType,
-            ucentsPerUnit,
-            unit: 'byte',
-            source: 'controller:fs',
-        }));
+        return Object.entries(STORAGE_OP_COSTS).map(
+            ([usageType, ucentsPerUnit]) => ({
+                usageType,
+                ucentsPerUnit,
+                unit: 'operation',
+                source: 'controller:fs',
+            }),
+        );
     }
 
-    @Post('/startWrite', { subdomain: 'api', requireVerified: true })
+    @Post('/startWrite', {
+        subdomain: 'api',
+        requireVerified: true,
+        requireCredits: true,
+        rateLimit: FS_MULTIPART_LIMIT,
+    })
     async startWrite(
         req: Request<RouteParams, null, SignedWriteRequest>,
         res: Response<ClientSignedWriteResponse>,
@@ -173,7 +194,12 @@ export class FSController extends PuterController {
         );
     }
 
-    @Post('/startBatchWrite', { subdomain: 'api', requireVerified: true })
+    @Post('/startBatchWrite', {
+        subdomain: 'api',
+        requireVerified: true,
+        requireCredits: true,
+        rateLimit: FS_MULTIPART_LIMIT,
+    })
     async startBatchWrites(
         req: Request<RouteParams, null, SignedWriteRequest[]>,
         res: Response<ClientSignedWriteResponse[]>,
@@ -273,7 +299,12 @@ export class FSController extends PuterController {
         );
     }
 
-    @Post('/completeWrite', { subdomain: 'api', requireVerified: true })
+    @Post('/completeWrite', {
+        subdomain: 'api',
+        requireVerified: true,
+        requireCredits: true,
+        rateLimit: FS_MULTIPART_LIMIT,
+    })
     async completeWrite(
         req: Request<RouteParams, null, CompleteWriteRequest>,
         res: Response<ClientCompleteWriteResponse>,
@@ -304,7 +335,12 @@ export class FSController extends PuterController {
         );
     }
 
-    @Post('/completeBatchWrite', { subdomain: 'api', requireVerified: true })
+    @Post('/completeBatchWrite', {
+        subdomain: 'api',
+        requireVerified: true,
+        requireCredits: true,
+        rateLimit: FS_MULTIPART_LIMIT,
+    })
     async completeBatchWrites(
         req: Request<RouteParams, null, CompleteWriteRequest[]>,
         res: Response<ClientCompleteWriteResponse[]>,
@@ -347,7 +383,11 @@ export class FSController extends PuterController {
         );
     }
 
-    @Post('/abortWrite', { subdomain: 'api', requireVerified: true })
+    @Post('/abortWrite', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: FS_MULTIPART_LIMIT,
+    })
     async abortWrite(
         req: Request<RouteParams, null, AbortWriteRequest>,
         res: Response<{ ok: true }>,
@@ -363,7 +403,12 @@ export class FSController extends PuterController {
         res.json({ ok: true });
     }
 
-    @Post('/signMultipartParts', { subdomain: 'api', requireVerified: true })
+    @Post('/signMultipartParts', {
+        subdomain: 'api',
+        requireVerified: true,
+        requireCredits: true,
+        rateLimit: FS_MULTIPART_LIMIT,
+    })
     async signMultipartParts(
         req: Request<RouteParams, null, SignMultipartPartsRequest>,
         res: Response<ClientSignMultipartPartsResponse>,
@@ -376,7 +421,13 @@ export class FSController extends PuterController {
         res.json(this.#withoutStorageInternals(response));
     }
 
-    @Post('/write', { subdomain: 'api', requireVerified: true })
+    @Post('/write', {
+        subdomain: 'api',
+        requireVerified: true,
+        requireCredits: true,
+        rateLimit: FS_WRITE_LIMIT,
+        concurrent: FS_WRITE_CONCURRENT,
+    })
     async write(
         req: Request<RouteParams, null, WriteRequest>,
         res: Response<ClientWriteResponse>,
@@ -422,7 +473,13 @@ export class FSController extends PuterController {
         res.json(this.#withRequiredClientFsEntry(updatedResponse));
     }
 
-    @Post('/batchWrite', { subdomain: 'api', requireVerified: true })
+    @Post('/batchWrite', {
+        subdomain: 'api',
+        requireVerified: true,
+        requireCredits: true,
+        rateLimit: FS_WRITE_LIMIT,
+        concurrent: FS_WRITE_CONCURRENT,
+    })
     async batchWrites(
         req: Request<RouteParams, null, WriteRequest[]>,
         res: Response<ClientWriteResponse[]>,
@@ -889,7 +946,11 @@ export class FSController extends PuterController {
 
     // -- Read-side routes ------------------------------------------------
 
-    @Post('/stat', { subdomain: 'api', requireVerified: true })
+    @Post('/stat', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: FS_STAT_LIMIT,
+    })
     async statEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -1003,12 +1064,20 @@ export class FSController extends PuterController {
      * without a JSON body. Every value arrives as a string, so parameter
      * parsing goes through the same coercion helpers the POST path uses.
      */
-    @Get('/readdir', { subdomain: 'api', requireVerified: true })
+    @Get('/readdir', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: FS_READDIR_LIMIT,
+    })
     async readdirEntriesViaGet(req: Request, res: Response) {
         return this.readdirEntries(req, res);
     }
 
-    @Post('/readdir', { subdomain: 'api', requireVerified: true })
+    @Post('/readdir', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: FS_READDIR_LIMIT,
+    })
     async readdirEntries(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         // GET carries its parameters in the query string; POST in the body.
@@ -1204,7 +1273,12 @@ export class FSController extends PuterController {
         }
     }
 
-    @Post('/search', { subdomain: 'api', requireVerified: true })
+    @Post('/search', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: FS_SEARCH_LIMIT,
+        concurrent: FS_SEARCH_CONCURRENT,
+    })
     async searchEntries(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -1230,7 +1304,13 @@ export class FSController extends PuterController {
         res.json(results);
     }
 
-    @Get('/read', { subdomain: 'api', requireVerified: true })
+    @Get('/read', {
+        subdomain: 'api',
+        requireVerified: true,
+        requireCredits: true,
+        rateLimit: FS_READ_LIMIT,
+        concurrent: FS_READ_CONCURRENT,
+    })
     async readEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const query = this.#toObjectRecord(req.query);
@@ -1274,15 +1354,6 @@ export class FSController extends PuterController {
         );
         res.status(range ? 206 : 200);
 
-        const metering = this.services.metering as
-            | {
-                  batchIncrementUsages?: (
-                      actor: unknown,
-                      entries: unknown[],
-                  ) => void;
-              }
-            | undefined;
-
         try {
             await pipeline(download.body, res);
         } catch {
@@ -1290,28 +1361,15 @@ export class FSController extends PuterController {
             // tore down both ends. Response is partially sent; nothing to do.
             return;
         }
-
-        // Meter egress only on successful completion.
-        if (metering?.batchIncrementUsages && download.contentLength) {
-            try {
-                const bytes = download.contentLength;
-                metering.batchIncrementUsages(actor, [
-                    {
-                        usageType: 'filesystem:egress:bytes',
-                        usageAmount: bytes,
-                        costOverride:
-                            FS_COSTS['filesystem:egress:bytes'] * bytes,
-                    },
-                ]);
-            } catch {
-                // ignore — metering is non-critical.
-            }
-        }
     }
 
     // -- Mutation routes ------------------------------------------------
 
-    @Post('/mkdir', { subdomain: 'api', requireVerified: true })
+    @Post('/mkdir', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: FS_MUTATE_LIMIT,
+    })
     async mkdirEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -1352,7 +1410,11 @@ export class FSController extends PuterController {
         res.json(this.#toClientEntry(entry));
     }
 
-    @Post('/touch', { subdomain: 'api', requireVerified: true })
+    @Post('/touch', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: FS_MUTATE_LIMIT,
+    })
     async touchEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -1388,7 +1450,11 @@ export class FSController extends PuterController {
         res.json(this.#toClientEntry(entry));
     }
 
-    @Post('/rename', { subdomain: 'api', requireVerified: true })
+    @Post('/rename', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: FS_MUTATE_LIMIT,
+    })
     async renameEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const body = this.#toObjectRecord(req.body);
@@ -1406,7 +1472,11 @@ export class FSController extends PuterController {
         res.json(this.#toClientEntry(renamed));
     }
 
-    @Post('/delete', { subdomain: 'api', requireVerified: true })
+    @Post('/delete', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: FS_MUTATE_LIMIT,
+    })
     async deleteEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -1424,7 +1494,11 @@ export class FSController extends PuterController {
         res.json({ ok: true });
     }
 
-    @Post('/move', { subdomain: 'api', requireVerified: true })
+    @Post('/move', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: FS_MUTATE_LIMIT,
+    })
     async moveEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -1452,7 +1526,12 @@ export class FSController extends PuterController {
         res.json(this.#toClientEntry(moved));
     }
 
-    @Post('/copy', { subdomain: 'api', requireVerified: true })
+    @Post('/copy', {
+        subdomain: 'api',
+        requireVerified: true,
+        requireCredits: true,
+        rateLimit: FS_MUTATE_LIMIT,
+    })
     async copyEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -1467,6 +1546,7 @@ export class FSController extends PuterController {
         await this.#assertAccess(actor, source.path, 'read');
         await this.#assertAccess(actor, destinationParent.path, 'write');
 
+        const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
         const copy = await this.services.fs.copy(userId, {
             source,
             destinationParent,
@@ -1475,12 +1555,19 @@ export class FSController extends PuterController {
             overwrite: this.#toBoolean(body.overwrite) ?? false,
             dedupeName:
                 this.#toBoolean(body.dedupe_name ?? body.change_name) ?? true,
+            ...(storageAllowanceMax !== undefined
+                ? { storageAllowanceMax }
+                : {}),
         });
         this.#emitGuiItemAdded(copy);
         res.json(this.#toClientEntry(copy));
     }
 
-    @Post('/mkshortcut', { subdomain: 'api', requireVerified: true })
+    @Post('/mkshortcut', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: FS_MUTATE_LIMIT,
+    })
     async mkshortcutEntry(req: Request, res: Response) {
         const actor = this.#requireActor(req);
         const userId = this.#getActorUserId(req);
@@ -2091,8 +2178,7 @@ export class FSController extends PuterController {
         // the ActorUser type. Access via the escape hatch until a proper
         // storage-quota mechanism is in place.
         const actorUser = req.actor?.user as
-            | Record<string, unknown>
-            | undefined;
+            Record<string, unknown> | undefined;
 
         const candidates = [
             this.#toStorageCapacityCandidate(actorUser?.free_storage),
@@ -2437,7 +2523,7 @@ export class FSController extends PuterController {
     // search results to this path so app actors can't see entries outside
     // their AppData via `/fs/search`.
     #appDataScopeForActor(actor: Actor): string | undefined {
-        const app = effectiveActorApp(actor);
+        const app = actor.effectiveApp;
         if (!app) return undefined;
         const username = actor.user?.username;
         if (typeof username !== 'string' || username.length === 0)

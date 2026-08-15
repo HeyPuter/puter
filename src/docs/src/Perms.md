@@ -1,10 +1,10 @@
 ---
 title: Perms
 description: Request permissions to access user data and resources with Puter.js Permissions API
-platforms: [apps]
+platforms: [websites, apps]
 ---
 
-The Permissions API enables your application to request access to user data and resources such as email addresses, special folders (Desktop, Documents, Pictures, Videos), apps, and subdomains.
+The Permissions API enables your application to request access to user data and resources such as email addresses, special folders (Desktop, Documents, Pictures, Videos), apps, subdomains, and other apps' saved data.
 
 When requesting permissions, users will be prompted to grant or deny access. If a permission has already been granted, the user will not be prompted again. This provides a seamless experience while maintaining user privacy and control.
 
@@ -15,6 +15,7 @@ When requesting permissions, users will be prompted to grant or deny access. If 
     <div class="example-group" data-section="request-desktop"><span>Request Desktop Access</span></div>
     <div class="example-group" data-section="request-documents"><span>Request Documents Access</span></div>
     <div class="example-group" data-section="request-apps"><span>Request Apps Access</span></div>
+    <div class="example-group" data-section="request-app-data"><span>Use Another App's Data</span></div>
 </div>
 
 <div class="example-content" data-section="request-email" style="display:block;">
@@ -123,6 +124,33 @@ When requesting permissions, users will be prompted to grant or deny access. If 
 
 </div>
 
+<div class="example-content" data-section="request-app-data">
+
+#### Use another app's saved data
+
+```html
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="request-app-data">Use another app's data</button>
+    <script>
+        document.getElementById('request-app-data').addEventListener('click', async () => {
+            const other = await puter.apps.get('contacts');
+            const granted = await puter.perms.requestAppData(other.uid, 'read');
+            if (granted) {
+                const keys = await puter.kv.list({ appUuid: other.uid });
+                puter.print(`${other.title} has ${keys.length} key(s)`);
+            } else {
+                puter.print('Permission denied');
+            }
+        });
+    </script>
+</body>
+</html>
+```
+
+</div>
+
 ## Functions
 
 These permission features are supported out of the box when using Puter.js:
@@ -159,6 +187,10 @@ These permission features are supported out of the box when using Puter.js:
 
 - **[`puter.perms.requestReadApps()`](/Perms/requestReadApps/)** - Request read access to the user's apps
 - **[`puter.perms.requestManageApps()`](/Perms/requestManageApps/)** - Request write (manage) access to the user's apps
+
+### Other Apps' Data
+
+- **[`puter.perms.requestAppData()`](/Perms/requestAppData/)** - Request permission to use another app's key-value data and `AppData` files
 
 ### Subdomains Management
 

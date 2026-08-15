@@ -81,6 +81,16 @@ export const handleInstalledApps = async (
 
 extension.get(
     '/installedApps',
-    { subdomain: 'api', requireUserActor: true, allowFullAccessToken: true },
+    {
+        subdomain: 'api',
+        requireUserActor: true,
+        allowFullAccessToken: true,
+        rateLimit: {
+            scope: 'installed-apps',
+            limit: 120,
+            window: 60_000,
+            key: 'user',
+        },
+    },
     handleInstalledApps,
 );

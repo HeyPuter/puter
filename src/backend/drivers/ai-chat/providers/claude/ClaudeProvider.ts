@@ -536,7 +536,10 @@ export class ClaudeProvider implements IChatProvider {
                         }
                     }
                 }
-                chatStream.end(usageSum);
+                // Metered before `end`: handing usage to `end` is what tells
+                // the driver this completion has been charged for, so anything
+                // that throws between the two would leave it charged to
+                // nobody.
                 const costsOverrideFromModel =
                     this.#buildCostsOverrideFromModel(usageSum, modelUsed);
                 this.#meteringService.utilRecordUsageObject(
@@ -545,6 +548,7 @@ export class ClaudeProvider implements IChatProvider {
                     `claude:${modelUsed.id}`,
                     costsOverrideFromModel,
                 );
+                chatStream.end(usageSum);
             };
 
             return {

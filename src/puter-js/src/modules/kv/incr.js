@@ -2,8 +2,8 @@ import * as utils from '../../lib/utils.js';
 import { parseCounterArgs } from './lib/args.js';
 import { assertKeySize } from './lib/validate.js';
 
-/** @typedef {import('../../../types/modules/kv').KVIncrementPath} KVIncrementPath */
-/** @typedef {import('../../../types/modules/kv').KVOptConfig} KVOptConfig */
+/** @typedef {import('./types.js').KVIncrementPath} KVIncrementPath */
+/** @typedef {import('./types.js').KVOptConfig} KVOptConfig */
 
 /**
  * @overload

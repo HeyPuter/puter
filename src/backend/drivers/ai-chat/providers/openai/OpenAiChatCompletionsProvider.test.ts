@@ -407,6 +407,47 @@ describe('OpenAiChatProvider.complete non-stream output', () => {
         });
     });
 
+    it('bills cached tokens at the input rate when the model prices no cache read', async () => {
+        // o4-mini's catalogue entry has no cached_tokens rate. Cached tokens
+        // are subtracted out of prompt_tokens, so pricing them at zero bills
+        // them nowhere — the whole cached portion of the request goes free.
+        const o4Mini = OPEN_AI_MODELS.find((m) => m.id === 'o4-mini')!;
+        expect(o4Mini.costs.cached_tokens).toBeUndefined();
+
+        const { provider } = makeProvider();
+        createMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { content: 'cached', role: 'assistant' },
+                    finish_reason: 'stop',
+                },
+            ],
+            usage: {
+                prompt_tokens: 2989,
+                completion_tokens: 12,
+                prompt_tokens_details: { cached_tokens: 2816 },
+            },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'o4-mini',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        const [, , , overrides] = recordSpy.mock.calls[0]!;
+        const inputRate = Number(o4Mini.costs.prompt_tokens);
+        expect(overrides).toEqual({
+            prompt_tokens: (2989 - 2816) * inputRate,
+            completion_tokens: 12 * Number(o4Mini.costs.completion_tokens),
+            cached_tokens: 2816 * inputRate,
+        });
+        expect(
+            (overrides as Record<string, number>).cached_tokens,
+        ).toBeGreaterThan(0);
+    });
+
     it('zeroes cached_tokens when prompt_tokens_details is missing', async () => {
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce({

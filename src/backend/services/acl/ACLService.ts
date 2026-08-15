@@ -46,11 +46,7 @@ export interface ResourceDescriptor {
 }
 
 export type AclMode =
-    | 'see'
-    | 'list'
-    | 'read'
-    | 'write'
-    | typeof MANAGE_PERM_PREFIX;
+    'see' | 'list' | 'read' | 'write' | typeof MANAGE_PERM_PREFIX;
 
 /** Duck-typed error shape compatible with APIError consumers (fsv2). */
 export interface AclError {
@@ -207,7 +203,7 @@ export class ACLService extends PuterService {
 
         // App-under-user: underlying user must also hold the permission.
         if (actor.app) {
-            const userActor: Actor = { user: actor.user };
+            const userActor: Actor = { user: actor.user, effectiveApp: null };
             if (!(await this.check(userActor, resource, mode))) return false;
 
             // Shared-appdata rule: an app accessing its AppData under a

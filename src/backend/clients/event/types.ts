@@ -20,6 +20,7 @@ import type {
     Response as ExpressResponse,
 } from 'express';
 import { Actor } from '../../core';
+import type { UsageInput } from '../../services/metering/types';
 import { FSEntry } from '../../stores/fs/FSEntry';
 
 // GUI write events spread an entry plus per-event metadata into `response`.
@@ -305,6 +306,38 @@ export type EventMap = {
     };
     'storage.quota.bonus': { userId: number; extra: number };
 
+    // ---- Metering ----
+    // Recurring charges are pure mechanism here: the metering service knows
+    // when to ask (once per user per month, the first time that month's usage
+    // record is touched) and how to record the answer, and an extension
+    // decides what the account owes. Listeners push onto `charges`; the
+    // service applies them as ordinary usage once every listener has run.
+    // Nothing listening → no charges and no claim is ever taken.
+    //
+    // Emitted after the claim is settled, so a listener that calls back into
+    // metering can't re-trigger it.
+    'metering.monthly.charges': {
+        /**
+         * User-scoped, with no app on it: the account is what recurs, and the
+         * app that happened to trigger the month's first call has nothing to do
+         * with what is owed. Price against what the user owns.
+         */
+        actor: Actor;
+        /** The month being charged for, `YYYY-MM` in UTC. */
+        month: string;
+        /**
+         * Push what the user owes here. Every listener's charges are merged
+         * into one amount map and recorded as a single increment.
+         */
+        charges: UsageInput[];
+    };
+
+    // ---- Workers ----
+    // Only a genuinely new worker. Redeploying an existing name updates its
+    // row instead, and never reaches here — so a listener that prices this
+    // is pricing workers that came into existence, not deploys.
+    'worker.create': { actor: Actor; workerName: string };
+
     // ---- Outer / GUI broadcast ----
     'outer.cacheUpdate': {
         cacheKey: string[];
@@ -312,6 +345,15 @@ export type EventMap = {
         ttlSeconds?: number;
     };
     'outer.fs.write-hash': { hash: string; uuid: string };
+    /**
+     * Cache keys the KV read cache must stop serving, because the entries
+     * behind them were just written somewhere else.
+     *
+     * `outer.*` rather than `outer.pubsub.*` on purpose: the cache lives in the
+     * Redis a cluster shares, so one node applying the invalidation covers the
+     * whole cluster — fanning it out to siblings would just repeat the write.
+     */
+    'outer.kv.cacheInvalidated': { cacheKeys: string[] };
     'outer.gui.item.added': GuiEvent;
     'outer.gui.item.updated': GuiEvent;
     'outer.gui.item.moved': GuiEvent;
@@ -325,8 +367,10 @@ export type EventMap = {
     }>;
 
     // ---- Subdomains ----
-    'subdomain.delete': { subdomain: string };
-    'subdomain.update': { subdomain: string };
+    // `uid` is the row uuid — for `delete` it is the only surviving handle a
+    // listener can use to find state keyed to the row after it is gone.
+    'subdomain.delete': { subdomain: string; uid?: string };
+    'subdomain.update': { subdomain: string; uid?: string };
     'site.htmlServed': {
         subdomain: string;
         entry: unknown;
@@ -402,6 +446,22 @@ export type EventMap = {
     [K in `route.${string}`]: RouteLifecycleEvent;
 } & {
     [K in `pubsub.login.${string}`]: { authtoken: string };
+} & {
+    /**
+     * A user's subscription now resolves to a different policy. Carried on the
+     * `outer.pubsub.*` channel so it reaches sibling nodes and peer clusters,
+     * not just the one that handled the change — every node caches the resolved
+     * policy, so a purchase is only live once they have all dropped theirs.
+     */
+    'outer.pubsub.metering.subscription-changed': { userUuid: string };
+    /**
+     * A user's purchased credit balance changed. Separate from a policy change
+     * because it moves the other half of the same budget, and carried on the
+     * `outer.pubsub.*` channel for the same reason: every node caches whether
+     * an account has budget left, so a top-up only lifts enforcement once they
+     * have all dropped that answer.
+     */
+    'outer.pubsub.metering.credits-changed': { userUuid: string };
 };
 
 /**

@@ -41,7 +41,7 @@ import {
 // @ts-ignore — hardcoded-permissions.js is plain JS
 import {
     default_implicit_user_app_permissions,
-    hardcoded_user_group_permissions,
+    default_user_permissions,
     implicit_user_app_permissions,
 } from '../../data/hardcoded-permissions.js';
 import { UserRow } from '../../stores/user/UserStore';
@@ -81,16 +81,6 @@ export class PermissionService extends PuterService {
     private readonly rewriters: PermissionRewriter[] = [];
     private readonly implicators: PermissionImplicator[] = [];
     private readonly exploders: PermissionExploder[] = [];
-    /**
-     * System-issued grants registered at runtime by other services. Keyed by
-     * group UID, then by permission string. Merged with the imported
-     * `hardcoded_user_group_permissions.system` map during the hc-user-group
-     * scan.
-     */
-    private readonly systemGrantsByGroupUid: Record<
-        string,
-        Record<string, unknown>
-    > = {};
 
     // -- Extension hooks ----------------------------------------------
     //
@@ -108,38 +98,6 @@ export class PermissionService extends PuterService {
 
     registerExploder(exploder: PermissionExploder): void {
         this.exploders.push(exploder);
-    }
-
-    /**
-     * Grant a permission (as issued by `system`) to everyone — members of both
-     * the default user group and the default temp group.
-     *
-     * Call from an owning service's `onServerStart` (or later).
-     */
-    registerSystemGrantForEveryone(
-        permission: string,
-        data: unknown = {},
-    ): void {
-        const userGroup = this.config.default_user_group;
-        const tempGroup = this.config.default_temp_group;
-        if (userGroup) this.#addSystemGrant(userGroup, permission, data);
-        if (tempGroup) this.#addSystemGrant(tempGroup, permission, data);
-    }
-
-    /**
-     * Grant a permission (as issued by `system`) to non-temp users only —
-     * members of the default user group, but not the default temp group.
-     */
-    registerSystemGrantForUsers(permission: string, data: unknown = {}): void {
-        const userGroup = this.config.default_user_group;
-        if (userGroup) this.#addSystemGrant(userGroup, permission, data);
-    }
-
-    #addSystemGrant(groupUid: string, permission: string, data: unknown): void {
-        if (!this.systemGrantsByGroupUid[groupUid]) {
-            this.systemGrantsByGroupUid[groupUid] = {};
-        }
-        this.systemGrantsByGroupUid[groupUid][permission] = data;
     }
 
     // -- Rewrite / explode (pure-ish helpers) ------------------------
@@ -373,6 +331,38 @@ export class PermissionService extends PuterService {
         }
         options = exploded.flat();
 
+        // -- default user permissions --
+        // A group-independent floor every user actor holds, resolved in
+        // memory (see `default_user_permissions`). Derived actors are
+        // excluded: an app-under-user is gated by its own implicit grant map
+        // and an access token by its issuer, both of which recurse into a
+        // scan of the user actor and so still see this floor.
+        if (!actor.app && !actor.accessToken && actor.user?.id) {
+            const granted = options.find((option) =>
+                Object.prototype.hasOwnProperty.call(
+                    default_user_permissions,
+                    option,
+                ),
+            );
+            if (granted !== undefined) {
+                reading.push({
+                    $: 'option',
+                    key: 'default-user-permission',
+                    permission: granted,
+                    source: 'implied',
+                    by: 'default-user-permission',
+                    data: (default_user_permissions as Record<string, unknown>)[
+                        granted
+                    ],
+                    holder_username: actor.user.username,
+                    issuer_username: 'system',
+                });
+                reading.push({ $: 'time', value: Date.now() - startTs });
+                await this.#maybeCacheScan(cacheKey, reading);
+                return reading;
+            }
+        }
+
         // -- shortcut implicators --
         let shortCircuit = false;
         for (const permission of options) {
@@ -409,7 +399,6 @@ export class PermissionService extends PuterService {
                 this.#scanNonShortcutImplicators(actor, options, reading),
                 this.#scanAccessToken(actor, options, reading),
                 this.#scanUserUser(actor, options, reading, workingState),
-                this.#scanHcUserGroupUser(actor, options, reading),
                 this.#scanUserGroup(actor, options, reading),
                 this.#scanUserAppImplied(actor, options, reading),
                 this.#scanUserApp(actor, options, reading),
@@ -525,96 +514,6 @@ export class PermissionService extends PuterService {
             state,
         });
         reading.push(...subReadings);
-    }
-
-    /**
-     * Resolve permissions that a persistent group's members inherit from an
-     * issuer (typically `system`) via the hardcoded map in
-     * `hardcoded-permissions.js`, merged with any runtime grants registered
-     * through `registerSystemGrantForEveryone` /
-     * `registerSystemGrantForUsers`.
-     */
-    async #scanHcUserGroupUser(
-        actor: Actor,
-        options: string[],
-        reading: ReadingNode[],
-    ): Promise<void> {
-        if (actor.app || actor.accessToken) return;
-        if (!actor.user?.id) return;
-
-        const memberGroups = await this.stores.group.listGroupsWithMember(
-            actor.user.id,
-        );
-        if (memberGroups.length === 0) return;
-
-        const groupByUid: Record<string, { id: number; uid: string }> = {};
-        for (const g of memberGroups) {
-            groupByUid[g.uid] = { id: g.id, uid: g.uid };
-        }
-
-        // Compose the effective issuer → group → permission → data map by
-        // merging the imported hardcoded data with runtime-registered system
-        // grants. Runtime grants are always attributed to the `system` issuer.
-        const hcMap = hardcoded_user_group_permissions as Record<
-            string,
-            Record<string, Record<string, unknown>>
-        >;
-        const hasRuntimeGrants =
-            Object.keys(this.systemGrantsByGroupUid).length > 0;
-        const byIssuer: Record<
-            string,
-            Record<string, Record<string, unknown>>
-        > = hasRuntimeGrants
-            ? { ...hcMap, system: { ...(hcMap.system ?? {}) } }
-            : hcMap;
-        if (hasRuntimeGrants) {
-            for (const [gUid, perms] of Object.entries(
-                this.systemGrantsByGroupUid,
-            )) {
-                byIssuer.system[gUid] = {
-                    ...(byIssuer.system[gUid] ?? {}),
-                    ...perms,
-                };
-            }
-        }
-
-        for (const issuerUsername of Object.keys(byIssuer)) {
-            const issuerUser =
-                await this.stores.user.getByUsername(issuerUsername);
-            if (!issuerUser) continue;
-            const issuerActor = this.#userToActor(issuerUser);
-            const issuerGroups = byIssuer[issuerUsername];
-
-            for (const groupUid of Object.keys(issuerGroups)) {
-                if (!groupByUid[groupUid]) continue;
-                const issuerGroupPerms = issuerGroups[groupUid];
-
-                for (const permission of options) {
-                    if (
-                        !Object.prototype.hasOwnProperty.call(
-                            issuerGroupPerms,
-                            permission,
-                        )
-                    )
-                        continue;
-                    const issuerReading = await this.scan(
-                        issuerActor,
-                        permission,
-                    );
-                    reading.push({
-                        $: 'path',
-                        via: 'hc-user-group',
-                        has_terminal: readingHasTerminal(issuerReading),
-                        permission,
-                        data: issuerGroupPerms[permission],
-                        holder_username: actor.user.username,
-                        issuer_username: issuerUsername,
-                        reading: issuerReading,
-                        group_id: groupByUid[groupUid].id,
-                    });
-                }
-            }
-        }
     }
 
     async #scanUserGroup(
@@ -1055,6 +954,23 @@ export class PermissionService extends PuterService {
             return await this.rewritePermission(permission);
         } finally {
             Context.set('is_grant_user_app_permission', false);
+        }
+    }
+
+    /**
+     * What `grantUserAppPermission` checks before it writes: the rewrite that
+     * decides what the row stores, and the width of the column it lands in.
+     *
+     * Exposed so a caller granting several at once can reject the whole set
+     * before committing any of it — a half-written set reads to the caller as a
+     * refusal while some access is live.
+     */
+    async assertUserAppPermissionWritable(permission: string): Promise<void> {
+        const rewritten = await this.#rewriteForUserAppWrite(permission);
+        if (rewritten.length > PERMISSION_MAX_LEN) {
+            throw new HttpError(400, 'Invalid `permission`', {
+                legacyCode: 'bad_request',
+            });
         }
     }
 
@@ -1574,7 +1490,7 @@ export class PermissionService extends PuterService {
             username: user.username,
             email: user.email ?? null,
         };
-        return { user: actorUser };
+        return { user: actorUser, effectiveApp: null };
     }
 }
 

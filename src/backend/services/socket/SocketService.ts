@@ -22,6 +22,15 @@ import type { Server as HttpServer } from 'node:http';
 import { Server as SocketIOServer, type Socket } from 'socket.io';
 import type { Actor } from '../../core/actor.js';
 import { isAccessTokenActor, isAppActor } from '../../core/actor.js';
+import {
+    CONCURRENT_SLOT_TTL_MS,
+    acquireConcurrent,
+    checkRateLimit,
+} from '../../core/http/middleware/rateLimit.js';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+} from '../metering/consts.js';
 import type { AuthResult, AuthService } from '../auth/AuthService.js';
 import { PuterService } from '../types.js';
 
@@ -289,8 +298,7 @@ export class SocketService extends PuterService {
             // `{ auth: { ... } }`, not the query string. puter-js uses
             // `io(url, { auth: { auth_token } })`.
             const handshakeAuth = socket.handshake.auth as
-                | Record<string, unknown>
-                | undefined;
+                Record<string, unknown> | undefined;
             const tokenRaw =
                 typeof handshakeAuth?.auth_token === 'string'
                     ? handshakeAuth.auth_token
@@ -352,32 +360,192 @@ export class SocketService extends PuterService {
         });
     }
 
+    /**
+     * Client events don't pass through the HTTP middleware chain, so the route
+     * gates never see them. Both handlers below fan out to other sockets or
+     * onto the event bus, and a client can emit as fast as the connection
+     * allows — so each one gets its own window via the imperative helper. Per
+     * (user, event), matching how the route gates bucket by actor.
+     */
+    static SOCKET_EVENT_LIMIT = 60;
+    static SOCKET_EVENT_WINDOW_MS = 60_000;
+
+    /**
+     * Simultaneous connections per user, across every node. A connection costs
+     * an adapter room membership and a slot on whichever node terminates it,
+     * and nothing bounded how many a single account could hold open.
+     *
+     * Sized for an account, not a browser. One person is routinely several
+     * windows across several machines, a phone that reconnects on every
+     * foreground, and anything embedding the SDK against their session — and
+     * the cost of one connection is small enough that being generous here is
+     * cheaper than being wrong. This is the backstop against an account opening
+     * connections without bound; `MAX_SOCKETS_PER_ORIGIN` is what keeps any one
+     * page from spending the whole account allowance.
+     */
+    static MAX_SOCKETS_PER_USER = 400;
+    static MAX_SOCKETS_BY_SUBSCRIPTION: Record<string, number> = {
+        [DEFAULT_FREE_SUBSCRIPTION]: 200,
+        [DEFAULT_TEMP_SUBSCRIPTION]: 100,
+    };
+
+    /**
+     * Simultaneous connections per (user, origin).
+     *
+     * The natural split would be per app, but there isn't one to key on:
+     * `decideSocketAuth` accepts only plain user actors, so an app-token actor
+     * never reaches this code and every socket here belongs to a session. The
+     * requesting origin is the next-best proxy — it separates our own pages
+     * from a third-party site embedding the SDK against the same session, which
+     * is the split that matters. Without it a single looping page consumes the
+     * account's whole allowance and takes every other window offline with it.
+     *
+     * A browser sets `Origin` itself, so a page can't lie about its own; a
+     * non-browser client can put anything there, which is exactly why the
+     * per-user total above still applies and is the real bound.
+     */
+    static MAX_SOCKETS_PER_ORIGIN = 150;
+
+    async #socketLimitFor(actor: Actor): Promise<number> {
+        const base = SocketService.MAX_SOCKETS_PER_USER;
+        try {
+            const sub =
+                await this.services.metering.getActorSubscription(actor);
+            return SocketService.MAX_SOCKETS_BY_SUBSCRIPTION[sub.id] ?? base;
+        } catch {
+            // Same policy as the route gates: a failure to resolve the tier
+            // falls through to the base rather than tightening.
+            return base;
+        }
+    }
+
+    /**
+     * Bucket a handshake by requesting origin. Everything without one — a
+     * non-browser client, a same-origin request that omits the header — shares
+     * a single bucket rather than each getting a private allowance.
+     */
+    static socketOriginKey(socket: AuthenticatedSocket): string {
+        const raw = socket.handshake?.headers?.origin;
+        const origin = Array.isArray(raw) ? raw[0] : raw;
+        return typeof origin === 'string' && origin.length > 0
+            ? origin.slice(0, 128)
+            : 'none';
+    }
+
+    /**
+     * Take a per-origin and a per-account slot for one connection, and hold
+     * both until it closes.
+     *
+     * Connections routinely outlive `CONCURRENT_SLOT_TTL_MS` — a desktop left
+     * open all day is the normal case, not the exception — and a slot that old
+     * is indistinguishable from one a dead process abandoned. Renewing on a
+     * timer is what tells the two apart; without it the sweep reclaims live
+     * connections and the cap quietly stops counting exactly the long-lived
+     * ones it exists for.
+     */
+    async #admitConnection(
+        socket: AuthenticatedSocket,
+        actor: Actor,
+        userId: number,
+    ): Promise<void> {
+        const originKey = SocketService.socketOriginKey(socket);
+        const slots: {
+            release: () => Promise<void>;
+            renew: () => Promise<void>;
+        }[] = [];
+
+        const reject = async () => {
+            await Promise.all(slots.map((s) => s.release()));
+            socket.disconnect(true);
+        };
+
+        const perOrigin = await acquireConcurrent(
+            `socket:conn:${userId}:${originKey}`,
+            SocketService.MAX_SOCKETS_PER_ORIGIN,
+        );
+        if (!perOrigin.ok) return void (await reject());
+        slots.push(perOrigin);
+
+        const perUser = await acquireConcurrent(
+            `socket:conn:${userId}`,
+            await this.#socketLimitFor(actor),
+        );
+        if (!perUser.ok) return void (await reject());
+        slots.push(perUser);
+
+        // A third of the window: two renewals may be missed (a paused timer, a
+        // slow backend) before a live slot looks abandoned.
+        const renewTimer = setInterval(
+            () => void Promise.all(slots.map((s) => s.renew())),
+            Math.floor(CONCURRENT_SLOT_TTL_MS / 3),
+        );
+        renewTimer.unref?.();
+
+        const finish = () => {
+            clearInterval(renewTimer);
+            void Promise.all(slots.map((s) => s.release()));
+        };
+        socket.once('disconnect', finish);
+        // The socket may already be gone by the time the tier lookup resolved;
+        // don't strand the slots until they age out.
+        if (socket.disconnected) finish();
+    }
+
+    async #allowSocketEvent(userId: number, event: string): Promise<boolean> {
+        return checkRateLimit(
+            `socket:${event}:${userId}`,
+            SocketService.SOCKET_EVENT_LIMIT,
+            SocketService.SOCKET_EVENT_WINDOW_MS,
+        );
+    }
+
     #installConnectionHandler(): void {
         if (!this.#io) return;
 
         this.#io.on('connection', (socket: AuthenticatedSocket) => {
             const actor = socket.actor;
-            if (!actor || !actor.user) return;
+            // The id is what both limits below bucket on, so a user without
+            // one has nothing to key against.
+            if (!actor || actor.user?.id === undefined) return;
             const userId = actor.user.id;
             const userRoom = String(userId);
 
+            // Hold slots for the life of the connection. Released on
+            // `disconnect`, which socket.io fires for clean closes, transport
+            // errors, and server-side disconnects alike — so an abandoned
+            // connection gives its slots back the same way a closed one does.
+            void this.#admitConnection(socket, actor, userId);
+
             // Peer-echo: one tab notifies others that trash is empty.
             socket.on('trash.is_empty', (msg: unknown) => {
-                socket.broadcast.to(userRoom).emit('trash.is_empty', msg);
+                void this.#allowSocketEvent(userId, 'trash.is_empty').then(
+                    (ok) => {
+                        if (!ok) return;
+                        socket.broadcast
+                            .to(userRoom)
+                            .emit('trash.is_empty', msg);
+                    },
+                );
             });
 
             // Legacy probe some frontends use to signal "the UI is
             // really up, not just a health-check connection". Extensions
             // sometimes listen for the follow-up event.
             socket.on('puter_is_actually_open', () => {
-                this.clients.event.emit(
-                    'web.socket.user-connected',
-                    {
-                        socket,
-                        user: actor.user,
-                    },
-                    {},
-                );
+                void this.#allowSocketEvent(
+                    userId,
+                    'puter_is_actually_open',
+                ).then((ok) => {
+                    if (!ok) return;
+                    this.clients.event.emit(
+                        'web.socket.user-connected',
+                        {
+                            socket,
+                            user: actor.user,
+                        },
+                        {},
+                    );
+                });
             });
 
             // Fire-and-forget connect event.
@@ -453,8 +621,7 @@ export class SocketService extends PuterService {
                 // their next poll of /cache/last-change-timestamp.
                 const originalSocketId = (
                     data.response as
-                        | { original_client_socket_id?: string }
-                        | undefined
+                        { original_client_socket_id?: string } | undefined
                 )?.original_client_socket_id;
                 await this.send({ room: userId }, 'cache.updated', {
                     timestamp,
@@ -468,9 +635,7 @@ export class SocketService extends PuterService {
     #handleUploadProgress(data: UploadProgressPayload): void {
         const meta = data.meta ?? {};
         const userId = (meta.user_id ?? meta.userId) as
-            | number
-            | string
-            | undefined;
+            number | string | undefined;
         if (!userId) {
             console.warn('[socket] upload-progress missing user_id', { meta });
             return;

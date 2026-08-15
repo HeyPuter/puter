@@ -350,6 +350,26 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
         );
     });
 
+    it('bakes a whitelisted desktop app landing (/desktop/app/<name>) into the state redirect_uri', async () => {
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/:provider/start',
+            makeReq({
+                params: { provider: 'custom' },
+                query: { return_to: '/desktop/app/my-App_2' },
+            }),
+            res,
+        );
+        const state = new URL(captured.redirectUrl ?? '').searchParams.get(
+            'state',
+        );
+        const decoded = oidc().verifyState(state!);
+        expect(String(decoded?.redirect_uri)).toBe(
+            `${TEST_ORIGIN}/desktop/app/my-App_2`,
+        );
+    });
+
     it('ignores a non-whitelisted return_to', async () => {
         const bad_values = [
             '/app/evil/extra',
@@ -358,6 +378,9 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
             '//evil.test',
             '/settings',
             `/app/${'a'.repeat(101)}`,
+            '/desktop/app/evil/extra',
+            '/desktop/app/',
+            '/dashboard/app/name',
         ];
         for (const return_to of bad_values) {
             const { res, captured } = makeRes();
@@ -1021,6 +1044,39 @@ describe('OIDCController signup veto (abuse harness)', () => {
 
         expect(captured.redirectUrl).toContain('message=signup_blocked');
         expect(captured.redirectUrl).not.toContain('request_code');
+    });
+
+    it('keeps a veto legible when the listener stamps its own code', async () => {
+        const email = `veto-${Math.random().toString(36).slice(2, 8)}@test.local`;
+        signupValidateOverride = (data) => {
+            if (data.email !== email) return;
+            data.allow = false;
+            data.code = 'email_reputation_too_low';
+            data.trail_id = 'trail-custom-code';
+        };
+        stubIdp(`sub-${Math.random().toString(36).slice(2, 8)}`, email);
+
+        const state = oidc().signState({
+            provider: 'custom',
+            redirect_uri: TEST_ORIGIN + '/',
+        });
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/callback/signup',
+            makeReq({ query: { code: 'c', state } }),
+            res,
+        );
+
+        // A listener code isn't one of the display codes, but the failure
+        // is still a blocked signup — collapsing it to `unauthorized`
+        // would tell the user sign-in broke and bury the Request Code
+        // support needs.
+        expect(captured.redirectUrl).toContain('message=signup_blocked');
+        expect(captured.redirectUrl).not.toContain('message=unauthorized');
+        expect(captured.redirectUrl).toContain(
+            'request_code=trail-custom-code',
+        );
     });
 });
 
@@ -1688,5 +1744,37 @@ describe('OIDCController POST /auth/oidc/verify-popup-return', () => {
             oidc_login: false,
         });
         expect((await redeem(proof)).body).toMatchObject({ oidc_login: false });
+    });
+});
+
+// ── rate-limit scopes ───────────────────────────────────────────────
+
+describe('OIDCController rate limits', () => {
+    const rateLimitOf = (method: string, path: string) => {
+        const route = router.routes.find(
+            (r) => r.method === method && r.path === path,
+        );
+        if (!route) throw new Error(`No ${method.toUpperCase()} ${path} route`);
+        return route.options.rateLimit as { scope: string; limit: number };
+    };
+
+    it('keeps the revalidate landing page off the identity-provider bucket', () => {
+        // `/auth/revalidate-done` serves a constant HTML page; the start and
+        // callback routes exchange codes with an identity provider. Sharing
+        // a scope made the cheap page inherit the flow routes' tight ceiling,
+        // which one shared address can exhaust on its own.
+        const done = rateLimitOf('get', '/auth/revalidate-done');
+        const start = rateLimitOf('get', '/auth/oidc/:provider/start');
+        expect(done.scope).not.toBe(start.scope);
+        expect(done.scope).toBe('oidc-revalidate-done');
+        expect(done.limit).toBeGreaterThan(start.limit);
+    });
+
+    it('sizes the public provider list for a shared address, not a fleet', () => {
+        // Unauthenticated and keyed on IP, so the bucket covers every client
+        // behind one NAT or campus, not one browser. It is still login
+        // surface, so it stays bounded well below the ceilings given to
+        // static reads like icons or version info.
+        expect(rateLimitOf('get', '/auth/oidc/providers').limit).toBe(1_200);
     });
 });

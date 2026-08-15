@@ -91,8 +91,14 @@ export class HomepageController extends PuterController {
         router.get('/@:username', {}, (req, res) => sendShell(req, res));
 
         // -- /app/:name - app metadata baked into the shell ----------
+        // `/desktop/app/:name` is the same landing booted on the desktop
+        // instead of the dashboard; the GUI strips the prefix and treats the
+        // rest of the path identically, so both render the same shell.
 
-        router.get('/app/:name', {}, async (req, res) => {
+        const sendAppShell = async (
+            req: express.Request,
+            res: express.Response,
+        ) => {
             const name = String(req.params.name ?? '');
             const app = name ? await this.stores.app.getByName(name) : null;
 
@@ -130,7 +136,10 @@ export class HomepageController extends PuterController {
                     ? name.charAt(0).toUpperCase() + name.slice(1)
                     : 'Puter',
             });
-        });
+        };
+
+        router.get('/app/:name', {}, sendAppShell);
+        router.get('/desktop/app/:name', {}, sendAppShell);
 
         // -- /show/* - launch explorer with the requested file path --
 

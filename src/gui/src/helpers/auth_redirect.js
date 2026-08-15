@@ -52,8 +52,9 @@ export const get_auth_redirect_url = () => {
  * The `return_to` path to send along when starting an OIDC flow, or null if
  * the current page isn't one the backend will return to. The backend strictly
  * whitelists these (never a client-supplied URL): `/desktop`, `/dashboard`,
- * and direct app landings (`/app/<name>`), so OIDC login started from an app
- * landing comes back to the app.
+ * and direct app landings (`/app/<name>`, plus the desktop-booted
+ * `/desktop/app/<name>`), so OIDC login started from an app landing comes back
+ * to the app — and to the same interface it was opened in.
  *
  * @returns {string|null} whitelistable pathname, or null
  */
@@ -63,7 +64,7 @@ export const get_oidc_return_to = () => {
         return pathname;
     }
     // app landing: normalize away a trailing slash to match the backend whitelist
-    if ( /^\/app\/[^/]+\/?$/.test(pathname) ) {
+    if ( /^(\/desktop)?\/app\/[^/]+\/?$/.test(pathname) ) {
         return pathname.replace(/\/$/, '');
     }
     return null;

@@ -3,8 +3,8 @@ import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 import { defineOperation, firstDefined } from './scaffold.js';
 import stat from './stat.js';
 
-/** @typedef {import('../../../../types/modules/filesystem').MoveOptions} MoveOptions */
-/** @typedef {import('../../../../types/modules/fs-item').FSItem} FSItem */
+/** @typedef {import('../types.js').MoveOptions} MoveOptions */
+/** @typedef {import('../../FSItem.js').FSItem} FSItem */
 
 /**
  * Moves a file or directory to another location. Relative paths resolve

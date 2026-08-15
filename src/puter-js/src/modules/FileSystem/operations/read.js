@@ -1,7 +1,7 @@
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 import { defineOperation } from './scaffold.js';
 
-/** @typedef {import('../../../../types/modules/filesystem').ReadOptions} ReadOptions */
+/** @typedef {import('../types.js').ReadOptions} ReadOptions */
 
 /**
  * Reads a file and resolves with its contents as a `Blob`. Relative paths

@@ -32,6 +32,7 @@ import type {
 } from '../../types.js';
 import { OPEN_AI_IMAGE_GENERATION_MODELS } from './models.js';
 import { fetchImageAsBase64, isHttpUrl } from '../../inputImage.js';
+import { estimateTextTokens } from '../../../util/tokenEstimate.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
 
 interface OpenAIImageUsage {
@@ -45,9 +46,9 @@ interface OpenAIImageUsage {
 }
 
 /**
- * OpenAI image generation provider for v2.
- * Supports the GPT Image models (gpt-image-1, -1-mini, -1.5, -2), including
- * image-to-image editing via `input_images` (the `images.edit` endpoint).
+ * OpenAI image generation provider for v2. Supports the GPT Image models
+ * (gpt-image-1, -1-mini, -1.5, -2), including image-to-image editing via
+ * `input_images` (the `images.edit` endpoint).
  */
 export class OpenAiImageProvider implements IImageProvider {
     #meteringService: MeteringService;
@@ -464,12 +465,7 @@ export class OpenAiImageProvider implements IImageProvider {
         if (text.length === 0) return 0;
 
         // Same approximation used by chat and Gemini image billing flows.
-        return Math.max(
-            1,
-            Math.floor(
-                (text.length / 4 + text.split(/\s+/).length * (4 / 3)) / 2,
-            ),
-        );
+        return Math.max(1, estimateTextTokens(text));
     }
 
     #getCostRate(selectedModel: IImageModel, key: string): number | undefined {

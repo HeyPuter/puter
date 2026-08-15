@@ -120,6 +120,13 @@ vi.mock('together-ai', () => {
     return { Together, default: Together };
 });
 
+const { secureFetchMock } = vi.hoisted(() => ({ secureFetchMock: vi.fn() }));
+
+vi.mock('../../util/secureHttp.js', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../util/secureHttp.js')>()),
+    secureFetch: secureFetchMock,
+}));
+
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
@@ -148,6 +155,7 @@ beforeEach(() => {
     geminiGenerateVideosMock.mockReset();
     togetherVideosCreateMock.mockReset();
     togetherVideosRetrieveMock.mockReset();
+    secureFetchMock.mockReset();
     hasCreditsSpy = vi.spyOn(server.services.metering, 'hasEnoughCredits');
     hasCreditsSpy.mockResolvedValue(true);
     vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
@@ -555,6 +563,47 @@ describe('VideoGenerationDriver.generate puter_output_path', () => {
         expect(
             (writeArg as { fileMetadata: { path: string } }).fileMetadata.path,
         ).toBe('/testuser/videos/clip.mp4');
+    });
+
+    it('downloads a URL result through the SSRF-guarded fetch before writing it to FS', async () => {
+        const aclCheckSpy = vi.spyOn(server.services.acl, 'check');
+        aclCheckSpy.mockResolvedValueOnce(true);
+
+        const fsWriteSpy = vi.spyOn(server.services.fs, 'write');
+        fsWriteSpy.mockResolvedValueOnce(undefined as never);
+
+        togetherVideosCreateMock.mockResolvedValueOnce({ id: 'tg-job' });
+        togetherVideosRetrieveMock.mockResolvedValueOnce({
+            id: 'tg-job',
+            status: 'completed',
+            outputs: { video_url: 'https://together/out.mp4' },
+        });
+        secureFetchMock.mockResolvedValueOnce(
+            new Response(Buffer.from('fake-mp4'), {
+                status: 200,
+                headers: { 'content-type': 'video/mp4' },
+            }),
+        );
+
+        await withTestUser(() =>
+            driver.generate({
+                prompt: 'hi',
+                model: 'togetherai:minimax/video-01-director',
+                puter_output_path: '/testuser/videos/clip.mp4',
+            } as never),
+        );
+
+        expect(secureFetchMock).toHaveBeenCalledWith(
+            'https://together/out.mp4',
+            { skipProxy: true },
+        );
+        expect(fsWriteSpy).toHaveBeenCalledTimes(1);
+        const [, writeArg] = fsWriteSpy.mock.calls[0]!;
+        const meta = (
+            writeArg as { fileMetadata: { path: string; contentType: string } }
+        ).fileMetadata;
+        expect(meta.path).toBe('/testuser/videos/clip.mp4');
+        expect(meta.contentType).toBe('video/mp4');
     });
 
     it('writes stream result to FS and returns a new stream to caller', async () => {

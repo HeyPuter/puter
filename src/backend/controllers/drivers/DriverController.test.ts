@@ -158,11 +158,14 @@ interface MockRes {
     sentBody: string | undefined;
     contentType: string | undefined;
     pipedFrom: Readable | undefined;
+    listeners: Record<string, Array<() => void>>;
     status(code: number): MockRes;
     json(body: unknown): MockRes;
     setHeader(key: string, value: string): MockRes;
     type(t: string): MockRes;
     send(body: string): MockRes;
+    once(event: string, fn: () => void): MockRes;
+    emit(event: string): void;
 }
 const makeRes = (): MockRes => {
     const res: MockRes = {
@@ -172,6 +175,19 @@ const makeRes = (): MockRes => {
         sentBody: undefined,
         contentType: undefined,
         pipedFrom: undefined,
+        // `#handleCall` releases a driver's concurrency slot on `finish` /
+        // `close`, so the stub has to behave like an emitter for any driver
+        // that declares a `concurrent` policy.
+        listeners: {},
+        once(event: string, fn: () => void) {
+            (this.listeners[event] ??= []).push(fn);
+            return this;
+        },
+        emit(event: string) {
+            const fns = this.listeners[event] ?? [];
+            this.listeners[event] = [];
+            for (const fn of fns) fn();
+        },
         status(code: number) {
             this.statusCode = code;
             return this;
@@ -194,6 +210,30 @@ const makeRes = (): MockRes => {
         },
     };
     return res;
+};
+
+/**
+ * Run the call route and return the rejection, or null when it resolves.
+ * Lets a test assert on *which* gate rejected without depending on how far
+ * an admitted call gets afterwards.
+ */
+const callForError = async (
+    routes: Captured,
+    req: Request,
+    actor: Actor,
+): Promise<{ statusCode?: number; legacyCode?: string } | null> => {
+    try {
+        await runWithContext({ actor }, () =>
+            routes['POST /call'](
+                req,
+                makeRes() as unknown as Response,
+                () => {},
+            ),
+        );
+        return null;
+    } catch (e) {
+        return e as { statusCode?: number; legacyCode?: string };
+    }
 };
 
 const makeReq = (body: Record<string, unknown> = {}, actor?: Actor): Request =>
@@ -322,8 +362,7 @@ describe('DriverController.#handleCall (via captured router)', () => {
     it('admits a bare session ("root" token) actor on the AI drivers', async () => {
         // Privileged ("godmode") apps call AI with the user's own session
         // token, so the AI drivers no longer set `noUserSession`: the
-        // session actor reaches the permission scan (403 forbidden — no
-        // perms granted) instead of the credential-shape rejection.
+        // session actor must get past the credential-shape gate.
         const actor = await makeUserActor();
         const req = makeReq(
             {
@@ -333,18 +372,8 @@ describe('DriverController.#handleCall (via captured router)', () => {
             },
             actor,
         );
-        await expect(
-            runWithContext({ actor }, () =>
-                routes['POST /call'](
-                    req,
-                    makeRes() as unknown as Response,
-                    () => {},
-                ),
-            ),
-        ).rejects.toMatchObject({
-            statusCode: 403,
-            legacyCode: 'forbidden',
-        });
+        const err = await callForError(routes, req, actor);
+        expect(err?.legacyCode).not.toBe('app_or_api_token_required');
     });
 
     it('admits app and access-token actors on the AI drivers (they fail later on permission, not credential shape)', async () => {
@@ -369,29 +398,15 @@ describe('DriverController.#handleCall (via captured router)', () => {
                 },
                 actor,
             );
-            await expect(
-                runWithContext({ actor }, () =>
-                    routes['POST /call'](
-                        req,
-                        makeRes() as unknown as Response,
-                        () => {},
-                    ),
-                ),
-            ).rejects.toMatchObject({
-                statusCode: 403,
-                // Fresh actors hold no service:* perms, so the call still
-                // 403s — but at the permission scan, proving the
-                // credential-shape gate let the delegated actor through.
-                legacyCode: 'forbidden',
-            });
+            const err = await callForError(routes, req, actor);
+            expect(err?.legacyCode).not.toBe('app_or_api_token_required');
         }
     });
 
     it('admits a user-scoped worker session on the AI drivers', async () => {
         // Workers deployed without an app binding authenticate as a user
         // actor whose session row is kind='worker' — they must keep their
-        // AI access (they fail later on permission here, not on
-        // credential shape).
+        // AI access rather than be rejected for their credential shape.
         const base = await makeUserActor();
         const actor: Actor = {
             ...base,
@@ -405,24 +420,13 @@ describe('DriverController.#handleCall (via captured router)', () => {
             },
             actor,
         );
-        await expect(
-            runWithContext({ actor }, () =>
-                routes['POST /call'](
-                    req,
-                    makeRes() as unknown as Response,
-                    () => {},
-                ),
-            ),
-        ).rejects.toMatchObject({
-            statusCode: 403,
-            legacyCode: 'forbidden',
-        });
+        const err = await callForError(routes, req, actor);
+        expect(err?.legacyCode).not.toBe('app_or_api_token_required');
     });
 
     it('still allows bare session actors on drivers without the noUserSession flag', async () => {
-        // puter-kvstore doesn't set the flag; the session actor reaches
-        // the permission scan (403 forbidden — no perms granted) instead
-        // of being rejected for its credential shape.
+        // puter-kvstore doesn't set the flag, so the session actor must get
+        // past the credential-shape gate.
         const actor = await makeUserActor();
         const req = makeReq(
             {
@@ -432,24 +436,24 @@ describe('DriverController.#handleCall (via captured router)', () => {
             },
             actor,
         );
-        await expect(
-            runWithContext({ actor }, () =>
-                routes['POST /call'](
-                    req,
-                    makeRes() as unknown as Response,
-                    () => {},
-                ),
-            ),
-        ).rejects.toMatchObject({
-            statusCode: 403,
-            legacyCode: 'forbidden',
-        });
+        const err = await callForError(routes, req, actor);
+        expect(err?.legacyCode).not.toBe('app_or_api_token_required');
     });
 
     it('rejects with 403 when the actor lacks the service permission', async () => {
-        // A fresh user has no service:* perms → permission.check returns
-        // false → 403.
-        const actor = await makeUserActor();
+        // A scoped access token holds only the permissions written to its
+        // own row, so it is the actor shape that can still be denied — the
+        // `driver`/`service` grants every user inherits are resolved from
+        // the issuer only for full-access tokens.
+        const base = await makeUserActor();
+        const actor: Actor = {
+            ...base,
+            accessToken: {
+                uid: `tok-${uuidv4()}`,
+                issuer: base,
+                fullAccess: false,
+            },
+        };
         const req = makeReq(
             {
                 interface: 'puter-kvstore',
@@ -458,15 +462,8 @@ describe('DriverController.#handleCall (via captured router)', () => {
             },
             actor,
         );
-        await expect(
-            runWithContext({ actor }, () =>
-                routes['POST /call'](
-                    req,
-                    makeRes() as unknown as Response,
-                    () => {},
-                ),
-            ),
-        ).rejects.toMatchObject({ statusCode: 403 });
+        const err = await callForError(routes, req, actor);
+        expect(err).toMatchObject({ statusCode: 403 });
     });
 
     it('returns the wrapped {success, result, service} envelope on a successful call', async () => {

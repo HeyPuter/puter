@@ -2,8 +2,8 @@
 // `users()` async iterator, backed by the app-telemetry driver. Shared by
 // every method that returns apps (create/update/get/list).
 
-/** @typedef {import('../../../../types/puter').Puter} Puter */
-/** @typedef {import('../../../../types/modules/apps').App} App */
+/** @typedef {import('../../../index.js').Puter} Puter */
+/** @typedef {import('../types.js').App} App */
 
 /**
  * @param {Puter} puter

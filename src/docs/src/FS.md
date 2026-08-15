@@ -306,6 +306,7 @@ These cloud storage features are supported out of the box when using Puter.js:
 - **[`puter.fs.stat()`](/FS/stat/)** - Get information about a file or directory
 - **[`puter.fs.delete()`](/FS/delete/)** - Delete a file or directory
 - **[`puter.fs.upload()`](/FS/upload/)** - Upload a file from the local system
+- **[`puter.fs.getReadURL()`](/FS/getReadURL/)** - Generate a URL that can be used to read a file
 
 ## Examples
 

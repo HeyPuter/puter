@@ -179,6 +179,29 @@ describe('EmailClient — template rendering', () => {
         expect(captured.html).toContain('<strong>424242</strong>');
     });
 
+    it('does not HTML-escape values in the plain-text subject header', async () => {
+        const client = startClient();
+        const captured: { subject?: string } = {};
+        vi.spyOn(client, 'sendRaw').mockImplementation(async (options) => {
+            captured.subject = options.subject;
+            return null;
+        });
+
+        await client.send('dev@example.test', 'app-user-feedback', {
+            owner_username: 'dev',
+            sender_username: 'user',
+            sender_email: null,
+            app_title: "Bob's App & Games",
+            app_name: 'bobs-app',
+            app_link: 'https://puter.example/app/bobs-app',
+            message: 'hi',
+        });
+
+        // A subject is not HTML — entities would render literally in the
+        // recipient's mail client.
+        expect(captured.subject).toBe("New user feedback for Bob's App & Games");
+    });
+
     it('escapes html and converts newlines in nl2br values', async () => {
         const client = startClient();
         let html = '';

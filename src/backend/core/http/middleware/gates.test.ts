@@ -19,6 +19,7 @@
 
 import type { Request, Response } from 'express';
 import { describe, expect, it } from 'vitest';
+import { makeActor, type Actor } from '../../actor';
 import { HttpError, isHttpError } from '../HttpError';
 import {
     DEFAULT_ADMIN_USERNAMES,
@@ -27,6 +28,8 @@ import {
     assertNotUserSession,
     noUserSessionGate,
     requireAuthGate,
+    requireCardVerifiedGate,
+    requirePhoneVerifiedGate,
     requireVerifiedAccount,
     requireNonAccessTokenGate,
     requireUserActorGate,
@@ -42,6 +45,23 @@ import {
 
 type NextArg = undefined | 'route' | HttpError | unknown;
 
+/**
+ * Rebuild an actor literal through `makeActor`, issuer-first, so the derived
+ * `effectiveApp` is present at every level of the token chain.
+ */
+const reviveActor = (actor: Actor): Actor =>
+    makeActor({
+        ...actor,
+        ...(actor.accessToken
+            ? {
+                  accessToken: {
+                      ...actor.accessToken,
+                      issuer: reviveActor(actor.accessToken.issuer),
+                  },
+              }
+            : {}),
+    });
+
 const runGate = (
     gate: (
         req: Request,
@@ -50,6 +70,12 @@ const runGate = (
     ) => unknown,
     req: Partial<Request>,
 ): NextArg => {
+    // Normalise the actor the way AuthService does before any gate sees one,
+    // so `effectiveApp` is derived here rather than spelled out on every
+    // literal below. Issuers too: a gate reading the chain reads the derived
+    // field, not `issuer.app`.
+    if (req.actor) req = { ...req, actor: reviveActor(req.actor) };
+
     let captured: NextArg = undefined;
     let called = false;
     gate(req as Request, {} as Response, (arg?: unknown) => {
@@ -777,5 +803,72 @@ describe('allowedAppIdsGate', () => {
             },
         });
         expectHttpError(got, 403, 'forbidden');
+    });
+});
+
+// ── requirePhoneVerifiedGate / requireCardVerifiedGate ──────────────
+
+describe('requirePhoneVerifiedGate', () => {
+    it('passes a user with a verified number on file', () => {
+        const got = runGate(requirePhoneVerifiedGate(), {
+            actor: { user: { uuid: 'u-1', phone: '+15550000000' } },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('rejects a user who was never asked to verify a phone', () => {
+        // The pending flag is clear, so the default-on account gate lets this
+        // user through — an opt-in route asking for the factor itself must not.
+        const got = runGate(requirePhoneVerifiedGate(), {
+            actor: { user: { uuid: 'u-1' } },
+        });
+        expectHttpError(got, 403, 'phone_verification_required');
+    });
+
+    it('rejects a user still mid-verification, stale number and all', () => {
+        const got = runGate(requirePhoneVerifiedGate(), {
+            actor: {
+                user: {
+                    uuid: 'u-1',
+                    phone: '+15550000000',
+                    requires_phone_verification: true,
+                },
+            },
+        });
+        expectHttpError(got, 403, 'phone_verification_required');
+    });
+
+    it('rejects when there is no actor at all', () => {
+        const got = runGate(requirePhoneVerifiedGate(), {});
+        expectHttpError(got, 403, 'phone_verification_required');
+    });
+});
+
+describe('requireCardVerifiedGate', () => {
+    it('passes a user with a verified card on file', () => {
+        const got = runGate(requireCardVerifiedGate(), {
+            actor: { user: { uuid: 'u-1', card_fingerprint: 'fp_1' } },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('rejects a user who never verified a card', () => {
+        const got = runGate(requireCardVerifiedGate(), {
+            actor: { user: { uuid: 'u-1' } },
+        });
+        expectHttpError(got, 403, 'card_verification_required');
+    });
+
+    it('rejects a user still carrying the card gate', () => {
+        const got = runGate(requireCardVerifiedGate(), {
+            actor: {
+                user: {
+                    uuid: 'u-1',
+                    card_fingerprint: 'fp_1',
+                    requires_card_verification: true,
+                },
+            },
+        });
+        expectHttpError(got, 403, 'card_verification_required');
     });
 });

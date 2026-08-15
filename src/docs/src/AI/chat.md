@@ -27,7 +27,8 @@ A string containing the prompt you want to complete.
 
 An object containing the following properties:
 
-- `model` (String) - The model you want to use for the completion. If not specified, defaults to `gpt-5-nano`. More than 500 models are available, including, but not limited to, OpenAI, Anthropic, Google, xAI, Mistral, OpenRouter, and DeepSeek. For a full list, see the [AI models list](https://developer.puter.com/ai/models/) page.
+- `model` (String) - The model you want to use for the completion. If not specified, defaults to `gpt-5-nano`. More than 500 models are available from vendors including OpenAI, Anthropic, Google, Alibaba Cloud, xAI, Mistral, OpenRouter, Infron, and others. For a full list, see the [AI models list](https://developer.puter.com/ai/models/) page.
+- `provider` (String) (Optional) - Pin the request to a specific vendor, for example `openrouter` or `infron`. Without it, Puter selects a vendor for the requested model. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the available values, and [`puter.ai.listModels(provider)`](/AI/listModels) for the models a given vendor serves.
 - `stream` (Boolean) - A boolean indicating whether you want to stream the completion. Defaults to `false`.
 - `max_tokens` (Number) - The maximum number of tokens to generate in the completion. By default, the specific model's maximum is used.
 - `temperature` (Number) - A number between 0 and 2 indicating the randomness of the completion. Lower values make the output more focused and deterministic, while higher values make it more random. By default, the specific model's temperature is used.
@@ -111,7 +112,7 @@ In case of an error, the `Promise` will reject with an error message.
 
 ## Vendors
 
-We use different vendors for different models and try to use the best vendor available at the time of the request. Vendors include, but are not limited to, OpenAI, Anthropic, Google, xAI, Mistral, OpenRouter, and DeepSeek.
+We use different vendors for different models and try to use the best vendor available at the time of the request. Vendors currently include Alibaba Cloud, Anthropic, Azure OpenAI, DeepSeek, Google, Infron, MiniMax, Mistral, Moonshot AI, OpenAI, OpenRouter, Together AI, xAI, and Z.AI. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the current list, or pass `provider` in the options object to pin a request to one of them.
 
 ## Function Calling
 

@@ -32,6 +32,8 @@ Don't commit code you couldn't have written, debugged, or defended yourself. Rea
 
 If you add or change a public API (an endpoint, driver method, or puter-js method), follow [doc/contributing-apis.md](doc/contributing-apis.md) — backward compatibility, [developer docs](src/docs/), types, and tests all move in the same PR.
 
+The same rule applies to limits: rate limits, concurrency caps, quotas, and allowances are published in [src/docs/src/rate-limits-and-quotas.md](src/docs/src/rate-limits-and-quotas.md), and a PR that changes one of those numbers updates that page in the same PR. A limit nobody published is a limit developers only discover as a service failure.
+
 ## 6. Boy Scout Rule — leave it 1% better
 
 ![Boy Scout Rule](https://imgs.search.brave.com/DMmIWl5-NuZVtrR9kXBb06AKF8kturkgSW9UMb2-6m4/rs:fit:860:0:0:0/g:ce/aHR0cHM6Ly9sYXdz/b2Zzb2Z0d2FyZWVu/Z2luZWVyaW5nLmNv/bS9pbWFnZXMvbGF3/cy9ib3ktc2NvdXQt/cnVsZS5wbmc)

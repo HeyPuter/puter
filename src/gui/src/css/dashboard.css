@@ -112,6 +112,15 @@
 
     --dashboard-legacy-bar-start: #dbe3ef;
     --dashboard-legacy-bar-mid: #c2ccdc;
+
+    /* App folders (My Apps): the icon's container, the well that opens under a
+       drag about to make one, and the scrim + card of an opened folder. All
+       translucent, so they read as a layer over the grid rather than a slab. */
+    --dashboard-folder-surface: rgba(118, 130, 152, 0.16);
+    --dashboard-folder-border: rgba(15, 23, 42, 0.07);
+    --dashboard-folder-well: rgba(118, 130, 152, 0.32);
+    --dashboard-folder-scrim: rgba(244, 246, 250, 0.55);
+    --dashboard-folder-panel: rgba(255, 255, 255, 0.78);
 }
 
 body {
@@ -221,6 +230,12 @@ body {
 
         --dashboard-legacy-bar-start: #3f3f46;
         --dashboard-legacy-bar-mid: #52525b;
+
+        --dashboard-folder-surface: rgba(255, 255, 255, 0.13);
+        --dashboard-folder-border: rgba(255, 255, 255, 0.09);
+        --dashboard-folder-well: rgba(255, 255, 255, 0.24);
+        --dashboard-folder-scrim: rgba(9, 9, 11, 0.55);
+        --dashboard-folder-panel: rgba(46, 46, 50, 0.82);
     }
 }
 
@@ -719,6 +734,17 @@ body {
     height: 100%;
     display: flex;
     flex-direction: column;
+    /* Tile geometry, declared on the tab so BOTH the pager (which reads these
+       via getComputedStyle in computeLayout, inheritance included) and the
+       folder panel — a fixed overlay outside the container — lay tiles out to
+       the same measurements. */
+    --myapps-tile-w: 100px;
+    /* icon 56 + label margin 10 + one 12px/1.3 label line (~16) */
+    --myapps-tile-h: 82px;
+    --myapps-gap-x: 32px;
+    --myapps-gap-y: 32px;
+    --myapps-dots-h: 28px;
+    --myapps-icon-size: 56px;
 }
 
 .myapps-search-wrap {
@@ -857,13 +883,8 @@ input.myapps-search:disabled {
 }
 
 .myapps-container {
-    /* Pager geometry; TabApps.js reads these to size pages. */
-    --myapps-tile-w: 100px;
-    /* icon 56 + label margin 10 + one 12px/1.3 label line (~16) */
-    --myapps-tile-h: 82px;
-    --myapps-gap-x: 32px;
-    --myapps-gap-y: 32px;
-    --myapps-dots-h: 28px;
+    /* Pager geometry is inherited from .myapps-tab; TabApps.js reads it here
+       (computeLayout) to size pages. */
     flex: 1;
     min-height: 0;
     display: flex;
@@ -890,6 +911,14 @@ input.myapps-search:disabled {
 .myapps-empty p {
     font-size: 15px;
     margin: 0;
+}
+
+/* The search's "nothing matched" line, which stands above a grid rather than
+   in place of one (the add-an-app tile is still down there): it takes only the
+   height it needs, and leaves the rest of the column to the pager. */
+.myapps-empty-notice {
+    flex: 0 0 auto;
+    padding: 20px 0 18px;
 }
 
 /* iOS-style pager: pages snap horizontally, dots below, hover arrows */
@@ -956,7 +985,10 @@ input.myapps-search:disabled {
     visibility: hidden;
 }
 
-.myapps-pager-dot {
+/* .myapps-group-dot is the folder pager's dot (see .myapps-group-dots) —
+   same look, its own class so the two pagers' click handlers can't cross. */
+.myapps-pager-dot,
+.myapps-group-dot {
     -webkit-appearance: none;
     appearance: none;
     flex: none;
@@ -973,17 +1005,20 @@ input.myapps-search:disabled {
     transition: opacity 0.2s ease;
 }
 
-.myapps-pager-dot.active {
+.myapps-pager-dot.active,
+.myapps-group-dot.active {
     opacity: 0.85;
 }
 
 @media (hover: hover) {
-    .myapps-pager-dot:not(.active):hover {
+    .myapps-pager-dot:not(.active):hover,
+    .myapps-group-dot:not(.active):hover {
         opacity: 0.5;
     }
 }
 
-.myapps-pager-dot:focus-visible {
+.myapps-pager-dot:focus-visible,
+.myapps-group-dot:focus-visible {
     outline: 2px solid var(--select-color);
     outline-offset: -1px;
 }
@@ -1131,6 +1166,303 @@ input.myapps-search:disabled {
     word-break: break-word;
 }
 
+/* -- Add-an-app tile --
+   The tile at the tail of the grid (see buildAddTileHtml): a dashed, empty
+   app-shaped slot with a plus in it, so it reads as room for an app rather
+   than as an installed one. The border takes currentColor so a single
+   (theme-aware) color drives both it and the plus. */
+.myapps-add-icon {
+    border: 2px dashed;
+    border-radius: 14px;
+    color: var(--dashboard-text-tertiary);
+}
+
+.myapps-add-icon svg {
+    width: 24px;
+    height: 24px;
+}
+
+.myapps-add-tile .myapps-tile-label {
+    color: var(--dashboard-text-secondary);
+}
+
+@media (hover: hover) {
+    .myapps-add-tile:hover .myapps-add-icon {
+        color: var(--select-color);
+    }
+}
+
+.myapps-add-tile:focus-visible .myapps-add-icon {
+    color: var(--select-color);
+}
+
+/* -- App folders --
+   A folder wears the same tile skeleton as an app, with its icon slot filled
+   by iOS's miniature 3x3 grid of what is inside. */
+
+.myapps-group-icon {
+    /* Overrides .myapps-tile-icon's centring flexbox: the mini-grid fills the
+       slot rather than sitting in the middle of it. */
+    display: block;
+    /* Stated rather than left to `.dashboard *`: the drag ghost and the launch
+       / minimize morph ghosts are CLONES of this box parked on <body>, outside
+       that rule, where the padding below would be added to the 56px slot and
+       land a 66px ghost over the 56px icon it is meant to sit on. */
+    box-sizing: border-box;
+    padding: 5px;
+    border-radius: 14px;
+    background: var(--dashboard-folder-surface);
+    box-shadow: inset 0 0 0 1px var(--dashboard-folder-border);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+}
+
+.myapps-group-icon-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: repeat(3, 1fr);
+    gap: 2.5px;
+    width: 100%;
+    height: 100%;
+}
+
+.myapps-group-icon-grid img {
+    /* min-* 0: grid items refuse to shrink past their intrinsic size
+       otherwise, and a wide icon would push the mini-grid out of the slot. */
+    min-width: 0;
+    min-height: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 3px;
+}
+
+/* The well a drag opens under the tile it is hovering: the folder-to-be,
+   growing behind the icon. Present (transparent) on every tile so it can
+   animate in without a reflow; only a drag ever reveals it. */
+.myapps-tile::before {
+    content: '';
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    width: calc(var(--myapps-icon-size, 56px) + 12px);
+    height: calc(var(--myapps-icon-size, 56px) + 12px);
+    margin-left: calc((var(--myapps-icon-size, 56px) + 12px) / -2);
+    border-radius: 16px;
+    background: var(--dashboard-folder-well);
+    box-shadow: inset 0 0 0 1px var(--dashboard-folder-border);
+    opacity: 0;
+    transform: scale(0.62);
+    pointer-events: none;
+}
+
+/* Pending: the well fills over the dwell the drop is waiting out
+   (DRAG_MERGE_DWELL_MS in TabApps.js) — for the ordinary gesture (carry the
+   icon over, stop) the fill IS the countdown, so leaving before it completes
+   is an informed choice rather than a surprise. */
+body.myapps-reordering .myapps-tile-merge-pending::before {
+    opacity: 0.55;
+    transform: scale(0.9);
+    transition: opacity 460ms ease-out, transform 460ms ease-out;
+}
+
+/* Armed: the drop will make (or join) a folder. Snaps open with a little
+   overshoot, and the icon settles into the well. */
+body.myapps-reordering .myapps-tile-merge-armed::before {
+    opacity: 1;
+    transform: scale(1);
+    transition: opacity 140ms ease-out, transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* animation: none — reorder mode's jiggle is an animated transform and would
+   otherwise win over these scales, leaving the target wobbling as if nothing
+   were about to happen to it. */
+body.myapps-reordering .myapps-tile.myapps-tile-merge-pending .myapps-tile-icon {
+    animation: none;
+    transform: scale(0.92);
+}
+
+body.myapps-reordering .myapps-tile.myapps-tile-merge-armed .myapps-tile-icon {
+    animation: none;
+    transform: scale(0.78);
+    transition: transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* -- Opened folder --
+   The grid recedes behind a blurred scrim and the folder grows out of its own
+   icon into a card (see _animateGroupPanelOpen). Sits inside the Apps tab, so
+   it travels with the dashboard window; below the uninstall modal's z-index. */
+.myapps-group-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 250;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.myapps-group-backdrop {
+    position: absolute;
+    inset: 0;
+    background: var(--dashboard-folder-scrim);
+    -webkit-backdrop-filter: blur(18px) saturate(1.3);
+    backdrop-filter: blur(18px) saturate(1.3);
+    opacity: 0;
+    transition: opacity 0.24s ease;
+}
+
+.myapps-group-open .myapps-group-backdrop {
+    opacity: 1;
+}
+
+.myapps-group-panel {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    max-width: 100%;
+    padding: 22px 26px 26px;
+    border-radius: 28px;
+    background: var(--dashboard-folder-panel);
+    -webkit-backdrop-filter: blur(28px) saturate(1.6);
+    backdrop-filter: blur(28px) saturate(1.6);
+    box-shadow:
+        inset 0 0 0 1px var(--dashboard-folder-border),
+        0 24px 64px var(--dashboard-shadow-medium);
+    opacity: 0;
+    transform: scale(0.92);
+    transform-origin: center;
+    /* Mirrors GROUP_PANEL_OPEN_MS / GROUP_PANEL_CLOSE_MS in TabApps.js; the
+       curve is the window morph's, so a folder opening and an app opening
+       feel like the same gesture at two scales. */
+    transition: transform 0.24s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.2s ease;
+    will-change: transform;
+}
+
+.myapps-group-open .myapps-group-panel {
+    opacity: 1;
+    transform: none;
+    transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.22s ease;
+}
+
+/* The card's tabindex=-1 exists to catch clicks on its empty space (keeping
+   focus inside the modal folder, where the Tab trap can see it) — a ring
+   around the whole card would misread that plumbing as selection. */
+.myapps-group-panel:focus {
+    outline: none;
+}
+
+/* Carrying an app past the card's edge takes it out of the folder: the card
+   shrinks back as if making way (see _updateEjectState). */
+.myapps-group-ejecting .myapps-group-panel {
+    transform: scale(0.95);
+    opacity: 0.75;
+}
+
+input.myapps-group-name {
+    /* style.css's input[type=text] rules match this box at the SAME
+       specificity, so only what is spelled out here wins. width, padding and
+       border have to be stated (twice — the focus rule below faces
+       input[type=text]:focus, which sets padding 7px / border 2px): left
+       unstated, the name field stretches across the whole card and its box
+       grows 8px taller the moment it is clicked, shoving the folder's grid
+       down. Same trap .myapps-search documents. */
+    -webkit-appearance: none;
+    appearance: none;
+    box-sizing: border-box;
+    width: auto;
+    max-width: 100%;
+    /* Hug the name (iOS sizes the field to its text): a short name in the
+       default ~20ch box floats in a hover pill far wider than the word, and
+       a long one clips while the card has room. Engines without field-sizing
+       keep that default box — same behavior as before, just less tailored. */
+    field-sizing: content;
+    min-width: 90px;
+    padding: 4px 10px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    font-size: 15px;
+    font-weight: 600;
+    text-align: center;
+    color: var(--dashboard-text-heading);
+    outline: none;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+@media (hover: hover) {
+    input.myapps-group-name:hover {
+        background: var(--dashboard-folder-surface);
+    }
+}
+
+input.myapps-group-name:focus {
+    padding: 4px 10px;
+    border-width: 1px;
+    border-color: var(--select-color);
+    background: var(--dashboard-card-background);
+}
+
+/* The card's pager: a folder big enough to need it paginates like the grid
+   outside (see _refreshGroupPanel) rather than growing a scrollbar. */
+.myapps-group-panel-grid {
+    /* --myapps-group-cols-max is the widest the card may get; the actual count
+       is set inline by _refreshGroupPanel so a folder of three doesn't sit in
+       the corner of a four-wide card. */
+    --myapps-group-cols-max: 4;
+    display: flex;
+    /* A scroller can't be sized by the very content it clips, so the grid's
+       width is spelled out for it. */
+    width: calc(var(--myapps-group-cols, 4) * var(--myapps-tile-w)
+        + (var(--myapps-group-cols, 4) - 1) * var(--myapps-gap-x));
+    max-width: 100%;
+    /* Reorder mode's uninstall badge overhangs the top corner of every tile,
+       and the scroller clips whatever leaves its padding box — the top
+       row's badges came out sliced flat. Hold the overhang inside the padding,
+       pulled straight back out again so the resting layout is unchanged. */
+    padding-top: 9px;
+    margin-top: -9px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    overscroll-behavior-x: contain;
+    touch-action: pan-x;
+    scrollbar-width: none;
+}
+
+.myapps-group-panel-grid::-webkit-scrollbar {
+    display: none;
+}
+
+.myapps-group-page {
+    flex: 0 0 100%;
+    min-width: 0;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    display: grid;
+    grid-template-columns: repeat(var(--myapps-group-cols, 4), var(--myapps-tile-w));
+    column-gap: var(--myapps-gap-x);
+    row-gap: 24px;
+    justify-content: center;
+    align-content: start;
+}
+
+/* The folder's page dots — the grid pager's, one size down in spacing. Gone
+   entirely (not just invisible) on a one-page folder: the card hugs its
+   contents, and a reserved empty strip would read as a layout bug. */
+.myapps-group-dots {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: -6px;
+}
+
+.myapps-group-dots-hidden {
+    display: none;
+}
+
 /* Uninstall confirmation modal */
 .myapps-modal-overlay {
     position: fixed;
@@ -1197,6 +1529,476 @@ input.myapps-search:disabled {
 .myapps-modal-confirm:disabled {
     opacity: 0.6;
     cursor: default;
+}
+
+/* App feedback modal (puter.ui.showFeedbackDialog) — a from-scratch,
+   theme-aware overlay in the spirit of the modals above, but used from more
+   than the dashboard (the desktop app-IPC path and the standalone popup too).
+   Self-contained color tokens (light default + dark override) so it themes
+   correctly wherever it's mounted, independent of the dashboard variables. */
+.app-feedback-overlay {
+    --afb-bg: #ffffff;
+    --afb-fg: #16202b;
+    --afb-muted: #64748b;
+    --afb-border: rgba(15, 23, 42, 0.12);
+    --afb-field-bg: #ffffff;
+    --afb-field-border: rgba(15, 23, 42, 0.18);
+    --afb-hover: rgba(15, 23, 42, 0.05);
+    --afb-scrim: rgba(0, 0, 0, 0.5);
+    --afb-error: #c62828;
+
+    position: fixed;
+    inset: 0;
+    /* Above app windows, the popup shell, and the drawer. */
+    z-index: 2147483000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    box-sizing: border-box;
+    background: var(--afb-scrim);
+    opacity: 0;
+    transition: opacity 0.16s ease;
+    -webkit-font-smoothing: antialiased;
+}
+.app-feedback-overlay.app-feedback-open {
+    opacity: 1;
+}
+
+@media (prefers-color-scheme: dark) {
+    .app-feedback-overlay {
+        --afb-bg: #24262c;
+        --afb-fg: #e8ecf1;
+        --afb-muted: #9aa7b4;
+        --afb-border: rgba(255, 255, 255, 0.12);
+        --afb-field-bg: #1b1d22;
+        --afb-field-border: rgba(255, 255, 255, 0.16);
+        --afb-hover: rgba(255, 255, 255, 0.08);
+        --afb-scrim: rgba(0, 0, 0, 0.66);
+        --afb-error: #ff6b81;
+    }
+}
+
+.app-feedback-modal {
+    width: min(440px, 100%);
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    background: var(--afb-bg);
+    color: var(--afb-fg);
+    border: 1px solid var(--afb-border);
+    border-radius: 14px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+    transform: translateY(8px) scale(0.98);
+    transition: transform 0.16s ease;
+    outline: none;
+}
+.app-feedback-open .app-feedback-modal {
+    transform: none;
+}
+
+.app-feedback-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 16px 0 20px;
+}
+.app-feedback-title {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 600;
+}
+.app-feedback-x {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    flex: none;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: none;
+    color: var(--afb-muted);
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
+}
+.app-feedback-x svg {
+    width: 16px;
+    height: 16px;
+}
+@media (hover: hover) {
+    .app-feedback-x:hover:not(:disabled) {
+        background: var(--afb-hover);
+        color: var(--afb-fg);
+    }
+}
+
+.app-feedback-body {
+    padding: 12px 20px 20px;
+}
+
+.app-feedback-loading {
+    text-align: center;
+    color: var(--afb-muted);
+    padding: 28px 10px;
+    font-size: 14px;
+}
+
+.app-feedback-target {
+    margin-bottom: 14px;
+}
+.app-feedback-target-title {
+    font-size: 15px;
+    font-weight: 600;
+    word-break: break-word;
+}
+.app-feedback-target-name {
+    font-size: 12px;
+    color: var(--afb-muted);
+    word-break: break-all;
+    margin-top: 2px;
+}
+
+.app-feedback-c2a {
+    margin: 0 0 10px;
+    font-size: 14px;
+    line-height: 1.45;
+}
+.app-feedback-unavailable-message {
+    margin: 8px 0 4px;
+    font-size: 14px;
+    line-height: 1.45;
+    text-align: center;
+    color: var(--afb-muted);
+}
+
+.app-feedback-message {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 130px;
+    resize: vertical;
+    padding: 10px 12px;
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.45;
+    color: var(--afb-fg);
+    background: var(--afb-field-bg);
+    border: 1px solid var(--afb-field-border);
+    border-radius: 8px;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.app-feedback-message:focus {
+    outline: none;
+    border-color: #088ef0;
+    box-shadow: 0 0 0 3px rgba(8, 142, 240, 0.18);
+}
+.app-feedback-message::placeholder {
+    color: var(--afb-muted);
+}
+
+.app-feedback-counter {
+    text-align: right;
+    font-size: 11px;
+    color: var(--afb-muted);
+    margin-top: 4px;
+}
+.app-feedback-note {
+    margin: 8px 0 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--afb-muted);
+}
+.app-feedback-error {
+    margin: 10px 0 0;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--afb-error);
+}
+
+.app-feedback-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 18px;
+}
+.app-feedback-btn {
+    padding: 8px 18px;
+    font: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    border-radius: 8px;
+    border: 1px solid var(--afb-field-border);
+    background: var(--afb-bg);
+    color: var(--afb-fg);
+    cursor: pointer;
+    transition: background-color 0.12s ease, opacity 0.12s ease, filter 0.12s ease;
+}
+@media (hover: hover) {
+    .app-feedback-btn:hover:not(:disabled) {
+        background: var(--afb-hover);
+    }
+}
+.app-feedback-btn-primary {
+    border-color: #088ef0;
+    background: linear-gradient(#34a5f8, #088ef0);
+    color: #fff;
+}
+@media (hover: hover) {
+    /* Must out-rank .app-feedback-btn:hover:not(:disabled) above, which
+       would otherwise repaint the primary button with the light hover bg. */
+    .app-feedback-btn.app-feedback-btn-primary:hover:not(:disabled) {
+        filter: brightness(1.05);
+        background: linear-gradient(#34a5f8, #088ef0);
+    }
+}
+.app-feedback-btn-primary:disabled {
+    opacity: 0.5;
+    cursor: default;
+    filter: none;
+}
+/* Cancel/X are disabled while a submit is in flight. */
+.app-feedback-btn:disabled,
+.app-feedback-x:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.app-feedback-success {
+    text-align: center;
+    padding: 18px 10px 8px;
+}
+.app-feedback-success-check {
+    width: 52px;
+    height: 52px;
+    margin: 0 auto 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(34, 197, 94, 0.14);
+    color: #16a34a;
+}
+.app-feedback-success-check svg {
+    width: 28px;
+    height: 28px;
+}
+.app-feedback-success-text {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 500;
+}
+
+/* Bottom-sheet on narrow screens. */
+@media (max-width: 500px) {
+    .app-feedback-overlay {
+        padding: 0;
+        align-items: flex-end;
+    }
+    .app-feedback-modal {
+        width: 100%;
+        max-height: 92vh;
+        border-radius: 14px 14px 0 0;
+        transform: translateY(16px);
+    }
+    .app-feedback-open .app-feedback-modal {
+        transform: none;
+    }
+}
+
+/* Add-an-app chooser (see showAddAppModal): the three ways to get an app, as
+   rows in the same modal shell. min-width gives the two-line rows room without
+   overflowing a narrow phone; the shell's own max-width caps the other end. */
+/* Stated rather than left to `.dashboard *`: the overlay is appended to the
+   dashboard WINDOW, which is outside that rule — without this, a width:100%
+   child (the option rows, the request form's message box) adds its padding
+   and border on top of the card's content width and hangs over the right
+   edge. Width is explicit for the same reason: it is the card's real width
+   only under border-box. */
+.myapps-add-modal,
+.myapps-add-modal * {
+    box-sizing: border-box;
+}
+.myapps-add-modal {
+    width: min(440px, calc(100vw - 32px));
+    min-width: 0;
+    max-width: none;
+}
+.myapps-add-options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+.myapps-add-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px;
+    text-align: left;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 10px;
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+/* The accent wash, not the grey --dashboard-hover: the row already answers
+   hover with a --select-ring border, and a grey fill under an accent ring
+   reads as two systems disagreeing. The weak tint keeps the icon chip's
+   stronger --select-tint legible on top of it. */
+@media (hover: hover) {
+    .myapps-add-option:hover {
+        background: var(--select-tint-weak);
+        border-color: var(--select-ring);
+    }
+}
+.myapps-add-option:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: -1px;
+}
+.myapps-add-option-icon {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
+    background: var(--select-tint);
+    color: var(--select-color);
+}
+.myapps-add-option-icon svg {
+    width: 19px;
+    height: 19px;
+}
+.myapps-add-option-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.myapps-add-option-title {
+    font-size: 14px;
+    font-weight: 600;
+}
+.myapps-add-option-desc {
+    font-size: 12px;
+    line-height: 1.35;
+    color: var(--dashboard-text-secondary);
+}
+.myapps-add-option-chevron {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin-left: auto;
+    color: var(--dashboard-text-tertiary);
+}
+
+/* The request form, one step deeper in the same card (see showAddAppModal):
+   a titled header whose Back arrow returns to the options, the message, and
+   the sent confirmation that replaces both. */
+.myapps-add-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+.myapps-add-head h3 {
+    margin: 0;
+}
+.myapps-add-back {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Pulled into the card's padding so the title, not the arrow, lines up
+       with the text below it. */
+    width: 26px;
+    height: 26px;
+    margin-left: -6px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: none;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+}
+.myapps-add-back svg {
+    width: 17px;
+    height: 17px;
+}
+@media (hover: hover) {
+    .myapps-add-back:hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
+}
+.myapps-add-back:focus-visible {
+    outline: 2px solid var(--select-color);
+    outline-offset: -1px;
+}
+.myapps-add-message {
+    display: block;
+    width: 100%;
+    min-height: 130px;
+    margin-bottom: 12px;
+    padding: 10px;
+    resize: vertical;
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.45;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 6px;
+    background: var(--dashboard-input-background);
+    color: var(--dashboard-text-primary);
+    outline: none;
+    transition: border-color 0.15s;
+}
+.myapps-add-message:focus {
+    border-color: var(--select-color);
+}
+.myapps-add-message::placeholder {
+    color: var(--dashboard-text-muted);
+}
+p.myapps-add-error {
+    margin: -4px 0 12px;
+    font-size: 12px;
+    color: var(--dashboard-error-text);
+}
+.myapps-add-send {
+    background: var(--select-color);
+    border-color: var(--select-color);
+    color: #fff;
+}
+@media (hover: hover) {
+    .myapps-add-send:not(:disabled):hover {
+        filter: brightness(0.94);
+    }
+}
+.myapps-add-send:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+.myapps-add-sent {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0 6px;
+    text-align: center;
+}
+.myapps-add-sent svg {
+    width: 40px;
+    height: 40px;
+    color: var(--dashboard-success-text);
+}
+.myapps-add-sent p {
+    margin: 0 0 4px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--dashboard-text-secondary);
 }
 
 /* -- Item properties modal --
@@ -1452,6 +2254,108 @@ input.myapps-search:disabled {
     }
 }
 
+/* A tile installed by a deep-link landing, not yet arrived: rendered in
+   place — layout, page count, and the wayfinding flip all see it — but held
+   invisible for the intro's arrival beat to reveal (see _spliceDeepLinkApp /
+   _revealArrivingTile in TabApps.js). */
+.myapps-tile-installing {
+    opacity: 0;
+    transform: scale(0.55);
+    pointer-events: none;
+}
+
+/* The arrival itself: an INSTALLATION, staged over 1400ms (mirrored by
+   DEEP_LINK_INSTALL_ARRIVE_MS in TabApps.js) with the grammar users know
+   from every app store:
+     1. the slot opens — the folder well's own surface — and the icon
+        materializes into it DIM (grayscale, translucent, slightly small):
+        present, but not yet usable;
+     2. a progress stroke draws clockwise around the slot (the
+        .myapps-install-progress element _revealArrivingTile injects);
+     3. the stroke completes and everything resolves at once — the well
+        recedes, the ring dissolves outward, the icon springs to full
+        color and size, and the label names what was installed.
+   Every piece fills backwards so the delayed ones hold their start state
+   through their delay. Only _revealArrivingTile applies the class and
+   injects the ring, never under prefers-reduced-motion. */
+.myapps-tile-install-arriving::before {
+    animation: myapps-install-well 1400ms ease backwards;
+}
+
+.myapps-tile-install-arriving .myapps-tile-icon {
+    animation: myapps-install-icon 1400ms ease backwards;
+}
+
+.myapps-tile-install-arriving .myapps-tile-label {
+    animation: myapps-install-label 320ms ease 1020ms backwards;
+}
+
+/* The progress ring: the same box the folder well draws (see
+   .myapps-tile::before), as a stroke. A transient element, not a pseudo —
+   the tile's ::before is the well and its ::after the running dot. */
+.myapps-install-progress {
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    width: calc(var(--myapps-icon-size, 56px) + 12px);
+    height: calc(var(--myapps-icon-size, 56px) + 12px);
+    margin-left: calc((var(--myapps-icon-size, 56px) + 12px) / -2);
+    pointer-events: none;
+    animation: myapps-install-progress-done 360ms ease 1000ms forwards;
+}
+
+.myapps-install-progress svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+.myapps-install-progress rect {
+    fill: none;
+    stroke: var(--select-color);
+    stroke-width: 3;
+    stroke-linecap: round;
+    /* pathLength=100 normalizes the perimeter; the draw is a dashoffset
+       sweep from fully hidden to fully drawn, starting at the top. The
+       slight overshoot closes the seam at the join. */
+    stroke-dasharray: 100.5;
+    stroke-dashoffset: 100.5;
+    animation: myapps-install-draw 830ms cubic-bezier(0.4, 0, 0.2, 1) 140ms forwards;
+}
+
+/* The slot: opens from the well's resting state (opacity 0, scale .62),
+   holds while the stroke draws, recedes as the icon comes alive. */
+@keyframes myapps-install-well {
+    0%   { opacity: 0;   transform: scale(0.62); }
+    10%  { opacity: 0.6; transform: scale(0.92); }
+    70%  { opacity: 0.6; transform: scale(0.92); }
+    88%  { opacity: 0;   transform: scale(1.05); }
+    100% { opacity: 0;   transform: scale(1.05); }
+}
+
+/* The icon: dim and small while "installing", then alive with a spring. */
+@keyframes myapps-install-icon {
+    0%   { opacity: 0;    transform: scale(0.6);  filter: grayscale(1) brightness(0.9); }
+    10%  { opacity: 0.45; transform: scale(0.82); filter: grayscale(1) brightness(0.9); }
+    70%  { opacity: 0.45; transform: scale(0.82); filter: grayscale(1) brightness(0.9); }
+    82%  { opacity: 1;    transform: scale(1.08); filter: grayscale(0) brightness(1); }
+    100% { opacity: 1;    transform: none;        filter: grayscale(0) brightness(1); }
+}
+
+@keyframes myapps-install-draw {
+    to { stroke-dashoffset: 0; }
+}
+
+@keyframes myapps-install-progress-done {
+    to { opacity: 0; transform: scale(1.1); }
+}
+
+@keyframes myapps-install-label {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
 /* -- Drag-to-reorder -- */
 
 /* The tile being dragged is kept in the grid as an invisible placeholder so
@@ -1584,10 +2488,40 @@ body.myapps-reordering .myapps-tile {
     .myapps-reorder-mode .myapps-tile:nth-child(3n) .myapps-tile-icon {
         animation-delay: -0.24s;
     }
+
+    /* The add-an-app tile can't be dragged or uninstalled, so it has nothing
+       to say in reorder mode: it sits still while the apps wobble. Last, and
+       specific enough, to beat the nth-child rules above. */
+    .myapps-reorder-mode .myapps-tile.myapps-add-tile .myapps-tile-icon {
+        animation: none;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
     .myapps-drag-ghost {
+        transition: none;
+    }
+
+    /* The installation's end state (a plain visible tile) without its
+       staging; the progress ring shows nothing rather than a frozen arc. */
+    .myapps-tile-install-arriving::before,
+    .myapps-tile-install-arriving .myapps-tile-icon,
+    .myapps-tile-install-arriving .myapps-tile-label {
+        animation: none;
+    }
+
+    .myapps-install-progress {
+        display: none;
+    }
+
+    /* Folders still open and the well still fills — they just do it without
+       the travel: the states are information, the motion is decoration. */
+    .myapps-group-backdrop,
+    .myapps-group-panel,
+    .myapps-group-open .myapps-group-panel,
+    body.myapps-reordering .myapps-tile-merge-pending::before,
+    body.myapps-reordering .myapps-tile-merge-armed::before,
+    body.myapps-reordering .myapps-tile.myapps-tile-merge-armed .myapps-tile-icon {
         transition: none;
     }
 
@@ -2973,13 +3907,11 @@ body.myapps-reordering .myapps-tile {
 
     .dashboard-tab-content.myapps-tab {
         padding-bottom: max(6px, env(safe-area-inset-bottom));
-    }
-
-    .myapps-container {
         --myapps-tile-w: 72px;
         --myapps-tile-h: 74px;
         --myapps-gap-x: 12px;
         --myapps-gap-y: 30px;
+        --myapps-icon-size: 52px;
     }
 
     /* Spread the fixed column count across the page width, iOS-style;
@@ -2997,6 +3929,37 @@ body.myapps-reordering .myapps-tile {
         width: 52px;
         height: 52px;
         border-radius: 12px;
+    }
+
+    .myapps-group-icon {
+        padding: 4px;
+        border-radius: 12px;
+    }
+
+    .myapps-add-icon {
+        border-radius: 12px;
+    }
+
+    .myapps-group-overlay {
+        padding: 16px;
+    }
+
+    .myapps-group-panel {
+        gap: 10px;
+        padding: 16px 18px 20px;
+        border-radius: 24px;
+    }
+
+    .myapps-group-page {
+        row-gap: 18px;
+    }
+}
+
+/* Three columns rather than four once four (4x72 + 3x12 + the card's padding)
+   no longer fits a phone's width. */
+@media (max-width: 400px) {
+    .myapps-group-panel-grid {
+        --myapps-group-cols-max: 3;
     }
 }
 
@@ -4490,8 +5453,11 @@ body.myapps-reordering .myapps-tile {
     opacity: 0.7;
 }
 
+/* Most img icons in these menus are full-color (app icons in Open With,
+   file-type icons in New) and must keep their colors in dark mode — only
+   monochrome dark glyphs opt in to inversion via .ctx-item-icon-monochrome. */
 @media (prefers-color-scheme: dark) {
-    .context-menu-modal-dialog .context-menu-item-icon img {
+    .context-menu-modal-dialog .context-menu-item-icon img.ctx-item-icon-monochrome {
         filter: invert(1);
     }
 }
@@ -4710,6 +5676,13 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
         opacity 0.2s ease;
 }
 
+/* An opted-in app carries a third control (feedback) before minimize; widen
+   the derived open surface by one button + its 2px gap so the trailing close
+   button isn't clipped. --open-w stays derived from the same parts. */
+.dashboard-app-drawer.has-feedback {
+    --open-w: calc(12px + var(--icon) + var(--i2t) + var(--title-w) + var(--t2b) + var(--btn) + 2px + var(--btn) + 2px + var(--btn) + 10px);
+}
+
 .dashboard-app-drawer.collapsed {
     width: var(--shut-w);
     height: calc(var(--shut-h) + var(--safe-top));
@@ -4894,6 +5867,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     transition: background-color 0.12s ease;
 }
 
+.dashboard-app-drawer-feedback,
 .dashboard-app-drawer-minimize {
     margin-right: 2px;
 }

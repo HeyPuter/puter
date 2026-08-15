@@ -128,6 +128,13 @@ vi.mock('replicate', () => {
     return { default: Replicate };
 });
 
+const { secureFetchMock } = vi.hoisted(() => ({ secureFetchMock: vi.fn() }));
+
+vi.mock('../../util/secureHttp.js', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('../../util/secureHttp.js')>()),
+    secureFetch: secureFetchMock,
+}));
+
 // ── Test harness ────────────────────────────────────────────────────
 
 let server: PuterServer;
@@ -163,6 +170,7 @@ beforeEach(() => {
     googleAIGenerateImagesMock.mockReset();
     togetherImagesGenerateMock.mockReset();
     replicateRunMock.mockReset();
+    secureFetchMock.mockReset();
     fetchSpy = vi.spyOn(globalThis, 'fetch') as MockInstance<typeof fetch>;
     eventEmitSpy = vi.spyOn(server.clients.event, 'emit') as MockInstance<
         (...args: unknown[]) => unknown
@@ -514,7 +522,7 @@ describe('ImageGenerationDriver.generate puter_output_path', () => {
         openaiImagesGenerateMock.mockResolvedValueOnce({
             data: [{ url: 'https://oai/img.png' }],
         });
-        fetchSpy.mockResolvedValueOnce(
+        secureFetchMock.mockResolvedValueOnce(
             new Response(Buffer.from('fake-png'), {
                 status: 200,
                 headers: { 'content-type': 'image/png' },
@@ -546,7 +554,7 @@ describe('ImageGenerationDriver.generate puter_output_path', () => {
         openaiImagesGenerateMock.mockResolvedValueOnce({
             data: [{ url: 'https://oai/img.png' }],
         });
-        fetchSpy.mockResolvedValueOnce(
+        secureFetchMock.mockResolvedValueOnce(
             new Response(Buffer.from('fake-png'), {
                 status: 200,
                 headers: { 'content-type': 'image/png' },
@@ -577,6 +585,13 @@ describe('ImageGenerationDriver.generate puter_output_path', () => {
         expect(meta.path).toBe('/testuser/photos/out.png');
         expect(meta.contentType).toBe('image/png');
         expect(meta.overwrite).toBe(true);
+
+        // The result URL is downloaded through the SSRF-guarded fetch, not
+        // the unguarded global one — its body lands in the user's FS.
+        expect(secureFetchMock).toHaveBeenCalledWith('https://oai/img.png', {
+            skipProxy: true,
+        });
+        expect(fetchSpy).not.toHaveBeenCalled();
     });
 
     it('does not forward puter_output_path to the upstream provider call', async () => {
@@ -589,7 +604,7 @@ describe('ImageGenerationDriver.generate puter_output_path', () => {
         openaiImagesGenerateMock.mockResolvedValueOnce({
             data: [{ url: 'https://oai/img.png' }],
         });
-        fetchSpy.mockResolvedValueOnce(
+        secureFetchMock.mockResolvedValueOnce(
             new Response(Buffer.from('fake-png'), {
                 status: 200,
                 headers: { 'content-type': 'image/png' },

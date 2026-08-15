@@ -17,9 +17,20 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * Share of an uncached read's rate charged for one the read cache served. It
+ * still costs us a lookup, a metering write, and the memory the entry occupies
+ * — just not the capacity a read of the underlying store consumes.
+ */
+export const KV_CACHED_READ_RATE_SHARE = 0.1;
+
 // Microcents per underlying DynamoDB capacity unit, as reported by
 // SystemKVStore.KVUsage. Cost is `KV_COSTS[op] * usage.<op>`.
 export const KV_COSTS = {
     'kv:read': 17,
     'kv:write': 90,
+    // 10% of `kv:read` — kept as a literal so the reported rate is exactly this
+    // and not a float artifact of the multiplication. The unit count is the one
+    // the equivalent uncached read consumed.
+    'kv:read:cached': 1.7,
 } as const;

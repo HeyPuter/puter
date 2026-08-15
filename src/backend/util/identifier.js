@@ -232,27 +232,35 @@ const nouns = [
 const randomItem = (arr, random) =>
     arr[Math.floor((random ?? Math.random)() * arr.length)];
 
+// Size of the numeric suffix's range. The word lists alone only reach ~11k
+// combinations, so the number carries most of the entropy: every caller feeds
+// these into a UNIQUE column (usernames, subdomains), where the collision rate
+// scales with rows-already-taken over total combinations. Six digits keeps the
+// name readable while putting the space comfortably ahead of that growth.
+const SUFFIX_RANGE = 1_000_000;
+
 /**
- * A function that generates a unique identifier by combining a random adjective, a random noun, and a random number (between 0 and 9999).
- * The result is returned as a string with components separated by the specified separator.
- * It is useful when you need to create unique identifiers that are also human-friendly.
- *
- * @param {string} [separator='_'] - The character used to separate the adjective, noun, and number. Defaults to '_' if not provided.
- * @returns {string} A unique, human-friendly identifier.
+ * A function that generates a unique identifier by combining a random
+ * adjective, a random noun, and a random number. The result is returned as a
+ * string with components separated by the specified separator. It is useful
+ * when you need to create unique identifiers that are also human-friendly.
  *
  * @example
+ *     let identifier = window.generate_identifier();
+ *     // identifier would be something like 'clever-idea-483920'
  *
- * let identifier = window.generate_identifier();
- * // identifier would be something like 'clever-idea-123'
- *
+ * @param {string} [separator='_'] - The character used to separate the
+ *   adjective, noun, and number. Defaults to '_' if not provided. Default is
+ *   `'_'`
+ * @returns {string} A unique, human-friendly identifier.
  */
 function generate_identifier(separator = '_', rng = Math.random) {
-    // return a random combination of first_adj + noun + number (between 0 and 9999)
-    // e.g. clever-idea-123
+    // return a random combination of first_adj + noun + number
+    // e.g. clever-idea-483920
     return [
         randomItem(adjectives, rng),
         randomItem(nouns, rng),
-        Math.floor(rng() * 10000),
+        Math.floor(rng() * SUFFIX_RANGE),
     ].join(separator);
 }
 

@@ -574,7 +574,29 @@ function UIWindowSignup(options) {
 
                         if (options.reload_on_success) {
                             window.onbeforeunload = null;
-                            const redirectUrl = options.redirect_url || '/';
+                            // Signup can interrupt a direct app landing (the
+                            // login cover page's "Sign up", the session
+                            // picker's "Create Account", the
+                            // must_login_or_signup fallback) — landing on '/'
+                            // afterwards would silently drop the app the URL
+                            // asked for, so app landings are preserved and
+                            // the reloaded boot replays them, launch and
+                            // dashboard intro included (the query string is
+                            // deliberately left behind, mirroring login's
+                            // credential-leak hygiene). Every other route
+                            // keeps the historical '/' — notably
+                            // /action/signup, where coming back to the same
+                            // path would just show this window again.
+                            const on_app_landing =
+                                /^\/(?:desktop\/)?app\/[^/]+\/?$/.test(
+                                    window.location.pathname,
+                                );
+                            const redirectUrl =
+                                options.redirect_url ||
+                                (on_app_landing
+                                    ? window.location.origin +
+                                      window.location.pathname
+                                    : '/');
                             window.location.replace(redirectUrl);
                         } else {
                             resolve(email_verified);

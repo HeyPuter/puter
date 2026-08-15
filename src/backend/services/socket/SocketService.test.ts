@@ -327,6 +327,103 @@ describe('SocketService (live socket.io)', () => {
             }),
         ).rejects.toThrow();
     });
+
+    // -- Connection caps ----------------------------------------------
+    //
+    // The handshake succeeds and the cap is applied after, so an over-cap
+    // client sees `connect` followed by a server-side `disconnect`.
+
+    /**
+     * Whether the server dropped this socket shortly after connect. Settled by
+     * polling `connected` rather than by listening for `disconnect`: the
+     * rejection can land before a listener attached post-`connect()` is in
+     * place, and a missed event would read as "admitted".
+     */
+    const wasDropped = async (socket: ClientSocket): Promise<boolean> => {
+        await new Promise((r) => setTimeout(r, 500));
+        return !socket.connected;
+    };
+
+    const withLimits = async (
+        limits: { perOrigin: number; perUser: number },
+        body: () => Promise<void>,
+    ) => {
+        const prevOrigin = SocketService.MAX_SOCKETS_PER_ORIGIN;
+        const prevUser = SocketService.MAX_SOCKETS_PER_USER;
+        const prevTiers = SocketService.MAX_SOCKETS_BY_SUBSCRIPTION;
+        SocketService.MAX_SOCKETS_PER_ORIGIN = limits.perOrigin;
+        SocketService.MAX_SOCKETS_PER_USER = limits.perUser;
+        // Empty the tier map so the base above applies whatever tier the
+        // test user resolves to.
+        SocketService.MAX_SOCKETS_BY_SUBSCRIPTION = {};
+        try {
+            await body();
+        } finally {
+            SocketService.MAX_SOCKETS_PER_ORIGIN = prevOrigin;
+            SocketService.MAX_SOCKETS_PER_USER = prevUser;
+            SocketService.MAX_SOCKETS_BY_SUBSCRIPTION = prevTiers;
+        }
+    };
+
+    const connectFrom = (origin: string | undefined) =>
+        connect(
+            { auth_token: `Bearer ${user.token}` },
+            origin ? { extraHeaders: { Origin: origin } } : {},
+        );
+
+    it('caps connections per origin', async () => {
+        await withLimits({ perOrigin: 1, perUser: 100 }, async () => {
+            const first = await connectFrom('https://one.example');
+            expect(await wasDropped(first)).toBe(false);
+
+            const second = await connectFrom('https://one.example');
+            expect(await wasDropped(second)).toBe(true);
+
+            first.disconnect();
+        });
+    });
+
+    it('lets a second origin through while the account has room', async () => {
+        await withLimits({ perOrigin: 1, perUser: 100 }, async () => {
+            const first = await connectFrom('https://a.example');
+            const second = await connectFrom('https://b.example');
+
+            expect(await wasDropped(first)).toBe(false);
+            expect(await wasDropped(second)).toBe(false);
+
+            first.disconnect();
+            second.disconnect();
+        });
+    });
+
+    it('still bounds the account once origins are exhausted', async () => {
+        await withLimits({ perOrigin: 5, perUser: 1 }, async () => {
+            const first = await connectFrom('https://c.example');
+            expect(await wasDropped(first)).toBe(false);
+
+            // Fresh origin, so the per-origin bucket is empty — the account
+            // total is the only thing left to say no.
+            const second = await connectFrom('https://d.example');
+            expect(await wasDropped(second)).toBe(true);
+
+            first.disconnect();
+        });
+    });
+
+    it('gives a slot back when the connection closes', async () => {
+        await withLimits({ perOrigin: 1, perUser: 100 }, async () => {
+            const first = await connectFrom('https://e.example');
+            expect(await wasDropped(first)).toBe(false);
+            first.disconnect();
+
+            await vi.waitFor(async () => {
+                const next = await connectFrom('https://e.example');
+                const dropped = await wasDropped(next);
+                next.disconnect();
+                expect(dropped).toBe(false);
+            });
+        });
+    });
 });
 
 // -- Event-bus fan-out ------------------------------------------------

@@ -71,7 +71,7 @@ async function UIWindowWelcome (options) {
         window_class: 'window-welcome',
         on_close: function () {
             // save the fact that the user has seen the welcome window
-            puter.kv.set('has_seen_welcome_window', true);
+            puter.kv.set('has_seen_welcome_window', true).catch(err => console.warn('Could not save has_seen_welcome_window:', err));
         },
         body_css: {
             width: 'initial',

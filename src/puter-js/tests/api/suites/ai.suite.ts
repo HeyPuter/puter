@@ -346,6 +346,9 @@ export default suite('ai', {
             `rejection should carry app_or_api_token_required, got ${sessionBody}`,
         );
 
+        // In production this route also requires a paid plan; the test env
+        // turns that gate off (see harness/capabilities.ts) so this stays a
+        // test of the credential shape.
         const apiRes = await call(t.env.users.user.apiToken);
         t.assert.equal(
             apiRes.status,

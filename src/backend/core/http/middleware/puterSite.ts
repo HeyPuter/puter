@@ -21,7 +21,6 @@ import type { RequestHandler } from 'express';
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
 import type { puterClients } from '../../../clients';
-import { FS_COSTS } from '../../../controllers/fs/costs';
 import type { puterServices } from '../../../services';
 import type { puterStores } from '../../../stores';
 import type { IConfig, LayerInstances } from '../../../types';
@@ -71,6 +70,24 @@ import {
  *   /index.html with status 200`. The config file itself is hidden from public
  *   serving.
  */
+
+/**
+ * Reserved folder at a site root holding server-side worker source
+ * (`__workers/<name>.worker.js`). Its contents are backend code — users' trade
+ * secrets live there — so nothing under it is ever served: not directly, not
+ * via the folder→index.html fallback, and not as a custom error page target.
+ * Matched on the decoded, normalized path, and case-insensitively, so no
+ * alternate spelling of the same entry can reach the bytes.
+ *
+ * Matched at ANY depth, not just the site root: site roots can nest, and a site
+ * rooted above another site would otherwise serve the inner site's `__workers/`
+ * as ordinary content under `/inner/__workers/...`.
+ */
+const WORKERS_FOLDER = '__workers';
+const isWorkersSourcePath = (urlPath: string): boolean =>
+    urlPath
+        .split('/')
+        .some((segment) => segment.toLowerCase() === WORKERS_FOLDER);
 
 const SUBDOMAIN_404 = `<div style="font-size: 20px;
         text-align: center;
@@ -494,9 +511,14 @@ export const createPuterSiteMiddleware = (
         // Subdomain hosting bypasses ACL by design: anything the owner placed
         // under the registered root_dir is treated as public. Path traversal
         // is blocked above by `pathPosix.normalize` anchoring at `/`.
-        let entry = isConfigRequest
-            ? null
-            : await layers.stores.fsEntry.getEntryByPath(filePath);
+        // `__workers/` is carved out of that bypass: worker source is the one
+        // thing under a site root that is NOT public. Treated exactly like the
+        // config file — no lookup at all, so the folder→index.html fallback
+        // below can't resolve into it either.
+        let entry =
+            isConfigRequest || isWorkersSourcePath(resolvedUrlPath)
+                ? null
+                : await layers.stores.fsEntry.getEntryByPath(filePath);
         if (entry?.isDir) {
             // Folder request → fall back to <folder>/index.html, the same
             // way `/` is rewritten to `/index.html` at the site root above.
@@ -514,7 +536,13 @@ export const createPuterSiteMiddleware = (
         let statusOverride: number | undefined;
         if (!entry || entry.isDir) {
             const errorTarget = resolveErrorTarget(siteConfig, 404, rootPath);
-            if (errorTarget) {
+            // A config pointing `errors.404.file` into `__workers/` would
+            // publish worker source through the error page — refuse it the
+            // same way a nonexistent target is refused.
+            if (
+                errorTarget &&
+                !isWorkersSourcePath(errorTarget.absPath.slice(rootPath.length))
+            ) {
                 const candidate = await layers.stores.fsEntry.getEntryByPath(
                     errorTarget.absPath,
                 );
@@ -592,45 +620,20 @@ export const createPuterSiteMiddleware = (
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.status(statusOverride ?? (range ? 206 : 200));
 
-        // Best-effort egress metering against the site owner. The request
-        // itself is unauthenticated (public site visitor), so we can't use
-        // req.actor — charge the account that hosts the file. Same cost
-        // key as FS read egress (`filesystem:egress:bytes`). Fires once
-        // the body stream ends so we only meter bytes actually delivered
-        // (not aborted mid-stream).
-        const metering = layers.services.metering as unknown as
-            | {
-                  batchIncrementUsages?: (
-                      actor: unknown,
-                      entries: unknown[],
-                  ) => void;
-              }
-            | undefined;
-        if (metering?.batchIncrementUsages && download.contentLength) {
-            const ownerActor = {
-                user: {
-                    uuid: owner.uuid,
-                    id: owner.id,
-                    username: owner.username,
-                    suspended: !!owner.suspended,
-                },
-            };
-            download.body.once('end', () => {
-                try {
-                    const bytes = download.contentLength!;
-                    metering.batchIncrementUsages!(ownerActor, [
-                        {
-                            usageType: 'filesystem:egress:bytes',
-                            usageAmount: bytes,
-                            costOverride:
-                                FS_COSTS['filesystem:egress:bytes'] * bytes,
-                        },
-                    ]);
-                } catch {
-                    // ignore — non-critical.
-                }
-            });
-        }
+        // Name who this response's bytes are billed to; the egress middleware
+        // does the metering. A visitor carrying a token pays for what they
+        // fetch, and the account hosting the site covers everyone else —
+        // hosting is unauthenticated by design, so most visitors are nobody in
+        // particular. Set unconditionally because hosting subdomains are not
+        // metered by default: this is what opts the response in.
+        req.egressActor = req.actor ?? {
+            user: {
+                uuid: owner.uuid,
+                id: owner.id,
+                username: owner.username,
+                suspended: !!owner.suspended,
+            },
+        };
 
         req.on('close', () => download.body.destroy());
         download.body.on('error', (err) => res.destroy(err));

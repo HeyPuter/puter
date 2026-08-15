@@ -338,5 +338,10 @@ function toAppSummary(
         godmode: Boolean(app.godmode),
         maximize_on_start: Boolean(app.maximize_on_start),
         index_url: app.index_url,
+        // The GUI launches straight from this summary as `app_obj` (no
+        // re-read through AppDriver), so any launch-relevant flag omitted
+        // here silently disappears on those paths — e.g. the dashboard
+        // drawer's feedback control renders off this.
+        feedback_enabled: Boolean(app.feedback_enabled),
     };
 }

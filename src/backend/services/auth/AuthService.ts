@@ -18,7 +18,7 @@
  */
 
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
-import type { Actor } from '../../core/actor';
+import { makeActor, type Actor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
 import {
     ASSET_WINDOW_SECONDS,
@@ -410,8 +410,18 @@ export class AuthService extends PuterService {
      * is what stamps `app_owner`, and an app that owns another app already has
      * full write access to it (`AppDriver.#checkWriteAccess`) including its
      * `index_url`. Everything else stays as strict as interactive delegation —
-     * access-token actors still can't delegate at all, and an app can never
+     * a scoped access token still can't delegate at all, and an app can never
      * name an app it didn't create.
+     *
+     * A full-access ("personal access token") actor is the third shape: it
+     * carries the issuing user's own API reach, which is exactly what
+     * `puter.workers.create` needs — its default sandbox binds the worker to a
+     * `sandbox-<name>` app the same call just created under that user. Blanket-
+     * refusing it broke every worker deploy from a credential minted through
+     * AuthMe (the MCP connector, the CLI). It stays narrower than a root
+     * session: the app must exist and be owned by the same user, and the
+     * resulting token carries an `app`, so account-management gates
+     * (`requireUserActor`) still reject it.
      */
     async #assertWorkerAppDelegationAllowed(
         actor: Actor,
@@ -426,8 +436,16 @@ export class AuthService extends PuterService {
 
         // Root user session: unchanged: may bind a worker to any app.
         if (!actor.app && !actor.accessToken) return;
-        // Access tokens are bound to their issuing identity; no delegation.
-        if (!actor.app) throw forbidden();
+        if (!actor.app) {
+            // Scoped access tokens are bound to their issuing identity and
+            // never delegate; full-access ones may name an app of their user's.
+            if (!actor.accessToken?.fullAccess) throw forbidden();
+            const ownApp = await this.stores.app.getByUid(appUid);
+            if (!ownApp) throw forbidden();
+            if (Number(ownApp.owner_user_id) !== Number(actor.user.id))
+                throw forbidden();
+            return;
+        }
 
         const app = await this.stores.app.getByUid(appUid);
         if (!app) throw forbidden();
@@ -585,9 +603,22 @@ export class AuthService extends PuterService {
      * Revoke a session by uuid, cascading to any rows whose `parent_session_id`
      * points at it. Used by the manage-sessions UI and by
      * `removeSessionByToken` — semantics are identical.
+     *
+     * This is the revoke path for _every_ session kind, access tokens included:
+     * the uuid is what `listSessions` hands the UI, and ownership is checked
+     * against the row itself by the caller. Their grants are dropped here so
+     * the two entry points leave the same state behind.
      */
     async revokeSession(uuid: string): Promise<void> {
+        // Read first — after the cascade these rows carry `revoked_at` and
+        // no longer count as active.
+        const tokenUids = (await this.stores.session.accessTokenUidsForCascade(
+            uuid,
+        )) as string[];
         await this.stores.session.revokeCascade(uuid);
+        for (const tokenUid of tokenUids) {
+            await this.#dropAccessTokenGrants(tokenUid);
+        }
     }
 
     /**
@@ -1545,7 +1576,13 @@ export class AuthService extends PuterService {
 
         // A signature-verified JWT is itself proof of who issued the token —
         // the body's `user_uid` was set by createAccessToken at mint time.
-        // For raw-uuid input we fall back to the persisted authorizer.
+        // For raw-uuid input the session row is the primary authority: a
+        // full-access token carries its grant as a signed claim and writes
+        // no `access_token_permissions` row to resolve against, so reading
+        // ownership from the manifest alone leaves the broadest token we
+        // issue unrevokable. The manifest stays as a fallback for rows that
+        // predate session-backed access tokens.
+        let sessionRow: SessionRow | null = null;
         if (issuerUuidFromJwt !== undefined) {
             if (issuerUuidFromJwt !== actor.user.uuid) {
                 throw new HttpError(404, 'Access token not found', {
@@ -1553,40 +1590,66 @@ export class AuthService extends PuterService {
                 });
             }
         } else {
-            const rows = (await this.clients.db.read(
-                'SELECT `authorizer_user_id` FROM `access_token_permissions` WHERE `token_uid` = ? LIMIT 1',
-                [tokenUid],
-            )) as Array<{ authorizer_user_id?: number | null }>;
-            const ownerId = rows[0]?.authorizer_user_id ?? null;
-            if (ownerId === null || ownerId !== actor.user.id) {
+            sessionRow =
+                await this.stores.session.findActiveByAccessTokenUid(tokenUid);
+            const ownerId =
+                sessionRow?.user_id ??
+                (await this.#accessTokenAuthorizerId(tokenUid));
+            if (ownerId == null || ownerId !== actor.user.id) {
                 throw new HttpError(404, 'Access token not found', {
                     legacyCode: 'not_found',
                 });
             }
         }
 
-        // Permissions rows still DELETE — the "no DELETE on revoke"
-        // rule scoped to the `sessions` table (where the audit trail of
-        // when a session existed/was revoked is load-bearing for forensic
-        // queries and the cascade graph). `access_token_permissions`
-        // rows are the grant manifest for an *active* token; once its
-        // session is soft-revoked, the grants are dead-weight cache
-        // entries that would only confuse `checkMany`. If we later need
-        // permission-grant history for audit, that becomes a
-        // `revoked_at` column on this table, not a behavior change here.
+        await this.#dropAccessTokenGrants(tokenUid);
+
+        if (sessionUidFromJwt) {
+            await this.stores.session.removeByUuid(sessionUidFromJwt);
+        } else {
+            // A v1 JWT carries no `session_uid`, so the row still has to be
+            // found by token identity here.
+            const row =
+                sessionRow ??
+                (await this.stores.session.findActiveByAccessTokenUid(
+                    tokenUid,
+                ));
+            if (row) await this.stores.session.removeByUuid(row.uuid);
+        }
+    }
+
+    /**
+     * Persisted authorizer of an access token, from its grant manifest. Returns
+     * null for a token with no grants — which every full-access token is, so
+     * callers need another source of ownership before treating null as "not
+     * yours".
+     */
+    async #accessTokenAuthorizerId(tokenUid: string): Promise<number | null> {
+        const rows = (await this.clients.db.read(
+            'SELECT `authorizer_user_id` FROM `access_token_permissions` WHERE `token_uid` = ? LIMIT 1',
+            [tokenUid],
+        )) as Array<{ authorizer_user_id?: number | null }>;
+        return rows[0]?.authorizer_user_id ?? null;
+    }
+
+    /**
+     * Drop an access token's grant manifest.
+     *
+     * These rows DELETE rather than soft-revoke — the "no DELETE on revoke"
+     * rule is scoped to the `sessions` table, where the audit trail of when a
+     * session existed and when it died is load-bearing for forensic queries and
+     * the cascade graph. `access_token_permissions` rows are the grant manifest
+     * for an _active_ token; once its session is soft-revoked they are
+     * dead-weight cache entries that would only confuse `checkMany`. If we
+     * later need grant history for audit, that becomes a `revoked_at` column on
+     * this table, not a behavior change here.
+     */
+    async #dropAccessTokenGrants(tokenUid: string): Promise<void> {
         await this.clients.db.write(
             'DELETE FROM `access_token_permissions` WHERE `token_uid` = ?',
             [tokenUid],
         );
         await this.stores.permission.invalidateAccessTokenPerms(tokenUid);
-
-        if (sessionUidFromJwt) {
-            await this.stores.session.removeByUuid(sessionUidFromJwt);
-        } else {
-            const row =
-                await this.stores.session.findActiveByAccessTokenUid(tokenUid);
-            if (row) await this.stores.session.removeByUuid(row.uuid);
-        }
     }
 
     // -- Internals ---------------------------------------------------
@@ -1758,7 +1821,7 @@ export class AuthService extends PuterService {
         }
 
         return {
-            actor: {
+            actor: makeActor({
                 user: this.#actorUserFromRow(user),
                 accessToken: {
                     uid: decoded.token_uid,
@@ -1771,7 +1834,7 @@ export class AuthService extends PuterService {
                     fullAccess:
                         !decoded.app_uid && decoded.full_access === true,
                 },
-            },
+            }),
         };
     }
 
@@ -1798,12 +1861,12 @@ export class AuthService extends PuterService {
     }
 
     #buildUserActor(user: UserRow, session: SessionRow | null): Actor {
-        return {
+        return makeActor({
             user: this.#actorUserFromRow(user),
             session: session
                 ? { uid: session.uuid, kind: session.kind ?? null }
                 : null,
-        };
+        });
     }
 
     #buildAppUnderUserActor(
@@ -1811,7 +1874,7 @@ export class AuthService extends PuterService {
         app: { uid: string; id: number },
         session: SessionRow | null,
     ): Actor {
-        return {
+        return makeActor({
             user: this.#actorUserFromRow(user),
             app: {
                 uid: app.uid,
@@ -1820,6 +1883,6 @@ export class AuthService extends PuterService {
             session: session
                 ? { uid: session.uuid, kind: session.kind ?? null }
                 : null,
-        };
+        });
     }
 }

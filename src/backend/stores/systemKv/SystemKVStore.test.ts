@@ -6,11 +6,62 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { setupTestServer } from '../../testUtil.ts';
-import type { SystemKVStore } from './SystemKVStore.ts';
+import {
+    chunkPathsForIncr,
+    INCR_EXPRESSION_BUDGET_BYTES,
+    incrExpressionBytes,
+    type SystemKVStore,
+} from './SystemKVStore.ts';
 import { PuterServer } from '../../server.ts';
 import type { Actor } from '../../core/actor.ts';
+
+describe('incr expression sizing', () => {
+    const longPath = (i: number): string =>
+        `together:meta-llama/Meta-Llama-3_dot_1-405B-Instruct-Turbo:kind${i}.units`;
+
+    it('grows with the length of the path names, not just their count', () => {
+        const long = Array.from({ length: 10 }, (_, i) => longPath(i));
+        const short = Array.from({ length: 10 }, (_, i) => `m${i}.units`);
+        expect(incrExpressionBytes(long)).toBeGreaterThan(
+            incrExpressionBytes(short),
+        );
+    });
+
+    it('keeps every batch within the budget', () => {
+        const paths = Array.from({ length: 120 }, (_, i) => longPath(i));
+        const batches = chunkPathsForIncr(paths);
+
+        expect(batches.length).toBeGreaterThan(1);
+        for (const batch of batches) {
+            expect(incrExpressionBytes(batch)).toBeLessThanOrEqual(
+                INCR_EXPRESSION_BUDGET_BYTES,
+            );
+        }
+        expect(batches.flat()).toEqual(paths);
+    });
+
+    it('leaves paths that already fit in a single batch', () => {
+        const paths = ['total', 'ai:chat.units', 'ai:chat.cost'];
+        expect(chunkPathsForIncr(paths)).toEqual([paths]);
+    });
+
+    it('still batches a path that cannot fit on its own', () => {
+        // A caller narrowing down a rejection needs the single-path attempt to
+        // happen rather than being handed nothing to try.
+        const enormous = `${'x'.repeat(INCR_EXPRESSION_BUDGET_BYTES)}.units`;
+        expect(chunkPathsForIncr([enormous, 'total'])).toEqual([
+            [enormous],
+            ['total'],
+        ]);
+    });
+
+    it('makes no batches out of no paths', () => {
+        expect(chunkPathsForIncr([])).toEqual([]);
+    });
+});
 
 describe('SystemKVStore', () => {
     let server: PuterServer;
@@ -255,9 +306,9 @@ describe('SystemKVStore', () => {
         });
 
         it('rejects a non-positive limit', async () => {
-            await expect(
-                target.list({ limit: 0 }, opts),
-            ).rejects.toMatchObject({ statusCode: 400 });
+            await expect(target.list({ limit: 0 }, opts)).rejects.toMatchObject(
+                { statusCode: 400 },
+            );
         });
 
         it('rejects a malformed cursor', async () => {
@@ -280,7 +331,8 @@ describe('SystemKVStore', () => {
         });
 
         it('skips ahead with offset', async () => {
-            const all = (await target.list({ as: 'keys' }, opts)).res as string[];
+            const all = (await target.list({ as: 'keys' }, opts))
+                .res as string[];
             const result = await target.list(
                 { as: 'keys', offset: 1, limit: 5 },
                 opts,
@@ -385,10 +437,7 @@ describe('SystemKVStore', () => {
             let cursor: string | undefined;
             do {
                 const page = (
-                    await target.list(
-                        { as: 'keys', limit: 1, cursor },
-                        opts,
-                    )
+                    await target.list({ as: 'keys', limit: 1, cursor }, opts)
                 ).res as { items: string[]; cursor?: string };
                 keys.push(...page.items);
                 cursor = page.cursor;
@@ -500,7 +549,11 @@ describe('SystemKVStore', () => {
             // First bump creates the counter and stamps the (already-elapsed)
             // ttl in the same write — no separate expireAt call.
             await target.incr(
-                { key: 'ttlCounter', pathAndAmountMap: { hits: 1 }, expireAt: past },
+                {
+                    key: 'ttlCounter',
+                    pathAndAmountMap: { hits: 1 },
+                    expireAt: past,
+                },
                 opts,
             );
             const result = await target.get({ key: 'ttlCounter' }, opts);
@@ -510,14 +563,22 @@ describe('SystemKVStore', () => {
         it('keeps the first expireAt stamp across later bumps (if_not_exists)', async () => {
             const future = Math.floor(Date.now() / 1000) + 3600;
             await target.incr(
-                { key: 'ttlKeep', pathAndAmountMap: { hits: 1 }, expireAt: future },
+                {
+                    key: 'ttlKeep',
+                    pathAndAmountMap: { hits: 1 },
+                    expireAt: future,
+                },
                 opts,
             );
             // A later bump passing an already-elapsed ttl must NOT override the
             // first stamp, so the counter stays visible.
             const past = Math.floor(Date.now() / 1000) - 10;
             await target.incr(
-                { key: 'ttlKeep', pathAndAmountMap: { hits: 1 }, expireAt: past },
+                {
+                    key: 'ttlKeep',
+                    pathAndAmountMap: { hits: 1 },
+                    expireAt: past,
+                },
                 opts,
             );
             const result = await target.get({ key: 'ttlKeep' }, opts);
@@ -537,6 +598,68 @@ describe('SystemKVStore', () => {
                 opts,
             );
             expect(after.res).toMatchObject({ a: { b: { c: 5 } } });
+        });
+
+        it('does not try to build paths for an expression rejected on its size', async () => {
+            // Both failures arrive as a ValidationException, but this one is
+            // about the expression rather than the item: createPaths would
+            // write a layer per nested path — each against this same item, so
+            // each costing the whole item — and then re-send a byte-identical
+            // expression to be rejected again. In production that ran as a
+            // sweep every 5s and cost real money, so the guard is worth
+            // pinning: one attempt, then out.
+            const oversized = Object.assign(
+                new Error(
+                    '1 validation error detected: Invalid UpdateExpression: Expression size has exceeded the maximum allowed size;',
+                ),
+                { name: 'ValidationException' },
+            );
+            const update = vi
+                .spyOn(server.clients.dynamo, 'update')
+                .mockRejectedValue(oversized);
+
+            await expect(
+                target.incr(
+                    { key: 'oversized', pathAndAmountMap: { 'a.b': 1 } },
+                    opts,
+                ),
+            ).rejects.toThrow(/Expression size/);
+            expect(update).toHaveBeenCalledTimes(1);
+
+            update.mockRestore();
+        });
+
+        it('still builds paths for a ValidationException about the item', async () => {
+            // The other side of the guard above: a genuinely missing nested
+            // parent must still be created and the update retried.
+            const missingPath = Object.assign(
+                new Error(
+                    'The document path provided in the update expression is invalid for update',
+                ),
+                { name: 'ValidationException' },
+            );
+            const real = server.clients.dynamo.update.bind(
+                server.clients.dynamo,
+            );
+            let first = true;
+            const update = vi
+                .spyOn(server.clients.dynamo, 'update')
+                .mockImplementation((...args) => {
+                    if (first) {
+                        first = false;
+                        return Promise.reject(missingPath);
+                    }
+                    return real(...args);
+                });
+
+            const result = await target.incr(
+                { key: 'guardedNest', pathAndAmountMap: { 'x.y.z': 4 } },
+                opts,
+            );
+
+            expect(result.res).toMatchObject({ x: { y: { z: 4 } } });
+            expect(update.mock.calls.length).toBeGreaterThan(1);
+            update.mockRestore();
         });
 
         it('decr subtracts via the same machinery', async () => {
@@ -726,9 +849,9 @@ describe('SystemKVStore', () => {
 
         afterEach(() => {
             // Nothing a caller sends may end up on the shared prototype.
-            expect(
-                Object.getOwnPropertyNames(Object.prototype),
-            ).not.toContain('polluted');
+            expect(Object.getOwnPropertyNames(Object.prototype)).not.toContain(
+                'polluted',
+            );
             expect(({} as Record<string, unknown>).polluted).toBeUndefined();
         });
 
@@ -848,7 +971,10 @@ describe('SystemKVStore', () => {
         it('rejects an unsafe key in a batchPut item', async () => {
             const value = JSON.parse('{"__proto__":{"polluted":true}}');
             await expect(
-                target.batchPut({ items: [{ key: 'proto-batch', value }] }, opts),
+                target.batchPut(
+                    { items: [{ key: 'proto-batch', value }] },
+                    opts,
+                ),
             ).rejects.toMatchObject({ statusCode: 400 });
         });
 
@@ -880,6 +1006,73 @@ describe('SystemKVStore', () => {
             const getRes = await target.get({ key: 'usage-k' }, opts);
             expect(getRes.usage.read).toBeGreaterThanOrEqual(0);
             expect(getRes.usage.write).toBe(0);
+        });
+    });
+
+    // -- Cross-app privacy probe ---------------------------------------
+    //
+    // Reached only through `namespaceAppUuid`, which the KV driver sets after
+    // its permission check. Asserted at the store so no permission machinery
+    // (which reads flat perms through KV) is in the measurement.
+    describe('cross-app mutations', () => {
+        let crossOpts: { actor: Actor; namespaceAppUuid: string };
+        beforeEach(() => {
+            crossOpts = { actor, namespaceAppUuid: 'app-other' };
+        });
+
+        it('probes a whole batch in one read rather than one per key', async () => {
+            const batchGet = vi.spyOn(server.clients.dynamo, 'batchGet');
+            const get = vi.spyOn(server.clients.dynamo, 'get');
+            try {
+                await target.batchPut(
+                    {
+                        items: [
+                            { key: 'b1', value: 1 },
+                            { key: 'b2', value: 2 },
+                            { key: 'b3', value: 3 },
+                        ],
+                    },
+                    crossOpts,
+                );
+                // A per-key probe would make this N single-key gets.
+                expect(batchGet).toHaveBeenCalledTimes(1);
+                expect(get).not.toHaveBeenCalled();
+            } finally {
+                batchGet.mockRestore();
+                get.mockRestore();
+            }
+        });
+
+        it('bills the probe as a read', async () => {
+            // The probe is a real round trip; metering runs off the usage the
+            // store reports, so swallowing it under-bills the caller.
+            const { usage } = await target.set(
+                { key: 'metered', value: 'v' },
+                crossOpts,
+            );
+            expect(usage.read).toBeGreaterThan(0);
+            expect(usage.write).toBeGreaterThan(0);
+        });
+
+        it('still refuses a private entry through the batch probe', async () => {
+            // Into the *target* namespace: a plain user actor may address any of
+            // its own app namespaces via `appUuid`, which is how the owning app's
+            // data is seeded here.
+            await target.set(
+                { key: 'secret', value: 's', disableSharing: true },
+                { actor, appUuid: 'app-other' },
+            );
+            await expect(
+                target.batchPut(
+                    {
+                        items: [
+                            { key: 'ok', value: 1 },
+                            { key: 'secret', value: 2 },
+                        ],
+                    },
+                    crossOpts,
+                ),
+            ).rejects.toMatchObject({ statusCode: 403 });
         });
     });
 });

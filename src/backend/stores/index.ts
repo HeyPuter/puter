@@ -17,9 +17,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { AppFeedbackStore } from './appFeedback/AppFeedbackStore.js';
 import { AppStore } from './app/AppStore.js';
 import { FSEntryStore } from './fs/FSEntryStore.js';
 import { GroupStore } from './group/GroupStore.js';
+import { CreditHoldStore } from './metering/CreditHoldStore.js';
+import { MeteringBufferStore } from './metering/MeteringBufferStore.js';
 import { NotificationStore } from './notification/NotificationStore.js';
 import { OIDCStore } from './oidc/OIDCStore.js';
 import { PermissionStore } from './permission/PermissionStore.js';
@@ -41,8 +44,11 @@ import type { IPuterStoreRegistry } from './types.js';
 declare module './types.js' {
     interface IPuterStoreInstances {
         kv: SystemKVStore;
+        meteringBuffer: MeteringBufferStore;
+        creditHold: CreditHoldStore;
         user: UserStore;
         app: AppStore;
+        appFeedback: AppFeedbackStore;
         fsEntry: FSEntryStore;
         s3Object: S3ObjectStore;
         subdomain: SubdomainStore;
@@ -57,6 +63,8 @@ declare module './types.js' {
 
 // Ordering matters: stores declared later see earlier ones as peers.
 // PermissionStore depends on `kv`, so `kv` must come first.
+// MeteringBufferStore sits in front of `kv` for metering counters, so it too
+// has to come after it.
 // UserStore / AppStore are leaves (db + redis only); sit early so other
 // stores/services can lean on them for cached lookups.
 // FSEntryStore depends on `kv` (pending-upload sessions live there).
@@ -64,8 +72,11 @@ declare module './types.js' {
 // SessionStore / ShareStore are leaves — only use clients.db.
 export const puterStores = {
     kv: SystemKVStore,
+    meteringBuffer: MeteringBufferStore,
+    creditHold: CreditHoldStore,
     user: UserStore,
     app: AppStore,
+    appFeedback: AppFeedbackStore,
     fsEntry: FSEntryStore,
     s3Object: S3ObjectStore,
     subdomain: SubdomainStore,
