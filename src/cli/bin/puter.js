@@ -19,6 +19,7 @@ import {
   workerDelete,
 } from '../src/commands/worker.js';
 import { appList, appGet } from '../src/commands/app.js';
+import { kvConnect } from '../src/commands/kv.js';
 
 // The Puter.js SDK emits duplicate "stray" rejections for failed API calls in
 // addition to rejecting the promise we await. We already route the awaited
@@ -35,7 +36,7 @@ const program = new Command();
 
 program
   .name('puter')
-  .description('CLI for the Puter platform — deploy sites and workers. (beta)')
+  .description('Puter CLI — developer tooling from your terminal. (beta)')
   .version(version, '-v, --version');
 
 // --- auth ------------------------------------------------------------------
@@ -128,5 +129,15 @@ app
   .description('Show details for one app')
   .argument('<name>')
   .action(action(appGet));
+
+// --- kv ---------------------------------------------------------------------
+
+const kv = program.command('kv').description("Explore an app's key-value store");
+
+kv
+  .command('connect')
+  .description("Open an interactive shell against an app's KV store")
+  .argument('<app>', 'app name or uid')
+  .action(action(kvConnect));
 
 program.parseAsync(process.argv);

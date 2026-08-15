@@ -1,7 +1,6 @@
 # `@heyputer/cli`
 
-> **Beta (0.x).** Deploy static sites and serverless workers to Puter from the
-> terminal.
+> **Beta (0.x).** Puter CLI — developer tooling from your terminal.
 
 ## Install
 
@@ -56,3 +55,32 @@ Browse the apps registered on your account. These commands are read-only.
 puter app list
 puter app get <name>
 ```
+
+## Key-value store
+
+Open an interactive JavaScript shell against one app's key-value store. Takes
+an app name or a uid.
+
+```sh
+puter kv connect <app>
+```
+
+Every `puter.kv` method is bound to that app and available bare, so pasted
+docs work either way:
+
+```console
+$ puter kv connect notes
+✔ Connected to notes (app-1f2e3d4c…) · 12 keys
+kv(notes)> set("greeting", "hi")
+true
+kv(notes)> get("greeting")
+'hi'
+kv(notes)> list("gre", true)
+[ { key: 'greeting', value: 'hi' } ]
+kv(notes)> puter.kv.incr("visits")
+1
+```
+
+Results are awaited for you — `get("k")` prints the value, not a pending
+promise — and `_` holds the last one. `.help` lists the methods, `.clear`
+resets the session, `.exit` (or Ctrl-D) quits. Needs a terminal.
