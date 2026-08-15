@@ -23,7 +23,11 @@ import type { puterServices } from '../services';
 import type { IExtensionServiceInstances } from '../services/types';
 import type { puterStores } from '../stores';
 import type { IExtensionStoreInstances } from '../stores/types';
-import type { DriverConcurrentConfig, DriverRateLimitConfig } from './meta';
+import type {
+    DriverConcurrentConfig,
+    DriverRateLimitConfig,
+    DriverRequireSubscriptionConfig,
+} from './meta';
 import type { IConfig, LayerInstances, WithCostsReporting } from '../types';
 
 /**
@@ -110,6 +114,12 @@ export const PuterDriver = class PuterDriver implements WithCostsReporting {
      * imperatively. See `DriverMeta.noUserSession` in `./meta`.
      */
     declare readonly noUserSession?: boolean;
+    /**
+     * Subscriber-only methods on this driver. Set by `@Driver({
+     * requireSubscription: ... })` or declared imperatively. See
+     * `DriverRequireSubscriptionConfig` in `./meta` for the shape.
+     */
+    declare readonly requireSubscription?: DriverRequireSubscriptionConfig;
 
     constructor(
         protected config: IConfig,

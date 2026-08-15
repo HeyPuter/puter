@@ -23,10 +23,13 @@ import {
     resolveDriverMeta,
     resolveDriverMethodConcurrent,
     resolveDriverMethodRateLimit,
+    resolveDriverMethodRequireSubscription,
     validateDriverConcurrent,
     validateDriverRateLimit,
+    validateDriverRequireSubscription,
     type DriverConcurrentConfig,
     type DriverRateLimitConfig,
+    type DriverRequireSubscriptionConfig,
 } from './meta.js';
 
 // ── validateDriverRateLimit ─────────────────────────────────────────
@@ -434,5 +437,109 @@ describe('@Driver — concurrent option', () => {
             },
         );
         expect(meta?.concurrent?.methods?.foo).toEqual({ limit: 2 });
+    });
+});
+
+// ── requireSubscription ─────────────────────────────────────────────
+
+describe('validateDriverRequireSubscription', () => {
+    it('returns an empty config for null/undefined input', () => {
+        expect(validateDriverRequireSubscription(undefined, 't')).toEqual({});
+        expect(validateDriverRequireSubscription(null, 't')).toEqual({});
+    });
+
+    it('accepts booleans and id allowlists', () => {
+        const cfg: DriverRequireSubscriptionConfig = {
+            default: false,
+            methods: { generate: true, generateLong: ['business', 'pro'] },
+        };
+        expect(validateDriverRequireSubscription(cfg, 't')).toBe(cfg);
+    });
+
+    it('rejects a non-object config', () => {
+        expect(() => validateDriverRequireSubscription(42, 't')).toThrow(
+            /requireSubscription must be an object/,
+        );
+        expect(() => validateDriverRequireSubscription([], 't')).toThrow(
+            /requireSubscription must be an object/,
+        );
+    });
+
+    it('rejects requirements that name nothing', () => {
+        expect(() =>
+            validateDriverRequireSubscription({ default: [] }, 't'),
+        ).toThrow(/at least one subscription id/);
+        expect(() =>
+            validateDriverRequireSubscription({ methods: { a: [1] } }, 't'),
+        ).toThrow(/must be strings/);
+        expect(() =>
+            validateDriverRequireSubscription({ methods: { a: 'pro' } }, 't'),
+        ).toThrow(/expected true\/false or an array of ids/);
+    });
+});
+
+describe('resolveDriverMethodRequireSubscription', () => {
+    const cfg: DriverRequireSubscriptionConfig = {
+        default: true,
+        methods: { list: false, generateLong: ['pro'] },
+    };
+
+    it('prefers a per-method entry over the default', () => {
+        expect(resolveDriverMethodRequireSubscription(cfg, 'list')).toBe(false);
+        expect(
+            resolveDriverMethodRequireSubscription(cfg, 'generateLong'),
+        ).toEqual(['pro']);
+    });
+
+    it('falls back to the default, and to undefined with no config', () => {
+        expect(resolveDriverMethodRequireSubscription(cfg, 'generate')).toBe(
+            true,
+        );
+        expect(
+            resolveDriverMethodRequireSubscription(undefined, 'generate'),
+        ).toBeUndefined();
+        expect(resolveDriverMethodRequireSubscription({}, 'generate')).toBe(
+            undefined,
+        );
+    });
+});
+
+describe('resolveDriverMeta — requireSubscription', () => {
+    it('reads the block off the decorator', () => {
+        @Driver('test-iface', {
+            name: 'decorated',
+            requireSubscription: { methods: { generate: true } },
+        })
+        class Decorated {}
+
+        expect(resolveDriverMeta(new Decorated() as never)).toMatchObject({
+            requireSubscription: { methods: { generate: true } },
+        });
+    });
+
+    it('validates an imperatively declared block', () => {
+        const driver = {
+            driverInterface: 'test-iface',
+            driverName: 'imperative',
+            requireSubscription: { default: ['pro'] },
+        };
+        expect(resolveDriverMeta(driver as never)).toMatchObject({
+            requireSubscription: { default: ['pro'] },
+        });
+
+        const bad = { ...driver, requireSubscription: { default: 'pro' } };
+        expect(() => resolveDriverMeta(bad as never)).toThrow(
+            /expected true\/false or an array of ids/,
+        );
+    });
+
+    it('leaves the block absent when a driver declares nothing', () => {
+        const driver = {
+            driverInterface: 'test-iface',
+            driverName: 'plain',
+        };
+        expect(
+            resolveDriverMeta(driver as never)?.requireSubscription,
+        ).toBeUndefined();
     });
 });

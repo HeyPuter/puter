@@ -46,6 +46,8 @@ Shared by chat, image generation, video, TTS, speech and OCR:
 
 Concurrency is counted per interface, so an image generation and a chat completion do not compete for the same slots.
 
+The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/puterai/anthropic/v1/messages`) additionally require a paid plan — a free account calling them gets `402 subscription_required`. The same models are available to every account through `puter.ai.*` and `/drivers/call`, under the limits above; the model catalogue endpoints stay open to everyone.
+
 ### Key-value store
 
 | Limit | Paid | Free | Anonymous |
@@ -108,6 +110,7 @@ Every account has a byte quota for the filesystem (100 MiB free; paid plans add 
 | --- | --- | --- | --- |
 | `429` | `too_many_requests` | Rate or concurrency limit | Back off and retry; the window is at most 60s (or 1h for the sustained FS budget) |
 | `402` | `insufficient_funds` | Monthly credit spent | The user buys credit or upgrades; resets next month |
+| `402` | `subscription_required` | The endpoint is limited to paid plans | The user upgrades — retrying or waiting changes nothing |
 | `413` | `storage_limit_reached` | Storage quota reached | The user deletes files or upgrades |
 
 Errors come back as JSON: `{ "error": …, "message": …, "code": … }`.

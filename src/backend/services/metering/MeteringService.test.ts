@@ -158,6 +158,29 @@ describe('MeteringService', () => {
             expect(policy.id).toBe('custom-default');
         });
 
+        // A resolver can name a policy nobody registered — an extension that
+        // failed to load, or a plan renamed on one side only. Every caller
+        // reads fields straight off the result, so handing back a policy is
+        // the difference between a downgrade and a 500 on every gated route.
+        it('falls back to a free policy when a resolver names an unregistered plan', async () => {
+            target.registerSubscriptionResolver(async () => 'ghost-plan');
+
+            const policy = await target.getActorSubscription(actor);
+            expect(policy.id).toBe(DEFAULT_FREE_SUBSCRIPTION);
+            expect(policy.monthUsageAllowance).toBeGreaterThan(0);
+        });
+
+        it('falls back when the default resolver names one too', async () => {
+            target.registerSubscriptionResolver(async () => 'ghost-plan');
+            target.registerDefaultSubscriptionResolver(
+                async () => 'ghost-default',
+            );
+
+            const tempActor: Actor = { user: makeUser({ email: null }) };
+            const policy = await target.getActorSubscription(tempActor);
+            expect(policy.id).toBe(DEFAULT_TEMP_SUBSCRIPTION);
+        });
+
         // Rate and concurrency gates resolve the subscription on every gated
         // request, and a resolver may reach a remote store to answer. Without
         // the cache, adding a tiered limit to a hot route would add a round

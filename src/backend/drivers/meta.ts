@@ -18,6 +18,10 @@
  */
 
 import type { Readable } from 'node:stream';
+import {
+    validateSubscriptionRequirement,
+    type SubscriptionRequirement,
+} from '../services/metering/enforcement.js';
 import type { WithLifecycle } from '../types';
 
 // -- Stream result convention ----------------------------------------
@@ -58,6 +62,8 @@ export const DRIVER_ALIASES_KEY = '__driverAliases' as const;
 export const DRIVER_RATE_LIMIT_KEY = '__driverRateLimit' as const;
 export const DRIVER_CONCURRENT_KEY = '__driverConcurrent' as const;
 export const DRIVER_NO_USER_SESSION_KEY = '__driverNoUserSession' as const;
+export const DRIVER_REQUIRE_SUBSCRIPTION_KEY =
+    '__driverRequireSubscription' as const;
 
 // -- Driver rate-limit config ----------------------------------------
 //
@@ -296,6 +302,72 @@ export function resolveDriverMethodConcurrent(
     return cfg.methods?.[method] ?? cfg.default;
 }
 
+// -- Driver subscription requirement ---------------------------------
+//
+// Per-method counterpart of `RouteOptions.requireSubscription`. It lives on the
+// driver for the same reason `noUserSession` does: `/drivers/call` is one
+// shared route, so a requirement declared in route options would apply to every
+// driver at once.
+
+export interface DriverRequireSubscriptionConfig {
+    /** Applied to any method not listed in `methods`. */
+    default?: SubscriptionRequirement;
+    /** Per-method overrides. Keys are driver method names. */
+    methods?: Record<string, SubscriptionRequirement>;
+}
+
+/**
+ * Validate a `requireSubscription` block. Same loud-at-boot contract as the
+ * rate-limit and concurrent validators.
+ */
+export function validateDriverRequireSubscription(
+    value: unknown,
+    label: string,
+): DriverRequireSubscriptionConfig {
+    if (value == null) return {};
+    if (typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`${label}: requireSubscription must be an object`);
+    }
+    const cfg = value as Record<string, unknown>;
+    if (cfg.default !== undefined) {
+        validateSubscriptionRequirement(
+            cfg.default,
+            `${label}.requireSubscription.default`,
+        );
+    }
+    if (cfg.methods !== undefined) {
+        if (
+            typeof cfg.methods !== 'object' ||
+            cfg.methods === null ||
+            Array.isArray(cfg.methods)
+        ) {
+            throw new Error(
+                `${label}.requireSubscription.methods must be an object`,
+            );
+        }
+        for (const [name, requirement] of Object.entries(cfg.methods)) {
+            validateSubscriptionRequirement(
+                requirement,
+                `${label}.requireSubscription.methods.${name}`,
+            );
+        }
+    }
+    return cfg as DriverRequireSubscriptionConfig;
+}
+
+/**
+ * Resolve the subscription requirement for a method. Same precedence as the
+ * other per-method resolvers: an entry in `methods` wins over `default`, and
+ * `undefined` means the method is open to every plan.
+ */
+export function resolveDriverMethodRequireSubscription(
+    cfg: DriverRequireSubscriptionConfig | undefined,
+    method: string,
+): SubscriptionRequirement | undefined {
+    if (!cfg) return undefined;
+    return cfg.methods?.[method] ?? cfg.default;
+}
+
 /**
  * Resolved metadata for a registered driver. Read from either decorator
  * metadata or imperative instance properties.
@@ -337,6 +409,13 @@ export interface DriverMeta {
      * driver.
      */
     noUserSession?: boolean;
+    /**
+     * Which methods on this driver need a subscription, and which plans count.
+     * Per-method entries override `default`; a method covered by neither stays
+     * open to every plan. Per-driver for the same reason as `noUserSession` —
+     * the dispatch route is shared.
+     */
+    requireSubscription?: DriverRequireSubscriptionConfig;
 }
 
 /**
@@ -392,6 +471,19 @@ export function resolveDriverMeta(
         );
     }
 
+    const protoRequireSubscription = proto[DRIVER_REQUIRE_SUBSCRIPTION_KEY] as
+        | DriverRequireSubscriptionConfig
+        | undefined;
+    let requireSubscription: DriverRequireSubscriptionConfig | undefined;
+    if (protoRequireSubscription) {
+        requireSubscription = protoRequireSubscription;
+    } else if (driver.requireSubscription !== undefined) {
+        requireSubscription = validateDriverRequireSubscription(
+            driver.requireSubscription,
+            `driver '${driverName ?? '(unnamed)'}'`,
+        );
+    }
+
     const noUserSession =
         (proto[DRIVER_NO_USER_SESSION_KEY] as boolean | undefined) ??
         (driver.noUserSession as boolean | undefined) ??
@@ -407,6 +499,7 @@ export function resolveDriverMeta(
         rateLimit,
         concurrent,
         noUserSession,
+        requireSubscription,
     };
 }
 

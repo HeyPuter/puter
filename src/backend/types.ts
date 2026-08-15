@@ -991,15 +991,23 @@ interface IConfigOptional {
      * as does serving a hosted site — those bytes are billed to the account
      * hosting it but requested by visitors who have no say in its balance.
      *
-     * - `enabled` — defaults to on. The switch to reach for if enforcement is
-     *   turning away traffic it shouldn't; usage is still recorded either way.
+     * - `enabled` — defaults to on, and covers the plan gates below as well. The
+     *   switch to reach for if enforcement is turning away traffic it
+     *   shouldn't; usage is still recorded either way.
      * - `workers` — extend enforcement to worker-driven calls. Off by default: a
      *   worker has no prompt to show and nobody watching, so being cut off
      *   presents as a program that started failing.
+     * - `subscriptions` — whether surfaces that declare a plan requirement
+     *   (`requireSubscription`) enforce it. Defaults to on, and off wherever no
+     *   paid plan exists to be on (self-hosted installs ship it off). Turning
+     *   it off opens those surfaces to every account without unpicking the
+     *   declarations; `enabled: false` turns it off along with everything
+     *   else.
      */
     meteringEnforcement?: {
         enabled?: boolean;
         workers?: boolean;
+        subscriptions?: boolean;
     };
 
     /**

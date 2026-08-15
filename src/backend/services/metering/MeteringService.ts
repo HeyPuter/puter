@@ -43,6 +43,7 @@ import type {
 
 import { LOCAL_UNLIMITED_USER } from '../../data/subPolicies/localUnlimitedUserPolicy.js';
 import { SUB_POLICIES } from '../../data/subPolicies/index.js';
+import { REGISTERED_USER_FREE } from '../../data/subPolicies/registeredUserFreePolicy.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 
 // -- Types ------------------------------------------------------------
@@ -1302,10 +1303,22 @@ export class MeteringService extends PuterService {
             // asked for unlimited metering with no policy at all.
             ...(this.config.unlimitedMetering ? [LOCAL_UNLIMITED_USER] : []),
         ] as SubscriptionPolicy[];
-        return (
+        // A resolver can name a policy nobody registered — an extension that
+        // failed to load, a plan renamed on one side only. Falling through to
+        // the built-in free policy keeps callers holding a real policy: the
+        // alternative is `undefined` reaching every reader of `.id` and
+        // `.monthUsageAllowance` as a 500 rather than a downgrade.
+        const policy =
             availablePolicies.find((p) => p.id === resolvedUser) ??
-            availablePolicies.find((p) => p.id === resolvedDefault)!
+            availablePolicies.find((p) => p.id === resolvedDefault) ??
+            availablePolicies.find((p) => p.id === fallbackDefault);
+        if (policy) return policy;
+        console.warn(
+            `[metering] no registered policy for '${resolvedUser}' or` +
+                ` '${resolvedDefault}' — falling back to` +
+                ` '${REGISTERED_USER_FREE.id}'`,
         );
+        return REGISTERED_USER_FREE as SubscriptionPolicy;
     }
 
     async getActorAddons(actor: Actor): Promise<UsageAddons> {
