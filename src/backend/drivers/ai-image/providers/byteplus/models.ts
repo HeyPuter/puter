@@ -72,6 +72,11 @@ export const SEEDREAM_RESOLUTION_MAP: Record<
 
 const SEEDREAM_QUALITY_LEVELS = ['1k', '1.5k', '2k'];
 
+// seedream-4-5 and the 5.0 series enforce a minimum output of 3,686,400
+// pixels, which every 1K and 1.5K entry in the table above falls under —
+// they only accept the 2K tier.
+const SEEDREAM_2K_ONLY = ['2k'];
+
 // Costs are in usd-cents per image, hardcoded from
 // https://docs.byteplus.com/en/docs/ModelArk/1544106 (pricing) and
 // https://docs.byteplus.com/en/docs/ModelArk/1330310 (catalog).
@@ -121,7 +126,7 @@ export const BYTEPLUS_IMAGE_GENERATION_MODELS: IImageModel[] = [
         pricing_unit: 'per-image',
         index_cost_key: 'per-image',
         costs: { 'per-image': 3.5 },
-        allowedQualityLevels: SEEDREAM_QUALITY_LEVELS,
+        allowedQualityLevels: SEEDREAM_2K_ONLY,
         resolution_map: SEEDREAM_RESOLUTION_MAP,
     },
     {
@@ -137,7 +142,7 @@ export const BYTEPLUS_IMAGE_GENERATION_MODELS: IImageModel[] = [
         pricing_unit: 'per-image',
         index_cost_key: 'per-image',
         costs: { 'per-image': 4 },
-        allowedQualityLevels: SEEDREAM_QUALITY_LEVELS,
+        allowedQualityLevels: SEEDREAM_2K_ONLY,
         resolution_map: SEEDREAM_RESOLUTION_MAP,
     },
     {
@@ -155,22 +160,5 @@ export const BYTEPLUS_IMAGE_GENERATION_MODELS: IImageModel[] = [
         costs: { 'per-image': 3 },
         allowedQualityLevels: SEEDREAM_QUALITY_LEVELS,
         resolution_map: SEEDREAM_RESOLUTION_MAP,
-    },
-    {
-        // Image-to-image only; output keeps the source image's size, so the
-        // Seedream size/tier machinery doesn't apply.
-        puterId: 'byteplus:byteplus/seededit-3-0-i2i-250628',
-        id: 'seededit-3-0-i2i-250628',
-        aliases: [
-            'byteplus/seededit-3-0-i2i-250628',
-            'seededit-3-0-i2i',
-            'byteplus/seededit-3-0-i2i',
-            'seededit-3-0',
-        ],
-        name: 'SeedEdit 3.0 (image-to-image)',
-        costs_currency: 'usd-cents',
-        pricing_unit: 'per-image',
-        index_cost_key: 'per-image',
-        costs: { 'per-image': 3 },
     },
 ];

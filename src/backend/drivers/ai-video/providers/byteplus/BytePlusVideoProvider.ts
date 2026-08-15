@@ -157,15 +157,15 @@ export class BytePlusVideoProvider extends VideoProvider {
             this.#coerceSeconds(seconds ?? duration) ?? spec.duration.default,
             spec.duration.max,
         );
-        // Ark durations are a contiguous integer range, so no ladder —
-        // clamp to whatever whole seconds the actor can still afford.
+        // `durationSeconds` enumerates the model's whole-second range, so a
+        // sub-minimum request rounds up to the shortest supported clip rather
+        // than being rejected as unaffordable.
         const cappedSeconds = await capSecondsToRemainingCredits({
             metering: this.#meteringService,
             actor,
             perSecondMicroCents,
             requestedSeconds,
-            allowedSeconds: null,
-            minSeconds: spec.duration.min,
+            allowedSeconds: model.durationSeconds,
             modelId: model.id,
         });
 
@@ -406,7 +406,13 @@ export class BytePlusVideoProvider extends VideoProvider {
         const spec = BYTEPLUS_VIDEO_SPECS[model.id];
         if (typeof candidate === 'string') {
             const normalized = candidate.trim().toLowerCase();
-            if (spec.dims[normalized]) return normalized;
+            // The shared `dims` table covers a whole model family, so gate on
+            // what this model actually advertises — otherwise e.g. 1080p on a
+            // 480p/720p-only model reaches Ark just to be rejected there.
+            const supported = model.dimensions!.some(
+                (d) => d.toLowerCase() === normalized,
+            );
+            if (supported && spec.dims[normalized]) return normalized;
         }
         return fallback ?? model.dimensions![0].toLowerCase();
     }

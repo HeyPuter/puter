@@ -237,6 +237,35 @@ describe('BytePlusVideoProvider.generate request shape', () => {
         expect(body.duration).toBe(15);
     });
 
+    // A clip shorter than the model's minimum is a duration to round up, not
+    // an affordability problem — it used to surface as "insufficient funds".
+    it('rounds a sub-minimum duration up to the shortest supported clip', async () => {
+        mockTaskFlow(succeededTask({ resolution: '480p' }));
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'seedance-2-0-mini',
+                prompt: 'hi',
+                resolution: '480p',
+                seconds: 2,
+            }),
+        );
+        expect(sentBody().duration).toBe(4);
+    });
+
+    // `dims` is shared across a model family, so it can't be the gate for
+    // what an individual model accepts.
+    it('falls back to the default resolution when the model does not list it', async () => {
+        mockTaskFlow(succeededTask({ resolution: '720p' }));
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'seedance-2-0-mini',
+                prompt: 'hi',
+                resolution: '1080p',
+            }),
+        );
+        expect(sentBody().resolution).toBe('720p');
+    });
+
     it('omits generate_audio for models without audio and passes seed for 1.x', async () => {
         mockTaskFlow(succeededTask({ resolution: '1080p' }));
         await withTestActor(() =>

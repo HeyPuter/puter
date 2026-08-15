@@ -42,6 +42,12 @@ const MAX_TOTAL_PIXELS = 4_624_220;
 // rate, above it the higher rate.
 const PRO_TIER_BREAK_PIXELS = 2_610_000;
 
+// Ark's `size` tiers, smallest first.
+const TIERS = ['1k', '1.5k', '2k'] as const;
+type Tier = (typeof TIERS)[number];
+const isTier = (v: string): v is Tier =>
+    (TIERS as readonly string[]).includes(v);
+
 // Per-request reference image caps, per the API reference.
 const MAX_INPUT_IMAGES_PRO = 10;
 const MAX_INPUT_IMAGES_SEEDREAM = 14;
@@ -62,7 +68,7 @@ interface ArkImageResponse {
 }
 
 /**
- * BytePlus ModelArk image generation provider (Seedream / SeedEdit).
+ * BytePlus ModelArk image generation provider (Seedream).
  *
  * Ark's `POST /images/generations` is OpenAI-compatible enough to reuse the
  * OpenAI SDK (same client/auth as BytePlusProvider in ai-chat); Ark-specific
@@ -100,7 +106,6 @@ export class BytePlusImageProvider implements IImageProvider {
         const { input_image, input_image_mime_type } = params;
 
         const selectedModel = this.#getModel(model);
-        const isSeedEdit = selectedModel.id.startsWith('seededit-');
         const isPro = selectedModel.pricing_unit === 'per-tier';
 
         if (test_mode) {
@@ -117,11 +122,9 @@ export class BytePlusImageProvider implements IImageProvider {
         if (input_image && (!input_images || input_images.length === 0)) {
             input_images = [input_image];
         }
-        const maxInputImages = isSeedEdit
-            ? 1
-            : isPro
-              ? MAX_INPUT_IMAGES_PRO
-              : MAX_INPUT_IMAGES_SEEDREAM;
+        const maxInputImages = isPro
+            ? MAX_INPUT_IMAGES_PRO
+            : MAX_INPUT_IMAGES_SEEDREAM;
         if (input_images && input_images.length > maxInputImages) {
             throw new HttpError(
                 400,
@@ -129,23 +132,16 @@ export class BytePlusImageProvider implements IImageProvider {
                 { legacyCode: 'bad_request' },
             );
         }
-        if (isSeedEdit && (!input_images || input_images.length === 0)) {
-            throw new HttpError(
-                400,
-                `${selectedModel.id} is image-to-image only; pass an input image via input_image`,
-                { legacyCode: 'bad_request' },
-            );
-        }
         const inputImageCount = input_images?.length ?? 0;
 
-        const tier = this.#normalizeTier(quality);
-        const size = isSeedEdit ? undefined : this.#resolveSize(tier, ratio);
+        const tier = this.#normalizeTier(quality, selectedModel);
+        const size = this.#resolveSize(tier, ratio);
 
         // The pro model bills by output pixel count; everything else is a
         // flat per-image rate.
         let outputCostKey: string;
         if (isPro) {
-            const pixels = this.#sizePixels(size!);
+            const pixels = this.#sizePixels(size);
             outputCostKey =
                 pixels !== undefined
                     ? pixels > PRO_TIER_BREAK_PIXELS
@@ -168,6 +164,11 @@ export class BytePlusImageProvider implements IImageProvider {
         const estimatedCents = outputCents + billableInputs * inputImageCents;
 
         const actor = Context.get('actor');
+        if (!actor) {
+            throw new HttpError(401, 'Authentication required', {
+                legacyCode: 'unauthorized',
+            });
+        }
         const usageAllowed = await this.#meteringService.hasEnoughCredits(
             actor,
             estimatedCents * 1_000_000,
@@ -246,10 +247,27 @@ export class BytePlusImageProvider implements IImageProvider {
             : `data:${mimeHint ?? 'image/png'};base64,${img}`;
     }
 
-    #normalizeTier(quality?: string): '1k' | '1.5k' | '2k' {
+    /**
+     * Pick the tier to request. Models with a minimum output-pixel count reject
+     * the smaller tiers outright (and the aspect-ratio table maps them to
+     * sub-minimum sizes), so snap up to the nearest tier the model allows
+     * rather than letting Ark 400 the request.
+     */
+    #normalizeTier(quality: string | undefined, model: IImageModel): Tier {
         const q = (quality ?? '').toLowerCase();
         // Ark's default size is 2K when unspecified.
-        return q === '1k' || q === '1.5k' || q === '2k' ? q : '2k';
+        const requested: Tier = isTier(q) ? q : '2k';
+
+        const allowed = TIERS.filter(
+            (t) => model.allowedQualityLevels?.includes(t) ?? true,
+        );
+        if (allowed.length === 0 || allowed.includes(requested)) {
+            return requested;
+        }
+        return (
+            allowed.find((t) => TIERS.indexOf(t) > TIERS.indexOf(requested)) ??
+            allowed[allowed.length - 1]
+        );
     }
 
     /**
@@ -260,10 +278,7 @@ export class BytePlusImageProvider implements IImageProvider {
      *   documented `WxH` for (aspect, tier)
      * - Otherwise → the tier keyword (`1K`/`1.5K`/`2K`, method 1)
      */
-    #resolveSize(
-        tier: '1k' | '1.5k' | '2k',
-        ratio?: { w: number; h: number },
-    ): string {
+    #resolveSize(tier: Tier, ratio?: { w: number; h: number }): string {
         if (ratio?.w && ratio?.h) {
             const pixels = ratio.w * ratio.h;
             if (pixels >= MIN_TOTAL_PIXELS) {

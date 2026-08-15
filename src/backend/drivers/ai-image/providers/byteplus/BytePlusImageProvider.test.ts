@@ -255,7 +255,11 @@ describe('BytePlusImageProvider.generate request shape', () => {
     it('maps quality to the tier keyword case-insensitively', async () => {
         generateMock.mockResolvedValueOnce(sampleResponse);
         await withTestActor(() =>
-            makeProvider().generate({ prompt: 'hi', quality: '1.5K' }),
+            makeProvider().generate({
+                model: 'seedream-4-0',
+                prompt: 'hi',
+                quality: '1.5K',
+            }),
         );
         expect(generateMock.mock.calls[0]![0].size).toBe('1.5K');
     });
@@ -264,12 +268,38 @@ describe('BytePlusImageProvider.generate request shape', () => {
         generateMock.mockResolvedValueOnce(sampleResponse);
         await withTestActor(() =>
             makeProvider().generate({
+                model: 'seedream-4-0',
                 prompt: 'hi',
                 quality: '1k',
                 ratio: { w: 16, h: 9 },
             }),
         );
         expect(generateMock.mock.calls[0]![0].size).toBe('1424x800');
+    });
+
+    // seedream-4-5 and the 5.0 series reject anything under 3,686,400 pixels,
+    // which rules out every 1K/1.5K size — both the tier keyword and the
+    // aspect-ratio mapping have to land on 2K.
+    it('snaps a sub-minimum tier up to the smallest the model accepts', async () => {
+        generateMock.mockResolvedValueOnce(sampleResponse);
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'seedream-4-5',
+                prompt: 'hi',
+                quality: '1k',
+            }),
+        );
+        expect(generateMock.mock.calls[0]![0].size).toBe('2K');
+
+        generateMock.mockResolvedValueOnce(sampleResponse);
+        await withTestActor(() =>
+            makeProvider().generate({
+                prompt: 'hi',
+                quality: '1.5k',
+                ratio: { w: 16, h: 9 },
+            }),
+        );
+        expect(generateMock.mock.calls[1]![0].size).toBe('2816x1584');
     });
 
     it('passes explicit pixel dimensions straight through', async () => {
@@ -295,18 +325,17 @@ describe('BytePlusImageProvider.generate request shape', () => {
         expect(generateMock).not.toHaveBeenCalled();
     });
 
-    it('omits size for the i2i-only seededit model', async () => {
+    it('sends a URL input image untouched', async () => {
         generateMock.mockResolvedValueOnce(sampleResponse);
         await withTestActor(() =>
             makeProvider().generate({
-                model: 'seededit-3-0-i2i',
+                model: 'seedream-4-0',
                 prompt: 'add a hat',
                 input_image: 'https://example.com/cat.png',
             }),
         );
         const sent = generateMock.mock.calls[0]![0];
-        expect(sent.model).toBe('seededit-3-0-i2i-250628');
-        expect(sent.size).toBeUndefined();
+        expect(sent.model).toBe('seedream-4-0-250828');
         expect(sent.image).toBe('https://example.com/cat.png');
     });
 });
@@ -351,21 +380,9 @@ describe('BytePlusImageProvider.generate input images', () => {
         await expect(
             withTestActor(() =>
                 makeProvider().generate({
-                    model: 'seededit-3-0-i2i',
+                    model: 'dola-seedream-5-0-pro',
                     prompt: 'hi',
-                    input_images: [PNG, PNG],
-                }),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-        expect(generateMock).not.toHaveBeenCalled();
-    });
-
-    it('requires an input image for seededit', async () => {
-        await expect(
-            withTestActor(() =>
-                makeProvider().generate({
-                    model: 'seededit-3-0-i2i',
-                    prompt: 'hi',
+                    input_images: Array(11).fill(PNG),
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 400 });

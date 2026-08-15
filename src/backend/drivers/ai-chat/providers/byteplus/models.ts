@@ -154,7 +154,7 @@ export const BYTEPLUS_MODELS: IChatModel[] = [
     bytePlusModel(
         'glm-4-7-251222',
         'GLM-4.7',
-        256 * K,
+        200 * K,
         128 * K,
         usdPerMToken(0.6, 2.2, 0.11),
         { extraAliases: series('glm-4-7') },
