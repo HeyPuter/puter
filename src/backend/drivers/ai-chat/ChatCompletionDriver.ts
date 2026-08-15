@@ -41,6 +41,7 @@ import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import { GeminiChatProvider } from './providers/gemini/GeminiChatProvider.js';
 import { GroqAIProvider } from './providers/groq/GroqAIProvider.js';
 import { InfronProvider } from './providers/infron/InfronProvider.js';
+import { MetaProvider } from './providers/meta/MetaProvider.js';
 import { MiniMaxProvider } from './providers/minimax/MiniMaxProvider.js';
 import { MistralAIProvider } from './providers/mistral/MistralAiProvider.js';
 import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
@@ -1246,6 +1247,18 @@ export class ChatCompletionDriver extends PuterDriver {
                 {
                     apiKey: infronKey,
                     apiBaseUrl: infron?.apiBaseUrl as string | undefined,
+                },
+                metering,
+            );
+        }
+
+        const meta = providers['meta'];
+        const metaKey = readKey(meta);
+        if (metaKey) {
+            this.#providers['meta'] = new MetaProvider(
+                {
+                    apiKey: metaKey,
+                    apiBaseUrl: meta?.apiBaseUrl as string | undefined,
                 },
                 metering,
             );
