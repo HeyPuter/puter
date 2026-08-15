@@ -131,6 +131,11 @@ S3_SECRET_KEY=$S3_SECRET_KEY
 S3_BUCKET=puter-local
 EOF
 
+    # `meteringEnforcement.subscriptions` is off here because a self-hosted
+    # install has no paid plans to be on: every account resolves to the free
+    # policy, so leaving the plan gates armed would 402 the surfaces that
+    # declare one (the OpenAI/Anthropic-compatible AI endpoints) for everybody.
+    # The code default is on — this is a property of the install, not of Puter.
     log "writing puter/config/config.json"
     cat > puter/config/config.json <<EOF
 {
@@ -189,6 +194,10 @@ EOF
 
     "providers": {
         "ollama": { "enabled": false }
+    },
+
+    "meteringEnforcement": {
+        "subscriptions": false
     },
 
     "trust_proxy": $PUTER_TRUST_PROXY

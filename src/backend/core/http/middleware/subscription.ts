@@ -18,31 +18,36 @@
  */
 
 import type { RequestHandler } from 'express';
-import type { IConfig } from '../../../types';
 import {
-    assertActorHasCredits,
-    type CreditMetering,
+    assertActorHasSubscription,
+    type SubscriptionMetering,
+    type SubscriptionRequirement,
 } from '../../../services/metering/enforcement.js';
+import type { IConfig } from '../../../types';
 import '../expressAugmentation';
 
 /**
- * Reject an authenticated caller with nothing left of their budget, for routes
- * that opt in with `requireCredits`.
+ * Reject a caller whose plan doesn't include this surface, for routes that opt
+ * in with `requireSubscription`. Off unless a route asks for it — no surface is
+ * subscriber-only by default.
  *
- * Anonymous callers pass: the signed-URL routes authorize on the URL rather
- * than a session, and there is no account to charge or turn away. So do worker
- * sessions, unless configured otherwise — see `creditEnforcementExempt`.
- *
- * The answer comes from a short-lived per-actor cache in the metering service,
- * so this normally costs nothing beyond a map lookup. That is what makes it
- * affordable on routes that are called hundreds of times a minute.
+ * `true` accepts any non-free plan; an array of policy ids accepts only those.
+ * Either way the decision is `assertActorHasSubscription`, which the driver
+ * dispatch path calls directly — `/drivers/call` is one shared route, so a
+ * per-driver requirement can't ride on the route chain.
  */
-export const requireCreditsGate = (
-    metering: CreditMetering | undefined,
+export const requireSubscriptionGate = (
+    metering: SubscriptionMetering | undefined,
     config: IConfig,
+    requirement: SubscriptionRequirement,
 ): RequestHandler => {
     return (req, _res, next) => {
-        assertActorHasCredits(metering, req.actor, config).then(
+        assertActorHasSubscription(
+            metering,
+            req.actor,
+            requirement,
+            config,
+        ).then(
             () => next(),
             (err) => next(err),
         );

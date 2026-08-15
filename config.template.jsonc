@@ -448,8 +448,11 @@
     // operations that spend it — file transfers, KV calls. Recording is
     // unaffected either way. `workers` extends the same refusal to
     // worker-driven calls, which are exempt by default because a deployed
-    // worker has nowhere to surface a payment prompt.
-    // "meteringEnforcement": { "enabled": true, "workers": false },
+    // worker has nowhere to surface a payment prompt. `subscriptions` covers
+    // the separate question of surfaces reserved for paid plans (the
+    // vendor-compatible AI endpoints): turn it off on a deployment with no
+    // paid plans, or every account is refused them.
+    // "meteringEnforcement": { "enabled": true, "workers": false, "subscriptions": true },
 
     // Fleet-wide spend rate, in micro-cents per minute, past which metering
     // raises the `metering:excessiveGlobalUsageRate` alarm. Omit it (the

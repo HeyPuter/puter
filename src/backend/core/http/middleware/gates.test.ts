@@ -28,6 +28,8 @@ import {
     assertNotUserSession,
     noUserSessionGate,
     requireAuthGate,
+    requireCardVerifiedGate,
+    requirePhoneVerifiedGate,
     requireVerifiedAccount,
     requireNonAccessTokenGate,
     requireUserActorGate,
@@ -801,5 +803,72 @@ describe('allowedAppIdsGate', () => {
             },
         });
         expectHttpError(got, 403, 'forbidden');
+    });
+});
+
+// ── requirePhoneVerifiedGate / requireCardVerifiedGate ──────────────
+
+describe('requirePhoneVerifiedGate', () => {
+    it('passes a user with a verified number on file', () => {
+        const got = runGate(requirePhoneVerifiedGate(), {
+            actor: { user: { uuid: 'u-1', phone: '+15550000000' } },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('rejects a user who was never asked to verify a phone', () => {
+        // The pending flag is clear, so the default-on account gate lets this
+        // user through — an opt-in route asking for the factor itself must not.
+        const got = runGate(requirePhoneVerifiedGate(), {
+            actor: { user: { uuid: 'u-1' } },
+        });
+        expectHttpError(got, 403, 'phone_verification_required');
+    });
+
+    it('rejects a user still mid-verification, stale number and all', () => {
+        const got = runGate(requirePhoneVerifiedGate(), {
+            actor: {
+                user: {
+                    uuid: 'u-1',
+                    phone: '+15550000000',
+                    requires_phone_verification: true,
+                },
+            },
+        });
+        expectHttpError(got, 403, 'phone_verification_required');
+    });
+
+    it('rejects when there is no actor at all', () => {
+        const got = runGate(requirePhoneVerifiedGate(), {});
+        expectHttpError(got, 403, 'phone_verification_required');
+    });
+});
+
+describe('requireCardVerifiedGate', () => {
+    it('passes a user with a verified card on file', () => {
+        const got = runGate(requireCardVerifiedGate(), {
+            actor: { user: { uuid: 'u-1', card_fingerprint: 'fp_1' } },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('rejects a user who never verified a card', () => {
+        const got = runGate(requireCardVerifiedGate(), {
+            actor: { user: { uuid: 'u-1' } },
+        });
+        expectHttpError(got, 403, 'card_verification_required');
+    });
+
+    it('rejects a user still carrying the card gate', () => {
+        const got = runGate(requireCardVerifiedGate(), {
+            actor: {
+                user: {
+                    uuid: 'u-1',
+                    card_fingerprint: 'fp_1',
+                    requires_card_verification: true,
+                },
+            },
+        });
+        expectHttpError(got, 403, 'card_verification_required');
     });
 });

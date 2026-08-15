@@ -49,7 +49,11 @@ const GEMINI_DOWNLOAD_BASE =
  * All routes live on `subdomain: 'api'` and require a full-access API token
  * minted from the dashboard (user-scoped worker tokens also pass — workers are
  * never treated as root tokens). Apps, scoped tokens, and account session
- * ("root") tokens are rejected.
+ * ("root") tokens are rejected. The vendor-compatible routes additionally
+ * require the account to be on a paid plan. The model listings stay open —
+ * clients fetch the catalogue before they have any reason to authenticate — and
+ * so does the video proxy, whose signed URLs are handed out by a generation the
+ * account already paid for.
  */
 export class PuterAIController extends PuterController {
     registerRoutes(router: PuterRouter): void {
@@ -79,6 +83,13 @@ export class PuterAIController extends PuterController {
             allowFullAccessToken: true,
             noUserSession: true,
             requireVerified: true,
+            // The vendor-compatible wire surface is a paid feature: it is
+            // what makes Puter a drop-in for a metered vendor API, and an
+            // account on a free plan reaches the same models through
+            // `/drivers/call` (and puter.js) without it. Free accounts get
+            // 402 `subscription_required` here rather than a rate limit,
+            // so the answer is "upgrade", not "slow down".
+            requireSubscription: true,
             rateLimit: {
                 ...AI_RATE_LIMIT.default!,
                 scope: aiPolicyScope,
@@ -166,7 +177,9 @@ export class PuterAIController extends PuterController {
         // -- Video URL proxy -----------------------------------------
         // Reverse-proxies AI-generated video URLs that can't be given
         // directly to the client (auth-gated provider downloads). The
-        // URL itself is HMAC-signed, so no additional auth gate.
+        // URL itself is HMAC-signed, so no additional auth gate — and no
+        // plan gate either: it delivers a video the account already paid to
+        // generate, to whoever holds the link.
         router.get(
             '/puterai/video/proxy',
             {
@@ -574,7 +587,8 @@ export class PuterAIController extends PuterController {
                     text: extractTextContent(
                         (
                             messageResult.message as
-                                Record<string, unknown> | undefined
+                                | Record<string, unknown>
+                                | undefined
                         )?.content,
                     ),
                     index: 0,

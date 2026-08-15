@@ -23,8 +23,12 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { IConfig } from '../../types';
 import {
     assertActorHasCredits,
+    assertActorHasSubscription,
     creditEnforcementExempt,
     enforcementEnabled,
+    subscriptionEnforcementEnabled,
+    subscriptionSatisfies,
+    validateSubscriptionRequirement,
 } from './enforcement.js';
 
 const userActor = (overrides: Partial<Actor> = {}): Actor =>
@@ -131,9 +135,6 @@ describe('assertActorHasCredits', () => {
         await expect(
             assertActorHasCredits(undefined, userActor(), config()),
         ).resolves.toBeUndefined();
-        await expect(
-            assertActorHasCredits({}, userActor(), config()),
-        ).resolves.toBeUndefined();
     });
 
     it('does not ask about an exempt caller', async () => {
@@ -144,5 +145,220 @@ describe('assertActorHasCredits', () => {
             assertActorHasCredits(metering, workerActor(), config()),
         ).resolves.toBeUndefined();
         expect(metering.hasAnyUsageCached).not.toHaveBeenCalled();
+    });
+});
+
+// -- Subscription enforcement ----------------------------------------
+
+const onPlan = (id: string) => ({
+    getActorSubscription: vi.fn().mockResolvedValue({ id }),
+});
+
+describe('subscriptionSatisfies', () => {
+    it('counts anything that is not a free policy as a subscription', () => {
+        expect(subscriptionSatisfies('user_free', true)).toBe(false);
+        expect(subscriptionSatisfies('temp_free', true)).toBe(false);
+        // A plan an extension registered counts without core naming it.
+        expect(subscriptionSatisfies('professional', true)).toBe(true);
+        expect(subscriptionSatisfies('unlimited', true)).toBe(true);
+    });
+
+    it('matches an explicit allowlist exactly', () => {
+        expect(subscriptionSatisfies('pro', ['business', 'pro'])).toBe(true);
+        expect(subscriptionSatisfies('basic', ['business', 'pro'])).toBe(false);
+    });
+
+    it('treats an absent requirement as satisfied by any plan', () => {
+        // `false` and `[]` say the surface asked for nothing. Reading either
+        // as "paid plans only" would gate a route whose author opted out.
+        expect(subscriptionSatisfies('user_free', false)).toBe(true);
+        expect(subscriptionSatisfies('business', false)).toBe(true);
+        expect(subscriptionSatisfies('user_free', [])).toBe(true);
+    });
+});
+
+describe('validateSubscriptionRequirement', () => {
+    it('passes booleans and non-empty id lists through', () => {
+        expect(validateSubscriptionRequirement(true, 'x')).toBe(true);
+        expect(validateSubscriptionRequirement(false, 'x')).toBe(false);
+        expect(validateSubscriptionRequirement(['pro'], 'x')).toEqual(['pro']);
+    });
+
+    it('rejects a requirement that names nothing', () => {
+        expect(() => validateSubscriptionRequirement([], 'x')).toThrow(
+            /at least one subscription id/,
+        );
+        expect(() => validateSubscriptionRequirement([''], 'x')).toThrow(
+            /must be strings/,
+        );
+        expect(() => validateSubscriptionRequirement([1], 'x')).toThrow(
+            /must be strings/,
+        );
+    });
+
+    it('rejects a shape that is neither', () => {
+        expect(() => validateSubscriptionRequirement('pro', 'x')).toThrow(
+            /expected true\/false or an array of ids/,
+        );
+        expect(() => validateSubscriptionRequirement(undefined, 'x')).toThrow(
+            /expected true\/false or an array of ids/,
+        );
+    });
+
+    it('names the surface it was reading', () => {
+        expect(() =>
+            validateSubscriptionRequirement([], 'route POST /a: x'),
+        ).toThrow(/^route POST \/a: x:/);
+    });
+});
+
+describe('subscriptionEnforcementEnabled', () => {
+    it('is on by default and off on its own switch', () => {
+        expect(subscriptionEnforcementEnabled(config())).toBe(true);
+        expect(
+            subscriptionEnforcementEnabled(
+                config({ meteringEnforcement: { subscriptions: false } }),
+            ),
+        ).toBe(false);
+    });
+
+    it('follows the master enforcement switch', () => {
+        // `enabled: false` is documented as the one knob that stops metering
+        // turning traffic away — plan gates included.
+        expect(
+            subscriptionEnforcementEnabled(
+                config({ meteringEnforcement: { enabled: false } }),
+            ),
+        ).toBe(false);
+        expect(
+            subscriptionEnforcementEnabled(
+                config({
+                    meteringEnforcement: {
+                        enabled: false,
+                        subscriptions: true,
+                    },
+                }),
+            ),
+        ).toBe(false);
+    });
+});
+
+describe('assertActorHasSubscription', () => {
+    const expect402 = async (promise: Promise<void>, fields?: unknown) => {
+        await expect(promise).rejects.toBeInstanceOf(HttpError);
+        await expect(promise).rejects.toMatchObject({
+            statusCode: 402,
+            legacyCode: 'subscription_required',
+            ...(fields ? { fields } : {}),
+        });
+    };
+
+    it('rejects an account on a free plan', async () => {
+        await expect402(
+            assertActorHasSubscription(
+                onPlan('user_free'),
+                userActor(),
+                true,
+                config(),
+            ),
+            { subscription: 'user_free' },
+        );
+    });
+
+    it('admits an account on a paid plan', async () => {
+        await expect(
+            assertActorHasSubscription(
+                onPlan('business'),
+                userActor(),
+                true,
+                config(),
+            ),
+        ).resolves.toBeUndefined();
+    });
+
+    it('rejects a paying account whose plan is not in the allowlist', async () => {
+        await expect402(
+            assertActorHasSubscription(
+                onPlan('basic'),
+                userActor(),
+                ['business', 'pro'],
+                config(),
+            ),
+            { subscription: 'basic', required: ['business', 'pro'] },
+        );
+    });
+
+    it('holds a worker to the account it acts for', async () => {
+        // Unlike the credit check: entitlements do not widen because a
+        // program is driving them.
+        await expect402(
+            assertActorHasSubscription(
+                onPlan('user_free'),
+                workerActor(),
+                true,
+                config(),
+            ),
+        );
+    });
+
+    it('does not ask when nothing is required', async () => {
+        const metering = onPlan('user_free');
+        await expect(
+            assertActorHasSubscription(metering, userActor(), false, config()),
+        ).resolves.toBeUndefined();
+        await expect(
+            assertActorHasSubscription(metering, userActor(), [], config()),
+        ).resolves.toBeUndefined();
+        expect(metering.getActorSubscription).not.toHaveBeenCalled();
+    });
+
+    it('admits everyone with no metering service to ask', async () => {
+        await expect(
+            assertActorHasSubscription(undefined, userActor(), true, config()),
+        ).resolves.toBeUndefined();
+    });
+
+    it('admits everyone when subscription enforcement is switched off', async () => {
+        await expect(
+            assertActorHasSubscription(
+                onPlan('user_free'),
+                userActor(),
+                true,
+                config({ meteringEnforcement: { subscriptions: false } }),
+            ),
+        ).resolves.toBeUndefined();
+    });
+
+    it('admits everyone when metering enforcement is off wholesale', async () => {
+        await expect(
+            assertActorHasSubscription(
+                onPlan('user_free'),
+                userActor(),
+                true,
+                config({ meteringEnforcement: { enabled: false } }),
+            ),
+        ).resolves.toBeUndefined();
+    });
+
+    it('admits the system actor', async () => {
+        const metering = onPlan('user_free');
+        await expect(
+            assertActorHasSubscription(metering, SYSTEM_ACTOR, true, config()),
+        ).resolves.toBeUndefined();
+        expect(metering.getActorSubscription).not.toHaveBeenCalled();
+    });
+
+    it('rejects a caller with no account to read a plan off', async () => {
+        await expect(
+            assertActorHasSubscription(
+                onPlan('business'),
+                undefined,
+                true,
+                config(),
+            ),
+        ).rejects.toMatchObject({
+            statusCode: 403,
+            legacyCode: 'subscription_required',
+        });
     });
 });

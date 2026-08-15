@@ -3417,14 +3417,31 @@ describe('AuthController.handleConfirmPhone', () => {
 });
 
 describe('AuthController.handleCardVerificationSetup', () => {
-    it('short-circuits to verified when the gate is not set', async () => {
-        const { actor } = await makeUserAndActor();
+    it('short-circuits to verified for an account with a card on file', async () => {
+        const { actor } = await makeUserAndActor({
+            card_fingerprint: 'fp_existing',
+        });
         const res = makeRes();
         await controller.handleCardVerificationSetup(
             makeReq({}, { actor }),
             res,
         );
         expect(res.body).toMatchObject({ card_verified: true });
+    });
+
+    it('starts the flow for an account that was never asked and never verified', async () => {
+        // A route requiring a verified card (`requireCardVerified`) sends a
+        // user here with the gate clear and no card on file. Answering
+        // "already verified" on the flag alone would bounce them between a
+        // dialog reporting success and a route that keeps refusing; reaching
+        // the extension (absent here, hence 503) is the flow actually running.
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleCardVerificationSetup(
+                makeReq({}, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 503 });
     });
 
     it('throws 403 when the account is suspended', async () => {
@@ -3527,14 +3544,28 @@ describe('AuthController.handleCardVerificationConfirm', () => {
         }
     });
 
-    it('short-circuits to verified when the gate is not set', async () => {
-        const { actor } = await makeUserAndActor();
+    it('short-circuits to verified for an account with a card on file', async () => {
+        const { actor } = await makeUserAndActor({
+            card_fingerprint: 'fp_existing',
+        });
         const res = makeRes();
         await controller.handleCardVerificationConfirm(
             makeReq({ setup_intent_id: 'seti_1' }, { actor }),
             res,
         );
         expect(res.body).toMatchObject({ card_verified: true });
+    });
+
+    it('runs the confirm for an account that was never asked and never verified', async () => {
+        // Same reason as setup: the pending flag says nobody asked, not that
+        // a card was checked, so a voluntary verification has to go through.
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleCardVerificationConfirm(
+                makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 503 });
     });
 
     it('throws 409 when phone verification must be completed first', async () => {
