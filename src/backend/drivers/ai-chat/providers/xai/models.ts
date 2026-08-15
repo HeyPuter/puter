@@ -41,7 +41,7 @@ export const XAI_MODELS: IChatModel[] = [
             completion_tokens: 600,
             cached_tokens: 50,
         },
-        max_tokens: 30_000,
+        max_tokens: 500_000,
     },
     {
         puterId: 'x-ai:x-ai/grok-4.5',
