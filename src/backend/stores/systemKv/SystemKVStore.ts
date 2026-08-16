@@ -759,7 +759,8 @@ export class SystemKVStore extends PuterStore {
                 fetched = response.Item ? [response.Item as KvCachedItem] : [];
                 fetchUnits = Number(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 0,
+                        | number
+                        | undefined) ?? 0,
                 );
             }
 
@@ -831,7 +832,8 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined,
+                        | number
+                        | undefined,
                 ),
             ),
         };
@@ -925,9 +927,56 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             ),
+        };
+    }
+
+    async batchDel(
+        { keys }: { keys: string[] },
+        opts?: KVOpts,
+    ): Promise<KVResult<boolean>> {
+        if (!Array.isArray(keys) || keys.length === 0) {
+            return { res: true, usage: emptyUsage() };
+        }
+
+        const unique = new Set<string>();
+        for (const key of keys) {
+            const k = String(key);
+            assertKey(k);
+            unique.add(k);
+        }
+        const uniqueKeys = [...unique];
+
+        const actor = ensureActor(opts);
+        const namespace = getNamespace(actor, opts);
+
+        // One private key refuses the batch — same posture as batchPut:
+        // no partial success to probe with.
+        const probeUsage = await this.#assertNonePrivate(
+            namespace,
+            uniqueKeys,
+            opts,
+        );
+
+        const response = await this.clients.dynamo.batchDel(
+            uniqueKeys.map((key) => ({
+                table: this.tableName,
+                key: { namespace, key },
+            })),
+        );
+        await this.#invalidate(namespace, uniqueKeys);
+        const units =
+            response.ConsumedCapacity?.reduce(
+                (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
+                0,
+            ) ?? unique.size;
+
+        return {
+            res: true,
+            usage: addUsage(probeUsage, writeUsage(units || unique.size)),
         };
     }
 
@@ -957,7 +1006,9 @@ export class SystemKVStore extends PuterStore {
             | { key: string; value: unknown }[]
             | {
                   items:
-                      string[] | unknown[] | { key: string; value: unknown }[];
+                      | string[]
+                      | unknown[]
+                      | { key: string; value: unknown }[];
                   cursor?: string;
                   total?: number;
               }
@@ -1036,7 +1087,8 @@ export class SystemKVStore extends PuterStore {
                 usage,
                 readUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             );
             return response;
@@ -1053,7 +1105,8 @@ export class SystemKVStore extends PuterStore {
                 const skip = await runQuery(remaining, startKey, 'COUNT');
                 remaining -= Number(skip.Count ?? 0);
                 startKey = skip.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
                 if (!startKey) {
                     exhausted = remaining > 0;
                     break;
@@ -1076,7 +1129,8 @@ export class SystemKVStore extends PuterStore {
                     >),
                 );
                 nextKey = response.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
                 pages++;
                 if (normalizedLimit === undefined) {
                     // Legacy full listing: follow continuation pages so the
@@ -1112,7 +1166,8 @@ export class SystemKVStore extends PuterStore {
                 const counted = await runQuery(0, countKey, 'COUNT');
                 total += Number(counted.Count ?? 0);
                 countKey = counted.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
             } while (countKey);
         }
 
@@ -1139,26 +1194,29 @@ export class SystemKVStore extends PuterStore {
         );
 
         const entries = response.Items ?? [];
-        const results = (
-            await Promise.all(
-                entries.map(async (entry) => {
-                    try {
-                        return await this.clients.dynamo.del(this.tableName, {
-                            namespace,
-                            key: entry.key,
-                        });
-                    } catch (e) {
-                        console.error('[kv] flush delete failed', entry.key, e);
-                        return null;
-                    }
-                }),
-            )
-        ).filter(Boolean);
-
-        const deleteUnits = results.reduce(
-            (acc, r) => acc + Number(r?.ConsumedCapacity?.CapacityUnits ?? 0),
-            0,
-        );
+        // One BatchWriteItem fan-out (25-item chunks with retries inside the
+        // client) instead of an unbounded Promise.all of single deletes.
+        // Failure posture matches the old per-item loop: log and fall through
+        // to invalidation — a partial flush must still drop cached reads for
+        // every key the query saw.
+        let deleteUnits = 0;
+        if (entries.length > 0) {
+            try {
+                const deleted = await this.clients.dynamo.batchDel(
+                    entries.map((entry) => ({
+                        table: this.tableName,
+                        key: { namespace, key: entry.key },
+                    })),
+                );
+                deleteUnits =
+                    deleted.ConsumedCapacity?.reduce(
+                        (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
+                        0,
+                    ) ?? 0;
+            } catch (e) {
+                console.error('[kv] flush batch delete failed', e);
+            }
+        }
         usage = addUsage(usage, writeUsage(deleteUnits));
 
         // Exactly the keys the query saw, which is also exactly what was
@@ -1464,7 +1522,8 @@ export class SystemKVStore extends PuterStore {
                     probeUsage,
                     writeUsage(
                         (response.ConsumedCapacity?.CapacityUnits as
-                            number | undefined) ?? 1,
+                            | number
+                            | undefined) ?? 1,
                     ),
                 ),
             };

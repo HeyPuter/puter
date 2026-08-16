@@ -73,6 +73,22 @@ describe('usageBudget', () => {
         expect(budget.percent).toBe(10);
     });
 
+    it('never trusts a reported allowanceUsed past the month total', () => {
+        // A corrupt record: the split grew past the spend it splits (a raced
+        // server write). The bar reads the total — the same clamp the server
+        // applies to remaining — instead of overstating past 100%.
+        const budget = usageBudget(
+            { total: 1_840_000_000, allowanceUsed: 20_722_300_000 },
+            info(19_000_000_000, {
+                purchasedCredits: 40_000_000_000,
+                consumedPurchaseCredits: 40_000_000_000,
+            }),
+        );
+        expect(budget.used).toBe(1_840_000_000);
+        expect(budget.percent).toBe(10);
+        expect(budget.barPercent).toBeCloseTo(9.68, 1);
+    });
+
     it('falls back to the capped total for records without the split', () => {
         // Legacy record: no allowanceUsed. Everything up to the allowance
         // counts, and an overshot total still reads as a full plan.

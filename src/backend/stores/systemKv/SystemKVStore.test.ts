@@ -232,6 +232,48 @@ describe('SystemKVStore', () => {
         });
     });
 
+    describe('batchDel', () => {
+        it('removes every key in the batch and leaves the rest', async () => {
+            await target.batchPut(
+                {
+                    items: [
+                        { key: 'bd1', value: 'v1' },
+                        { key: 'bd2', value: 'v2' },
+                        { key: 'bd3', value: 'v3' },
+                    ],
+                },
+                opts,
+            );
+            await target.batchDel({ keys: ['bd1', 'bd3'] }, opts);
+            const result = await target.get(
+                { key: ['bd1', 'bd2', 'bd3'] },
+                opts,
+            );
+            expect(result.res).toEqual([null, 'v2', null]);
+        });
+
+        it('is a no-op for an empty keys array', async () => {
+            const result = await target.batchDel({ keys: [] }, opts);
+            expect(result.res).toBe(true);
+        });
+
+        it('tolerates missing keys and duplicates in the batch', async () => {
+            await target.set({ key: 'bd-only', value: 'v' }, opts);
+            const result = await target.batchDel(
+                { keys: ['bd-only', 'bd-only', 'never-existed'] },
+                opts,
+            );
+            expect(result.res).toBe(true);
+            expect((await target.get({ key: 'bd-only' }, opts)).res).toBeNull();
+        });
+
+        it('rejects when any key is oversized', async () => {
+            await expect(
+                target.batchDel({ keys: ['ok', 'a'.repeat(1025)] }, opts),
+            ).rejects.toMatchObject({ statusCode: 400 });
+        });
+    });
+
     describe('list', () => {
         beforeEach(async () => {
             await target.batchPut(
