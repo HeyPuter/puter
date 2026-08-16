@@ -24,10 +24,10 @@ export const NEURALWATT_ID_PREFIX = 'neuralwatt:';
 export const NEURALWATT_DEFAULT_MODEL = 'neuralwatt:deepseek-v4-flash';
 
 /**
- * Shape of one entry in Neuralwatt's `GET /v1/models` catalog.
- * Pricing is USD per million tokens under `metadata.pricing` and is used
- * only for Puter preflight estimates / token-cost fallback. Live billing
- * uses each completion's `cost.request_cost_usd`.
+ * Shape of one entry in Neuralwatt's `GET /v1/models` catalog. Pricing is USD
+ * per million tokens under `metadata.pricing` and is used only for Puter
+ * preflight estimates / token-cost fallback. Live billing uses each
+ * completion's `cost.request_cost_usd`.
  */
 
 export type NeuralwattApiModel = {
@@ -94,9 +94,9 @@ export const stripNeuralwattPrefix = (modelId: string): string =>
         : modelId;
 
 /**
- * Map a Neuralwatt catalog entry to Puter's `IChatModel`. Returns `null`
- * when pricing is TBD (placeholders) so the model is not offered for
- * preflight credit checks until Neuralwatt publishes real rates.
+ * Map a Neuralwatt catalog entry to Puter's `IChatModel`. Returns `null` when
+ * pricing is TBD (placeholders) so the model is not offered for preflight
+ * credit checks until Neuralwatt publishes real rates.
  */
 export const mapNeuralwattApiModel = (
     model: NeuralwattApiModel,
@@ -166,8 +166,8 @@ export const modelSupportsVision = (model: IChatModel): boolean =>
     model.modalities.input.includes('image');
 
 /**
- * Detect image / puter_path parts so we can prefer a vision-capable model
- * from the Neuralwatt catalog (or reject a text-only pick).
+ * Detect image / puter_path parts so we can prefer a vision-capable model from
+ * the Neuralwatt catalog (or reject a text-only pick).
  */
 export const messagesHaveImageContent = (
     messages: Array<{ content?: unknown }>,

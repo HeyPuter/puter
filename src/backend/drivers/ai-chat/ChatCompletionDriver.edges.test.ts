@@ -73,6 +73,7 @@ const FULL_PROVIDER_CONFIG = {
         'together-ai': { apiKey: 'k' },
         openrouter: { apiKey: 'k', apiBaseUrl: 'https://openrouter.test' },
         infron: { apiKey: 'k' },
+        byteplus: { apiKey: 'k' },
         neuralwatt: { apiKey: 'k' },
         // Suppress auto-discovery of a developer's local Ollama.
         ollama: { enabled: false },
@@ -184,6 +185,7 @@ describe('ChatCompletionDriver provider registration', () => {
             'together-ai',
             'openrouter',
             'infron',
+            'byteplus',
             'neuralwatt',
             'fake-chat',
         ]) {

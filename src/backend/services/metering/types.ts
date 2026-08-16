@@ -42,6 +42,16 @@ export interface UsageInput {
 export type UsageByType = {
     total: number;
     /**
+     * The part of `total` that was charged to the monthly subscription
+     * allowance. The allowance is consumed first; spend past it draws down the
+     * lifetime credit pool (`consumedPurchaseCredits`) instead, so the two
+     * pools never bill the same spend. Living on the month record, it resets
+     * with the month the way the allowance itself does. Absent on records from
+     * before the split was tracked — readers fall back to counting `total`
+     * against the allowance, capped at the allowance.
+     */
+    allowanceUsed?: number;
+    /**
      * Claim counter for the month's recurring charges — see
      * `MONTHLY_CHARGE_CLAIM`. Absent until the first read or write of the
      * month; 1 for whoever claimed it, higher for anyone who raced and lost.

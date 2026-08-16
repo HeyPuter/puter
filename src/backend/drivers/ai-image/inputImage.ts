@@ -20,8 +20,8 @@
 /**
  * Shared helpers for `input_images` (image-to-image) handling across image
  * providers. `input_images` is the canonical, cross-provider field; an entry
- * may be a public URL, a data-URI, or raw base64. Providers whose upstream
- * API needs base64 use these helpers to normalize URLs server-side (via the
+ * may be a public URL, a data-URI, or raw base64. Providers whose upstream API
+ * needs base64 use these helpers to normalize URLs server-side (via the
  * SSRF-guarded `secureFetch`); providers that accept URLs natively (Replicate,
  * xAI) pass them through untouched.
  */
@@ -35,9 +35,20 @@ export function isHttpUrl(s: string): boolean {
 }
 
 /**
- * Resolve the single input image for providers that only support one.
- * Throws 400 if `input_images` carries more than one entry. Returns the
- * chosen image string (URL / data-URI / raw base64) or undefined.
+ * Normalize an input-image string for providers that accept URLs natively:
+ * http(s) URLs and data-URIs pass through untouched, raw base64 is wrapped with
+ * `mimeHint` (default image/png).
+ */
+export function toUrlOrDataUri(img: string, mimeHint?: string): string {
+    return isHttpUrl(img) || img.startsWith('data:')
+        ? img
+        : `data:${mimeHint ?? 'image/png'};base64,${img}`;
+}
+
+/**
+ * Resolve the single input image for providers that only support one. Throws
+ * 400 if `input_images` carries more than one entry. Returns the chosen image
+ * string (URL / data-URI / raw base64) or undefined.
  */
 export function resolveSingleInputImage(
     params: Pick<IGenerateParams, 'input_image' | 'input_images'>,
@@ -84,10 +95,9 @@ export async function fetchImageAsBase64(
 }
 
 /**
- * Normalize any input-image string to a base64 data-URI:
- *   • http(s) URL  → fetched via secureFetch
- *   • data-URI     → returned as-is
- *   • raw base64   → wrapped with `mimeHint` (default image/png)
+ * Normalize any input-image string to a base64 data-URI: • http(s) URL →
+ * fetched via secureFetch • data-URI → returned as-is • raw base64 → wrapped
+ * with `mimeHint` (default image/png)
  */
 export async function toBase64DataUri(
     img: string,

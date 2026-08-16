@@ -26,12 +26,7 @@ import type { Actor } from '../actor';
  * it instead of accepting any token that authenticates.
  */
 export type TokenSource =
-    | 'body'
-    | 'header'
-    | 'x-api-key'
-    | 'cookie'
-    | 'query'
-    | 'handshake';
+    'body' | 'header' | 'x-api-key' | 'cookie' | 'query' | 'handshake';
 
 /**
  * Every route method PuterRouter exposes. Mirrors the express router surface
@@ -441,9 +436,7 @@ export type AuthRequired<O extends RouteOptions> = O extends {
                 ? true
                 : O extends {
                         requireSubscription:
-                            | true
-                            | readonly string[]
-                            | string[];
+                            true | readonly string[] | string[];
                     }
                   ? true
                   : false;

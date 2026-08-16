@@ -95,8 +95,7 @@ export class NeuralwattProvider implements IChatProvider {
 
     async models(): Promise<IChatModel[]> {
         let apiModels = kv.get(KV_MODELS_KEY) as
-            | NeuralwattApiModel[]
-            | undefined;
+            NeuralwattApiModel[] | undefined;
         if (!apiModels) {
             try {
                 const resp = await axios.request({
@@ -127,16 +126,15 @@ export class NeuralwattProvider implements IChatProvider {
     }
 
     /**
-     * Cached account accounting method (`energy` | `token`) from
-     * `GET /v1/quota`. Used only to annotate returned usage — billing
-     * always prefers `cost.request_cost_usd` on the completion.
+     * Cached account accounting method (`energy` | `token`) from `GET
+     * /v1/quota`. Used only to annotate returned usage — billing always prefers
+     * `cost.request_cost_usd` on the completion.
      */
     async getAccountingMethod(): Promise<
         NeuralwattAccountingMethod | undefined
     > {
         let method = kv.get(KV_QUOTA_KEY) as
-            | NeuralwattAccountingMethod
-            | undefined;
+            NeuralwattAccountingMethod | undefined;
         if (method === 'energy' || method === 'token') return method;
 
         try {
@@ -187,9 +185,7 @@ export class NeuralwattProvider implements IChatProvider {
 
         if (!modelUsed) {
             if (hasImages) {
-                modelUsed = availableModels.find((m) =>
-                    modelSupportsVision(m),
-                );
+                modelUsed = availableModels.find((m) => modelSupportsVision(m));
             }
             modelUsed =
                 modelUsed ||
@@ -221,8 +217,7 @@ export class NeuralwattProvider implements IChatProvider {
 
         messages = await OpenAIUtil.process_input_messages(messages);
 
-        const requestedReasoningEffort =
-            reasoning_effort ?? reasoning?.effort;
+        const requestedReasoningEffort = reasoning_effort ?? reasoning?.effort;
         const supportsReasoningEffort = modelUsed.reasoning_effort === true;
 
         const completionParams = {
@@ -353,8 +348,7 @@ export class NeuralwattProvider implements IChatProvider {
                         ...chunk.usage,
                         ...(typeof chunk.cost?.request_cost_usd === 'number'
                             ? {
-                                  request_cost_usd:
-                                      chunk.cost.request_cost_usd,
+                                  request_cost_usd: chunk.cost.request_cost_usd,
                               }
                             : {}),
                         ...(chunk.energy

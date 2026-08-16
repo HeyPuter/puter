@@ -35,6 +35,7 @@ import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { AlibabaProvider } from './providers/alibaba/AlibabaProvider.js';
 import { AzureChatProvider } from './providers/azure/AzureChatProvider.js';
 import { AzureResponsesProvider } from './providers/azure/AzureResponsesProvider.js';
+import { BytePlusProvider } from './providers/byteplus/BytePlusProvider.js';
 import { ClaudeProvider } from './providers/claude/ClaudeProvider.js';
 import { DeepSeekProvider } from './providers/deepseek/DeepSeekProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
@@ -1246,6 +1247,18 @@ export class ChatCompletionDriver extends PuterDriver {
                 {
                     apiKey: infronKey,
                     apiBaseUrl: infron?.apiBaseUrl as string | undefined,
+                },
+                metering,
+            );
+        }
+
+        const byteplus = providers['byteplus'];
+        const byteplusKey = readKey(byteplus);
+        if (byteplusKey) {
+            this.#providers['byteplus'] = new BytePlusProvider(
+                {
+                    apiKey: byteplusKey,
+                    apiBaseUrl: byteplus?.apiBaseUrl as string | undefined,
                 },
                 metering,
             );

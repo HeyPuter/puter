@@ -1150,8 +1150,7 @@ export class AuthController extends PuterController {
                     is_temp: user!.password === null && user!.email === null,
                     ip:
                         (req?.headers?.['x-forwarded-for'] as
-                            | string
-                            | undefined) ||
+                            string | undefined) ||
                         (
                             req as unknown as {
                                 connection?: { remoteAddress?: string };
