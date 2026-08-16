@@ -279,7 +279,7 @@ function renderUsageTable () {
 
 async function update_usage_details ($el_window) {
     const monthlyUsagePromise = puter.auth.getMonthlyUsage().then(res => {
-        const budget = usageBudget(res.usage?.total ?? 0, res.allowanceInfo?.remaining ?? 0);
+        const budget = usageBudget(res.usage, res.allowanceInfo);
         // The server reports credits (already scaled) or raw amounts (no
         // multiplier configured), and says which via the unit flag.
         const inCredits = usageIsCredits(res.allowanceInfo);
