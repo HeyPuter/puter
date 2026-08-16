@@ -23,8 +23,8 @@ window.listSupportedLanguages = () => Object.keys(translations).map(lang => tran
 
 const variables = {
     docs: 'https://docs.puter.com/',
-    terms: 'https://puter.com/terms',
-    privacy: 'https://puter.com/privacy',
+    terms: 'https://iaflay.com.br/termos',
+    privacy: 'https://iaflay.com.br/privacidade',
 };
 
 function ReplacePlaceholders (str, arg_variables = {}) {
