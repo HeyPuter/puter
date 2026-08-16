@@ -517,9 +517,9 @@ const br = {
         contact_support: 'Entre em contato com support@puter.com.', // In English: "Please contact support@puter.com."
         contact_support_with_code: 'Entre em contato com support@puter.com e informe este código: {{id}}.', // In English: "Please contact support@puter.com and include this code: {{id}}."
         welcome: 'Bem-vindo', // In English: "Welcome"
-        your_personal_internet_computer: 'Ao seu computador pessoal na internet', // In English: "To your personal internet computer"
-        welcome_title: 'Bem-vindo(a) ao seu Computador Pessoal de Internet',
-        welcome_description: 'Armazenar arquivos, jogar jogos, encontrar apps incríveis, e muito mais! Tudo em um só lugar, acessível de qualquer lugar a qualquer momento.',
+        your_personal_internet_computer: 'À sua estação de trabalho segura IAFlay', // In English: "To your personal internet computer"
+        welcome_title: 'Bem-vindo(a) ao IAFlay OS',
+        welcome_description: 'Sua estação de trabalho segura: arquivos, documentos e apps em um só lugar, protegidos e alinhados à LGPD, acessíveis de qualquer lugar a qualquer momento.',
         welcome_get_started: 'Começar',
         welcome_terms: 'Termos',
         welcome_privacy: 'Privacidade',
