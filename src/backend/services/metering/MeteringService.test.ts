@@ -1432,6 +1432,27 @@ describe('MeteringService', () => {
             expect(allowed.remaining).toBe(0);
         });
 
+        it('never trusts a stored allowanceUsed past the month total', async () => {
+            const sub = await target.getActorSubscription(actor);
+            const month = `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
+
+            // A corrupt record: allowanceUsed grew past the total (a raced
+            // or repeated write). The split is bookkeeping over the total,
+            // so the total is the most the allowance can have been charged.
+            await server.stores.meteringBuffer.incr({
+                key: `${METRICS_PREFIX}:actor:${actor.user.uuid}:${month}`,
+                pathAndAmountMap: {
+                    total: 1_000_000,
+                    allowanceUsed: sub.monthUsageAllowance + 99_000_000,
+                },
+            });
+
+            const allowed = await target.getAllowedUsage(actor);
+            expect(allowed.remaining).toBe(
+                sub.monthUsageAllowance - 1_000_000,
+            );
+        });
+
         it('folds the legacy baseline in exactly once under concurrent increments', async () => {
             const sub = await target.getActorSubscription(actor);
             const month = `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;

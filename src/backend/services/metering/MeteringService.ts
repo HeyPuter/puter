@@ -1144,15 +1144,23 @@ export class MeteringService extends PuterService {
      * pre-split reading — everything counted against the allowance, capped at
      * it — which is also what keeps balances unchanged across the deploy that
      * introduced the field.
+     *
+     * Allowance-charged spend is a subset of spend, so the stored value is
+     * never trusted past the month's total: the split is bookkeeping over the
+     * total, and a stored value exceeding it is corrupt (a write raced or
+     * repeated). Clamping here makes such a record cost the user at most their
+     * real spend rather than however large the corrupt value grew.
      */
     private static allowanceUsedFrom(
         usage: UsageByType | null | undefined,
         monthUsageAllowance: number,
     ): number {
         if (!usage) return 0;
-        return (
+        const total = usage.total || 0;
+        return Math.min(
             usage.allowanceUsed ??
-            Math.min(usage.total || 0, Math.max(0, monthUsageAllowance || 0))
+                Math.min(total, Math.max(0, monthUsageAllowance || 0)),
+            total,
         );
     }
 
@@ -1774,11 +1782,13 @@ export class MeteringService extends PuterService {
             0,
             (usageRecord.total || 0) - incrementCost,
         );
-        // Same fallback as `allowanceUsedFrom`, measured before this
-        // increment's own cost.
-        const usedBefore =
+        // Same fallback and corrupt-value clamp as `allowanceUsedFrom`,
+        // measured before this increment's own cost.
+        const usedBefore = Math.min(
             usageRecord.allowanceUsed ??
-            Math.min(totalBefore, Math.max(0, monthUsageAllowance || 0));
+                Math.min(totalBefore, Math.max(0, monthUsageAllowance || 0)),
+            totalBefore,
+        );
 
         let baseline = 0;
         if (usageRecord.allowanceUsed === undefined && usedBefore > 0) {
