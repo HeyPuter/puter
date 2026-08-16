@@ -497,9 +497,10 @@ export class MeteringService extends PuterService {
                 actorSubscription.monthUsageAllowance,
             );
 
-            await this.maybeConsumeAddonCredits(
+            const settledAllowanceUsed = await this.settleIncrementCharges(
                 userId,
-                actorUsages.total,
+                actorUsageKey,
+                actorUsages,
                 actorSubscription.monthUsageAllowance,
                 actorAddons,
                 totalCost,
@@ -519,7 +520,7 @@ export class MeteringService extends PuterService {
 
             this.rememberRemainingCredits(
                 userId,
-                actorUsages.total,
+                settledAllowanceUsed,
                 actorSubscription.monthUsageAllowance,
                 actorAddons,
             );
@@ -684,9 +685,10 @@ export class MeteringService extends PuterService {
                 actorSubscription.monthUsageAllowance,
             );
 
-            await this.maybeConsumeAddonCredits(
+            const settledAllowanceUsed = await this.settleIncrementCharges(
                 userId,
-                actorUsages.total,
+                actorUsageKey,
+                actorUsages,
                 actorSubscription.monthUsageAllowance,
                 actorAddons,
                 totalBatchCost,
@@ -704,7 +706,7 @@ export class MeteringService extends PuterService {
 
             this.rememberRemainingCredits(
                 userId,
-                actorUsages.total,
+                settledAllowanceUsed,
                 actorSubscription.monthUsageAllowance,
                 actorAddons,
             );
@@ -928,7 +930,21 @@ export class MeteringService extends PuterService {
         const currentTotal = (current as UsageByType | null)?.total ?? 0;
         const delta = normalizedTotal - currentTotal;
 
-        if (delta === 0) {
+        // The adjusted total is taken to be allowance-charged in full — the
+        // knob's job is "this is what the month has cost the plan", and it
+        // doubles as the repair for records whose split predates
+        // `allowanceUsed`. Overshoot past the allowance is harmless: readers
+        // clamp. The credit pool is deliberately untouched; admin moves it
+        // through `updateAddonCredit`.
+        const subscription = await this.getActorSubscription(actor);
+        const allowanceUsedDelta =
+            normalizedTotal -
+            MeteringService.allowanceUsedFrom(
+                current as UsageByType | null,
+                subscription.monthUsageAllowance,
+            );
+
+        if (delta === 0 && allowanceUsedDelta === 0) {
             return (current as UsageByType) || ({ total: 0 } as UsageByType);
         }
 
@@ -942,7 +958,12 @@ export class MeteringService extends PuterService {
         const updated = (
             await this.stores.meteringBuffer.incr({
                 key: actorUsageKey,
-                pathAndAmountMap,
+                // `allowanceUsed` belongs to the actor record alone — the aux
+                // aggregates below reuse `pathAndAmountMap` without it.
+                pathAndAmountMap: {
+                    ...pathAndAmountMap,
+                    allowanceUsed: allowanceUsedDelta,
+                },
             })
         ).res as unknown as UsageByType;
 
@@ -1105,7 +1126,10 @@ export class MeteringService extends PuterService {
 
         return {
             remaining: MeteringService.remainingFrom(
-                currentMonthUsage.usage.total || 0,
+                MeteringService.allowanceUsedFrom(
+                    currentMonthUsage.usage,
+                    userSubscription.monthUsageAllowance,
+                ),
                 userSubscription.monthUsageAllowance,
                 addons,
             ),
@@ -1115,21 +1139,42 @@ export class MeteringService extends PuterService {
     }
 
     /**
-     * What's left of an actor's budget, from the three numbers it's made of.
+     * How much of this month's spend was charged to the subscription allowance.
+     * Records from before `allowanceUsed` was tracked fall back to the
+     * pre-split reading — everything counted against the allowance, capped at
+     * it — which is also what keeps balances unchanged across the deploy that
+     * introduced the field.
+     */
+    private static allowanceUsedFrom(
+        usage: UsageByType | null | undefined,
+        monthUsageAllowance: number,
+    ): number {
+        if (!usage) return 0;
+        return (
+            usage.allowanceUsed ??
+            Math.min(usage.total || 0, Math.max(0, monthUsageAllowance || 0))
+        );
+    }
+
+    /**
+     * What's left of an actor's budget: what remains of the monthly allowance
+     * plus what remains of the lifetime credit pool.
      *
-     * Overage past the allowance is already charged to purchased credits via
-     * `consumedPurchaseCredits`, so the allowance and the credit pool are
-     * netted separately — subtracting month usage AND consumed credits from one
-     * combined pool would charge the overage twice.
+     * The pools are independent and each spend lands in exactly one of them
+     * (allowance first — see `settleIncrementCharges`), so this is a plain sum.
+     * `allowanceUsed` rather than the month total is what the allowance is
+     * netted against: the total also contains credit-charged overage, which
+     * must not bill the allowance too — visibly so when a plan change raises
+     * the allowance mid-month.
      */
     private static remainingFrom(
-        monthUsageTotal: number,
+        allowanceUsed: number,
         monthUsageAllowance: number,
         addons: UsageAddons | null | undefined,
     ): number {
         const remainingAllowance = Math.max(
             0,
-            (monthUsageAllowance || 0) - (monthUsageTotal || 0),
+            (monthUsageAllowance || 0) - (allowanceUsed || 0),
         );
         const remainingPurchasedCredits = Math.max(
             0,
@@ -1235,7 +1280,10 @@ export class MeteringService extends PuterService {
             ]);
             this.rememberRemainingCredits(
                 uuid,
-                currentMonthUsage.usage.total || 0,
+                MeteringService.allowanceUsedFrom(
+                    currentMonthUsage.usage,
+                    subscription.monthUsageAllowance,
+                ),
                 subscription.monthUsageAllowance,
                 addons,
             );
@@ -1261,7 +1309,7 @@ export class MeteringService extends PuterService {
      */
     private rememberRemainingCredits(
         userId: string,
-        monthUsageTotal: number,
+        allowanceUsed: number,
         monthUsageAllowance: number,
         addons: UsageAddons | null | undefined,
     ): void {
@@ -1272,7 +1320,7 @@ export class MeteringService extends PuterService {
         this.rememberHasCredits(
             userId,
             MeteringService.remainingFrom(
-                monthUsageTotal,
+                allowanceUsed,
                 monthUsageAllowance,
                 addons,
             ) > 0,
@@ -1688,33 +1736,83 @@ export class MeteringService extends PuterService {
         return this.settledMonth === month && this.settledActors.has(claimId);
     }
 
-    private async maybeConsumeAddonCredits(
+    /**
+     * Split a settled increment between the two budget pools, allowance first:
+     * whatever fits under the monthly allowance bumps the month record's
+     * `allowanceUsed`, and only the part that doesn't fit draws down the
+     * lifetime credit pool. Each spend lands in exactly one pool, which is what
+     * lets `remainingFrom` sum them independently.
+     *
+     * A month record without `allowanceUsed` predates the split; its first
+     * settled increment folds the fallback baseline into the write, so the
+     * record answers directly from then on and no balance moves on the deploy
+     * that introduced the field.
+     *
+     * Returns the month's allowance-charged spend as of after this settle —
+     * `usageRecord` itself predates the write, so callers deciding on the
+     * balance must use this rather than re-read the record they hold.
+     */
+    private async settleIncrementCharges(
         userId: string,
-        totalUsage: number,
+        actorUsageKey: string,
+        usageRecord: UsageByType,
         monthUsageAllowance: number,
         addons: UsageAddons,
         incrementCost: number,
-    ): Promise<void> {
-        if (totalUsage <= monthUsageAllowance) return;
-        if (!addons.purchasedCredits) return;
-        if (addons.purchasedCredits <= (addons.consumedPurchaseCredits || 0))
-            return;
+    ): Promise<number> {
+        if (incrementCost <= 0) {
+            return MeteringService.allowanceUsedFrom(
+                usageRecord,
+                monthUsageAllowance,
+            );
+        }
 
-        const withinBoundsUsage = Math.max(
+        const totalBefore = Math.max(
             0,
-            monthUsageAllowance - totalUsage + incrementCost,
+            (usageRecord.total || 0) - incrementCost,
         );
-        const overageUsage = incrementCost - withinBoundsUsage;
-        if (overageUsage <= 0) return;
+        // Same fallback as `allowanceUsedFrom`, measured before this
+        // increment's own cost.
+        const usedBefore =
+            usageRecord.allowanceUsed ??
+            Math.min(totalBefore, Math.max(0, monthUsageAllowance || 0));
+        const baseline =
+            usageRecord.allowanceUsed === undefined ? usedBefore : 0;
 
-        const toConsume = Math.min(
-            overageUsage,
-            addons.purchasedCredits - (addons.consumedPurchaseCredits || 0),
-        );
-        await this.stores.kv.incr({
-            key: `${POLICY_PREFIX}:actor:${userId}:addons`,
-            pathAndAmountMap: { consumedPurchaseCredits: toConsume },
-        });
+        const headroom = Math.max(0, monthUsageAllowance - usedBefore);
+        const allowanceCharge = Math.min(incrementCost, headroom);
+        const overage = incrementCost - allowanceCharge;
+
+        const writes: Promise<unknown>[] = [];
+        if (baseline + allowanceCharge > 0) {
+            writes.push(
+                this.stores.meteringBuffer.incr({
+                    key: actorUsageKey,
+                    pathAndAmountMap: {
+                        allowanceUsed: baseline + allowanceCharge,
+                    },
+                }),
+            );
+        }
+
+        const remainingCredits =
+            (addons.purchasedCredits || 0) -
+            (addons.consumedPurchaseCredits || 0);
+        if (overage > 0 && remainingCredits > 0) {
+            writes.push(
+                this.stores.kv.incr({
+                    key: `${POLICY_PREFIX}:actor:${userId}:addons`,
+                    pathAndAmountMap: {
+                        consumedPurchaseCredits: Math.min(
+                            overage,
+                            remainingCredits,
+                        ),
+                    },
+                }),
+            );
+        }
+        await Promise.all(writes);
+        return usedBefore + allowanceCharge;
     }
 
     private maybeAlertOveruse(ctx: {

@@ -453,6 +453,30 @@ describe('MeteringService', () => {
                 expect(addons.consumedPurchaseCredits).toBe(1_000_000);
             });
         });
+
+        it('charges the allowance first and records the split on the month record', async () => {
+            const overActor: Actor = { user: makeUser() };
+            const sub = await target.getActorSubscription(overActor);
+            await target.updateAddonCredit(overActor.user.uuid!, 5_000_000);
+
+            // One increment that straddles the boundary: the allowance part
+            // lands in `allowanceUsed`, only the rest draws down credit.
+            await target.incrementUsage(
+                overActor,
+                'kv:read',
+                1,
+                sub.monthUsageAllowance + 1_000_000,
+            );
+
+            await waitFor(async () => {
+                const { usage } =
+                    await target.getActorCurrentMonthUsageDetails(overActor);
+                expect(usage.allowanceUsed).toBe(sub.monthUsageAllowance);
+                expect(usage.total).toBe(sub.monthUsageAllowance + 1_000_000);
+                const addons = await target.getActorAddons(overActor);
+                expect(addons.consumedPurchaseCredits).toBe(1_000_000);
+            });
+        });
     });
 
     // ── overuse alarm ────────────────────────────────────────────────
@@ -806,7 +830,9 @@ describe('MeteringService', () => {
             }
             const incrSpy = vi.spyOn(server.stores.meteringBuffer, 'incr');
             await target.flushBufferedUsages();
-            expect(incrSpy).toHaveBeenCalledOnce();
+            // One usage write for all ten buffered events, plus the settle
+            // write that records the allowance/credit split.
+            expect(incrSpy).toHaveBeenCalledTimes(2);
             incrSpy.mockRestore();
 
             const { usage } =
@@ -894,7 +920,8 @@ describe('MeteringService', () => {
                     ]);
                 }
                 await target.flushBufferedUsages();
-                expect(spy).toHaveBeenCalledTimes(concurrency * 3);
+                // Per bucket: the usage write plus the allowance settle.
+                expect(spy).toHaveBeenCalledTimes(concurrency * 3 * 2);
                 expect(peak).toBeLessThanOrEqual(concurrency);
             } finally {
                 spy.mockRestore();
@@ -924,7 +951,8 @@ describe('MeteringService', () => {
                     target.flushBufferedUsages(),
                     target.flushBufferedUsages(),
                 ]);
-                expect(started).toBe(1);
+                // One cycle ran (usage write + allowance settle), not three.
+                expect(started).toBe(2);
             } finally {
                 spy.mockRestore();
             }
@@ -1191,6 +1219,32 @@ describe('MeteringService', () => {
             expect(result.total).toBe(100);
         });
 
+        it('re-anchors allowanceUsed so the adjusted total is what the allowance is billed', async () => {
+            const sub = await target.getActorSubscription(actor);
+            await target.updateAddonCredit(actor.user.uuid!, 5_000_000);
+
+            // Overspend so the month holds allowance + credit-charged spend.
+            await target.incrementUsage(
+                actor,
+                'kv:read',
+                1,
+                sub.monthUsageAllowance + 5_000_000,
+            );
+            expect(await target.getRemainingUsage(actor)).toBe(0);
+
+            // Support sets the month back down: the new total is billed to
+            // the allowance in full and the rest of it reopens.
+            const result = await target.setActorCurrentMonthUsageTotal(
+                actor,
+                1_000,
+            );
+            expect(result.total).toBe(1_000);
+            expect(result.allowanceUsed).toBe(1_000);
+            expect(await target.getRemainingUsage(actor)).toBe(
+                sub.monthUsageAllowance - 1_000,
+            );
+        });
+
         it('rejects a negative total', async () => {
             await expect(
                 target.setActorCurrentMonthUsageTotal(actor, -1),
@@ -1306,6 +1360,76 @@ describe('MeteringService', () => {
             // consumedPurchaseCredits; remaining must only be reduced once.
             const allowed = await target.getAllowedUsage(actor);
             expect(allowed.remaining).toBe(4_000_000);
+        });
+
+        it('keeps the allowance and credit pools separate across a mid-month upgrade', async () => {
+            const freeSub = await target.getActorSubscription(actor);
+            const freeAllowance = freeSub.monthUsageAllowance;
+            await target.updateAddonCredit(actor.user.uuid!, 5_000_000);
+
+            // Exhaust the free allowance, then draw 2_000_000 from credit.
+            await target.incrementUsage(actor, 'kv:read', 1, freeAllowance);
+            await target.incrementUsage(actor, 'kv:read', 1, 2_000_000);
+            await waitFor(async () => {
+                const addons = await target.getActorAddons(actor);
+                expect(addons.consumedPurchaseCredits).toBe(2_000_000);
+            });
+
+            // Upgrade mid-month to ten times the allowance. The allowance
+            // pool reopens (freeAllowance of 10x used); the credit pool is
+            // exactly where it was (2 of 5 consumed).
+            const paid = {
+                id: 'upgrade-paid',
+                monthUsageAllowance: freeAllowance * 10,
+                monthlyStorageAllowance: 1024 * 1024 * 1024,
+            };
+            target.registerPolicy(paid);
+            target.registerSubscriptionResolver(async () => 'upgrade-paid');
+            target.invalidateActorSubscription(actor.user.uuid!);
+
+            const allowed = await target.getAllowedUsage(actor);
+            expect(allowed.remaining).toBe(freeAllowance * 9 + 3_000_000);
+            expect(allowed.addons.consumedPurchaseCredits).toBe(2_000_000);
+
+            // Further spend consumes the reopened allowance, not credit.
+            await target.incrementUsage(actor, 'kv:read', 1, freeAllowance * 9);
+            const addons = await target.getActorAddons(actor);
+            expect(addons.consumedPurchaseCredits).toBe(2_000_000);
+            expect((await target.getAllowedUsage(actor)).remaining).toBe(
+                3_000_000,
+            );
+
+            // Only once the new allowance is full does credit drain again.
+            await target.incrementUsage(actor, 'kv:read', 1, 1_000_000);
+            await waitFor(async () => {
+                const after = await target.getActorAddons(actor);
+                expect(after.consumedPurchaseCredits).toBe(3_000_000);
+            });
+        });
+
+        it('falls back to the pre-split reading for month records without allowanceUsed', async () => {
+            const sub = await target.getActorSubscription(actor);
+            await target.updateAddonCredit(actor.user.uuid!, 5_000_000);
+            await server.stores.kv.incr({
+                key: `${POLICY_PREFIX}:actor:${actor.user.uuid}:addons`,
+                pathAndAmountMap: { consumedPurchaseCredits: 5_000_000 },
+            });
+
+            // A legacy month record: total spans allowance + credit overage,
+            // no allowanceUsed split recorded.
+            const month = `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
+            await server.stores.meteringBuffer.incr({
+                key: `${METRICS_PREFIX}:actor:${actor.user.uuid}:${month}`,
+                pathAndAmountMap: {
+                    total: sub.monthUsageAllowance + 5_000_000,
+                },
+            });
+
+            // Pre-split behavior: the whole total counts against the
+            // allowance (capped at it), so nothing changes at the deploy
+            // that introduced the field.
+            const allowed = await target.getAllowedUsage(actor);
+            expect(allowed.remaining).toBe(0);
         });
 
         it('counts consumed credits from prior months against the credit pool only', async () => {
@@ -1894,8 +2018,9 @@ describe('MeteringService', () => {
             const incr = vi.spyOn(server.stores.meteringBuffer, 'incr');
             const usage = await target.getActorCurrentMonthUsageDetails(actor);
 
-            // Four charges across two listeners, settling as a single write.
-            expect(incr).toHaveBeenCalledTimes(1);
+            // Four charges across two listeners fold into a single usage
+            // write; the second call is the allowance settle.
+            expect(incr).toHaveBeenCalledTimes(2);
             expect(incr.mock.calls[0]![0].pathAndAmountMap).toEqual({
                 total: 600,
                 'workers:monthly.units': 5,
