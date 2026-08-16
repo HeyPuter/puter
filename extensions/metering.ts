@@ -70,8 +70,10 @@ const scaleUsageByType = (
 ): Record<string, unknown> => {
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(usage)) {
-        if (key === 'total') {
-            out.total = toCredits(Number(value) || 0, multiplier);
+        // `allowanceUsed` is the month's allowance-charged spend — monetary,
+        // scalar, scaled like the total.
+        if (key === 'total' || key === 'allowanceUsed') {
+            out[key] = toCredits(Number(value) || 0, multiplier);
         } else if (
             value &&
             typeof value === 'object' &&
