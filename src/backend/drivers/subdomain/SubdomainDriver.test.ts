@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
@@ -177,6 +177,60 @@ describe('SubdomainDriver.create', () => {
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 409 });
+    });
+
+    it('reports a lost uniqueness race as 409, not a 500', async () => {
+        const { actor } = await makeUser();
+
+        // The uniqueness check and the insert are two statements, so a name can
+        // be claimed in between and only the index catches it. The in-memory
+        // sqlite schema has no unique index on `subdomain` (mysql and postgres
+        // do), so the losing insert is what gets stubbed here.
+        const dup = Object.assign(new Error('Duplicate entry'), {
+            code: 'ER_DUP_ENTRY',
+            errno: 1062,
+        });
+        const create = vi
+            .spyOn(server.stores.subdomain, 'create')
+            .mockRejectedValueOnce(dup);
+
+        try {
+            await expect(
+                withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            subdomain: uniqueSubdomain('race'),
+                            root_dir: `/${actor.user!.username}/Public`,
+                        },
+                    }),
+                ),
+            ).rejects.toMatchObject({ statusCode: 409 });
+        } finally {
+            create.mockRestore();
+        }
+    });
+
+    it('lets a non-uniqueness insert failure surface as a server error', async () => {
+        const { actor } = await makeUser();
+
+        const create = vi
+            .spyOn(server.stores.subdomain, 'create')
+            .mockRejectedValueOnce(new Error('connection lost'));
+
+        try {
+            await expect(
+                withActor(actor, () =>
+                    driver.create({
+                        object: {
+                            subdomain: uniqueSubdomain('boom'),
+                            root_dir: `/${actor.user!.username}/Public`,
+                        },
+                    }),
+                ),
+            ).rejects.toThrow('connection lost');
+        } finally {
+            create.mockRestore();
+        }
     });
 
     it('rejects when root_dir does not exist', async () => {

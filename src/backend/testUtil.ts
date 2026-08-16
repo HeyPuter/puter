@@ -4,6 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { v4 as uuidv4 } from 'uuid';
 import { deepMerge } from '../../tools/lib/configMigration.mjs';
+import { makeActor } from './core/actor';
 import { PuterServer } from './server';
 import { IConfig } from './types';
 import { puterClients } from './clients';
@@ -243,8 +244,9 @@ export const createTestUser = async (
         requires_email_confirmation: false,
     });
 
-    // Base driver permissions (kv, notifications, …) are system grants on
-    // the default user group — membership is what a verified signup gets.
+    // Driver permissions no longer come from here (see
+    // `default_user_permissions`), but group-issued ACL grants do, and a
+    // verified signup is a member of the default user group.
     const { default_user_group } = await loadDefaultConfig();
     if (default_user_group) {
         await server.stores.group.addUsers(default_user_group, [opts.username]);
@@ -268,7 +270,7 @@ export const createTestUser = async (
     // "API Token" flow does (POST /auth/create-access-token with the
     // full-api-access sentinel).
     const apiToken = await server.services.auth.createAccessToken(
-        { user },
+        makeActor({ user }),
         [[FULL_API_ACCESS]],
         { label: 'puter-test-env' },
     );

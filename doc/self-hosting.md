@@ -122,6 +122,10 @@ cat > puter/config/config.json <<EOF
         "ollama": { "enabled": false }
     },
 
+    "meteringEnforcement": {
+        "subscriptions": false
+    },
+
     "trust_proxy": 1
 }
 EOF
@@ -136,6 +140,7 @@ Why these knobs:
 - `database.migrationPaths` — Puter applies the bundled MySQL/MariaDB schema on boot. The migration files are idempotent, so it is safe to leave this configured across restarts.
 - `dynamo.bootstrapTables: true` — Puter creates its KV table on boot. **Only set against a local emulator**, never real AWS.
 - `dynamo.aws` keys are dummies; DynamoDB-local doesn't validate them but the AWS SDK requires _something_. **Note:** DynamoDB uses `access_key` / `secret_key` (snake_case); S3 below uses `accessKeyId` / `secretAccessKey` (camelCase). Not interchangeable.
+- `meteringEnforcement.subscriptions: false` — a few surfaces (the OpenAI/Anthropic-compatible AI endpoints) are declared paid-plan-only. A self-hosted install has no paid plans, so every account sits on the free policy and those routes would answer `402 subscription_required` for everyone. Turning the plan gates off opens them; nothing else about metering changes.
 - `providers.ollama.enabled: false` — Puter auto-probes a local Ollama at `127.0.0.1:11434` by default; without one running you'd see `ECONNREFUSED` on every boot. To run a bundled Ollama, see [Optional: local LLM (Ollama)](#optional-local-llm-ollama) below.
 - `s3.s3Config.forcePathStyle: true` — RustFS / MinIO / fauxqs need path-style URLs (`<endpoint>/<bucket>`). Real AWS S3 wants virtual-hosted (`<bucket>.<endpoint>`) — drop this flag (or set `false`) when you swap to real S3.
 - `s3.s3Config.publicEndpoint` — `endpoint` (`http://s3:9000`) only resolves inside the docker network; presigned upload/download URLs handed to the browser need a host-reachable URL. Caddy routes the `s3.<domain>` subdomain to RustFS internally and preserves the Host header end-to-end (required for S3 signature validation), so the browser hits the same port/protocol as the rest of the app — no separate published port, no mixed-content surprises when you turn on TLS. Switch to `https://s3.<your-domain>` once you enable TLS in Step 3. Real AWS S3 doesn't need this — its endpoint is already public; drop the field entirely.
@@ -369,6 +374,37 @@ Default is 100 MB per user.
 ```
 
 Set `is_storage_limited: false` for unlimited (bounded by host disk).
+
+### Usage metering and budgets
+
+Puter meters what an account costs to serve — bytes sent back, object-store
+requests, KV capacity, AI tokens — against a monthly budget, and refuses the
+operations that spend it once that budget is gone. The refusal is a `402` with
+code `insufficient_funds`; reads that only describe things, and every kind of
+deletion, stay available so an account can always see what it has and clear it.
+
+On a self-hosted install this is almost certainly not what you want. There is
+nowhere to buy more, so accounts are held to the free monthly allowance
+(US$0.25 of measured cost — roughly 2 GiB of downloads) and start being refused
+after that. Turn it off:
+
+```json
+"unlimitedMetering": true
+```
+
+Every account then resolves to an unlimited policy. Usage is still recorded, so
+the dashboard still shows what is being consumed; nothing is ever refused for
+lack of budget.
+
+To keep the budgets but stop them blocking anything — recording only:
+
+```json
+"meteringEnforcement": { "enabled": false }
+```
+
+Calls driven by a deployed worker are exempt from enforcement by default,
+because a worker has no prompt to show and nobody watching it fail. Set
+`"meteringEnforcement": { "workers": true }` to include them.
 
 ### Captcha on signup / login
 

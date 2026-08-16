@@ -57,32 +57,57 @@ export const RATE_LIMIT_BACKENDS = ['memory', 'redis', 'kv'];
 const MEMORY_MAX_KEYS = 10_000;
 const MEMORY_MAX_RETAIN_MS = 60 * 60_000;
 
+/**
+ * Key → `{ ts, windowMs }`. The window is kept alongside the timestamps because
+ * the sweep has to know it: collecting on `MEMORY_MAX_RETAIN_MS` alone would
+ * drop the state of any limit whose window is longer than the retention floor,
+ * which silently shortens that limit to the floor. Day-scale windows are a real
+ * shape — a "few per day" grant, for one — and under `memory` they were being
+ * reset every hour. Retention is therefore whichever is longer, and the key cap
+ * below is what actually bounds memory.
+ */
 const memoryWindows = new Map();
+
+/**
+ * Drop memory buckets that can no longer affect a decision. Runs on a timer
+ * below; exported as a test seam because the timer isn't drivable from a test
+ * (it's created at module load, before any fake clock is installed).
+ */
+export function sweepMemoryWindows() {
+    const now = Date.now();
+    for (const [k, entry] of memoryWindows) {
+        const retainMs = Math.max(MEMORY_MAX_RETAIN_MS, entry.windowMs);
+        if (
+            entry.ts.length === 0 ||
+            entry.ts[entry.ts.length - 1] < now - retainMs
+        )
+            memoryWindows.delete(k);
+    }
+}
+
 {
-    const sweep = setInterval(() => {
-        const cutoff = Date.now() - MEMORY_MAX_RETAIN_MS;
-        for (const [k, ts] of memoryWindows) {
-            if (ts.length === 0 || ts[ts.length - 1] < cutoff)
-                memoryWindows.delete(k);
-        }
-    }, 60_000);
+    const sweep = setInterval(sweepMemoryWindows, 60_000);
     sweep.unref?.();
 }
 
 async function checkMemory(key, limit, windowMs) {
     const now = Date.now();
     const cutoff = now - windowMs;
-    let timestamps = memoryWindows.get(key);
-    if (!timestamps) {
+    let entry = memoryWindows.get(key);
+    if (!entry) {
         // Map preserves insertion order; FIFO-evict before adding so a
         // unique-key flood between sweep ticks can't blow up memory.
         if (memoryWindows.size >= MEMORY_MAX_KEYS) {
             const oldest = memoryWindows.keys().next().value;
             memoryWindows.delete(oldest);
         }
-        timestamps = [];
-        memoryWindows.set(key, timestamps);
+        entry = { ts: [], windowMs };
+        memoryWindows.set(key, entry);
+    } else {
+        // A scope's window can change across a deploy; the live value wins.
+        entry.windowMs = windowMs;
     }
+    const timestamps = entry.ts;
     while (timestamps.length > 0 && timestamps[0] < cutoff) timestamps.shift();
     if (timestamps.length >= limit) return false;
     timestamps.push(now);
@@ -90,6 +115,20 @@ async function checkMemory(key, limit, windowMs) {
 }
 
 // -- Redis backend ---------------------------------------------------
+
+// ioredis MULTI/EXEC reports per-command failures inside the exec() result
+// (as `[err, res]` pairs) rather than throwing, so a failed command's result
+// reads as `undefined` — and `Number(undefined)` is NaN, which every
+// comparison below treats as "under the limit". Pull results through this so
+// a command failure surfaces like a thrown one instead of silently admitting.
+function multiResult(results, i) {
+    const entry = results[i];
+    if (Array.isArray(entry)) {
+        if (entry[0]) throw entry[0];
+        return entry[1];
+    }
+    return entry;
+}
 
 async function checkRedis(
     /** @type {import('ioredis').Cluster} */
@@ -119,9 +158,7 @@ async function checkRedis(
         .pexpire(redisKey, windowMs)
         .exec();
 
-    const count = Number(
-        Array.isArray(results[2]) ? results[2][1] : results[2],
-    );
+    const count = Number(multiResult(results, 2));
     if (count > limit) {
         await redis.zrem(redisKey, member);
         return false;
@@ -185,37 +222,69 @@ async function acquireMemoryConcurrent(key, limit) {
             if (c <= 1) memoryConcurrentCounts.delete(key);
             else memoryConcurrentCounts.set(key, c - 1);
         },
+        // Nothing expires a memory slot but the process holding it, so there
+        // is no staleness to renew away.
+        renew: async () => {},
     };
 }
 
-async function acquireRedisConcurrent(redis, key, limit) {
+async function acquireRedisConcurrent(redis, key, limit, retried = false) {
     const redisKey = `concurrent:${key}`;
-    // Atomic INCR + EXPIRE. If the new count exceeds the limit we DECR
-    // ourselves back out; the brief over-count is invisible to other
-    // callers because INCR is atomic per-key. EXPIRE is a safety net for
-    // process death between acquire and release — slots eventually clear
-    // on their own so a crashed worker can't pin the bucket.
-    const results = await redis
-        .multi()
-        .incr(redisKey)
-        .expire(redisKey, ORPHAN_SAFETY_TTL_SEC)
-        .exec();
-    const count = Number(
-        Array.isArray(results[0]) ? results[0][1] : results[0],
-    );
+    const member = `${Date.now()}-${crypto.randomUUID()}`;
+    // One sorted-set member per held slot, scored by acquire time — the same
+    // shape `checkRedis` uses for windows, and for the same reason: expiry has
+    // to be per-slot, not per-key.
+    //
+    // A counter with a key-wide TTL cannot express that. Whoever touches the
+    // key last decides when *every* slot on it expires, so a rejected acquire
+    // extends the life of the slots that rejected it — and a client that
+    // retries on rejection (a websocket reconnect loop is the pointed case)
+    // holds a leaked bucket open forever, locking its owner out of a resource
+    // nobody is actually using. Here the sweep below drops each slot on its own
+    // age, so a leak drains on schedule no matter how hard anyone retries.
+    const now = Date.now();
+    let count;
+    try {
+        const results = await redis
+            .multi()
+            // Slots older than the orphan window belonged to a process that
+            // died before releasing; drop them before counting.
+            .zremrangebyscore(redisKey, 0, now - ORPHAN_SAFETY_TTL_MS)
+            .zadd(redisKey, now, member)
+            .zcard(redisKey)
+            // Key-level TTL is only garbage collection for a bucket that goes
+            // quiet — the per-member sweep above is what bounds a live one.
+            .expire(redisKey, ORPHAN_SAFETY_TTL_SEC)
+            .exec();
+        count = Number(multiResult(results, 2));
+    } catch (err) {
+        // Keys left behind by the INCR-counter version of this backend are
+        // plain strings, so every zset command above fails WRONGTYPE — while
+        // the EXPIRE at the end still succeeds, meaning steady traffic keeps
+        // refreshing the stale key and it never ages out on its own. Drop the
+        // legacy key and count against a clean one.
+        if (!retried && /WRONGTYPE/.test(err?.message ?? '')) {
+            await redis.del(redisKey);
+            return acquireRedisConcurrent(redis, key, limit, true);
+        }
+        throw err;
+    }
     if (count > limit) {
-        await redis.decr(redisKey);
+        await redis.zrem(redisKey, member);
         return { ok: false };
     }
     return {
         ok: true,
         release: async () => {
-            // DECR can race below zero if the TTL fired between acquire
-            // and release (slot cleared, counter resets, we DECR to -1).
-            // Clamp on the next observation; it costs an extra read only
-            // on the rare TTL race.
-            const after = await redis.decr(redisKey);
-            if (after < 0) await redis.set(redisKey, 0);
+            await redis.zrem(redisKey, member);
+        },
+        renew: async () => {
+            // Re-score in place so a slot held longer than the orphan window
+            // isn't mistaken for one whose owner died. `ZADD XX` only touches
+            // a member that's still there, so renewing after release (or after
+            // a sweep) can't resurrect the slot.
+            await redis.zadd(redisKey, 'XX', Date.now(), member);
+            await redis.expire(redisKey, ORPHAN_SAFETY_TTL_SEC);
         },
     };
 }
@@ -245,6 +314,15 @@ async function acquireKvConcurrent(kv, key, limit) {
         ok: true,
         release: async () => {
             await kv.del({ key: slotKey });
+        },
+        renew: async () => {
+            // Push the row's own TTL out; a slot that outlives the orphan
+            // window is held, not abandoned.
+            await kv.set({
+                key: slotKey,
+                value: 1,
+                expireAt: Math.ceil((Date.now() + ORPHAN_SAFETY_TTL_MS) / 1000),
+            });
         },
     };
 }
@@ -558,6 +636,75 @@ export async function checkRateLimit(key, limit, windowMs, backend) {
         return true;
     }
 }
+
+/**
+ * Imperative concurrency acquire — the `acquire` twin to `checkRateLimit`, for
+ * long-lived things that aren't a request/response pair and so can't use
+ * `concurrencyGate`. The websocket handshake is the motivating case: the slot
+ * has to be held for the life of the connection, not the life of a response.
+ *
+ * Caller MUST invoke `release()` exactly once when the thing being counted ends
+ * (`ok: false` still returns a no-op `release`, so callers can release
+ * unconditionally). Fails open on backend error.
+ *
+ * `release()` returns a promise that settles once the slot is actually back —
+ * await it when the next observation has to see the freed slot. Fire-and-forget
+ * is fine for the usual case (an event handler on connection close), which is
+ * why it never rejects.
+ *
+ * A holder that can outlive `ORPHAN_SAFETY_TTL_MS` must call `renew()` on a
+ * timer, or the orphan sweep will reclaim its slot as abandoned and the cap
+ * stops counting it. Anything that finishes in seconds can ignore it.
+ */
+export async function acquireConcurrent(key, limit, backend) {
+    const bk = resolveBackend(backend);
+    try {
+        const result = await bk.acquire(key, limit);
+        if (!result.ok)
+            return {
+                ok: false,
+                release: async () => {},
+                renew: async () => {},
+            };
+        let released = false;
+        return {
+            ok: true,
+            release: async () => {
+                if (released) return;
+                released = true;
+                try {
+                    await result.release();
+                } catch (err) {
+                    console.error(
+                        '[concurrent] imperative release failed:',
+                        err,
+                    );
+                }
+            },
+            renew: async () => {
+                if (released) return;
+                try {
+                    await result.renew?.();
+                } catch (err) {
+                    console.error('[concurrent] imperative renew failed:', err);
+                }
+            },
+        };
+    } catch (err) {
+        console.error(
+            '[concurrent] imperative acquire failed, failing open:',
+            err,
+        );
+        return { ok: true, release: async () => {}, renew: async () => {} };
+    }
+}
+
+/**
+ * How long a held slot stays valid without a `renew()`. Exported so a
+ * long-lived holder can pick a renewal cadence from it rather than hardcoding
+ * one that drifts out of step.
+ */
+export const CONCURRENT_SLOT_TTL_MS = ORPHAN_SAFETY_TTL_MS;
 
 // -- Subscription-aware limit resolution -----------------------------
 

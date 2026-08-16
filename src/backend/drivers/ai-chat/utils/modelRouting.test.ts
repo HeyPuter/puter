@@ -3,24 +3,29 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { describe, expect, it } from 'vitest';
 import { GEMINI_MODELS } from '../providers/gemini/models.js';
 import type { IChatModel } from '../types.js';
-import { compareModelPreference } from './modelRouting.js';
+import {
+    compareModelPreference,
+    isIdentityKey,
+    normalizeModelKey,
+} from './modelRouting.js';
 
 // `#buildModelMap` mutates the catalogs providers hand back, and
 // `GeminiChatProvider.models()` returns the module-level `GEMINI_MODELS` by
@@ -97,6 +102,21 @@ describe('compareModelPreference', () => {
         expect(winner(together, openrouter).provider).toBe('openrouter');
     });
 
+    it('puts openrouter then together-ai at the very bottom of the chain', () => {
+        // Both quote well under the other resellers — price must not lift
+        // either of them out of the last two slots.
+        const bucket = [
+            resoldModel('together-ai', 'meta/llama-4', 1),
+            resoldModel('openrouter', 'meta/llama-4', 2),
+            resoldModel('neuralwatt', 'meta/llama-4', 400),
+            resoldModel('infron', 'meta/llama-4', 500),
+        ];
+
+        expect(
+            bucket.sort(compareModelPreference).map((m) => m.provider),
+        ).toEqual(['neuralwatt', 'infron', 'openrouter', 'together-ai']);
+    });
+
     it('still orders two direct providers by cheapest input cost', () => {
         const cheap = geminiModel('gemini-2.5-flash-lite');
         const pricey = geminiModel('gemini-2.5-pro');
@@ -122,7 +142,9 @@ describe('compareModelPreference', () => {
         // The image-preview models are absent from GEMINI_MODELS, so the
         // gateway is the only route and must stay the winner.
         expect(
-            GEMINI_MODELS.some((m) => m.id === 'gemini-2.5-flash-image-preview'),
+            GEMINI_MODELS.some(
+                (m) => m.id === 'gemini-2.5-flash-image-preview',
+            ),
         ).toBe(false);
 
         const onlyRoute = resoldModel(
@@ -131,5 +153,36 @@ describe('compareModelPreference', () => {
             20,
         );
         expect(winner(onlyRoute).provider).toBe('infron');
+    });
+});
+
+describe('isIdentityKey', () => {
+    it('accepts the machine ids a catalog uses to name a model', () => {
+        for (const key of [
+            'claude-sonnet-4',
+            'anthropic/claude-sonnet-4',
+            'openrouter:anthropic/claude-sonnet-4',
+            'gpt-4o',
+        ]) {
+            expect(isIdentityKey(key)).toBe(true);
+        }
+    });
+
+    it('rejects display names, so a shared label cannot merge two providers', () => {
+        // Gateways carry these alongside the machine ids. Merging on one
+        // would be merging two providers on a human-readable string.
+        for (const key of [
+            normalizeModelKey('Google: Gemini 2.5 Flash'),
+            normalizeModelKey('Anthropic: Claude Sonnet 4'),
+            normalizeModelKey('Meta Llama 3.1 8B Instruct Turbo'),
+        ]) {
+            expect(isIdentityKey(key)).toBe(false);
+        }
+    });
+
+    it('rejects the empty key catalogs produce for ids carrying no vendor org', () => {
+        // `'gpt-4o'.split('/').slice(1).join('/')` is '' — pooling models
+        // under that key would put unrelated models in one bucket.
+        expect(isIdentityKey('')).toBe(false);
     });
 });

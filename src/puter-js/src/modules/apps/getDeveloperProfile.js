@@ -1,7 +1,7 @@
 import * as utils from '../../lib/utils.js';
 
 /** @typedef {Record<string, unknown>} DeveloperProfile */
-/** @typedef {import('../../../types/shared').RequestCallbacks<DeveloperProfile>} ProfileCallbacks */
+/** @typedef {import('../../lib/types.js').RequestCallbacks<DeveloperProfile>} ProfileCallbacks */
 
 /**
  * @overload

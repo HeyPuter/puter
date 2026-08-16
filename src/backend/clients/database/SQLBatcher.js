@@ -22,6 +22,7 @@ import {
     POOL_ACQUIRE_TIMEOUT,
     isNeverSentError,
     isRetriableError,
+    isRolledBackError,
 } from './retriableErrors.js';
 
 const DEFAULT_MAX_QUEUE_SIZE = 1000;
@@ -361,8 +362,14 @@ export class SQLBatcher {
     // Run one fallback item, retrying transient failures with backoff.
     // A read-only batcher may retry anything transient; a batcher that
     // carries writes only retries failures where the statement provably
-    // never reached the server — a write that died mid-flight may have
-    // committed, and re-running it would double-apply.
+    // did not apply — either it never reached the server, or the server
+    // rolled it back itself. A write that died mid-flight may have
+    // committed, and re-running that one would double-apply.
+    //
+    // Lock contention lands in the second group and is worth retrying rather
+    // than surfacing: an item is a single statement, so a deadlock victim has
+    // been fully undone, and the caller sees an unhandled 500 for what the
+    // database is telling us to just run again.
     async #runFallbackItem(b) {
         let attempt = 0;
         while (true) {
@@ -379,8 +386,8 @@ export class SQLBatcher {
                 };
             } catch (error) {
                 const canRetry = this.readOnly
-                    ? isRetriableError(error)
-                    : isNeverSentError(error);
+                    ? isRetriableError(error) || isRolledBackError(error)
+                    : isNeverSentError(error) || isRolledBackError(error);
                 if (!canRetry || attempt >= ITEM_RETRY_ATTEMPTS) {
                     return { ok: false, error };
                 }

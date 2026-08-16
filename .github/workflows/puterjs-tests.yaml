@@ -23,6 +23,33 @@ permissions:
   pull-requests: write
 
 jobs:
+  # The JSDoc in src/puter-js/src is the source of truth for the SDK's public
+  # types. The declarations shipped to npm are generated from it at build time
+  # and never committed, so what needs guarding is the JSDoc itself: this
+  # generates the declarations and type-checks the published surface without
+  # skipLibCheck, which is how broken re-exports used to go unnoticed.
+  #
+  # Its own job rather than a step in `test`: that one builds bundles and
+  # installs a browser, and this needs neither.
+  types:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check the puter.js JSDoc produces declarations that type-check
+        run: npm run check:puterjs:types
+
   test:
     runs-on: ubuntu-latest
 

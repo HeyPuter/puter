@@ -47,6 +47,26 @@ export interface ActorAccessToken {
 export interface Actor {
     user: Partial<UserRow>;
     app?: ActorApp | null;
+    /**
+     * The app this actor ultimately acts as: its own `app`, or failing that the
+     * app of whoever issued its access token.
+     *
+     * Read this — not `app` — in any gate asking "which app is doing this?". An
+     * access-token actor carries no `app` of its own, so `app` alone reads as
+     * "no app" even for a token an app minted, and a gate keyed off it fails
+     * open exactly where it must not.
+     *
+     * `null` and `undefined` are not the same thing here:
+     *
+     * - `null` — resolved, and this actor is not acting as any app.
+     * - Absent — never resolved, because the actor skipped `makeActor`.
+     *
+     * A gate must not read the second as the first: that is the fail-open this
+     * field exists to prevent. Optional only so an actor literal that predates
+     * the field still compiles; `assertResolvedActor` is what keeps the request
+     * path honest, and `makeActor` is the one place the derivation lives.
+     */
+    effectiveApp?: ActorApp | null;
     /** True for the system actor; skips metering / quota tracking. */
     system?: boolean;
     accessToken?: ActorAccessToken | null;
@@ -67,7 +87,39 @@ export const SYSTEM_ACTOR_UUID = '5d4adce0-a381-4982-9c02-6e2540026238';
 /** The default system actor used when no actor is supplied. */
 export const SYSTEM_ACTOR: Actor = {
     user: { uuid: SYSTEM_ACTOR_UUID, username: 'system' },
+    effectiveApp: null,
     system: true,
+};
+
+/**
+ * Build an actor, deriving `effectiveApp` from its own app and, failing that,
+ * from the app of whoever issued its access token.
+ *
+ * The issuer was itself built here, so its chain is already collapsed — one hop
+ * is enough, and no caller has to walk anything.
+ */
+export const makeActor = (actor: Omit<Actor, 'effectiveApp'>): Actor => ({
+    ...actor,
+    effectiveApp: actor.app ?? actor.accessToken?.issuer.effectiveApp ?? null,
+});
+
+/**
+ * Fail closed on an actor whose `effectiveApp` was never derived.
+ *
+ * Every actor on the request path is built by `AuthService` through
+ * `makeActor`, so this cannot fire in production — which is the point. It turns
+ * a future actor literal that skips the builder into a loud 500 at the edge
+ * rather than a silent bypass deep inside a gate that read `undefined` as "no
+ * app". Call it once, where the request actor is established.
+ */
+export const assertResolvedActor = (actor: Actor): Actor => {
+    if (actor.effectiveApp === undefined) {
+        throw new Error(
+            'actor was built without `makeActor`: `effectiveApp` is unresolved, ' +
+                'and app-scoped gates would read that as "no app"',
+        );
+    }
+    return actor;
 };
 
 export const isSystemActor = (actor: Actor | undefined | null): boolean => {
@@ -106,15 +158,5 @@ export const actorUid = (actor: Actor): string => {
  */
 export const userRelatedActor = (actor: Actor): Actor => {
     if (!actor.app && !actor.accessToken) return actor;
-    return { user: actor.user };
-};
-
-/**
- * Walk the access-token issuer chain and return the first app identity found,
- * or null if no app appears anywhere in the chain.
- */
-export const effectiveActorApp = (actor: Actor): ActorApp | null => {
-    if (actor.app) return actor.app;
-    if (actor.accessToken) return effectiveActorApp(actor.accessToken.issuer);
-    return null;
+    return { user: actor.user, effectiveApp: null };
 };

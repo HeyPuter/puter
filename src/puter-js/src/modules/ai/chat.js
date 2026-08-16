@@ -1,11 +1,11 @@
 import * as utils from '../../lib/utils.js';
 import { hasTestModeFlag, isPlainObject } from './lib/args.js';
 
-/** @typedef {import('../../../types/modules/ai').ChatMessage} ChatMessage */
-/** @typedef {import('../../../types/modules/ai').ChatOptions} ChatOptions */
-/** @typedef {import('../../../types/modules/ai').ChatResponse} ChatResponse */
-/** @typedef {import('../../../types/modules/ai').ChatResponseChunk} ChatResponseChunk */
-/** @typedef {import('../../../types/modules/ai').StreamingChatOptions} StreamingChatOptions */
+/** @typedef {import('./types.js').ChatMessage} ChatMessage */
+/** @typedef {import('./types.js').ChatOptions} ChatOptions */
+/** @typedef {import('./types.js').ChatResponse} ChatResponse */
+/** @typedef {import('./types.js').ChatResponseChunk} ChatResponseChunk */
+/** @typedef {import('./types.js').StreamingChatOptions} StreamingChatOptions */
 
 // Parameters copied from the caller's options object onto the driver
 // request. `compaction` (provider-neutral inline-compaction opt-in) and the

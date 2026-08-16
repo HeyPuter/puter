@@ -393,7 +393,18 @@ export class SubdomainStore extends PuterStore {
     async countByUserIdAndPrefix(
         userId: number,
         prefix: string,
-        extra: { appId?: number; appIds?: number[] } = {},
+        extra: {
+            appId?: number;
+            appIds?: number[];
+            /**
+             * `YYYY-MM-DD HH:MM:SS`, matching rows strictly older than it.
+             * Compared in SQL because `ts` reaches JS as a string on one
+             * backend and a Date on another, and the string form parses as
+             * local time — a boundary computed here would drift by the server's
+             * offset.
+             */
+            createdBefore?: string;
+        } = {},
     ): Promise<number> {
         if (!userId || prefix == null) return 0;
 
@@ -403,6 +414,10 @@ export class SubdomainStore extends PuterStore {
         if (appOwnerFilter) {
             conditions.push(appOwnerFilter.condition);
             values.push(...appOwnerFilter.values);
+        }
+        if (extra.createdBefore !== undefined) {
+            conditions.push('`ts` < ?');
+            values.push(extra.createdBefore);
         }
         const rows = await this.clients.db.read(
             `SELECT COUNT(*) AS n FROM \`subdomains\` WHERE ${conditions.join(' AND ')}`,

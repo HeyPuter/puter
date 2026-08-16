@@ -3,18 +3,18 @@ import { fetchAllPages, iteratePages } from '../../lib/pagination.js';
 import { PuterJSError } from '../../lib/PuterJSError.js';
 import { addUserIterationToApps } from './lib/appUsers.js';
 
-/** @typedef {import('../../../types/modules/apps').App} App */
-/** @typedef {import('../../../types/modules/apps').AppListOptions} AppListOptions */
+/** @typedef {import('./types.js').App} App */
+/** @typedef {import('./types.js').AppListOptions} AppListOptions */
 
 /**
  * @overload
- * @param {AppListOptions & import('../../../types/shared').ListStreamOptions} options
- * @returns {AsyncIterableIterator<import('../../../types/shared').ListPage<App>>}
+ * @param {AppListOptions & import('../../lib/types.js').ListStreamOptions} options
+ * @returns {AsyncIterableIterator<import('../../lib/types.js').ListPage<App>>}
  */
 /**
  * @overload
- * @param {AppListOptions & import('../../../types/shared').ListPaginationOptions & ({ cursor: string | null } | { offset: number } | { includeTotal: true })} options
- * @returns {Promise<import('../../../types/shared').ListPage<App>>}
+ * @param {AppListOptions & import('../../lib/types.js').ListPaginationOptions & ({ cursor: string | null } | { offset: number } | { includeTotal: true })} options
+ * @returns {Promise<import('../../lib/types.js').ListPage<App>>}
  */
 /**
  * @overload
@@ -29,8 +29,8 @@ import { addUserIterationToApps } from './lib/appUsers.js';
  * envelope, and `stream: true` returns an async iterator of page envelopes.
  *
  * @this {import('./index.js').AppsModule}
- * @param {AppListOptions & (import('../../../types/shared').ListPaginationOptions | import('../../../types/shared').ListStreamOptions)} [options]
- * @returns {Promise<App[]> | Promise<import('../../../types/shared').ListPage<App>> | AsyncIterableIterator<import('../../../types/shared').ListPage<App>>}
+ * @param {AppListOptions & (import('../../lib/types.js').ListPaginationOptions | import('../../lib/types.js').ListStreamOptions)} [options]
+ * @returns {Promise<App[]> | Promise<import('../../lib/types.js').ListPage<App>> | AsyncIterableIterator<import('../../lib/types.js').ListPage<App>>}
  */
 export function list (options) {
     const { puter } = this;

@@ -41,6 +41,8 @@ import {
     allowedAppIdsGate,
     noUserSessionGate,
     requireAuthGate,
+    requireCardVerifiedGate,
+    requirePhoneVerifiedGate,
     requireVerifiedAccount,
     requireNonAccessTokenGate,
     requireUserActorGate,
@@ -48,8 +50,12 @@ import {
     subdomainGate,
 } from './core/http/middleware/gates';
 import { guiOriginGate } from './core/http/middleware/originGate';
+import { requireCreditsGate } from './core/http/middleware/credits';
+import { requireSubscriptionGate } from './core/http/middleware/subscription';
+import { validateSubscriptionRequirement } from './services/metering/enforcement';
 import { createStepUpGate } from './core/http/middleware/stepUpSession';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
+import { installProcessGuards } from './util/processGuards';
 import {
     requireAntiCsrf,
     setAntiCsrfRedis,
@@ -65,6 +71,7 @@ import {
     createUserSubdomainRedirect,
     createNativeAppStatic,
 } from './core/http/middleware/hostRedirects';
+import { createEgressMeteringMiddleware } from './core/http/middleware/egressMetering';
 import { createLocalWorkerProxyMiddleware } from './core/http/middleware/localWorkerProxy';
 import { createPuterSiteMiddleware } from './core/http/middleware/puterSite';
 import { PuterRouter } from './core/http/PuterRouter';
@@ -100,6 +107,7 @@ export class PuterServer {
     #config: IConfig;
     #app!: ReturnType<typeof express>;
     #server: ReturnType<ReturnType<typeof express>['listen']> | null = null;
+    #removeProcessGuards: (() => void) | null = null;
 
     #ready: Promise<boolean>;
 
@@ -380,6 +388,15 @@ export class PuterServer {
      *   `#materializeRoute` as those options ship.
      */
     #installGlobalMiddleware() {
+        // -- Egress metering -----------------------------------------
+        // First, so the byte counter wraps `res.write` before compression
+        // does and therefore counts what actually goes out rather than what
+        // the handler produced. Reads the actor when the response ends, by
+        // which point the auth probe below has run.
+        this.#app.use(
+            createEgressMeteringMiddleware({ services: this.services }),
+        );
+
         this.#app.use(cookieParser());
 
         this.#app.use(compression());
@@ -740,6 +757,11 @@ export class PuterServer {
                     // direction: an error tagged as caused by an upstream
                     // provider or a misbehaving client gets exposed to
                     // the user but does not alarm at all.
+                    //
+                    // `noAlarm` beats both: the call site already decided
+                    // this failure isn't worth recording (e.g. an upstream
+                    // rate limit on a free model, where the volume tracks
+                    // traffic and there's nothing to act on).
                     const FORCED_ALERT_CODES = new Map<string, PagerSeverity>([
                         ['upstream_rate_limited', 'info'],
                         // Our credentials for a provider stopped working —
@@ -748,6 +770,7 @@ export class PuterServer {
                     ]);
                     const SKIP_ALERT_PREFIXES = /^(upstream_|client_)/;
                     const isHttp = isHttpError(err);
+                    if (isHttp && err.noAlarm) return;
                     const status = isHttp ? err.statusCode : 500;
                     const legacyCode = isHttp ? (err.legacyCode ?? '') : '';
                     const forcedSeverity = FORCED_ALERT_CODES.get(legacyCode);
@@ -828,6 +851,20 @@ export class PuterServer {
         const mwChain: RequestHandler[] = [];
         const opts = route.options;
 
+        // Validated here rather than trusted, and by the same function the
+        // driver decorator uses: a malformed requirement is a boot failure
+        // naming the route, never a gate that quietly admits everyone.
+        const subscriptionRequirement =
+            opts.requireSubscription === undefined
+                ? undefined
+                : validateSubscriptionRequirement(
+                      opts.requireSubscription,
+                      `route ${route.method.toUpperCase()} ${routerPrefix}${String(route.path)}: requireSubscription`,
+                  );
+        const requiresSubscription =
+            subscriptionRequirement !== undefined &&
+            subscriptionRequirement !== false;
+
         // 1. Subdomain routing. Routes that specify `subdomain` only match
         // that subdomain(s). Routes WITHOUT a `subdomain` option (and that
         // aren't `use` middleware) are restricted to the root origin — this
@@ -876,7 +913,10 @@ export class PuterServer {
             opts.adminOnly ||
             opts.allowedAppIds ||
             opts.requireVerified ||
-            opts.noUserSession,
+            opts.noUserSession ||
+            opts.requirePhoneVerified ||
+            opts.requireCardVerified ||
+            requiresSubscription,
         );
         if (needsAuth) {
             mwChain.push(requireAuthGate());
@@ -964,6 +1004,32 @@ export class PuterServer {
             );
         }
 
+        // 2a'. Per-factor verification gates. Opt-in, and independent of the
+        // default-on pending-verification gate above: these require the factor
+        // to have actually been verified, for routes worth that friction.
+        if (opts.requirePhoneVerified) {
+            mwChain.push(requirePhoneVerifiedGate());
+        }
+        if (opts.requireCardVerified) {
+            mwChain.push(requireCardVerifiedGate());
+        }
+
+        // 2a''. Plan enforcement. Before the rate limit — the same order the
+        // driver dispatch path uses — so an account on a plan that never
+        // included this route is told to upgrade rather than to slow down,
+        // and doesn't spend a rate-limit token on a request that can never
+        // pass. Also before the budget gate: "your plan doesn't include this"
+        // beats "you're out of credits" that a top-up wouldn't fix.
+        if (requiresSubscription) {
+            mwChain.push(
+                requireSubscriptionGate(
+                    this.services.metering,
+                    this.#config,
+                    subscriptionRequirement!,
+                ),
+            );
+        }
+
         // 2b. Rate limiting. Runs after auth so 'user' key strategy
         // has access to req.actor. An array applies each limit as its
         // own gate — a request must pass all of them.
@@ -974,6 +1040,17 @@ export class PuterServer {
             for (const rl of limits) {
                 mwChain.push(rateLimitGate(rl) as unknown as RequestHandler);
             }
+        }
+
+        // 2b''. Budget enforcement. After the rate limit so a caller over
+        // both gets the cheaper, more specific answer, and before the
+        // concurrency slot so a rejected request never takes one. Answered
+        // from the metering service's per-actor cache, so ordering it here
+        // costs a map lookup rather than a store read.
+        if (opts.requireCredits) {
+            mwChain.push(
+                requireCreditsGate(this.services.metering, this.#config),
+            );
         }
 
         // 2b'. Concurrent in-flight limiting. Same auth-ordering reason
@@ -1208,6 +1285,13 @@ export class PuterServer {
     async start(noHttpServer = false) {
         await this.#ready;
 
+        // Installed before anything starts serving, so a fault during boot is
+        // reported too. Logging is unconditional; whether an uncaught exception
+        // ends the process is a deployment decision, hence the config gate.
+        this.#removeProcessGuards = installProcessGuards({
+            keepAliveOnUncaught: this.#config.keep_alive_on_uncaught ?? false,
+        });
+
         // Create the http server explicitly (instead of `app.listen()`) so we
         // have the server reference BEFORE listen starts — anything that needs
         // to hook into the raw server (socket.io upgrades, WebSockets, …) runs
@@ -1388,6 +1472,8 @@ export class PuterServer {
     }
 
     async shutdown() {
+        this.#removeProcessGuards?.();
+        this.#removeProcessGuards = null;
         if (this.#server) {
             console.log('PuterServer is shutting down');
             // Prepare hooks come first: SocketService's hook closes

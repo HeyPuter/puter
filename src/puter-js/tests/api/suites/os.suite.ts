@@ -5,6 +5,11 @@ export default suite('os', {
         const user = await t.puter.os.user();
         t.assert.ok(user && typeof user === 'object', 'user should be an object');
         t.assert.equal(user.username, t.env.users.user.username);
+        t.assert.equal(
+            typeof user.created_ts,
+            'number',
+            'created_ts should be unix seconds',
+        );
     },
 
     'user accepts trailing success/error callbacks': async (t) => {

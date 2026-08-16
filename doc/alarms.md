@@ -6,9 +6,9 @@ transports by **severity**.
 
 ```ts
 this.clients.alarm.create(
-    `driver_rate_limit_hit:${iface}:${method}`, // de-dupe key
-    `Driver rate limit hit on ${iface}:${method}`, // what a human reads
-    { iface, method, userUuid }, // context fields
+    `metering_write_failed:${userUuid}`, // de-dupe key
+    'Metering write failed', // what a human reads
+    { userUuid, appId, error }, // context fields
     'info', // severity
 );
 ```
@@ -37,8 +37,22 @@ pass one explicitly unless you really mean "page someone".
 
 - Did the server fail to do its job in a way nobody expected? → `critical`
 - Is a background job, rate, or dependency degraded? → `warning`
-- Is this a user doing something notable (hitting a limit, tripping an abuse
-  heuristic, overspending)? → `info`
+- Is this a user doing something notable (tripping an abuse heuristic,
+  overspending)? → `info`
+- Did one of *our own* limits reject a caller — a rate limit, a concurrency
+  cap, a quota? → don't alarm at all. The limit doing its job is not an
+  event; the 429 is the whole signal, and alarming on it only produces noise
+  proportional to traffic. An *upstream provider* rate-limiting us is the
+  opposite case and still alarms (`upstream_rate_limited`, `info`) — that one
+  is not something we chose. The exception is a free model: nothing is billed,
+  nothing is actionable, and the throttling is the price of the model, so the
+  AI chat driver marks those `noAlarm` and only paid models still record.
+
+`noAlarm` is the code-level mute: an `HttpError` carrying it skips the
+terminal gate entirely, no matter its status or code. It is for failures the
+call site *already knows* are expected and traffic-proportional — reach for it
+there, not as a way to quiet an alarm you haven't diagnosed
+(`severityOverrides` below is the knob for that).
 
 An extension whose signals are all one tier can default its own local
 `raiseAlarm` helper to that tier instead of repeating it at every call site —

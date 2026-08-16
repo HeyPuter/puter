@@ -28,6 +28,7 @@ import UIItem from './UI/UIItem.js';
 import UIPopover from './UI/UIPopover.js';
 import UIPrompt from './UI/UIPrompt.js';
 import UIWindow from './UI/UIWindow.js';
+import UIWindowAppFeedback from './UI/UIWindowAppFeedback.js';
 import UIWindowColorPicker from './UI/UIWindowColorPicker.js';
 import UIWindowEmailConfirmationRequired from './UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowFontPicker from './UI/UIWindowFontPicker.js';
@@ -38,8 +39,15 @@ import UINotification from './UI/UINotification.js';
 
 import { PROCESS_IPC_ATTACHED } from './definitions.js';
 import TeePromise from './util/TeePromise.js';
+import { createFeedbackDialogGuard } from './util/feedbackDialogGuard.js';
 
 window.ipc_handlers = {};
+
+// Re-entry guard for the app-triggered feedback dialog (`showFeedbackDialog`
+// handler below): one dialog at a time, and nothing else — reopening is always
+// allowed. See feedbackDialogGuard.js.
+const feedback_dialog_guard = createFeedbackDialogGuard();
+
 /**
  * In Puter, apps are loaded in iframes and communicate with the graphical user interface (GUI), and each other, using the postMessage API.
  * The following sets up an Inter-Process Messaging System between apps and the GUI that enables communication
@@ -439,11 +447,15 @@ const ipc_listener = async (event, handled) => {
     // setItem
     //--------------------------------------------------------
     else if ( event.data.msg === 'setItem' && event.data.key && event.data.value ) {
+        // The legacy protocol has no failure reply for these three, and the
+        // app-side promise only settles when a message with its id comes back
+        // — so a rejected call is answered anyway rather than left hanging
+        // forever. Logged here because that is the only place it is visible.
         puter.kv.set({
             key: event.data.key,
             value: event.data.value,
             app_uid: app_uuid,
-        }).then(() => {
+        }).catch(err => console.warn('kv.setItem failed for app:', err)).then(() => {
             // send confirmation to requester window
             target_iframe.contentWindow.postMessage({
                 original_msg_id: msg_id,
@@ -457,6 +469,9 @@ const ipc_listener = async (event, handled) => {
         puter.kv.get({
             key: event.data.key,
             app_uid: app_uuid,
+        }).catch(err => {
+            console.warn('kv.getItem failed for app:', err);
+            return null;
         }).then((result) => {
             // send confirmation to requester window
             target_iframe.contentWindow.postMessage({
@@ -473,7 +488,7 @@ const ipc_listener = async (event, handled) => {
         puter.kv.del({
             key: event.data.key,
             app_uid: app_uuid,
-        }).then(() => {
+        }).catch(err => console.warn('kv.removeItem failed for app:', err)).then(() => {
             // send confirmation to requester window
             target_iframe.contentWindow.postMessage({
                 original_msg_id: msg_id,
@@ -1348,16 +1363,33 @@ const ipc_listener = async (event, handled) => {
             event.data.options = {};
         }
 
-        // options.permission must be provided and be a string
-        if ( !event.data.options.permission || typeof event.data.options.permission !== 'string' )
+        // One of `permission` (a string) or `permissions` (a non-empty list of
+        // strings) must be provided. The dialog validates the strings
+        // themselves; this only rejects a shape it cannot read.
+        const requested_permissions = Array.isArray(event.data.options.permissions)
+            ? event.data.options.permissions
+            : [event.data.options.permission];
+        // Capped to match the server: otherwise the dialog renders every row and
+        // the grant 400s after Allow — consent for something ungrantable.
+        const MAX_REQUESTED_PERMISSIONS = 16;
+        if ( requested_permissions.length === 0
+            || requested_permissions.length > MAX_REQUESTED_PERMISSIONS
+            || requested_permissions.some(p => !p || typeof p !== 'string') )
         {
-            console.error('IPC requestPermission requires parameter { permission }', event.data);
+            console.error('IPC requestPermission requires parameter { permission } or { permissions }', event.data);
             respond(false);
             return;
         }
 
         let granted = await UIPermissionDialog({
-            permission: event.data.options.permission,
+            // Both forms: the dialog reads `permissions`, and `permission` keeps
+            // the single-scope path working for callers (and dialog versions)
+            // that only know the scalar. A multi-scope request with no list
+            // support is refused rather than partially granted.
+            permissions: requested_permissions,
+            permission: requested_permissions.length === 1
+                ? requested_permissions[0]
+                : undefined,
             app_uid: app_uuid,
             app_name: app_name,
         });
@@ -1365,6 +1397,72 @@ const ipc_listener = async (event, handled) => {
         // report the user's decision to the requester window
         respond(granted === true);
         $(target_iframe).get(0)?.focus({ preventScroll: true });
+    }
+    //--------------------------------------------------------
+    // showFeedbackDialog
+    //--------------------------------------------------------
+    else if ( event.data.msg === 'showFeedbackDialog' ) {
+        // Always respond, even on failure, so the SDK's promise settles
+        // instead of hanging forever. The app can close its own window while
+        // the dialog is up, which tears down the iframe — posting into it
+        // must not throw.
+        const respond = (sent) => {
+            target_iframe?.contentWindow?.postMessage({
+                msg: 'feedbackDialogClosed',
+                sent: sent === true,
+                original_msg_id: msg_id,
+            }, '*');
+        };
+
+        // One dialog at a time (see the state at the top of this file).
+        // Checked before the auth gate too: for a signed-out user the gate
+        // opens a full-page signup window, and a second call must not stack
+        // another one on top of it.
+        if ( ! feedback_dialog_guard.mayOpen() ) {
+            // The app gets the same `false` a dismissal produces, so say why
+            // here: from the app's side a refused call is indistinguishable
+            // from a user who closed the dialog.
+            console.warn('IPC showFeedbackDialog: a feedback dialog is already open; ignoring this call');
+            respond(false);
+            return;
+        }
+
+        feedback_dialog_guard.markOpened();
+        let sent = false;
+        try {
+            // auth
+            try {
+                if ( !window.is_auth() && !(await UIWindowSignup({ referrer: app_name })) )
+                {
+                    respond(false);
+                    return;
+                }
+            } catch ( e ) {
+                // `ipc_listener` has no outer catch, so a throw from the signup
+                // window would escape before any reply and hang the app.
+                console.error('IPC showFeedbackDialog: auth gate failed', e);
+                respond(false);
+                return;
+            }
+
+            try {
+                // The target app is this message's sender — identified by the
+                // GUI's own registry (`data-app_uuid` on the window that owns the
+                // validated source iframe), never by anything in the message, so
+                // an app can only ever open the feedback dialog for itself.
+                sent = await UIWindowAppFeedback({
+                    app: app_uuid || app_name,
+                    source: 'app',
+                });
+            } catch ( e ) {
+                console.error('IPC showFeedbackDialog failed', e);
+            }
+
+            respond(sent === true);
+            $(target_iframe).get(0)?.focus({ preventScroll: true });
+        } finally {
+            feedback_dialog_guard.markClosed();
+        }
     }
     //--------------------------------------------------------
     // showFontPicker
@@ -1960,9 +2058,10 @@ const ipc_listener = async (event, handled) => {
                 return true;
             }
 
-            // God-mode apps can close anything
+            // God-mode apps can close anything. `godmode` arrives as a
+            // boolean from /apps but was historically 0/1 — accept both.
             const app_info = await window.get_apps(app_name);
-            if ( app_info.godmode === 1 ) {
+            if ( app_info.godmode === true || app_info.godmode === 1 ) {
                 console.log(`⚠️ Allowing GODMODE app ${appInstanceID} to close app ${targetAppInstanceID}`);
                 return true;
             }

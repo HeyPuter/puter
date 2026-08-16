@@ -60,6 +60,7 @@ export interface IGenerateVideoParams {
     output_format?: string;
     output_quality?: number;
     negative_prompt?: string;
+    generate_audio?: boolean;
     reference_images?: string[];
     frame_images?: object[];
     last_frame?: string;

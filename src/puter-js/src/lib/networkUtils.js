@@ -38,9 +38,9 @@ const createDeferred = () => {
  *
  * @param {Object} resp - The parsed response body.
  * @param {string} [sentToken] - The token the failed request carried.
- * @returns {{action: 'reject', error: Object}}
+ * @returns {{ action: 'reject'; error: Object }}
  */
-function resolveBackgroundReauth (resp, sentToken) {
+function resolveBackgroundReauth(resp, sentToken) {
     puter.dropStaleAuthToken({
         reason: resp.reason,
         auth_id: resp.auth_id,
@@ -65,33 +65,36 @@ function resolveBackgroundReauth (resp, sentToken) {
  * utils.js) apply the exact same policy.
  *
  * Recognised backend signals:
- *   - `reauth_required` (`authProbe`): retired v1 tokens, revoked sessions,
- *     and expired sessions beyond the silent re-mint window.
- *   - `token_auth_failed` (legacy `APIError.create('token_auth_failed')`):
- *     token no longer valid, prompt re-login (web env only).
+ *
+ * - `reauth_required` (`authProbe`): retired v1 tokens, revoked sessions, and
+ *   expired sessions beyond the silent re-mint window.
+ * - `token_auth_failed` (legacy `APIError.create('token_auth_failed')`): token no
+ *   longer valid, prompt re-login (web env only).
  *
  * @param {Object} resp - The parsed response body.
  * @param {Object} [opts]
  * @param {boolean} [opts.interactive=true] - Whether this request may raise
  *   sign-in UI. False for requests the user didn't ask for (see
- *   `resolveBackgroundReauth`).
+ *   `resolveBackgroundReauth`). Default is `true`
  * @param {string} [opts.sentToken] - The token the failed request carried, so a
  *   background reauth only discards a token that is still the current one.
- * @returns {Promise<{action: 'replay'}|{action: 'reject', error: Object}|null>}
+ * @returns {Promise<
+ *     { action: 'replay' } | { action: 'reject'; error: Object } | null
+ * >}
  *   `replay` when the caller should re-issue the request once with the fresh
  *   token, `reject` with the error to surface, or `null` when this is not a
  *   reauth-recoverable 401 and the caller should handle it normally.
  */
-async function resolveReauth (resp, { interactive = true, sentToken } = {}) {
-    if ( resp?.code === 'reauth_required' ) {
-        if ( ! interactive ) return resolveBackgroundReauth(resp, sentToken);
+async function resolveReauth(resp, { interactive = true, sentToken } = {}) {
+    if (resp?.code === 'reauth_required') {
+        if (!interactive) return resolveBackgroundReauth(resp, sentToken);
         try {
             await puter.triggerReauth({
                 reason: resp.reason,
                 auth_id: resp.auth_id,
             });
             return { action: 'replay' };
-        } catch ( e ) {
+        } catch (e) {
             return {
                 action: 'reject',
                 error: {
@@ -104,8 +107,8 @@ async function resolveReauth (resp, { interactive = true, sentToken } = {}) {
             };
         }
     }
-    if ( resp?.code === 'token_auth_failed' && puter.env === 'web' ) {
-        if ( ! interactive ) return resolveBackgroundReauth(resp, sentToken);
+    if (resp?.code === 'token_auth_failed' && puter.env === 'web') {
+        if (!interactive) return resolveBackgroundReauth(resp, sentToken);
         try {
             puter.resetAuthToken();
             await puter.ui.authenticateWithPuter();
@@ -114,7 +117,8 @@ async function resolveReauth (resp, { interactive = true, sentToken } = {}) {
                 action: 'reject',
                 error: {
                     error: {
-                        code: 'auth_canceled', message: 'Authentication canceled',
+                        code: 'auth_canceled',
+                        message: 'Authentication canceled',
                     },
                 },
             };
@@ -128,22 +132,24 @@ async function resolveReauth (resp, { interactive = true, sentToken } = {}) {
  * request, applies headers/credentials/responseType, and stashes the whole
  * `spec` on `xhr._puterReq` as the single replay representation — any attempt
  * (reauth, permission, transient) rebuilds the request by calling
- * `buildXhr(spec)` again, which re-reads the live token when `includePuterAuth`.
+ * `buildXhr(spec)` again, which re-reads the live token when
+ * `includePuterAuth`.
  *
  * @param {Object} spec
  * @param {string} spec.url - Full request URL.
- * @param {string} [spec.method='GET']
+ * @param {string} [spec.method='GET'] Default is `'GET'`
  * @param {Object} [spec.headers] - Extra headers (nullish values skipped).
- * @param {boolean} [spec.includePuterAuth=false] - Add a fresh `Authorization: Bearer`.
- * @param {string} [spec.authToken] - The token to send when there is no live one
- *   to read — during construction, before `globalThis.puter` is assigned — or,
- *   without `includePuterAuth`, a token that isn't the live one at all.
- * @param {boolean} [spec.withCredentials=true]
- * @param {string} [spec.responseType='']
+ * @param {boolean} [spec.includePuterAuth=false] - Add a fresh `Authorization:
+ *   Bearer`. Default is `false`
+ * @param {string} [spec.authToken] - The token to send when there is no live
+ *   one to read — during construction, before `globalThis.puter` is assigned —
+ *   or, without `includePuterAuth`, a token that isn't the live one at all.
+ * @param {boolean} [spec.withCredentials=true] Default is `true`
+ * @param {string} [spec.responseType=''] Default is `''`
  * @param {Object} [spec.logId] - Pre-built apiCallLogger request id.
  * @returns {XMLHttpRequest}
  */
-function buildXhr (spec) {
+function buildXhr(spec) {
     const {
         url,
         method = 'GET',
@@ -160,17 +166,17 @@ function buildXhr (spec) {
     xhr.responseType = responseType ?? '';
 
     const bearer = includePuterAuth
-        ? ( globalThis.puter?.authToken ?? authToken )
+        ? (globalThis.puter?.authToken ?? authToken)
         : authToken;
-    if ( bearer ) {
+    if (bearer) {
         // Recorded per attempt: a background 401 only discards the token it was
         // actually sent with, so a reauth that landed in the meantime keeps the
         // fresh one it installed.
         spec._sentAuthToken = bearer;
         xhr.setRequestHeader('Authorization', `Bearer ${bearer}`);
     }
-    for ( const [ name, value ] of Object.entries(headers) ) {
-        if ( value !== undefined && value !== null ) {
+    for (const [name, value] of Object.entries(headers)) {
+        if (value !== undefined && value !== null) {
             xhr.setRequestHeader(name, value);
         }
     }
@@ -182,7 +188,7 @@ function buildXhr (spec) {
         return origSend(body);
     };
 
-    if ( globalThis.puter?.apiCallLogger?.isEnabled() ) {
+    if (globalThis.puter?.apiCallLogger?.isEnabled()) {
         xhr._puterRequestId = spec.logId ?? {
             method,
             service: 'xhr',
@@ -208,47 +214,54 @@ function buildXhr (spec) {
  */
 
 /**
- * @typedef {Object} PuterResponse
- * A `fetch`-Response-like view over a completed (or streaming) XHR.
- * @property {boolean} ok - status in the 200-299 range.
+ * @typedef {Object} PuterResponse A `fetch`-Response-like view over a
+ *   completed (or streaming) XHR.
+ * @property {boolean} ok - Status in the 200-299 range.
  * @property {number} status
  * @property {string} statusText
- * @property {string} url - final response URL.
- * @property {{ get(name: string): (string|null) }} headers
+ * @property {string} url - Final response URL.
+ * @property {{ get(name: string): string | null }} headers
  * @property {() => Promise<any>} json
  * @property {() => Promise<string>} text
  * @property {() => Promise<Blob>} blob
  * @property {() => Promise<ArrayBuffer>} arrayBuffer
- * @property {() => AsyncGenerator<any>} stream - parsed NDJSON lines; only
+ * @property {() => AsyncGenerator<any>} stream - Parsed NDJSON lines; only
  *   meaningful for `application/x-ndjson` responses.
  */
 
-const isNdjson = contentType => (contentType || '').includes('application/x-ndjson');
+const isNdjson = (contentType) =>
+    (contentType || '').includes('application/x-ndjson');
 
 /** Read the XHR body as text regardless of the responseType it was sent with. */
-async function bodyText (xhr) {
-    switch ( xhr.responseType ) {
-    case 'blob': return await xhr.response.text();
-    case 'arraybuffer': return new TextDecoder().decode(xhr.response);
-    case 'json': return JSON.stringify(xhr.response);
-    default: return xhr.responseText; // '' | 'text'
+async function bodyText(xhr) {
+    switch (xhr.responseType) {
+        case 'blob':
+            return await xhr.response.text();
+        case 'arraybuffer':
+            return new TextDecoder().decode(xhr.response);
+        case 'json':
+            return JSON.stringify(xhr.response);
+        default:
+            return xhr.responseText; // '' | 'text'
     }
 }
 
-async function bodyBlob (xhr) {
-    if ( xhr.responseType === 'blob' ) return xhr.response;
-    const type = xhr.getResponseHeader('content-type') || 'application/octet-stream';
-    if ( xhr.responseType === 'arraybuffer' ) return new Blob([xhr.response], { type });
+async function bodyBlob(xhr) {
+    if (xhr.responseType === 'blob') return xhr.response;
+    const type =
+        xhr.getResponseHeader('content-type') || 'application/octet-stream';
+    if (xhr.responseType === 'arraybuffer')
+        return new Blob([xhr.response], { type });
     return new Blob([await bodyText(xhr)], { type });
 }
 
-async function bodyArrayBuffer (xhr) {
-    if ( xhr.responseType === 'arraybuffer' ) return xhr.response;
+async function bodyArrayBuffer(xhr) {
+    if (xhr.responseType === 'arraybuffer') return xhr.response;
     return await (await bodyBlob(xhr)).arrayBuffer();
 }
 
-async function bodyJson (xhr) {
-    if ( xhr.responseType === 'json' ) return xhr.response;
+async function bodyJson(xhr) {
+    if (xhr.responseType === 'json') return xhr.response;
     return JSON.parse(await bodyText(xhr));
 }
 
@@ -261,62 +274,77 @@ async function bodyJson (xhr) {
  * @param {XMLHttpRequest} xhr
  * @returns {Promise<unknown>}
  */
-async function parseResponse (xhr) {
-    if ( xhr.responseType !== 'blob' ) {
+async function parseResponse(xhr) {
+    if (xhr.responseType !== 'blob') {
         try {
             return JSON.parse(xhr.responseText);
-        } catch ( e ) {
+        } catch (e) {
             return xhr.responseText;
         }
     }
 
     const contentType = xhr.getResponseHeader('content-type');
-    if ( contentType.startsWith('application/json') ) {
+    if (contentType.startsWith('application/json')) {
         const text = await xhr.response.text();
         try {
             return JSON.parse(text);
-        } catch ( e ) {
+        } catch (e) {
             return text;
         }
     }
-    if ( contentType.startsWith('application/octet-stream') ) {
+    if (contentType.startsWith('application/octet-stream')) {
         return xhr.response;
     }
     return { success: true, result: xhr.response };
 }
 
-function makeResponse (xhr, stream) {
+function makeResponse(xhr, stream) {
     const status = xhr.status;
     return {
         ok: status >= 200 && status < 300,
         status,
         statusText: xhr.statusText,
         url: xhr.responseURL || '',
-        headers: { get: name => xhr.getResponseHeader(name) },
+        headers: { get: (name) => xhr.getResponseHeader(name) },
         text: () => bodyText(xhr),
         json: () => bodyJson(xhr),
         blob: () => bodyBlob(xhr),
         arrayBuffer: () => bodyArrayBuffer(xhr),
         stream: () => {
-            if ( ! stream ) {
-                throw new Error('stream() is only available for application/x-ndjson responses');
+            if (!stream) {
+                throw new Error(
+                    'stream() is only available for application/x-ndjson responses',
+                );
             }
             return stream;
         },
     };
 }
 
-function logRequest (logId, { result = null, error = null } = {}) {
-    if ( ! logId || ! globalThis.puter?.apiCallLogger?.isEnabled() ) return;
+function logRequest(logId, { result = null, error = null } = {}) {
+    if (!logId || !globalThis.puter?.apiCallLogger?.isEnabled()) return;
     globalThis.puter.apiCallLogger.logRequest({ ...logId, result, error });
 }
 
-/** Best-effort body for logging — parsed JSON where sensible, else a placeholder. */
-async function bodyForLog (xhr) {
+/**
+ * Best-effort body for logging — parsed JSON where sensible, else a
+ * placeholder.
+ */
+async function bodyForLog(xhr) {
     const contentType = xhr.getResponseHeader('content-type') || '';
-    if ( xhr.responseType === '' || xhr.responseType === 'text' || contentType.includes('json') ) {
-        try { return await bodyJson(xhr); } catch ( e ) {
-            try { return await bodyText(xhr); } catch ( e2 ) { return null; }
+    if (
+        xhr.responseType === '' ||
+        xhr.responseType === 'text' ||
+        contentType.includes('json')
+    ) {
+        try {
+            return await bodyJson(xhr);
+        } catch (e) {
+            try {
+                return await bodyText(xhr);
+            } catch (e2) {
+                return null;
+            }
         }
     }
     return `[${contentType || 'binary'}]`;
@@ -328,13 +356,22 @@ async function bodyForLog (xhr) {
 // hand the result to the caller's shaper. A replay just rebuilds from the same
 // spec, so there are no hand-listed argument lists to get wrong.
 
-const RETRYABLE_STATUS = new Set([ 429, 502, 503, 504 ]);
+// Transient statuses that may or may not have run the handler. A 502/503/504
+// can mean the request was half-applied upstream, so only a read replays.
+const RETRYABLE_STATUS = new Set([502, 503, 504]);
+
+// A rate/concurrency gate rejects in middleware, before the handler that would
+// have done the work — so nothing happened, and replaying is safe for a write
+// exactly as it is for a read. Treating this like the statuses above meant a
+// multi-file upload or a burst of driver writes surfaced the gate as a hard
+// failure to the app, when waiting a moment is the whole remedy.
+const GATE_REJECT_STATUS = 429;
 
 // Fixed retry backoff: a quick ramp to a 2s ceiling, then hold at 2s. Index i is
 // the wait (ms) after attempt i+1 fails. The array length caps the retries — 8
 // delays ⇒ 9 attempts total, the 2s ceiling used 5 times — after which the
 // request is failed.
-const RETRY_DELAYS_MS = [ 250, 500, 1000, 2000, 2000, 2000, 2000, 2000 ];
+const RETRY_DELAYS_MS = [250, 500, 1000, 2000, 2000, 2000, 2000, 2000];
 const RETRY_CEILING_MS = 2000;
 // If a ceiling-length wait overruns real time by more than this, the clock
 // jumped (e.g. the laptop slept mid-wait); the request is stale, so give up
@@ -344,47 +381,66 @@ const MAX_SLEEP_DRIFT_MS = 2000;
 // Kill-switch seam: puter.configure() (deferred) will drive this. Default on.
 const autoRetryEnabled = () => globalThis.puter?.config?.autoRetry ?? true;
 
-const sleep = (ms, signal) => new Promise((resolve, reject) => {
-    if ( signal?.aborted ) return reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
-    const t = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => {
-        clearTimeout(t);
-        reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
-    }, { once: true });
-});
+const sleep = (ms, signal) =>
+    new Promise((resolve, reject) => {
+        if (signal?.aborted)
+            return reject(
+                signal.reason ?? new DOMException('Aborted', 'AbortError'),
+            );
+        const t = setTimeout(resolve, ms);
+        signal?.addEventListener(
+            'abort',
+            () => {
+                clearTimeout(t);
+                reject(
+                    signal.reason ?? new DOMException('Aborted', 'AbortError'),
+                );
+            },
+            { once: true },
+        );
+    });
 
-const retryDelay = attempt => RETRY_DELAYS_MS[attempt - 1];
+const retryDelay = (attempt) => RETRY_DELAYS_MS[attempt - 1];
 
-const transientRetry = ctx => {
-    if ( ! (ctx.retrySafe && autoRetryEnabled()) ) return null;
+const transientRetry = (ctx) => {
+    if (!(ctx.retrySafe && autoRetryEnabled())) return null;
+    const delayMs = retryDelay(ctx.attempt);
+    return delayMs === undefined ? null : { delayMs };
+};
+
+// Same backoff schedule as `transientRetry`, but not gated on read-safety —
+// see GATE_REJECT_STATUS. An explicit `retry: false` still wins: that is the
+// caller saying "never replay this one", and it means it.
+const gateRetry = (ctx) => {
+    if (!(ctx.retryGated && autoRetryEnabled())) return null;
     const delayMs = retryDelay(ctx.attempt);
     return delayMs === undefined ? null : { delayMs };
 };
 
 /**
  * Drive the env-specific permission prompt for a denied driver call.
- * @returns {Promise<{granted: boolean}>}
+ *
+ * @returns {Promise<{ granted: boolean }>}
  */
-async function resolvePermission (permission) {
+async function resolvePermission(permission) {
     try {
         // requestPermission resolves to a boolean; the legacy `{granted}`
         // object shape is also tolerated for safety.
         const perm = await puter.ui.requestPermission({ permission });
         return { granted: perm === true || perm?.granted === true };
-    } catch ( e ) {
+    } catch (e) {
         return { granted: false };
     }
 }
 
 /**
- * Send one attempt. Resolves with a terminal outcome:
- *   { streamed: true, xhr, lineStream } — NDJSON, resolved at HEADERS_RECEIVED
- *   { xhr, status }                     — buffered response (any HTTP status)
- *   { networkError: true, xhr }         — transport error
- * Rejects only on abort. Per-line semantics (usage/email prompts, `toString`)
- * belong to the caller's `shapeStream`.
+ * Send one attempt. Resolves with a terminal outcome: { streamed: true, xhr,
+ * lineStream } — NDJSON, resolved at HEADERS_RECEIVED { xhr, status } —
+ * buffered response (any HTTP status) { networkError: true, xhr } — transport
+ * error Rejects only on abort. Per-line semantics (usage/email prompts,
+ * `toString`) belong to the caller's `shapeStream`.
  */
-function sendOnce (spec) {
+function sendOnce(spec) {
     return new Promise((resolve, reject) => {
         const xhr = buildXhr(spec);
 
@@ -396,13 +452,13 @@ function sendOnce (spec) {
         let consumed = 0;
 
         const lineStream = (async function* () {
-            while ( true ) {
-                while ( lines.length > 0 ) {
+            while (true) {
+                while (lines.length > 0) {
                     const line = lines.shift();
-                    if ( line.trim() === '' ) continue;
+                    if (line.trim() === '') continue;
                     yield JSON.parse(line);
                 }
-                if ( responseComplete ) break;
+                if (responseComplete) break;
                 const sig = createDeferred();
                 signalStreamUpdate = sig.resolve;
                 await sig.promise;
@@ -410,25 +466,31 @@ function sendOnce (spec) {
         })();
 
         xhr.onreadystatechange = () => {
-            if ( xhr.readyState === 2 && isNdjson(xhr.getResponseHeader('Content-Type')) ) {
+            if (
+                xhr.readyState === 2 &&
+                isNdjson(xhr.getResponseHeader('Content-Type'))
+            ) {
                 streamed = true;
                 resolve({ streamed: true, xhr, lineStream });
             }
-            if ( xhr.readyState === 4 && streamed ) {
-                if ( carry.length > 0 ) { lines.push(carry); carry = ''; }
+            if (xhr.readyState === 4 && streamed) {
+                if (carry.length > 0) {
+                    lines.push(carry);
+                    carry = '';
+                }
                 responseComplete = true;
                 signalStreamUpdate?.();
             }
         };
 
         xhr.onprogress = () => {
-            if ( ! streamed ) return;
+            if (!streamed) return;
             const fresh = xhr.responseText.slice(consumed);
             consumed = xhr.responseText.length;
-            if ( ! fresh ) return;
+            if (!fresh) return;
             carry += fresh;
             let nl;
-            while ( (nl = carry.indexOf('\n')) !== -1 ) {
+            while ((nl = carry.indexOf('\n')) !== -1) {
                 lines.push(carry.slice(0, nl));
                 carry = carry.slice(nl + 1);
             }
@@ -436,18 +498,32 @@ function sendOnce (spec) {
         };
 
         xhr.addEventListener('load', () => {
-            if ( streamed ) return;
+            if (streamed) return;
             resolve({ xhr, status: xhr.status });
         });
-        xhr.addEventListener('error', () => resolve({ networkError: true, xhr }));
-        xhr.addEventListener('abort', () => reject(spec.signal?.reason ?? new DOMException('Aborted', 'AbortError')));
+        xhr.addEventListener('error', () =>
+            resolve({ networkError: true, xhr }),
+        );
+        xhr.addEventListener('abort', () =>
+            reject(
+                spec.signal?.reason ??
+                    new DOMException('Aborted', 'AbortError'),
+            ),
+        );
 
-        if ( spec.signal ) {
-            if ( spec.signal.aborted ) return reject(spec.signal.reason ?? new DOMException('Aborted', 'AbortError'));
-            spec.signal.addEventListener('abort', () => xhr.abort(), { once: true });
+        if (spec.signal) {
+            if (spec.signal.aborted)
+                return reject(
+                    spec.signal.reason ??
+                        new DOMException('Aborted', 'AbortError'),
+                );
+            spec.signal.addEventListener('abort', () => xhr.abort(), {
+                once: true,
+            });
         }
 
-        const body = typeof spec.buildBody === 'function' ? spec.buildBody() : spec.body;
+        const body =
+            typeof spec.buildBody === 'function' ? spec.buildBody() : spec.body;
         xhr.send(body ?? null);
     });
 }
@@ -455,48 +531,62 @@ function sendOnce (spec) {
 /**
  * Classify a completed attempt into a retry decision. Reauth and permission are
  * one-shot (tracked in `ctx.done`) and apply to any request; transient backoff
- * applies only to `ctx.retrySafe` requests and honors the autoRetry kill switch.
- * Memoizes the parsed body on `outcome.parsed` and stashes any reauth error on
- * `outcome.reauthError` for the shaper.
+ * applies only to `ctx.retrySafe` requests and honors the autoRetry kill
+ * switch. Memoizes the parsed body on `outcome.parsed` and stashes any reauth
+ * error on `outcome.reauthError` for the shaper.
  *
- * @returns {Promise<{delayMs:number}|null>} a delay to retry after, or null to stop.
+ * @returns {Promise<{ delayMs: number } | null>} A delay to retry after, or
+ *   null to stop.
  */
-async function classifyRetry (outcome, ctx) {
-    if ( outcome.streamed ) return null; // committed stream — never retried
+async function classifyRetry(outcome, ctx) {
+    if (outcome.streamed) return null; // committed stream — never retried
 
-    if ( outcome.networkError ) return transientRetry(ctx);
+    if (outcome.networkError) return transientRetry(ctx);
 
     const { xhr, status } = outcome;
-    if ( outcome.parsed === undefined ) {
+    if (outcome.parsed === undefined) {
         outcome.parsed = await bodyJson(xhr).catch(() => null);
     }
     const parsed = outcome.parsed;
 
     // reauth (401 / token_auth_failed) — one-shot, any method, no backoff.
-    if ( status === 401 || parsed?.code === 'token_auth_failed' ) {
-        if ( ! ctx.done.has('reauth') ) {
+    if (status === 401 || parsed?.code === 'token_auth_failed') {
+        if (!ctx.done.has('reauth')) {
             const spec = xhr?._puterReq;
             const reauth = await resolveReauth(parsed, {
                 interactive: spec?.interactiveReauth !== false,
                 sentToken: spec?._sentAuthToken,
             });
-            if ( reauth?.action === 'replay' ) { ctx.done.add('reauth'); return { delayMs: 0 }; }
-            if ( reauth?.action === 'reject' ) outcome.reauthError = reauth.error;
+            if (reauth?.action === 'replay') {
+                ctx.done.add('reauth');
+                return { delayMs: 0 };
+            }
+            if (reauth?.action === 'reject') outcome.reauthError = reauth.error;
         }
         return null;
     }
 
     // permission denied (200 success:false) — one-shot, any method, no backoff.
-    if ( ctx.permission && parsed?.success === false && parsed?.error?.code === 'permission_denied' ) {
-        if ( ! ctx.done.has('permission') ) {
+    if (
+        ctx.permission &&
+        parsed?.success === false &&
+        parsed?.error?.code === 'permission_denied'
+    ) {
+        if (!ctx.done.has('permission')) {
             const perm = await resolvePermission(ctx.permission);
-            if ( perm.granted ) { ctx.done.add('permission'); return { delayMs: 0 }; }
+            if (perm.granted) {
+                ctx.done.add('permission');
+                return { delayMs: 0 };
+            }
         }
         return null;
     }
 
+    // gate rejection — any method, honors kill switch, fixed schedule.
+    if (status === GATE_REJECT_STATUS) return gateRetry(ctx);
+
     // transient status — read-safe only, honors kill switch, fixed schedule.
-    if ( RETRYABLE_STATUS.has(status) ) return transientRetry(ctx);
+    if (RETRYABLE_STATUS.has(status)) return transientRetry(ctx);
 
     return null;
 }
@@ -506,25 +596,48 @@ async function classifyRetry (outcome, ctx) {
  * outcome, and retries on reauth / permission / transient causes; otherwise
  * hands the outcome to `shape`.
  *
- * @param {Object} spec - buildXhr spec (+ optional buildBody, signal).
+ * @param {Object} spec - BuildXhr spec (+ optional buildBody, signal).
  * @param {Object} opts
- * @param {boolean} [opts.retrySafe=false] - eligible for transient backoff retry.
- * @param {string|null} [opts.permission] - `driver:<iface>:<method>` enables the permission cause.
- * @param {(lineStream, xhr) => any} opts.shapeStream - wrap an NDJSON stream.
- * @param {(outcome) => any} opts.shape - shape a buffered outcome (may throw).
+ * @param {boolean} [opts.retrySafe=false] - Eligible for transient backoff
+ *   retry. Default is `false`
+ * @param {boolean} [opts.retryGated=true] - Eligible for 429 backoff retry,
+ *   regardless of method (the gate rejects before the handler runs). Default is
+ *   `true`
+ * @param {string | null} [opts.permission] - `driver:<iface>:<method>` enables
+ *   the permission cause.
+ * @param {(lineStream, xhr) => any} opts.shapeStream - Wrap an NDJSON stream.
+ * @param {(outcome) => any} opts.shape - Shape a buffered outcome (may throw).
  */
-async function sendWithRetry (spec, { retrySafe = false, permission = null, shapeStream, shape }) {
-    const ctx = { attempt: 0, retrySafe, permission, done: new Set() };
-    while ( true ) {
+async function sendWithRetry(
+    spec,
+    {
+        retrySafe = false,
+        retryGated = true,
+        permission = null,
+        shapeStream,
+        shape,
+    },
+) {
+    const ctx = {
+        attempt: 0,
+        retrySafe,
+        retryGated,
+        permission,
+        done: new Set(),
+    };
+    while (true) {
         ctx.attempt++;
         const outcome = await sendOnce(spec);
-        if ( outcome.streamed ) return shapeStream(outcome.lineStream, outcome.xhr);
+        if (outcome.streamed)
+            return shapeStream(outcome.lineStream, outcome.xhr);
         const decision = await classifyRetry(outcome, ctx);
-        if ( decision ) {
+        if (decision) {
             const before = Date.now();
             await sleep(decision.delayMs, spec.signal);
-            if ( decision.delayMs >= RETRY_CEILING_MS
-                && (Date.now() - before) - decision.delayMs > MAX_SLEEP_DRIFT_MS ) {
+            if (
+                decision.delayMs >= RETRY_CEILING_MS &&
+                Date.now() - before - decision.delayMs > MAX_SLEEP_DRIFT_MS
+            ) {
                 return shape(outcome);
             }
             continue;
@@ -541,22 +654,24 @@ async function sendWithRetry (spec, { retrySafe = false, permission = null, shap
 const inflightRequests = new Map();
 
 /**
- * @param {string} key - fully-qualified request key (namespace it yourself, e.g.
- *   `${method}:${url}:${bodyKey}`).
- * @param {() => Promise<any>} factory - runs the request; called only on a miss.
- * @param {{windowMs?: number}} [opts]
- * @returns {Promise<any>} shared promise (resolved value shared by reference).
+ * @param {string} key - Fully-qualified request key (namespace it yourself,
+ *   e.g. `${method}:${url}:${bodyKey}`).
+ * @param {() => Promise<any>} factory - Runs the request; called only on a
+ *   miss.
+ * @param {{ windowMs?: number }} [opts]
+ * @returns {Promise<any>} Shared promise (resolved value shared by reference).
  */
-function dedupe (key, factory, { windowMs = 2000 } = {}) {
+function dedupe(key, factory, { windowMs = 2000 } = {}) {
     const existing = inflightRequests.get(key);
-    if ( existing ) {
-        if ( Date.now() - existing.timestamp < windowMs ) return existing.promise;
+    if (existing) {
+        if (Date.now() - existing.timestamp < windowMs) return existing.promise;
         inflightRequests.delete(key); // stale — fall through and re-issue
     }
     const promise = factory();
     inflightRequests.set(key, { promise, timestamp: Date.now() });
     const cleanup = () => {
-        if ( inflightRequests.get(key)?.promise === promise ) inflightRequests.delete(key);
+        if (inflightRequests.get(key)?.promise === promise)
+            inflightRequests.delete(key);
     };
     promise.then(cleanup, cleanup);
     return promise;
@@ -565,7 +680,7 @@ function dedupe (key, factory, { windowMs = 2000 } = {}) {
 /**
  * XHR-based `fetch()` replacement. Returns a `fetch`-Response-like object.
  *
- * fetch semantics: the promise resolves for any HTTP status (`ok` reflects
+ * Fetch semantics: the promise resolves for any HTTP status (`ok` reflects
  * 2xx); it rejects only on network/abort errors. The one exception is a 401
  * carrying a reauth signal — the reauth flow is driven first and, on success,
  * the request is replayed once with the fresh token (transparent recovery). A
@@ -573,32 +688,36 @@ function dedupe (key, factory, { windowMs = 2000 } = {}) {
  *
  * @param {string} url - Full request URL (callers own origin composition).
  * @param {Object} [opts]
- * @param {boolean} [opts.includePuterAuth=false] - Add `Authorization: Bearer <puter.authToken>`.
- * @param {string}  [opts.authToken] - The Bearer credential to send when the live
- *   `puter.authToken` can't be read yet (boot-time calls, before the global is
- *   assigned) or, without `includePuterAuth`, a token that isn't the live one at
- *   all (one being exchanged for another).
- * @param {string}  [opts.method='GET']
- * @param {Object}  [opts.headers] - Extra request headers (undefined/null values skipped).
- * @param {string|Blob|ArrayBuffer|FormData|null} [opts.body]
- * @param {''|'text'|'json'|'blob'|'arraybuffer'} [opts.responseType='']
- * @param {boolean} [opts.withCredentials=true]
+ * @param {boolean} [opts.includePuterAuth=false] - Add `Authorization: Bearer
+ *   <puter.authToken>`. Default is `false`
+ * @param {string} [opts.authToken] - The Bearer credential to send when the
+ *   live `puter.authToken` can't be read yet (boot-time calls, before the
+ *   global is assigned) or, without `includePuterAuth`, a token that isn't the
+ *   live one at all (one being exchanged for another).
+ * @param {string} [opts.method='GET'] Default is `'GET'`
+ * @param {Object} [opts.headers] - Extra request headers (undefined/null values
+ *   skipped).
+ * @param {string | Blob | ArrayBuffer | FormData | null} [opts.body]
+ * @param {'' | 'text' | 'json' | 'blob' | 'arraybuffer'} [opts.responseType='']
+ *   Default is `''`
+ * @param {boolean} [opts.withCredentials=true] Default is `true`
  * @param {AbortSignal} [opts.signal]
- * @param {{service: string, operation: string, params?: Object}} [opts.logContext]
+ * @param {{ service: string; operation: string; params?: Object }} [opts.logContext]
  *   Semantic context for the centralized API-call log. Omit to log generically.
  * @param {boolean} [opts.retry] - Force-enable (`true`) or disable (`false`)
  *   transient-failure auto-retry for this request; omit for the default
  *   (idempotent methods retry, others don't). Never retries a write.
- * @param {boolean|string} [opts.dedupe] - Coalesce concurrent identical in-flight
- *   requests (reads only): `true` auto-keys by method+url+body, or pass a key.
+ * @param {boolean | string} [opts.dedupe] - Coalesce concurrent identical
+ *   in-flight requests (reads only): `true` auto-keys by method+url+body, or
+ *   pass a key.
  * @param {boolean} [opts.interactiveReauth=true] - Whether a reauth-recoverable
  *   401 may raise sign-in UI. Pass `false` for requests the user didn't ask for
- *   (boot telemetry, cache warmers): the stale token is dropped silently and the
- *   401 surfaces to the caller instead.
+ *   (boot telemetry, cache warmers): the stale token is dropped silently and
+ *   the 401 surfaces to the caller instead. Default is `true`
  * @param {Object} [opts.paginate] - Reserved for a later sprint step (ignored).
  * @returns {Promise<PuterResponse>}
  */
-function fetchUrl (url, opts = {}) {
+function fetchUrl(url, opts = {}) {
     const {
         includePuterAuth = false,
         authToken,
@@ -614,42 +733,77 @@ function fetchUrl (url, opts = {}) {
         interactiveReauth = true,
     } = opts;
 
-    const logId = logContext ?? { service: 'fetchUrl', operation: `${method} ${url}`, params: { url, method } };
-    const spec = { url, method, headers, includePuterAuth, authToken, withCredentials, responseType, body, signal, logId, interactiveReauth };
+    const logId = logContext ?? {
+        service: 'fetchUrl',
+        operation: `${method} ${url}`,
+        params: { url, method },
+    };
+    const spec = {
+        url,
+        method,
+        headers,
+        includePuterAuth,
+        authToken,
+        withCredentials,
+        responseType,
+        body,
+        signal,
+        logId,
+        interactiveReauth,
+    };
 
     // Read-safety: idempotent methods auto-retry; a POST read opts in with
     // `retry:true`; nothing retries when `retry:false` (writes/uploads).
     const idempotent = method === 'GET' || method === 'HEAD';
-    const retrySafe = retry === false ? false : ( retry === true || idempotent );
+    const retrySafe = retry === false ? false : retry === true || idempotent;
+    // A 429 is the exception: the request never ran, so a write replays too.
+    const retryGated = retry !== false;
 
     const loggingOn = () => globalThis.puter?.apiCallLogger?.isEnabled();
 
-    const run = () => sendWithRetry(spec, {
-        retrySafe,
-        shapeStream: (lineStream, xhr) => {
-            if ( loggingOn() ) logRequest(logId, { result: '[stream]' });
-            return makeResponse(xhr, lineStream);
-        },
-        shape: async (outcome) => {
-            if ( outcome.networkError ) {
-                if ( loggingOn() ) logRequest(logId, { error: { message: 'Network error occurred' } });
-                throw new TypeError(`Network request to ${url} failed`);
-            }
-            const { xhr } = outcome;
-            const resp = makeResponse(xhr);
-            if ( loggingOn() ) {
-                const logged = await bodyForLog(xhr);
-                logRequest(logId, xhr.status >= 400
-                    ? { error: logged ?? { message: xhr.statusText, status: xhr.status } }
-                    : { result: logged });
-            }
-            return resp;
-        },
-    });
+    const run = () =>
+        sendWithRetry(spec, {
+            retrySafe,
+            retryGated,
+            shapeStream: (lineStream, xhr) => {
+                if (loggingOn()) logRequest(logId, { result: '[stream]' });
+                return makeResponse(xhr, lineStream);
+            },
+            shape: async (outcome) => {
+                if (outcome.networkError) {
+                    if (loggingOn())
+                        logRequest(logId, {
+                            error: { message: 'Network error occurred' },
+                        });
+                    throw new TypeError(`Network request to ${url} failed`);
+                }
+                const { xhr } = outcome;
+                const resp = makeResponse(xhr);
+                if (loggingOn()) {
+                    const logged = await bodyForLog(xhr);
+                    logRequest(
+                        logId,
+                        xhr.status >= 400
+                            ? {
+                                  error: logged ?? {
+                                      message: xhr.statusText,
+                                      status: xhr.status,
+                                  },
+                              }
+                            : { result: logged },
+                    );
+                }
+                return resp;
+            },
+        });
 
-    if ( dedupeOpt ) {
-        const bodyKey = body == null ? '' : ( typeof body === 'string' ? body : '[body]' );
-        const key = typeof dedupeOpt === 'string' ? dedupeOpt : `${method}:${url}:${bodyKey}`;
+    if (dedupeOpt) {
+        const bodyKey =
+            body == null ? '' : typeof body === 'string' ? body : '[body]';
+        const key =
+            typeof dedupeOpt === 'string'
+                ? dedupeOpt
+                : `${method}:${url}:${bodyKey}`;
         return dedupe(key, run);
     }
     return run();
@@ -666,33 +820,34 @@ const DRIVER_CONTENT_TYPE = 'text/plain;actually=json';
 
 /**
  * @typedef {{
- *   iface: string,
- *   method: string,
- *   args?: unknown,
- *   driver?: string,
- *   testMode?: boolean,
- *   puter?: unknown,
+ *     iface: string;
+ *     method: string;
+ *     args?: unknown;
+ *     driver?: string;
+ *     testMode?: boolean;
+ *     puter?: unknown;
  * }} DriverCall
- * A driver method to invoke. `iface` is the interface name and `driver` the
- * concrete implementation behind it, which the backend resolves to the
- * interface's default when omitted. `puter` is the SDK instance the call runs
- * against; it falls back to the global instance.
+ *   A driver method to invoke. `iface` is the interface name and `driver` the
+ *   concrete implementation behind it, which the backend resolves to the
+ *   interface's default when omitted. `puter` is the SDK instance the call runs
+ *   against; it falls back to the global instance.
  */
 
-const callInstance = call => call.puter ?? globalThis.puter;
+const callInstance = (call) => call.puter ?? globalThis.puter;
 
 /** The wire body. Fields left `undefined` drop out of the JSON. */
-const callBody = (call, puter) => JSON.stringify({
-    interface: call.iface,
-    driver: call.driver,
-    test_mode: call.testMode,
-    method: call.method,
-    args: call.args,
-    auth_token: puter.authToken,
-});
+const callBody = (call, puter) =>
+    JSON.stringify({
+        interface: call.iface,
+        driver: call.driver,
+        test_mode: call.testMode,
+        method: call.method,
+        args: call.args,
+        auth_token: puter.authToken,
+    });
 
 const logCall = (call, fields) => {
-    if ( ! globalThis.puter?.apiCallLogger?.isEnabled() ) return;
+    if (!globalThis.puter?.apiCallLogger?.isEnabled()) return;
     globalThis.puter.apiCallLogger.logRequest({
         service: 'drivers',
         operation: `${call.iface}::${call.method}`,
@@ -707,18 +862,21 @@ const logCall = (call, fields) => {
 };
 
 /** Prompt for funding, or hand off to the app's upgrade flow. */
-async function promptUpgrade (puter, message) {
-    if ( puter.env === 'web' ) {
+async function promptUpgrade(puter, message) {
+    if (puter.env === 'web') {
         showUsageLimitDialog(message);
-    } else if ( puter.env === 'app' ) {
+    } else if (puter.env === 'app') {
         await puter.ui.requestUpgrade();
     }
 }
 
-function promptEmailConfirmation (puter, error) {
-    if ( error?.code !== 'email_must_be_confirmed' || puter.env !== 'web' ) return;
-    showEmailConfirmationDialog(error.message
-        || 'Email confirmation required. Go to Puter.com to confirm your email address.');
+function promptEmailConfirmation(puter, error) {
+    if (error?.code !== 'email_must_be_confirmed' || puter.env !== 'web')
+        return;
+    showEmailConfirmationDialog(
+        error.message ||
+            'Email confirmation required. Go to Puter.com to confirm your email address.',
+    );
 }
 
 /**
@@ -726,14 +884,20 @@ function promptEmailConfirmation (puter, error) {
  * per-line usage/email prompts, `toString()` on text parts, and the `start`
  * adapter that lets the stream feed a `ReadableStream` controller.
  */
-function driverLineStream (lineStream, puter) {
+function driverLineStream(lineStream, puter) {
     const stream = (async function* () {
-        for await ( const line of lineStream ) {
-            if ( line?.error?.code === 'insufficient_funds' || line?.metadata?.usage_limited === true ) {
-                await promptUpgrade(puter, 'You have reached your usage limit for this account.<br>Please upgrade to continue.');
+        for await (const line of lineStream) {
+            if (
+                line?.error?.code === 'insufficient_funds' ||
+                line?.metadata?.usage_limited === true
+            ) {
+                await promptUpgrade(
+                    puter,
+                    'You have reached your usage limit for this account.<br>Please upgrade to continue.',
+                );
             }
             promptEmailConfirmation(puter, line?.error);
-            if ( typeof line.text === 'string' ) {
+            if (typeof line.text === 'string') {
                 Object.defineProperty(line, 'toString', {
                     enumerable: false,
                     value: () => line.text,
@@ -747,7 +911,7 @@ function driverLineStream (lineStream, puter) {
         enumerable: false,
         value: async (controller) => {
             const encoder = new TextEncoder();
-            for await ( const part of stream ) {
+            for await (const part of stream) {
                 controller.enqueue(encoder.encode(part));
             }
             controller.close();
@@ -765,30 +929,35 @@ function driverLineStream (lineStream, puter) {
  *
  * @param {DriverCall} call
  * @param {{
- *   responseType?: '' | 'text' | 'blob',
- *   readonly?: boolean,
- *   transform?: (result: unknown) => unknown,
- *   onError?: (error: unknown) => void,
- * }} [opts] `readonly` marks the method retry-safe on transient failures,
- *   `transform` post-processes a successful result, and `onError` is the
- *   legacy error callback the module APIs accept alongside the promise.
+ *     responseType?: '' | 'text' | 'blob';
+ *     readonly?: boolean;
+ *     transform?: (result: unknown) => unknown;
+ *     onError?: (error: unknown) => void;
+ * }} [opts]
+ *   `readonly` marks the method retry-safe on transient failures (a
+ *   rate/concurrency 429 replays either way — see GATE_REJECT_STATUS),
+ *   `transform` post-processes a successful result, and `onError` is the legacy
+ *   error callback the module APIs accept alongside the promise.
  * @returns {Promise<unknown>}
  */
-async function driverCall (call, opts = {}) {
+async function driverCall(call, opts = {}) {
     const { responseType = '', readonly = false, transform, onError } = opts;
     const puter = callInstance(call);
 
     const fail = (error) => {
-        if ( typeof onError === 'function' ) onError(error);
+        if (typeof onError === 'function') onError(error);
         throw error;
     };
 
     // A signed-out visitor on a third-party page gets the sign-in flow first.
-    if ( ! puter.authToken && puter.env === 'web' ) {
+    if (!puter.authToken && puter.env === 'web') {
         try {
             await puter.ui.authenticateWithPuter();
-        } catch ( e ) {
-            const canceled = { code: 'auth_canceled', message: 'Authentication canceled' };
+        } catch (e) {
+            const canceled = {
+                code: 'auth_canceled',
+                message: 'Authentication canceled',
+            };
             logCall(call, { error: canceled });
             throw { error: canceled };
         }
@@ -807,11 +976,11 @@ async function driverCall (call, opts = {}) {
     return await sendWithRetry(spec, {
         retrySafe: readonly,
         permission: `driver:${call.iface}:${call.method}`,
-        shapeStream: lineStream => driverLineStream(lineStream, puter),
+        shapeStream: (lineStream) => driverLineStream(lineStream, puter),
         // Reauth, permission grants, and transient retries are already spent by
         // the time the engine hands the outcome over, so this is terminal.
         shape: async (outcome) => {
-            if ( outcome.networkError ) {
+            if (outcome.networkError) {
                 logCall(call, { error: { message: 'Network error occurred' } });
                 return fail(outcome.xhr);
             }
@@ -819,19 +988,29 @@ async function driverCall (call, opts = {}) {
             const { status } = outcome.xhr;
             const resp = await parseResponse(outcome.xhr);
             const failed = status >= 400 || resp?.success === false;
-            logCall(call, { result: failed ? null : resp, error: failed ? resp : null });
+            logCall(call, {
+                result: failed ? null : resp,
+                error: failed ? resp : null,
+            });
 
-            if ( status === 402 || resp?.error?.code === 'insufficient_funds'
-                || resp?.error?.status === 402 || resp?.metadata?.usage_limited === true ) {
-                await promptUpgrade(puter, 'Your account has not enough funding to complete this request.<br>Please upgrade to continue.');
+            if (
+                status === 402 ||
+                resp?.error?.code === 'insufficient_funds' ||
+                resp?.error?.status === 402 ||
+                resp?.metadata?.usage_limited === true
+            ) {
+                await promptUpgrade(
+                    puter,
+                    'Your account has not enough funding to complete this request.<br>Please upgrade to continue.',
+                );
             }
             promptEmailConfirmation(puter, resp?.error);
 
-            if ( status === 401 || resp?.code === 'token_auth_failed' ) {
+            if (status === 401 || resp?.code === 'token_auth_failed') {
                 return fail({ status: 401, message: 'Unauthorized' });
             }
-            if ( status && status !== 200 ) return fail(resp);
-            if ( resp.success === false ) return fail(resp);
+            if (status && status !== 200) return fail(resp);
+            if (resp.success === false) return fail(resp);
 
             const result = resp.result !== undefined ? resp.result : resp;
             return transform ? await transform(result) : result;
@@ -851,7 +1030,7 @@ async function driverCall (call, opts = {}) {
  * @param {DriverCall} call
  * @returns {Promise<unknown>}
  */
-async function driverCallEnvelope (call) {
+async function driverCallEnvelope(call) {
     const puter = callInstance(call);
     try {
         const resp = await fetchUrl(`${puter.APIOrigin}/drivers/call`, {
@@ -861,22 +1040,34 @@ async function driverCallEnvelope (call) {
         });
 
         // TODO: parser for Content-Type
-        const contentType = (resp.headers.get('content-type') ?? '').split(';')[0].trim();
+        const contentType = (resp.headers.get('content-type') ?? '')
+            .split(';')[0]
+            .trim();
         const result = await (() => {
-            switch ( contentType ) {
-            case 'application/x-ndjson': return resp.stream();
-            case 'application/octet-stream': return resp.blob();
-            // A response that declares no type at all is JSON, the API's default.
-            case 'application/json': case '': return resp.json();
-            default: throw new Error(`unrecognized content type: ${contentType}`);
+            switch (contentType) {
+                case 'application/x-ndjson':
+                    return resp.stream();
+                case 'application/octet-stream':
+                    return resp.blob();
+                // A response that declares no type at all is JSON, the API's default.
+                case 'application/json':
+                case '':
+                    return resp.json();
+                default:
+                    throw new Error(
+                        `unrecognized content type: ${contentType}`,
+                    );
             }
         })();
 
         logCall(call, { result });
         return result;
-    } catch ( error ) {
+    } catch (error) {
         logCall(call, {
-            error: { message: error?.message ?? String(error), stack: error?.stack },
+            error: {
+                message: error?.message ?? String(error),
+                stack: error?.stack,
+            },
         });
         throw error;
     }

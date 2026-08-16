@@ -195,7 +195,9 @@ describe('PuterAIController.registerRoutes', () => {
         // `requireUserActor` keeps apps out, `allowFullAccessToken` admits
         // the PAT, and `noUserSession` rejects the account session ("root")
         // token. Each route also carries `requireVerified` (fresh accounts
-        // must confirm their email before using the AI wire surface) and
+        // must confirm their email before using the AI wire surface),
+        // `requireSubscription` (the vendor-compatible surface is a paid
+        // feature; free accounts reach the same models via /drivers/call) and
         // the shared per-tier AI rate-limit / concurrency policy — these
         // routes bypass the `/drivers/call` dispatch (where the
         // driver-declared limits are enforced), so without the route gates
@@ -214,6 +216,7 @@ describe('PuterAIController.registerRoutes', () => {
                 allowFullAccessToken: true,
                 noUserSession: true,
                 requireVerified: true,
+                requireSubscription: true,
                 rateLimit: {
                     ...AI_RATE_LIMIT.default,
                     scope: 'driver:puter-chat-completion:complete',
@@ -229,10 +232,51 @@ describe('PuterAIController.registerRoutes', () => {
         const modelsRoute = calls.find(
             (c) => c.path === '/puterai/chat/models',
         );
+        // Unauthenticated, so the limit keys on IP rather than an actor —
+        // which makes the bucket an aggregate over every client behind that
+        // address, hence a ceiling sized for a network rather than a browser.
         expect(modelsRoute?.opts).toEqual({
             subdomain: 'api',
             requireAuth: false,
+            rateLimit: {
+                scope: 'puterai-models',
+                limit: 3_000,
+                window: 60_000,
+                key: 'ip',
+            },
         });
+    });
+
+    it('leaves the catalogue and the video proxy outside the plan gate', () => {
+        const calls: Array<{ path: string; opts: RouteOptions }> = [];
+        const router = {
+            post: vi.fn(() => router),
+            get: vi.fn((path: string, opts: RouteOptions) => {
+                calls.push({ path, opts });
+                return router;
+            }),
+        };
+
+        controller.registerRoutes(router as never);
+
+        // The catalogue is fetched before a client has any reason to
+        // authenticate, and the proxy streams a video the account already
+        // paid to generate to whoever holds the signed link — neither has a
+        // plan to read, let alone one to charge for.
+        const openPaths = [
+            '/puterai/chat/models',
+            '/puterai/chat/models/details',
+            '/puterai/image/models',
+            '/puterai/image/models/details',
+            '/puterai/video/models',
+            '/puterai/video/models/details',
+            '/puterai/video/proxy',
+        ];
+        for (const path of openPaths) {
+            const route = calls.find((c) => c.path === path);
+            expect(route, path).toBeDefined();
+            expect(route?.opts.requireSubscription, path).toBeUndefined();
+        }
     });
 
     it('keys the proxy-route AI limits by user uuid so they share the /drivers/call buckets', () => {

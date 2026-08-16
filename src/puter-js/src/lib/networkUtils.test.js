@@ -1,13 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { dedupe, driverCall, driverCallEnvelope, fetchUrl, sendWithRetry } from './networkUtils.js';
+import {
+    dedupe,
+    driverCall,
+    driverCallEnvelope,
+    fetchUrl,
+    sendWithRetry,
+} from './networkUtils.js';
 
 // -- Controllable fake XMLHttpRequest --
 // Drives fetchUrl's event handlers deterministically. Each instance plays the
 // `program` set on the class, which the test uses to script the response.
-function installFakeXHR (program) {
+function installFakeXHR(program) {
     const instances = [];
     class FakeXHR extends EventTarget {
-        constructor () {
+        constructor() {
             super();
             this.readyState = 0;
             this.status = 0;
@@ -23,39 +29,67 @@ function installFakeXHR (program) {
             this.onprogress = null;
             instances.push(this);
         }
-        open (method, url) { this.method = method; this.url = url; }
-        setRequestHeader (name, value) { this._reqHeaders[name.toLowerCase()] = String(value); }
-        getResponseHeader (name) { return this._respHeaders[name.toLowerCase()] ?? null; }
-        abort () { this.dispatchEvent(new Event('abort')); }
-        send (body) {
+        open(method, url) {
+            this.method = method;
+            this.url = url;
+        }
+        setRequestHeader(name, value) {
+            this._reqHeaders[name.toLowerCase()] = String(value);
+        }
+        getResponseHeader(name) {
+            return this._respHeaders[name.toLowerCase()] ?? null;
+        }
+        abort() {
+            this.dispatchEvent(new Event('abort'));
+        }
+        send(body) {
             this.reqBody = body;
             queueMicrotask(() => program(this));
         }
         // Test helpers the program uses to emit response phases.
-        _setHeaders (status, headers = {}) {
+        _setHeaders(status, headers = {}) {
             this.status = status;
             this.statusText = String(status);
-            for ( const [ k, v ] of Object.entries(headers) ) this._respHeaders[k.toLowerCase()] = v;
+            for (const [k, v] of Object.entries(headers))
+                this._respHeaders[k.toLowerCase()] = v;
         }
-        _headersReceived () { this.readyState = 2; this.onreadystatechange?.(); }
-        _progress (chunk) { this.responseText += chunk; this.readyState = 3; this.onprogress?.(); }
-        _done () { this.readyState = 4; this.onreadystatechange?.(); this.dispatchEvent(new Event('load')); }
-        _networkError () { this.dispatchEvent(new Event('error')); }
+        _headersReceived() {
+            this.readyState = 2;
+            this.onreadystatechange?.();
+        }
+        _progress(chunk) {
+            this.responseText += chunk;
+            this.readyState = 3;
+            this.onprogress?.();
+        }
+        _done() {
+            this.readyState = 4;
+            this.onreadystatechange?.();
+            this.dispatchEvent(new Event('load'));
+        }
+        _networkError() {
+            this.dispatchEvent(new Event('error'));
+        }
     }
     globalThis.XMLHttpRequest = FakeXHR;
     return instances;
 }
 
 // A simple buffered JSON/text response.
-const respond = ({ status = 200, contentType = 'application/json', body = '' }) => xhr => {
-    xhr._setHeaders(status, { 'content-type': contentType });
-    xhr._headersReceived();
-    xhr.responseText = typeof body === 'string' ? body : JSON.stringify(body);
-    xhr._done();
-};
+const respond =
+    ({ status = 200, contentType = 'application/json', body = '' }) =>
+    (xhr) => {
+        xhr._setHeaders(status, { 'content-type': contentType });
+        xhr._headersReceived();
+        xhr.responseText =
+            typeof body === 'string' ? body : JSON.stringify(body);
+        xhr._done();
+    };
 
 let savedXHR;
-beforeEach(() => { savedXHR = globalThis.XMLHttpRequest; });
+beforeEach(() => {
+    savedXHR = globalThis.XMLHttpRequest;
+});
 afterEach(() => {
     globalThis.XMLHttpRequest = savedXHR;
     delete globalThis.puter;
@@ -66,7 +100,9 @@ describe('fetchUrl', () => {
     it('adds a Bearer header from the live puter.authToken when includePuterAuth', async () => {
         globalThis.puter = { authToken: 'tok-123' };
         const xhrs = installFakeXHR(respond({ body: { ok: true } }));
-        await fetchUrl('https://api.example/whoami', { includePuterAuth: true });
+        await fetchUrl('https://api.example/whoami', {
+            includePuterAuth: true,
+        });
         expect(xhrs[0]._reqHeaders['authorization']).toBe('Bearer tok-123');
     });
 
@@ -74,7 +110,10 @@ describe('fetchUrl', () => {
         // The migration endpoint sends a token that is about to be replaced.
         globalThis.puter = { authToken: 'live' };
         const xhrs = installFakeXHR(respond({ body: {} }));
-        await fetchUrl('https://api.example/migrate', { method: 'POST', authToken: 'explicit' });
+        await fetchUrl('https://api.example/migrate', {
+            method: 'POST',
+            authToken: 'explicit',
+        });
         expect(xhrs[0]._reqHeaders['authorization']).toBe('Bearer explicit');
     });
 
@@ -85,7 +124,9 @@ describe('fetchUrl', () => {
             includePuterAuth: true,
             authToken: 'from-instance',
         });
-        expect(xhrs[0]._reqHeaders['authorization']).toBe('Bearer from-instance');
+        expect(xhrs[0]._reqHeaders['authorization']).toBe(
+            'Bearer from-instance',
+        );
     });
 
     it('prefers the live token over the fallback when both are available', async () => {
@@ -127,7 +168,7 @@ describe('fetchUrl', () => {
     });
 
     it('resolves (not rejects) with ok:false on 404 and 500', async () => {
-        for ( const status of [ 404, 500 ] ) {
+        for (const status of [404, 500]) {
             installFakeXHR(respond({ status, body: { error: 'nope' } }));
             const resp = await fetchUrl('https://api.example/x');
             expect(resp.ok).toBe(false);
@@ -139,12 +180,19 @@ describe('fetchUrl', () => {
     it('rejects on a network error (write — no retry)', async () => {
         // A write never auto-retries, so the network error surfaces immediately.
         // Read retry-then-reject is covered in the transient-retry suite.
-        installFakeXHR(xhr => xhr._networkError());
-        await expect(fetchUrl('https://api.example/x', { method: 'POST' })).rejects.toThrow(/failed/);
+        installFakeXHR((xhr) => xhr._networkError());
+        await expect(
+            fetchUrl('https://api.example/x', { method: 'POST' }),
+        ).rejects.toThrow(/failed/);
     });
 
     it('exposes text(), json(), and blob() accessors', async () => {
-        installFakeXHR(respond({ contentType: 'application/json', body: { hello: 'world' } }));
+        installFakeXHR(
+            respond({
+                contentType: 'application/json',
+                body: { hello: 'world' },
+            }),
+        );
         const resp = await fetchUrl('https://api.example/x');
         expect(await resp.text()).toBe('{"hello":"world"}');
         expect(await resp.json()).toEqual({ hello: 'world' });
@@ -155,7 +203,7 @@ describe('fetchUrl', () => {
     });
 
     it('streams parsed NDJSON objects across chunk boundaries', async () => {
-        installFakeXHR(xhr => {
+        installFakeXHR((xhr) => {
             xhr._setHeaders(200, { 'content-type': 'application/x-ndjson' });
             xhr._headersReceived();
             // A JSON object split across two progress deltas, plus a full line.
@@ -165,28 +213,43 @@ describe('fetchUrl', () => {
         });
         const resp = await fetchUrl('https://api.example/stream');
         const got = [];
-        for await ( const obj of resp.stream() ) got.push(obj);
-        expect(got).toEqual([ { n: 1 }, { n: 2 }, { n: 3 } ]);
+        for await (const obj of resp.stream()) got.push(obj);
+        expect(got).toEqual([{ n: 1 }, { n: 2 }, { n: 3 }]);
     });
 
     describe('401 reauth', () => {
         it('triggers reauth once and replays with the fresh token', async () => {
-            const triggerReauth = vi.fn(async () => { globalThis.puter.authToken = 'fresh'; });
-            globalThis.puter = { authToken: 'stale', env: 'web', triggerReauth };
+            const triggerReauth = vi.fn(async () => {
+                globalThis.puter.authToken = 'fresh';
+            });
+            globalThis.puter = {
+                authToken: 'stale',
+                env: 'web',
+                triggerReauth,
+            };
 
             let call = 0;
-            installFakeXHR(xhr => {
+            installFakeXHR((xhr) => {
                 call++;
-                if ( call === 1 ) {
+                if (call === 1) {
                     // first attempt: 401 reauth_required
-                    return respond({ status: 401, body: { code: 'reauth_required', reason: 'x', auth_id: 'a' } })(xhr);
+                    return respond({
+                        status: 401,
+                        body: {
+                            code: 'reauth_required',
+                            reason: 'x',
+                            auth_id: 'a',
+                        },
+                    })(xhr);
                 }
                 // replay carries the fresh token and succeeds
                 expect(xhr._reqHeaders['authorization']).toBe('Bearer fresh');
                 return respond({ status: 200, body: { ok: true } })(xhr);
             });
 
-            const resp = await fetchUrl('https://api.example/x', { includePuterAuth: true });
+            const resp = await fetchUrl('https://api.example/x', {
+                includePuterAuth: true,
+            });
             expect(triggerReauth).toHaveBeenCalledTimes(1);
             expect(resp.ok).toBe(true);
             expect(await resp.json()).toEqual({ ok: true });
@@ -194,10 +257,18 @@ describe('fetchUrl', () => {
 
         it('does not loop: a second 401 after replay surfaces as ok:false', async () => {
             const triggerReauth = vi.fn(async () => {});
-            globalThis.puter = { authToken: 'stale', env: 'web', triggerReauth };
+            globalThis.puter = {
+                authToken: 'stale',
+                env: 'web',
+                triggerReauth,
+            };
 
-            installFakeXHR(respond({ status: 401, body: { code: 'reauth_required' } }));
-            const resp = await fetchUrl('https://api.example/x', { includePuterAuth: true });
+            installFakeXHR(
+                respond({ status: 401, body: { code: 'reauth_required' } }),
+            );
+            const resp = await fetchUrl('https://api.example/x', {
+                includePuterAuth: true,
+            });
             // reauth attempted exactly once; replayed request's 401 is returned.
             expect(triggerReauth).toHaveBeenCalledTimes(1);
             expect(resp.ok).toBe(false);
@@ -207,8 +278,12 @@ describe('fetchUrl', () => {
         it('plain 401 (no reauth code) resolves ok:false without triggering reauth', async () => {
             const triggerReauth = vi.fn();
             globalThis.puter = { authToken: 't', env: 'web', triggerReauth };
-            installFakeXHR(respond({ status: 401, body: { message: 'Unauthorized' } }));
-            const resp = await fetchUrl('https://api.example/x', { includePuterAuth: true });
+            installFakeXHR(
+                respond({ status: 401, body: { message: 'Unauthorized' } }),
+            );
+            const resp = await fetchUrl('https://api.example/x', {
+                includePuterAuth: true,
+            });
             expect(triggerReauth).not.toHaveBeenCalled();
             expect(resp.ok).toBe(false);
         });
@@ -228,10 +303,16 @@ describe('fetchUrl', () => {
 
             it('drops the stale token without raising UI on reauth_required', async () => {
                 globalThis.puter = makePuter();
-                installFakeXHR(respond({
-                    status: 401,
-                    body: { code: 'reauth_required', reason: 'token_v1', auth_id: 'a' },
-                }));
+                installFakeXHR(
+                    respond({
+                        status: 401,
+                        body: {
+                            code: 'reauth_required',
+                            reason: 'token_v1',
+                            auth_id: 'a',
+                        },
+                    }),
+                );
 
                 const resp = await fetchUrl('https://api.example/rao', {
                     method: 'POST',
@@ -240,10 +321,14 @@ describe('fetchUrl', () => {
                 });
 
                 expect(globalThis.puter.triggerReauth).not.toHaveBeenCalled();
-                expect(globalThis.puter.ui.authenticateWithPuter).not.toHaveBeenCalled();
+                expect(
+                    globalThis.puter.ui.authenticateWithPuter,
+                ).not.toHaveBeenCalled();
                 // Reported with the token it was sent with, so a reauth that
                 // completed meanwhile keeps the token it installed.
-                expect(globalThis.puter.dropStaleAuthToken).toHaveBeenCalledWith({
+                expect(
+                    globalThis.puter.dropStaleAuthToken,
+                ).toHaveBeenCalledWith({
                     reason: 'token_v1',
                     auth_id: 'a',
                     sentToken: 'stale',
@@ -254,16 +339,25 @@ describe('fetchUrl', () => {
 
             it('drops the stale token without raising UI on token_auth_failed', async () => {
                 globalThis.puter = makePuter();
-                installFakeXHR(respond({ status: 401, body: { code: 'token_auth_failed' } }));
+                installFakeXHR(
+                    respond({
+                        status: 401,
+                        body: { code: 'token_auth_failed' },
+                    }),
+                );
 
                 const resp = await fetchUrl('https://api.example/whoami', {
                     includePuterAuth: true,
                     interactiveReauth: false,
                 });
 
-                expect(globalThis.puter.ui.authenticateWithPuter).not.toHaveBeenCalled();
+                expect(
+                    globalThis.puter.ui.authenticateWithPuter,
+                ).not.toHaveBeenCalled();
                 expect(globalThis.puter.resetAuthToken).not.toHaveBeenCalled();
-                expect(globalThis.puter.dropStaleAuthToken).toHaveBeenCalledTimes(1);
+                expect(
+                    globalThis.puter.dropStaleAuthToken,
+                ).toHaveBeenCalledTimes(1);
                 expect(resp.ok).toBe(false);
             });
 
@@ -277,13 +371,18 @@ describe('fetchUrl', () => {
                     interactiveReauth: false,
                 });
                 expect(resp.ok).toBe(true);
-                expect(globalThis.puter.dropStaleAuthToken).not.toHaveBeenCalled();
+                expect(
+                    globalThis.puter.dropStaleAuthToken,
+                ).not.toHaveBeenCalled();
             });
         });
     });
 
     describe('API call logging', () => {
-        const makeLogger = () => ({ isEnabled: () => true, logRequest: vi.fn() });
+        const makeLogger = () => ({
+            isEnabled: () => true,
+            logRequest: vi.fn(),
+        });
 
         it('logs on success when the logger is enabled', async () => {
             const apiCallLogger = makeLogger();
@@ -297,7 +396,9 @@ describe('fetchUrl', () => {
         it('logs an error entry on a 4xx', async () => {
             const apiCallLogger = makeLogger();
             globalThis.puter = { apiCallLogger };
-            installFakeXHR(respond({ status: 404, body: { code: 'not_found' } }));
+            installFakeXHR(
+                respond({ status: 404, body: { code: 'not_found' } }),
+            );
             await fetchUrl('https://api.example/x');
             expect(apiCallLogger.logRequest).toHaveBeenCalledTimes(1);
             const entry = apiCallLogger.logRequest.mock.calls[0][0];
@@ -310,10 +411,17 @@ describe('fetchUrl', () => {
             globalThis.puter = { apiCallLogger };
             installFakeXHR(respond({ status: 200, body: { u: 1 } }));
             await fetchUrl('https://api.example/whoami', {
-                logContext: { service: 'auth', operation: 'whoami', params: {} },
+                logContext: {
+                    service: 'auth',
+                    operation: 'whoami',
+                    params: {},
+                },
             });
             const entry = apiCallLogger.logRequest.mock.calls[0][0];
-            expect(entry).toMatchObject({ service: 'auth', operation: 'whoami' });
+            expect(entry).toMatchObject({
+                service: 'auth',
+                operation: 'whoami',
+            });
             expect(entry.result).toEqual({ u: 1 });
         });
     });
@@ -322,19 +430,23 @@ describe('fetchUrl', () => {
 // Play a scripted response per attempt (retries create fresh XHR instances).
 const sequence = (...steps) => {
     let i = 0;
-    return xhr => steps[Math.min(i++, steps.length - 1)](xhr);
+    return (xhr) => steps[Math.min(i++, steps.length - 1)](xhr);
 };
-const netError = () => xhr => xhr._networkError();
+const netError = () => (xhr) => xhr._networkError();
 
 describe('transient retry', () => {
-    beforeEach(() => { globalThis.puter = {}; });
+    beforeEach(() => {
+        globalThis.puter = {};
+    });
 
     it('retries a GET on 503 then resolves the success', async () => {
         vi.useFakeTimers();
-        const xhrs = installFakeXHR(sequence(
-            respond({ status: 503, body: {} }),
-            respond({ status: 200, body: { ok: 1 } }),
-        ));
+        const xhrs = installFakeXHR(
+            sequence(
+                respond({ status: 503, body: {} }),
+                respond({ status: 200, body: { ok: 1 } }),
+            ),
+        );
         const p = fetchUrl('https://api.example/x'); // GET → retry-safe
         await vi.advanceTimersByTimeAsync(60_000);
         const resp = await p;
@@ -344,19 +456,28 @@ describe('transient retry', () => {
     });
 
     it('does not retry a POST by default', async () => {
-        const xhrs = installFakeXHR(sequence(respond({ status: 503, body: {} })));
-        const resp = await fetchUrl('https://api.example/x', { method: 'POST' });
+        const xhrs = installFakeXHR(
+            sequence(respond({ status: 503, body: {} })),
+        );
+        const resp = await fetchUrl('https://api.example/x', {
+            method: 'POST',
+        });
         expect(resp.status).toBe(503);
         expect(xhrs.length).toBe(1);
     });
 
     it('retries a POST when retry:true (read-style opt-in)', async () => {
         vi.useFakeTimers();
-        const xhrs = installFakeXHR(sequence(
-            respond({ status: 503, body: {} }),
-            respond({ status: 200, body: { ok: 1 } }),
-        ));
-        const p = fetchUrl('https://api.example/x', { method: 'POST', retry: true });
+        const xhrs = installFakeXHR(
+            sequence(
+                respond({ status: 503, body: {} }),
+                respond({ status: 200, body: { ok: 1 } }),
+            ),
+        );
+        const p = fetchUrl('https://api.example/x', {
+            method: 'POST',
+            retry: true,
+        });
         await vi.advanceTimersByTimeAsync(60_000);
         expect((await p).status).toBe(200);
         expect(xhrs.length).toBe(2);
@@ -364,22 +485,80 @@ describe('transient retry', () => {
     });
 
     it('retry:false disables retry even for a GET', async () => {
-        const xhrs = installFakeXHR(sequence(respond({ status: 503, body: {} })));
+        const xhrs = installFakeXHR(
+            sequence(respond({ status: 503, body: {} })),
+        );
         const resp = await fetchUrl('https://api.example/x', { retry: false });
         expect(resp.status).toBe(503);
         expect(xhrs.length).toBe(1);
     });
 
     it('does not retry a non-retryable status (400)', async () => {
-        const xhrs = installFakeXHR(sequence(respond({ status: 400, body: {} })));
+        const xhrs = installFakeXHR(
+            sequence(respond({ status: 400, body: {} })),
+        );
         const resp = await fetchUrl('https://api.example/x'); // GET
         expect(resp.status).toBe(400);
         expect(xhrs.length).toBe(1);
     });
 
+    // A 429 comes from a gate that runs before the handler, so nothing was
+    // applied and a write is as safe to replay as a read. Uploads and bursts
+    // of driver writes are the callers this matters to.
+    it('retries a POST on 429 even though 503 would not', async () => {
+        vi.useFakeTimers();
+        const xhrs = installFakeXHR(
+            sequence(
+                respond({ status: 429, body: {} }),
+                respond({ status: 200, body: { ok: 1 } }),
+            ),
+        );
+        const p = fetchUrl('https://api.example/x', { method: 'POST' });
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect((await p).status).toBe(200);
+        expect(xhrs.length).toBe(2);
+        vi.useRealTimers();
+    });
+
+    it('gives up on 429 after the retry schedule is spent', async () => {
+        vi.useFakeTimers();
+        const xhrs = installFakeXHR(respond({ status: 429, body: {} }));
+        const p = fetchUrl('https://api.example/x', { method: 'POST' });
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect((await p).status).toBe(429);
+        expect(xhrs.length).toBe(9); // 1 initial + 8 scheduled retries
+        vi.useRealTimers();
+    });
+
+    it('honors retry:false on a 429', async () => {
+        const xhrs = installFakeXHR(
+            sequence(respond({ status: 429, body: {} })),
+        );
+        const resp = await fetchUrl('https://api.example/x', {
+            method: 'POST',
+            retry: false,
+        });
+        expect(resp.status).toBe(429);
+        expect(xhrs.length).toBe(1);
+    });
+
+    it('honors the autoRetry kill switch on a 429', async () => {
+        globalThis.puter = { config: { autoRetry: false } };
+        const xhrs = installFakeXHR(
+            sequence(respond({ status: 429, body: {} })),
+        );
+        const resp = await fetchUrl('https://api.example/x', {
+            method: 'POST',
+        });
+        expect(resp.status).toBe(429);
+        expect(xhrs.length).toBe(1);
+    });
+
     it('respects the autoRetry kill switch', async () => {
         globalThis.puter = { config: { autoRetry: false } };
-        const xhrs = installFakeXHR(sequence(respond({ status: 503, body: {} })));
+        const xhrs = installFakeXHR(
+            sequence(respond({ status: 503, body: {} })),
+        );
         const resp = await fetchUrl('https://api.example/x'); // GET, but retry off
         expect(resp.status).toBe(503);
         expect(xhrs.length).toBe(1);
@@ -388,7 +567,7 @@ describe('transient retry', () => {
     it('retries a network error for a read, then rejects after the cap', async () => {
         vi.useFakeTimers();
         const xhrs = installFakeXHR(netError()); // every attempt fails
-        const p = fetchUrl('https://api.example/x').catch(e => e); // GET
+        const p = fetchUrl('https://api.example/x').catch((e) => e); // GET
         await vi.advanceTimersByTimeAsync(60_000); // clears the ~11.75s schedule
         const err = await p;
         expect(err).toBeInstanceOf(TypeError);
@@ -398,14 +577,16 @@ describe('transient retry', () => {
 
     it('rejects a write network error immediately (no retry)', async () => {
         const xhrs = installFakeXHR(netError());
-        await expect(fetchUrl('https://api.example/x', { method: 'POST' })).rejects.toThrow(/failed/);
+        await expect(
+            fetchUrl('https://api.example/x', { method: 'POST' }),
+        ).rejects.toThrow(/failed/);
         expect(xhrs.length).toBe(1);
     });
 
     it('gives up on a 2s retry when the clock jumps (sleep/drift guard)', async () => {
         // Fake only the timers, not Date — a manual `clock` drives Date.now so we
         // can simulate the machine sleeping during a 2s ceiling wait.
-        vi.useFakeTimers({ toFake: [ 'setTimeout', 'clearTimeout' ] });
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
         let clock = 0;
         vi.spyOn(Date, 'now').mockImplementation(() => clock);
         const xhrs = installFakeXHR(respond({ status: 503, body: {} })); // always retryable
@@ -420,7 +601,7 @@ describe('transient retry', () => {
 
         const resp = await p;
         expect(resp.status).toBe(503); // failed with the last outcome — no further retry
-        expect(xhrs.length).toBe(4);   // stopped after the drifted 2s wait, before attempt 5
+        expect(xhrs.length).toBe(4); // stopped after the drifted 2s wait, before attempt 5
         vi.useRealTimers();
     });
 });
@@ -428,8 +609,14 @@ describe('transient retry', () => {
 describe('dedupe', () => {
     it('coalesces concurrent identical requests into one call', async () => {
         let calls = 0;
-        const factory = () => { calls++; return new Promise(r => setTimeout(() => r({ v: calls }), 5)); };
-        const [ a, b ] = await Promise.all([ dedupe('k', factory), dedupe('k', factory) ]);
+        const factory = () => {
+            calls++;
+            return new Promise((r) => setTimeout(() => r({ v: calls }), 5));
+        };
+        const [a, b] = await Promise.all([
+            dedupe('k', factory),
+            dedupe('k', factory),
+        ]);
         expect(calls).toBe(1);
         expect(a).toBe(b); // shared resolved value by reference
     });
@@ -444,8 +631,9 @@ describe('dedupe', () => {
 
     it('does not collide across distinct keys', async () => {
         let calls = 0;
-        const factory = () => new Promise(r => setTimeout(() => r(++calls), 5));
-        await Promise.all([ dedupe('a', factory), dedupe('b', factory) ]);
+        const factory = () =>
+            new Promise((r) => setTimeout(() => r(++calls), 5));
+        await Promise.all([dedupe('a', factory), dedupe('b', factory)]);
         expect(calls).toBe(2);
     });
 });
@@ -457,25 +645,42 @@ describe('driver permission-grant replay (regression)', () => {
         // requestPermission resolves to a boolean (its real contract).
         const requestPermission = vi.fn(async () => true);
         globalThis.puter = { ui: { requestPermission } };
-        const xhrs = installFakeXHR(sequence(
-            respond({ status: 200, body: { success: false, error: { code: 'permission_denied' } } }),
-            respond({ status: 200, body: { success: true, result: 'ok' } }),
-        ));
+        const xhrs = installFakeXHR(
+            sequence(
+                respond({
+                    status: 200,
+                    body: {
+                        success: false,
+                        error: { code: 'permission_denied' },
+                    },
+                }),
+                respond({ status: 200, body: { success: true, result: 'ok' } }),
+            ),
+        );
         const spec = {
             url: 'https://api.example/drivers/call',
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;actually=json' },
-            buildBody: () => JSON.stringify({ interface: 'iface', method: 'm', args: { a: 1 } }),
+            buildBody: () =>
+                JSON.stringify({
+                    interface: 'iface',
+                    method: 'm',
+                    args: { a: 1 },
+                }),
         };
         const result = await sendWithRetry(spec, {
             permission: 'driver:iface:m',
             shapeStream: () => {},
-            shape: outcome => outcome.parsed,
+            shape: (outcome) => outcome.parsed,
         });
         expect(requestPermission).toHaveBeenCalledTimes(1);
-        expect(requestPermission).toHaveBeenCalledWith({ permission: 'driver:iface:m' });
+        expect(requestPermission).toHaveBeenCalledWith({
+            permission: 'driver:iface:m',
+        });
         expect(xhrs.length).toBe(2);
-        expect(xhrs[1].reqBody).toBe(JSON.stringify({ interface: 'iface', method: 'm', args: { a: 1 } }));
+        expect(xhrs[1].reqBody).toBe(
+            JSON.stringify({ interface: 'iface', method: 'm', args: { a: 1 } }),
+        );
         expect(result).toEqual({ success: true, result: 'ok' });
     });
 
@@ -483,13 +688,21 @@ describe('driver permission-grant replay (regression)', () => {
         // Legacy `{granted}` object shape is still tolerated.
         const requestPermission = vi.fn(async () => ({ granted: true }));
         globalThis.puter = { ui: { requestPermission } };
-        const denied = respond({ status: 200, body: { success: false, error: { code: 'permission_denied' } } });
+        const denied = respond({
+            status: 200,
+            body: { success: false, error: { code: 'permission_denied' } },
+        });
         const xhrs = installFakeXHR(sequence(denied, denied, denied));
-        const spec = { url: 'https://api.example/drivers/call', method: 'POST', headers: {}, buildBody: () => '{}' };
+        const spec = {
+            url: 'https://api.example/drivers/call',
+            method: 'POST',
+            headers: {},
+            buildBody: () => '{}',
+        };
         const result = await sendWithRetry(spec, {
             permission: 'driver:iface:m',
             shapeStream: () => {},
-            shape: outcome => outcome.parsed,
+            shape: (outcome) => outcome.parsed,
         });
         expect(requestPermission).toHaveBeenCalledTimes(1); // one-shot
         expect(xhrs.length).toBe(2);
@@ -501,16 +714,24 @@ describe('driverCall', () => {
     const call = { iface: 'puter-kvstore', method: 'get', args: { key: 'k' } };
 
     beforeEach(() => {
-        globalThis.puter = { authToken: 'tok', APIOrigin: 'https://api.example', env: 'nodejs' };
+        globalThis.puter = {
+            authToken: 'tok',
+            APIOrigin: 'https://api.example',
+            env: 'nodejs',
+        };
     });
 
     it('posts the driver envelope and resolves the unwrapped result', async () => {
-        const xhrs = installFakeXHR(respond({ body: { success: true, result: 'v' } }));
+        const xhrs = installFakeXHR(
+            respond({ body: { success: true, result: 'v' } }),
+        );
         const result = await driverCall(call);
         expect(result).toBe('v');
         expect(xhrs[0].method).toBe('POST');
         expect(xhrs[0].url).toBe('https://api.example/drivers/call');
-        expect(xhrs[0]._reqHeaders['content-type']).toBe('text/plain;actually=json');
+        expect(xhrs[0]._reqHeaders['content-type']).toBe(
+            'text/plain;actually=json',
+        );
         expect(JSON.parse(xhrs[0].reqBody)).toEqual({
             interface: 'puter-kvstore',
             method: 'get',
@@ -520,9 +741,14 @@ describe('driverCall', () => {
     });
 
     it('sends driver and test_mode only when the caller sets them', async () => {
-        const xhrs = installFakeXHR(respond({ body: { success: true, result: {} } }));
+        const xhrs = installFakeXHR(
+            respond({ body: { success: true, result: {} } }),
+        );
         await driverCall({ ...call, driver: 'ai-chat', testMode: false });
-        expect(JSON.parse(xhrs[0].reqBody)).toMatchObject({ driver: 'ai-chat', test_mode: false });
+        expect(JSON.parse(xhrs[0].reqBody)).toMatchObject({
+            driver: 'ai-chat',
+            test_mode: false,
+        });
     });
 
     it('resolves the whole response when the driver returns no result field', async () => {
@@ -532,22 +758,35 @@ describe('driverCall', () => {
 
     it('applies transform to a successful result', async () => {
         installFakeXHR(respond({ body: { success: true, result: 2 } }));
-        const result = await driverCall(call, { transform: async n => n * 21 });
+        const result = await driverCall(call, {
+            transform: async (n) => n * 21,
+        });
         expect(result).toBe(42);
     });
 
     it('rejects the driver error payload and notifies onError', async () => {
-        installFakeXHR(respond({ body: { success: false, error: { code: 'key_too_large' } } }));
+        installFakeXHR(
+            respond({
+                body: { success: false, error: { code: 'key_too_large' } },
+            }),
+        );
         const onError = vi.fn();
         await expect(driverCall(call, { onError })).rejects.toEqual({
-            success: false, error: { code: 'key_too_large' },
+            success: false,
+            error: { code: 'key_too_large' },
         });
-        expect(onError).toHaveBeenCalledWith({ success: false, error: { code: 'key_too_large' } });
+        expect(onError).toHaveBeenCalledWith({
+            success: false,
+            error: { code: 'key_too_large' },
+        });
     });
 
     it('rejects a leftover 401 as Unauthorized', async () => {
         installFakeXHR(respond({ status: 401, body: {} }));
-        await expect(driverCall(call)).rejects.toEqual({ status: 401, message: 'Unauthorized' });
+        await expect(driverCall(call)).rejects.toEqual({
+            status: 401,
+            message: 'Unauthorized',
+        });
     });
 
     it('rejects auth_canceled when a signed-out visitor dismisses the prompt', async () => {
@@ -555,33 +794,44 @@ describe('driverCall', () => {
             authToken: null,
             APIOrigin: 'https://api.example',
             env: 'web',
-            ui: { authenticateWithPuter: async () => { throw new Error('dismissed'); } },
+            ui: {
+                authenticateWithPuter: async () => {
+                    throw new Error('dismissed');
+                },
+            },
         };
-        const xhrs = installFakeXHR(respond({ body: { success: true, result: 'v' } }));
+        const xhrs = installFakeXHR(
+            respond({ body: { success: true, result: 'v' } }),
+        );
         await expect(driverCall(call)).rejects.toEqual({
-            error: { code: 'auth_canceled', message: 'Authentication canceled' },
+            error: {
+                code: 'auth_canceled',
+                message: 'Authentication canceled',
+            },
         });
         expect(xhrs.length).toBe(0); // no request without a token
     });
 
     it('resolves an NDJSON response as an iterator of lines that stringify to their text', async () => {
-        installFakeXHR(xhr => {
+        installFakeXHR((xhr) => {
             xhr._setHeaders(200, { 'content-type': 'application/x-ndjson' });
             xhr._headersReceived();
             xhr._progress('{"text":"he"}\n{"text":"llo"}\n');
             xhr._done();
         });
         const parts = [];
-        for await ( const part of await driverCall(call) ) parts.push(`${part}`);
-        expect(parts).toEqual([ 'he', 'llo' ]);
+        for await (const part of await driverCall(call)) parts.push(`${part}`);
+        expect(parts).toEqual(['he', 'llo']);
     });
 
     it('retries a readonly method on a transient failure', async () => {
         vi.useFakeTimers();
-        const xhrs = installFakeXHR(sequence(
-            respond({ status: 503, body: {} }),
-            respond({ body: { success: true, result: 'v' } }),
-        ));
+        const xhrs = installFakeXHR(
+            sequence(
+                respond({ status: 503, body: {} }),
+                respond({ body: { success: true, result: 'v' } }),
+            ),
+        );
         const p = driverCall(call, { readonly: true });
         await vi.advanceTimersByTimeAsync(60_000);
         await expect(p).resolves.toBe('v');
@@ -594,31 +844,50 @@ describe('driverCallEnvelope', () => {
     const call = { iface: 'ipgeo', method: 'ipgeo', args: { ip: '1.2.3.4' } };
 
     beforeEach(() => {
-        globalThis.puter = { authToken: 'tok', APIOrigin: 'https://api.example', env: 'nodejs' };
+        globalThis.puter = {
+            authToken: 'tok',
+            APIOrigin: 'https://api.example',
+            env: 'nodejs',
+        };
     });
 
     it('resolves the envelope as the backend sent it', async () => {
-        installFakeXHR(respond({ body: { success: true, result: { country: 'US' } } }));
-        expect(await driverCallEnvelope(call)).toEqual({ success: true, result: { country: 'US' } });
+        installFakeXHR(
+            respond({ body: { success: true, result: { country: 'US' } } }),
+        );
+        expect(await driverCallEnvelope(call)).toEqual({
+            success: true,
+            result: { country: 'US' },
+        });
     });
 
     it('resolves rather than rejects on a driver-level failure', async () => {
-        installFakeXHR(respond({ body: { success: false, error: { code: 'not_found' } } }));
-        expect(await driverCallEnvelope(call)).toEqual({ success: false, error: { code: 'not_found' } });
+        installFakeXHR(
+            respond({ body: { success: false, error: { code: 'not_found' } } }),
+        );
+        expect(await driverCallEnvelope(call)).toEqual({
+            success: false,
+            error: { code: 'not_found' },
+        });
     });
 
     it('reads a response with no declared content type as JSON', async () => {
-        installFakeXHR(xhr => {
+        installFakeXHR((xhr) => {
             xhr._setHeaders(200);
             xhr._headersReceived();
             xhr.responseText = '{"success":true,"result":[1,2]}';
             xhr._done();
         });
-        expect(await driverCallEnvelope(call)).toEqual({ success: true, result: [ 1, 2 ] });
+        expect(await driverCallEnvelope(call)).toEqual({
+            success: true,
+            result: [1, 2],
+        });
     });
 
     it('throws on a content type it cannot read', async () => {
         installFakeXHR(respond({ contentType: 'text/html', body: '<html>' }));
-        await expect(driverCallEnvelope(call)).rejects.toThrow('unrecognized content type: text/html');
+        await expect(driverCallEnvelope(call)).rejects.toThrow(
+            'unrecognized content type: text/html',
+        );
     });
 });

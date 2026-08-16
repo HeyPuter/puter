@@ -17,16 +17,26 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { posix as pathPosix } from 'node:path';
-import { assertNormalized } from './resolveNode.js';
 import { createHash } from 'node:crypto';
-import { Readable, Transform } from 'node:stream';
+import { posix as pathPosix } from 'node:path';
 import type { TransformCallback } from 'node:stream';
+import { pipeline, Readable, Transform } from 'node:stream';
 import { v4 as uuidv4 } from 'uuid';
-import type {
-    MultipartCompletePart,
-    SignedUploadResult,
-} from '../../stores/fs/s3Types.js';
+import {
+    BinaryPayload,
+    CompleteWriteRequest,
+    CompleteWriteResponse,
+    SignedWriteRequest,
+    SignedWriteResponse,
+    SignMultipartPartsRequest,
+    SignMultipartPartsResponse,
+    UploadMode,
+    WriteRequest,
+    WriteResponse,
+} from '../../controllers/fs/requestTypes.js';
+import { Actor } from '../../core/actor.js';
+import { Context } from '../../core/context.js';
+import { HttpError } from '../../core/http/HttpError.js';
 import {
     FSEntry,
     FSEntryCreateInput,
@@ -35,18 +45,25 @@ import {
     PendingUploadCreateInput,
     PendingUploadSession,
 } from '../../stores/fs/FSEntry.js';
+import type {
+    MultipartCompletePart,
+    SignedUploadResult,
+} from '../../stores/fs/s3Types.js';
+import type { puterStores } from '../../stores/index.js';
+import type { LayerInstances } from '../../types.js';
+import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
+import { AclMode } from '../acl/ACLService.js';
+import type { puterServices } from '../index.js';
 import {
-    BinaryPayload,
-    CompleteWriteRequest,
-    CompleteWriteResponse,
-    SignMultipartPartsRequest,
-    SignMultipartPartsResponse,
-    SignedWriteRequest,
-    SignedWriteResponse,
-    UploadMode,
-    WriteRequest,
-    WriteResponse,
-} from '../../controllers/fs/requestTypes.js';
+    APP_DATA_FS_MODE_CLASSES,
+    appDataPermission,
+    appDataSharingAllowed,
+} from '../permission/appDataScopes.js';
+import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
+import { PermissionUtil } from '../permission/permissionUtil.js';
+import { PuterService } from '../types.js';
+import { FSEntryCacheInvalidationEventHandler } from './cacheInvalidation.js';
+import { assertNormalized } from './resolveNode.js';
 import type {
     BatchWritePrepareRequest,
     NormalizedWriteInput,
@@ -56,22 +73,38 @@ import type {
     UploadPreparedBatchItemInput,
     UploadProgressTrackerLike,
 } from './types.js';
-import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
-import { HttpError } from '../../core/http/HttpError.js';
-import { PuterService } from '../types.js';
-import type { LayerInstances } from '../../types.js';
-import type { puterStores } from '../../stores/index.js';
-import type { puterServices } from '../index.js';
-import { FSEntryCacheInvalidationEventHandler } from './cacheInvalidation.js';
-import { MANAGE_PERM_PREFIX } from '../permission/consts.js';
-import { PermissionUtil } from '../permission/permissionUtil.js';
-import { Actor } from '../../core/actor.js';
-import { AclMode } from '../acl/ACLService.js';
 
 const DEFAULT_CONTENT_TYPE = 'application/octet-stream';
 const DEFAULT_SIGNED_UPLOAD_EXPIRY_SECONDS = 60 * 15;
 
+/**
+ * Storage-allowance sentinel meaning "don't enforce a quota on this write".
+ *
+ * Also what an unmetered installation reports as its allowance max. Pass it as
+ * the `storageAllowanceMax` argument for writes the system performs on a user's
+ * behalf — small, bounded artifacts a full account must not be able to block.
+ * It is a server-side argument only: never derive it from request input, or a
+ * caller could opt itself out of its own quota.
+ */
+export const UNLIMITED_STORAGE_ALLOWANCE = Number.MAX_SAFE_INTEGER;
+
 const RESERVED_METADATA_KEYS: readonly string[] = ['objectKey'];
+
+/**
+ * The app whose `AppData` subtree `path` sits in, when that app is not
+ * `ownAppUid` — i.e. the target of a cross-app access. Null for anything else.
+ */
+const foreignAppDataOwner = (
+    path: string,
+    username: string,
+    ownAppUid: string,
+): string | null => {
+    const prefix = `/${username}/AppData/`;
+    if (!path.startsWith(prefix)) return null;
+    const appUid = path.slice(prefix.length).split('/')[0];
+    if (!appUid || appUid === ownAppUid) return null;
+    return appUid;
+};
 
 const isNoSuchKeyError = (err: unknown): boolean => {
     if (!err || typeof err !== 'object') return false;
@@ -248,7 +281,28 @@ export class FSService extends PuterService {
                 if (entry.path === root || entry.path.startsWith(`${root}/`)) {
                     return {};
                 }
-                return undefined;
+
+                // Another app's AppData, reachable once the user grants it.
+                // Same entry lookup, so this costs nothing extra.
+                const targetAppUid = foreignAppDataOwner(
+                    entry.path,
+                    username,
+                    appUid,
+                );
+                if (!targetAppUid) return undefined;
+                const mode = PermissionUtil.split(stripped)[2];
+                const cls =
+                    APP_DATA_FS_MODE_CLASSES[
+                        mode as keyof typeof APP_DATA_FS_MODE_CLASSES
+                    ];
+                if (!cls) return undefined;
+                const target = await this.stores.app.getByUid(targetAppUid);
+                if (!target || !appDataSharingAllowed(target)) return undefined;
+                const granted = await permissions.check(
+                    actor,
+                    appDataPermission(targetAppUid, 'fs', cls),
+                );
+                return granted ? {} : undefined;
             },
         });
 
@@ -629,7 +683,7 @@ export class FSService extends PuterService {
         allowanceMax: number,
         storageAllowanceMaxOverride?: number,
     ): number {
-        if (allowanceMax === Number.MAX_SAFE_INTEGER) {
+        if (allowanceMax === UNLIMITED_STORAGE_ALLOWANCE) {
             return allowanceMax;
         }
         if (storageAllowanceMaxOverride === undefined) {
@@ -650,13 +704,18 @@ export class FSService extends PuterService {
         existingSize = 0,
         storageAllowanceMaxOverride?: number,
     ): Promise<void> {
+        // Skip the allowance lookup entirely for unmetered writes — it costs
+        // a query plus a quota-bonus round trip whose answer can't matter.
+        if (storageAllowanceMaxOverride === UNLIMITED_STORAGE_ALLOWANCE) {
+            return;
+        }
         const allowance =
             await this.stores.fsEntry.getUserStorageAllowance(userId);
         const maxStorage = this.#resolveStorageMax(
             allowance.max,
             storageAllowanceMaxOverride,
         );
-        if (maxStorage === Number.MAX_SAFE_INTEGER) {
+        if (maxStorage === UNLIMITED_STORAGE_ALLOWANCE) {
             return;
         }
 
@@ -676,6 +735,9 @@ export class FSService extends PuterService {
         if (sizeChanges.length === 0) {
             return;
         }
+        if (storageAllowanceMaxOverride === UNLIMITED_STORAGE_ALLOWANCE) {
+            return;
+        }
 
         const allowance =
             await this.stores.fsEntry.getUserStorageAllowance(userId);
@@ -683,7 +745,7 @@ export class FSService extends PuterService {
             allowance.max,
             storageAllowanceMaxOverride,
         );
-        if (maxStorage === Number.MAX_SAFE_INTEGER) {
+        if (maxStorage === UNLIMITED_STORAGE_ALLOWANCE) {
             return;
         }
 
@@ -700,6 +762,15 @@ export class FSService extends PuterService {
                 legacyCode: 'storage_limit_reached',
             });
         }
+    }
+
+    // Bytes an entry accounts for in the owner's usage: a directory's own row
+    // has a null size, so its cost is the sum over its subtree.
+    async #entryStorageSize(entry: FSEntry): Promise<number> {
+        if (entry.isDir) {
+            return this.stores.fsEntry.getSubtreeSize(entry.userId, entry.path);
+        }
+        return entry.size ?? 0;
     }
 
     #toErrorMessage(error: unknown): string {
@@ -815,10 +886,18 @@ export class FSService extends PuterService {
             },
         });
 
-        source.on('error', (error) => {
-            countingStream.destroy(error);
+        // `pipeline` rather than `pipe` plus a hand-rolled 'error' forward: it
+        // keeps an 'error' listener attached to `countingStream` for the whole
+        // lifetime of the stream, and tears down both ends whichever one fails.
+        // The consumer is an object-store upload that may not have subscribed
+        // yet when a client disconnects mid-request, and destroying a Transform
+        // that nobody is listening to raises an unhandled 'error' event — which
+        // ends the process rather than just the request.
+        pipeline(source, countingStream, (error) => {
+            if (error) {
+                console.warn('upload stream ended early:', error.message);
+            }
         });
-        source.pipe(countingStream);
 
         return {
             stream: countingStream,
@@ -2915,7 +2994,7 @@ export class FSService extends PuterService {
             objectKey,
         });
         try {
-            await this.remove(entry.userId, { entry });
+            await this.remove(entry.userId, { entry, systemInitiated: true });
         } catch (cleanupErr) {
             console.error(
                 'prodfsv2 ghost fsentry cleanup failed',
@@ -3134,6 +3213,7 @@ export class FSService extends PuterService {
                 legacyCode: 'bad_request',
             });
         if (entry.name === newName) return entry;
+        await this.#assertCrossAppDeleteAllowed(entry.path);
 
         const parentPath = pathPosix.dirname(entry.path);
         const newPath =
@@ -3218,15 +3298,57 @@ export class FSService extends PuterService {
      *
      * Does NOT enforce ACL — caller (controller) performs the `write` check.
      */
+    /**
+     * Delete, move, and rename all ask ACL for `fs:write`, which cannot tell
+     * them apart from an ordinary write — so the delete class is enforced here
+     * instead, at the only choke point both FS controllers and the `/batch`
+     * dispatcher go through.
+     *
+     * Reads the actor from context: these methods take a `userId`, not an
+     * actor, and a caller with no actor (provisioning, internal mkdir, the
+     * system actor) is unaffected.
+     */
+    async #assertCrossAppDeleteAllowed(path: string): Promise<void> {
+        const actor = Context.get('actor') as Actor | undefined;
+        if (!actor) return;
+        // Through the issuer chain: a token actor has no `app` of its own, so
+        // keying off `actor.app` would skip the guard — failing open where the
+        // paired implicator fails closed.
+        const app = actor.effectiveApp;
+        if (!app) return;
+        const username = actor.user?.username;
+        if (!username) return;
+
+        const targetAppUid = foreignAppDataOwner(path, username, app.uid);
+        if (!targetAppUid) return;
+
+        const granted = await this.services.permission.check(
+            actor,
+            appDataPermission(targetAppUid, 'fs', 'delete'),
+        );
+        if (!granted) {
+            throw new HttpError(403, 'Forbidden', { legacyCode: 'forbidden' });
+        }
+    }
+
     async remove(
         userId: number,
         input: {
             entry: FSEntry;
             recursive?: boolean;
             descendantsOnly?: boolean;
+            /**
+             * Set by internal repair (ghost-fsentry cleanup), which runs during
+             * an unrelated caller's read and is not that caller's action —
+             * otherwise the guard refuses it and the orphan is never reaped.
+             */
+            systemInitiated?: boolean;
         },
     ): Promise<void> {
         const { entry } = input;
+        if (!input.systemInitiated) {
+            await this.#assertCrossAppDeleteAllowed(entry.path);
+        }
         if (entry.userId !== userId) {
             // Defensive — only the owner should be hitting this path; higher
             // layers grant access via ACL, not raw ownership, but we still
@@ -3459,6 +3581,9 @@ export class FSService extends PuterService {
         },
     ): Promise<FSEntry> {
         const { source, destinationParent } = input;
+        // The source only: moving *into* another app's AppData is a write, and
+        // ACL plus the fs:write class already cover that.
+        await this.#assertCrossAppDeleteAllowed(source.path);
         if (source.userId !== userId) {
             throw new HttpError(
                 403,
@@ -3569,6 +3694,7 @@ export class FSService extends PuterService {
             newName?: string;
             overwrite?: boolean;
             dedupeName?: boolean;
+            storageAllowanceMax?: number;
         },
     ): Promise<FSEntry> {
         const { source, destinationParent } = input;
@@ -3596,6 +3722,19 @@ export class FSService extends PuterService {
                 : `${destinationParent.path}/${name}`;
 
         const collision = await this.stores.fsEntry.getEntryByPath(targetPath);
+
+        // A copy duplicates the bytes for real, so it costs the same against
+        // the allowance as writing them. Check before the overwrite below
+        // removes anything, and credit what that removal frees.
+        await this.#assertStorageAllowance(
+            userId,
+            await this.#entryStorageSize(source),
+            collision && input.overwrite
+                ? await this.#entryStorageSize(collision)
+                : 0,
+            input.storageAllowanceMax,
+        );
+
         if (collision) {
             if (input.overwrite) {
                 await this.remove(userId, {

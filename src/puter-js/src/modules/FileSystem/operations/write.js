@@ -1,8 +1,8 @@
 import path from 'path-browserify';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 
-/** @typedef {import('../../../../types/modules/filesystem').WriteOptions} WriteOptions */
-/** @typedef {import('../../../../types/modules/fs-item').FSItem} FSItem */
+/** @typedef {import('../types.js').WriteOptions} WriteOptions */
+/** @typedef {import('../../FSItem.js').FSItem} FSItem */
 
 /**
  * @typedef {{

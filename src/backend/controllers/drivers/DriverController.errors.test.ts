@@ -409,7 +409,7 @@ describe('DriverController per-method rate limiting', () => {
         configureRateLimit({ disabled: false } as never);
     });
 
-    it('answers 429 and raises a de-duped info alarm once the per-method budget is spent', async () => {
+    it('answers 429 without alarming once the per-method budget is spent', async () => {
         const { handler, alarms, iface } = build({
             run: () => ({ ok: true }),
             rateLimit: { default: { limit: 1, window: 60_000 } },
@@ -430,9 +430,8 @@ describe('DriverController per-method rate limiting', () => {
             legacyCode: 'too_many_requests',
         });
 
-        expect(alarms).toContainEqual({
-            id: 'driver_rate_limit_hit:rate-limited-iface:run',
-            severity: 'info',
-        });
+        // Spending your own budget is the limit working as designed, so it
+        // must not raise anything — the 429 is the whole signal.
+        expect(alarms).toEqual([]);
     });
 });

@@ -50,7 +50,7 @@ function addRow ($list, labelHtml, valueHtml) {
  * @param {Object} opts
  * @param {string} opts.name - Display name of the item
  * @param {string} opts.path - Full path of the item
- * @param {string} opts.uid - UID of the item
+ * @param {string} [opts.uid] - UID of the item; looked up from the path when omitted
  * @param {jQuery} [opts.$container] - Element to append the overlay to (defaults to <body>)
  * @returns {{ close: () => void }}
  */
@@ -121,8 +121,12 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
     const $list = $overlay.find('.item-props-list');
     const $versions = $overlay.find('.item-props-versions');
 
+    // The folder-background menu knows only the path it was opened on, so
+    // address the entry by uid when we have one and fall back to the path.
+    let item_uid = uid;
+
     puter.fs.stat({
-        uid,
+        ...(uid ? { uid } : { path: item_path }),
         returnSubdomains: true,
         returnPermissions: true,
         returnVersions: true,
@@ -130,6 +134,8 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
         consistency: 'eventual',
         success: async (fsentry) => {
             if ( closed ) return;
+
+            item_uid = item_uid ?? fsentry.uid ?? fsentry.id;
 
             // Icon
             try {
@@ -214,7 +220,7 @@ export default function UIItemPropertiesModal ({ name, path: item_path, uid, $co
                 puter.hosting.update($link.attr('data-subdomain'), null).then(() => {
                     $overlay.find(`.item-props-website-entry[data-uuid="${$link.attr('data-uuid')}"]`).remove();
                     // Remove the website badge from every row for this item.
-                    $(`.item[data-uid="${uid}"]`).find('.item-has-website-badge').fadeOut(200);
+                    $(`.item[data-uid="${item_uid}"]`).find('.item-has-website-badge').fadeOut(200);
                 });
             });
         },

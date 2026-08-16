@@ -4,8 +4,8 @@
 // lives in exactly one place.
 
 /**
- * @typedef {import('../../../../types/modules/apps').CreateAppOptions
- *     | import('../../../../types/modules/apps').UpdateAppAttributes} AppAttributes
+ * @typedef {import('../types.js').CreateAppOptions
+ *     | import('../types.js').UpdateAppAttributes} AppAttributes
  */
 
 /**
@@ -26,4 +26,5 @@ export const toAppObject = (raw) => ({
     background: raw.background,
     filetype_associations: raw.filetypeAssociations,
     metadata: raw.metadata,
+    feedback_enabled: raw.feedbackEnabled,
 });

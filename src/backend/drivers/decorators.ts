@@ -24,10 +24,13 @@ import {
     DRIVER_NAME_KEY,
     DRIVER_NO_USER_SESSION_KEY,
     DRIVER_RATE_LIMIT_KEY,
+    DRIVER_REQUIRE_SUBSCRIPTION_KEY,
     validateDriverConcurrent,
     validateDriverRateLimit,
+    validateDriverRequireSubscription,
     type DriverConcurrentConfig,
     type DriverRateLimitConfig,
+    type DriverRequireSubscriptionConfig,
 } from './meta';
 
 /** Options for the `@Driver` class decorator. */
@@ -88,6 +91,23 @@ export interface DriverOptions {
      * API token. See `DriverMeta.noUserSession`.
      */
     noUserSession?: boolean;
+    /**
+     * Subscriber-only methods. `true` accepts any non-free plan; an array of
+     * `SubscriptionPolicy.id`s accepts only those. Methods listed in neither
+     * `methods` nor `default` stay open to every plan — this is opt-in.
+     *
+     * ```ts
+     * @Driver('puter-video-generation', {
+     *     requireSubscription: {
+     *         methods: {
+     *             generate: true,
+     *             generateLong: ['business', 'pro'],
+     *         },
+     *     },
+     * })
+     * ```
+     */
+    requireSubscription?: DriverRequireSubscriptionConfig;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -130,6 +150,10 @@ export function Driver(interfaceName: string, opts: DriverOptions = {}) {
         opts.concurrent !== undefined
             ? validateDriverConcurrent(opts.concurrent, label)
             : undefined;
+    const requireSubscription =
+        opts.requireSubscription !== undefined
+            ? validateDriverRequireSubscription(opts.requireSubscription, label)
+            : undefined;
 
     return <T extends AnyCtor>(
         value: T,
@@ -141,6 +165,8 @@ export function Driver(interfaceName: string, opts: DriverOptions = {}) {
         proto[DRIVER_DEFAULT_KEY] = opts.default ?? false;
         if (rateLimit) proto[DRIVER_RATE_LIMIT_KEY] = rateLimit;
         if (concurrent) proto[DRIVER_CONCURRENT_KEY] = concurrent;
+        if (requireSubscription)
+            proto[DRIVER_REQUIRE_SUBSCRIPTION_KEY] = requireSubscription;
         if (opts.noUserSession) proto[DRIVER_NO_USER_SESSION_KEY] = true;
     };
 }

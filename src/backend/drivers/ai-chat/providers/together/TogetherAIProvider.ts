@@ -29,6 +29,24 @@ const TOGETHER_AI_CHAT_COST_MAP = {
     completion_tokens: 'output',
 };
 
+/**
+ * Whether the SDK rejected a request because the prompt plus the requested
+ * output exceeds the model's context window. Unlike the OpenAI SDK, Together's
+ * `APIError.error` is the whole response body, so the provider message sits one
+ * level deeper; `message` is the stringified body and covers older shapes.
+ */
+const isContextLengthError = (e: unknown) => {
+    const err = e as {
+        error?: { error?: { message?: string } };
+        message?: string;
+    };
+    const message = err?.error?.error?.message ?? err?.message;
+    return (
+        typeof message === 'string' &&
+        message.includes('maximum context length')
+    );
+};
+
 export class TogetherAIProvider implements IChatProvider {
     #together: Together;
 
@@ -83,7 +101,13 @@ export class TogetherAIProvider implements IChatProvider {
                             ),
                         ),
                     },
-                    max_tokens: model.context_length ?? 8000,
+                    // Together only reports a context length. The driver caps
+                    // output at max_tokens minus an estimated input count, and
+                    // that estimate runs low — reserve headroom so a short
+                    // prompt doesn't ask for more than the context allows.
+                    max_tokens: model.context_length
+                        ? Math.floor(model.context_length * 0.95)
+                        : 8000,
                 });
             }
         }
@@ -145,7 +169,7 @@ export class TogetherAIProvider implements IChatProvider {
 
         messages = await OpenAIUtil.process_input_messages(messages);
 
-        const completion = await this.#together.chat.completions.create({
+        const completionParams = {
             model: modelIdForParams,
             messages,
             stream,
@@ -153,7 +177,21 @@ export class TogetherAIProvider implements IChatProvider {
             ...(max_tokens !== undefined ? { max_tokens } : {}),
             ...(temperature !== undefined ? { temperature } : {}),
             ...(stream ? { stream_options: { include_usage: true } } : {}),
-        } as Together.Chat.Completions.CompletionCreateParamsNonStreaming);
+        } as Together.Chat.Completions.CompletionCreateParamsNonStreaming;
+
+        let completion;
+        try {
+            completion =
+                await this.#together.chat.completions.create(completionParams);
+        } catch (e: unknown) {
+            // An overestimated max_tokens makes Together reject the request
+            // outright rather than truncating. The user can afford the query
+            // either way, so retry once without the cap.
+            if (!isContextLengthError(e)) throw e;
+            delete completionParams.max_tokens;
+            completion =
+                await this.#together.chat.completions.create(completionParams);
+        }
 
         return OpenAIUtil.handle_completion_output({
             usage_calculator: ({ usage }) => {

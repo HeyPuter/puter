@@ -8,7 +8,7 @@ import { speech2txt } from './stt.js';
 import { listEngines, listVoices, txt2speech } from './tts.js';
 import { txt2vid } from './video.js';
 
-/** @typedef {import('../../../types/puter').Puter} Puter */
+/** @typedef {import('../../index.js').Puter} Puter */
 
 /**
  * `txt2speech` is callable directly and carries the engine/voice listers.
@@ -23,8 +23,8 @@ import { txt2vid } from './video.js';
  *
  * Method implementations live in the sibling files as `this`-context
  * functions whose JSDoc (including the per-form `@overload` declarations) is
- * the source of truth for the public signatures; types/modules/ai.d.ts
- * mirrors them for TypeScript consumers of the published SDK.
+ * the source of truth for the public signatures — `types/` is generated from
+ * it, never edited by hand.
  */
 export class AIModule extends PuterModule {
     /** @type {Txt2Speech} */

@@ -19,7 +19,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { IChatModel } from '../types.js';
-import { buildCostsOverride, usdPerMToken } from './pricing.js';
+import { buildCostsOverride, isFreeModel, usdPerMToken } from './pricing.js';
 
 const model = (costs: Record<string, number>): IChatModel =>
     ({
@@ -40,6 +40,32 @@ describe('usdPerMToken', () => {
             cached_tokens: 0,
         });
         expect(usdPerMToken(1, 2, 0.5).cached_tokens).toBe(50);
+    });
+});
+
+describe('isFreeModel', () => {
+    it('treats a table of nothing but zeroes as free', () => {
+        expect(
+            isFreeModel(
+                model({
+                    tokens: 1_000_000,
+                    prompt_tokens: 0,
+                    completion_tokens: 0,
+                }),
+            ),
+        ).toBe(true);
+    });
+
+    it('treats a model priced on any axis as paid', () => {
+        expect(
+            isFreeModel(model({ prompt_tokens: 0, completion_tokens: 200 })),
+        ).toBe(false);
+        expect(isFreeModel(model({ request: 1 }))).toBe(false);
+    });
+
+    it('treats a model with no cost data as unknown, not free', () => {
+        expect(isFreeModel(model({}))).toBe(false);
+        expect(isFreeModel(model({ tokens: 1_000_000 }))).toBe(false);
     });
 });
 

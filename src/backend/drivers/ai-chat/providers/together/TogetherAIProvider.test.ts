@@ -209,6 +209,17 @@ describe('TogetherAIProvider model catalog', () => {
         expect(ids).toContain('model-fallback-test-1');
     });
 
+    it('reserves headroom under the context length for the output cap', async () => {
+        const { provider } = makeProvider();
+        const model = (await provider.models()).find(
+            (m) => m.id === 'togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo',
+        )!;
+        // The advertised context window is unchanged; only the output cap
+        // leaves room for the driver's under-counting input estimator.
+        expect(model.context).toBe(32768);
+        expect(model.max_tokens).toBe(Math.floor(32768 * 0.95));
+    });
+
     it('caches the coerced model list in kv after the first call', async () => {
         const { provider } = makeProvider();
         await provider.models();
@@ -356,6 +367,109 @@ describe('TogetherAIProvider.complete request shape', () => {
 
         expect(createMock).not.toHaveBeenCalled();
         expect(recordSpy).not.toHaveBeenCalled();
+    });
+
+    // Together's APIError carries the whole response body on `.error`, so the
+    // provider message sits at `.error.error.message` — one level deeper than
+    // the OpenAI SDK puts it.
+    const contextLengthError = {
+        status: 400,
+        message:
+            '400 {"id":"ovG6YRd-6z2FuN","error":{"message":"Failed to start generation: The input token count (11) plus the requested output count (1048573) exceeds the model\'s maximum context length (1048576)"}}',
+        error: {
+            id: 'ovG6YRd-6z2FuN',
+            error: {
+                message:
+                    "Failed to start generation: The input token count (11) plus the requested output count (1048573) exceeds the model's maximum context length (1048576)",
+                type: 'invalid_request_error',
+            },
+        },
+    };
+
+    it('retries without max_tokens when Together rejects with a context-length error', async () => {
+        const { provider } = makeProvider();
+
+        createMock
+            .mockRejectedValueOnce(contextLengthError)
+            .mockResolvedValueOnce(baseCompletion);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo',
+                messages: [{ role: 'user', content: 'hi' }],
+                max_tokens: 1048573,
+            }),
+        );
+
+        // Provider mutates a single completionParams object across both calls
+        // (`delete completionParams.max_tokens` after the first throw), so the
+        // first call's recorded args are retroactively altered — only the
+        // surviving shape is worth asserting on.
+        expect(createMock).toHaveBeenCalledTimes(2);
+        expect('max_tokens' in createMock.mock.calls[1]![0]).toBe(false);
+        // The retry is still metered exactly once.
+        expect(recordSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries a streaming request the same way', async () => {
+        const { provider } = makeProvider();
+
+        createMock
+            .mockRejectedValueOnce(contextLengthError)
+            .mockReturnValueOnce(asAsyncIterable([]));
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo',
+                messages: [{ role: 'user', content: 'hi' }],
+                max_tokens: 1048573,
+                stream: true,
+            }),
+        );
+
+        expect(createMock).toHaveBeenCalledTimes(2);
+        expect('max_tokens' in createMock.mock.calls[1]![0]).toBe(false);
+        expect(createMock.mock.calls[1]![0].stream).toBe(true);
+    });
+
+    it('rethrows non-context-length errors without retrying', async () => {
+        const { provider } = makeProvider();
+        const apiError = {
+            status: 401,
+            error: { error: { message: 'Invalid API key' } },
+        };
+        createMock.mockRejectedValueOnce(apiError);
+
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo',
+                    messages: [{ role: 'user', content: 'boom' }],
+                    max_tokens: 100,
+                }),
+            ),
+        ).rejects.toBe(apiError);
+
+        expect(createMock).toHaveBeenCalledTimes(1);
+        expect(recordSpy).not.toHaveBeenCalled();
+    });
+
+    it('rethrows a bodyless connection error instead of failing to read it', async () => {
+        const { provider } = makeProvider();
+        const connErr = new Error('Connection error.');
+        createMock.mockRejectedValueOnce(connErr);
+
+        await expect(
+            withTestActor(() =>
+                provider.complete({
+                    model: 'togetherai:Qwen/Qwen2.5-7B-Instruct-Turbo',
+                    messages: [{ role: 'user', content: 'hi' }],
+                    max_tokens: 100,
+                }),
+            ),
+        ).rejects.toBe(connErr);
+
+        expect(createMock).toHaveBeenCalledTimes(1);
     });
 });
 

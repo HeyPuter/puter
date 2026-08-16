@@ -20,6 +20,7 @@
 import UIContextMenu from './UIContextMenu.js';
 import path from '../lib/path.js';
 import launch_app from '../helpers/launch_app.js';
+import { user_facing_windows } from '../helpers/window_visibility.js';
 
 let tray_item_id = 1;
 
@@ -31,6 +32,12 @@ function UITaskbarItem (options) {
     options.lock_keep_in_taskbar = options.lock_keep_in_taskbar ?? false;
     options.append_to_taskbar = options.append_to_taskbar ?? true;
     options.before_trash = options.before_trash ?? false;
+
+    // The windows this item stands for: the user's own. An instance another
+    // app launched in the background is not counted in data-open-windows and
+    // has no item of its own (see UIWindow's taskbar block) — it must not be
+    // shown, hidden, or closed through the item its app's OTHER windows own.
+    const item_windows = () => $(user_facing_windows($(`.window[data-app="${options.app}"]`)));
 
     const element_id = window.global_element_id++;
 
@@ -126,7 +133,7 @@ function UITaskbarItem (options) {
 
         if ( options.onClick === undefined || options.onClick(el_taskbar_item) === false ) {
             // re-show each window in this app group
-            $(`.window[data-app="${options.app}"]`).showWindow();
+            item_windows().showWindow();
         }
     });
 
@@ -161,7 +168,7 @@ function UITaskbarItem (options) {
         // -------------------------------------------
         // List of open windows belonging to this app
         // -------------------------------------------
-        $(`.window[data-app="${options.app}"]`).each(function () {
+        item_windows().each(function () {
             menu_items.push({
                 html: $(this).find('.window-head-title').html(),
                 val: $(this).attr('data-id'),
@@ -268,7 +275,7 @@ function UITaskbarItem (options) {
             menu_items.push({
                 html: i18n('show_all_windows'),
                 onClick: function () {
-                    $(`.window[data-app="${options.app}"]`).showWindow();
+                    item_windows().showWindow();
                 },
             });
             // -------------------------------------------
@@ -279,7 +286,7 @@ function UITaskbarItem (options) {
                 onClick: function () {
                     if ( open_windows > 0 )
                     {
-                        $(`.window[data-app="${options.app}"]`).hideWindow();
+                        item_windows().hideWindow();
                     }
                 },
             });
@@ -289,7 +296,10 @@ function UITaskbarItem (options) {
             menu_items.push({
                 html: i18n('close_all_windows'),
                 onClick: function () {
-                    $(`.window[data-app="${options.app}"]`).close();
+                    // "All" means the windows this item lists — a background
+                    // helper belongs to the app running it, and goes when
+                    // that app does (UIWindow's close path).
+                    item_windows().close();
                 },
             });
         }

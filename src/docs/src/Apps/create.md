@@ -22,7 +22,7 @@ The name of the app to create. This name must be unique to the user's apps. If a
 
 #### `indexURL` (required)
 
-The URL of the app's index page. This URL must be accessible to the user. If this parameter is not provided, the app will be created with no index page. The index page is the page that will be displayed when the app is started.
+The URL of the app's index page. This URL must be accessible to the user. The index page is the page that will be displayed when the app is started. If this parameter is not provided, the promise will be rejected.
 
 **IMPORTANT**: The URL _must_ start with either `http://` or `https://`. Any other protocols (including `file://`, `ftp://`, etc.) are not allowed and will result in an error. For example:
 
@@ -31,7 +31,7 @@ The URL of the app's index page. This URL must be accessible to the user. If thi
 ❌ `file:///path/to/index.html` <br>
 ❌ `ftp://example.com/index.html` <br>
 
-#### `title` (required)
+#### `title` (Optional)
 
 The title of the app. If this parameter is not provided, the app will be created with `name` as its title.
 
@@ -40,7 +40,7 @@ The title of the app. If this parameter is not provided, the app will be created
 An object containing the options for the app to create. The object can contain the following properties:
 
 - `name` (String) (required): The name of the app to create. This name must be unique to the user's apps. If an app with this name already exists, the promise will be rejected.
-- `indexURL` (String) (required): The URL of the app's index page. This URL must be accessible to the user. If this parameter is not provided, the app will be created with no index page.
+- `indexURL` (String) (required): The URL of the app's index page. This URL must be accessible to the user. If this parameter is not provided, the promise will be rejected.
 - `title` (String) (optional): The human-readable title of the app. If this parameter is not provided, the app will be created with `name` as its title.
 - `description` (String) (optional): The description of the app aimed at the end user.
 - `icon` (String) (optional): The new icon of the app.
@@ -48,6 +48,7 @@ An object containing the options for the app to create. The object can contain t
 - `filetypeAssociations` (Array<String>) (optional): An array of strings representing the filetypes that the app can open. Defaults to `[]`. File extentions and MIME types are supported; For example, `[".txt", ".md", "application/pdf"]` would allow the app to open `.txt`, `.md`, and PDF files.
 - `dedupeName` (Boolean) (optional) - Whether to deduplicate the app name if it already exists. Defaults to `false`.
 - `background` (Boolean) (optional) - Whether the app should run in the background. Defaults to `false`.
+- `feedbackEnabled` (Boolean) (optional) - Whether users can send feedback to you through [`puter.ui.showFeedbackDialog()`](/UI/showFeedbackDialog/). Defaults to `false`.
 - `metadata` (Object) (optional) - An object containing custom metadata for the app. This can be used to store arbitrary key-value pairs associated with the app.
 
 ## Return value

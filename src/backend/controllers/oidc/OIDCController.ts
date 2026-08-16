@@ -228,10 +228,26 @@ export class OIDCController extends PuterController {
 
         // -- GET /auth/oidc/providers --------------------------------
         // Public — list enabled provider IDs for the frontend.
+        //
+        // Every render of a login form reads this, and with no actor the
+        // bucket is the address: one corporate egress, campus or carrier
+        // gateway stands for every person behind it. Size it for that — a
+        // large shared address is thousands of people, and a shift or class
+        // change bunches their sign-ins into the same minute — but no
+        // further. This is login surface, so the ceiling should still bound
+        // someone enumerating which identity providers a deployment accepts.
 
         router.get(
             '/auth/oidc/providers',
-            { subdomain: 'api' },
+            {
+                subdomain: 'api',
+                rateLimit: {
+                    scope: 'oidc-providers',
+                    limit: 1_200,
+                    window: 60_000,
+                    key: 'ip',
+                },
+            },
             async (_req: Request, res: Response) => {
                 const providers =
                     await this.services.oidc.getEnabledProviderIds();
@@ -584,10 +600,26 @@ export class OIDCController extends PuterController {
 
         // -- GET /auth/revalidate-done -------------------------------
         // Landing page after revalidation; posts to opener for popup flow.
+        //
+        // Deliberately not on the `oidc-general` bucket the start/callback
+        // routes share: those exchange codes with an identity provider, this
+        // one is a constant HTML page that touches nothing. Sharing a bucket
+        // meant everyone reachable through one address — an office, a school,
+        // a carrier gateway — competed for the same 30 popup closes a minute.
+        // The replacement is sized for the humans behind one such address
+        // re-validating at once, not for a fleet: it is still auth surface,
+        // and one page view per revalidation is a low-volume event.
 
         router.get(
             '/auth/revalidate-done',
-            { subdomain: '' },
+            {
+                subdomain: '',
+                rateLimit: {
+                    scope: 'oidc-revalidate-done',
+                    limit: 600,
+                    window: 60_000,
+                },
+            },
             (_req: Request, res: Response) => {
                 const origin = this.config.origin ?? '';
                 res.set('Content-Type', 'text/html; charset=utf-8');
@@ -629,6 +661,7 @@ if (window.opener) {
         provider: string,
         userinfo: { sub: string; email?: unknown; [k: string]: unknown },
         referrer?: string | null,
+        attempt = 0,
     ): Promise<
         | { error: string; code?: string; requestCode?: string }
         | {
@@ -647,8 +680,12 @@ if (window.opener) {
         const claimedEmail =
             typeof userinfo.email === 'string' ? userinfo.email : null;
         if (claimedEmail) {
-            const byEmail =
-                await this.services.oidc.findUserByEmail(claimedEmail);
+            // On the retry after a lost race, read the primary — the winning
+            // row may be younger than the replica snapshot.
+            const byEmail = await this.services.oidc.findUserByEmail(
+                claimedEmail,
+                { force: attempt > 0 },
+            );
             if (byEmail) {
                 if (!byEmail.email_confirmed) {
                     return {
@@ -675,6 +712,18 @@ if (window.opener) {
             userinfo as { sub: string; email?: string },
             referrer,
         );
+        // A concurrent callback (a second tab, a provider retry) created the
+        // account between step 2 and the insert. Nothing went wrong for the
+        // user — start over and we'll find the winner at step 1 or 2. One retry
+        // only: a second miss means something other than a race is going on.
+        if (outcome.raced && attempt === 0) {
+            return this.#resolveOrCreateOIDCUser(
+                provider,
+                userinfo,
+                referrer,
+                attempt + 1,
+            );
+        }
         if (!outcome.success || !outcome.user) {
             return {
                 error: outcome.error ?? 'Account creation failed.',

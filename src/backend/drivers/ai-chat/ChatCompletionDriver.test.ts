@@ -481,8 +481,8 @@ describe('ChatCompletionDriver.complete validation event routing', () => {
 
 describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
     it('throws 402 `insufficient_funds` when the actor has no remaining credits', async () => {
-        vi.spyOn(server.services.metering, 'hasEnoughCredits').mockResolvedValue(
-            false,
+        vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
+            0,
         );
 
         await expect(
@@ -562,11 +562,8 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         ]);
         const d = await makeDriver();
 
-        // Pass the cheap pre-flight gate but leave a balance too small to
+        // Pass the cheap pre-flight check but leave a balance too small to
         // afford a single 2000-microcent output token.
-        vi.spyOn(server.services.metering, 'hasEnoughCredits').mockResolvedValue(
-            true,
-        );
         vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
             100,
         );
@@ -587,6 +584,60 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         expect(completeSpy).not.toHaveBeenCalled();
     });
 
+    // A provider that can't report a model's output ceiling used to make the
+    // cap arithmetic go negative — `null - approxTokens` is negative, not NaN
+    // — so a funded account was told it had insufficient funds.
+    for (const [label, ceiling] of [
+        ['null', null],
+        ['zero', 0],
+        ['undefined', undefined],
+    ] as const) {
+        it(`serves models whose output ceiling is ${label}`, async () => {
+            vi.spyOn(
+                FakeChatProvider.prototype,
+                'models',
+            ).mockResolvedValueOnce([
+                {
+                    id: 'nocap',
+                    aliases: [],
+                    costs_currency: 'usd-cents',
+                    costs: { input_tokens: 1000, output_tokens: 2000 },
+                    max_tokens: ceiling,
+                },
+            ] as never);
+            const d = await makeDriver();
+
+            vi.spyOn(
+                server.services.metering,
+                'getRemainingUsage',
+            ).mockResolvedValue(100_000);
+
+            const completeSpy = vi
+                .spyOn(FakeChatProvider.prototype, 'complete')
+                .mockResolvedValueOnce({
+                    message: {
+                        role: 'assistant',
+                        content: [{ type: 'text', text: 'ok' }],
+                    },
+                    usage: { input_tokens: 1, output_tokens: 1 },
+                    finish_reason: 'stop',
+                } as never);
+
+            await withTestActor(() =>
+                d.complete({
+                    model: 'nocap',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+
+            // Credits still bound the request; only the unknown model
+            // ceiling is ignored.
+            const passed = completeSpy.mock.calls[0]![0] as ICompleteArguments;
+            expect(passed.max_tokens!).toBeGreaterThan(0);
+            expect(passed.max_tokens!).toBeLessThanOrEqual(50);
+        });
+    }
+
     it('rejects subscriber-only models for the default free subscription', async () => {
         vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
             {
@@ -600,9 +651,6 @@ describe('ChatCompletionDriver.complete credit gate and max_tokens cap', () => {
         ]);
         const d = await makeDriver();
         // Plenty of credits so the credit gate doesn't intercept first.
-        vi.spyOn(server.services.metering, 'hasEnoughCredits').mockResolvedValue(
-            true,
-        );
         vi.spyOn(server.services.metering, 'getRemainingUsage').mockResolvedValue(
             1_000_000,
         );
@@ -710,19 +758,20 @@ describe('ChatCompletionDriver.complete fallback and error envelope', () => {
         });
     });
 
-    it('re-checks `hasEnoughCredits` between fallback attempts so a parallel request that drains the wallet aborts the chain', async () => {
-        // The primary provider throws; the fallback loop checks credits
-        // before its next upstream hit. We force `false` on the second
-        // check to verify the 402 short-circuit, even though no actual
-        // fallback model is wired (the loop bails on the credit gate
-        // before `#findFallback` decides there's nowhere to go).
+    it('re-reads the balance between fallback attempts so a parallel request that drains the wallet aborts the chain', async () => {
+        // The primary provider throws; the fallback loop runs the full gate
+        // (one balance read per attempt) before its next upstream hit. We
+        // force an empty balance on the second read to verify the 402
+        // short-circuit, even though no actual fallback model is wired (the
+        // loop bails on the credit gate before `#findFallback` decides
+        // there's nowhere to go).
         vi.spyOn(FakeChatProvider.prototype, 'complete').mockRejectedValueOnce(
             new Error('boom'),
         );
-        const credits = vi
-            .spyOn(server.services.metering, 'hasEnoughCredits')
-            .mockResolvedValueOnce(true) // pre-flight
-            .mockResolvedValueOnce(false); // mid-fallback re-check
+        const remaining = vi
+            .spyOn(server.services.metering, 'getRemainingUsage')
+            .mockResolvedValueOnce(1_000_000) // pre-flight
+            .mockResolvedValueOnce(0); // drained mid-fallback
 
         // No second provider serves `fake`, so `#findFallback` returns
         // null and the loop exits before reaching the credit re-check.
@@ -737,7 +786,7 @@ describe('ChatCompletionDriver.complete fallback and error envelope', () => {
                 }),
             ),
         ).rejects.toMatchObject({ statusCode: 500 });
-        expect(credits.mock.calls.length).toBeGreaterThanOrEqual(1);
+        expect(remaining.mock.calls.length).toBeGreaterThanOrEqual(1);
     });
 });
 

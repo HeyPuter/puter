@@ -2,7 +2,7 @@ import * as utils from '../../lib/utils.js';
 import getAbsolutePathForApp from '../FileSystem/utils/getAbsolutePathForApp.js';
 import { toImageElement } from './lib/media.js';
 
-/** @typedef {import('../../../types/modules/ai').Txt2ImgOptions} Txt2ImgOptions */
+/** @typedef {import('./types.js').Txt2ImgOptions} Txt2ImgOptions */
 
 /**
  * @overload

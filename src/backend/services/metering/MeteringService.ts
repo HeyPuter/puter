@@ -32,16 +32,21 @@ import {
     POLICY_PREFIX,
     UNLIMITED_SUBSCRIPTION,
 } from './consts';
+import { EGRESS_COSTS } from './costs';
 import type {
     AppTotals,
+    CreditHold,
     UsageAddons,
     UsageByType,
     UsageInput,
     UsageRecord,
 } from './types';
-import { toMicroCents } from './utils';
+import { NO_CREDIT_HOLD } from './types';
 
+import { LOCAL_UNLIMITED_USER } from '../../data/subPolicies/localUnlimitedUserPolicy.js';
 import { SUB_POLICIES } from '../../data/subPolicies/index.js';
+import { REGISTERED_USER_FREE } from '../../data/subPolicies/registeredUserFreePolicy.js';
+import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 
 // -- Types ------------------------------------------------------------
 
@@ -88,8 +93,6 @@ export class MeteringService extends PuterService {
     static GLOBAL_SHARD_COUNT = 10000;
     static APP_SHARD_COUNT = 10000;
 
-    static MAX_GLOBAL_USAGE_PER_MINUTE = toMicroCents(0.2);
-
     /**
      * Share of the allowance past which an approximate running total is no
      * longer good enough to decide on.
@@ -104,10 +107,85 @@ export class MeteringService extends PuterService {
      */
     static MONTHLY_CHARGE_MEMO_LIMIT = 100_000;
 
+    /**
+     * How long a resolved subscription is reused before asking the resolvers
+     * again, and how many actors are remembered at once. Rate/concurrency gates
+     * resolve the subscription on every gated request, and a resolver may reach
+     * a remote store to answer — without this, adding a tiered limit to a hot
+     * route would add a round trip to that route.
+     *
+     * This is the backstop, not the mechanism: a change we know about is
+     * announced to every node by `invalidateActorSubscription` and applies at
+     * once. The window only bounds staleness for changes nobody told us about —
+     * a resolver reading state that moved underneath it, or a node that missed
+     * the announcement.
+     */
+    static SUBSCRIPTION_CACHE_MS = 60_000;
+    static SUBSCRIPTION_CACHE_LIMIT = 50_000;
+
+    /**
+     * How long "does this actor have budget left" is reused before being
+     * recomputed, and how many actors are remembered at once.
+     *
+     * This answer gates operations that arrive by the hundred per minute and
+     * cost a fraction of a microcent each — file reads, KV calls — so computing
+     * it per request would put two store reads in front of every one of them,
+     * costing more than the operations being gated. The window is deliberately
+     * a little wider than `USAGE_BUFFER_FLUSH_MS`: the buffered usage those
+     * operations produce settles on that cycle, and settling is what refreshes
+     * this (see `rememberRemainingCredits`), so an active actor's answer is
+     * normally replaced by a write that was happening anyway rather than by a
+     * read this cache had to make.
+     *
+     * Staleness is bounded by the same argument that bounds the buffer: the
+     * usage in flight is worth a fraction of a microcent per request, and
+     * request count is bounded by the rate and concurrency limits the same
+     * routes declare. A change we know about — a purchase, a plan change — is
+     * announced and applied at once rather than waited out.
+     */
+    static CREDIT_CACHE_MS = 15_000;
+    static CREDIT_CACHE_LIMIT = 50_000;
+
+    /**
+     * How long usage that isn't decided on may sit in memory before it is
+     * written, and how many actor buckets are held at once. Egress and
+     * object-store requests arrive once per HTTP request and cost a fraction of
+     * a microcent each; writing them as they land would spend more on metering
+     * than the usage is worth. The window is the exposure: a host lost without
+     * warning takes at most this much unbilled usage with it.
+     */
+    static USAGE_BUFFER_FLUSH_MS = 10_000;
+    static USAGE_BUFFER_LIMIT = 5_000;
+
+    /** Buckets written at once per flush. Matches the buffer store's own pacing. */
+    static USAGE_FLUSH_CONCURRENCY = 20;
+
     private rateCheckTimer: ReturnType<typeof setInterval> | null = null;
+    private usageBufferTimer: ReturnType<typeof setInterval> | null = null;
     private extraPolicies: SubscriptionPolicy[] = [];
     private subscriptionResolvers: SubscriptionResolver[] = [];
     private defaultSubscriptionResolvers: SubscriptionResolver[] = [];
+
+    /** Uuid → resolved policy + expiry. See SUBSCRIPTION_CACHE_MS. */
+    private subscriptionCache = new Map<
+        string,
+        { policy: SubscriptionPolicy; expiresAt: number }
+    >();
+
+    /** Uuid → whether the actor had budget left. See CREDIT_CACHE_MS. */
+    private creditCache = new Map<
+        string,
+        { hasCredits: boolean; expiresAt: number }
+    >();
+
+    /**
+     * Uuid → the refresh currently running for it, so concurrent requests share
+     * one. This matters most where there is nothing cached at all: a process
+     * that has just started, or an actor evicted from the cache, has every
+     * request that arrives before the first answer landing on the same three
+     * store reads. One per actor, not one per request.
+     */
+    private creditRefreshes = new Map<string, Promise<void>>();
 
     /** Actors settled for `settledMonth`; see MONTHLY_CHARGE_MEMO_LIMIT. */
     private settledMonth: string | null = null;
@@ -120,9 +198,46 @@ export class MeteringService extends PuterService {
      */
     private claimsInFlight = new Set<string>();
 
+    /**
+     * Usage waiting to be written, keyed by actor and app so each bucket
+     * settles against the same records a direct increment would have. Holds the
+     * actor it was recorded for — the flush needs a subject, and the buckets
+     * are capped.
+     */
+    private usageBuffer = new Map<
+        string,
+        {
+            actor: Actor;
+            amounts: Map<string, { units: number; cost: number }>;
+        }
+    >();
+
+    /** The flush cycle currently running, so ticks join it instead of stacking. */
+    private usageFlushInFlight: Promise<void> | null = null;
+
     // -- Lifecycle ----------------------------------------------------
 
     override onServerStart(): void {
+        // Applied, not re-announced: the sender already fanned this out, and
+        // echoing it would put every node's drop back on the wire.
+        this.clients.event.on(
+            'outer.pubsub.metering.subscription-changed',
+            (_key, data) => {
+                if (!data?.userUuid) return;
+                this.#dropCachedSubscription(data.userUuid);
+                // The allowance is half of what "has budget left" is computed
+                // from, so a plan change invalidates that answer too.
+                this.#dropCachedCredits(data.userUuid);
+            },
+        );
+
+        this.clients.event.on(
+            'outer.pubsub.metering.credits-changed',
+            (_key, data) => {
+                if (data?.userUuid) this.#dropCachedCredits(data.userUuid);
+            },
+        );
+
         this.rateCheckTimer = setInterval(
             () => {
                 this.checkRateOfChange().catch((e) => {
@@ -132,13 +247,83 @@ export class MeteringService extends PuterService {
             1000 * 60 * 25,
         );
         this.rateCheckTimer.unref?.();
+
+        const flushInterval =
+            this.config.meteringUsageBufferFlushMs &&
+            this.config.meteringUsageBufferFlushMs > 0
+                ? this.config.meteringUsageBufferFlushMs
+                : MeteringService.USAGE_BUFFER_FLUSH_MS;
+        this.usageBufferTimer = setInterval(() => {
+            this.flushBufferedUsages().catch((e) => {
+                console.error('[metering] usage buffer flush failed', e);
+            });
+        }, flushInterval);
+        this.usageBufferTimer.unref?.();
     }
 
-    override onServerShutdown(): void {
+    /**
+     * Drain the buffer while the layers it writes through are still up.
+     *
+     * This is the hook that has to do the work, not `onServerShutdown`: both
+     * run clients first, then stores, then services, so by the time a service's
+     * shutdown hook is reached the Redis cluster is closed, the metering buffer
+     * store has drained and stopped, and the database pool a subscription
+     * lookup needs is gone — a flush there resolves the buckets against layers
+     * that have already said goodbye and drops them.
+     */
+    override async onServerPrepareShutdown(): Promise<void> {
+        // The timer is deliberately left running: connections are still open at
+        // this point, so usage keeps arriving, and the ordinary cycle is the
+        // only thing that can still write it through a live stack.
+        await this.#drainUsageBuffer();
+    }
+
+    override async onServerShutdown(): Promise<void> {
         if (this.rateCheckTimer) {
             clearInterval(this.rateCheckTimer);
             this.rateCheckTimer = null;
         }
+        if (this.usageBufferTimer) {
+            clearInterval(this.usageBufferTimer);
+            this.usageBufferTimer = null;
+        }
+
+        // Whatever landed after the drain above — the responses that were still
+        // in flight when the listener was severed. Worth attempting because the
+        // buffer store falls back to writing straight through when its own
+        // buffer is gone, and worth nothing if that fails too.
+        await this.#drainUsageBuffer();
+    }
+
+    /**
+     * Write everything buffered, and everything that arrives while that is
+     * happening. Looped because a cycle already in flight took its buckets
+     * before the ones added since, and joining it says nothing about those.
+     */
+    async #drainUsageBuffer(): Promise<void> {
+        try {
+            for (let pass = 0; pass < 3; pass++) {
+                await this.flushBufferedUsages();
+                if (this.usageBuffer.size === 0) break;
+            }
+        } catch (e) {
+            console.warn('[metering] usage buffer shutdown flush failed', e);
+        }
+    }
+
+    /**
+     * Egress is priced here because it is metered for every host, not per
+     * feature.
+     */
+    getReportedCosts(): Record<string, unknown>[] {
+        return Object.entries(EGRESS_COSTS).map(
+            ([usageType, ucentsPerUnit]) => ({
+                usageType,
+                ucentsPerUnit,
+                unit: 'byte',
+                source: 'service:metering',
+            }),
+        );
     }
 
     // -- Extension hooks ----------------------------------------------
@@ -146,6 +331,18 @@ export class MeteringService extends PuterService {
     /** Register a policy that should be available to actors. */
     registerPolicy(policy: SubscriptionPolicy): void {
         this.extraPolicies.push(policy);
+    }
+
+    /**
+     * The registered policy for a subscription id, extension-registered
+     * policies first (they shadow the built-ins, matching how
+     * `#resolveActorSubscription` searches). Lets pricing surfaces derive
+     * display figures from the same allowance metering actually enforces.
+     */
+    getRegisteredPolicy(id: string): SubscriptionPolicy | undefined {
+        return [...this.extraPolicies, ...SUB_POLICIES].find(
+            (p) => p.id === id,
+        );
     }
 
     /**
@@ -300,9 +497,10 @@ export class MeteringService extends PuterService {
                 actorSubscription.monthUsageAllowance,
             );
 
-            await this.maybeConsumeAddonCredits(
+            const settledAllowanceUsed = await this.settleIncrementCharges(
                 userId,
-                actorUsages.total,
+                actorUsageKey,
+                actorUsages,
                 actorSubscription.monthUsageAllowance,
                 actorAddons,
                 totalCost,
@@ -319,6 +517,13 @@ export class MeteringService extends PuterService {
                 usageAmount,
                 costOverride,
             });
+
+            this.rememberRemainingCredits(
+                userId,
+                settledAllowanceUsed,
+                actorSubscription.monthUsageAllowance,
+                actorAddons,
+            );
 
             return (
                 (await this.applyMonthlyCharges(
@@ -442,13 +647,20 @@ export class MeteringService extends PuterService {
                     pathAndAmountMap: aggregated,
                 }),
             );
-            this.handleAuxPromise(
-                `appUsage ${appId}/${userId}`,
-                this.stores.meteringBuffer.incrAux({
-                    key: this.appUsageKey(appId, userId, currentMonth),
-                    pathAndAmountMap: aggregated,
-                }),
-            );
+            // Only for usage an app actually incurred. The sentinel stands for
+            // "no app", so writing it here would spread one record per shard
+            // across an aggregate that exists for app developers to read —
+            // paid for on every increment that has no app behind it, which is
+            // most of them. `incrementUsage` has always skipped it.
+            if (appId !== GLOBAL_APP_KEY) {
+                this.handleAuxPromise(
+                    `appUsage ${appId}/${userId}`,
+                    this.stores.meteringBuffer.incrAux({
+                        key: this.appUsageKey(appId, userId, currentMonth),
+                        pathAndAmountMap: aggregated,
+                    }),
+                );
+            }
             this.handleAuxPromise(
                 `actorAppTotals ${userId}`,
                 this.stores.meteringBuffer.incrAux({
@@ -473,9 +685,10 @@ export class MeteringService extends PuterService {
                 actorSubscription.monthUsageAllowance,
             );
 
-            await this.maybeConsumeAddonCredits(
+            const settledAllowanceUsed = await this.settleIncrementCharges(
                 userId,
-                actorUsages.total,
+                actorUsageKey,
+                actorUsages,
                 actorSubscription.monthUsageAllowance,
                 actorAddons,
                 totalBatchCost,
@@ -490,6 +703,13 @@ export class MeteringService extends PuterService {
                 incrementCost: totalBatchCost,
                 batchUsages: usages,
             });
+
+            this.rememberRemainingCredits(
+                userId,
+                settledAllowanceUsed,
+                actorSubscription.monthUsageAllowance,
+                actorAddons,
+            );
 
             return (
                 (await this.applyMonthlyCharges(
@@ -520,6 +740,98 @@ export class MeteringService extends PuterService {
             );
             return { total: 0 } as UsageByType;
         }
+    }
+
+    /**
+     * Record usage that nothing is about to decide on, to be written with the
+     * same actor's other usage a few seconds later.
+     *
+     * For usage that arrives per HTTP request — response bytes, object-store
+     * requests — this is the increment to reach for: each one costs a fraction
+     * of a microcent, and collapsing a busy actor's requests into one write is
+     * the difference between metering paying for itself and costing more than
+     * it records. Returns nothing, because the running total it would return is
+     * one this call has not applied yet; use `batchIncrementUsages` where the
+     * answer gates what happens next.
+     *
+     * Per-type `count` therefore counts flushes rather than requests. Units and
+     * cost are exact.
+     */
+    bufferIncrementUsages(actor: Actor, usages: UsageInput[]): void {
+        if (!usages?.length || !actor?.user?.uuid) return;
+        if (isSystemActor(actor)) return;
+
+        const key = `${actor.user.uuid}:${actor.app?.uid ?? GLOBAL_APP_KEY}`;
+        let bucket = this.usageBuffer.get(key);
+        if (!bucket) {
+            bucket = { actor, amounts: new Map() };
+            this.usageBuffer.set(key, bucket);
+        }
+
+        for (const { usageType, usageAmount, costOverride } of usages) {
+            if (!usageType) continue;
+            if (!Number.isFinite(usageAmount) || usageAmount <= 0) continue;
+            const cost =
+                Number.isFinite(costOverride) && (costOverride as number) > 0
+                    ? (costOverride as number)
+                    : 0;
+
+            const amount = bucket.amounts.get(usageType) ?? {
+                units: 0,
+                cost: 0,
+            };
+            amount.units += usageAmount;
+            amount.cost += cost;
+            bucket.amounts.set(usageType, amount);
+        }
+
+        if (this.usageBuffer.size >= MeteringService.USAGE_BUFFER_LIMIT) {
+            this.flushBufferedUsages().catch((e) => {
+                console.error('[metering] usage buffer flush failed', e);
+            });
+        }
+    }
+
+    /**
+     * Write everything buffered so far. Buckets are taken before the first
+     * await so usage recorded while this runs lands in the next cycle instead
+     * of being written twice.
+     *
+     * Paced rather than fired at once: a cycle can hold a bucket for every
+     * actor active in the window, and each one is several counter writes and a
+     * read. Releasing all of them into the same tick is how a flush turns into
+     * a latency spike for everything else sharing those connections.
+     *
+     * A cycle already running is joined rather than doubled — a flush slower
+     * than the interval would otherwise have every subsequent tick pile another
+     * fan-out on top of it.
+     */
+    flushBufferedUsages(): Promise<void> {
+        if (this.usageFlushInFlight) return this.usageFlushInFlight;
+        if (this.usageBuffer.size === 0) return Promise.resolve();
+
+        const buckets = [...this.usageBuffer.values()];
+        this.usageBuffer.clear();
+
+        this.usageFlushInFlight = runWithConcurrencyLimitSettled(
+            buckets,
+            MeteringService.USAGE_FLUSH_CONCURRENCY,
+            ({ actor, amounts }) =>
+                this.batchIncrementUsages(
+                    actor,
+                    [...amounts].map(([usageType, { units, cost }]) => ({
+                        usageType,
+                        usageAmount: units,
+                        costOverride: cost,
+                    })),
+                ),
+        )
+            .then((): void => undefined)
+            .finally(() => {
+                this.usageFlushInFlight = null;
+            });
+
+        return this.usageFlushInFlight;
     }
 
     // -- Public API: read usage ---------------------------------------
@@ -618,7 +930,21 @@ export class MeteringService extends PuterService {
         const currentTotal = (current as UsageByType | null)?.total ?? 0;
         const delta = normalizedTotal - currentTotal;
 
-        if (delta === 0) {
+        // The adjusted total is taken to be allowance-charged in full — the
+        // knob's job is "this is what the month has cost the plan", and it
+        // doubles as the repair for records whose split predates
+        // `allowanceUsed`. Overshoot past the allowance is harmless: readers
+        // clamp. The credit pool is deliberately untouched; admin moves it
+        // through `updateAddonCredit`.
+        const subscription = await this.getActorSubscription(actor);
+        const allowanceUsedDelta =
+            normalizedTotal -
+            MeteringService.allowanceUsedFrom(
+                current as UsageByType | null,
+                subscription.monthUsageAllowance,
+            );
+
+        if (delta === 0 && allowanceUsedDelta === 0) {
             return (current as UsageByType) || ({ total: 0 } as UsageByType);
         }
 
@@ -632,9 +958,18 @@ export class MeteringService extends PuterService {
         const updated = (
             await this.stores.meteringBuffer.incr({
                 key: actorUsageKey,
-                pathAndAmountMap,
+                // `allowanceUsed` belongs to the actor record alone — the aux
+                // aggregates below reuse `pathAndAmountMap` without it.
+                pathAndAmountMap: {
+                    ...pathAndAmountMap,
+                    allowanceUsed: allowanceUsedDelta,
+                },
             })
         ).res as unknown as UsageByType;
+
+        // An adjustment moves the month's total in either direction, so what
+        // every node believes about this account's budget is now wrong.
+        this.invalidateActorCredits(userId);
 
         this.handleAuxPromise(
             `puterConsumption ${userId}/${appId}`,
@@ -698,9 +1033,82 @@ export class MeteringService extends PuterService {
         return (res as UsageByType) || ({ total: 0 } as UsageByType);
     }
 
+    /**
+     * What an actor can commit to a new operation right now.
+     *
+     * Their balance less what other operations of theirs already have in flight
+     * (see `reserveCredits`) — which is the number a spend decision turns on,
+     * and is smaller than the balance whenever the actor has several requests
+     * running at once. `getAllowedUsage` is the one to read for reporting a
+     * balance; this one is for deciding on a spend.
+     */
     async getRemainingUsage(actor: Actor): Promise<number> {
-        const { remaining } = await this.getAllowedUsage(actor);
-        return remaining || 0;
+        const [{ remaining }, held] = await Promise.all([
+            this.getAllowedUsage(actor),
+            this.#outstandingHolds(actor),
+        ]);
+        return Math.max(0, (remaining || 0) - held);
+    }
+
+    /**
+     * Commit part of an actor's budget to an operation that is about to run.
+     *
+     * Usage is recorded when an operation finishes, so between starting and
+     * finishing it is invisible to every other request that account makes —
+     * they all read the same balance and are each told they can spend the whole
+     * of it. What an account can actually overspend by is then bounded by its
+     * concurrency limit rather than by its budget, which for an expensive model
+     * is several times the allowance.
+     *
+     * A hold makes the in-flight spend visible for as long as it lasts. Take
+     * one for what the operation could cost at worst, before the upstream call;
+     * release it once the real usage has been recorded.
+     *
+     * Never throws, and a hold that couldn't be taken is a no-op handle: not
+     * being able to reach the cache is our problem, and turning it into failed
+     * requests for everyone spending money is worse than the overshoot it would
+     * prevent.
+     */
+    async reserveCredits(
+        actor: Actor,
+        amount: number,
+        opts: { ttlMs?: number } = {},
+    ): Promise<CreditHold> {
+        const userId = actor?.user?.uuid;
+        if (!userId || isSystemActor(actor) || !(amount > 0)) {
+            return NO_CREDIT_HOLD;
+        }
+
+        const member = await this.stores.creditHold.take(
+            userId,
+            amount,
+            opts.ttlMs,
+        );
+        if (!member) return NO_CREDIT_HOLD;
+
+        let released = false;
+        return {
+            release: async () => {
+                if (released) return;
+                released = true;
+                await this.stores.creditHold.release(userId, member);
+            },
+            extend: async () => {
+                if (released) return;
+                await this.stores.creditHold.refresh(
+                    userId,
+                    member,
+                    opts.ttlMs,
+                );
+            },
+        };
+    }
+
+    /** Budget this actor has committed to requests that are still running. */
+    async #outstandingHolds(actor: Actor): Promise<number> {
+        const userId = actor?.user?.uuid;
+        if (!userId || isSystemActor(actor)) return 0;
+        return this.stores.creditHold.outstanding(userId);
     }
 
     async getAllowedUsage(actor: Actor): Promise<{
@@ -716,27 +1124,64 @@ export class MeteringService extends PuterService {
             ],
         );
 
-        // Overage past the allowance is already charged to purchased credits
-        // via consumedPurchaseCredits, so the allowance and the credit pool
-        // must be netted separately — subtracting month usage AND consumed
-        // credits from one combined pool would charge the overage twice.
+        return {
+            remaining: MeteringService.remainingFrom(
+                MeteringService.allowanceUsedFrom(
+                    currentMonthUsage.usage,
+                    userSubscription.monthUsageAllowance,
+                ),
+                userSubscription.monthUsageAllowance,
+                addons,
+            ),
+            monthUsageAllowance: userSubscription.monthUsageAllowance,
+            addons,
+        };
+    }
+
+    /**
+     * How much of this month's spend was charged to the subscription allowance.
+     * Records from before `allowanceUsed` was tracked fall back to the
+     * pre-split reading — everything counted against the allowance, capped at
+     * it — which is also what keeps balances unchanged across the deploy that
+     * introduced the field.
+     */
+    private static allowanceUsedFrom(
+        usage: UsageByType | null | undefined,
+        monthUsageAllowance: number,
+    ): number {
+        if (!usage) return 0;
+        return (
+            usage.allowanceUsed ??
+            Math.min(usage.total || 0, Math.max(0, monthUsageAllowance || 0))
+        );
+    }
+
+    /**
+     * What's left of an actor's budget: what remains of the monthly allowance
+     * plus what remains of the lifetime credit pool.
+     *
+     * The pools are independent and each spend lands in exactly one of them
+     * (allowance first — see `settleIncrementCharges`), so this is a plain sum.
+     * `allowanceUsed` rather than the month total is what the allowance is
+     * netted against: the total also contains credit-charged overage, which
+     * must not bill the allowance too — visibly so when a plan change raises
+     * the allowance mid-month.
+     */
+    private static remainingFrom(
+        allowanceUsed: number,
+        monthUsageAllowance: number,
+        addons: UsageAddons | null | undefined,
+    ): number {
         const remainingAllowance = Math.max(
             0,
-            (userSubscription.monthUsageAllowance || 0) -
-                (currentMonthUsage.usage.total || 0),
+            (monthUsageAllowance || 0) - (allowanceUsed || 0),
         );
         const remainingPurchasedCredits = Math.max(
             0,
             (addons?.purchasedCredits || 0) -
                 (addons?.consumedPurchaseCredits || 0),
         );
-        const remaining = remainingAllowance + remainingPurchasedCredits;
-
-        return {
-            remaining,
-            monthUsageAllowance: userSubscription.monthUsageAllowance,
-            addons,
-        };
+        return remainingAllowance + remainingPurchasedCredits;
     }
 
     async hasAnyUsage(actor: Actor): Promise<boolean> {
@@ -747,15 +1192,220 @@ export class MeteringService extends PuterService {
         return (await this.getRemainingUsage(actor)) >= amount;
     }
 
+    /**
+     * Whether the actor has any budget left, answered from a short-lived cache.
+     *
+     * For gating an operation whose own cost is a rounding error — a file read,
+     * a KV call — where what matters is whether the account has anything left
+     * at all, not how much. `hasEnoughCredits` is the one to use when the
+     * amount matters (an inference call, an email) and is worth two store reads
+     * to get right; this one is for surfaces where those reads would cost more
+     * than the operation they gate.
+     *
+     * Never throws: a metering failure resolves to `true`. Not being able to
+     * read a balance is our problem, and the alternative is a storage outage
+     * that presents as every account being out of credit.
+     */
+    async hasAnyUsageCached(actor: Actor): Promise<boolean> {
+        const uuid = actor?.user?.uuid;
+        if (!uuid) return true;
+
+        const now = Date.now();
+        const cached = this.creditCache.get(uuid);
+        if (cached) {
+            if (cached.expiresAt > now) return cached.hasCredits;
+            // Stale: answer with what we have and replace it behind the
+            // request. Waiting on the refresh would put the store read this
+            // cache exists to avoid back on the hot path, once per window per
+            // actor, for an answer that is about to be one increment out of
+            // date either way.
+            void this.#refreshCreditsOnce(actor, uuid);
+            return cached.hasCredits;
+        }
+
+        await this.#refreshCreditsOnce(actor, uuid);
+        return this.creditCache.get(uuid)?.hasCredits ?? true;
+    }
+
+    /**
+     * `#refreshCredits`, with the one already running for this actor reused
+     * instead of started again. Never rejects, so the stale path can drop the
+     * promise on the floor.
+     */
+    #refreshCreditsOnce(actor: Actor, uuid: string): Promise<void> {
+        const existing = this.creditRefreshes.get(uuid);
+        if (existing) return existing;
+
+        const refresh = this.#refreshCredits(actor).finally(() => {
+            this.creditRefreshes.delete(uuid);
+        });
+        this.creditRefreshes.set(uuid, refresh);
+        return refresh;
+    }
+
+    /**
+     * Drop the cached budget answer for an actor, everywhere. Call after
+     * anything that adds to what they may spend — a credit purchase, an admin
+     * grant — so it applies now rather than at the end of the cache window.
+     */
+    invalidateActorCredits(userUuid: string): void {
+        this.#dropCachedCredits(userUuid);
+        this.clients.event.emit(
+            'outer.pubsub.metering.credits-changed',
+            { userUuid },
+            {},
+        );
+    }
+
+    /** Local-only drop. The announcement path is `invalidateActorCredits`. */
+    #dropCachedCredits(userUuid: string): void {
+        this.creditCache.delete(userUuid);
+    }
+
+    async #refreshCredits(actor: Actor): Promise<void> {
+        const uuid = actor.user?.uuid;
+        if (!uuid) return;
+        try {
+            const subscription = await this.getActorSubscription(actor);
+            // A non-positive allowance is how a policy says it isn't metered
+            // (the overuse alarm reads it the same way) — no budget to run out
+            // of, and no reason to pay for the reads below.
+            if (!(subscription.monthUsageAllowance > 0)) {
+                this.rememberHasCredits(uuid, true);
+                return;
+            }
+            const [addons, currentMonthUsage] = await Promise.all([
+                this.getActorAddons(actor),
+                this.getActorCurrentMonthUsageDetails(actor),
+            ]);
+            this.rememberRemainingCredits(
+                uuid,
+                MeteringService.allowanceUsedFrom(
+                    currentMonthUsage.usage,
+                    subscription.monthUsageAllowance,
+                ),
+                subscription.monthUsageAllowance,
+                addons,
+            );
+        } catch (e) {
+            // Leave whatever is cached in place rather than caching a failure;
+            // an actor with no entry answers `true` and is tried again next
+            // request.
+            console.warn(
+                `[metering] credit refresh failed for ${uuid}: ${(e as Error).message}`,
+            );
+        }
+    }
+
+    /**
+     * Record what an increment already knows about an actor's balance.
+     *
+     * Every increment reads the month's total and resolves the subscription and
+     * addons to price and alarm on the usage, so the answer this cache holds
+     * falls out of work that has already happened. That is what keeps the gated
+     * surfaces free of reads of their own: an active actor's entry is refreshed
+     * by their own usage settling, and the cache window only has to cover an
+     * actor who has gone quiet.
+     */
+    private rememberRemainingCredits(
+        userId: string,
+        allowanceUsed: number,
+        monthUsageAllowance: number,
+        addons: UsageAddons | null | undefined,
+    ): void {
+        if (!(monthUsageAllowance > 0)) {
+            this.rememberHasCredits(userId, true);
+            return;
+        }
+        this.rememberHasCredits(
+            userId,
+            MeteringService.remainingFrom(
+                allowanceUsed,
+                monthUsageAllowance,
+                addons,
+            ) > 0,
+        );
+    }
+
+    private rememberHasCredits(userId: string, hasCredits: boolean): void {
+        const existing = this.creditCache.get(userId);
+        if (existing) {
+            existing.hasCredits = hasCredits;
+            existing.expiresAt = Date.now() + MeteringService.CREDIT_CACHE_MS;
+            return;
+        }
+        // Map preserves insertion order; FIFO-evict so a flood of one-shot
+        // actors can't grow this without bound.
+        if (this.creditCache.size >= MeteringService.CREDIT_CACHE_LIMIT) {
+            const oldest = this.creditCache.keys().next().value;
+            if (oldest !== undefined) this.creditCache.delete(oldest);
+        }
+        this.creditCache.set(userId, {
+            hasCredits,
+            expiresAt: Date.now() + MeteringService.CREDIT_CACHE_MS,
+        });
+    }
+
+    /**
+     * Drop the cached subscription for an actor. Call after anything that
+     * changes which policy they resolve to (a purchase landing, a cancellation,
+     * an admin edit) so the new plan applies immediately rather than at the end
+     * of the cache window.
+     *
+     * Announced as well as applied. Only one node handles the write that
+     * changed the plan, but every node has its own cache, so dropping locally
+     * fixes the tier for one node and leaves the rest serving the old one until
+     * their entries expire. The event goes out on the `outer.pubsub.*` channel,
+     * which reaches sibling nodes and peer clusters alike — a user who upgrades
+     * shouldn't get their old limits back by being routed elsewhere.
+     */
+    invalidateActorSubscription(userUuid: string): void {
+        this.#dropCachedSubscription(userUuid);
+        this.clients.event.emit(
+            'outer.pubsub.metering.subscription-changed',
+            { userUuid },
+            {},
+        );
+    }
+
+    /** Local-only drop. The announcement path is `invalidateActorSubscription`. */
+    #dropCachedSubscription(userUuid: string): void {
+        this.subscriptionCache.delete(userUuid);
+    }
+
     async getActorSubscription(actor: Actor): Promise<SubscriptionPolicy> {
         if (!actor.user?.uuid)
             throw new HttpError(403, 'Actor must be a user to get policy', {
                 legacyCode: 'forbidden',
             });
 
+        const uuid = actor.user.uuid;
+        const now = Date.now();
+        const cached = this.subscriptionCache.get(uuid);
+        if (cached && cached.expiresAt > now) return cached.policy;
+
+        const policy = await this.#resolveActorSubscription(actor);
+
+        // Map preserves insertion order; FIFO-evict so a flood of one-shot
+        // actors can't grow this without bound.
+        if (
+            this.subscriptionCache.size >=
+            MeteringService.SUBSCRIPTION_CACHE_LIMIT
+        ) {
+            const oldest = this.subscriptionCache.keys().next().value;
+            if (oldest !== undefined) this.subscriptionCache.delete(oldest);
+        }
+        this.subscriptionCache.set(uuid, {
+            policy,
+            expiresAt: now + MeteringService.SUBSCRIPTION_CACHE_MS,
+        });
+        return policy;
+    }
+
+    async #resolveActorSubscription(actor: Actor): Promise<SubscriptionPolicy> {
         const fallbackDefault = this.config.unlimitedMetering
             ? UNLIMITED_SUBSCRIPTION
-            : actor.user.email
+            : actor.user?.email
               ? DEFAULT_FREE_SUBSCRIPTION
               : DEFAULT_TEMP_SUBSCRIPTION;
 
@@ -771,12 +1421,27 @@ export class MeteringService extends PuterService {
         const availablePolicies: SubscriptionPolicy[] = [
             ...this.extraPolicies,
             ...SUB_POLICIES,
-            ...(this.config.unlimitedMetering ? [UNLIMITED_SUBSCRIPTION] : []),
+            // The policy, not the id: this list is searched by `id`, so putting
+            // the bare string in it resolved nothing and left a deployment that
+            // asked for unlimited metering with no policy at all.
+            ...(this.config.unlimitedMetering ? [LOCAL_UNLIMITED_USER] : []),
         ] as SubscriptionPolicy[];
-        return (
+        // A resolver can name a policy nobody registered — an extension that
+        // failed to load, a plan renamed on one side only. Falling through to
+        // the built-in free policy keeps callers holding a real policy: the
+        // alternative is `undefined` reaching every reader of `.id` and
+        // `.monthUsageAllowance` as a 500 rather than a downgrade.
+        const policy =
             availablePolicies.find((p) => p.id === resolvedUser) ??
-            availablePolicies.find((p) => p.id === resolvedDefault)!
+            availablePolicies.find((p) => p.id === resolvedDefault) ??
+            availablePolicies.find((p) => p.id === fallbackDefault);
+        if (policy) return policy;
+        console.warn(
+            `[metering] no registered policy for '${resolvedUser}' or` +
+                ` '${resolvedDefault}' — falling back to` +
+                ` '${REGISTERED_USER_FREE.id}'`,
         );
+        return REGISTERED_USER_FREE as SubscriptionPolicy;
     }
 
     async getActorAddons(actor: Actor): Promise<UsageAddons> {
@@ -861,6 +1526,9 @@ export class MeteringService extends PuterService {
             key: `${POLICY_PREFIX}:actor:${userId}:addons`,
             pathAndAmountMap: { purchasedCredits: tokenAmount },
         });
+        // Credit that lands while the account is being turned away has to take
+        // effect on the next request, not at the end of the cache window.
+        this.invalidateActorCredits(userId);
     }
 
     // -- Internals ----------------------------------------------------
@@ -1068,33 +1736,83 @@ export class MeteringService extends PuterService {
         return this.settledMonth === month && this.settledActors.has(claimId);
     }
 
-    private async maybeConsumeAddonCredits(
+    /**
+     * Split a settled increment between the two budget pools, allowance first:
+     * whatever fits under the monthly allowance bumps the month record's
+     * `allowanceUsed`, and only the part that doesn't fit draws down the
+     * lifetime credit pool. Each spend lands in exactly one pool, which is what
+     * lets `remainingFrom` sum them independently.
+     *
+     * A month record without `allowanceUsed` predates the split; its first
+     * settled increment folds the fallback baseline into the write, so the
+     * record answers directly from then on and no balance moves on the deploy
+     * that introduced the field.
+     *
+     * Returns the month's allowance-charged spend as of after this settle —
+     * `usageRecord` itself predates the write, so callers deciding on the
+     * balance must use this rather than re-read the record they hold.
+     */
+    private async settleIncrementCharges(
         userId: string,
-        totalUsage: number,
+        actorUsageKey: string,
+        usageRecord: UsageByType,
         monthUsageAllowance: number,
         addons: UsageAddons,
         incrementCost: number,
-    ): Promise<void> {
-        if (totalUsage <= monthUsageAllowance) return;
-        if (!addons.purchasedCredits) return;
-        if (addons.purchasedCredits <= (addons.consumedPurchaseCredits || 0))
-            return;
+    ): Promise<number> {
+        if (incrementCost <= 0) {
+            return MeteringService.allowanceUsedFrom(
+                usageRecord,
+                monthUsageAllowance,
+            );
+        }
 
-        const withinBoundsUsage = Math.max(
+        const totalBefore = Math.max(
             0,
-            monthUsageAllowance - totalUsage + incrementCost,
+            (usageRecord.total || 0) - incrementCost,
         );
-        const overageUsage = incrementCost - withinBoundsUsage;
-        if (overageUsage <= 0) return;
+        // Same fallback as `allowanceUsedFrom`, measured before this
+        // increment's own cost.
+        const usedBefore =
+            usageRecord.allowanceUsed ??
+            Math.min(totalBefore, Math.max(0, monthUsageAllowance || 0));
+        const baseline =
+            usageRecord.allowanceUsed === undefined ? usedBefore : 0;
 
-        const toConsume = Math.min(
-            overageUsage,
-            addons.purchasedCredits - (addons.consumedPurchaseCredits || 0),
-        );
-        await this.stores.kv.incr({
-            key: `${POLICY_PREFIX}:actor:${userId}:addons`,
-            pathAndAmountMap: { consumedPurchaseCredits: toConsume },
-        });
+        const headroom = Math.max(0, monthUsageAllowance - usedBefore);
+        const allowanceCharge = Math.min(incrementCost, headroom);
+        const overage = incrementCost - allowanceCharge;
+
+        const writes: Promise<unknown>[] = [];
+        if (baseline + allowanceCharge > 0) {
+            writes.push(
+                this.stores.meteringBuffer.incr({
+                    key: actorUsageKey,
+                    pathAndAmountMap: {
+                        allowanceUsed: baseline + allowanceCharge,
+                    },
+                }),
+            );
+        }
+
+        const remainingCredits =
+            (addons.purchasedCredits || 0) -
+            (addons.consumedPurchaseCredits || 0);
+        if (overage > 0 && remainingCredits > 0) {
+            writes.push(
+                this.stores.kv.incr({
+                    key: `${POLICY_PREFIX}:actor:${userId}:addons`,
+                    pathAndAmountMap: {
+                        consumedPurchaseCredits: Math.min(
+                            overage,
+                            remainingCredits,
+                        ),
+                    },
+                }),
+            );
+        }
+        await Promise.all(writes);
+        return usedBefore + allowanceCharge;
     }
 
     private maybeAlertOveruse(ctx: {
@@ -1192,19 +1910,20 @@ export class MeteringService extends PuterService {
         const globalUsage = await this.getGlobalUsage();
         const currTotal = globalUsage.total;
 
-        if (lastChange) {
+        const maxPerMinute = this.config.maxGlobalUsagePerMinute;
+
+        if (lastChange && maxPerMinute && maxPerMinute > 0) {
             const timeDelta = now - lastChange.timestamp;
             const usageDelta = currTotal - lastChange.total;
             const usagePerMinute = usageDelta / (timeDelta / 60000);
 
-            if (usagePerMinute > MeteringService.MAX_GLOBAL_USAGE_PER_MINUTE) {
+            if (usagePerMinute > maxPerMinute) {
                 this.clients.alarm.create(
                     'metering:excessiveGlobalUsageRate',
                     `Global usage rate is excessive: ${usagePerMinute} micro-cents per minute`,
                     {
                         usagePerMinute,
-                        maxAllowedPerMinute:
-                            MeteringService.MAX_GLOBAL_USAGE_PER_MINUTE,
+                        maxAllowedPerMinute: maxPerMinute,
                     },
                     // Fleet-wide spend running away — worth someone's attention
                     // the same day, but it isn't an outage.

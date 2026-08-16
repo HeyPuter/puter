@@ -67,7 +67,10 @@ async function UIDesktop (options) {
     window.toolbar_auto_hide_enabled = true; // Set default value
 
     // Load the toolbar auto-hide preference
-    let toolbar_auto_hide_enabled_val = await puter.kv.get('toolbar_auto_hide_enabled');
+    // Preferences are best-effort: a KV read that fails (offline, rate
+    // limited, no usage left on the account) leaves the default in place
+    // rather than stopping the desktop from rendering.
+    let toolbar_auto_hide_enabled_val = await puter.kv.get('toolbar_auto_hide_enabled').catch(() => null);
     if ( toolbar_auto_hide_enabled_val === 'false' || toolbar_auto_hide_enabled_val === false ) {
         window.toolbar_auto_hide_enabled = false;
     }
@@ -110,9 +113,11 @@ async function UIDesktop (options) {
             }
 
             // Set flag to true
-            puter.kv.set('has_set_default_app_user_permissions', true);
+            await puter.kv.set('has_set_default_app_user_permissions', true);
         }
-    });
+    // Awaited above so a failed write reaches this: it leaves the flag unset
+    // and the whole thing is retried next boot, which is what we want.
+    }).catch(err => console.warn('Could not apply default app permissions:', err));
     // connect socket.
     window.socket = io(`${window.gui_origin }/`, {
         auth: {
@@ -655,7 +660,7 @@ async function UIDesktop (options) {
     h += '</div>';
 
     // Get window sidebar width
-    puter.kv.get('window_sidebar_width').then(async (val) => {
+    puter.kv.get('window_sidebar_width').catch(() => null).then(async (val) => {
         let value = parseInt(val);
         // if value is a valid number
         if ( !isNaN(value) && value > 0 ) {
@@ -666,7 +671,9 @@ async function UIDesktop (options) {
     // load window sidebar items from KV
     puter.kv.get('sidebar_items').then(async (val) => {
         window.sidebar_items = val;
-    });
+    // Catch on the chain rather than the read, so a failure leaves whatever is
+    // already there instead of overwriting it with a fallback.
+    }).catch(err => console.warn('Could not load sidebar_items:', err));
 
     // Remove `?ref=...` from navbar URL, keeping the current path
     if ( window.url_query_params.has('ref') ) {
@@ -697,7 +704,7 @@ async function UIDesktop (options) {
 
     // update default apps
     {
-        const entries = await puter.kv.list('user_preferences.default_apps.*', true);
+        const entries = await puter.kv.list('user_preferences.default_apps.*', true).catch(() => []);
         for ( const entry of entries ) {
             user_preferences[entry.key.substring(17)] = entry.value;
         }
@@ -719,7 +726,7 @@ async function UIDesktop (options) {
         if ( window.desktop_icons_hidden ) {
             hideDesktopIcons();
         }
-    });
+    }).catch(err => console.warn('Could not load desktop_icons_hidden:', err));
 
     // ---------------------------------------------------------------
     // Taskbar
@@ -1063,11 +1070,14 @@ async function UIDesktop (options) {
         if ( !window.url_paths[0]?.toLocaleLowerCase() === 'app' || !window.url_paths[1] ) {
             if ( !isMobile.phone && !isMobile.tablet ) {
                 setTimeout(() => {
+                    // The catch goes on the end of the chain, not on the read:
+                    // falling back to null would read as "never seen it" and
+                    // show the window to someone who has.
                     puter.kv.get('has_seen_welcome_window').then(async (val) => {
                         if ( val === null ) {
                             await UIWindowWelcome();
                         }
-                    });
+                    }).catch(err => console.warn('Could not check has_seen_welcome_window:', err));
                 }, 1000);
             }
         }
@@ -1157,7 +1167,7 @@ async function UIDesktop (options) {
     // Toolbar
     // ----------------------------------------------------
     // Has user seen the toolbar animation?
-    window.has_seen_toolbar_animation = await puter.kv.get('has_seen_toolbar_animation') ?? false;
+    window.has_seen_toolbar_animation = await puter.kv.get('has_seen_toolbar_animation').catch(() => null) ?? false;
 
     let ht = '';
     let style = '';
@@ -1391,7 +1401,7 @@ async function UIDesktop (options) {
             puter.kv.set({
                 key: 'has_seen_toolbar_animation',
                 value: true,
-            });
+            }).catch(err => console.warn('Could not save has_seen_toolbar_animation:', err));
 
             window.has_seen_toolbar_animation = true;
         }
@@ -1991,7 +2001,8 @@ $(document).on('contextmenu taphold', '.toolbar', function (event) {
                     window.toolbar_auto_hide_enabled = !window.toolbar_auto_hide_enabled;
 
                     // Save the preference
-                    puter.kv.set('toolbar_auto_hide_enabled', window.toolbar_auto_hide_enabled.toString());
+                    puter.kv.set('toolbar_auto_hide_enabled', window.toolbar_auto_hide_enabled.toString())
+                        .catch(err => console.warn('Could not save toolbar_auto_hide_enabled:', err));
 
                     // If auto-hide was just disabled and toolbar is currently hidden, show it
                     if ( !window.toolbar_auto_hide_enabled && $('.toolbar').hasClass('toolbar-hidden') ) {
@@ -2477,7 +2488,8 @@ window.toggleDesktopIcons = function () {
     }
 
     // Save preference
-    puter.kv.set('desktop_icons_hidden', window.desktop_icons_hidden.toString());
+    puter.kv.set('desktop_icons_hidden', window.desktop_icons_hidden.toString())
+        .catch(err => console.warn('Could not save desktop_icons_hidden:', err));
 };
 
 $(document).on('click', '.btn-show-ai', function () {

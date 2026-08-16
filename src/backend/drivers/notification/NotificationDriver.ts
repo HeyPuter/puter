@@ -25,7 +25,7 @@ import {
 } from '../../services/metering/consts.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
-import type { DriverRateLimitConfig } from '../meta.js';
+import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 
 const MAX_SELECT_LIMIT = 200;
 
@@ -67,6 +67,16 @@ export class NotificationDriver extends PuterDriver {
             bySubscription: {
                 [DEFAULT_FREE_SUBSCRIPTION]: 3_000,
                 [DEFAULT_TEMP_SUBSCRIPTION]: 1_000,
+            },
+        },
+    };
+
+    readonly concurrent: DriverConcurrentConfig = {
+        default: {
+            limit: 20,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 10,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 5,
             },
         },
     };

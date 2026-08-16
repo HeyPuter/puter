@@ -438,6 +438,7 @@ describe('PeerController TURN', () => {
                     id: created.id,
                     username: created.username,
                 },
+                effectiveApp: null,
             });
         } finally {
             meterSpy.mockRestore();

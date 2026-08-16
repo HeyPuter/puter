@@ -193,6 +193,7 @@ These AI features are supported out of the box when using Puter.js:
 
 - **[`puter.ai.chat()`](/AI/chat/)** - Chat with AI models like Claude, GPT, and others
 - **[`puter.ai.listModels()`](/AI/listModels/)** - List available AI chat models (and providers) that Puter currently exposes.
+- **[`puter.ai.listModelProviders()`](/AI/listModelProviders/)** - List the AI providers that Puter currently exposes.
 - **[`puter.ai.txt2img()`](/AI/txt2img/)** - Generate images from text descriptions
 - **[`puter.ai.img2txt()`](/AI/img2txt/)** - Extract text from images (OCR)
 - **[`puter.ai.txt2speech()`](/AI/txt2speech/)** - Convert text to speech

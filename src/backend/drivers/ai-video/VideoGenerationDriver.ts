@@ -26,6 +26,7 @@ import type { Actor } from '../../core/actor.js';
 import { PuterDriver } from '../types.js';
 import { secureFetch } from '../../util/secureHttp.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
+import { BytePlusVideoProvider } from './providers/byteplus/BytePlusVideoProvider.js';
 import { GeminiVideoProvider } from './providers/gemini/GeminiVideoProvider.js';
 import { OpenAIVideoProvider } from './providers/openai/OpenAIVideoProvider.js';
 import { TogetherVideoProvider } from './providers/together/TogetherVideoProvider.js';
@@ -57,6 +58,7 @@ export class VideoGenerationDriver extends PuterDriver {
         'openai-video-generation',
         'together-video-generation',
         'gemini-video-generation',
+        'byteplus-video-generation',
     ];
     readonly isDefault = true;
 
@@ -220,11 +222,16 @@ export class VideoGenerationDriver extends PuterDriver {
                       ? args.resolution
                       : undefined;
 
+            // Case-insensitive so '4K' matches a catalog entry spelled '4k';
+            // the matched catalog spelling (not the caller's) is forwarded.
             const normalizedResolution =
-                requestedResolution &&
-                model.dimensions.includes(requestedResolution)
-                    ? requestedResolution
-                    : model.dimensions[0];
+                (requestedResolution &&
+                    model.dimensions.find(
+                        (d) =>
+                            d.toLowerCase() ===
+                            requestedResolution.toLowerCase(),
+                    )) ||
+                model.dimensions[0];
             args.size = normalizedResolution;
             args.resolution = normalizedResolution;
         }
@@ -290,6 +297,29 @@ export class VideoGenerationDriver extends PuterDriver {
         if (geminiKey) {
             this.#providers['gemini-video-generation'] =
                 new GeminiVideoProvider({ apiKey: geminiKey }, m);
+        }
+
+        // Falls back to the shared `byteplus` (ai-chat) key; `apiBaseUrl`
+        // selects the ModelArk region, same as the chat provider. Each field
+        // falls through independently so a partial video-specific block can't
+        // pair its missing apiBaseUrl with the shared block's key (or vice
+        // versa) and point a region-scoped key at the wrong endpoint.
+        const byteplusVideoCfg = providers['byteplus-video-generation'] as
+            Record<string, unknown> | undefined;
+        const byteplusSharedCfg = providers['byteplus'] as
+            Record<string, unknown> | undefined;
+        const byteplusKey = readKey(byteplusVideoCfg, byteplusSharedCfg);
+        if (byteplusKey) {
+            this.#providers['byteplus-video-generation'] =
+                new BytePlusVideoProvider(
+                    {
+                        apiKey: byteplusKey,
+                        apiBaseUrl: (byteplusVideoCfg?.apiBaseUrl ??
+                            byteplusSharedCfg?.apiBaseUrl) as
+                            string | undefined,
+                    },
+                    m,
+                );
         }
     }
 

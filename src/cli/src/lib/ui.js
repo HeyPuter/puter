@@ -45,6 +45,10 @@ export function bold(s) {
   return chalk.bold(s);
 }
 
+export function red(s) {
+  return chalk.red(s);
+}
+
 export function dim(s) {
   return chalk.dim(s);
 }

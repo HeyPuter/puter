@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { cleanEmail } from '../../util/email.js';
 import { PuterStore } from '../types';
 
 // -- Types ------------------------------------------------------------
@@ -56,6 +57,13 @@ export interface UserRow {
     requires_phone_verification?: boolean;
     /** True while the account must complete credit-card verification before use. */
     requires_card_verification?: boolean;
+    /**
+     * Payment-provider fingerprint of the card this account verified with —
+     * stable per card, written only on a successful check. Its presence is what
+     * "this account verified a card" reads off; null for accounts that never
+     * did.
+     */
+    card_fingerprint?: string | null;
     password?: string;
     [k: string]: unknown;
 }
@@ -72,6 +80,36 @@ export type UserIdProperty = (typeof USER_ID_PROPERTIES)[number];
 
 const CACHE_KEY_PREFIX = 'users';
 const CACHE_TTL_SECONDS = 15 * 60;
+// Tie-break for address lookups that can match more than one row. An address is
+// "owned" by a confirmed account, or failing that by one holding a password;
+// everything else is an unconfirmed placeholder that anyone may still claim.
+// Ordering by that precedence (then by age) makes every guard, login and
+// recovery resolve the same address to the same row.
+const EMAIL_OWNER_ORDER =
+    'ORDER BY `email_confirmed` DESC, (`password` IS NOT NULL) DESC, `id` ASC';
+
+/**
+ * Unique index backing "at most one row owns an address". Application checks
+ * race — two signups can both read "address is free" and both insert — so this
+ * is the only thing that actually holds the invariant. Writes that can lose
+ * that race have to recognise the violation and turn it into the same message
+ * the pre-check would have produced.
+ */
+export const OWNED_EMAIL_INDEX = 'idx_user_owned_email';
+
+export const isOwnedEmailConflict = (e: unknown): boolean => {
+    const err = e as { code?: string; message?: string } | null;
+    if (!err) return false;
+    const isUnique =
+        err.code === 'ER_DUP_ENTRY' ||
+        err.code === '23505' ||
+        (typeof err.code === 'string' &&
+            err.code.startsWith('SQLITE_CONSTRAINT'));
+    if (!isUnique) return false;
+    // Other unique columns on `user` (username, uuid, referral_code) raise the
+    // same code and must keep their own error handling.
+    return (err.message ?? '').includes(OWNED_EMAIL_INDEX);
+};
 // Cap on placeholders per `IN (?, ?, …)` query. SQLite's default parameter
 // limit is 999; staying well under that keeps `getByIds` portable across
 // backends without splitting the cap by driver.
@@ -248,16 +286,47 @@ export class UserStore extends PuterStore {
      * Rehydrates through `getById` so the caller gets a normalized row (and
      * warms the id-keyed cache for subsequent reads).
      */
-    async getByCleanEmail(cleanEmailValue: string): Promise<UserRow | null> {
+    async getByCleanEmail(
+        cleanEmailValue: string,
+        opts: { force?: boolean } = {},
+    ): Promise<UserRow | null> {
         if (!cleanEmailValue) return null;
         if (!isStorableAsLatin1(cleanEmailValue)) return null;
-        const rows = (await this.clients.db.tryHardRead(
-            'SELECT `id` FROM `user` WHERE `clean_email` = ? LIMIT 1',
-            [cleanEmailValue],
-        )) as Array<{ id: number }>;
+        const sql = `SELECT \`id\` FROM \`user\` WHERE \`clean_email\` = ? ${EMAIL_OWNER_ORDER} LIMIT 1`;
+        const rows = (await (opts.force
+            ? this.clients.db.pread(sql, [cleanEmailValue])
+            : this.clients.db.tryHardRead(sql, [cleanEmailValue]))) as Array<{
+            id: number;
+        }>;
         const row = rows[0];
         if (!row) return null;
-        return this.getById(row.id as number);
+        return this.getById(row.id as number, opts);
+    }
+
+    /**
+     * Resolve whoever currently holds an address, matching the raw `email`
+     * column first and falling back to the canonical `clean_email` so
+     * gmail-style aliases (`foo.bar+tag@gmail.com` vs `foobar@gmail.com`)
+     * collapse to the same account.
+     *
+     * This is the single duplicate-detection lookup for every write path that
+     * attaches an address to a row (signup, save-account, change-email, OIDC,
+     * admin provisioning). Callers decide what to do with the hit: a row that
+     * is confirmed or holds a password owns the address and blocks the write;
+     * an unconfirmed password-less row is a placeholder the caller may claim.
+     *
+     * Pass `force` to read the primary. Every caller doing a last-moment
+     * re-check before an insert must, or it re-reads the same stale snapshot
+     * the first check saw.
+     */
+    async findEmailOwner(
+        email: string,
+        opts: { force?: boolean } = {},
+    ): Promise<UserRow | null> {
+        if (!email) return null;
+        const direct = await this.getByEmail(email, { force: opts.force });
+        if (direct) return direct;
+        return this.getByCleanEmail(cleanEmail(email), opts);
     }
 
     /**
@@ -317,7 +386,16 @@ export class UserStore extends PuterStore {
         // (`pread`) to bypass replica lag for hot reads (e.g., immediately
         // after a signup). Otherwise `tryHardRead` parallels primary +
         // replica and prefers whichever returns rows.
-        const sql = `SELECT * FROM \`user\` WHERE \`${prop}\` = ? LIMIT 1`;
+        // `id`, `uuid` and `username` are UNIQUE, so at most one row matches and
+        // the optimizer drops the ordering. `email` is not — multiple rows may
+        // legitimately hold the same address while unconfirmed, so without an
+        // explicit order the winner is whatever the storage engine hands back
+        // first, and login / password recovery would resolve the same address to
+        // a different account run to run. Prefer the row that owns the address.
+        const sql =
+            `SELECT * FROM \`user\` WHERE \`${prop}\` = ?` +
+            (prop === 'email' ? ` ${EMAIL_OWNER_ORDER}` : '') +
+            ' LIMIT 1';
         const rows = force
             ? await this.clients.db.pread(sql, [value])
             : await this.clients.db.tryHardRead(sql, [value]);
@@ -353,6 +431,15 @@ export class UserStore extends PuterStore {
         clean_email?: string | null;
         free_storage?: number | null;
         requires_email_confirmation?: boolean;
+        /**
+         * Set this at insert time for accounts that are confirmed from birth
+         * (an identity provider already verified the address). Confirming in a
+         * follow-up `update` instead means the insert does not yet own the
+         * address, so two concurrent creates both succeed and only collide on
+         * the later update — past the point where the caller can cleanly report
+         * a duplicate.
+         */
+        email_confirmed?: boolean;
         email_confirm_code?: string | null;
         email_confirm_token?: string | null;
         audit_metadata?: Record<string, unknown> | null;
@@ -378,6 +465,7 @@ export class UserStore extends PuterStore {
              uuid,
              free_storage,
              requires_email_confirmation,
+             email_confirmed,
              email_confirm_code,
              email_confirm_token,
              audit_metadata,
@@ -392,7 +480,7 @@ export class UserStore extends PuterStore {
              phone,
              requires_phone_verification,
              requires_card_verification)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${this.clients.db.returningIdClause()}`,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)${this.clients.db.returningIdClause()}`,
             [
                 fields.username,
                 fields.email,
@@ -403,6 +491,7 @@ export class UserStore extends PuterStore {
                 this.clients.db.booleanValue(
                     Boolean(fields.requires_email_confirmation),
                 ),
+                this.clients.db.booleanValue(Boolean(fields.email_confirmed)),
                 fields.email_confirm_code ?? null,
                 fields.email_confirm_token ?? null,
                 fields.audit_metadata
@@ -447,6 +536,44 @@ export class UserStore extends PuterStore {
         userId: number,
         patch: Record<string, unknown>,
     ): Promise<void> {
+        await this.#write(userId, patch);
+    }
+
+    /**
+     * Convert an unconfirmed, password-less placeholder row — the
+     * admin-provisioned pre-registration a signup claims instead of inserting a
+     * new row.
+     *
+     * The guard is the whole point. Two signups can both read the row as
+     * claimable, and an unguarded `UPDATE` lets the second overwrite the first:
+     * the row ends up with the second signup's username and password while the
+     * first was already handed a session for it. The unique index cannot catch
+     * that — the row already existed, so nothing is inserted and no address
+     * changes hands.
+     *
+     * Returns false when someone claimed the row in between, which the caller
+     * reports as a duplicate address.
+     */
+    async claimPlaceholder(
+        userId: number,
+        patch: Record<string, unknown>,
+    ): Promise<boolean> {
+        const unclaimed =
+            '`password` IS NULL AND `email_confirmed` = ' +
+            this.clients.db.booleanLiteral(false);
+        return this.#write(userId, patch, unclaimed);
+    }
+
+    /**
+     * Shared write path for `update` / `claimPlaceholder`. `guard` is extra SQL
+     * ANDed into the WHERE clause; the write is reported as lost when it
+     * matches no row.
+     */
+    async #write(
+        userId: number,
+        patch: Record<string, unknown>,
+        guard?: string,
+    ): Promise<boolean> {
         const dbPatch: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(patch)) {
             dbPatch[key] =
@@ -458,7 +585,7 @@ export class UserStore extends PuterStore {
         }
 
         const keys = Object.keys(dbPatch);
-        if (keys.length === 0) return;
+        if (keys.length === 0) return true;
 
         assertLatin1Writable(dbPatch);
 
@@ -478,15 +605,31 @@ export class UserStore extends PuterStore {
             ? await this.getByProperty('id', userId, { force: true })
             : null;
 
-        await this.clients.db.write(
-            `UPDATE \`user\` SET ${setClause} WHERE \`id\` = ?`,
+        const result = await this.clients.db.write(
+            `UPDATE \`user\` SET ${setClause} WHERE \`id\` = ?` +
+                (guard ? ` AND ${guard}` : ''),
             [...values, userId],
         );
+
+        if (guard) {
+            const affected =
+                (result as { affectedRows?: number; changes?: number })
+                    ?.affectedRows ??
+                (result as { affectedRows?: number; changes?: number })
+                    ?.changes ??
+                0;
+            // Nothing was written, so there are no cache keys to retire.
+            if (affected === 0) return false;
+        }
 
         const fresh = await this.getByProperty('id', userId, { force: true });
 
         if (before) {
-            const live = new Set(fresh ? this.#cacheKeysForUser(fresh) : []);
+            // Compare against the keys the refresh below will actually write,
+            // not every key the fresh row could be found by: a row that just
+            // stopped owning its address keeps the address in its key list but
+            // no longer gets cached under it, and the old value would survive.
+            const live = new Set(fresh ? this.#cacheKeysToWrite(fresh) : []);
             const retired = this.#cacheKeysForUser(before).filter(
                 (key) => !live.has(key),
             );
@@ -500,6 +643,7 @@ export class UserStore extends PuterStore {
         } else {
             await this.invalidateById(userId);
         }
+        return true;
     }
 
     async updateMetadata(
@@ -518,6 +662,32 @@ export class UserStore extends PuterStore {
             const refreshed: UserRow = { ...user, metadata: merged };
             await this.#refreshCache(refreshed);
         }
+    }
+
+    /**
+     * The account other than `userId` that has already confirmed this address,
+     * if there is one. Matches raw + canonical, exactly like
+     * `unconfirmOthersByEmail`, and is meant to run immediately before it: a
+     * confirmed row proved access to the inbox, so it is refused rather than
+     * demoted. Everything that lookup leaves behind is an unconfirmed row,
+     * which is what `unconfirmOthersByEmail` is for.
+     *
+     * Reads the primary — the confirmation it guards is about to write.
+     */
+    async findConfirmedOtherByEmail(
+        userId: number,
+        email: string,
+        cleanEmailValue: string,
+    ): Promise<UserRow | null> {
+        if (!email) return null;
+        const rows = (await this.clients.db.pread(
+            'SELECT * FROM `user` WHERE `id` != ? AND (`email` = ? OR `clean_email` = ?) ' +
+                `AND \`email_confirmed\` = ${this.clients.db.booleanLiteral(true)} ` +
+                'ORDER BY `id` ASC LIMIT 1',
+            [userId, email, cleanEmailValue],
+        )) as Array<Record<string, unknown>>;
+        const row = rows[0];
+        return row ? this.#normalizeRow(row) : null;
     }
 
     async unconfirmOthersByEmail(
@@ -585,6 +755,24 @@ export class UserStore extends PuterStore {
         return keys;
     }
 
+    /**
+     * The subset of `#cacheKeysForUser` that may point _at_ this row. Same
+     * keys, minus the address when the row doesn't own it: several rows may
+     * hold one address, and `EMAIL_OWNER_ORDER` makes SQL resolve it to the
+     * owner. Caching a placeholder under the address would shadow that for the
+     * whole TTL, and login and password recovery both resolve an address
+     * through the cache.
+     *
+     * Invalidation deliberately keeps using the full set, so a key written
+     * while the row still owned the address is never orphaned.
+     */
+    #cacheKeysToWrite(user: UserRow): string[] {
+        const keys = this.#cacheKeysForUser(user);
+        if (user.email_confirmed || user.password != null) return keys;
+        const addressKey = this.#cacheKey('email', user.email);
+        return keys.filter((key) => key !== addressKey);
+    }
+
     async #readCache(
         prop: UserIdProperty,
         value: unknown,
@@ -603,7 +791,7 @@ export class UserStore extends PuterStore {
     }
 
     async #writeCache(user: UserRow): Promise<void> {
-        const keys = this.#cacheKeysForUser(user);
+        const keys = this.#cacheKeysToWrite(user);
         if (keys.length === 0) return;
         const serialized = JSON.stringify(user);
         await Promise.all(
@@ -619,7 +807,7 @@ export class UserStore extends PuterStore {
     }
 
     async #refreshCache(user: UserRow): Promise<void> {
-        const keys = this.#cacheKeysForUser(user);
+        const keys = this.#cacheKeysToWrite(user);
         if (keys.length === 0) return;
         await this.publishCacheKeys({
             keys,

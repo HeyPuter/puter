@@ -152,11 +152,16 @@ export class EmailClient extends PuterClient {
 
     // -- Public API: sending ------------------------------------------
 
-    /** Render a template and send it to `to`. */
+    /**
+     * Render a template and send it to `to`. `options.replyTo` sets the
+     * Reply-To header (e.g. so a recipient can respond to the originator of the
+     * message rather than the no-reply From address).
+     */
     async send<T extends EmailTemplateName>(
         to: string,
         template: T,
         values: Record<string, unknown> = {},
+        options: { replyTo?: string } = {},
     ): Promise<void> {
         const compiled = this.compiledTemplates[template];
         if (!compiled) {
@@ -168,6 +173,7 @@ export class EmailClient extends PuterClient {
             to,
             subject: compiled.subject(values),
             html: compiled.html(values),
+            ...(options.replyTo ? { replyTo: options.replyTo } : {}),
         });
     }
 
@@ -285,7 +291,14 @@ export class EmailClient extends PuterClient {
     private compileTemplates(): void {
         for (const [name, template] of Object.entries(EMAIL_TEMPLATES)) {
             this.compiledTemplates[name as EmailTemplateName] = {
-                subject: handlebars.compile(template.subject),
+                // Subjects are plain-text headers: HTML-escaping would put
+                // literal entities in front of the recipient (&amp; etc.).
+                // Header safety is handled elsewhere — the transport encodes
+                // newlines, and free-form values (e.g. app_title) collapse
+                // whitespace upstream.
+                subject: handlebars.compile(template.subject, {
+                    noEscape: true,
+                }),
                 html: handlebars.compile(dedent(template.html)),
             };
         }

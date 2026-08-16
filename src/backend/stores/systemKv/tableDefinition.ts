@@ -19,8 +19,10 @@
 
 import type { CreateTableCommandInput } from '@aws-sdk/client-dynamodb';
 
+export const PUTER_KV_STORE_TABLE_NAME = 'store-kv-v1';
+
 export const PUTER_KV_STORE_TABLE_DEFINITION: CreateTableCommandInput = {
-    TableName: 'store-kv-v1',
+    TableName: PUTER_KV_STORE_TABLE_NAME,
     BillingMode: 'PAY_PER_REQUEST',
     AttributeDefinitions: [
         { AttributeName: 'namespace', AttributeType: 'S' },

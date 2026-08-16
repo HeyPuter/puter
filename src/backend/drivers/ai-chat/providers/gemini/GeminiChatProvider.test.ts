@@ -400,46 +400,51 @@ describe('GeminiChatProvider.complete non-stream output', () => {
     });
 
     it('bills cached tokens at the input rate when the model prices no cache read', async () => {
-        // gemini-2.0-flash-lite's catalogue entry has no cached_tokens rate.
-        // Cached tokens are subtracted out of prompt_tokens, so pricing them
-        // at zero bills them nowhere.
+        // Every shipped entry currently prices cache reads, so drop the rate
+        // off one for this call. Cached tokens are subtracted out of
+        // prompt_tokens, so pricing them at zero bills them nowhere.
         const lite = GEMINI_MODELS.find(
-            (m) => m.id === 'gemini-2.0-flash-lite',
+            (m) => m.id === 'gemini-3.1-flash-lite',
         )!;
-        expect(lite.costs.cached_tokens).toBeUndefined();
+        const cachedRate = lite.costs.cached_tokens;
+        delete lite.costs.cached_tokens;
 
-        const { provider } = makeProvider();
-        createMock.mockResolvedValueOnce({
-            choices: [
-                {
-                    message: { content: 'cached', role: 'assistant' },
-                    finish_reason: 'stop',
+        try {
+            const { provider } = makeProvider();
+            createMock.mockResolvedValueOnce({
+                choices: [
+                    {
+                        message: { content: 'cached', role: 'assistant' },
+                        finish_reason: 'stop',
+                    },
+                ],
+                usage: {
+                    prompt_tokens: 3000,
+                    completion_tokens: 40,
+                    prompt_tokens_details: { cached_tokens: 2900 },
                 },
-            ],
-            usage: {
-                prompt_tokens: 3000,
-                completion_tokens: 40,
-                prompt_tokens_details: { cached_tokens: 2900 },
-            },
-        });
+            });
 
-        await withTestActor(() =>
-            provider.complete({
-                model: 'gemini-2.0-flash-lite',
-                messages: [{ role: 'user', content: 'hi' }],
-            }),
-        );
+            await withTestActor(() =>
+                provider.complete({
+                    model: 'gemini-3.1-flash-lite',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
 
-        const [, , , overrides] = recordSpy.mock.calls[0]!;
-        const inputRate = Number(lite.costs.prompt_tokens);
-        expect(overrides).toMatchObject({
-            prompt_tokens: (3000 - 2900) * inputRate,
-            completion_tokens: 40 * Number(lite.costs.completion_tokens),
-            cached_tokens: 2900 * inputRate,
-        });
-        expect(
-            (overrides as Record<string, number>).cached_tokens,
-        ).toBeGreaterThan(0);
+            const [, , , overrides] = recordSpy.mock.calls[0]!;
+            const inputRate = Number(lite.costs.prompt_tokens);
+            expect(overrides).toMatchObject({
+                prompt_tokens: (3000 - 2900) * inputRate,
+                completion_tokens: 40 * Number(lite.costs.completion_tokens),
+                cached_tokens: 2900 * inputRate,
+            });
+            expect(
+                (overrides as Record<string, number>).cached_tokens,
+            ).toBeGreaterThan(0);
+        } finally {
+            lite.costs.cached_tokens = cachedRate;
+        }
     });
 
     it('zeroes cached_tokens when prompt_tokens_details is missing', async () => {
@@ -643,9 +648,9 @@ describe('GeminiChatProvider.complete grounding request metering', () => {
         // generation; without its own rate the fee fell through to the input
         // token rate, which is several orders of magnitude below list.
         const lite = GEMINI_MODELS.find(
-            (m) => m.id === 'gemini-2.0-flash-lite',
+            (m) => m.id === 'gemini-3.1-flash-lite',
         )!;
-        expect(lite.costs.grounding_requests).toBe(3_500_000);
+        expect(lite.costs.grounding_requests).toBe(1_400_000);
 
         const { provider } = makeProvider();
         createMock.mockResolvedValueOnce({
@@ -666,7 +671,7 @@ describe('GeminiChatProvider.complete grounding request metering', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'gemini-2.0-flash-lite',
+                model: 'gemini-3.1-flash-lite',
                 messages: [{ role: 'user', content: 'search for foo' }],
             }),
         );

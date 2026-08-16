@@ -335,7 +335,7 @@ window.validate_fsentry_name = function (name) {
 };
 
 /**
- * A function that generates a unique identifier by combining a random adjective, a random noun, and a random number (between 0 and 9999).
+ * A function that generates a unique identifier by combining a random adjective, a random noun, and a random number.
  * The result is returned as a string with components separated by hyphens.
  * It is useful when you need to create unique identifiers that are also human-friendly.
  *
@@ -344,7 +344,7 @@ window.validate_fsentry_name = function (name) {
  * @example
  *
  * let identifier = window.generate_identifier();
- * // identifier would be something like 'clever-idea-123'
+ * // identifier would be something like 'clever-idea-483920'
  *
  */
 window.generate_identifier = function () {
@@ -361,9 +361,12 @@ window.generate_identifier = function () {
         'ladybug', 'snail', 'camel', 'kangaroo', 'koala', 'panda', 'piglet', 'sheep', 'wolf', 'fox', 'deer', 'mouse', 'seal',
         'chicken', 'cow', 'dinosaur', 'puppy', 'kitten', 'circle', 'square', 'garden', 'otter', 'bunny', 'meerkat', 'harp'];
 
-    // return a random combination of first_adj + noun + number (between 0 and 9999)
-    // e.g. clever-idea-123
-    return `${first_adj[Math.floor(Math.random() * first_adj.length)] }-${ nouns[Math.floor(Math.random() * nouns.length)] }-${ Math.floor(Math.random() * 10000)}`;
+    // return a random combination of first_adj + noun + number
+    // e.g. clever-idea-483920. The word lists only reach ~3.6k pairs, so the
+    // number carries the entropy: this name is offered as a subdomain, and
+    // subdomains are globally unique, so a narrow suffix makes the taken-name
+    // error a routine part of publishing rather than a rarity.
+    return `${first_adj[Math.floor(Math.random() * first_adj.length)] }-${ nouns[Math.floor(Math.random() * nouns.length)] }-${ Math.floor(Math.random() * 1000000)}`;
 };
 
 /**
@@ -701,7 +704,8 @@ window.update_auth_data = async (auth_token, user) => {
 window.mutate_user_preferences = function (user_preferences_delta) {
     for ( const [key, value] of Object.entries(user_preferences_delta) ) {
         // Don't wait for set to be done for better efficiency
-        puter.kv.set(`user_preferences.${key}`, value);
+        puter.kv.set(`user_preferences.${key}`, value)
+            .catch(err => console.warn(`Could not save user_preferences.${key}:`, err));
     }
     // There may be syncing issues across multiple devices
     window.update_user_preferences({ ...window.user_preferences, ...user_preferences_delta });
@@ -983,6 +987,8 @@ window.sendItemChangeEventToWatchingApps = function (item_uid, event_data) {
  */
 
 window.show_save_account_notice_if_needed = function (message) {
+    // A failed read must not read as "not shown yet" — that would repeat the
+    // notice on every save — so the catch goes on the end of the chain.
     puter.kv.get({
         key: 'save_account_notice_shown',
     }).then(async function (value) {
@@ -990,7 +996,7 @@ window.show_save_account_notice_if_needed = function (message) {
             puter.kv.set({
                 key: 'save_account_notice_shown',
                 value: true,
-            });
+            }).catch(err => console.warn('Could not save save_account_notice_shown:', err));
             // Show the notice
             setTimeout(async () => {
                 const alert_resp = await UIAlert({
@@ -1041,7 +1047,7 @@ window.show_save_account_notice_if_needed = function (message) {
                 }
             }, window.desktop_loading_fade_delay + 1000);
         }
-    });
+    }).catch(err => console.warn('Could not check save_account_notice_shown:', err));
 };
 
 window.sort_items = (item_container, sort_by, sort_order) => {
@@ -1346,7 +1352,10 @@ window.copy_clipboard_items = async function (dest_path, dest_container_element)
                         }
                     }
                     else {
-                        if ( err.message ) {
+                        // An out-of-storage copy already shows the SDK's
+                        // upgrade dialog — a second, generic alert on top of
+                        // it would just bury the actionable one.
+                        if ( err.message && err.code !== 'storage_limit_reached' ) {
                             UIAlert(err.message);
                         }
                         item_with_same_name_already_exists = false;
@@ -1482,7 +1491,13 @@ window.copy_items = function (el_items, dest_path) {
                         }
                     }
                     else {
-                        if ( err.message ) {
+                        // An out-of-storage copy already shows the SDK's
+                        // upgrade dialog — a second, generic alert on top of
+                        // it would just bury the actionable one.
+                        if ( err.code === 'storage_limit_reached' ) {
+                            // handled by the SDK prompt
+                        }
+                        else if ( err.message ) {
                             UIAlert(err.message);
                         }
                         else if ( err ) {
@@ -3344,14 +3359,18 @@ window.undo_delete = async (items) => {
 };
 
 window.store_auto_arrange_preference = (preference) => {
-    puter.kv.set('user_preferences.auto_arrange_desktop', preference);
+    // localStorage still carries it for this device either way.
+    puter.kv.set('user_preferences.auto_arrange_desktop', preference)
+        .catch(err => console.warn('Could not save auto_arrange_desktop:', err));
     localStorage.setItem('auto_arrange', preference);
 };
 
 window.get_auto_arrange_data = async () => {
-    const preferenceValue = await puter.kv.get('user_preferences.auto_arrange_desktop');
+    // Best-effort, like every other preference read: falling back to the
+    // default keeps the desktop arranging itself rather than not appearing.
+    const preferenceValue = await puter.kv.get('user_preferences.auto_arrange_desktop').catch(() => null);
     window.is_auto_arrange_enabled = preferenceValue === null ? true : preferenceValue;
-    const positions = await puter.kv.get('desktop_item_positions');
+    const positions = await puter.kv.get('desktop_item_positions').catch(() => null);
     window.desktop_item_positions = (!positions || typeof positions !== 'object' || Array.isArray(positions)) ? {} : positions;
 };
 
@@ -3380,12 +3399,14 @@ window.set_desktop_item_positions = async (el_desktop) => {
 };
 
 window.save_desktop_item_positions = () => {
-    puter.kv.set('desktop_item_positions', window.desktop_item_positions);
+    puter.kv.set('desktop_item_positions', window.desktop_item_positions)
+        .catch(err => console.warn('Could not save desktop_item_positions:', err));
 };
 
 window.delete_desktop_item_positions = () => {
     window.desktop_item_positions = {};
-    puter.kv.del('desktop_item_positions');
+    puter.kv.del('desktop_item_positions')
+        .catch(err => console.warn('Could not clear desktop_item_positions:', err));
 };
 
 // Finds the `.window` element for the given app instance ID

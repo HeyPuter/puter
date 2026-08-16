@@ -36,7 +36,9 @@ import {
     resolveDriverMeta,
     resolveDriverMethodConcurrent,
     resolveDriverMethodRateLimit,
+    resolveDriverMethodRequireSubscription,
 } from '../../drivers/meta.js';
+import { assertActorHasSubscription } from '../../services/metering/enforcement.js';
 import type { PermissionService } from '../../services/permission/PermissionService.js';
 import { PermissionUtil } from '../../services/permission/permissionUtil.js';
 import type { WithLifecycle } from '../../types';
@@ -44,6 +46,27 @@ import { withSpan } from '../../util/span.js';
 import { PuterController } from '../types.js';
 
 type DriverInstance = WithLifecycle & Record<string, unknown>;
+
+/**
+ * Coarse envelope over the whole `/call` surface, so that spreading calls
+ * across many interfaces can't dodge every individual bucket. Per-driver limits
+ * are what actually shape traffic.
+ *
+ * "Coarse" is a constraint, not a description: for this to be an envelope it
+ * has to sit _above_ every per-driver budget, or it silently becomes the real
+ * limit for the widest ones and overrides the tier policy they declare.
+ * `driverPolicies.test.ts` asserts that ordering against every registered
+ * driver, so raising a driver's budget past this number fails there rather than
+ * in production. The headroom above the widest driver (notifications, at
+ * 3000/30s) is what leaves room for one caller to be busy on two interfaces at
+ * once.
+ */
+export const DRIVERS_CALL_LIMIT = {
+    scope: 'drivers-call',
+    limit: 8000,
+    window: 60_000,
+    key: 'user' as const,
+};
 
 // Every driver call is timed here already, for the lifecycle events below.
 // Recording the same number as a histogram makes the per-interface latency
@@ -180,12 +203,26 @@ export class DriverController extends PuterController {
     registerRoutes(router: PuterRouter): void {
         router.post(
             '/call',
-            { subdomain: 'api', requireAuth: true },
+            {
+                subdomain: 'api',
+                requireAuth: true,
+                rateLimit: DRIVERS_CALL_LIMIT,
+            },
             this.#handleCall,
         );
         router.get(
             '/list-interfaces',
-            { subdomain: 'api', requireAuth: true },
+            {
+                subdomain: 'api',
+                requireAuth: true,
+                // Static introspection output, read once at boot.
+                rateLimit: {
+                    scope: 'drivers-list-interfaces',
+                    limit: 60,
+                    window: 60_000,
+                    key: 'user',
+                },
+            },
             this.#handleListInterfaces,
         );
     }
@@ -262,8 +299,7 @@ export class DriverController extends PuterController {
 
         if (req.actor) {
             const permService = this.services.permission as unknown as
-                | PermissionService
-                | undefined;
+                PermissionService | undefined;
             if (permService) {
                 // Build via PermissionUtil.join so any `:` in a driver or
                 // interface name is escaped — raw interpolation would let a
@@ -291,6 +327,25 @@ export class DriverController extends PuterController {
             }
         }
 
+        // Subscriber-only methods. Declared per-driver
+        // (`@Driver({ requireSubscription })`) because `/drivers/call` is a
+        // single route and a route option would apply to every driver at once.
+        // Checked before the rate limit — the same order the route chain uses
+        // — so a caller whose plan never included the method is told that
+        // rather than spending a bucket on it.
+        const subscriptionRequirement = resolveDriverMethodRequireSubscription(
+            driverMeta?.requireSubscription,
+            method,
+        );
+        if (subscriptionRequirement !== undefined) {
+            await assertActorHasSubscription(
+                this.services.metering,
+                req.actor,
+                subscriptionRequirement,
+                this.config,
+            );
+        }
+
         // Per-method rate-limit and concurrent specs both live on the
         // driver's resolved meta (set by `@Driver({ rateLimit, concurrent })`
         // or imperative fields). Rate-limit is single-shot; concurrent
@@ -305,19 +360,8 @@ export class DriverController extends PuterController {
         if (
             !(await checkDriverRateLimit(req, ifaceName, method, rateLimitSpec))
         ) {
-            // De-dupe on (iface, method) so a hot loop across many users
-            // aggregates as occurrences on a single low-severity alarm
-            // instead of fanning out one per user.
-            this.clients.alarm.create(
-                `driver_rate_limit_hit:${ifaceName}:${method}`,
-                `Driver rate limit hit on ${ifaceName}:${method}`,
-                {
-                    iface: ifaceName,
-                    method,
-                    userUuid: req.actor?.user?.uuid,
-                },
-                'info',
-            );
+            // Deliberately unalarmed: a caller spending its own budget is
+            // the limit working, not an incident. The 429 is the signal.
             throw new HttpError(429, 'Too many requests.', {
                 legacyCode: 'too_many_requests',
             });
@@ -340,16 +384,8 @@ export class DriverController extends PuterController {
                 concurrentSpec,
             );
             if (!handle.ok) {
-                this.clients.alarm.create(
-                    `driver_concurrent_limit_hit:${ifaceName}:${method}`,
-                    `Driver concurrency limit hit on ${ifaceName}:${method}`,
-                    {
-                        iface: ifaceName,
-                        method,
-                        userUuid: req.actor?.user?.uuid,
-                    },
-                    'info',
-                );
+                // Unalarmed for the same reason as the rate-limit rejection
+                // above: hitting a declared cap is the cap doing its job.
                 throw new HttpError(429, 'Too many concurrent requests.', {
                     legacyCode: 'too_many_requests',
                 });

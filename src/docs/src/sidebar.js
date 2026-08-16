@@ -19,6 +19,11 @@ let sidebar = [
                 path: '/security',
             },
             {
+                title: 'Rate Limits and Quotas',
+                source: '/rate-limits-and-quotas.md',
+                path: '/rate-limits-and-quotas',
+            },
+            {
                 title: 'User-Pays Model',
                 source: '/user-pays-model.md',
                 path: '/user-pays-model',
@@ -943,6 +948,14 @@ let sidebar = [
                 path: '/UI/showDirectoryPicker',
             },
             {
+                title: '<code>showFeedbackDialog()</code>',
+                page_title: '<code>puter.ui.showFeedbackDialog()</code>',
+                title_tag: 'puter.ui.showFeedbackDialog()',
+                icon: '/assets/img/function.svg',
+                source: '/UI/showFeedbackDialog.md',
+                path: '/UI/showFeedbackDialog',
+            },
+            {
                 title: '<code>showFontPicker()</code>',
                 page_title: '<code>puter.ui.showFontPicker()</code>',
                 title_tag: 'puter.ui.showFontPicker()',
@@ -1112,6 +1125,14 @@ let sidebar = [
                 path: '/Perms/requestManageApps',
             },
             {
+                title: '<code>requestAppData()</code>',
+                page_title: '<code>puter.perms.requestAppData()</code>',
+                title_tag: 'puter.perms.requestAppData()',
+                icon: '/assets/img/function.svg',
+                source: '/Perms/requestAppData.md',
+                path: '/Perms/requestAppData',
+            },
+            {
                 title: '<code>requestReadSubdomains()</code>',
                 page_title: '<code>puter.perms.requestReadSubdomains()</code>',
                 title_tag: 'puter.perms.requestReadSubdomains()',
@@ -1244,6 +1265,20 @@ let sidebar = [
                 icon: '/assets/img/object.svg',
                 source: '/Objects/monthlyusage.md',
                 path: '/Objects/monthlyusage',
+            },
+            {
+                title: '<code>PuterPeerConnection</code>',
+                title_tag: 'PuterPeerConnection',
+                icon: '/assets/img/object.svg',
+                source: '/Objects/puterpeerconnection.md',
+                path: '/Objects/puterpeerconnection',
+            },
+            {
+                title: '<code>PuterPeerServer</code>',
+                title_tag: 'PuterPeerServer',
+                icon: '/assets/img/object.svg',
+                source: '/Objects/puterpeerserver.md',
+                path: '/Objects/puterpeerserver',
             },
             {
                 title: '<code>SignInResult</code>',

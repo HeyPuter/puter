@@ -1,0 +1,22 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="request-app-data">Use another app's data</button>
+    <script>
+        document.getElementById('request-app-data').addEventListener('click', async () => {
+            // Any app the signed-in user has; swap 'contacts' for your own.
+            const other = await puter.apps.get('contacts');
+
+            const granted = await puter.perms.requestAppData(other.uid, 'read');
+            if (!granted) {
+                puter.print("Permission denied");
+                return;
+            }
+
+            // Read from that app's key-value namespace.
+            const keys = await puter.kv.list({ appUuid: other.uid });
+            puter.print(`${other.title} has ${keys.length} key(s): ${keys.join(', ')}`);
+        });
+    </script>
+</body>
+</html>

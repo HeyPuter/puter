@@ -35,6 +35,39 @@ import DEFAULT_APP_ICON from './default-app-icon.js';
  * are just thin shape adapters that translate REST conventions into driver
  * calls.
  */
+/**
+ * Desktop boot reads the app list and individual app records repeatedly, so the
+ * ceiling is set well above normal boot traffic and exists to catch a runaway
+ * client rather than to pace one.
+ *
+ * "Repeatedly" is the operative word: an app record is read on launch, on
+ * permission checks, and again by anything resolving an app by name, so these
+ * accumulate against whatever else a session is doing rather than arriving on
+ * their own. Sized for a session working hard, not for a person clicking.
+ */
+const APP_READ_LIMIT = {
+    scope: 'app-read',
+    limit: 1_800,
+    window: 60_000,
+    key: 'user',
+};
+
+/**
+ * Unauthenticated icon serving; no actor to key on, so the bucket is the
+ * address — and an address is a NAT, a campus or a carrier gateway that can
+ * hold hundreds of desktops. Each desktop boot pulls the taskbar's icons at
+ * once, so a single burst from one network is already thousands of requests.
+ * Responses are publicly cacheable and usually a redirect, so the ceiling is
+ * not protecting bandwidth; it is there so a client looping on a broken icon
+ * can't spin unbounded.
+ */
+const APP_ICON_LIMIT = {
+    scope: 'app-icon',
+    limit: 12_000,
+    window: 60_000,
+    key: 'ip',
+};
+
 export class AppController extends PuterController {
     get appStore() {
         return this.stores.app;
@@ -100,7 +133,9 @@ export class AppController extends PuterController {
         return d;
     }
 
-    registerRoutes(router) {
+    registerRoutes(
+        /** @type {import('../../core/http/PuterRouter').PuterRouter} */ router,
+    ) {
         // GET /apps — list apps owned by the current user
         router.get(
             '/apps',
@@ -108,6 +143,7 @@ export class AppController extends PuterController {
                 subdomain: 'api',
                 requireUserActor: true,
                 allowFullAccessToken: true,
+                rateLimit: APP_READ_LIMIT,
             },
             async (req, res) => {
                 const apps = await this.appDriver.select({
@@ -122,8 +158,16 @@ export class AppController extends PuterController {
             '/apps/nameAvailable',
             {
                 subdomain: 'api',
-                requireUserActor: true,
-                allowFullAccessToken: true,
+                requireAuth: true,
+                // Answers "does this name exist?" for any name, so it is a
+                // name-enumeration oracle however cheap it is to serve.
+                // Mirrors the `isNameAvailable` budget on AppDriver.
+                rateLimit: {
+                    scope: 'app-name-available',
+                    limit: 60,
+                    window: 60_000,
+                    key: 'user',
+                },
             },
             async (req, res) => {
                 const name = req.query?.name;
@@ -158,6 +202,7 @@ export class AppController extends PuterController {
             {
                 subdomain: 'api',
                 requireAuth: true,
+                rateLimit: APP_READ_LIMIT,
             },
             async (req, res) => {
                 const actor = req.actor;
@@ -216,6 +261,7 @@ export class AppController extends PuterController {
                 subdomain: 'api',
                 requireUserActor: true,
                 allowFullAccessToken: true,
+                rateLimit: APP_READ_LIMIT,
             },
             async (req, res) => {
                 const raw = req.params.name;
@@ -289,6 +335,7 @@ export class AppController extends PuterController {
             {
                 subdomain: 'api',
                 requireAuth: true,
+                rateLimit: APP_READ_LIMIT,
             },
             async (req, res) => {
                 const appList = Array.isArray(req.body) ? req.body : [];
@@ -497,10 +544,14 @@ export class AppController extends PuterController {
         // Icons are <img src> targets from the GUI (root) AND resolved via
         // api_base_url in taskbar payloads. Register on both so either origin
         // works without a cross-subdomain redirect.
-        router.get('/app-icon/:app_uid', { subdomain: ['api', ''] }, serveIcon);
+        router.get(
+            '/app-icon/:app_uid',
+            { subdomain: ['api', ''], rateLimit: APP_ICON_LIMIT },
+            serveIcon,
+        );
         router.get(
             '/app-icon/:app_uid/:size',
-            { subdomain: ['api', ''] },
+            { subdomain: ['api', ''], rateLimit: APP_ICON_LIMIT },
             serveIcon,
         );
     }

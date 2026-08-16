@@ -78,7 +78,9 @@ __Parameters__
 
 __Return value__
 
-Iterable objects each containing `{username, user_uuid}`.
+Iterable objects each containing `{username, user_uuid}`, plus an optional `user_email`.
+
+`user_email` is only present when the user granted this app the `user:<uuid>:email:read` permission (for example via [`puter.perms.requestEmail()`](/Perms/requestEmail/)); it is omitted otherwise, and may be `null` if the user granted access but has no email on file.
 
 __Example__
 

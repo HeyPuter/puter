@@ -14,6 +14,7 @@ The UI API provides a comprehensive set of tools for creating rich user interfac
 - **[`puter.ui.alert()`](/UI/alert/)** - Show alert dialogs
 - **[`puter.ui.notify()`](/UI/notify/)** - Show desktop notifications
 - **[`puter.ui.prompt()`](/UI/prompt/)** - Show input prompts
+- **[`puter.ui.showFeedbackDialog()`](/UI/showFeedbackDialog/)** - Let the user send feedback to your app's developer
 
 ### Window Management
 - **[`puter.ui.createWindow()`](/UI/createWindow/)** - Create new windows
@@ -24,6 +25,8 @@ The UI API provides a comprehensive set of tools for creating rich user interfac
 - **[`puter.ui.setWindowHeight()`](/UI/setWindowHeight/)** - Set window height
 - **[`puter.ui.setWindowX()`](/UI/setWindowX/)** - Set window X position
 - **[`puter.ui.setWindowY()`](/UI/setWindowY/)** - Set window Y position
+- **[`puter.ui.showWindow()`](/UI/showWindow/)** - Show the application's window
+- **[`puter.ui.hideWindow()`](/UI/hideWindow/)** - Hide the application's window
 
 ### File Pickers
 - **[`puter.ui.showOpenFilePicker()`](/UI/showOpenFilePicker/)** - Show file open dialog
@@ -33,7 +36,7 @@ The UI API provides a comprehensive set of tools for creating rich user interfac
 ### System Integration
 - **[`puter.ui.launchApp()`](/UI/launchApp/)** - Launch other applications
 - **[`puter.ui.parentApp()`](/UI/parentApp/)** - Get parent application info
-- **[`puter.ui.exit()`](/UI/exit/)** - Exit the application
+- **[`puter.exit()`](/UI/exit/)** - Exit the application
 - **[`puter.ui.setMenubar()`](/UI/setMenubar/)** - Set application menubar
 - **[`puter.ui.getLanguage()`](/UI/getLanguage/)** - Get current language/locale code
 
@@ -45,6 +48,7 @@ The UI API provides a comprehensive set of tools for creating rich user interfac
 - **[`puter.ui.onWindowClose()`](/UI/onWindowClose/)** - Handle window close events
 
 ### Additional UI Elements
+- **[`puter.ui.contextMenu()`](/UI/contextMenu/)** - Show a context menu at the cursor
 - **[`puter.ui.hideSpinner()`](/UI/hideSpinner/)** - Hide spinner
 - **[`puter.ui.showColorPicker()`](/UI/showColorPicker/)** - Show color picker
 - **[`puter.ui.showFontPicker()`](/UI/showFontPicker/)** - Show font picker

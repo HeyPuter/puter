@@ -19,6 +19,10 @@
 
 import { HttpError } from '../../core/http/HttpError.js';
 import { PuterController } from '../types.js';
+import {
+    DEFAULT_FREE_SUBSCRIPTION,
+    DEFAULT_TEMP_SUBSCRIPTION,
+} from '../../services/metering/consts.js';
 
 /**
  * Site hosting endpoints. Listing and create/update are not exposed as
@@ -46,6 +50,18 @@ export class HostingController extends PuterController {
                 requireUserActor: true,
                 allowFullAccessToken: true,
                 requireVerified: true,
+                // Destructive, and pairs with the `subdomains:create`
+                // budget on the driver side.
+                rateLimit: {
+                    scope: 'delete-site',
+                    limit: 60,
+                    window: 60_000,
+                    key: 'user',
+                    bySubscription: {
+                        [DEFAULT_FREE_SUBSCRIPTION]: 30,
+                        [DEFAULT_TEMP_SUBSCRIPTION]: 10,
+                    },
+                },
             },
             async (req, res) => {
                 const { site_uuid } = req.body ?? {};

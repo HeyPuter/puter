@@ -22,15 +22,15 @@ import UIContextMenu from './UIContextMenu.js';
 import path from '../lib/path.js';
 import UITaskbarItem from './UITaskbarItem.js';
 import UIWindowLogin from './UIWindowLogin.js';
-import UIWindowPublishWebsite from './UIWindowPublishWebsite.js';
 import UIWindowItemProperties from './UIWindowItemProperties.js';
 import new_context_menu_item from '../helpers/new_context_menu_item.js';
 import refresh_item_container from '../helpers/refresh_item_container.js';
-import UIWindowSaveAccount from './UIWindowSaveAccount.js';
-import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js';
+import UIWindowAppFeedback from './UIWindowAppFeedback.js';
 import launch_app from '../helpers/launch_app.js';
+import publish_as_website from '../helpers/publish_as_website.js';
 
 import item_icon from '../helpers/item_icon.js';
+import { is_window_hidden, is_unseen_background_window, user_facing_windows } from '../helpers/window_visibility.js';
 
 const el_body = document.getElementsByTagName('body')[0];
 const SNAP_PLACEHOLDER_DELAY_MS = 600; // delay before showing placeholder in any snap zone
@@ -256,7 +256,13 @@ async function UIWindow (options) {
         options.window_class = `${options.window_class ?? ''} window-dashboard-headless`;
     }
 
-    h += `<div class="window window-active
+    // Only a window the user can see is the active one — the same rule the
+    // window_stack push above follows. A window created hidden (a background
+    // app, a panel, a background launch) never calls focusWindow(), so marking
+    // it active here left two windows claiming the class, and anything that
+    // re-focuses "the active window" then stole the keyboard for a window
+    // nobody can see.
+    h += `<div class="window ${options.is_visible ? 'window-active' : ''}
                         ${options.app === 'explorer' ? 'window-explorer' : ''}
                         ${options.cover_page ? 'window-cover-page' : ''}
                         ${options.uid !== undefined ? `window-${options.uid}` : ''} 
@@ -297,6 +303,7 @@ async function UIWindow (options) {
                 data-user_set_url_params = "${html_encode(user_set_url_params)}"
                 data-is_panel ="${options.is_panel ? 1 : 0}"
                 data-is_visible ="${options.is_visible ? 1 : 0}"
+                ${options.launched_hidden ? 'data-launched_hidden ="1"' : ''}
                 style=" z-index: ${zindex}; 
                         ${options.right !== undefined ? `right: ${ html_encode(options.right) }; ` : ''}
                         ${options.left !== undefined ? `left: ${ html_encode(options.left) }; ` : ''}
@@ -573,8 +580,38 @@ async function UIWindow (options) {
         $el_parent_window.find('iframe').blur();
     }
 
+    // if directory, set window_nav_history and window_nav_history_current_position
+    if ( options.is_dir ) {
+        window.window_nav_history[win_id] = [options.path];
+        window.window_nav_history_current_position[win_id] = 0;
+    }
+
+    // get all the elements needed
+    const el_window = document.querySelector(`#window-${win_id}`);
+    const el_window_head = document.querySelector(`#window-${win_id} > .window-head`);
+    const el_window_sidebar = document.querySelector(`#window-${win_id} > .window-sidebar`);
+    const el_window_head_title = document.querySelector(`#window-${win_id} > .window-head .window-head-title`);
+    const el_window_head_icon = document.querySelector(`#window-${win_id} > .window-head .window-head-icon`);
+    const el_window_head_scale_btn = document.querySelector(`#window-${win_id} > .window-head > .window-scale-btn`);
+    const el_window_navbar_back_btn = document.querySelector(`#window-${win_id} .window-navbar-btn-back`);
+    const el_window_navbar_forward_btn = document.querySelector(`#window-${win_id} .window-navbar-btn-forward`);
+    const el_window_navbar_up_btn = document.querySelector(`#window-${win_id} .window-navbar-btn-up`);
+    const el_window_body = document.querySelector(`#window-${win_id} > .window-body`);
+    const el_window_app_iframe = document.querySelector(`#window-${win_id} > .window-body > .window-app-iframe`);
+    const el_savefiledialog_filename = document.querySelector(`#window-${win_id} .savefiledialog-filename`);
+    const el_savefiledialog_save_btn = document.querySelector(`#window-${win_id} .savefiledialog-save-btn`);
+    const el_filedialog_cancel_btn = document.querySelector(`#window-${win_id} .filedialog-cancel-btn`);
+    const el_openfiledialog_open_btn = document.querySelector(`#window-${win_id} .openfiledialog-open-btn`);
+    const el_directorypicker_select_btn = document.querySelector(`#window-${win_id} .directorypicker-select-btn`);
+    const el_window_filedialog_upload_here = document.querySelector(`#window-${win_id} .window-filedialog-upload-here`);
+
     // Add Taskbar Item
-    if ( !options.is_openFileDialog && !options.is_saveFileDialog && !options.is_directoryPicker && options.show_in_taskbar ) {
+    // data-in_taskbar records that this window is one of the item's
+    // data-open-windows, so the close path only decrements a count this
+    // window actually added to (see the close handler) — the two must stay
+    // in step, and a window that never took an item must not take one away.
+    const add_taskbar_item = () => {
+        $(el_window).attr('data-in_taskbar', '1');
         // add icon if there is no similar app already open
         if ( $(`.taskbar-item[data-app="${options.app}"]`).length === 0 ) {
             UITaskbarItem({
@@ -604,32 +641,19 @@ async function UIWindow (options) {
                 $(`.taskbar-item[data-app="${options.app}"] .active-taskbar-indicator`).show();
             }
         }
+    };
+    if ( !options.is_openFileDialog && !options.is_saveFileDialog && !options.is_directoryPicker && options.show_in_taskbar ) {
+        // A window started hidden by a background launch gets no taskbar item
+        // yet: it runs for the app that launched it, and an item would both
+        // advertise and hand out an instance the user never asked for. The
+        // item is what the window earns the moment it first becomes visible
+        // — makeWindowVisible calls this, whether the app showed itself with
+        // puter.ui.showWindow() or something else revealed it. An app that is
+        // ALWAYS windowless never reaches here: launch_app leaves
+        // show_in_taskbar false for it, so it keeps having no item at all.
+        if ( options.launched_hidden ) el_window._add_taskbar_item = add_taskbar_item;
+        else add_taskbar_item();
     }
-
-    // if directory, set window_nav_history and window_nav_history_current_position
-    if ( options.is_dir ) {
-        window.window_nav_history[win_id] = [options.path];
-        window.window_nav_history_current_position[win_id] = 0;
-    }
-
-    // get all the elements needed
-    const el_window = document.querySelector(`#window-${win_id}`);
-    const el_window_head = document.querySelector(`#window-${win_id} > .window-head`);
-    const el_window_sidebar = document.querySelector(`#window-${win_id} > .window-sidebar`);
-    const el_window_head_title = document.querySelector(`#window-${win_id} > .window-head .window-head-title`);
-    const el_window_head_icon = document.querySelector(`#window-${win_id} > .window-head .window-head-icon`);
-    const el_window_head_scale_btn = document.querySelector(`#window-${win_id} > .window-head > .window-scale-btn`);
-    const el_window_navbar_back_btn = document.querySelector(`#window-${win_id} .window-navbar-btn-back`);
-    const el_window_navbar_forward_btn = document.querySelector(`#window-${win_id} .window-navbar-btn-forward`);
-    const el_window_navbar_up_btn = document.querySelector(`#window-${win_id} .window-navbar-btn-up`);
-    const el_window_body = document.querySelector(`#window-${win_id} > .window-body`);
-    const el_window_app_iframe = document.querySelector(`#window-${win_id} > .window-body > .window-app-iframe`);
-    const el_savefiledialog_filename = document.querySelector(`#window-${win_id} .savefiledialog-filename`);
-    const el_savefiledialog_save_btn = document.querySelector(`#window-${win_id} .savefiledialog-save-btn`);
-    const el_filedialog_cancel_btn = document.querySelector(`#window-${win_id} .filedialog-cancel-btn`);
-    const el_openfiledialog_open_btn = document.querySelector(`#window-${win_id} .openfiledialog-open-btn`);
-    const el_directorypicker_select_btn = document.querySelector(`#window-${win_id} .directorypicker-select-btn`);
-    const el_window_filedialog_upload_here = document.querySelector(`#window-${win_id} .window-filedialog-upload-here`);
 
     if ( el_window_filedialog_upload_here ) {
         el_window_filedialog_upload_here.addEventListener('click', function () {
@@ -2214,7 +2238,8 @@ async function UIWindow (options) {
             $('.window').css('pointer-events', 'initial');
             const new_width = $(el_window_sidebar).width();
             // save new width in the cloud, to user's settings
-            puter.kv.set({ key: 'window_sidebar_width', value: new_width });
+            puter.kv.set({ key: 'window_sidebar_width', value: new_width })
+                .catch(err => console.warn('Could not save window_sidebar_width:', err));
             // save new width locally, to window object
             window.window_sidebar_width = new_width;
             window.a_window_sidebar_is_resizing = false;
@@ -2568,25 +2593,11 @@ async function UIWindow (options) {
                         html: i18n('publish_as_website'),
                         disabled: !options.is_dir,
                         onClick: async function () {
-                            if ( window.require_email_verification_to_publish_website ) {
-                                if ( window.user.is_temp &&
-                                    !await UIWindowSaveAccount({
-                                        send_confirmation_code: true,
-                                        message: i18n('save_account_to_publish'),
-                                        window_options: {
-                                            backdrop: true,
-                                            close_on_backdrop_click: false,
-                                        },
-                                    }) )
-                                {
-                                    return;
-                                }
-                                else if ( !window.user.email_confirmed && !await UIWindowEmailConfirmationRequired() )
-                                {
-                                    return;
-                                }
-                            }
-                            UIWindowPublishWebsite($(el_window).attr('data-uid'), $(el_window).attr('data-name'), $(el_window).attr('data-path'));
+                            await publish_as_website({
+                                uid: $(el_window).attr('data-uid'),
+                                name: $(el_window).attr('data-name'),
+                                path: $(el_window).attr('data-path'),
+                            });
                         },
                     });
                     // -------------------------------------------
@@ -3599,21 +3610,28 @@ $.fn.close = async function (options) {
             let window_uuid = $(this).attr('data-element_uuid');
             // remove all instances of win_id from window.window_stack
             window.window_stack = window.window_stack.filter(id => id !== win_id);
-            // taskbar update
-            let open_window_count = parseInt($(`.taskbar-item[data-app="${$(this).attr('data-app')}"]`).attr('data-open-windows'));
-            // update open window count of corresponding taskbar item
-            if ( open_window_count > 0 ) {
-                $(`.taskbar-item[data-app="${$(this).attr('data-app')}"]`).attr('data-open-windows', open_window_count - 1);
-            }
-            // decide whether to remove taskbar item
-            if ( open_window_count === 1 ) {
-                $(`.taskbar-item[data-app="${$(this).attr('data-app')}"] .active-taskbar-indicator`).hide();
-                window.remove_taskbar_item($(`.taskbar-item[data-app="${$(this).attr('data-app')}"][data-keep-in-taskbar="false"]`));
-            }
-            // if no more windows of this app are open, remove taskbar item
-            if ( open_window_count - 1 === 0 )
-            {
-                $(`.taskbar-item[data-app="${$(this).attr('data-app')}"] .active-taskbar-indicator`).hide();
+            // taskbar update — only for a window that IS one of the item's
+            // open windows (data-in_taskbar, stamped when it took its place
+            // in the count). A window that never counted must not decrement:
+            // an unseen background instance closing alongside the user's own
+            // window would otherwise zero the count and take the item away
+            // while that window is still open.
+            if ( $(this).attr('data-in_taskbar') === '1' ) {
+                let open_window_count = parseInt($(`.taskbar-item[data-app="${$(this).attr('data-app')}"]`).attr('data-open-windows'));
+                // update open window count of corresponding taskbar item
+                if ( open_window_count > 0 ) {
+                    $(`.taskbar-item[data-app="${$(this).attr('data-app')}"]`).attr('data-open-windows', open_window_count - 1);
+                }
+                // decide whether to remove taskbar item
+                if ( open_window_count === 1 ) {
+                    $(`.taskbar-item[data-app="${$(this).attr('data-app')}"] .active-taskbar-indicator`).hide();
+                    window.remove_taskbar_item($(`.taskbar-item[data-app="${$(this).attr('data-app')}"][data-keep-in-taskbar="false"]`));
+                }
+                // if no more windows of this app are open, remove taskbar item
+                if ( open_window_count - 1 === 0 )
+                {
+                    $(`.taskbar-item[data-app="${$(this).attr('data-app')}"] .active-taskbar-indicator`).hide();
+                }
             }
             // if a fullpage window is closed, show desktop and taskbar
             if ( $(this).attr('data-is_fullpage') === '1' ) {
@@ -3652,7 +3670,14 @@ $.fn.close = async function (options) {
                 if ( $stacked_parent.length > 0 ) {
                     $stacked_parent.removeAttr('data-minimized_for_child');
                 }
-                pop_dashboard_app_url($(this).attr('data-app'), { to_dashboard: parent_is_stacked });
+                // ...but a window the user never saw never claimed the URL in
+                // the first place (the push happens only for a window created
+                // visible), so it has no entry to consume — and consuming one
+                // would traverse out of the entry the user's OWN window of the
+                // same app owns, minimizing a window they are working in.
+                if ( ! is_unseen_background_window(this) ) {
+                    pop_dashboard_app_url($(this).attr('data-app'), { to_dashboard: parent_is_stacked });
+                }
                 // bring focus to the last window in the window-stack (only if not minimized)
                 let next_window_focused = false;
                 if ( window.window_stack.length > 0 ) {
@@ -3670,6 +3695,15 @@ $.fn.close = async function (options) {
             }
             // close child windows
             $(`.window[data-parent_uuid="${window_uuid}"]`).close();
+
+            // An app this one launched in the background dies with it. It was
+            // launched to serve this app, not the user: it has never been on
+            // screen, nothing can talk to it once its launcher is gone, and
+            // the only sign it is still running is a dot on a tile the user
+            // never lit up. A background app that showed itself dropped the
+            // marker when it did (makeWindowVisible) — that window is the
+            // user's now, and keeps running.
+            $(`.window[data-parent_instance_id="${window_uuid}"][data-launched_hidden="1"]`).close();
 
             // notify other apps that we're closing
             window.report_app_closed(window_uuid, options.status_code ?? 0);
@@ -3871,6 +3905,23 @@ window.update_window_layout = function (el_window, layout) {
 $.fn.makeWindowVisible = function (options) {
     $(this).each(async function () {
         if ( $(this).hasClass('window') ) {
+            // Seen by the user, so no longer a window that exists purely to
+            // serve whoever launched it: it outlives its launcher from here on
+            // (see the close path's cleanup of background children), and it
+            // becomes a window the user can act on — hence the taskbar item
+            // its launch deferred, and the dashboard tile's running dot.
+            // Both happen BEFORE the window shows: focusWindow() below marks
+            // the app's taskbar item active, which needs the item to exist.
+            const was_launched_hidden = $(this).attr('data-launched_hidden') === '1';
+            $(this).removeAttr('data-launched_hidden');
+            if ( was_launched_hidden ) {
+                this._add_taskbar_item?.();
+                delete this._add_taskbar_item;
+                if ( window.is_dashboard_mode && $(this).attr('data-app') ) {
+                    document.dispatchEvent(new CustomEvent('dashboard-app-windows-changed'));
+                }
+            }
+
             $(this).show();
             $(this).focusWindow();
 
@@ -3895,6 +3946,26 @@ $.fn.makeWindowInvisible = async function (options) {
             $(this).attr({
                 'data-is_visible': '0',
             });
+            // A window the user can no longer see must not stay the active one.
+            // It would keep the keyboard and — because focusWindow() disables
+            // pointer events on every OTHER app's iframe — leave the app the
+            // user was actually working in unclickable until they clicked it
+            // again. That is what an app calling puter.ui.hideWindow() on
+            // itself did to whoever launched it. Hand activation back the way
+            // closing a window does: to the top of the window stack.
+            if ( $(this).hasClass('window-active') ) {
+                const win_id = parseInt($(this).attr('data-id'));
+                $(this).removeClass('window-active');
+                // Out of the activation order until it is shown again, at which
+                // point makeWindowVisible's focusWindow() pushes it back.
+                window.window_stack = window.window_stack.filter(id => id !== win_id);
+                const $next = $(`.window[data-id="${window.window_stack[window.window_stack.length - 1]}"]`);
+                if ( $next.length && $next.attr('data-is_visible') !== '0'
+                    && $next.attr('data-is_minimized') !== '1'
+                    && $next.attr('data-is_minimized') !== 'true' ) {
+                    $next.focusWindow();
+                }
+            }
             // if sidepanel, shift desktop toolbar to the right
             if ( $(this).attr('data-is_panel') === '1' ) {
                 $('.toolbar').css('left', 'calc(50%)');
@@ -3909,6 +3980,17 @@ $.fn.makeWindowInvisible = async function (options) {
 $.fn.showWindow = async function (options) {
     $(this).each(async function () {
         if ( $(this).hasClass('window') ) {
+            // A window hidden by puter.ui.hideWindow() is not minimized: it
+            // kept its geometry and has no data-orig-* to restore, so every
+            // path below (all of which un-minimize) would leave it hidden —
+            // and stamp NaN geometry on it from the absent attributes. Simply
+            // un-hiding it is the whole job, and the inverse of what hid it.
+            // This is what makes the taskbar item a real handle on a window
+            // the user cannot currently see.
+            if ( is_window_hidden(this) ) {
+                $(this).makeWindowVisible();
+                return;
+            }
             // show window
             const el_window = this;
 
@@ -4148,22 +4230,40 @@ $.fn.focusWindow = function (event) {
  * tab AND the tile must sit on the pager page currently in view (pages are
  * laid side by side in a horizontal scroller, so an off-page tile has a
  * rendered box the user can't see). Returns the tile element, or null.
+ *
+ * An app filed away in a folder has no tile of its own while the folder is
+ * shut — its FOLDER's tile stands in, so minimizing sends the window to where
+ * the user will actually look for the app (and where opening it from will put
+ * it back). See buildGroupTileHtml for the data-group-apps this reads.
  */
 function dashboard_tile_in_view (app_name) {
     if ( ! app_name || typeof CSS === 'undefined' || ! CSS.escape ) return null;
-    const tiles = document.querySelectorAll(
-        `.dashboard-section-apps.active .myapps-tile[data-app-name="${CSS.escape(app_name)}"]`,
-    );
-    for ( const tile of tiles ) {
+    const in_view = tile => {
         const rect = tile.getBoundingClientRect();
-        if ( rect.width <= 0 || rect.height <= 0 ) continue;
+        if ( rect.width <= 0 || rect.height <= 0 ) return false;
         const scroller = tile.closest('.myapps-pager-scroller');
         const clip = (scroller || tile.parentElement).getBoundingClientRect();
         const cx = rect.left + rect.width / 2;
         const cy = rect.top + rect.height / 2;
-        if ( cx >= clip.left && cx <= clip.right && cy >= clip.top && cy <= clip.bottom ) {
-            return tile;
+        return cx >= clip.left && cx <= clip.right && cy >= clip.top && cy <= clip.bottom;
+    };
+
+    const tiles = document.querySelectorAll(
+        `.dashboard-section-apps.active .myapps-tile[data-app-name="${CSS.escape(app_name)}"]`,
+    );
+    for ( const tile of tiles ) {
+        if ( in_view(tile) ) return tile;
+    }
+
+    const folders = document.querySelectorAll('.dashboard-section-apps.active .myapps-group-tile');
+    for ( const folder of folders ) {
+        let names;
+        try {
+            names = JSON.parse(folder.dataset.groupApps || '[]');
+        } catch ( _e ) {
+            continue;
         }
+        if ( Array.isArray(names) && names.includes(app_name) && in_view(folder) ) return folder;
     }
     return null;
 }
@@ -4232,6 +4332,19 @@ function restore_dashboard_favicon () {
 }
 
 /**
+ * The windows an app has that belong to the user, oldest first — the set every
+ * URL and history path here works on. An instance another app launched in the
+ * background is deliberately not among them: it owns no history entry (the
+ * push happens only for a window created visible) and it is not on screen, so
+ * a traversal must neither focus it nor "minimize" it. With none left, the
+ * entry behaves as a deep link and relaunches the app, same as if it had been
+ * closed.
+ */
+function dashboard_app_windows (app_name) {
+    return $(user_facing_windows($(`.window[data-app="${html_encode(app_name)}"]`)));
+}
+
+/**
  * Favicon for a RUNNING app window: the bitmap its own chrome already
  * shows (control-drawer icon on headless dashboard windows, head icon
  * otherwise), falling back to a dashboard tile's rendered icon. Used when
@@ -4240,7 +4353,7 @@ function restore_dashboard_favicon () {
  */
 function dashboard_app_window_icon (app_name) {
     if ( ! app_name ) return null;
-    const img = $(`.window[data-app="${html_encode(app_name)}"]`).last()
+    const img = dashboard_app_windows(app_name).last()
         .find('.dashboard-app-drawer-icon, .window-head-icon').get(0);
     return (img?.currentSrc || img?.src) || dashboard_rendered_app_icon(app_name);
 }
@@ -4352,7 +4465,7 @@ function pop_dashboard_app_url (app_name, options) {
         // Same window lookup and minimized guard as the popstate handler.
         // On the close path the window is already gone — the URL repair
         // above was the part that still mattered.
-        const $win = $(`.window[data-app="${html_encode(app_name)}"]`).last();
+        const $win = dashboard_app_windows(app_name).last();
         if ( $win.length
             && $win.attr('data-is_minimized') !== '1'
             && $win.attr('data-is_minimized') !== 'true' ) {
@@ -4401,7 +4514,7 @@ window.addEventListener('popstate', () => {
     // windows are simply gone — close consumed its entry already, or the
     // entry went stale mid-stack).
     if ( prev_app ) {
-        const $prev_win = $(`.window[data-app="${html_encode(prev_app)}"]`);
+        const $prev_win = dashboard_app_windows(prev_app);
         if ( $prev_win.length ) {
             const $win = $prev_win.last();
             const minimized = $win.attr('data-is_minimized');
@@ -4427,7 +4540,7 @@ window.addEventListener('popstate', () => {
         // ...and landed on another app's entry (Forward, or Back across
         // two stacked apps): restore its window — or relaunch it if it
         // was closed, so the entry behaves as a live deep link.
-        const $new_win = $(`.window[data-app="${html_encode(new_app)}"]`);
+        const $new_win = dashboard_app_windows(new_app);
         if ( $new_win.length ) {
             const $win = $new_win.last();
             const minimized = $win.attr('data-is_minimized');
@@ -4484,6 +4597,72 @@ function dashboard_rendered_app_icon (app_name) {
     return null;
 }
 
+// -- Drawer intro exposure decay --
+// The drawer's opening flash (see attach_dashboard_app_drawer) is pedagogy:
+// it teaches that the app's controls live in the tongue. Like the
+// dashboard's deep-link intro (TabApps.js), the lesson decays — after this
+// many deliveries, new windows keep the bare tongue and the flash stops
+// occluding the app's top edge. A delivery is counted once per window:
+// either the flash played while the user could see it, or the user opened
+// the drawer themselves (hover, tap, focus) — the stronger proof, since the
+// drawer is a headless app's only chrome and must never decay out of a
+// user's awareness. Counted per ACCOUNT in kv, not per device, for the same
+// reasons as DEEP_LINK_INTRO_SEEN_KV_KEY: the lesson lives in the user's
+// head and follows them across devices, and localStorage would bleed
+// between accounts on a shared browser.
+const DRAWER_INTRO_TEACH_COUNT = 3;
+const DRAWER_INTRO_SEEN_KV_KEY = 'dashboard_drawer_intros_seen';
+// How long the first drawer of a session waits for the stored count before
+// defaulting to "teach" — a hung kv read must not hold the intro hostage,
+// and timing out errs toward teaching once more, never toward never
+// teaching.
+const DRAWER_INTRO_KV_WAIT_MS = 400;
+
+// The session's view of the count: one kv read per session, then kept
+// current in memory so every later window decides synchronously — and
+// correctly mid-session, while this session's own increments are still in
+// flight.
+let drawer_intro_count = null;
+let drawer_intro_read = null;
+
+// The kv counter arrives as whatever the store returns (a number, a numeric
+// string, null on a failed read); anything unparseable reads as zero.
+function parse_drawer_intro_count (raw) {
+    const n = typeof raw === 'number' ? raw : parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function read_drawer_intro_count () {
+    if ( ! drawer_intro_read ) {
+        drawer_intro_read = Promise.resolve()
+            .then(() => puter.kv.get(DRAWER_INTRO_SEEN_KV_KEY))
+            .then(raw => {
+                // Merge, never overwrite: a flash this session may have
+                // bumped the local count before the read resolved.
+                drawer_intro_count = Math.max(drawer_intro_count ?? 0, parse_drawer_intro_count(raw));
+                return drawer_intro_count;
+            })
+            .catch(() => (drawer_intro_count = drawer_intro_count ?? 0));
+    }
+    return drawer_intro_read;
+}
+
+// Record one delivery. The session cache bumps first so the very next
+// window decides correctly even while the write is in flight or failing;
+// kv.incr is atomic on the server, so two devices landing at once can't
+// lose an increment, and the awaited read only CAPS the write — once the
+// lesson is learned there is nothing left to record and the key stops
+// changing. A failed write just means one more teach later.
+function record_drawer_intro_seen () {
+    drawer_intro_count = (drawer_intro_count ?? 0) + 1;
+    read_drawer_intro_count().then(() => {
+        if ( drawer_intro_count > DRAWER_INTRO_TEACH_COUNT ) return;
+        return puter.kv.incr(DRAWER_INTRO_SEEN_KV_KEY);
+    }).catch(err => {
+        console.error('Failed to record the drawer intro exposure:', err);
+    });
+}
+
 /**
  * The control drawer for headless dashboard app windows: one glass surface
  * flush with the top edge of the app (parent DOM, above the app's iframe)
@@ -4500,6 +4679,11 @@ function dashboard_rendered_app_icon (app_name) {
  * invisible to the parent — the drawer itself is the only hover surface
  * there is.
  *
+ * The self-introducing flash carries exposure decay (see the Drawer intro
+ * section above): once the account has seen the controls enough times —
+ * flash or their own hand — new windows skip it and keep the tongue.
+ * Hover, tap, and focus never decay; only the automatic flash does.
+ *
  * The drawer is a CHILD of the window element, so it shows/hides/scales with
  * the window for free (minimize morphs, display:none, fullscreen requests
  * from the iframe hide it via the browser's own fullscreen stacking).
@@ -4515,18 +4699,32 @@ function attach_dashboard_app_drawer (el_window, options) {
         : launch_icon;
     const title = options.title || app_name;
 
+    // A "Send Feedback" control, shown only when the developer opted the app
+    // in (apps.feedbackEnabled → options.feedback_enabled). The dialog also
+    // re-checks opt-in server-side, so a stale flag can't send anywhere.
+    const feedback_enabled = options.feedback_enabled === true
+        || options.feedback_enabled === 1;
+    const feedback_label = i18n('app_feedback_title');
+    // A message/comment glyph (bubble with text lines) — clearer at this size
+    // than a bare speech bubble, which reads as a magnifier.
+    const feedback_btn = feedback_enabled ? `
+                    <button type="button" class="dashboard-app-drawer-btn dashboard-app-drawer-feedback" title="${feedback_label}" aria-label="${feedback_label}">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="7.5" y1="9" x2="16.5" y2="9"/><line x1="7.5" y1="12.5" x2="13" y2="12.5"/></svg>
+                    </button>` : '';
+
     // The toggle comes FIRST in the DOM so Tab reaches it before the
     // controls' buttons; both layers are absolutely positioned (see
-    // dashboard.css), so DOM order doesn't affect the visuals.
+    // dashboard.css), so DOM order doesn't affect the visuals. `has-feedback`
+    // widens the surface so the extra control doesn't clip the close button.
     const $drawer = $(`
-        <div class="dashboard-app-drawer collapsed">
+        <div class="dashboard-app-drawer collapsed${feedback_enabled ? ' has-feedback' : ''}">
             <button type="button" class="dashboard-app-drawer-toggle" aria-expanded="false" title="App controls" aria-label="App controls">
                 <span class="dashboard-app-drawer-grabber" aria-hidden="true"></span>
             </button>
             <div class="dashboard-app-drawer-clip">
                 <div class="dashboard-app-drawer-controls">
                     <img class="dashboard-app-drawer-icon" src="${html_encode(icon)}" alt="" draggable="false">
-                    <span class="dashboard-app-drawer-title">${html_encode(title)}</span>
+                    <span class="dashboard-app-drawer-title">${html_encode(title)}</span>${feedback_btn}
                     <button type="button" class="dashboard-app-drawer-btn dashboard-app-drawer-minimize" title="Minimize to Dashboard" aria-label="Minimize to Dashboard">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     </button>
@@ -4574,12 +4772,30 @@ function attach_dashboard_app_drawer (el_window, options) {
         clearTimeout(collapse_timer);
         collapse_timer = setTimeout(collapse, ms);
     };
-    // Expand + auto-collapse: played once on open, so the controls
-    // introduce themselves — and retract INTO the tongue, teaching where
-    // they live — without permanently costing pixels.
+    // Expand + auto-collapse: played once on open (while the account is
+    // still learning — see below), so the controls introduce themselves —
+    // and retract INTO the tongue, teaching where they live — without
+    // permanently costing pixels.
     const flash = () => {
         expand();
         schedule_collapse(2600);
+    };
+
+    // Proof of learning, counted once per window: the flash delivered while
+    // the user could see it, or — the stronger signal — the user opening
+    // the drawer themselves. user_expand is the expansion every deliberate
+    // route goes through (hover, tap, focus); the flash records separately.
+    let intro_recorded = false;
+    const record_intro_once = () => {
+        if ( intro_recorded ) return;
+        intro_recorded = true;
+        record_drawer_intro_seen();
+    };
+    let user_opened = false;
+    const user_expand = () => {
+        user_opened = true;
+        record_intro_once();
+        expand();
     };
 
     // Hover pulls the drawer open and leaving lets it settle — mouse only:
@@ -4588,12 +4804,12 @@ function attach_dashboard_app_drawer (el_window, options) {
     // again. Touch devices open by tap instead, and since they never fire
     // pointerleave, that path self-schedules its collapse.
     $drawer.on('pointerenter', (e) => {
-        if ( e.pointerType === 'mouse' ) expand();
+        if ( e.pointerType === 'mouse' ) user_expand();
     });
     $drawer.on('pointerleave', (e) => {
         if ( e.pointerType === 'mouse' ) schedule_collapse(900);
     });
-    $drawer.on('focusin', () => expand());
+    $drawer.on('focusin', () => user_expand());
     $drawer.on('focusout', () => schedule_collapse(1100));
 
     // Pressing the drawer activates its window, as pressing a titlebar
@@ -4613,7 +4829,7 @@ function attach_dashboard_app_drawer (el_window, options) {
     $(toggle).on('click', function (e) {
         e.stopPropagation();
         if ( drawer.classList.contains('collapsed') ) {
-            expand();
+            user_expand();
             schedule_collapse(3500);
         } else if ( Date.now() - opened_at < 500 ) {
             schedule_collapse(3500);
@@ -4635,6 +4851,17 @@ function attach_dashboard_app_drawer (el_window, options) {
         e.stopPropagation();
         $(el_window).close();
     });
+    // Opens the feedback dialog for THIS app. Identify it by uid when we
+    // have one (unique, unspoofable) and fall back to the name; the dialog
+    // is modal over the app window it belongs to.
+    $drawer.find('.dashboard-app-drawer-feedback').on('click', function (e) {
+        e.stopPropagation();
+        collapse();
+        UIWindowAppFeedback({
+            app: options.app_uuid || app_name,
+            source: 'app',
+        });
+    });
 
     // showWindow forces the drawer shut when the window is restored — the
     // intro already ran on open, and a restore should bring back the app,
@@ -4643,9 +4870,35 @@ function attach_dashboard_app_drawer (el_window, options) {
     el_window._dashboard_drawer_collapse = collapse;
 
     $(el_window).append($drawer);
+
+    // The intro flash, gated by exposure decay. The stored count is raced
+    // against a short cap: the first drawer of a session may not have it
+    // yet, and in practice the read (started here, resolved for good by
+    // the session cache) beats the window's own open animation — later
+    // windows decide synchronously.
+    const seen_promise = read_drawer_intro_count();
     // Two frames so the collapsed state paints first and the intro
     // morphs out of the tongue instead of popping in fully open.
-    requestAnimationFrame(() => requestAnimationFrame(flash));
+    requestAnimationFrame(() => requestAnimationFrame(async () => {
+        const seen = drawer_intro_count !== null
+            ? drawer_intro_count
+            : await Promise.race([
+                seen_promise,
+                new Promise(resolve => setTimeout(() => resolve(null), DRAWER_INTRO_KV_WAIT_MS)),
+            ]);
+        // A timed-out read (null) reads as zero: teach once more.
+        if ( (seen ?? 0) >= DRAWER_INTRO_TEACH_COUNT ) return;
+        // The user beat the intro to the drawer (hover, tap, focus) while
+        // the count was being fetched: there is nothing left to introduce,
+        // and the flash's auto-collapse would shut a drawer they are
+        // actively using.
+        if ( user_opened || ! drawer.classList.contains('collapsed') ) return;
+        // The window can already be gone (closed during its own open).
+        if ( ! drawer.isConnected ) return;
+        flash();
+        // A flash nobody could see taught nothing — don't count it.
+        if ( document.visibilityState !== 'hidden' ) record_intro_once();
+    }));
 }
 
 /**

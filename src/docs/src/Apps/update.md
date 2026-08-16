@@ -24,6 +24,7 @@ An object containing the attributes to update. The object can contain the follow
 - `icon` (optional): The new icon of the app.
 - `maximizeOnStart` (optional): Whether the app should be maximized when it is started. Defaults to `false`.
 - `background` (optional): Whether the app should run in the background. Defaults to `false`.
+- `feedbackEnabled` (optional): Whether users can send feedback to you through [`puter.ui.showFeedbackDialog()`](/UI/showFeedbackDialog/). Omitted leaves the app's current value unchanged.
 - `filetypeAssociations` (optional): An array of strings representing the filetypes that the app can open. Defaults to `[]`. File extentions and MIME types are supported; For example, `[".txt", ".md", "application/pdf"]` would allow the app to open `.txt`, `.md`, and PDF files.
 - `metadata` (optional): An object containing custom metadata for the app. This can be used to store arbitrary key-value pairs associated with the app.
 

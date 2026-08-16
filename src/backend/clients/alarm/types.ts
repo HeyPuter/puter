@@ -48,7 +48,17 @@ export interface Alarm extends AlarmOptions {
     fields: AlarmFields;
     error?: Error;
     started: number;
+    /**
+     * Every occurrence ever counted, including those aged out of the two lists
+     * below.
+     */
+    count: number;
+    /**
+     * Timestamps of the most recent occurrences only — see
+     * `OCCURRENCE_HISTORY_LIMIT`.
+     */
     timestamps: number[];
+    /** The most recent occurrences only — see `OCCURRENCE_HISTORY_LIMIT`. */
     occurrences: AlarmOccurrence[];
     severity?: PagerSeverity;
     noAlert?: boolean;

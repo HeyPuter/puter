@@ -50,6 +50,27 @@ import {
 } from '../../util/validation.js';
 import { PuterDriver } from '../types.js';
 
+/**
+ * Shared by every method that writes an app row. Each one also allocates or
+ * releases an app directory and a subdomain, so the ceiling is set by what the
+ * write costs rather than by the row itself.
+ *
+ * Not only by what a developer does by hand, though — app creation is also a
+ * programmatic step: deploying a worker creates an app to sandbox it under, so
+ * a script that provisions several in a row is ordinary rather than abusive,
+ * and a ceiling in the tens turns that into a partial deploy.
+ *
+ * @type {import('../meta.js').DriverRateLimitSpec}
+ */
+const APP_WRITE_LIMIT = {
+    limit: 240,
+    window: 60_000,
+    bySubscription: {
+        [DEFAULT_FREE_SUBSCRIPTION]: 120,
+        [DEFAULT_TEMP_SUBSCRIPTION]: 60,
+    },
+};
+
 const APP_NAME_REGEX = /^[a-zA-Z0-9_-]+$/;
 const APP_NAME_MAX_LEN = 100;
 const APP_TITLE_MAX_LEN = 100;
@@ -118,6 +139,7 @@ export class AppDriver extends PuterDriver {
     // on permission grants in `hardcoded-permissions.js`. Re-expressed
     // here as subscription-tier overrides — the metering service maps
     // anonymous users to `temp_free` and registered users to `user_free`.
+    /** @type {import('../meta.js').DriverRateLimitConfig} */
     rateLimit = {
         default: {
             limit: 100,
@@ -125,6 +147,37 @@ export class AppDriver extends PuterDriver {
             bySubscription: {
                 [DEFAULT_FREE_SUBSCRIPTION]: 100,
                 [DEFAULT_TEMP_SUBSCRIPTION]: 50,
+            },
+        },
+        methods: {
+            // The blanket envelope above is sized for `read`/`select`,
+            // which desktop boot calls repeatedly. Writing an app row also
+            // allocates an app directory and a subdomain, so it does not
+            // belong on a read-shaped budget.
+            create: APP_WRITE_LIMIT,
+            update: APP_WRITE_LIMIT,
+            upsert: APP_WRITE_LIMIT,
+            delete: APP_WRITE_LIMIT,
+            // Answers "does this name exist?" for any name, so it is a
+            // name-enumeration oracle regardless of how cheap it is.
+            isNameAvailable: {
+                limit: 60,
+                window: 60_000,
+                bySubscription: {
+                    [DEFAULT_FREE_SUBSCRIPTION]: 30,
+                    [DEFAULT_TEMP_SUBSCRIPTION]: 10,
+                },
+            },
+        },
+    };
+
+    /** @type {import('../meta.js').DriverConcurrentConfig} */
+    concurrent = {
+        default: {
+            limit: 20,
+            bySubscription: {
+                [DEFAULT_FREE_SUBSCRIPTION]: 10,
+                [DEFAULT_TEMP_SUBSCRIPTION]: 5,
             },
         },
     };
@@ -633,6 +686,13 @@ export class AppDriver extends PuterDriver {
                 ? 1
                 : 0;
         }
+        if (object.feedback_enabled !== undefined) {
+            out.feedback_enabled = validateBool(object.feedback_enabled, {
+                key: 'feedback_enabled',
+            })
+                ? 1
+                : 0;
+        }
         if (object.metadata !== undefined) {
             const meta = validateJsonObject(object.metadata, {
                 key: 'metadata',
@@ -893,6 +953,7 @@ export class AppDriver extends PuterDriver {
             index_url: app.index_url,
             background: Boolean(app.background),
             maximize_on_start: Boolean(app.maximize_on_start),
+            feedback_enabled: Boolean(app.feedback_enabled),
             godmode: Boolean(app.godmode),
             is_private: Boolean(app.is_private),
             protected: Boolean(app.protected),

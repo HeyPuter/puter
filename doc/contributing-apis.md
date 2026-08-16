@@ -53,7 +53,10 @@ Both are supported ways to define an API. **Prefer a controller when you need fi
 #### Middleware and gates
 
 - **Controller routes** (and extension routes — same options) take [`RouteOptions`](../src/backend/core/http/types.ts): auth gates (`requireAuth`, `requireUserActor`, `noUserSession`, `adminOnly`, `allowedAppIds`, and the access-token controls), `subdomain` routing, per-route `rateLimit`, body parsers, and arbitrary extra `middleware`. The auth flavors are subtle and default-deny — read the JSDoc on each field before picking.
-- **Driver methods** get their policies from the `@Driver` options: per-method `rateLimit` (limit/window/backend), `concurrent` in-flight caps (optionally `bySubscription`), and `noUserSession`. The `/drivers/call` surface enforces them.
+- **Driver methods** get their policies from the `@Driver` options: per-method `rateLimit` (limit/window/backend), `concurrent` in-flight caps (optionally `bySubscription`), `requireSubscription`, and `noUserSession`. The `/drivers/call` surface enforces them.
+- **A surface only paying accounts should reach** declares `requireSubscription` — the route option on a controller endpoint, the per-method `@Driver({ requireSubscription })` block on a driver (`/drivers/call` is one shared route, so a driver's requirement can't live in route options). `true` accepts any plan that isn't free, so a plan registered by an extension counts without core naming it; an array of policy ids (`['business', 'pro']`) accepts only those; `false` is "no requirement", the same as leaving it out. An empty array is a boot error rather than a silent no-op — it reads as subscribers-only while admitting everyone. Off unless asked for, and answered from the metering service's cached per-actor subscription, so it costs a map lookup. Distinct from `requireCredits`: this asks which plan the account is on, not whether it has budget left. Deployments with no paid plans (self-hosted installs) turn the whole thing off with `meteringEnforcement.subscriptions: false`.
+- **An account must have verified a specific factor** — `requireVerified` (email, and only under `strict_email_verification_required`), `requirePhoneVerified`, `requireCardVerified`. These are opt-in and require the factor to have actually been verified, unlike the default-on gate that turns away accounts still carrying a pending verification the abuse harness asked for.
+- **An endpoint that spends metered resources** on the caller's behalf — moving file content, making object-store requests, anything else the account is billed for — also declares `requireCredits: true`, which turns an account with nothing left of its budget away with a 402 before the handler runs. Endpoints that only describe or delete things deliberately don't: an account that has run out still has to be able to see what it has, clear it, and reach its billing pages. Drivers have no route options to declare this on, so they call `assertActorHasCredits` themselves ([src/backend/services/metering/enforcement.ts](../src/backend/services/metering/enforcement.ts)) — see `KVStoreDriver`, which does it once for every method.
 
 ### 3. puter.js
 
@@ -62,7 +65,10 @@ Both are supported ways to define an API. **Prefer a controller when you need fi
 
 ### 4. Types
 
-- Add or extend the declaration in [src/puter-js/types/modules/](../src/puter-js/types/modules/)`<module>.d.ts` and re-export new types through `index.d.ts`. Declarations must match the runtime exactly — optionality, defaults, and return types included.
+- Type the method where you wrote it, in JSDoc: `@param`/`@returns` on the implementation, one `@overload` block per accepted call form, and `@typedef {Object}` + `@property` for any new shape. The JSDoc is the source of truth — declarations are generated from it, so there is nothing to keep in sync by hand.
+- Put a shape more than one file needs in the module's `types.js` (e.g. [src/puter-js/src/modules/kv/types.js](../src/puter-js/src/modules/kv/types.js)); anything shared across modules goes in [src/puter-js/src/lib/types.js](../src/puter-js/src/lib/types.js). A shape with one consumer can stay next to it.
+- Run `npm run check:puterjs:types` — it generates the declarations and type-checks the published surface without `skipLibCheck`. **Never edit anything under `src/puter-js/types/`**: it is gitignored build output, produced by the SDK build and shipped in the npm tarball, and the next build overwrites it.
+- Name the new type in [src/puter-js/index.d.ts](../src/puter-js/index.d.ts) if consumers should be able to import it. That file is the one hand-written declaration in the package: it decides what is public and re-exports nothing else.
 
 ### 5. Docs
 

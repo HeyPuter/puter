@@ -35,6 +35,7 @@ const RECOMMENDED_APP_NAMES = [
     'calculator',
     'contacts',
     'calendar',
+    'blockarena',
     'music-player',
     'word-processor',
     'spreadsheet',
@@ -43,14 +44,13 @@ const RECOMMENDED_APP_NAMES = [
     'diagram',
     'memos',
     'audio-editor',
-    'vault',
     'browser',
     'ai-image-project',
     'chess',
+    'checkers',
+    'backgammon',
+    'klondike',
     'blockup',
-    'pretty-tiles',
-    'galaxy-troops',
-    'blend-fruits',
     'basketball-tap',
 ];
 
@@ -78,6 +78,10 @@ function toAppSummary(
         godmode: Boolean(app.godmode),
         maximize_on_start: Boolean(app.maximize_on_start),
         index_url: app.index_url,
+        // Launched straight from this summary as `app_obj` — see
+        // SuggestedAppsService.toAppSummary; the drawer's feedback control
+        // renders off this flag.
+        feedback_enabled: Boolean(app.feedback_enabled),
         // An app with no owner isn't owned by a Puter user — it's an
         // "external" (origin-bootstrapped) app.
         external: app.owner_user_id == null || app.owner_user_id === '',

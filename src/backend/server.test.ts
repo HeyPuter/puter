@@ -18,7 +18,9 @@
  */
 
 import http from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { Request, RequestHandler, Response } from 'express';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { extensionStore } from './extensions.ts';
 import { PuterServer } from './server.ts';
 import { allocateEphemeralPort, setupTestServer } from './testUtil.ts';
 import type { IConfig } from './types';
@@ -248,5 +250,63 @@ describe('PuterServer host header validation — permissive modes', () => {
             host: '127-0-0-1.nip.io',
         });
         expect(res.status).toBe(200);
+    });
+});
+
+/**
+ * A route option is a declaration, so a malformed one has to be a boot failure
+ * naming the route: the alternative is a gate that reads as "subscribers only"
+ * to whoever edits the file next while admitting everybody. Extension routes
+ * run through the same materializer as controller routes, which makes them the
+ * cheap way to drive it.
+ */
+describe('PuterServer route option validation', () => {
+    const noop = (() => undefined) as unknown as RequestHandler;
+
+    afterEach(() => {
+        extensionStore.routeHandlers.length = 0;
+    });
+
+    it('refuses to boot on a requireSubscription that names nothing', async () => {
+        extensionStore.routeHandlers.push({
+            method: 'get',
+            path: '/plan-gated',
+            options: { requireSubscription: [] },
+            handler: noop,
+        });
+
+        await expect(setupTestServer()).rejects.toThrow(
+            /route GET \/plan-gated: requireSubscription: expected at least one subscription id/,
+        );
+    });
+
+    it('boots with the requirement switched off, and leaves the route open', async () => {
+        extensionStore.routeHandlers.push({
+            method: 'get',
+            path: '/plan-open',
+            options: { requireSubscription: false },
+            handler: ((_req: Request, res: Response) =>
+                res.json({ ok: true })) as unknown as RequestHandler,
+        });
+
+        const listenPort = await allocateEphemeralPort();
+        const server = await setupTestServer(
+            {
+                port: listenPort,
+                domain: 'puter.localhost',
+                origin: `http://puter.localhost:${listenPort}`,
+            } as unknown as IConfig,
+            { listen: true },
+        );
+        try {
+            // `false` declares nothing: no plan gate, and no auth gate
+            // dragged in behind it.
+            const res = await rawRequest(listenPort, '/plan-open', {
+                host: 'puter.localhost',
+            });
+            expect(res.status).toBe(200);
+        } finally {
+            await server.shutdown();
+        }
     });
 });

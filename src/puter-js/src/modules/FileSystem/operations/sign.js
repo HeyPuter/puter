@@ -1,6 +1,6 @@
 import { defineOperation, firstDefined } from './scaffold.js';
 
-/** @typedef {import('../../../../types/modules/filesystem').SignResult} SignResult */
+/** @typedef {import('../types.js').SignResult} SignResult */
 
 /**
  * Signs one or more filesystem entries for an app, producing the access URLs
