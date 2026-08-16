@@ -413,8 +413,7 @@ export const assertVerifiedAccount = (
  */
 export const assertPhoneVerified = (
     user:
-        | { phone?: unknown; requires_phone_verification?: unknown }
-        | undefined,
+        { phone?: unknown; requires_phone_verification?: unknown } | undefined,
 ): void => {
     if (user?.phone && !user?.requires_phone_verification) return;
     throw new HttpError(403, 'Please verify your phone number to continue', {

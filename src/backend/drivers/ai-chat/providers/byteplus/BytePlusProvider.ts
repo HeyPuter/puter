@@ -23,24 +23,21 @@ import { Context } from '../../../../core/context.js';
 import type { MeteringService } from '../../../../services/metering/MeteringService.js';
 import type { IChatProvider, ICompleteArguments } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
-import { ZAI_MODELS } from './models.js';
+import { BYTEPLUS_MODELS } from './models.js';
 
-type ZAIConfig = {
-    apiBaseUrl?: string;
+type BytePlusConfig = {
     apiKey: string;
+    apiBaseUrl?: string;
 };
 
-type ZAICustomParams = {
-    do_sample?: boolean;
-    request_id?: string;
+type BytePlusCustomParams = {
     response_format?: unknown;
     stop?: string[];
+    // Ark-specific toggle for deep reasoning; the seed models reason by
+    // default and route those tokens to `reasoning_content`.
     thinking?: {
-        type?: 'enabled' | 'disabled';
-        clear_thinking?: boolean;
+        type?: 'enabled' | 'disabled' | 'auto';
     };
-    tool_stream?: boolean;
-    user_id?: string;
 };
 
 const asRecord = (value: unknown): Record<string, unknown> =>
@@ -48,17 +45,24 @@ const asRecord = (value: unknown): Record<string, unknown> =>
         ? (value as Record<string, unknown>)
         : {};
 
-export class ZAIProvider implements IChatProvider {
+/**
+ * BytePlus ModelArk provider — an OpenAI-compatible endpoint serving
+ * ByteDance's Seed models plus hosted third-party models (GLM, DeepSeek,
+ * GPT-OSS). https://docs.byteplus.com/en/docs/ModelArk/1330626
+ */
+export class BytePlusProvider implements IChatProvider {
     #openai: OpenAI;
 
     #meteringService: MeteringService;
 
-    #defaultModel = 'glm-5.1';
+    #defaultModel = 'seed-2-0-lite-260428';
 
-    constructor(config: ZAIConfig, meteringService: MeteringService) {
+    constructor(config: BytePlusConfig, meteringService: MeteringService) {
         this.#openai = new OpenAI({
             apiKey: config.apiKey,
-            baseURL: config.apiBaseUrl ?? 'https://api.z.ai/api/paas/v4',
+            baseURL:
+                config.apiBaseUrl ??
+                'https://ark.ap-southeast.bytepluses.com/api/v3',
         });
         this.#meteringService = meteringService;
     }
@@ -68,7 +72,7 @@ export class ZAIProvider implements IChatProvider {
     }
 
     models() {
-        return ZAI_MODELS;
+        return BYTEPLUS_MODELS;
     }
 
     list() {
@@ -108,15 +112,7 @@ export class ZAIProvider implements IChatProvider {
             return message;
         });
 
-        const customParams = asRecord(custom) as ZAICustomParams;
-        const userId =
-            customParams.user_id ??
-            (actor?.user?.id
-                ? `puter-${actor.user.id}${actor.app?.uid ? `-${actor.app.uid}` : ''}`.slice(
-                      0,
-                      128,
-                  )
-                : undefined);
+        const customParams = asRecord(custom) as BytePlusCustomParams;
 
         const completionParams: ChatCompletionCreateParams = {
             messages,
@@ -126,12 +122,6 @@ export class ZAIProvider implements IChatProvider {
             ...(max_tokens !== undefined ? { max_tokens } : {}),
             ...(temperature !== undefined ? { temperature } : {}),
             ...(top_p !== undefined ? { top_p } : {}),
-            ...(customParams.do_sample !== undefined
-                ? { do_sample: customParams.do_sample }
-                : {}),
-            ...(customParams.request_id
-                ? { request_id: customParams.request_id }
-                : {}),
             ...(customParams.response_format
                 ? { response_format: customParams.response_format }
                 : {}),
@@ -139,10 +129,6 @@ export class ZAIProvider implements IChatProvider {
             ...(customParams.thinking
                 ? { thinking: customParams.thinking }
                 : {}),
-            ...(customParams.tool_stream !== undefined
-                ? { tool_stream: customParams.tool_stream }
-                : {}),
-            ...(userId ? { user_id: userId } : {}),
             stream: !!stream,
             ...(stream
                 ? {
@@ -163,16 +149,16 @@ export class ZAIProvider implements IChatProvider {
                           completion_tokens: 0,
                           cached_tokens: 0,
                       };
-                const costsOverrideFromModel = Object.fromEntries(
+                const costsOverride = Object.fromEntries(
                     Object.entries(trackedUsage).map(([key, value]) => {
                         return [key, value * Number(modelUsed.costs[key] ?? 0)];
                     }),
                 );
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
-                    actor,
-                    `zai:${modelUsed.id}`,
-                    costsOverrideFromModel,
+                    actor!,
+                    `byteplus:${modelUsed.id}`,
+                    costsOverride,
                 );
                 return trackedUsage;
             },
@@ -180,6 +166,8 @@ export class ZAIProvider implements IChatProvider {
             completion,
         });
 
+        // Ark's deep-reasoning models return `reasoning_content` (DeepSeek
+        // wire convention); expose it under `reasoning` like other providers.
         OpenAIUtil.normalizeReasoningContent(result);
         return result;
     }

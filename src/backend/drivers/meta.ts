@@ -446,8 +446,7 @@ export function resolveDriverMeta(
     // drivers declare a raw object on the instance, which we validate here
     // so a malformed `rateLimit` field still fails loud at registration.
     const protoRateLimit = proto[DRIVER_RATE_LIMIT_KEY] as
-        | DriverRateLimitConfig
-        | undefined;
+        DriverRateLimitConfig | undefined;
     let rateLimit: DriverRateLimitConfig | undefined;
     if (protoRateLimit) {
         rateLimit = protoRateLimit;
@@ -459,8 +458,7 @@ export function resolveDriverMeta(
     }
 
     const protoConcurrent = proto[DRIVER_CONCURRENT_KEY] as
-        | DriverConcurrentConfig
-        | undefined;
+        DriverConcurrentConfig | undefined;
     let concurrent: DriverConcurrentConfig | undefined;
     if (protoConcurrent) {
         concurrent = protoConcurrent;
@@ -472,8 +470,7 @@ export function resolveDriverMeta(
     }
 
     const protoRequireSubscription = proto[DRIVER_REQUIRE_SUBSCRIPTION_KEY] as
-        | DriverRequireSubscriptionConfig
-        | undefined;
+        DriverRequireSubscriptionConfig | undefined;
     let requireSubscription: DriverRequireSubscriptionConfig | undefined;
     if (protoRequireSubscription) {
         requireSubscription = protoRequireSubscription;
