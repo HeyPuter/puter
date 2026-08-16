@@ -19,6 +19,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+    can_rename,
     can_restructure,
     invalidate_shared_roots,
     remember_shared_roots,
@@ -108,6 +109,45 @@ describe('shared_access', () => {
             expect(await can_restructure('/sharemate/Documents/a.txt')).toBe(
                 true,
             );
+        });
+    });
+
+    describe('can_rename', () => {
+        it('allows a file shared directly for writing', async () => {
+            expect(await can_rename(`/jf/${REPORT}/report.pdf`)).toBe(true);
+        });
+
+        it('refuses a shared folder root, even with write', async () => {
+            expect(await can_rename(`/jf/${CONTENTS}/Contents`, true)).toBe(false);
+        });
+
+        it('refuses a shared folder root held with manage', async () => {
+            expect(await can_rename(`/jf/${BUDGET}/Budget`, true)).toBe(false);
+        });
+
+        it('allows items inside a folder shared for writing', async () => {
+            expect(await can_rename(`/jf/${CONTENTS}/Contents/a.txt`)).toBe(true);
+            expect(
+                await can_rename(`/jf/${CONTENTS}/Contents/sub`, true),
+            ).toBe(true);
+        });
+
+        it('refuses anything shared read-only', async () => {
+            expect(await can_rename(`/jf/${PHOTOS}/Photos`, true)).toBe(false);
+            expect(await can_rename(`/jf/${PHOTOS}/Photos/a.jpg`)).toBe(false);
+        });
+
+        it('refuses a path that is not shared at all', async () => {
+            expect(await can_rename(`/jf/${CONTENTS}/Private/a.txt`)).toBe(false);
+        });
+
+        it('refuses a non-string path', async () => {
+            expect(await can_rename(undefined)).toBe(false);
+        });
+
+        it('allows your own items', async () => {
+            expect(await can_rename('/sharemate/Documents/a.txt')).toBe(true);
+            expect(await can_rename('/sharemate/Documents', true)).toBe(true);
         });
     });
 });

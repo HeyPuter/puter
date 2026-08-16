@@ -272,8 +272,8 @@
 
 /**
  * How much access a share grants. Stronger modes imply the weaker ones, so
- * `write` also allows reading. `manage` is separate: it lets the recipient
- * re-share the item, and does not by itself allow writing.
+ * `write` also allows reading, and `manage` — the strongest — allows
+ * everything `write` does plus re-sharing the item with other people.
  *
  * @typedef {'see' | 'list' | 'read' | 'write' | 'manage'} ShareMode
  */

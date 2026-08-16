@@ -30,7 +30,7 @@ import launch_app from './launch_app.js';
 import path from '../lib/path.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from './weblink.js';
 import { is_owned_by_me } from './path_owner.js';
-import { can_restructure, shared_mode_for } from './shared_access.js';
+import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from './shared_access.js';
 
 /**
  * Generates context menu items for file/folder operations
@@ -63,9 +63,17 @@ const generate_file_context_menu = async function (options) {
     const can_manage_share =
         $(options.element).attr('data-share_mode') === 'manage'
         || (await shared_mode_for($(options.element).attr('data-path'))) === 'manage';
-    // Renaming and deleting go by the holding folder, not by the item.
+    // Moving and deleting go by the holding folder, not by the item.
     const may_restructure = !is_not_mine
         || await can_restructure($(options.element).attr('data-path'));
+    // A shared FILE you hold write on is renameable even though it can't be
+    // moved; a shared folder root is not.
+    const may_rename = !is_not_mine
+        || await can_rename(
+            $(options.element).attr('data-path'),
+            fsentry.is_dir === true
+                || ['1', 'true'].includes($(options.element).attr('data-is_dir')),
+        );
     const is_worker = options.is_worker ?? false;
     const onOpen = options.onOpen;
     const is_weblink = isWeblinkName(fsentry.name ?? $(el_item).attr('data-name'));
@@ -337,9 +345,12 @@ const generate_file_context_menu = async function (options) {
                         $(el_item).attr('data-path'),
                         window.user.username,
                     );
+                    // Or mode lookups keep answering for a share we just
+                    // walked away from.
+                    invalidate_shared_roots();
                     $(el_item).remove();
                 } catch (e) {
-                    UIAlert({ message: e?.message ?? i18n('error') });
+                    UIAlert({ message: e?.message ?? i18n('error_unknown_cause') });
                 }
             },
         });
@@ -388,7 +399,7 @@ const generate_file_context_menu = async function (options) {
     // -------------------------------------------
     // Rename
     // -------------------------------------------
-    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_trash && may_restructure ) {
+    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_trash && may_rename ) {
         menu_items.push({
             html: i18n('rename'),
             onClick: function () {

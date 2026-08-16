@@ -39,7 +39,7 @@ import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js'
 import { icons } from '../../helpers/actionIcons.js';
 import list_all_shared from '../../helpers/list_all_shared.js';
 import { remember_shared_roots } from '../../helpers/shared_access.js';
-import { shared_crumbs_for } from '../../helpers/share_paths.js';
+import { parent_path_for, shared_crumbs_for } from '../../helpers/share_paths.js';
 
 const { html_encode, SelectionArea } = window;
 
@@ -688,12 +688,9 @@ const TabFiles = {
                 if ( $selectedRow.length > 0 ) {
                     e.preventDefault();
                     e.stopPropagation();
-                    const $nameEditor = $selectedRow.find('.item-name-editor');
-                    const $itemName = $selectedRow.find('.item-name');
-                    if ( $nameEditor.length > 0 ) {
-                        $itemName.hide();
-                        $nameEditor.show().addClass('item-name-editor-active').focus().select();
-                    }
+                    // The shared editor carries the guards (immutable, trash,
+                    // items you hold no write on) this handler used to skip.
+                    window.activate_item_name_editor($selectedRow[0]);
                 }
                 return false;
             }
@@ -1200,9 +1197,11 @@ const TabFiles = {
 
         // Up button
         $(el_window_navbar_up_btn).on('click', function () {
-            if ( _this.currentPath === '/' ) return;
+            if ( _this.currentPath === '/' || _this.currentPath === window.shared_path ) return;
 
-            const target_path = path.resolve(path.join(_this.currentPath, '..'));
+            // Above a shared item is its owner's folder, which is not ours to
+            // open — `parent_path_for` sends us to Shared instead.
+            const target_path = parent_path_for(path.resolve(_this.currentPath));
             _this.pushNavHistory(target_path);
             _this.renderDirectory(target_path);
         });
@@ -1241,8 +1240,8 @@ const TabFiles = {
         });
 
         makeNavBtnSpringLoaded(el_window_navbar_up_btn, () => {
-            if ( _this.currentPath === '/' ) return false;
-            const target_path = path.resolve(path.join(_this.currentPath, '..'));
+            if ( _this.currentPath === '/' || _this.currentPath === window.shared_path ) return false;
+            const target_path = parent_path_for(path.resolve(_this.currentPath));
             if ( ! _this.canSpringLoadInto(target_path) ) return false;
             _this.pushNavHistory(target_path);
             _this.renderDirectory(target_path);
@@ -1250,6 +1249,8 @@ const TabFiles = {
 
         // New folder button
         document.querySelector('.new-folder-btn').onclick = () => {
+            // The Shared view is a query, not a directory.
+            if ( _this.currentPath === window.shared_path ) return;
             _this.createFolderInstant(_this.currentPath);
         };
 
@@ -1257,6 +1258,7 @@ const TabFiles = {
         fileInput.onchange = async (e) => {
             const files = e.target.files;
             if ( !files || files.length === 0 ) return;
+            if ( _this.currentPath === window.shared_path ) return;
 
             let upload_progress_window;
             let opid;
@@ -3745,7 +3747,8 @@ const TabFiles = {
             forwardBtn.removeClass('path-btn-disabled');
         }
 
-        if ( this.currentPath === '/' ) {
+        // The Shared view has no parent either — it is a query, not a directory.
+        if ( this.currentPath === '/' || this.currentPath === window.shared_path ) {
             upBtn.addClass('path-btn-disabled');
         } else {
             upBtn.removeClass('path-btn-disabled');
@@ -4013,11 +4016,14 @@ const TabFiles = {
 
         const isTrashFolder = targetPath === window.trash_path;
         const isTrashedPath = targetPath.startsWith(`${window.trash_path}/`);
+        // The Shared view is a query, not a directory — nothing can be
+        // created, pasted or uploaded "into" it.
+        const isSharedView = targetPath === window.shared_path;
         const items = [];
 
         // New submenu (folder, text document, etc.) - not available in Trash
         // We create a custom "New" submenu to handle folder creation with refresh and rename activation
-        if ( ! isTrashFolder ) {
+        if ( ! isTrashFolder && ! isSharedView ) {
             const newMenuItems = new_context_menu_item(targetPath, null);
 
             // Override the "New Folder" onClick to refresh and activate rename
@@ -4108,7 +4114,7 @@ const TabFiles = {
         }
 
         // Paste - only if clipboard has items and not in Trash
-        if ( !isTrashFolder && window.clipboard && window.clipboard.length > 0 ) {
+        if ( !isTrashFolder && !isSharedView && window.clipboard && window.clipboard.length > 0 ) {
             items.push({
                 html: i18n('paste'),
                 onClick: async function () {
@@ -4148,7 +4154,7 @@ const TabFiles = {
         }
 
         // Upload Here - not available in Trash
-        if ( ! isTrashFolder ) {
+        if ( ! isTrashFolder && ! isSharedView ) {
             items.push({
                 html: i18n('upload'),
                 onClick: function () {
@@ -4480,8 +4486,10 @@ const TabFiles = {
                     return;
                 }
 
-                // Block uploads to trash
-                if ( _this.currentPath === window.trash_path ) {
+                // Block uploads to trash, and to the Shared view — a query,
+                // not a directory.
+                if ( _this.currentPath === window.trash_path ||
+                    _this.currentPath === window.shared_path ) {
                     return;
                 }
 
@@ -4632,6 +4640,11 @@ const TabFiles = {
         const dirs = (abs_path === '/' ? [''] : abs_path.split('/'));
         const dirpaths = (abs_path === '/' ? ['/'] : []);
         const path_seperator_html = `<img class="path-seperator" draggable="false" src="${html_encode(window.icons['triangle-right.svg'])}">`;
+
+        // The Shared view is a query, not a directory — one crumb, no ancestry.
+        if ( abs_path === window.shared_path ) {
+            return `${path_seperator_html}<span class="dirname" data-path="${html_encode(window.shared_path)}">${html_encode(i18n('shared'))}</span>`;
+        }
 
         // Someone else's tree is shown from the share down, not from their home.
         const shared = shared_crumbs_for(abs_path);

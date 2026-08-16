@@ -32,6 +32,7 @@ import { verify as verifyOtp } from '../../services/auth/OTPUtil.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
 import {
     maskEntryPath,
+    parseMaskedSharePath,
     resolveSharePath,
 } from '../../services/fs/sharePathMask.js';
 import { Context } from '../../core/context.js';
@@ -420,8 +421,26 @@ export class WebDAVController extends PuterController {
             davPath === '/'
                 ? null // root always exists
                 : await this.stores.fsEntry.getEntryByPath(davPath);
-        if (davPath !== '/' && !entry)
+        if (davPath !== '/' && !entry) {
+            // `/<owner>/<uuid>` — the parent of a share root — is not a real
+            // path: the uuid stands in for the owner's folder, which the
+            // recipient cannot see. A client walking up from a share (or down
+            // toward one, as the Windows redirector does segment by segment)
+            // lands here, so answer with a virtual collection whose only
+            // member is the share root, rather than a dead end.
+            const virtual = await this.#shareRootParentPropfind(
+                actor,
+                davPath,
+                depth,
+            );
+            if (virtual) {
+                res.status(207)
+                    .set({ 'Content-Type': 'application/xml; charset=utf-8' })
+                    .send(wrapMultistatus(virtual.join('\n')));
+                return;
+            }
             throw new HttpError(404, 'Not Found', { legacyCode: 'not_found' });
+        }
 
         await this.#assertRead(actor, davPath);
 
@@ -854,6 +873,47 @@ export class WebDAVController extends PuterController {
 
         await deleteLock(r, token);
         res.status(204).end();
+    }
+
+    /**
+     * PROPFIND responses for the virtual collection at `/<owner>/<uuid>`, or
+     * null when `davPath` isn't that shape, the uuid doesn't resolve to an
+     * entry of `owner`'s, or the actor cannot read the share — the caller falls
+     * through to 404 in every null case, so an unauthorized probe learns
+     * nothing about whether the uuid exists.
+     */
+    async #shareRootParentPropfind(
+        actor: Actor,
+        davPath: string,
+        depth: string | string[],
+    ): Promise<string[] | null> {
+        const parsed = parseMaskedSharePath(davPath);
+        if (!parsed || parsed.tail !== '') return null;
+        if (parsed.ownerUsername === actor.user?.username) return null;
+
+        const root = await this.stores.fsEntry.getEntryByUuid(parsed.rootUuid);
+        if (!root) return null;
+        // Same guard as resolveSharePath: the mask names the owner, so the
+        // uuid must be theirs.
+        if (root.path.split('/')[1] !== parsed.ownerUsername) return null;
+
+        const allowed = await this.services.acl.check(
+            actor,
+            {
+                path: root.path,
+                resolveAncestors: () =>
+                    this.services.fs.getAncestorChain(root.path),
+            },
+            'read',
+        );
+        if (!allowed) return null;
+
+        const maskedRoot = `/${parsed.ownerUsername}/${root.uuid}/${root.name}`;
+        const responses = [propfindEntry(davPath, null, true)];
+        if (depth !== '0') {
+            responses.push(propfindEntry(maskedRoot, root, root.isDir));
+        }
+        return responses;
     }
 
     // -- ACL helpers -------------------------------------------------

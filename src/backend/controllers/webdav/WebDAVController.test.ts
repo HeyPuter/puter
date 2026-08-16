@@ -1167,6 +1167,68 @@ describe('WebDAVController verbs', () => {
                 '<D:getcontenttype>text/markdown</D:getcontenttype>',
             );
         });
+
+        it("answers a share root's parent with a virtual collection", async () => {
+            const owner = await makeUser();
+            const holder = await makeUser();
+            await dispatch({
+                method: 'MKCOL',
+                path: `/${owner.username}/Documents/Album`,
+                actor: owner.actor,
+            });
+            const root = (await server.stores.fsEntry.getEntryByPath(
+                `/${owner.username}/Documents/Album`,
+            ))!;
+            await server.services.acl.setUserUser(
+                owner.actor as never,
+                holder.actor as never,
+                {
+                    path: root.path,
+                    resolveAncestors: () =>
+                        server.services.fs.getAncestorChain(root.path),
+                },
+                'read',
+            );
+
+            // `/<owner>/<uuid>` is where Up from a share root lands; it is not
+            // a real path, so it answers as a virtual collection whose only
+            // member is the share root at its masked path.
+            const captured = await dispatch({
+                method: 'PROPFIND',
+                path: `/${owner.username}/${root.uuid}`,
+                actor: holder.actor,
+            });
+            expect(captured.statusCode).toBe(207);
+            const xml = captured.body as string;
+            expect(xml).toContain(
+                `<D:href>/${owner.username}/${root.uuid}/</D:href>`,
+            );
+            expect(xml).toContain(
+                `<D:href>/${owner.username}/${root.uuid}/Album/</D:href>`,
+            );
+            // The owner's real tree never shows through.
+            expect(xml).not.toContain('/Documents/');
+        });
+
+        it("keeps a share root's parent a 404 for a caller with no share", async () => {
+            const owner = await makeUser();
+            const stranger = await makeUser();
+            await dispatch({
+                method: 'MKCOL',
+                path: `/${owner.username}/Documents/Private`,
+                actor: owner.actor,
+            });
+            const root = (await server.stores.fsEntry.getEntryByPath(
+                `/${owner.username}/Documents/Private`,
+            ))!;
+
+            const captured = await dispatch({
+                method: 'PROPFIND',
+                path: `/${owner.username}/${root.uuid}`,
+                actor: stranger.actor,
+            });
+            expect(captured.statusCode).toBe(404);
+        });
     });
 
     describe('PROPPATCH', () => {

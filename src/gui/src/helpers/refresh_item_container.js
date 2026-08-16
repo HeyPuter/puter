@@ -134,8 +134,8 @@ const refresh_item_container = function (el_item_container, options) {
             return shares;
         }).then((shares) => shares.map((share) => ({
             uid: share.entryUid,
-            // A share path is `~/share/<uid>`, so the name comes off the
-            // share rather than off the path.
+            // Share paths are masked (`/owner/uuid/name`), so prefer the name
+            // the share row carries over parsing it off the path.
             name: share.name ?? path.basename(share.path),
             path: share.path,
             is_dir: share.isDir,

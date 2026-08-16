@@ -693,6 +693,24 @@ export class FSService extends PuterService {
                 );
             }
 
+            // An overwrite reuses the entry's uuid as the object key, so the
+            // bytes must land in the bucket the entry already lives in —
+            // resolved the same way reads resolve it. Uploading to this
+            // server's bucket instead would repoint the row and strand the
+            // old object in the old bucket: a storage leak, and the replaced
+            // content survives there unreferenced.
+            if (existingEntry?.bucket) {
+                normalizedInput = {
+                    ...normalizedInput,
+                    bucket: this.stores.s3Object.resolveBucket(
+                        existingEntry.bucket,
+                    ),
+                    bucketRegion: this.stores.s3Object.resolveRegion(
+                        existingEntry.bucketRegion,
+                    ),
+                };
+            }
+
             reservedPaths.add(normalizedInput.path);
             results.push({
                 index: input.index,
@@ -761,6 +779,24 @@ export class FSService extends PuterService {
             return allowanceMax;
         }
         return Math.max(allowanceMax, storageAllowanceMaxOverride);
+    }
+
+    /**
+     * The allowance override to apply when charging `owner` for a write the
+     * acting user performs. The controller reads the override off the ACTING
+     * user's row, so it may only widen that same user's cap — a write into a
+     * tree someone else owns is judged against the owner's own allowance, or a
+     * recipient on a large plan could fill an owner's account past its limit.
+     * The unlimited sentinel passes through: it is server-authored (never
+     * derived from a user row) and means "don't meter this write".
+     */
+    #allowanceOverrideFor(
+        owner: number,
+        actingUserId: number,
+        override?: number,
+    ): number | undefined {
+        if (override === UNLIMITED_STORAGE_ALLOWANCE) return override;
+        return owner === actingUserId ? override : undefined;
     }
 
     /**
@@ -1495,7 +1531,11 @@ export class FSService extends PuterService {
             await this.#assertStorageAllowanceForBatch(
                 owner,
                 sizeChanges,
-                storageAllowanceMax,
+                this.#allowanceOverrideFor(
+                    owner,
+                    preparedBatch.userId,
+                    storageAllowanceMax,
+                ),
             );
         }
     }
@@ -1700,7 +1740,11 @@ export class FSService extends PuterService {
                             owner,
                             normalizedInput.size,
                             existingSize,
-                            storageAllowanceMax,
+                            this.#allowanceOverrideFor(
+                                owner,
+                                userId,
+                                storageAllowanceMax,
+                            ),
                         ),
                 ),
                 this.stores.fsEntry.resolveParentDirectoriesBatchWithCreated(
@@ -1950,7 +1994,11 @@ export class FSService extends PuterService {
                         this.#assertStorageAllowanceForBatch(
                             owner,
                             checks,
-                            storageAllowanceMax,
+                            this.#allowanceOverrideFor(
+                                owner,
+                                userId,
+                                storageAllowanceMax,
+                            ),
                         ),
                     ),
                 ),
@@ -2780,11 +2828,16 @@ export class FSService extends PuterService {
             normalizedInput.path,
             userId,
         );
+        const ownerAllowanceMax = this.#allowanceOverrideFor(
+            storageOwner,
+            userId,
+            storageAllowanceMax,
+        );
         await this.#assertStorageAllowance(
             storageOwner,
             normalizedInput.size,
             existingSize,
-            storageAllowanceMax,
+            ownerAllowanceMax,
         );
 
         const uploadBody = await this.#toUploadBody(
@@ -2821,7 +2874,7 @@ export class FSService extends PuterService {
                 storageOwner,
                 uploadedSize,
                 existingSize,
-                storageAllowanceMax,
+                ownerAllowanceMax,
             );
         }
         normalizedInput.size = uploadedSize;
@@ -3341,7 +3394,7 @@ export class FSService extends PuterService {
         entry: FSEntry,
         newName: string,
     ): Promise<FSEntry> {
-        await this.#assertCanRestructure(entry, userId);
+        await this.#assertCanRename(entry, userId);
         if (newName.includes('/'))
             throw new HttpError(400, 'Name cannot contain a slash', {
                 legacyCode: 'bad_request',
@@ -3462,9 +3515,36 @@ export class FSService extends PuterService {
     }
 
     /**
-     * Rename, move and delete are authorized by `write` on the parent, not on
-     * the entry — which is what lets a share recipient reorganize inside a
-     * shared folder without reaching the shared folder itself.
+     * A FILE shared directly with you is renameable with `write` on it — the
+     * name is the file's own, and rename stays in place. A folder's name is
+     * structure the owner's whole subtree hangs off, so folders (and anything
+     * reached inside a shared folder) go by the parent-write restructure rule
+     * instead.
+     */
+    async #assertCanRename(entry: FSEntry, userId: number): Promise<void> {
+        if (entry.userId !== userId && !entry.isDir) {
+            const actor = Context.get('actor') as Actor | undefined;
+            if (actor) {
+                const allowed = await this.services.acl.check(
+                    actor,
+                    {
+                        path: entry.path,
+                        resolveAncestors: () =>
+                            this.getAncestorChain(entry.path),
+                    },
+                    'write',
+                );
+                if (allowed) return;
+            }
+        }
+
+        await this.#assertCanRestructure(entry, userId);
+    }
+
+    /**
+     * Move and delete are authorized by `write` on the parent, not on the entry
+     * — which is what lets a share recipient reorganize inside a shared folder
+     * without reaching the shared folder itself.
      */
     async #assertCanRestructure(entry: FSEntry, userId: number): Promise<void> {
         if (entry.userId === userId) return;
@@ -3907,7 +3987,11 @@ export class FSService extends PuterService {
             collision && input.overwrite
                 ? await this.#entryStorageSize(collision)
                 : 0,
-            input.storageAllowanceMax,
+            this.#allowanceOverrideFor(
+                destinationParent.userId,
+                userId,
+                input.storageAllowanceMax,
+            ),
         );
 
         if (collision) {

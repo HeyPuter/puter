@@ -19,6 +19,7 @@
  */
 
 import { Readable } from 'node:stream';
+import { CreateBucketCommand } from '@aws-sdk/client-s3';
 import { v4 as uuidv4 } from 'uuid';
 import {
     afterAll,
@@ -495,6 +496,36 @@ describe('FSService overwrite and dedupe resolution', () => {
         expect(await readBack(second)).toBe('bbbbb');
     });
 
+    it('keeps an overwrite in the bucket the entry already lives in', async () => {
+        const first = await writeFile(
+            user,
+            `${user.home}/Documents/pinned.txt`,
+            'first',
+        );
+        // A row whose content lives in another region's bucket — e.g. the
+        // owner uploaded it through a server in that region.
+        await server.clients.s3
+            .get('eu-central-1')
+            .send(new CreateBucketCommand({ Bucket: 'far-bucket' }));
+        await server.clients.db.write(
+            'UPDATE fsentries SET bucket = ?, bucket_region = ? WHERE uuid = ?',
+            ['far-bucket', 'eu-central-1', first.uuid],
+        );
+
+        const second = await writeFile(
+            user,
+            `${user.home}/Documents/pinned.txt`,
+            'second',
+            { overwrite: true },
+        );
+
+        // Uploading to this server's bucket instead would repoint the row
+        // and strand the original object in the old bucket.
+        expect(second.bucket).toBe('far-bucket');
+        expect(second.bucketRegion).toBe('eu-central-1');
+        expect(await readBack(second)).toBe('second');
+    });
+
     it('dedupes into an unused " (n)" name, skipping names already taken', async () => {
         await writeFile(user, `${user.home}/Documents/d.txt`, 'a');
         await writeFile(user, `${user.home}/Documents/d (1).txt`, 'a');
@@ -625,6 +656,37 @@ describe('FSService storage allowance', () => {
         const user = await quotaUser(64);
         await expect(
             user.write('raised.txt', 'x'.repeat(65), 1024),
+        ).resolves.toMatchObject({ wasOverwrite: false });
+    });
+
+    it("judges a write into another user's tree by that owner's allowance", async () => {
+        const owner = await quotaUser(8);
+        const writer = await quotaUser(1024);
+
+        // The override comes off the ACTING user's row — a roomy writer must
+        // not raise a full owner's cap when writing into the owner's tree
+        // (e.g. through a shared folder).
+        const error = await caught(() =>
+            limitedFs.write(
+                writer.userId,
+                {
+                    fileMetadata: {
+                        path: `${owner.home}/Documents/big.txt`,
+                        size: 16,
+                        contentType: 'text/plain',
+                    },
+                    fileContent: 'x'.repeat(16),
+                },
+                undefined,
+                1024,
+            ),
+        );
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('storage_limit_reached');
+
+        // The same override still applies to the writer's own tree.
+        await expect(
+            writer.write('big.txt', 'x'.repeat(16), 1024),
         ).resolves.toMatchObject({ wasOverwrite: false });
     });
 
@@ -2154,7 +2216,7 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
         await expect(fs.rename(user.userId, entry, 'ren.txt')).resolves.toBe(entry);
     });
 
-    it("refuses to rename another user's entry, matching remove and move", async () => {
+    it("refuses to rename another user's entry without write on it", async () => {
         const other = await makeUser();
         const entry = await writeFile(
             user,
@@ -2162,8 +2224,8 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
             'x',
         );
 
-        // A write-mode share recipient passes the ACL but must not be able to
-        // restructure the owner's tree — the same policy remove/move enforce.
+        // Unlike remove/move, rename only needs `write` on the entry itself —
+        // but a caller holding nothing at all is still turned away.
         await expect(
             fs.rename(other.userId, entry, 'renamed.txt'),
         ).rejects.toMatchObject({ statusCode: 403 });
@@ -2884,7 +2946,22 @@ describe('FSService restructuring a shared tree', () => {
         expect(await stillThere(shared.path)).toBe(true);
     });
 
-    it('refuses to let a recipient rename the shared folder itself', async () => {
+    it('lets a recipient rename a subfolder inside the shared folder', async () => {
+        const sub = await fs.mkdir(owner.userId, {
+            path: `${shared.path}/sub-to-rename`,
+        });
+
+        const renamed = await asHolder(() =>
+            fs.rename(holder.userId, sub, 'sub-renamed'),
+        );
+
+        expect(renamed.path).toBe(`${shared.path}/sub-renamed`);
+        expect(renamed.userId).toBe(owner.userId);
+    });
+
+    it('refuses to let a recipient rename the shared FOLDER itself', async () => {
+        // A folder's name is structure the owner's subtree hangs off — only
+        // a directly-shared FILE is renameable by its recipient.
         const error = await caught(() =>
             asHolder(() => fs.rename(holder.userId, shared, 'Renamed')),
         );
@@ -2893,12 +2970,32 @@ describe('FSService restructuring a shared tree', () => {
         expect(await stillThere(shared.path)).toBe(true);
     });
 
-    it('refuses to let a recipient rename a file shared directly with them', async () => {
+    it('lets a recipient rename a file shared directly with them', async () => {
         const file = await writeFile(owner, `${owner.home}/direct.txt`, 'x');
         await shareWrite(file);
 
+        const renamed = await asHolder(() =>
+            fs.rename(holder.userId, file, 'mine.txt'),
+        );
+
+        expect(renamed.path).toBe(`${owner.home}/mine.txt`);
+        expect(renamed.userId).toBe(owner.userId);
+    });
+
+    it('refuses rename to a recipient who holds only read', async () => {
+        const file = await writeFile(owner, `${owner.home}/lookdonttouch.txt`, 'x');
+        await server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: file.path,
+                resolveAncestors: () => fs.getAncestorChain(file.path),
+            },
+            'read',
+        );
+
         const error = await caught(() =>
-            asHolder(() => fs.rename(holder.userId, file, 'mine.txt')),
+            asHolder(() => fs.rename(holder.userId, file, 'touched.txt')),
         );
 
         expect(error.statusCode).toBe(403);

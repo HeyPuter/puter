@@ -75,6 +75,16 @@ export const shared_mode_for = async (path) => {
 };
 
 /**
+ * Whether anything is shared with the user at all.
+ *
+ * @returns {Promise<boolean>}
+ */
+export const has_shared_roots = async () => {
+    await load_once();
+    return roots.size > 0;
+};
+
+/**
  * The shared root `path` sits in, from what is already loaded.
  *
  * @param {string} path
@@ -91,7 +101,30 @@ export const shared_root_for = (path) => {
 };
 
 /**
- * May you rename or delete the item at `item_path`?
+ * May you rename the item at `item_path`?
+ *
+ * A FILE shared directly with you renames with `write` on it — the name is
+ * the file's own. A folder's name is structure the owner's subtree hangs
+ * off, so a shared folder root stays fixed; everything reached inside a
+ * shared folder goes by the holding folder, exactly like moving or deleting.
+ * The backend authorizes rename the same way.
+ *
+ * @param {string} item_path
+ * @param {boolean} [is_dir]
+ * @returns {Promise<boolean>}
+ */
+export const can_rename = async (item_path, is_dir = false) => {
+    if ( typeof item_path !== 'string' ) return false;
+    if ( is_owned_by_me(item_path) ) return true;
+    if ( is_share_root(item_path) ) {
+        if ( is_dir ) return false;
+        return ['write', 'manage'].includes(await shared_mode_for(item_path));
+    }
+    return can_restructure(item_path);
+};
+
+/**
+ * May you move or delete the item at `item_path`?
  *
  * The folder holding it decides, which is what the backend enforces too. A
  * shared item is therefore fixed — its folder belongs to its owner — while

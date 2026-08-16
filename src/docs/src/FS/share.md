@@ -39,7 +39,7 @@ How much access to grant. Defaults to `'read'`.
 
 - `'read'` - Read the item.
 - `'write'` - Read and change the item. Does **not** allow re-sharing it.
-- `'manage'` - Re-share the item with other people. Does **not** by itself allow writing.
+- `'manage'` - Everything `'write'` allows, plus re-sharing the item with other people.
 - `'list'`, `'see'` - Weaker than `read`; useful for making an item discoverable without exposing its contents.
 
 #### `options` (Object) (optional)
@@ -99,7 +99,7 @@ If some recipients succeed and others fail, the promise resolves with the ones t
 // An editor can change the file but cannot pass it on.
 await puter.fs.share('report.txt', 'editor@example.com', 'write');
 
-// A manager can share it with other people.
+// A manager can edit it AND share it with other people.
 await puter.fs.share('report.txt', 'manager@example.com', 'manage');
 ```
 
@@ -112,6 +112,13 @@ await puter.fs.share({
     mode: 'read',
 });
 ```
+
+## Live updates
+
+Changes inside a shared item are not pushed to recipients in real time —
+filesystem socket events go to the item's owner only. A client that shows
+shared content and needs it current should re-read it (`readdir`/`stat`)
+when freshness matters, for example on focus or an explicit refresh.
 
 ## Related
 

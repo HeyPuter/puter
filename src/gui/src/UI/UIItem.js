@@ -33,7 +33,7 @@ import publish_as_website from '../helpers/publish_as_website.js';
 import mime from '../lib/mime.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js';
 import { is_owned_by_me } from '../helpers/path_owner.js';
-import { can_restructure, shared_mode_for } from '../helpers/shared_access.js';
+import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from '../helpers/shared_access.js';
 
 const AI_APP_NAME = 'ai';
 
@@ -1155,9 +1155,16 @@ async function UIItem (options) {
             const can_manage_share =
                 $(el_item).attr('data-share_mode') === 'manage'
                 || (await shared_mode_for($(el_item).attr('data-path'))) === 'manage';
-            // Renaming and deleting go by the holding folder, not by the item.
+            // Moving and deleting go by the holding folder, not by the item.
             const may_restructure = !is_not_mine
                 || await can_restructure($(el_item).attr('data-path'));
+            // A shared FILE you hold write on is renameable even though it
+            // can't be moved; a shared folder root is not.
+            const may_rename = !is_not_mine
+                || await can_rename(
+                    $(el_item).attr('data-path'),
+                    ['1', 'true'].includes($(el_item).attr('data-is_dir')),
+                );
             const is_shortcut = !! $(el_item).attr('data-shortcut_to_path');
             const is_weblink = isWeblinkName($(el_item).attr('data-name'));
             menu_items = [];
@@ -1607,9 +1614,12 @@ async function UIItem (options) {
                                 $(el_item).attr('data-path'),
                                 window.user.username,
                             );
+                            // Or mode lookups keep answering for a share we
+                            // just walked away from.
+                            invalidate_shared_roots();
                             $(el_item).removeItems();
                         } catch (e) {
-                            UIAlert({ message: e?.message ?? i18n('error') });
+                            UIAlert({ message: e?.message ?? i18n('error_unknown_cause') });
                         }
                     },
                 });
@@ -1657,7 +1667,7 @@ async function UIItem (options) {
             // -------------------------------------------
             // Rename
             // -------------------------------------------
-            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_trash && may_restructure ) {
+            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_trash && may_rename ) {
                 menu_items.push({
                     html: i18n('rename'),
                     onClick: function () {
@@ -1916,7 +1926,7 @@ $.fn.removeItems = async function (options) {
     return this;
 };
 
-window.activate_item_name_editor = function (el_item) {
+window.activate_item_name_editor = async function (el_item) {
     // files in trash cannot be renamed, the user should be notified with an Alert.
     if ( $(el_item).attr('data-immutable') !== '0' ) {
         return;
@@ -1924,6 +1934,15 @@ window.activate_item_name_editor = function (el_item) {
     // files in trash cannot be renamed, user should be notified with an Alert.
     else if ( path.dirname($(el_item).attr('data-path')) === window.trash_path ) {
         UIAlert(i18n('items_in_trash_cannot_be_renamed'));
+        return;
+    }
+    // Someone else's item is renameable only with write on it (files, not
+    // shared folder roots) — this also covers the click-to-edit and keyboard
+    // paths, not just the context menu.
+    else if ( ! await can_rename(
+        $(el_item).attr('data-path'),
+        ['1', 'true'].includes($(el_item).attr('data-is_dir')),
+    ) ) {
         return;
     }
 

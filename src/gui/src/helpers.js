@@ -20,7 +20,8 @@
 import get_html_element_from_options from './helpers/get_html_element_from_options.js';
 import globToRegExp from './helpers/globToRegExp.js';
 import item_icon from './helpers/item_icon.js';
-import { trash_path_for } from './helpers/path_owner.js';
+import { is_owned_by_me, trash_path_for } from './helpers/path_owner.js';
+import { invalidate_shared_roots } from './helpers/shared_access.js';
 import truncate_filename from './helpers/truncate_filename.js';
 import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
 import update_username_in_gui from './helpers/update_username_in_gui.js';
@@ -1721,6 +1722,10 @@ window.refresh_trash_state = async function () {
  * @returns {Promise<void>}
  */
 window.move_items = async function (el_items, dest_path, is_undo = false) {
+    // The Shared view is a query, not a directory — nothing can be moved
+    // into it. Backstop for any drop target the surfaces fail to exclude.
+    if ( dest_path === window.shared_path ) return;
+
     let move_op_id = window.operation_id++;
     window.operation_cancelled[move_op_id] = false;
 
@@ -3188,6 +3193,10 @@ window.rename_file = async (options, new_name, old_name, old_path, el_item, el_i
         new_name: new_name,
         excludeSocketID: window.socket?.id,
         success: async (fsentry) => {
+            // A renamed shared item is cached under its old path — drop the
+            // cache so mode lookups against the new path don't miss.
+            if ( ! is_owned_by_me(old_path) ) invalidate_shared_roots();
+
             // Add action to actions_history for undo ability
             if ( ! is_undo )
             {
