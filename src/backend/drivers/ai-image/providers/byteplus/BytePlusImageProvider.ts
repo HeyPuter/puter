@@ -26,7 +26,7 @@ import type {
     IImageModel,
     IImageProvider,
 } from '../../types.js';
-import { isHttpUrl } from '../../inputImage.js';
+import { toUrlOrDataUri } from '../../inputImage.js';
 import {
     BYTEPLUS_IMAGE_GENERATION_MODELS,
     SEEDREAM_RESOLUTION_MAP,
@@ -38,6 +38,9 @@ const DEFAULT_MODEL = 'seedream-5-0-lite-260128';
 // [1280x720, 2048x2048x1.1025] and aspect ratio within [1/16, 16].
 const MIN_TOTAL_PIXELS = 921_600;
 const MAX_TOTAL_PIXELS = 4_624_220;
+// Models restricted to the 2K tier (see SEEDREAM_2K_ONLY in models.ts)
+// enforce this higher minimum on explicit sizes too.
+const MIN_TOTAL_PIXELS_2K_ONLY = 3_686_400;
 // dola-seedream-5-0-pro's price break: ≤ 2.61MP bills the "1.5K or lower"
 // rate, above it the higher rate.
 const PRO_TIER_BREAK_PIXELS = 2_610_000;
@@ -135,7 +138,7 @@ export class BytePlusImageProvider implements IImageProvider {
         const inputImageCount = input_images?.length ?? 0;
 
         const tier = this.#normalizeTier(quality, selectedModel);
-        const size = this.#resolveSize(tier, ratio);
+        const size = this.#resolveSize(tier, selectedModel, ratio);
 
         // The pro model bills by output pixel count; everything else is a
         // flat per-image rate.
@@ -184,7 +187,7 @@ export class BytePlusImageProvider implements IImageProvider {
         const image =
             inputImageCount > 0
                 ? input_images!.map((img) =>
-                      this.#toImageRef(img, input_image_mime_type),
+                      toUrlOrDataUri(img, input_image_mime_type),
                   )
                 : undefined;
 
@@ -239,14 +242,6 @@ export class BytePlusImageProvider implements IImageProvider {
         return url;
     }
 
-    // Ark accepts a public URL or a `data:image/...;base64,` URI; wrap raw
-    // base64 payloads so they're valid.
-    #toImageRef(img: string, mimeHint?: string): string {
-        return isHttpUrl(img) || img.startsWith('data:')
-            ? img
-            : `data:${mimeHint ?? 'image/png'};base64,${img}`;
-    }
-
     /**
      * Pick the tier to request. Models with a minimum output-pixel count reject
      * the smaller tiers outright (and the aspect-ratio table maps them to
@@ -255,8 +250,16 @@ export class BytePlusImageProvider implements IImageProvider {
      */
     #normalizeTier(quality: string | undefined, model: IImageModel): Tier {
         const q = (quality ?? '').toLowerCase();
-        // Ark's default size is 2K when unspecified.
-        const requested: Tier = isTier(q) ? q : '2k';
+        // OpenAI-style quality names other Puter providers accept map onto
+        // the nearest Ark tier so e.g. 'low' isn't silently billed at the
+        // 2K rate; anything else falls back to Ark's own default of 2K.
+        const synonym: Record<string, Tier> = {
+            low: '1k',
+            medium: '1.5k',
+            high: '2k',
+            hd: '2k',
+        };
+        const requested: Tier = isTier(q) ? q : (synonym[q] ?? '2k');
 
         const allowed = TIERS.filter(
             (t) => model.allowedQualityLevels?.includes(t) ?? true,
@@ -278,12 +281,23 @@ export class BytePlusImageProvider implements IImageProvider {
      *   documented `WxH` for (aspect, tier)
      * - Otherwise → the tier keyword (`1K`/`1.5K`/`2K`, method 1)
      */
-    #resolveSize(tier: Tier, ratio?: { w: number; h: number }): string {
+    #resolveSize(
+        tier: Tier,
+        model: IImageModel,
+        ratio?: { w: number; h: number },
+    ): string {
         if (ratio?.w && ratio?.h) {
             const pixels = ratio.w * ratio.h;
             if (pixels >= MIN_TOTAL_PIXELS) {
+                // 2K-only models enforce a higher minimum on explicit sizes
+                // too — fail fast with the real constraint instead of letting
+                // Ark 400 the request after the round-trip.
+                const minPixels = model.allowedQualityLevels?.includes('1k')
+                    ? MIN_TOTAL_PIXELS
+                    : MIN_TOTAL_PIXELS_2K_ONLY;
                 const aspect = ratio.w / ratio.h;
                 if (
+                    pixels < minPixels ||
                     pixels > MAX_TOTAL_PIXELS ||
                     aspect < 1 / 16 ||
                     aspect > 16
@@ -291,14 +305,20 @@ export class BytePlusImageProvider implements IImageProvider {
                     throw new HttpError(
                         400,
                         `Requested size ${ratio.w}x${ratio.h} is outside BytePlus limits ` +
-                            `(total pixels ≤ ${MAX_TOTAL_PIXELS}, aspect ratio within [1/16, 16])`,
+                            `for ${model.id} (total pixels within [${minPixels}, ${MAX_TOTAL_PIXELS}], ` +
+                            'aspect ratio within [1/16, 16])',
                         { legacyCode: 'bad_request' },
                     );
                 }
                 return `${ratio.w}x${ratio.h}`;
             }
-            const mapped =
-                SEEDREAM_RESOLUTION_MAP[`${ratio.w}:${ratio.h}`]?.[tier];
+            // Reduce w:h to lowest terms so any spelling of a supported
+            // aspect (8:6, 32:18, ...) finds its documented tier size.
+            const gcd = (a: number, b: number): number =>
+                b === 0 ? a : gcd(b, a % b);
+            const d = gcd(Math.round(ratio.w), Math.round(ratio.h)) || 1;
+            const key = `${Math.round(ratio.w) / d}:${Math.round(ratio.h) / d}`;
+            const mapped = SEEDREAM_RESOLUTION_MAP[key]?.[tier];
             if (mapped) return `${mapped.w}x${mapped.h}`;
         }
         return { '1k': '1K', '1.5k': '1.5K', '2k': '2K' }[tier];

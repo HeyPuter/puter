@@ -265,6 +265,36 @@ export const extractMeteredUsage = (usage) => {
     };
 };
 
+// Renames one object's DeepSeek-wire `reasoning_content` to the `reasoning`
+// key Puter exposes, without clobbering an existing `reasoning`.
+const renameReasoningContent = (obj) => {
+    if (obj.reasoning === undefined && obj.reasoning_content !== undefined) {
+        obj.reasoning = obj.reasoning_content;
+    }
+    delete obj.reasoning_content;
+};
+
+/**
+ * Normalize a non-streaming completion result whose provider follows the
+ * DeepSeek wire convention (`reasoning_content` on the message and content
+ * parts) to Puter's `reasoning` key. The streaming path already does this in
+ * create_chat_stream_handler.
+ */
+export const normalizeReasoningContent = (result) => {
+    if (!result || typeof result !== 'object') return;
+    if (!('message' in result) || !result.message) return;
+
+    const message = result.message;
+    renameReasoningContent(message);
+
+    if (!Array.isArray(message.content)) return;
+    for (const part of message.content) {
+        if (part && typeof part === 'object' && !Array.isArray(part)) {
+            renameReasoningContent(part);
+        }
+    }
+};
+
 export const create_chat_stream_handler =
     ({ deviations, completion, usage_calculator }) =>
     async ({ chatStream }) => {

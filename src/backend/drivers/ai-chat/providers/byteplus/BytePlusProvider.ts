@@ -166,7 +166,9 @@ export class BytePlusProvider implements IChatProvider {
             completion,
         });
 
-        this.#normalizeReasoningContent(result);
+        // Ark's deep-reasoning models return `reasoning_content` (DeepSeek
+        // wire convention); expose it under `reasoning` like other providers.
+        OpenAIUtil.normalizeReasoningContent(result);
         return result;
     }
 
@@ -174,22 +176,5 @@ export class BytePlusProvider implements IChatProvider {
         _text: string,
     ): ReturnType<IChatProvider['checkModeration']> {
         throw new Error('Method not implemented.');
-    }
-
-    // Ark's deep-reasoning models return `reasoning_content` (DeepSeek wire
-    // convention); expose it under the `reasoning` key like other providers.
-    #normalizeReasoningContent(
-        result: Awaited<ReturnType<IChatProvider['complete']>>,
-    ) {
-        if (!('message' in result) || !result.message) return;
-
-        const message = result.message as Record<string, unknown>;
-        if (
-            message.reasoning === undefined &&
-            message.reasoning_content !== undefined
-        ) {
-            message.reasoning = message.reasoning_content;
-        }
-        delete message.reasoning_content;
     }
 }

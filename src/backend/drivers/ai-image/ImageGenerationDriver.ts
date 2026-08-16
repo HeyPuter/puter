@@ -335,19 +335,22 @@ export class ImageGenerationDriver extends PuterDriver {
         }
 
         // Falls back to the shared `byteplus` (ai-chat) key; `apiBaseUrl`
-        // selects the ModelArk region, same as the chat provider.
-        const byteplusCfg = (providers['byteplus-image-generation'] ??
-            providers['byteplus']) as Record<string, unknown> | undefined;
-        const byteplusKey = readKey(
-            providers['byteplus-image-generation'],
-            providers['byteplus'],
-        );
+        // selects the ModelArk region, same as the chat provider. Each field
+        // falls through independently so a partial image-specific block can't
+        // pair its missing apiBaseUrl with the shared block's key (or vice
+        // versa) and point a region-scoped key at the wrong endpoint.
+        const byteplusImageCfg = providers['byteplus-image-generation'] as
+            Record<string, unknown> | undefined;
+        const byteplusSharedCfg = providers['byteplus'] as
+            Record<string, unknown> | undefined;
+        const byteplusKey = readKey(byteplusImageCfg, byteplusSharedCfg);
         if (byteplusKey) {
             this.#providers['byteplus-image-generation'] =
                 new BytePlusImageProvider(
                     {
                         apiKey: byteplusKey,
-                        apiBaseUrl: byteplusCfg?.apiBaseUrl as
+                        apiBaseUrl: (byteplusImageCfg?.apiBaseUrl ??
+                            byteplusSharedCfg?.apiBaseUrl) as
                             string | undefined,
                     },
                     m,

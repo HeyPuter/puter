@@ -52,7 +52,7 @@ import { AIChatStream } from '../../utils/Streaming.js';
 import { BytePlusProvider } from './BytePlusProvider.js';
 import { BYTEPLUS_MODELS } from './models.js';
 
-// ── OpenAI SDK mock ─────────────────────────────────────────────────
+// -- OpenAI SDK mock -------------------------------------------------
 //
 // `vi.hoisted` lets us share spies between the (hoisted) factory and
 // the test body so each test can stub `chat.completions.create` with
@@ -80,7 +80,7 @@ vi.mock('openai', () => {
     return { OpenAI: OpenAICtor, default: { OpenAI: OpenAICtor } };
 });
 
-// ── Test harness ────────────────────────────────────────────────────
+// -- Test harness ----------------------------------------------------
 
 let server: PuterServer;
 let recordSpy: MockInstance<MeteringService['utilRecordUsageObject']>;
@@ -148,7 +148,7 @@ afterEach(() => {
     vi.restoreAllMocks();
 });
 
-// ── Construction ────────────────────────────────────────────────────
+// -- Construction ----------------------------------------------------
 
 describe('BytePlusProvider construction', () => {
     it('points the OpenAI SDK at the ModelArk base URL with the configured key', () => {
@@ -171,7 +171,7 @@ describe('BytePlusProvider construction', () => {
     });
 });
 
-// ── Model catalog ───────────────────────────────────────────────────
+// -- Model catalog ---------------------------------------------------
 
 describe('BytePlusProvider model catalog', () => {
     it('returns seed-2-0-lite-260428 as the default', () => {
@@ -209,7 +209,7 @@ describe('BytePlusProvider model catalog', () => {
     });
 });
 
-// ── Request shape ───────────────────────────────────────────────────
+// -- Request shape ---------------------------------------------------
 
 describe('BytePlusProvider.complete request shape', () => {
     const baseCompletion = {
@@ -357,7 +357,7 @@ describe('BytePlusProvider.complete request shape', () => {
     });
 });
 
-// ── Model resolution ────────────────────────────────────────────────
+// -- Model resolution ------------------------------------------------
 
 describe('BytePlusProvider model resolution', () => {
     const baseCompletion = {
@@ -428,7 +428,7 @@ describe('BytePlusProvider model resolution', () => {
     });
 });
 
-// ── Non-stream completion + reasoning_content normalisation ─────────
+// -- Non-stream completion + reasoning_content normalisation ---------
 
 describe('BytePlusProvider.complete non-stream output', () => {
     it('returns the first choice and runs the metered usage calculator', async () => {
@@ -600,7 +600,7 @@ describe('BytePlusProvider.complete non-stream output', () => {
     });
 });
 
-// ── Streaming deltas ────────────────────────────────────────────────
+// -- Streaming deltas ------------------------------------------------
 
 describe('BytePlusProvider.complete streaming', () => {
     it('streams text deltas through to text events and meters final usage', async () => {
@@ -781,7 +781,7 @@ describe('BytePlusProvider.complete streaming', () => {
     });
 });
 
-// ── Error mapping ───────────────────────────────────────────────────
+// -- Error mapping ---------------------------------------------------
 
 describe('BytePlusProvider.complete error mapping', () => {
     it('rethrows errors raised by the OpenAI client unchanged', async () => {
@@ -803,7 +803,7 @@ describe('BytePlusProvider.complete error mapping', () => {
     });
 });
 
-// ── Moderation ──────────────────────────────────────────────────────
+// -- Moderation ------------------------------------------------------
 
 describe('BytePlusProvider.checkModeration', () => {
     it('throws — BytePlus provider does not implement moderation', () => {

@@ -279,7 +279,14 @@ export class BytePlusVideoProvider extends VideoProvider {
                     { legacyCode: 'bad_request' },
                 );
             }
-            for (const img of referenceImages!.slice(0, MAX_REFERENCE_IMAGES)) {
+            if (referenceImages!.length > MAX_REFERENCE_IMAGES) {
+                throw new HttpError(
+                    400,
+                    `${modelId} accepts at most ${MAX_REFERENCE_IMAGES} reference image(s)`,
+                    { legacyCode: 'bad_request' },
+                );
+            }
+            for (const img of referenceImages!) {
                 if (typeof img !== 'string' || !img.trim()) continue;
                 content.push({
                     type: 'image_url',

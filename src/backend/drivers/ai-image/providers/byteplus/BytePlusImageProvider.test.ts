@@ -47,7 +47,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { BYTEPLUS_IMAGE_GENERATION_MODELS } from './models.js';
 import { BytePlusImageProvider } from './BytePlusImageProvider.js';
 
-// ── OpenAI SDK mock ─────────────────────────────────────────────────
+// -- OpenAI SDK mock -------------------------------------------------
 
 const { generateMock, openAICtor } = vi.hoisted(() => ({
     generateMock: vi.fn(),
@@ -68,7 +68,7 @@ vi.mock('openai', () => {
     return { OpenAI: OpenAICtor, default: { OpenAI: OpenAICtor } };
 });
 
-// ── Test harness ────────────────────────────────────────────────────
+// -- Test harness ----------------------------------------------------
 
 let server: PuterServer;
 let hasCreditsSpy: MockInstance<MeteringService['hasEnoughCredits']>;
@@ -114,7 +114,7 @@ const sampleResponse = { data: [{ url: 'https://ark.example/img/1' }] };
 const findModel = (id: string) =>
     BYTEPLUS_IMAGE_GENERATION_MODELS.find((m) => m.id === id)!;
 
-// ── Construction ────────────────────────────────────────────────────
+// -- Construction ----------------------------------------------------
 
 describe('BytePlusImageProvider construction', () => {
     it('defaults the OpenAI SDK to the ap-southeast ModelArk base URL', () => {
@@ -146,7 +146,7 @@ describe('BytePlusImageProvider construction', () => {
     });
 });
 
-// ── Model catalog ───────────────────────────────────────────────────
+// -- Model catalog ---------------------------------------------------
 
 describe('BytePlusImageProvider model catalog', () => {
     it('returns seedream-5-0-lite as the default', () => {
@@ -162,7 +162,7 @@ describe('BytePlusImageProvider model catalog', () => {
     });
 });
 
-// ── test_mode / validation / credit gate ────────────────────────────
+// -- test_mode / validation / credit gate ----------------------------
 
 describe('BytePlusImageProvider.generate gates', () => {
     it('returns the canned sample URL in test_mode without side effects', async () => {
@@ -200,7 +200,7 @@ describe('BytePlusImageProvider.generate gates', () => {
     });
 });
 
-// ── Model resolution ────────────────────────────────────────────────
+// -- Model resolution ------------------------------------------------
 
 describe('BytePlusImageProvider.generate model resolution', () => {
     it('falls back to the default model for unknown ids', async () => {
@@ -237,7 +237,7 @@ describe('BytePlusImageProvider.generate model resolution', () => {
     });
 });
 
-// ── Request shape ───────────────────────────────────────────────────
+// -- Request shape ---------------------------------------------------
 
 describe('BytePlusImageProvider.generate request shape', () => {
     it('sends the tier keyword size (Ark default 2K), url format and no watermark', async () => {
@@ -306,11 +306,40 @@ describe('BytePlusImageProvider.generate request shape', () => {
         generateMock.mockResolvedValueOnce(sampleResponse);
         await withTestActor(() =>
             makeProvider().generate({
+                model: 'seedream-4-0',
                 prompt: 'hi',
                 ratio: { w: 2048, h: 1024 },
             }),
         );
         expect(generateMock.mock.calls[0]![0].size).toBe('2048x1024');
+    });
+
+    it('rejects explicit pixel dimensions below a 2K-only model minimum', async () => {
+        // The default model (seedream-5-0-lite) only accepts >= 3,686,400 px,
+        // so a size that passes the generic floor still fails pre-flight
+        // instead of round-tripping to Ark for a 400.
+        await expect(
+            withTestActor(() =>
+                makeProvider().generate({
+                    prompt: 'hi',
+                    ratio: { w: 2048, h: 1024 },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+        expect(generateMock).not.toHaveBeenCalled();
+    });
+
+    it('reduces w:h to lowest terms when mapping an aspect ratio', async () => {
+        generateMock.mockResolvedValueOnce(sampleResponse);
+        await withTestActor(() =>
+            makeProvider().generate({
+                model: 'seedream-4-0',
+                prompt: 'hi',
+                quality: '1k',
+                ratio: { w: 32, h: 18 },
+            }),
+        );
+        expect(generateMock.mock.calls[0]![0].size).toBe('1424x800');
     });
 
     it('rejects explicit pixel dimensions outside Ark limits', async () => {
@@ -340,7 +369,7 @@ describe('BytePlusImageProvider.generate request shape', () => {
     });
 });
 
-// ── Input images ────────────────────────────────────────────────────
+// -- Input images ----------------------------------------------------
 
 describe('BytePlusImageProvider.generate input images', () => {
     const PNG = 'data:image/png;base64,iVBORw0KGgo=';
@@ -390,7 +419,7 @@ describe('BytePlusImageProvider.generate input images', () => {
     });
 });
 
-// ── Metering ────────────────────────────────────────────────────────
+// -- Metering --------------------------------------------------------
 
 describe('BytePlusImageProvider.generate metering', () => {
     it('meters flat per-image models at their catalog rate', async () => {
@@ -488,7 +517,7 @@ describe('BytePlusImageProvider.generate metering', () => {
     });
 });
 
-// ── Response handling ───────────────────────────────────────────────
+// -- Response handling -----------------------------------------------
 
 describe('BytePlusImageProvider.generate response handling', () => {
     it('falls back to a data URI when the response carries b64_json', async () => {

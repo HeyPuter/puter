@@ -180,7 +180,7 @@ export class ZAIProvider implements IChatProvider {
             completion,
         });
 
-        this.#normalizeReasoningContent(result);
+        OpenAIUtil.normalizeReasoningContent(result);
         return result;
     }
 
@@ -188,33 +188,5 @@ export class ZAIProvider implements IChatProvider {
         _text: string,
     ): ReturnType<IChatProvider['checkModeration']> {
         throw new Error('Method not implemented.');
-    }
-
-    #normalizeReasoningContent(
-        result: Awaited<ReturnType<IChatProvider['complete']>>,
-    ) {
-        if (!('message' in result) || !result.message) return;
-
-        const message = result.message as Record<string, unknown>;
-        if (
-            message.reasoning === undefined &&
-            message.reasoning_content !== undefined
-        ) {
-            message.reasoning = message.reasoning_content;
-        }
-        delete message.reasoning_content;
-
-        if (!Array.isArray(message.content)) return;
-
-        for (const contentPart of message.content) {
-            const part = asRecord(contentPart);
-            if (
-                part.reasoning === undefined &&
-                part.reasoning_content !== undefined
-            ) {
-                part.reasoning = part.reasoning_content;
-            }
-            delete part.reasoning_content;
-        }
     }
 }

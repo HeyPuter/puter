@@ -90,9 +90,7 @@ export const BYTEPLUS_VIDEO_GENERATION_MODELS: IVideoModel[] = [
             'default-duration-per-video': 76,
         },
         durationSeconds: seconds(5, 4, 15),
-        // '4K' repeats Ark's documented casing so the driver's strict
-        // `includes` match accepts either spelling.
-        dimensions: ['720p', '480p', '1080p', '4k', '4K'],
+        dimensions: ['720p', '480p', '1080p', '4k'],
         fps: FPS,
         defaultUsageKey:
             'byteplus-video-generation:dreamina-seedance-2-0-260128:video_tokens:720p',

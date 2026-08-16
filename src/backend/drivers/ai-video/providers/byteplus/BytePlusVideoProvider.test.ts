@@ -46,7 +46,7 @@ import { withTestActor } from '../../../integrationTestUtil.js';
 import { BYTEPLUS_VIDEO_GENERATION_MODELS } from './models.js';
 import { BytePlusVideoProvider } from './BytePlusVideoProvider.js';
 
-// ── Test harness ────────────────────────────────────────────────────
+// -- Test harness ----------------------------------------------------
 
 let server: PuterServer;
 let fetchSpy: MockInstance<typeof fetch>;
@@ -121,7 +121,7 @@ const sentBody = (callIndex = 0): Record<string, unknown> =>
 const findModel = (id: string) =>
     BYTEPLUS_VIDEO_GENERATION_MODELS.find((m) => m.id === id)!;
 
-// ── Construction / catalog ──────────────────────────────────────────
+// -- Construction / catalog ------------------------------------------
 
 describe('BytePlusVideoProvider construction and catalog', () => {
     it('throws when no apiKey is supplied', () => {
@@ -152,7 +152,7 @@ describe('BytePlusVideoProvider construction and catalog', () => {
     });
 });
 
-// ── Gates ───────────────────────────────────────────────────────────
+// -- Gates -----------------------------------------------------------
 
 describe('BytePlusVideoProvider.generate gates', () => {
     it('returns the canned sample URL in test_mode without network calls', async () => {
@@ -183,7 +183,7 @@ describe('BytePlusVideoProvider.generate gates', () => {
     });
 });
 
-// ── Request shape ───────────────────────────────────────────────────
+// -- Request shape ---------------------------------------------------
 
 describe('BytePlusVideoProvider.generate request shape', () => {
     it('POSTs a create-task request with text content and defaults', async () => {
@@ -362,7 +362,7 @@ describe('BytePlusVideoProvider.generate request shape', () => {
     });
 });
 
-// ── Polling / outcomes ──────────────────────────────────────────────
+// -- Polling / outcomes ----------------------------------------------
 
 describe('BytePlusVideoProvider.generate polling and outcomes', () => {
     it('keeps polling while the task is queued/running', async () => {
@@ -400,7 +400,7 @@ describe('BytePlusVideoProvider.generate polling and outcomes', () => {
     });
 });
 
-// ── Metering ────────────────────────────────────────────────────────
+// -- Metering --------------------------------------------------------
 
 describe('BytePlusVideoProvider.generate metering', () => {
     it('bills the tokens the task reports at the resolution rate', async () => {
