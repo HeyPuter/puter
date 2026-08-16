@@ -1166,6 +1166,115 @@ describe('LegacyFSController.move', () => {
         };
         expect(removedPayload.response?.uid).toBe(replaced.uuid);
     });
+
+    it('lets a share recipient trash an item into the owner’s trash', async () => {
+        const owner = await makeUser();
+        const holder = await makeUser();
+        const ownerName = owner.actor.user!.username!;
+        const sharedPath = `/${ownerName}/Documents/Contents`;
+
+        await withActor(owner.actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: sharedPath }, actor: owner.actor }),
+                makeRes().res,
+            ),
+        );
+        await withActor(owner.actor, () =>
+            controller.touch(
+                makeReq({
+                    body: { path: `${sharedPath}/note.txt` },
+                    actor: owner.actor,
+                }),
+                makeRes().res,
+            ),
+        );
+        const shared = (await server.stores.fsEntry.getEntryByPath(sharedPath))!;
+        await server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: shared.path,
+                resolveAncestors: () =>
+                    server.services.fs.getAncestorChain(shared.path),
+            },
+            'write',
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(holder.actor, () =>
+            controller.move(
+                makeReq({
+                    body: {
+                        source: `${sharedPath}/note.txt`,
+                        destination: `/${ownerName}/Trash`,
+                    },
+                    actor: holder.actor,
+                }),
+                res,
+            ),
+        );
+
+        // The move landed in the owner's trash, but the recipient is told so
+        // in masked form — the owner's real layout stays theirs.
+        const body = captured.body as { moved: { uid: string; path: string } };
+        expect(body.moved.path).toBe(
+            `/${ownerName}/${body.moved.uid}/note.txt`,
+        );
+        const moved = await server.stores.fsEntry.getEntryByUuid(
+            body.moved.uid,
+        );
+        expect(moved!.path).toBe(`/${ownerName}/Trash/note.txt`);
+    });
+
+    it('refuses a share recipient moving an item into their own trash', async () => {
+        const owner = await makeUser();
+        const holder = await makeUser();
+        const ownerName = owner.actor.user!.username!;
+        const holderName = holder.actor.user!.username!;
+        const sharedPath = `/${ownerName}/Documents/Shared`;
+
+        await withActor(owner.actor, () =>
+            controller.mkdir(
+                makeReq({ body: { path: sharedPath }, actor: owner.actor }),
+                makeRes().res,
+            ),
+        );
+        await withActor(owner.actor, () =>
+            controller.touch(
+                makeReq({
+                    body: { path: `${sharedPath}/theirs.txt` },
+                    actor: owner.actor,
+                }),
+                makeRes().res,
+            ),
+        );
+        const shared = (await server.stores.fsEntry.getEntryByPath(sharedPath))!;
+        await server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: shared.path,
+                resolveAncestors: () =>
+                    server.services.fs.getAncestorChain(shared.path),
+            },
+            'write',
+        );
+
+        await expect(
+            withActor(holder.actor, () =>
+                controller.move(
+                    makeReq({
+                        body: {
+                            source: `${sharedPath}/theirs.txt`,
+                            destination: `/${holderName}/Trash`,
+                        },
+                        actor: holder.actor,
+                    }),
+                    makeRes().res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
 });
 
 // ── search ──────────────────────────────────────────────────────────
@@ -1586,8 +1695,11 @@ describe('LegacyFSController.writeFile (write IDOR)', () => {
             ),
         );
 
-        // The write landed on the signed file …
-        expect((captured.body as { path?: string }).path).toBe(target);
+        // The write landed on the signed file — reported masked, since the
+        // attacker doesn't own it …
+        expect((captured.body as { path?: string }).path).toBe(
+            `/${victim.actor.user!.username}/${entry!.uuid}/secret.txt`,
+        );
         // … and never created the attacker-named sibling.
         const siblingEntry =
             await server.stores.fsEntry.getEntryByPath(sibling);

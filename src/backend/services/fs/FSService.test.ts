@@ -19,6 +19,7 @@
  */
 
 import { Readable } from 'node:stream';
+import { CreateBucketCommand } from '@aws-sdk/client-s3';
 import { v4 as uuidv4 } from 'uuid';
 import {
     afterAll,
@@ -495,6 +496,36 @@ describe('FSService overwrite and dedupe resolution', () => {
         expect(await readBack(second)).toBe('bbbbb');
     });
 
+    it('keeps an overwrite in the bucket the entry already lives in', async () => {
+        const first = await writeFile(
+            user,
+            `${user.home}/Documents/pinned.txt`,
+            'first',
+        );
+        // A row whose content lives in another region's bucket — e.g. the
+        // owner uploaded it through a server in that region.
+        await server.clients.s3
+            .get('eu-central-1')
+            .send(new CreateBucketCommand({ Bucket: 'far-bucket' }));
+        await server.clients.db.write(
+            'UPDATE fsentries SET bucket = ?, bucket_region = ? WHERE uuid = ?',
+            ['far-bucket', 'eu-central-1', first.uuid],
+        );
+
+        const second = await writeFile(
+            user,
+            `${user.home}/Documents/pinned.txt`,
+            'second',
+            { overwrite: true },
+        );
+
+        // Uploading to this server's bucket instead would repoint the row
+        // and strand the original object in the old bucket.
+        expect(second.bucket).toBe('far-bucket');
+        expect(second.bucketRegion).toBe('eu-central-1');
+        expect(await readBack(second)).toBe('second');
+    });
+
     it('dedupes into an unused " (n)" name, skipping names already taken', async () => {
         await writeFile(user, `${user.home}/Documents/d.txt`, 'a');
         await writeFile(user, `${user.home}/Documents/d (1).txt`, 'a');
@@ -625,6 +656,37 @@ describe('FSService storage allowance', () => {
         const user = await quotaUser(64);
         await expect(
             user.write('raised.txt', 'x'.repeat(65), 1024),
+        ).resolves.toMatchObject({ wasOverwrite: false });
+    });
+
+    it("judges a write into another user's tree by that owner's allowance", async () => {
+        const owner = await quotaUser(8);
+        const writer = await quotaUser(1024);
+
+        // The override comes off the ACTING user's row — a roomy writer must
+        // not raise a full owner's cap when writing into the owner's tree
+        // (e.g. through a shared folder).
+        const error = await caught(() =>
+            limitedFs.write(
+                writer.userId,
+                {
+                    fileMetadata: {
+                        path: `${owner.home}/Documents/big.txt`,
+                        size: 16,
+                        contentType: 'text/plain',
+                    },
+                    fileContent: 'x'.repeat(16),
+                },
+                undefined,
+                1024,
+            ),
+        );
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('storage_limit_reached');
+
+        // The same override still applies to the writer's own tree.
+        await expect(
+            writer.write('big.txt', 'x'.repeat(16), 1024),
         ).resolves.toMatchObject({ wasOverwrite: false });
     });
 
@@ -2111,7 +2173,7 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
             `${user.home}/Documents/before.txt`,
             'x',
         );
-        const renamed = await fs.rename(entry, 'after.txt');
+        const renamed = await fs.rename(user.userId, entry, 'after.txt');
 
         expect(renamed.name).toBe('after.txt');
         expect(renamed.path).toBe(`${user.home}/Documents/after.txt`);
@@ -2124,7 +2186,7 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
         });
         await writeFile(user, `${user.home}/Documents/olddir/inner.txt`, 'x');
 
-        await fs.rename(dir, 'newdir');
+        await fs.rename(user.userId, dir, 'newdir');
 
         expect(
             await entryAt(user, '/Documents/newdir/inner.txt'),
@@ -2140,18 +2202,34 @@ describe('FSService mkdir, touch, rename and shortcuts', () => {
         );
         await writeFile(user, `${user.home}/Documents/taken.txt`, 'x');
 
-        expect((await caught(() => fs.rename(entry, 'a/b'))).message).toBe(
+        expect((await caught(() => fs.rename(user.userId, entry, 'a/b'))).message).toBe(
             'Name cannot contain a slash',
         );
-        expect((await caught(() => fs.rename(entry, '   '))).message).toBe(
+        expect((await caught(() => fs.rename(user.userId, entry, '   '))).message).toBe(
             'Name cannot be empty',
         );
         expect(
-            (await caught(() => fs.rename(entry, 'taken.txt'))).statusCode,
+            (await caught(() => fs.rename(user.userId, entry, 'taken.txt'))).statusCode,
         ).toBe(409);
 
         // Renaming to the current name is a no-op that returns the same row.
-        await expect(fs.rename(entry, 'ren.txt')).resolves.toBe(entry);
+        await expect(fs.rename(user.userId, entry, 'ren.txt')).resolves.toBe(entry);
+    });
+
+    it("refuses to rename another user's entry without write on it", async () => {
+        const other = await makeUser();
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/theirs.txt`,
+            'x',
+        );
+
+        // Unlike remove/move, rename only needs `write` on the entry itself —
+        // but a caller holding nothing at all is still turned away.
+        await expect(
+            fs.rename(other.userId, entry, 'renamed.txt'),
+        ).rejects.toMatchObject({ statusCode: 403 });
+        expect(await entryAt(user, '/Documents/theirs.txt')).not.toBeNull();
     });
 
     it('creates a shortcut, conflicts on a taken name and dedupes on request', async () => {
@@ -2707,7 +2785,7 @@ describe('FSService copy', () => {
         expect(first.path).toBe(`${user.home}/Desktop/phantom.txt`);
 
         // Renaming the occupant frees the path...
-        await fs.rename(first, 'phantom-renamed.txt');
+        await fs.rename(user.userId, first, 'phantom-renamed.txt');
 
         // ...so an immediate re-copy must succeed. A stale path-cache entry
         // for the old name used to surface a phantom conflict here — and a
@@ -2743,6 +2821,416 @@ describe('FSService copy', () => {
         expect(await entryAt(user, '/Documents/cp-ghost.txt')).toBeNull();
 
         consoleError.mockRestore();
+    });
+});
+
+describe('FSService restructuring a shared tree', () => {
+    let owner: TestUser;
+    let holder: TestUser;
+    let shared: FSEntry;
+
+    const shareWrite = (entry: FSEntry) =>
+        server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: entry.path,
+                resolveAncestors: () => fs.getAncestorChain(entry.path),
+            },
+            'write',
+        );
+
+    const asHolder = <T>(run: () => Promise<T>): Promise<T> =>
+        runWithContext({ actor: holder.actor }, run);
+
+    const stillThere = async (path: string) =>
+        (await server.stores.fsEntry.getEntryByPath(path, {
+            skipCache: true,
+        })) !== null;
+
+    beforeAll(async () => {
+        owner = await makeUser();
+        holder = await makeUser();
+        shared = await fs.mkdir(owner.userId, {
+            path: `${owner.home}/Documents/Contents`,
+        });
+        await shareWrite(shared);
+    });
+
+    it('lets a recipient delete a file inside the shared folder', async () => {
+        const file = await writeFile(owner, `${shared.path}/gone.txt`, 'x');
+
+        await asHolder(() => fs.remove(holder.userId, { entry: file }));
+
+        expect(await stillThere(file.path)).toBe(false);
+    });
+
+    it('lets a recipient delete a subfolder of the shared folder', async () => {
+        const sub = await fs.mkdir(owner.userId, {
+            path: `${shared.path}/sub`,
+        });
+        await writeFile(owner, `${sub.path}/deep.txt`, 'x');
+
+        await asHolder(() =>
+            fs.remove(holder.userId, { entry: sub, recursive: true }),
+        );
+
+        expect(await stillThere(sub.path)).toBe(false);
+        expect(await stillThere(`${sub.path}/deep.txt`)).toBe(false);
+    });
+
+    it('lets a recipient rename a file inside the shared folder', async () => {
+        const file = await writeFile(owner, `${shared.path}/before.txt`, 'x');
+
+        const renamed = await asHolder(() =>
+            fs.rename(holder.userId, file, 'after.txt'),
+        );
+
+        expect(renamed.path).toBe(`${shared.path}/after.txt`);
+        expect(renamed.userId).toBe(owner.userId);
+    });
+
+    it('sends a recipient-trashed item to the owner’s trash, still owned by the owner', async () => {
+        const file = await writeFile(owner, `${shared.path}/trashed.txt`, 'x');
+        const ownerTrash = (await server.stores.fsEntry.getEntryByPath(
+            `${owner.home}/Trash`,
+        ))!;
+
+        const moved = await asHolder(() =>
+            fs.move(holder.userId, {
+                source: file,
+                destinationParent: ownerTrash,
+                newName: file.uuid,
+            }),
+        );
+
+        expect(moved.path).toBe(`${owner.home}/Trash/${file.uuid}`);
+        expect(moved.userId).toBe(owner.userId);
+        expect(await stillThere(file.path)).toBe(false);
+    });
+
+    it('puts a trashed item beyond the recipient’s reach', async () => {
+        const file = await writeFile(owner, `${shared.path}/hidden.txt`, 'x');
+        const ownerTrash = (await server.stores.fsEntry.getEntryByPath(
+            `${owner.home}/Trash`,
+        ))!;
+
+        const moved = await asHolder(() =>
+            fs.move(holder.userId, {
+                source: file,
+                destinationParent: ownerTrash,
+                newName: file.uuid,
+            }),
+        );
+
+        const reachable = await server.services.acl.check(
+            holder.actor,
+            {
+                path: moved.path,
+                resolveAncestors: () => fs.getAncestorChain(moved.path),
+            },
+            'see',
+        );
+        expect(reachable).toBe(false);
+    });
+
+    it('refuses to let a recipient delete the shared folder itself', async () => {
+        const error = await caught(() =>
+            asHolder(() =>
+                fs.remove(holder.userId, { entry: shared, recursive: true }),
+            ),
+        );
+
+        expect(error.statusCode).toBe(403);
+        expect(error.legacyCode).toBe('forbidden');
+        expect(await stillThere(shared.path)).toBe(true);
+    });
+
+    it('lets a recipient rename a subfolder inside the shared folder', async () => {
+        const sub = await fs.mkdir(owner.userId, {
+            path: `${shared.path}/sub-to-rename`,
+        });
+
+        const renamed = await asHolder(() =>
+            fs.rename(holder.userId, sub, 'sub-renamed'),
+        );
+
+        expect(renamed.path).toBe(`${shared.path}/sub-renamed`);
+        expect(renamed.userId).toBe(owner.userId);
+    });
+
+    it('refuses to let a recipient rename the shared FOLDER itself', async () => {
+        // A folder's name is structure the owner's subtree hangs off — only
+        // a directly-shared FILE is renameable by its recipient.
+        const error = await caught(() =>
+            asHolder(() => fs.rename(holder.userId, shared, 'Renamed')),
+        );
+
+        expect(error.statusCode).toBe(403);
+        expect(await stillThere(shared.path)).toBe(true);
+    });
+
+    it('lets a recipient rename a file shared directly with them', async () => {
+        const file = await writeFile(owner, `${owner.home}/direct.txt`, 'x');
+        await shareWrite(file);
+
+        const renamed = await asHolder(() =>
+            fs.rename(holder.userId, file, 'mine.txt'),
+        );
+
+        expect(renamed.path).toBe(`${owner.home}/mine.txt`);
+        expect(renamed.userId).toBe(owner.userId);
+    });
+
+    it('refuses rename to a recipient who holds only read', async () => {
+        const file = await writeFile(owner, `${owner.home}/lookdonttouch.txt`, 'x');
+        await server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: file.path,
+                resolveAncestors: () => fs.getAncestorChain(file.path),
+            },
+            'read',
+        );
+
+        const error = await caught(() =>
+            asHolder(() => fs.rename(holder.userId, file, 'touched.txt')),
+        );
+
+        expect(error.statusCode).toBe(403);
+        expect(await stillThere(file.path)).toBe(true);
+    });
+
+    it('refuses a stranger with no share at all', async () => {
+        const stranger = await makeUser();
+        const file = await writeFile(owner, `${shared.path}/private.txt`, 'x');
+
+        const error = await caught(() =>
+            runWithContext({ actor: stranger.actor }, () =>
+                fs.remove(stranger.userId, { entry: file }),
+            ),
+        );
+
+        expect(error.statusCode).toBe(403);
+        expect(await stillThere(file.path)).toBe(true);
+    });
+});
+
+describe('FSService ownership in a shared tree', () => {
+    let owner: TestUser;
+    let holder: TestUser;
+    let shared: FSEntry;
+
+    const asHolder = <T>(run: () => Promise<T>): Promise<T> =>
+        runWithContext({ actor: holder.actor }, run);
+
+    beforeAll(async () => {
+        owner = await makeUser();
+        holder = await makeUser();
+        shared = await fs.mkdir(owner.userId, {
+            path: `${owner.home}/Documents/Team`,
+        });
+        await server.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: shared.path,
+                resolveAncestors: () => fs.getAncestorChain(shared.path),
+            },
+            'write',
+        );
+    });
+
+    it('gives a folder the recipient creates to the folder owner', async () => {
+        const created = await asHolder(() =>
+            fs.mkdir(holder.userId, { path: `${shared.path}/from-holder` }),
+        );
+
+        expect(created.userId).toBe(owner.userId);
+    });
+
+    it('gives a file the recipient writes to the folder owner', async () => {
+        const created = await asHolder(() =>
+            fs.write(holder.userId, {
+                fileMetadata: {
+                    path: `${shared.path}/note.txt`,
+                    size: 1,
+                    contentType: 'text/plain',
+                },
+                fileContent: 'x',
+            }),
+        );
+
+        expect(created.fsEntry.userId).toBe(owner.userId);
+    });
+
+    it('gives a file the recipient touches to the folder owner', async () => {
+        const created = await asHolder(() =>
+            fs.touch(holder.userId, { path: `${shared.path}/touched.txt` }),
+        );
+
+        expect(created.userId).toBe(owner.userId);
+    });
+
+    it('gives intermediate directories to the folder owner', async () => {
+        await asHolder(() =>
+            fs.write(holder.userId, {
+                fileMetadata: {
+                    path: `${shared.path}/a/b/deep.txt`,
+                    size: 1,
+                    contentType: 'text/plain',
+                    createMissingParents: true,
+                },
+                fileContent: 'x',
+            }),
+        );
+
+        const a = await server.stores.fsEntry.getEntryByPath(
+            `${shared.path}/a`,
+        );
+        const b = await server.stores.fsEntry.getEntryByPath(
+            `${shared.path}/a/b`,
+        );
+        expect(a?.userId).toBe(owner.userId);
+        expect(b?.userId).toBe(owner.userId);
+    });
+
+    it('gives a copy the recipient makes to the folder owner', async () => {
+        const source = await writeFile(
+            holder,
+            `${holder.home}/Documents/mine.txt`,
+            'x',
+        );
+
+        const copy = await asHolder(() =>
+            fs.copy(holder.userId, {
+                source,
+                destinationParent: shared,
+                newName: 'copied.txt',
+            }),
+        );
+
+        expect(copy.userId).toBe(owner.userId);
+        // The original stays where it was, with its own owner.
+        expect(
+            (await server.stores.fsEntry.getEntryByPath(source.path))?.userId,
+        ).toBe(holder.userId);
+    });
+
+    it('hands over an entry the recipient moves in, subtree and all', async () => {
+        const dir = await fs.mkdir(holder.userId, {
+            path: `${holder.home}/Documents/handover`,
+        });
+        await writeFile(
+            holder,
+            `${holder.home}/Documents/handover/inside.txt`,
+            'x',
+        );
+
+        const moved = await asHolder(() =>
+            fs.move(holder.userId, { source: dir, destinationParent: shared }),
+        );
+
+        expect(moved.userId).toBe(owner.userId);
+        const inside = await server.stores.fsEntry.getEntryByPath(
+            `${shared.path}/handover/inside.txt`,
+            { skipCache: true },
+        );
+        expect(inside?.userId).toBe(owner.userId);
+    });
+
+});
+
+describe('FSService storage allowance in a shared tree', () => {
+    let limitedServer: PuterServer;
+    let limitedFs: FSService;
+
+    beforeAll(async () => {
+        limitedServer = await setupTestServer({
+            is_storage_limited: true,
+        } as never);
+        limitedFs = limitedServer.services.fs as unknown as FSService;
+    });
+
+    afterAll(async () => {
+        await limitedServer?.shutdown();
+    });
+
+    const quotaUser = async (freeStorage: number) => {
+        const username = `fsqs-${Math.random().toString(36).slice(2, 10)}`;
+        const created = await limitedServer.stores.user.create({
+            username,
+            uuid: uuidv4(),
+            password: null,
+            email: `${username}@test.local`,
+            free_storage: freeStorage,
+            requires_email_confirmation: false,
+        });
+        await generateDefaultFsentries(
+            limitedServer.clients.db,
+            limitedServer.stores.user,
+            created,
+        );
+        const refreshed = (await limitedServer.stores.user.getById(created.id))!;
+        return {
+            userId: refreshed.id,
+            home: `/${username}`,
+            actor: {
+                user: {
+                    id: refreshed.id,
+                    uuid: refreshed.uuid,
+                    username: refreshed.username,
+                    email: refreshed.email ?? null,
+                    email_confirmed: true,
+                } as Actor['user'],
+            } as Actor,
+        };
+    };
+
+    it('charges the folder owner, so their limit stops the writer', async () => {
+        const owner = await quotaUser(64);
+        const holder = await quotaUser(10 * 1024 * 1024);
+        const shared = await limitedFs.mkdir(owner.userId, {
+            path: `${owner.home}/Documents/Tight`,
+        });
+        await limitedServer.services.acl.setUserUser(
+            owner.actor,
+            holder.actor,
+            {
+                path: shared.path,
+                resolveAncestors: () =>
+                    limitedFs.getAncestorChain(shared.path),
+            },
+            'write',
+        );
+
+        const body = 'x'.repeat(4096);
+        const error = await caught(() =>
+            runWithContext({ actor: holder.actor }, () =>
+                limitedFs.write(holder.userId, {
+                    fileMetadata: {
+                        path: `${shared.path}/big.txt`,
+                        size: body.length,
+                    },
+                    fileContent: body,
+                }),
+            ),
+        );
+
+        expect(error.statusCode).toBe(413);
+        expect(error.legacyCode).toBe('storage_limit_reached');
+        // The same write into the writer's own roomy home still goes through,
+        // so it was the owner's limit that stopped it, not a blanket refusal.
+        await runWithContext({ actor: holder.actor }, () =>
+            limitedFs.write(holder.userId, {
+                fileMetadata: {
+                    path: `${holder.home}/Documents/big.txt`,
+                    size: body.length,
+                },
+                fileContent: body,
+            }),
+        );
     });
 });
 
@@ -2932,6 +3420,13 @@ describe('FSService permission rules', () => {
         );
         expect(higher).not.toContain(`fs:${file.uuid}:read`);
     });
+
+    it('lets a manage grant answer a write on the narrowest mode', async () => {
+        const higher = await server.services.permission.getHigherPermissions(
+            `fs:${file.uuid}:write`,
+        );
+        expect(higher).toContain(`manage:fs:${file.uuid}`);
+    });
 });
 
 // -- Cross-app AppData (app-data:<uid>:fs:<class>) ----------------------
@@ -3081,7 +3576,7 @@ describe('FSService — cross-app AppData access', () => {
             asCalendar(() => fs.remove(owner.userId, { entry: contactsFile })),
         ).rejects.toMatchObject({ statusCode: 403 });
         await expect(
-            asCalendar(() => fs.rename(contactsFile, 'renamed.json')),
+            asCalendar(() => fs.rename(owner.userId, contactsFile, 'renamed.json')),
         ).rejects.toMatchObject({ statusCode: 403 });
 
         const desktop = (await server.stores.fsEntry.getEntryByPath(
@@ -3110,7 +3605,7 @@ describe('FSService — cross-app AppData access', () => {
     it('allows rename once the delete class is granted', async () => {
         await grant(appDataPermission(contacts.uid, 'fs', 'delete'));
         const renamed = await asCalendar(() =>
-            fs.rename(contactsFile, 'renamed.json'),
+            fs.rename(owner.userId, contactsFile, 'renamed.json'),
         );
         expect(renamed.name).toBe('renamed.json');
     });

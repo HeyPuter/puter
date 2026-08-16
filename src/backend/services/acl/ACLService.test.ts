@@ -522,6 +522,39 @@ describe('ACLService.check — stronger modes imply weaker ones', () => {
         ]);
     });
 
+    it.each(['see', 'list', 'read', 'write'] as const)(
+        'answers %s from a manage grant on the same node',
+        async (mode) => {
+            const { service, services } = makeService();
+            services.permission.scan.mockImplementation(
+                async (_actor: unknown, permissions: string[]) =>
+                    permissions.includes('manage:fs:uid\\C/other/f')
+                        ? [{ $: 'option', key: 'k' }]
+                        : [],
+            );
+            expect(
+                await service.check(issuerActor, resource('/other/f'), mode),
+            ).toBe(true);
+        },
+    );
+
+    it('answers write from a manage grant on an ancestor directory', async () => {
+        const { service, services } = makeService();
+        services.permission.scan.mockImplementation(
+            async (_actor: unknown, permissions: string[]) =>
+                permissions.includes('manage:fs:uid\\C/other')
+                    ? [{ $: 'option', key: 'k' }]
+                    : [],
+        );
+        expect(
+            await service.check(
+                issuerActor,
+                resource('/other/deep/file.txt'),
+                'write',
+            ),
+        ).toBe(true);
+    });
+
     it('inherits access granted on an ancestor directory', async () => {
         const { service, services } = makeService();
         services.permission.scan.mockImplementation(
@@ -565,6 +598,21 @@ describe('ACLService.check — scoped tokens and manage', () => {
                 scopedTokenActor(),
                 resource('/issuer/projects'),
                 MANAGE_PERM_PREFIX,
+            ),
+        ).toBe(true);
+    });
+
+    it('accepts a manage grant recorded against the token for a write', async () => {
+        const { service, stores } = makeService();
+        stores.permission.hasAccessTokenPerm.mockImplementation(
+            async (_uid: string, permission: string) =>
+                permission === 'manage:fs:uid\\C/issuer/projects',
+        );
+        expect(
+            await service.check(
+                scopedTokenActor(),
+                resource('/issuer/projects'),
+                'write',
             ),
         ).toBe(true);
     });
@@ -811,6 +859,153 @@ describe('ACLService.statUserUser / setUserUser (integration)', () => {
                 }),
             ),
         ).toBe(false);
+    });
+
+    describe('app-under-user on shared paths', () => {
+        const makeApp = async (ownerUserId: number) =>
+            (
+                server.stores.app.create as unknown as (
+                    fields: Record<string, unknown>,
+                    opts: { ownerUserId: number },
+                ) => Promise<{ uid: string; id: number }>
+            )(
+                {
+                    name: `acl-app-${uuidv4()}`,
+                    title: 'ACL app',
+                    index_url: `https://acl-${uuidv4()}.test/`,
+                },
+                { ownerUserId },
+            );
+
+        const asApp = (user: Actor, app: { uid: string; id: number }): Actor => ({
+            user: user.user,
+            app: { uid: app.uid, id: app.id },
+        });
+
+        it('does not hand an app its user’s shared access', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const res = await ownedResource(issuer);
+            const app = await makeApp(holder.user.id!);
+
+            await runWithContext({ actor: issuer }, () =>
+                acl.setUserUser(issuer, holder, res, 'read'),
+            );
+
+            expect(await acl.check(holder, res, 'read')).toBe(true);
+            expect(await acl.check(asApp(holder, app), res, 'read')).toBe(false);
+        });
+
+        it('bounds an app by its user even with its own grant', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const res = await ownedResource(issuer);
+            const app = await makeApp(holder.user.id!);
+            const appActorForHolder = asApp(holder, app);
+
+            await runWithContext({ actor: issuer }, () =>
+                acl.setUserUser(issuer, holder, res, 'read'),
+            );
+            await runWithContext({ actor: holder }, () =>
+                server.services.permission.grantUserAppPermission(
+                    holder,
+                    app.uid,
+                    `fs:${res.uid}:read`,
+                ),
+            );
+            expect(await acl.check(appActorForHolder, res, 'read')).toBe(true);
+
+            await runWithContext({ actor: issuer }, () =>
+                server.services.permission.revokeUserUserPermission(
+                    issuer,
+                    holder.user.username!,
+                    `fs:${res.uid}:read`,
+                ),
+            );
+
+            // The app grant survives, but the user no longer has the file, so
+            // the app cannot outlive its user's access.
+            expect(await acl.check(appActorForHolder, res, 'read')).toBe(false);
+        });
+
+        it('follows a moved node and does not spread to its siblings', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const res = await ownedResource(issuer);
+            const sibling = await ownedResource(issuer, 'Pictures');
+
+            await runWithContext({ actor: issuer }, () =>
+                acl.setUserUser(issuer, holder, res, 'read'),
+            );
+
+            const moved: ResourceDescriptor = {
+                path: `/${issuer.user.username}/Renamed`,
+                resolveAncestors: async () => [
+                    { uid: res.uid, path: `/${issuer.user.username}/Renamed` },
+                ],
+            };
+
+            // Grants key on the uuid, so a rename carries access with it and
+            // cannot leak onto a neighbour that merely took the old name.
+            expect(await acl.check(holder, moved, 'read')).toBe(true);
+            expect(await acl.check(holder, sibling, 'read')).toBe(false);
+        });
+
+        it('keeps a shared AppData directory to the app it belongs to', async () => {
+            const issuer = await makeUser();
+            const holder = await makeUser();
+            const mine = await makeApp(holder.user.id!);
+            const theirs = await makeApp(holder.user.id!);
+            const home = `/${issuer.user.username}`;
+            const homeEntry =
+                await server.stores.fsEntry.getEntryByPath(home);
+
+            const appDataOf = (appUid: string): ResourceDescriptor => ({
+                path: `${home}/AppData/${appUid}`,
+                resolveAncestors: async () => [
+                    { uid: `virtual-${appUid}`, path: `${home}/AppData/${appUid}` },
+                    { uid: String(homeEntry!.uuid), path: home },
+                ],
+            });
+
+            await runWithContext({ actor: issuer }, () =>
+                acl.setUserUser(
+                    issuer,
+                    holder,
+                    { path: home, resolveAncestors: async () => [
+                        { uid: String(homeEntry!.uuid), path: home },
+                    ] },
+                    'write',
+                ),
+            );
+
+            expect(
+                await acl.check(asApp(holder, mine), appDataOf(mine.uid), 'write'),
+            ).toBe(true);
+            expect(
+                await acl.check(asApp(holder, mine), appDataOf(theirs.uid), 'write'),
+            ).toBe(false);
+        });
+    });
+
+    it('leaves one mode standing when two writes race on the same node', async () => {
+        const issuer = await makeUser();
+        const holder = await makeUser();
+        const res = await ownedResource(issuer);
+
+        // Unserialized, each call acts on the same empty snapshot and both
+        // grants survive.
+        await Promise.all([
+            runWithContext({ actor: issuer }, () =>
+                acl.setUserUser(issuer, holder, res, 'read'),
+            ),
+            runWithContext({ actor: issuer }, () =>
+                acl.setUserUser(issuer, holder, res, 'write'),
+            ),
+        ]);
+
+        const stat = await acl.statUserUser(issuer, holder, res);
+        expect(stat[res.path] ?? []).toHaveLength(1);
     });
 
     it('downgrading a manage share to read revokes the manage grant', async () => {

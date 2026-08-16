@@ -30,6 +30,12 @@ import {
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { verify as verifyOtp } from '../../services/auth/OTPUtil.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
+import {
+    maskEntryPath,
+    parseMaskedSharePath,
+    resolveSharePath,
+} from '../../services/fs/sharePathMask.js';
+import { Context } from '../../core/context.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import { toLegacyEntry } from '../fs/legacyFsHelpers.js';
 import { PuterController } from '../types.js';
@@ -160,6 +166,12 @@ export class WebDAVController extends PuterController {
         assertNotSuspended(actor.user);
         assertVerifiedAccount(actor.user);
 
+        // DAV authenticates here rather than in the auth probe, so the actor
+        // was absent when the request context snapshotted `req.actor`. Set it
+        // now: shared-path masking (and anything else downstream that asks the
+        // context who is acting) is blind without it.
+        if (Context.current()) Context.set('actor', actor);
+
         // And the same budget gate the FS routes declare with
         // `requireCredits`, for the verbs that move content — DAV serves the
         // same files over a metered host, so leaving it out would make mounting
@@ -176,9 +188,10 @@ export class WebDAVController extends PuterController {
         // Expand `~`/`~/...` against the authenticated actor's username.
         // WebDAV doesn't standardize `~`, but some clients do — and the
         // pre-existing behaviour silently expanded it via the FS store.
-        const davPath = expandTildePath(
-            decodeURIComponent(req.path),
-            actor.user.username,
+        const davPath = await resolveSharePath(
+            this.stores.fsEntry,
+            actor,
+            expandTildePath(decodeURIComponent(req.path), actor.user.username),
         );
         const redis = this.clients.redis;
         const lockToken = extractLockToken(
@@ -408,13 +421,36 @@ export class WebDAVController extends PuterController {
             davPath === '/'
                 ? null // root always exists
                 : await this.stores.fsEntry.getEntryByPath(davPath);
-        if (davPath !== '/' && !entry)
+        if (davPath !== '/' && !entry) {
+            // `/<owner>/<uuid>` — the parent of a share root — is not a real
+            // path: the uuid stands in for the owner's folder, which the
+            // recipient cannot see. A client walking up from a share (or down
+            // toward one, as the Windows redirector does segment by segment)
+            // lands here, so answer with a virtual collection whose only
+            // member is the share root, rather than a dead end.
+            const virtual = await this.#shareRootParentPropfind(
+                actor,
+                davPath,
+                depth,
+            );
+            if (virtual) {
+                res.status(207)
+                    .set({ 'Content-Type': 'application/xml; charset=utf-8' })
+                    .send(wrapMultistatus(virtual.join('\n')));
+                return;
+            }
             throw new HttpError(404, 'Not Found', { legacyCode: 'not_found' });
+        }
 
         await this.#assertRead(actor, davPath);
 
         const isDir = davPath === '/' || !!entry?.isDir;
-        const responses = [propfindEntry(davPath, entry, isDir)];
+        // `davPath` is the resolved real path; the href has to be the masked
+        // one, like every child below it, or the self-entry names the owner's
+        // real folder.
+        const responses = [
+            propfindEntry(entry ? maskEntryPath(entry) : davPath, entry, isDir),
+        ];
 
         if (depth !== '0' && isDir && entry) {
             const children = await this.services.fs.listDirectory(
@@ -422,7 +458,9 @@ export class WebDAVController extends PuterController {
                 {},
             );
             for (const child of children) {
-                responses.push(propfindEntry(child.path, child, child.isDir));
+                responses.push(
+                    propfindEntry(maskEntryPath(child), child, child.isDir),
+                );
             }
         } else if (depth !== '0' && davPath === '/') {
             // Root: list top-level user directories
@@ -431,7 +469,11 @@ export class WebDAVController extends PuterController {
             );
             if (rootEntry) {
                 responses.push(
-                    propfindEntry(rootEntry.path, rootEntry, rootEntry.isDir),
+                    propfindEntry(
+                        maskEntryPath(rootEntry),
+                        rootEntry,
+                        rootEntry.isDir,
+                    ),
                 );
             }
         }
@@ -631,7 +673,7 @@ export class WebDAVController extends PuterController {
         redis: unknown,
         lockToken: string | null,
     ): Promise<void> {
-        const destPath = this.#parseDestination(req);
+        const destPath = await this.#parseDestination(req);
         if (
             !(await hasWritePermission(
                 redis as import('ioredis').Cluster,
@@ -689,7 +731,7 @@ export class WebDAVController extends PuterController {
         redis: unknown,
         lockToken: string | null,
     ): Promise<void> {
-        const destPath = this.#parseDestination(req);
+        const destPath = await this.#parseDestination(req);
         const r = redis as import('ioredis').Cluster;
         if (!(await hasWritePermission(r, davPath, lockToken)))
             throw new HttpError(423, 'Locked', { legacyCode: 'conflict' });
@@ -833,6 +875,47 @@ export class WebDAVController extends PuterController {
         res.status(204).end();
     }
 
+    /**
+     * PROPFIND responses for the virtual collection at `/<owner>/<uuid>`, or
+     * null when `davPath` isn't that shape, the uuid doesn't resolve to an
+     * entry of `owner`'s, or the actor cannot read the share — the caller falls
+     * through to 404 in every null case, so an unauthorized probe learns
+     * nothing about whether the uuid exists.
+     */
+    async #shareRootParentPropfind(
+        actor: Actor,
+        davPath: string,
+        depth: string | string[],
+    ): Promise<string[] | null> {
+        const parsed = parseMaskedSharePath(davPath);
+        if (!parsed || parsed.tail !== '') return null;
+        if (parsed.ownerUsername === actor.user?.username) return null;
+
+        const root = await this.stores.fsEntry.getEntryByUuid(parsed.rootUuid);
+        if (!root) return null;
+        // Same guard as resolveSharePath: the mask names the owner, so the
+        // uuid must be theirs.
+        if (root.path.split('/')[1] !== parsed.ownerUsername) return null;
+
+        const allowed = await this.services.acl.check(
+            actor,
+            {
+                path: root.path,
+                resolveAncestors: () =>
+                    this.services.fs.getAncestorChain(root.path),
+            },
+            'read',
+        );
+        if (!allowed) return null;
+
+        const maskedRoot = `/${parsed.ownerUsername}/${root.uuid}/${root.name}`;
+        const responses = [propfindEntry(davPath, null, true)];
+        if (depth !== '0') {
+            responses.push(propfindEntry(maskedRoot, root, root.isDir));
+        }
+        return responses;
+    }
+
     // -- ACL helpers -------------------------------------------------
 
     async #assertRead(actor: Actor, path: string): Promise<void> {
@@ -890,18 +973,22 @@ export class WebDAVController extends PuterController {
 
     // -- Misc helpers ------------------------------------------------
 
-    #parseDestination(req: Request): string {
+    async #parseDestination(req: Request): Promise<string> {
         const dest = req.headers.destination as string | undefined;
         if (!dest)
             throw new HttpError(400, 'Missing Destination header', {
                 legacyCode: 'bad_request',
             });
+        let raw: string;
         try {
             const url = new URL(dest, `http://${req.headers.host}`);
-            return decodeURIComponent(url.pathname);
+            raw = decodeURIComponent(url.pathname);
         } catch {
-            return decodeURIComponent(dest);
+            raw = decodeURIComponent(dest);
         }
+        // The destination is addressed the same way as the request path, so a
+        // client that browsed into a share names its target the same way too.
+        return resolveSharePath(this.stores.fsEntry, Context.get('actor'), raw);
     }
 }
 

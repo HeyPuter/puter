@@ -185,6 +185,10 @@ export class PuterHomepageService extends PuterService {
             app_origin: this.#originFromRequest(req),
             gui_origin: this.#originFromRequest(req),
             hosting_domain: this.config.static_hosting_domain,
+            // The GUI loads the SDK itself in bundled mode, so it needs this
+            // to serve its own build rather than the public CDN.
+            puterjs_bundle:
+                this.config.gui_puterjs_bundle ?? 'https://js.puter.com/v2/',
             asset_dir: assetDir,
             captchaRequired,
             ...meta,
