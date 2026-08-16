@@ -52,6 +52,13 @@ export type UsageByType = {
      */
     allowanceUsed?: number;
     /**
+     * Claim counter for folding the pre-split baseline into `allowanceUsed` on
+     * a record that predates it. 1 for the settle that claimed the fold; higher
+     * for concurrent settles that raced and lost and must not add the baseline
+     * again.
+     */
+    allowanceUsedBaselined?: number;
+    /**
      * Claim counter for the month's recurring charges — see
      * `MONTHLY_CHARGE_CLAIM`. Absent until the first read or write of the
      * month; 1 for whoever claimed it, higher for anyone who raced and lost.
