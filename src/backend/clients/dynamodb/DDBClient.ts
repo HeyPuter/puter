@@ -222,6 +222,37 @@ export class DDBClient extends PuterClient {
         'db.batch_size': params.length,
     }))
     async batchPut(params: { table: string; item: Record<string, unknown> }[]) {
+        return this.#batchWrite(
+            params.map(({ table, item }) => ({
+                table,
+                request: { PutRequest: { Item: item } },
+            })),
+        );
+    }
+
+    @Span('ddb.batchDel', (params: unknown[]) => ({
+        'db.batch_size': params.length,
+    }))
+    async batchDel(params: { table: string; key: Record<string, unknown> }[]) {
+        return this.#batchWrite(
+            params.map(({ table, key }) => ({
+                table,
+                request: { DeleteRequest: { Key: key } },
+            })),
+        );
+    }
+
+    // Shared BatchWriteItem plumbing for batchPut/batchDel: 25-item chunks,
+    // UnprocessedItems retried with capped exponential backoff, consumed
+    // capacity accumulated per table across every request.
+    async #batchWrite(
+        params: {
+            table: string;
+            request: NonNullable<
+                BatchWriteCommandInput['RequestItems']
+            >[string][number];
+        }[],
+    ) {
         const consumedCapacityByTable = new Map<string, number>();
         if (params.length === 0) {
             return { ConsumedCapacity: [] };
@@ -258,11 +289,7 @@ export class DDBClient extends PuterClient {
             let requestItems = chunk.reduce(
                 (acc, curr) => {
                     const tableRequests = acc[curr.table] ?? [];
-                    tableRequests.push({
-                        PutRequest: {
-                            Item: curr.item,
-                        },
-                    });
+                    tableRequests.push(curr.request);
                     acc[curr.table] = tableRequests;
                     return acc;
                 },
