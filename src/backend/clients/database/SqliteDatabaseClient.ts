@@ -95,6 +95,7 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [58, ['0063_add_suspended_reason.sql']],
     [59, ['0064_abuse-moderation-events.sql']],
     [60, ['0065_app-feedback.sql']],
+    [60, ['0065_onlyoffice-apps.sql']],
     [61, ['0066_owned-email-unique.sql']],
 ];
 
