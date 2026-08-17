@@ -270,7 +270,8 @@
     //     "pairWindowSeconds": 900,
     //     "pairDaily": 20,
     //     "recipientHourly": 10,
-    //     "recipientDaily": 50
+    //     "recipientDaily": 50,
+    //     "emailBatchSeconds": 60
     // },
 
     // ── Alarms / alerting ───────────────────────────────────────────────

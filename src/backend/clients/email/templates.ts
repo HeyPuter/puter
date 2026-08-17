@@ -183,40 +183,59 @@ immediately</p>
 <p>Puter</p>
         `,
     },
+    /**
+     * A digest: shares to one recipient are held briefly and merged, so
+     * `shares` may carry several senders. The subject is composed by the
+     * service (see `digestSubject`), which owns the grouped wording.
+     */
     file_shared_with_you: {
-        subject:
-            '{{issuer}} shared {{#if multiple}}{{count}} items{{else}}{{item_name}}{{/if}} with you',
+        subject: '{{subject_line}}',
         html: `
-<p>Hi there {{recipient}},</p>
-{{#if multiple}}
-    <p>{{issuer}} shared {{count}} items with you on Puter.</p>
-{{else}}
-    <p>{{issuer}} shared <strong>{{item_name}}</strong> with you on Puter.</p>
-{{/if}}
-<p><a href="{{link}}">Open it on Puter</a></p>
-<p>Sincerely,</p>
-<p>Puter</p>
+<div style="max-width: 520px; margin: 0 auto; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937; line-height: 1.5;">
+    <p style="font-size: 16px;">Hi {{recipient}},</p>
+    <p>Shared with you on Puter:</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin: 4px 0 16px;">
+        {{#each shares}}
+        <tr>
+            <td style="padding: 8px 12px; border-top: 1px solid #eef1f4;">
+                <strong>{{this.sender}}</strong> shared {{this.what}}
+            </td>
+        </tr>
+        {{/each}}
+    </table>
+    <p>
+        <a href="{{link}}" style="display: inline-block; padding: 10px 18px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Open Puter</a>
+    </p>
+    <p style="color: #6b7280; font-size: 13px; margin-top: 24px;">Sincerely,<br />Puter</p>
+</div>
         `,
     },
-    // The only way to reach someone with no account.
+    // The only way to reach someone with no account. Same digest shape.
     file_shared_invite: {
-        subject:
-            '{{issuer}} shared {{#if multiple}}{{count}} items{{else}}{{item_name}}{{/if}} with you on Puter',
+        subject: '{{subject_line}}',
         html: `
-<p>Hi there,</p>
-{{#if multiple}}
-    <p>{{issuer}} shared {{count}} items with you on Puter.</p>
-{{else}}
-    <p>{{issuer}} shared <strong>{{item_name}}</strong> with you on Puter.</p>
-{{/if}}
-<p>
-You don't have a Puter account for this address yet. Create one with
-<strong>{{email}}</strong> and confirm it, and what was shared will be waiting
-for you.
-</p>
-<p><a href="{{link}}">Create your account</a></p>
-<p>Sincerely,</p>
-<p>Puter</p>
+<div style="max-width: 520px; margin: 0 auto; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937; line-height: 1.5;">
+    <p style="font-size: 16px;">Hi there,</p>
+    <p>Shared with you on Puter:</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin: 4px 0 16px;">
+        {{#each shares}}
+        <tr>
+            <td style="padding: 8px 12px; border-top: 1px solid #eef1f4;">
+                <strong>{{this.sender}}</strong> shared {{this.what}}
+            </td>
+        </tr>
+        {{/each}}
+    </table>
+    <p>
+        You don't have a Puter account for this address yet. Create one with
+        <strong>{{email}}</strong> and confirm it, and what was shared will be
+        waiting for you.
+    </p>
+    <p>
+        <a href="{{link}}" style="display: inline-block; padding: 10px 18px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Create your account</a>
+    </p>
+    <p style="color: #6b7280; font-size: 13px; margin-top: 24px;">Sincerely,<br />Puter</p>
+</div>
         `,
     },
     share_by_username: {

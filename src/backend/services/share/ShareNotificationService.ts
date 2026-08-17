@@ -17,17 +17,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import type { Actor } from '../../core/actor';
 import type { LayerInstances } from '../../types';
 import type { puterServices } from '../index';
 import { PuterService } from '../types';
 import {
+    digestLines,
+    digestSubject,
+    mergeDigestEntry,
     mergeShareSender,
     shareNotifyCount,
     shareNotifyTitle,
     shareSendersFromFields,
+    type DigestEntry,
     type ShareSender,
 } from './shareNotifyTitle';
 import type { ResolvedShare } from './ShareService';
@@ -46,6 +50,21 @@ export const SHARE_NOTIFY_RECIPIENT_HOURLY_LIMIT = 10;
 
 /** Same, over a day. */
 export const SHARE_NOTIFY_RECIPIENT_DAILY_LIMIT = 50;
+
+/**
+ * How long emails to one recipient are held so that everything triggered in the
+ * span goes as a single message. Email can't be rewritten the way the in-app
+ * notification can, so it gets the grouped wording by waiting instead.
+ */
+export const SHARE_EMAIL_BATCH_SECONDS = 90;
+
+// Long enough to list, claim and send; short enough that a crashed flusher
+// doesn't strand the digest.
+const DIGEST_LOCK_SECONDS = 30;
+
+// Ceiling on how long an entry may sit unflushed: a node dying with the only
+// timer leaves entries behind, and mail this stale is noise rather than news.
+const DIGEST_ENTRY_TTL_SECONDS = 24 * 60 * 60;
 
 /** How far back to look for the notification a new share folds into. */
 const OPEN_NOTIFICATION_SCAN = 20;
@@ -71,8 +90,38 @@ type Budget = [key: string, limit: number, windowMs: number];
  * kept current, while whether it may _interrupt_ them — pushed to their screen,
  * mailed to them — is budgeted, since that is the part that can bury someone.
  */
+/**
+ * A queued send's durable form: persisted to KV so it survives the node that
+ * queued it and is visible to every other node's flush.
+ */
+interface DigestEntryRecord {
+    kind: 'holder' | 'invite';
+    to: string;
+    /** Holder's username, for the greeting. Absent for invites. */
+    recipient?: string;
+    sender?: string;
+    count: number;
+    names: string[];
+    /** Arrival order — KV lists by key, which is a uuid and says nothing. */
+    queuedAt: number;
+}
+
 export class ShareNotificationService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
+
+    /**
+     * The flush timers this node owns, keyed per recipient. Timers only — the
+     * queued sends live in KV, where any node's flush can pick them up.
+     */
+    #digestTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    /** Send what's still waiting while the transport is alive to send it. */
+    override async onServerPrepareShutdown(): Promise<void> {
+        const keys = [...this.#digestTimers.keys()];
+        for (const [, timer] of this.#digestTimers) clearTimeout(timer);
+        this.#digestTimers.clear();
+        await Promise.all(keys.map((key) => this.#flushDigest(key)));
+    }
 
     /**
      * Announce a batch of shares, one notification per recipient — five items
@@ -97,9 +146,8 @@ export class ShareNotificationService extends PuterService {
             if (share.name) named.set(share.holderId, share.name);
         }
 
-        // Each recipient fails alone: one refused SMTP send must not cost the
-        // next person their notification, or the invites their announcement.
-        // Best-effort still — failures are logged, never thrown.
+        // Each recipient fails alone: one refused send must not cost the next
+        // person their notification. Failures are logged, never thrown.
         await Promise.allSettled(
             [...counts].map(async ([holderId, count]) => {
                 try {
@@ -237,22 +285,14 @@ export class ShareNotificationService extends PuterService {
     }
 
     /**
-     * Whether this share may interrupt the recipient at all.
+     * Whether this share may interrupt the recipient at all. The pair budget
+     * stops one person nagging; the recipient budget bounds the total noise.
+     * Fails open — one notification too many beats going silent.
      *
-     * Both axes matter: the pair budget stops one person nagging, and the
-     * recipient budget bounds the noise a pair limit can't, since twenty
-     * accounts would each spend a full one on the same person. Fails open,
-     * because one notification too many beats going silent.
-     *
-     * Order carries the cost of refusal: `checkRateLimit` records the hit as it
-     * allows, with no refund, so every budget after the refusing one stays
-     * unspent — and each earlier one paid for an interruption that never
-     * happened. The pair window leads (it refuses most, and what it burns
-     * self-expires in minutes, while letting a re-sharing pair drain the
-     * recipient's budgets would mute everyone else). The pair-day budget goes
-     * last for the same reason in reverse: burning a day-scale token because
-     * the _recipient_ was saturated would let twenty refusals mute a sender's
-     * first-ever contact for the rest of the day.
+     * Order matters because `checkRateLimit` records on allow with no refund:
+     * budgets after the refusing one stay unspent. The pair window leads (it
+     * refuses most, and its token self-expires in minutes); pair-day goes last
+     * so a saturated recipient can't burn a sender's day-scale budget.
      */
     async #claimInterruption(
         issuerId: number,
@@ -321,6 +361,7 @@ export class ShareNotificationService extends PuterService {
         pairDaily: number;
         recipientHourly: number;
         recipientDaily: number;
+        emailBatchSeconds: number;
     } {
         const configured = this.config.share_notify_limits ?? {};
         return {
@@ -332,6 +373,8 @@ export class ShareNotificationService extends PuterService {
                 SHARE_NOTIFY_RECIPIENT_HOURLY_LIMIT,
             recipientDaily:
                 configured.recipientDaily ?? SHARE_NOTIFY_RECIPIENT_DAILY_LIMIT,
+            emailBatchSeconds:
+                configured.emailBatchSeconds ?? SHARE_EMAIL_BATCH_SECONDS,
         };
     }
 
@@ -346,21 +389,179 @@ export class ShareNotificationService extends PuterService {
         itemName: string | undefined,
     ): Promise<void> {
         if (!this.config.share_email_notifications) return;
-        if (!this.clients.email.isConfigured) return;
+        if (!this.config.email) return;
 
         const holder = await this.stores.user.getById(holderId);
         const to = holder?.email;
         if (!to || !holder?.email_confirmed) return;
         if (!(await this.clients.email.validate(to))) return;
 
-        await this.clients.email.send(to, 'file_shared_with_you', {
-            recipient: holder.username,
+        await this.#queueDigest(
+            `user:${holderId}`,
+            { kind: 'holder', to, recipient: holder.username },
             issuer,
             count,
-            multiple: count > 1,
-            item_name: itemName ?? 'an item',
-            link: this.#appLink(),
+            itemName ? [itemName] : [],
+        );
+    }
+
+    /**
+     * Queue a send into the recipient's digest and arm the window. The entry
+     * goes to durable KV first, so nothing rides on this process surviving; the
+     * timer is only the alarm clock, and the flush arbitrates who sends.
+     */
+    async #queueDigest(
+        key: string,
+        seed: Pick<DigestEntryRecord, 'kind' | 'to' | 'recipient'>,
+        sender: string | undefined,
+        count: number,
+        names: string[],
+    ): Promise<void> {
+        const record: DigestEntryRecord = {
+            ...seed,
+            sender,
+            count,
+            names,
+            queuedAt: Date.now(),
+        };
+        await this.stores.kv.set({
+            key: `share:digest:${key}:${randomUUID()}`,
+            value: record as unknown as Record<string, unknown>,
+            expireAt: Math.floor(Date.now() / 1000) + DIGEST_ENTRY_TTL_SECONDS,
         });
+
+        if (this.#digestTimers.has(key)) return;
+        const seconds = this.#limits().emailBatchSeconds;
+        if (seconds > 0) {
+            const timer = setTimeout(() => {
+                this.#digestTimers.delete(key);
+                void this.#flushDigest(key);
+            }, seconds * 1000);
+            // A pending email must not keep the process alive on its own;
+            // shutdown drains the timers explicitly.
+            timer.unref?.();
+            this.#digestTimers.set(key, timer);
+        } else {
+            await this.#flushDigest(key);
+        }
+    }
+
+    /**
+     * Send one recipient's digest: everything queued for them, from any node,
+     * as one message. Two arbiters keep it to one email: the region-local Redis
+     * lock stops same-region stampedes (losers just leave — the winner sends
+     * everything queued), and across regions the KV `take` is the real claim,
+     * handing each entry to exactly one flusher.
+     */
+    async #flushDigest(key: string): Promise<void> {
+        const lockKey = `share:digest:lock:${key}`;
+        try {
+            const locked = await this.clients.redis.set(
+                lockKey,
+                '1',
+                'EX',
+                DIGEST_LOCK_SECONDS,
+                'NX',
+            );
+            if (locked !== 'OK') return;
+        } catch {
+            // No lock beats no mail; `take` still prevents double sends.
+        }
+
+        try {
+            const prefix = `share:digest:${key}:`;
+            const { res } = await this.stores.kv.list({
+                as: 'keys',
+                pattern: prefix,
+                limit: 200,
+            });
+            // `list` answers with a paged envelope; unwrap defensively.
+            const listed = Array.isArray(res)
+                ? res
+                : ((res as { items?: unknown[] })?.items ?? []);
+            const keys = listed.filter(
+                (entry): entry is string => typeof entry === 'string',
+            );
+
+            const claimed: Array<{ key: string; record: DigestEntryRecord }> =
+                [];
+            for (const entryKey of keys) {
+                const taken = await this.stores.kv.take({ key: entryKey });
+                if (taken.res == null) continue; // another flush won this one
+                claimed.push({
+                    key: entryKey,
+                    record: taken.res as DigestEntryRecord,
+                });
+            }
+            if (claimed.length === 0) return;
+
+            // Arrival order, so "alice and bob" reads in the order they
+            // actually shared rather than however the keys happened to sort.
+            claimed.sort(
+                (a, b) => (a.record.queuedAt ?? 0) - (b.record.queuedAt ?? 0),
+            );
+            let entries: DigestEntry[] = [];
+            for (const { record } of claimed) {
+                entries = mergeDigestEntry(
+                    entries,
+                    record.sender,
+                    record.count,
+                    record.names ?? [],
+                );
+            }
+            const [{ record: first }] = claimed;
+
+            try {
+                if (first.kind === 'holder') {
+                    await this.clients.email.send(
+                        first.to,
+                        'file_shared_with_you',
+                        {
+                            recipient: first.recipient,
+                            subject_line: digestSubject(entries),
+                            shares: digestLines(entries),
+                            link: this.#appLink(),
+                        },
+                    );
+                } else {
+                    await this.clients.email.send(
+                        first.to,
+                        'file_shared_invite',
+                        {
+                            email: first.to,
+                            subject_line: digestSubject(entries, {
+                                suffix: 'on Puter',
+                            }),
+                            shares: digestLines(entries),
+                            link: this.#appLink(),
+                        },
+                    );
+                }
+            } catch (err) {
+                // The entries are claimed but unsent — put them back so a
+                // later flush retries, instead of losing the notification.
+                console.warn('[share-notify] digest email failed:', err);
+                await Promise.allSettled(
+                    claimed.map(({ key: entryKey, record }) =>
+                        this.stores.kv.set({
+                            key: entryKey,
+                            value: record as unknown as Record<string, unknown>,
+                            expireAt:
+                                Math.floor(Date.now() / 1000) +
+                                DIGEST_ENTRY_TTL_SECONDS,
+                        }),
+                    ),
+                );
+            }
+        } catch (err) {
+            console.warn('[share-notify] digest flush failed:', err);
+        } finally {
+            try {
+                await this.clients.redis.del(lockKey);
+            } catch {
+                // The lock self-expires.
+            }
+        }
     }
 
     /**
@@ -369,7 +570,7 @@ export class ShareNotificationService extends PuterService {
      * — but still budgeted: an invite reaches someone who never asked for it.
      */
     async #emailInvites(actor: Actor, shares: ResolvedShare[]): Promise<void> {
-        if (!this.clients.email.isConfigured) return;
+        if (!this.config.email) return;
         const issuerId = actor.user?.id;
         if (typeof issuerId !== 'number') return;
 
@@ -392,14 +593,13 @@ export class ShareNotificationService extends PuterService {
             try {
                 if (!(await this.clients.email.validate(to))) continue;
                 if (!(await this.#claimInviteEmail(issuerId, to))) continue;
-                await this.clients.email.send(to, 'file_shared_invite', {
-                    email: to,
+                await this.#queueDigest(
+                    `invite:${to}`,
+                    { kind: 'invite', to },
                     issuer,
                     count,
-                    multiple: count > 1,
-                    item_name: name ?? 'an item',
-                    link: this.#appLink(),
-                });
+                    name ? [name] : [],
+                );
             } catch (err) {
                 console.warn('[share-notify] invite email failed:', err);
             }

@@ -19,6 +19,9 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    digestLines,
+    digestSubject,
+    mergeDigestEntry,
     mergeShareSender,
     shareNotifyTitle,
     shareSendersFromFields,
@@ -126,5 +129,48 @@ describe('shareSendersFromFields', () => {
                 ],
             }),
         ).toEqual([{ username: 'alice', count: 2 }]);
+    });
+});
+
+describe('email digests', () => {
+    it('names the item for a single share, counts for more', () => {
+        expect(
+            digestSubject([{ username: 'alice', count: 1, names: ['a.txt'] }]),
+        ).toBe('alice shared a.txt with you');
+        expect(
+            digestSubject(
+                [
+                    { username: 'alice', count: 1, names: ['a.txt'] },
+                    { username: 'bob', count: 2, names: ['b.txt'] },
+                ],
+                { suffix: 'on Puter' },
+            ),
+        ).toBe('alice and bob shared 3 items with you on Puter');
+    });
+
+    it('renders one line per sender, naming what it can', () => {
+        expect(
+            digestLines([
+                { username: 'alice', count: 1, names: ['a.txt'] },
+                { username: 'bob', count: 5, names: ['b.txt', 'c.txt'] },
+                { username: 'carol', count: 2, names: [] },
+            ]),
+        ).toEqual([
+            { sender: 'alice', what: 'a.txt' },
+            { sender: 'bob', what: '5 items — b.txt, c.txt, +3 more' },
+            { sender: 'carol', what: '2 items' },
+        ]);
+    });
+
+    it('merges a sender back into their own digest entry', () => {
+        const merged = mergeDigestEntry(
+            [{ username: 'alice', count: 1, names: ['a.txt'] }],
+            'alice',
+            2,
+            ['b.txt'],
+        );
+        expect(merged).toEqual([
+            { username: 'alice', count: 3, names: ['a.txt', 'b.txt'] },
+        ]);
     });
 });

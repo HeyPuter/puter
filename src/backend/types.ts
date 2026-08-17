@@ -863,6 +863,11 @@ interface IConfigOptional {
         recipientHourly?: number;
         /** Same, per day. */
         recipientDaily?: number;
+        /**
+         * How long emails to one recipient are held and merged into a single
+         * digest, in seconds. Default 60; non-positive sends immediately.
+         */
+        emailBatchSeconds?: number;
     };
 
     /**

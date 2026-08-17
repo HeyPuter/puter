@@ -68,6 +68,9 @@ describe('share email', () => {
             },
             // Off by default in production, because nobody can decline yet.
             share_email_notifications: true,
+            // Near-immediate digests; the batching itself is tested with two
+            // senders below, not by waiting a real minute.
+            share_notify_limits: { emailBatchSeconds: 0.05 },
         } as never);
     }, BOOT_TIMEOUT_MS);
 
@@ -288,9 +291,7 @@ describe('share email', () => {
         // spent the one message they agreed to receive.
         await sleep(SETTLE_MS);
         expect(
-            mailTo(invitee).filter((mail) =>
-                mail.html.includes('Open it on Puter'),
-            ),
+            mailTo(invitee).filter((mail) => mail.html.includes('Open Puter')),
         ).toHaveLength(0);
     });
 
@@ -307,7 +308,7 @@ describe('share email', () => {
             `${owner.username} shared ${first.name} with you`,
         );
         expect(mail.html).toContain(first.name);
-        expect(mail.html).toContain('Open it on Puter');
+        expect(mail.html).toContain('Open Puter');
         expect(mail.html).toContain(`href="${env.origin}"`);
         expect(mail.html).toContain(recipient.username);
 
@@ -346,10 +347,34 @@ describe('share email', () => {
 
         const mail = await waitForMail({ to: recipient.email });
         expect(mail.subject).toBe(`${sender.username} shared 3 items with you`);
-        expect(mail.html).toContain('shared 3 items with you');
+        expect(mail.html).toContain('shared 3 items');
 
         await sleep(SETTLE_MS);
         expect(mailTo(recipient.email)).toHaveLength(1);
+    });
+
+
+    it('holds the window and sends two senders as one digest email', async () => {
+        const first = env.users.user;
+        const second = env.users.admin;
+        const recipient = await signUpAndConfirm(uninvitedAddress());
+        sent = [];
+
+        const fromFirst = await makeFile(first, 'digest-a');
+        const fromSecond = await makeFile(second, 'digest-b');
+        await shareWith(first, recipient.email, [{ uid: fromFirst.uid }]);
+        await shareWith(second, recipient.email, [{ uid: fromSecond.uid }]);
+
+        // Two people sharing within the window is one email that names them
+        // both — not two messages ten seconds apart.
+        const mail = await waitForMail({ to: recipient.email });
+        await sleep(SETTLE_MS);
+        expect(mailTo(recipient.email)).toHaveLength(1);
+        expect(mail.subject).toBe(
+            `${first.username} and ${second.username} shared 2 items with you`,
+        );
+        expect(mail.html).toContain(fromFirst.name);
+        expect(mail.html).toContain(fromSecond.name);
     });
 
     it('sends nothing to a recipient who has blocked the sender', async () => {
@@ -375,5 +400,98 @@ describe('share email', () => {
 
         await sleep(SETTLE_MS);
         expect(sent).toHaveLength(0);
+    });
+});
+
+describe('share email digest durability', () => {
+    let env: PuterTestEnv;
+    let sent: SentEmail[];
+
+    beforeAll(async () => {
+        env = await setupPuterTestEnv({
+            email: {
+                from: '"Puter (test)" <no-reply@puter.localhost>',
+                host: '127.0.0.1',
+                port: 1,
+            },
+            share_email_notifications: true,
+            // A window no test waits out: mail may only leave via the
+            // shutdown drain.
+            share_notify_limits: { emailBatchSeconds: 600 },
+        } as never);
+    }, BOOT_TIMEOUT_MS);
+
+    afterAll(async () => {
+        await env?.shutdown();
+    });
+
+    beforeEach(() => {
+        sent = [];
+        vi.spyOn(env.server.clients.email, 'sendRaw').mockImplementation(
+            async (options: { to: string; subject: string; html?: string }) => {
+                sent.push({
+                    to: options.to,
+                    subject: options.subject,
+                    html: options.html ?? '',
+                });
+                return null;
+            },
+        );
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('holds queued sends durably and drains them once on shutdown', async () => {
+        const owner = env.users.user;
+        const invitee = `drain-${crypto.randomUUID().slice(0, 8)}@puter.local`;
+        const uid = crypto.randomUUID();
+        const user = await env.server.stores.user.getByUsername(owner.username);
+        await env.server.clients.db.write(
+            'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, 0, ?)',
+            [
+                uid,
+                'drain.txt',
+                `/${owner.username}/drain.txt`,
+                user!.id,
+                Math.floor(Date.now() / 1000),
+            ],
+        );
+        const res = await fetch(new URL('/share', env.apiOrigin), {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${owner.token}`,
+            },
+            body: JSON.stringify({
+                recipients: [invitee],
+                items: [{ uid }],
+                mode: 'read',
+            }),
+        });
+        expect(res.status).toBe(200);
+
+        // Inside the window nothing has been sent, but the entry is already
+        // durable — it does not depend on this process's timer surviving.
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        expect(sent).toHaveLength(0);
+        const { res: listed } = await env.server.stores.kv.list({
+            as: 'keys',
+            pattern: `share:digest:invite:${invitee}:`,
+        });
+        const keys = Array.isArray(listed)
+            ? listed
+            : ((listed as { items?: unknown[] })?.items ?? []);
+        expect(keys).toHaveLength(1);
+
+        // The drain sends it while the transport is still up; a second drain
+        // finds the entries already claimed and sends nothing again.
+        await env.server.services.shareNotification.onServerPrepareShutdown();
+        await env.server.services.shareNotification.onServerPrepareShutdown();
+
+        expect(sent).toHaveLength(1);
+        expect(sent[0].to).toBe(invitee);
+        expect(sent[0].html).toContain('drain.txt');
     });
 });
