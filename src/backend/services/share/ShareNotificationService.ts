@@ -82,6 +82,15 @@ const CLAIM_TEMPLATE = 'file-shared-before-you-joined';
 type Budget = [key: string, limit: number, windowMs: number];
 
 /**
+ * Why a recipient heard nothing. Every gate on this path is a deliberate early
+ * return, so without a line each they are indistinguishable from a lost email
+ * once it's running somewhere you can't attach a debugger to.
+ */
+const skipped = (reason: string, detail: Record<string, unknown>): void => {
+    console.log('[share-notify] not emailing:', reason, detail);
+};
+
+/**
  * Telling people what has been shared with them. Separate from `ShareService`
  * because sharing succeeds or fails on its own; being told is best-effort and
  * always off the response path.
@@ -115,12 +124,81 @@ export class ShareNotificationService extends PuterService {
      */
     #digestTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+    /** The recovery sweep; see `onServerStart`. */
+    #digestSweep: ReturnType<typeof setInterval> | null = null;
+
+    /**
+     * Recover digests whose timer died with the node that armed it — a restart,
+     * a rolling deploy, or a SIGKILL that never reached the drain below. The
+     * entries are in KV, so any node can finish them; without this sweep they
+     * would sit there until their TTL and nobody would ever be told.
+     */
+    override onServerStart(): void {
+        const every = Math.max(30, this.#limits().emailBatchSeconds) * 1000;
+        const sweep = setInterval(() => {
+            void this.#sweepDigests();
+        }, every);
+        sweep.unref?.();
+        this.#digestSweep = sweep;
+    }
+
     /** Send what's still waiting while the transport is alive to send it. */
     override async onServerPrepareShutdown(): Promise<void> {
+        if (this.#digestSweep) clearInterval(this.#digestSweep);
+        this.#digestSweep = null;
         const keys = [...this.#digestTimers.keys()];
         for (const [, timer] of this.#digestTimers) clearTimeout(timer);
         this.#digestTimers.clear();
         await Promise.all(keys.map((key) => this.#flushDigest(key)));
+    }
+
+    /** The recovery sweep, for tests that can't wait out an interval. */
+    async sweepForTests(): Promise<void> {
+        await this.#sweepDigests();
+    }
+
+    /**
+     * Flush every digest whose window has elapsed and which no node here is
+     * still holding a timer for. Cheap: one prefix listing, and the lock plus
+     * `take` make a premature or duplicated sweep harmless.
+     */
+    async #sweepDigests(): Promise<void> {
+        try {
+            const { res } = await this.stores.kv.list({
+                as: 'entries',
+                pattern: 'share:digest:',
+                limit: 200,
+            });
+            const listed = (
+                Array.isArray(res)
+                    ? res
+                    : ((res as { items?: unknown[] })?.items ?? [])
+            ) as Array<{ key: string; value: unknown }>;
+            if (listed.length === 0) return;
+
+            const windowMs = this.#limits().emailBatchSeconds * 1000;
+            const due = new Set<string>();
+            for (const entry of listed) {
+                const key = entry.key.slice(
+                    'share:digest:'.length,
+                    entry.key.lastIndexOf(':'),
+                );
+                if (!key || this.#digestTimers.has(key)) continue;
+                const queuedAt = Number(
+                    (entry.value as DigestEntryRecord | null)?.queuedAt ?? 0,
+                );
+                if (Date.now() - queuedAt < windowMs) continue;
+                due.add(key);
+            }
+            if (due.size === 0) return;
+
+            console.log('[share-notify] sweeping orphaned digests:', {
+                count: due.size,
+            });
+            for (const key of due) await this.#flushDigest(key);
+        } catch (err) {
+            console.warn('[share-notify] digest sweep failed:', err);
+        }
     }
 
     /**
@@ -156,7 +234,13 @@ export class ShareNotificationService extends PuterService {
                         holderId,
                     );
                     await this.#announce(holderId, issuer, count, interrupt);
-                    if (!interrupt) return;
+                    if (!interrupt) {
+                        skipped('interruption budget spent', {
+                            issuerId,
+                            holderId,
+                        });
+                        return;
+                    }
                     await this.#emailHolder(
                         holderId,
                         issuer,
@@ -388,13 +472,29 @@ export class ShareNotificationService extends PuterService {
         count: number,
         itemName: string | undefined,
     ): Promise<void> {
-        if (!this.config.share_email_notifications) return;
-        if (!this.config.email) return;
+        if (!this.config.share_email_notifications) {
+            skipped('share_email_notifications is off', { holderId });
+            return;
+        }
+        if (!this.config.email) {
+            skipped('no email transport configured', { holderId });
+            return;
+        }
 
         const holder = await this.stores.user.getById(holderId);
         const to = holder?.email;
-        if (!to || !holder?.email_confirmed) return;
-        if (!(await this.clients.email.validate(to))) return;
+        if (!to || !holder?.email_confirmed) {
+            skipped('recipient has no confirmed address', {
+                holderId,
+                hasAddress: Boolean(to),
+                confirmed: Boolean(holder?.email_confirmed),
+            });
+            return;
+        }
+        if (!(await this.clients.email.validate(to))) {
+            skipped('address refused by validate', { holderId });
+            return;
+        }
 
         await this.#queueDigest(
             `user:${holderId}`,
@@ -430,9 +530,16 @@ export class ShareNotificationService extends PuterService {
             expireAt: Math.floor(Date.now() / 1000) + DIGEST_ENTRY_TTL_SECONDS,
         });
 
-        if (this.#digestTimers.has(key)) return;
+        if (this.#digestTimers.has(key)) {
+            console.log('[share-notify] queued into an open digest:', { key });
+            return;
+        }
         const seconds = this.#limits().emailBatchSeconds;
         if (seconds > 0) {
+            console.log('[share-notify] digest window opened:', {
+                key,
+                seconds,
+            });
             const timer = setTimeout(() => {
                 this.#digestTimers.delete(key);
                 void this.#flushDigest(key);
@@ -463,7 +570,12 @@ export class ShareNotificationService extends PuterService {
                 DIGEST_LOCK_SECONDS,
                 'NX',
             );
-            if (locked !== 'OK') return;
+            if (locked !== 'OK') {
+                console.log('[share-notify] another flush holds the lock:', {
+                    key,
+                });
+                return;
+            }
         } catch {
             // No lock beats no mail; `take` still prevents double sends.
         }
@@ -493,7 +605,14 @@ export class ShareNotificationService extends PuterService {
                     record: taken.res as DigestEntryRecord,
                 });
             }
-            if (claimed.length === 0) return;
+            if (claimed.length === 0) {
+                // Listed nothing, or every entry went to another flusher.
+                console.log('[share-notify] nothing to send:', {
+                    key,
+                    listed: keys.length,
+                });
+                return;
+            }
 
             // Arrival order, so "alice and bob" reads in the order they
             // actually shared rather than however the keys happened to sort.
@@ -510,6 +629,13 @@ export class ShareNotificationService extends PuterService {
                 );
             }
             const [{ record: first }] = claimed;
+            console.log('[share-notify] sending digest:', {
+                key,
+                kind: first.kind,
+                to: first.to,
+                entries: claimed.length,
+                senders: entries.length,
+            });
 
             try {
                 if (first.kind === 'holder') {
@@ -537,6 +663,10 @@ export class ShareNotificationService extends PuterService {
                         },
                     );
                 }
+                console.log('[share-notify] digest sent:', {
+                    key,
+                    to: first.to,
+                });
             } catch (err) {
                 // The entries are claimed but unsent — put them back so a
                 // later flush retries, instead of losing the notification.
@@ -591,8 +721,14 @@ export class ShareNotificationService extends PuterService {
             // Each address fails alone — one refused send must not cost the
             // next invitee their only channel.
             try {
-                if (!(await this.clients.email.validate(to))) continue;
-                if (!(await this.#claimInviteEmail(issuerId, to))) continue;
+                if (!(await this.clients.email.validate(to))) {
+                    skipped('invite address refused by validate', { to });
+                    continue;
+                }
+                if (!(await this.#claimInviteEmail(issuerId, to))) {
+                    skipped('invite budget spent', { issuerId, to });
+                    continue;
+                }
                 await this.#queueDigest(
                     `invite:${to}`,
                     { kind: 'invite', to },

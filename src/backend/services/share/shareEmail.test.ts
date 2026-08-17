@@ -443,6 +443,32 @@ describe('share email digest durability', () => {
         vi.restoreAllMocks();
     });
 
+
+    it('sweeps a digest whose timer died with the node that armed it', async () => {
+        const owner = env.users.user;
+        const invitee = `orphan-${crypto.randomUUID().slice(0, 8)}@puter.local`;
+
+        // An entry with no timer anywhere — what a restart or a rolling deploy
+        // leaves behind. Queued in the past so it is already due.
+        await env.server.stores.kv.set({
+            key: `share:digest:invite:${invitee}:${crypto.randomUUID()}`,
+            value: {
+                kind: 'invite',
+                to: invitee,
+                sender: owner.username,
+                count: 1,
+                names: ['orphan.txt'],
+                queuedAt: Date.now() - 10 * 60_000,
+            },
+        });
+
+        await env.server.services.shareNotification.sweepForTests();
+
+        expect(sent).toHaveLength(1);
+        expect(sent[0].to).toBe(invitee);
+        expect(sent[0].html).toContain('orphan.txt');
+    });
+
     it('holds queued sends durably and drains them once on shutdown', async () => {
         const owner = env.users.user;
         const invitee = `drain-${crypto.randomUUID().slice(0, 8)}@puter.local`;
