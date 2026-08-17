@@ -307,11 +307,10 @@ docker run -d -p 1025:1025 -p 8025:8025 mailhog/mailhog
 ```
 
 ```json
-"email": { "from": "\"Puter\" <no-reply@puter.localhost>", "host": "127.0.0.1", "port": 1025, "secure": false, "ignoreTLS": true },
-"share_email_notifications": true
+"email": { "from": "\"Puter\" <no-reply@puter.localhost>", "host": "127.0.0.1", "port": 1025, "secure": false, "ignoreTLS": true }
 ```
 
-`share_email_notifications` is off by default, so someone who already has an account is told about a new share in the app only. An address with no account is emailed either way — there is nothing else to reach them with.
+Share email is on once a transport exists: a recipient who already has an account is emailed as well as notified in-app, and they opt out with the unsubscribe link the mail carries. Set `"share_email_notifications": false` to keep those in the app only — an address with no account is still emailed, since there is nothing else to reach them with.
 
 ### Sign in with Google (or another OIDC provider)
 

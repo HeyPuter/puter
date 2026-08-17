@@ -66,8 +66,7 @@ describe('share email', () => {
                 host: '127.0.0.1',
                 port: 1,
             },
-            // Off by default in production, because nobody can decline yet.
-            share_email_notifications: true,
+            // Not set: share email is on by default, which this suite proves.
             // Near-immediate digests; the batching itself is tested with two
             // senders below, not by waiting a real minute.
             share_notify_limits: { emailBatchSeconds: 0.05 },
@@ -375,6 +374,36 @@ describe('share email', () => {
         );
         expect(mail.html).toContain(fromFirst.name);
         expect(mail.html).toContain(fromSecond.name);
+    });
+
+
+    it('honors an account-wide unsubscribe, and offers the link to those who have not', async () => {
+        const owner = env.users.user;
+        const recipient = await signUpAndConfirm(uninvitedAddress());
+        sent = [];
+
+        const first = await makeFile(owner, 'unsub-1');
+        await shareWith(owner, recipient.email, [{ uid: first.uid }]);
+        const mail = await waitForMail({ to: recipient.email });
+        const row = await env.server.stores.user.getByUsername(
+            recipient.username,
+        );
+        expect(mail.html).toContain(`/unsubscribe?user_uuid=${row!.uuid}`);
+
+        // Only the mail stops: the share and the in-app notification stand.
+        await env.server.stores.user.update(row!.id, { unsubscribed: 1 });
+        await env.server.stores.user.invalidate(row!);
+        sent = [];
+
+        const second = await makeFile(owner, 'unsub-2');
+        await shareWith(owner, recipient.email, [{ uid: second.uid }]);
+        await sleep(SETTLE_MS);
+        expect(mailTo(recipient.email)).toHaveLength(0);
+        await eventually('the share to be listed anyway', async () =>
+            (await sharedWithMe(recipient.token)).some(
+                (item) => item.uid_entry === second.uid,
+            ),
+        );
     });
 
     it('sends nothing to a recipient who has blocked the sender', async () => {

@@ -252,11 +252,10 @@
     },
 
     // ── Sharing ─────────────────────────────────────────────────────────
-    // Email a recipient who already has an account about a new share. Off by
-    // default: there is no per-user preference yet, so nobody can decline. An
-    // invite to an address with no account is emailed either way — it has no
-    // other way to arrive.
-    // "share_email_notifications": true,
+    // Email a recipient who already has an account about a new share. On
+    // unless set to false; they opt out via the unsubscribe link, or by
+    // blocking a sender. An invite to an address with no account always goes.
+    // "share_email_notifications": false,
     //
     // New shares one account may create per UTC day. Default 200.
     // "share_daily_limit": 200,
@@ -271,7 +270,7 @@
     //     "pairDaily": 20,
     //     "recipientHourly": 10,
     //     "recipientDaily": 50,
-    //     "emailBatchSeconds": 60
+    //     "emailBatchSeconds": 90
     // },
 
     // ── Alarms / alerting ───────────────────────────────────────────────

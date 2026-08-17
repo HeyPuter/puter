@@ -826,10 +826,10 @@ interface IConfigOptional {
     enable_public_folders: boolean;
 
     /**
-     * When true, a recipient who already has an account is emailed about a
-     * share as well as notified in-app. Off by default: there is no per-user
-     * preference yet, so nobody can decline. An invite to an address with no
-     * account is emailed regardless — it has no other way to arrive.
+     * Whether a recipient who already has an account is emailed about a share
+     * as well as notified in-app. **On unless set to false**; recipients
+     * decline with the unsubscribe link the mail carries, or by blocking a
+     * sender. An invite to an address with no account is emailed regardless.
      */
     share_email_notifications?: boolean;
 

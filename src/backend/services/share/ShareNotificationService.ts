@@ -108,6 +108,8 @@ interface DigestEntryRecord {
     to: string;
     /** Holder's username, for the greeting. Absent for invites. */
     recipient?: string;
+    /** Holder's uuid, so the digest can carry their unsubscribe link. */
+    recipientUuid?: string;
     sender?: string;
     count: number;
     names: string[];
@@ -472,7 +474,8 @@ export class ShareNotificationService extends PuterService {
         count: number,
         itemName: string | undefined,
     ): Promise<void> {
-        if (!this.config.share_email_notifications) {
+        // Explicitly false, not falsy: unset means on.
+        if (this.config.share_email_notifications === false) {
             skipped('share_email_notifications is off', { holderId });
             return;
         }
@@ -491,6 +494,11 @@ export class ShareNotificationService extends PuterService {
             });
             return;
         }
+        // The account-wide opt-out every other transactional sender honors.
+        if (holder.unsubscribed) {
+            skipped('recipient has unsubscribed', { holderId });
+            return;
+        }
         if (!(await this.clients.email.validate(to))) {
             skipped('address refused by validate', { holderId });
             return;
@@ -498,7 +506,12 @@ export class ShareNotificationService extends PuterService {
 
         await this.#queueDigest(
             `user:${holderId}`,
-            { kind: 'holder', to, recipient: holder.username },
+            {
+                kind: 'holder',
+                to,
+                recipient: holder.username,
+                recipientUuid: holder.uuid,
+            },
             issuer,
             count,
             itemName ? [itemName] : [],
@@ -512,7 +525,10 @@ export class ShareNotificationService extends PuterService {
      */
     async #queueDigest(
         key: string,
-        seed: Pick<DigestEntryRecord, 'kind' | 'to' | 'recipient'>,
+        seed: Pick<
+            DigestEntryRecord,
+            'kind' | 'to' | 'recipient' | 'recipientUuid'
+        >,
         sender: string | undefined,
         count: number,
         names: string[],
@@ -647,6 +663,9 @@ export class ShareNotificationService extends PuterService {
                             subject_line: digestSubject(entries),
                             shares: digestLines(entries),
                             link: this.#appLink(),
+                            // The template composes the URL, so `?` and `=`
+                            // stay literal instead of escaping to `&#x3D;`.
+                            unsubscribe_uuid: first.recipientUuid ?? null,
                         },
                     );
                 } else {

@@ -207,6 +207,11 @@ immediately</p>
         <a href="{{link}}" style="display: inline-block; padding: 10px 18px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Open Puter</a>
     </p>
     <p style="color: #6b7280; font-size: 13px; margin-top: 24px;">Sincerely,<br />Puter</p>
+    {{#if unsubscribe_uuid}}
+    <p style="color: #9ca3af; font-size: 12px;">
+        Don't want these? <a href="{{link}}/unsubscribe?user_uuid={{unsubscribe_uuid}}" style="color: #9ca3af;">Unsubscribe</a>.
+    </p>
+    {{/if}}
 </div>
         `,
     },
