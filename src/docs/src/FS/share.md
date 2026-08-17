@@ -64,12 +64,32 @@ A `Promise` that resolves to an array of share objects, one per recipient/item p
 - `issuer` (String) - Username of whoever granted the share.
 - `holder` (String) - Username of whoever received it.
 - `inheritedFrom` (String) - Path of the shared ancestor this access comes from, or `null` when the share is on the item itself.
+- `pending` (Boolean) - Present and `true` when the recipient's email has no confirmed Puter account. See below.
+- `recipientEmail` (String) - Address a pending share was sent to. Only set when `pending`.
 - `modified` (Number) - Last-modified time of the item, in unix seconds.
 - `size` (Number) - Size of the item in bytes; `null` for a directory.
 
 Sharing the same item with the same person again **replaces** their access rather than adding a second share, so raising someone from `read` to `write` is just another call.
 
 If some recipients succeed and others fail, the promise resolves with the ones that worked. It rejects only when every pair failed.
+
+## Sharing with someone who has no account
+
+An email address with no confirmed Puter account is **invited** rather than refused. The share is recorded and the recipient is emailed, but it grants nothing yet — the returned share carries `pending: true` and a `null` `holder`.
+
+Access is written when they create an account with that address **and confirm it**. Signing up alone is not enough: until the address is confirmed it is a claim rather than an identity, and honouring it would hand the share to whoever registered it first.
+
+An invite shows up in [`getShares()`](/FS/getShares/) with `pending: true`, and [`unshare()`](/FS/unshare/) cancels it.
+
+```js
+const [share] = await puter.fs.share('report.txt', 'newcomer@example.com');
+
+if ( share.pending ) {
+    puter.print(`Invited ${share.recipientEmail} — access starts when they join`);
+} else {
+    puter.print(`Shared with ${share.holder}`);
+}
+```
 
 ## Examples
 

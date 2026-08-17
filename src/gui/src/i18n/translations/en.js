@@ -390,6 +390,12 @@ const en = {
         share_done: 'Done',
         share_failed: 'Could not share this item.',
         share_shared_with: 'Shared with {{recipient}}',
+        share_invited: 'Invited {{recipient}} — they’ll get access once they join',
+        share_awaiting_signup: 'Invited',
+        share_cancel_invite: 'Cancel invitation',
+        share_confirm_cancel_invite:
+            'Cancel the invitation sent to {{recipient}}?',
+        share_invite_cancelled: 'Invitation to {{recipient}} cancelled',
         share_access_removed: 'Removed {{recipient}}',
         share_confirm_remove: 'Remove {{recipient}}’s access to this item?',
         share_remove: 'Remove',

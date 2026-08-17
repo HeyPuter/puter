@@ -43,7 +43,9 @@ const share = defineOperation({
             },
             transform: (/** @type {{ status: string, results: Record<string, unknown>[] }} */ response) => {
                 const results = response.results ?? [];
-                const ok = results.filter((r) => r.status === 'success');
+                const ok = results.filter(
+                    (r) => r.status === 'success' || r.status === 'pending',
+                );
                 if ( ok.length === 0 && results.length > 0 ) {
                     const first = results[0];
                     throw {

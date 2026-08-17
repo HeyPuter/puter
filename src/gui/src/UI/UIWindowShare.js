@@ -151,6 +151,16 @@ async function UIWindowShare (options) {
                 rows += '</div>';
                 continue;
             }
+            if ( share.pending ) {
+                const invited = html_encode(share.recipientEmail ?? '');
+                rows += '<div class="share-row share-row-pending">';
+                rows += `<span class="share-row-who">${invited}</span>`;
+                rows += `<span class="share-row-via">${i18n('share_awaiting_signup')}</span>`;
+                rows += `<span class="share-row-mode">${html_encode(mode_label(share.mode))}</span>`;
+                rows += `<button class="share-revoke" data-holder="${invited}" title="${html_encode(i18n('share_cancel_invite'))}" aria-label="${html_encode(i18n('share_cancel_invite'))}">${icons.trash}</button>`;
+                rows += '</div>';
+                continue;
+            }
             rows += '<div class="share-row">';
             rows += `<span class="share-row-who">${holder}</span>`;
             rows += `<select class="share-row-mode-select" data-holder="${holder}">${options_for(share.mode)}</select>`;
@@ -177,14 +187,19 @@ async function UIWindowShare (options) {
 
         $(this).prop('disabled', true);
         try {
-            await puter.fs.share({
+            const created = await puter.fs.share({
                 path: item_path,
                 recipient,
                 mode: $(el_window).find('.share-mode').val(),
             });
             $(el_window).find('.share-recipient').val('');
             $error.hide();
-            show_success(i18n('share_shared_with', { recipient: html_encode(recipient) }));
+            // "Shared with" would claim access an invite does not grant.
+            show_success(
+                created.some((share) => share.pending)
+                    ? i18n('share_invited', { recipient: html_encode(recipient) })
+                    : i18n('share_shared_with', { recipient: html_encode(recipient) }),
+            );
             invalidate_shared_roots();
             await refresh();
         } catch (e) {
@@ -212,8 +227,11 @@ async function UIWindowShare (options) {
 
     $(el_window).on('click', '.share-revoke', async function () {
         const holder = $(this).attr('data-holder');
+        const is_pending = $(this).closest('.share-row').hasClass('share-row-pending');
         const confirmed = await UIAlert({
-            message: i18n('share_confirm_remove', { recipient: holder }),
+            message: is_pending
+                ? i18n('share_confirm_cancel_invite', { recipient: holder })
+                : i18n('share_confirm_remove', { recipient: holder }),
             buttons: [
                 { label: i18n('share_remove'), value: true, type: 'primary' },
                 { label: i18n('cancel'), value: false },
@@ -223,7 +241,11 @@ async function UIWindowShare (options) {
         $(this).prop('disabled', true);
         try {
             await puter.fs.unshare(item_path, holder);
-            show_success(i18n('share_access_removed', { recipient: html_encode(holder) }));
+            show_success(
+                is_pending
+                    ? i18n('share_invite_cancelled', { recipient: html_encode(holder) })
+                    : i18n('share_access_removed', { recipient: html_encode(holder) }),
+            );
             invalidate_shared_roots();
             await refresh();
         } catch (e) {
