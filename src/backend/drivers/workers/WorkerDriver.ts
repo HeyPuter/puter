@@ -543,6 +543,19 @@ export class WorkerDriver extends PuterDriver {
             .filter((id): id is number => typeof id === 'number');
         const entriesById =
             await this.stores.fsEntry.getEntriesByIds(rootDirIds);
+        const appOwnerIds = [
+            ...new Set(
+                rows
+                    .map((r) => r.app_owner)
+                    .filter((id) => id !== null && id !== undefined)
+                    .map(Number),
+            ),
+        ];
+
+        const appsById =
+            appOwnerIds.length > 0
+                ? await this.stores.app.getByIds(appOwnerIds)
+                : new Map();
 
         // Make sure the user only sees their own workers
         rows = rows.filter((r) => {
@@ -570,11 +583,17 @@ export class WorkerDriver extends PuterDriver {
                 file_path = loaded?.path;
                 file_uid = loaded?.uuid;
             }
+            const app =
+                r.app_owner !== null && r.app_owner !== undefined
+                    ? appsById.get(Number(r.app_owner))
+                    : undefined;
+
             return {
                 name,
                 url: `https://${name}.puter.work`,
                 file_path,
                 file_uid,
+                app_uuid: app?.uid ?? null,
                 created_at: r.ts
                     ? new Date(r.ts as string).toISOString()
                     : null,

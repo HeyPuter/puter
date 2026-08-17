@@ -438,17 +438,25 @@ describe('WorkerDriver', () => {
             await seed(`${tag}-other`, unrelated.id);
             await seed(`${tag}-userscoped`, null);
 
-            const seen = (
-                (await inCtx(
-                    () => target.getFilePaths({}),
-                    actorFor(owner, { uid: builder.uid, id: builder.id }),
-                )) as Array<{ name: string }>
-            ).map((r) => r.name);
+            const seen = (await inCtx(
+                () => target.getFilePaths({}),
+                actorFor(owner, { uid: builder.uid, id: builder.id }),
+            )) as Array<{ name: string }>;
 
-            expect(seen).toContain(`${tag}-own`);
-            expect(seen).toContain(`${tag}-sandboxed`);
-            expect(seen).not.toContain(`${tag}-other`);
-            expect(seen).not.toContain(`${tag}-userscoped`);
+            const names = seen.map((r) => r.name);
+
+            expect(names).toContain(`${tag}-own`);
+            expect(names).toContain(`${tag}-sandboxed`);
+            expect(names).not.toContain(`${tag}-other`);
+            expect(names).not.toContain(`${tag}-userscoped`);
+
+            const sandboxed = seen.find((r) => r.name === `${tag}-sandboxed`);
+
+            expect(sandboxed?.app_uuid).toBe(generated.uid);
+
+            const own = seen.find((r) => r.name === `${tag}-own`);
+
+            expect(own?.app_uuid).toBe(builder.uid);
         });
 
         it('shows a user-token actor every worker in the account', async () => {
