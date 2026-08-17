@@ -31,6 +31,7 @@ import { SessionStore } from './session/SessionStore.js';
 import { ShareStore } from './share/ShareStore.js';
 import { SubdomainStore } from './subdomain/SubdomainStore.js';
 import { SystemKVStore } from './systemKv/SystemKVStore.js';
+import { UserBlockStore } from './userBlock/UserBlockStore.js';
 import { UserStore } from './user/UserStore.js';
 import type { IPuterStoreRegistry } from './types.js';
 
@@ -58,6 +59,7 @@ declare module './types.js' {
         permission: PermissionStore;
         session: SessionStore;
         oidc: OIDCStore;
+        userBlock: UserBlockStore;
     }
 }
 
@@ -69,7 +71,7 @@ declare module './types.js' {
 // stores/services can lean on them for cached lookups.
 // FSEntryStore depends on `kv` (pending-upload sessions live there).
 // S3ObjectStore is a leaf (clients.s3 only).
-// SessionStore / ShareStore are leaves — only use clients.db.
+// SessionStore / ShareStore / UserBlockStore are leaves — only use clients.db.
 export const puterStores = {
     kv: SystemKVStore,
     meteringBuffer: MeteringBufferStore,
@@ -86,4 +88,5 @@ export const puterStores = {
     permission: PermissionStore,
     session: SessionStore,
     oidc: OIDCStore,
+    userBlock: UserBlockStore,
 } satisfies IPuterStoreRegistry;

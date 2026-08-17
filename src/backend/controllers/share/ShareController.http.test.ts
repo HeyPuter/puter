@@ -196,15 +196,30 @@ describe('share endpoints over HTTP', () => {
         const recipient = env.users.other;
         const [a, b] = [await makeFile(owner), await makeFile(owner)];
 
-        // This pair is shared between tests, and a notification is claimed once
-        // per window — release it so what's under test here is the batching.
+        // These accounts are shared between tests, so both things that would
+        // otherwise decide this outcome are cleared first: the budgets that
+        // silence a repeat interruption, and any notification still open for
+        // this recipient, which a new share folds into instead of creating one.
+        // What's left under test is the batching.
         const [issuer, holder] = await Promise.all([
             env.server.stores.user.getByUsername(owner.username),
             env.server.stores.user.getByUsername(recipient.username),
         ]);
         await env.server.clients.redis.del(
-            `share:notify:${issuer!.id}:${holder!.id}`,
+            `rate:share:notify:pair:${issuer!.id}:${holder!.id}`,
+            `rate:share:notify:pair-day:${issuer!.id}:${holder!.id}`,
+            `rate:share:notify:to:${holder!.id}`,
+            `rate:share:notify:to-day:${holder!.id}`,
         );
+        for (const row of await env.server.stores.notification.listByUserId(
+            holder!.id,
+            { filter: 'unacknowledged' },
+        )) {
+            await env.server.stores.notification.markAcknowledged(
+                row.uid,
+                holder!.id,
+            );
+        }
 
         const seen: Array<{ userIds: number[]; payload: Record<string, unknown> }> = [];
         const notification = env.server.services.notification;
@@ -346,5 +361,76 @@ describe('share endpoints over HTTP', () => {
                 })
             ).status,
         ).toBe(400);
+    });
+
+    it('blocks a sender, refuses their share, then unblocks them', async () => {
+        const owner = env.users.user;
+        const recipient = env.users.other;
+        const file = await makeFile(owner);
+
+        const blocked = await post('/share/blocks', recipient.token, {
+            username: owner.username,
+        });
+        expect(blocked.status).toBe(200);
+        expect(await blocked.json()).toMatchObject({
+            username: owner.username,
+            blocked: true,
+            created: true,
+        });
+
+        const refused = await post('/share', owner.token, {
+            recipients: [recipient.username],
+            items: [{ uid: file.uid }],
+            mode: 'read',
+        });
+        // A per-pair outcome, so the envelope reports it rather than the status.
+        expect(refused.status).toBe(200);
+        expect(await refused.json()).toMatchObject({
+            status: 'aborted',
+            results: [{ status: 'error', code: 'recipient_not_accepting_shares' }],
+        });
+
+        const listed = await get('/share/blocks', recipient.token, {});
+        expect(listed.status).toBe(200);
+        const body = (await listed.json()) as {
+            items: Array<Record<string, unknown>>;
+        };
+        const row = body.items.find((i) => i.username === owner.username);
+        expect(row).toBeDefined();
+        expect(typeof row?.created_at).toBe('number');
+        // Nothing internal rides along.
+        for (const key of ['blocker_user_id', 'blocked_user_id', 'id']) {
+            expect(row).not.toHaveProperty(key);
+        }
+
+        const unblocked = await fetch(new URL('/share/blocks', env.apiOrigin), {
+            method: 'DELETE',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${recipient.token}`,
+            },
+            body: JSON.stringify({ username: owner.username }),
+        });
+        expect(unblocked.status).toBe(200);
+        expect(await unblocked.json()).toMatchObject({ unblocked: true });
+
+        const shared = await post('/share', owner.token, {
+            recipients: [recipient.username],
+            items: [{ uid: file.uid }],
+            mode: 'read',
+        });
+        expect(await shared.json()).toMatchObject({ status: 'success' });
+    });
+
+    it('requires a username to block', async () => {
+        const res = await post('/share/blocks', env.users.other.token, {});
+        expect(res.status).toBe(400);
+        expect(await res.json()).toMatchObject({ code: 'bad_request' });
+    });
+
+    it('keeps one caller\'s blocklist out of another\'s', async () => {
+        const res = await get('/share/blocks', env.users.admin.token, {});
+        const body = (await res.json()) as { items: unknown[] };
+        expect(body.items).toEqual([]);
     });
 });

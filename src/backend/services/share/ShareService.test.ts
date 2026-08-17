@@ -1008,18 +1008,22 @@ describe('ShareService', () => {
         ).toEqual([]);
     });
 
-    it('notifies a recipient once per window, not once per re-share', async () => {
+    it('interrupts a recipient once per window, not once per re-share', async () => {
         const owner = await makeUser();
         const recipient = await makeUser();
         const first = await makeFile(owner.user);
         const second = await makeFile(owner.user);
 
-        const notified: number[][] = [];
+        const notified: Array<{ ids: number[]; silent: boolean }> = [];
         const notify = server.services.notification.notify.bind(
             server.services.notification,
         );
-        server.services.notification.notify = (async (ids: number[]) => {
-            notified.push(ids);
+        server.services.notification.notify = (async (
+            ids: number[],
+            _payload: unknown,
+            opts: { silent?: boolean } = {},
+        ) => {
+            notified.push({ ids, silent: Boolean(opts.silent) });
         }) as never;
         try {
             const shared = await share(owner.actor, {
@@ -1051,7 +1055,14 @@ describe('ShareService', () => {
             server.services.notification.notify = notify;
         }
 
-        expect(notified).toEqual([[recipient.user.id]]);
+        // The second batch is still recorded — the recipient must not open
+        // Puter to a notification that undercounts what is waiting — but it
+        // arrives silently, without a second interruption.
+        expect(notified.map((call) => call.ids)).toEqual([
+            [recipient.user.id],
+            [recipient.user.id],
+        ]);
+        expect(notified.map((call) => call.silent)).toEqual([false, true]);
     });
 
     describe('an app is bounded by what it was given', () => {
@@ -1764,6 +1775,220 @@ describe('ShareService', () => {
             );
 
             expect(claimed).toEqual([]);
+            expect(await server.stores.share.listPendingByEmail(email)).toEqual(
+                [],
+            );
+        });
+    });
+
+    describe('blocking a sender', () => {
+        const blockEmail = () =>
+            `blocked-${Math.random().toString(36).slice(2, 9)}@test.local`;
+
+        it('refuses the share, and grants nothing', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await server.services.share.blockSender(
+                recipient.actor,
+                owner.user.username,
+            );
+
+            await expect(
+                share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { username: recipient.user.username },
+                    mode: 'read',
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'recipient_not_accepting_shares',
+            });
+
+            expect(await canRead(recipient.actor, file.path)).toBe(false);
+            expect(await server.stores.share.listByFsentry(file.id)).toEqual(
+                [],
+            );
+        });
+
+        it('costs the blocked sender none of their daily quota', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            await server.services.share.blockSender(
+                recipient.actor,
+                owner.user.username,
+            );
+
+            // Reading the counter by incrementing it with nothing.
+            const before = await server.stores.share.incrementDailyShareCount(
+                owner.user.id,
+                0,
+            );
+            await expect(
+                share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { username: recipient.user.username },
+                    mode: 'read',
+                }),
+            ).rejects.toMatchObject({ statusCode: 403 });
+
+            // A refused share is not reach handed out, so it buys nothing and
+            // costs nothing — otherwise blocking one recipient would eat the
+            // sender's budget for everyone else.
+            expect(
+                await server.stores.share.incrementDailyShareCount(
+                    owner.user.id,
+                    0,
+                ),
+            ).toBe(before);
+        });
+
+        it('accepts shares again once the block is lifted', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await server.services.share.blockSender(
+                recipient.actor,
+                owner.user.username,
+            );
+            expect(
+                await server.services.share.unblockSender(
+                    recipient.actor,
+                    owner.user.username,
+                ),
+            ).toMatchObject({ unblocked: true });
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+        });
+
+        it('leaves access the sender already granted alone', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            await server.services.share.blockSender(
+                recipient.actor,
+                owner.user.username,
+            );
+
+            // Blocking stops what comes next. What they already have is theirs
+            // until it is revoked — a control labelled "block" silently
+            // withdrawing it would be a surprise.
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+        });
+
+        it('is idempotent, and refuses to block yourself', async () => {
+            const recipient = await makeUser();
+            const sender = await makeUser();
+
+            expect(
+                await server.services.share.blockSender(
+                    recipient.actor,
+                    sender.user.username,
+                ),
+            ).toMatchObject({ created: true });
+            expect(
+                await server.services.share.blockSender(
+                    recipient.actor,
+                    sender.user.username,
+                ),
+            ).toMatchObject({ created: false });
+
+            await expect(
+                server.services.share.blockSender(
+                    recipient.actor,
+                    recipient.user.username,
+                ),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'cannot_block_self',
+            });
+        });
+
+        it('lists who the caller blocked, and nothing internal', async () => {
+            const recipient = await makeUser();
+            const first = await makeUser();
+            const second = await makeUser();
+
+            await server.services.share.blockSender(
+                recipient.actor,
+                first.user.username,
+            );
+            await server.services.share.blockSender(
+                recipient.actor,
+                second.user.username,
+            );
+
+            const listed = await server.services.share.listBlockedSenders(
+                recipient.actor,
+            );
+            // Most recent first, and named by username only.
+            expect(listed.map((row) => row.username)).toEqual([
+                second.user.username,
+                first.user.username,
+            ]);
+            for (const row of listed) {
+                expect(Object.keys(row).sort()).toEqual([
+                    'createdAt',
+                    'username',
+                ]);
+            }
+            // Someone else's blocklist is not the caller's.
+            expect(
+                await server.services.share.listBlockedSenders(first.actor),
+            ).toEqual([]);
+        });
+
+        it('refuses to block an account that does not exist', async () => {
+            const recipient = await makeUser();
+            await expect(
+                server.services.share.blockSender(recipient.actor, 'nobody-x'),
+            ).rejects.toMatchObject({
+                statusCode: 404,
+                legacyCode: 'user_does_not_exist',
+            });
+        });
+
+        it('drops an invite from a sender blocked before it was claimed', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = blockEmail();
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            // The address's owner turns up, having blocked the sender in the
+            // meantime — claiming it now would hand them the one thing they
+            // said no to.
+            const claimer = await makeUser();
+            await server.stores.user.update(claimer.user.id, { email });
+            await server.services.share.blockSender(
+                claimer.actor,
+                owner.user.username,
+            );
+
+            const claimed = await server.services.share.claimPendingShares(
+                claimer.user.id,
+                email,
+            );
+
+            expect(claimed).toEqual([]);
+            expect(await canRead(claimer.actor, file.path)).toBe(false);
             expect(await server.stores.share.listPendingByEmail(email)).toEqual(
                 [],
             );

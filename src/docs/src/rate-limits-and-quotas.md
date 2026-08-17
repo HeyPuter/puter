@@ -100,6 +100,30 @@ Signed-URL routes have no session to key on, so they are bounded per network rat
 | Concurrent worker calls | 10 | 5 | 3 |
 | Concurrent deploys | 5 | 2 | 2 |
 
+### Sharing
+
+Sharing is bounded twice: on the calls, and on how many people one account can reach in a day.
+
+| Limit | All accounts |
+| --- | --- |
+| `share` / `revoke` calls per minute | 60 |
+| `share` / `revoke` calls per day | 500 |
+| Reads (`getShares`, `listShared`) per minute | 600 |
+| New shares per day | 200 |
+| Recipients per request | 10 |
+| Items per request | 50 |
+
+A "new share" is one that gives someone access they didn't already have. Changing the mode on an existing share, or re-sharing an item the recipient already has, costs nothing. Over the daily limit, `share` fails with `share_daily_limit_reached`.
+
+Separately, the notification and email that tell a recipient about a share are budgeted — being told is not the same as being interrupted about it:
+
+| Announcement | Limit |
+| --- | --- |
+| From one sender to one recipient | 1 per 15 minutes, 20 per day |
+| To one recipient, from anyone | 10 per hour, 50 per day |
+
+Over these, **the share still succeeds** — only the announcement is dropped. The recipient's notification is kept up to date either way, and folds several senders into one ("alice and bob shared 5 items with you"), so nothing is lost; it just doesn't interrupt them again. Recipients can also block an individual sender outright, which refuses that sender's shares with `recipient_not_accepting_shares`.
+
 ### Everything at once
 
 Every driver call also passes one shared per-account budget of **8,000 calls/min** before the per-API limits above. It exists to catch a runaway loop, not to shape normal traffic — a client that sees a 429 from it is looping.

@@ -300,6 +300,19 @@ Used for password resets, email confirmation, and notifications. Without it thos
 
 To require email confirmation before login, also set `"strict_email_verification_required": true`.
 
+To read the mail yourself instead of sending it, point the transport at a local SMTP sink — [MailHog](https://github.com/mailhog/MailHog) catches everything and serves it at `http://localhost:8025`. Publish both ports; a container that only exposes them is unreachable from the host:
+
+```sh
+docker run -d -p 1025:1025 -p 8025:8025 mailhog/mailhog
+```
+
+```json
+"email": { "from": "\"Puter\" <no-reply@puter.localhost>", "host": "127.0.0.1", "port": 1025, "secure": false, "ignoreTLS": true },
+"share_email_notifications": true
+```
+
+`share_email_notifications` is off by default, so someone who already has an account is told about a new share in the app only. An address with no account is emailed either way — there is nothing else to reach them with.
+
 ### Sign in with Google (or another OIDC provider)
 
 ```json

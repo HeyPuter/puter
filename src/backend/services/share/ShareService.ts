@@ -156,13 +156,6 @@ const RETIRE_CHUNK_SIZE = 100;
 export const DEFAULT_DAILY_SHARE_LIMIT = 200;
 
 /**
- * How long a recipient stays quiet after one sharer reaches them. Re-sharing an
- * item the recipient already has is not new reach and costs no quota, so
- * without a window it is an unmetered way to keep interrupting someone.
- */
-export const SHARE_NOTIFY_WINDOW_SECONDS = 15 * 60;
-
-/**
  * What a share recipient's browser is told about someone else's entry.
  *
  * Curated rather than the row: the row carries the owner's real path, their
@@ -474,6 +467,7 @@ export class ShareService extends PuterService {
                 legacyCode: 'cannot_share_with_owner',
             });
         }
+        await this.#assertNotBlocked(issuerId, holder.id);
 
         // Changing the mode on an existing share isn't new reach, so it
         // shouldn't spend budget — only a share to someone who doesn't already
@@ -1069,7 +1063,91 @@ export class ShareService extends PuterService {
         return inheritedShares.concat(own, pending);
     }
 
+    // -- Blocking -----------------------------------------------------
+
+    /**
+     * Refuse further shares from `username`. Existing shares stand: access
+     * someone already has is theirs until it is withdrawn, and a control
+     * labelled "block" silently revoking it would be a surprise.
+     */
+    async blockSender(
+        actor: Actor,
+        username: string,
+    ): Promise<{ username: string; created: boolean }> {
+        const blockerId = this.#requireUserId(actor);
+        const target = await this.#requireUserByUsername(username);
+        if (target.id === blockerId) {
+            throw new HttpError(400, 'cannot block yourself', {
+                legacyCode: 'cannot_block_self',
+            });
+        }
+        const created = await this.stores.userBlock.create(
+            blockerId,
+            target.id,
+        );
+        return { username: target.username as string, created };
+    }
+
+    /** Accept shares from `username` again. */
+    async unblockSender(
+        actor: Actor,
+        username: string,
+    ): Promise<{ username: string; unblocked: boolean }> {
+        const blockerId = this.#requireUserId(actor);
+        const target = await this.#requireUserByUsername(username);
+        const unblocked = await this.stores.userBlock.deleteByPair(
+            blockerId,
+            target.id,
+        );
+        return { username: target.username as string, unblocked };
+    }
+
+    /** Who the caller refuses shares from. Usernames only — ids aren't theirs. */
+    async listBlockedSenders(
+        actor: Actor,
+    ): Promise<Array<{ username: string; createdAt: number }>> {
+        const blockerId = this.#requireUserId(actor);
+        const rows = await this.stores.userBlock.listByBlocker(blockerId);
+        const users = await this.stores.user.getByIds(
+            rows.map((row) => Number(row.blocked_user_id)),
+        );
+        const items: Array<{ username: string; createdAt: number }> = [];
+        for (const row of rows) {
+            // A miss means the read raced an account deletion.
+            const username = users.get(Number(row.blocked_user_id))?.username;
+            if (!username) continue;
+            items.push({ username, createdAt: Number(row.created_at) });
+        }
+        return items;
+    }
+
+    /**
+     * Stop here when the recipient has blocked the sharer. Said plainly rather
+     * than disguised as a missing recipient, so a sender whose share will never
+     * arrive stops re-sending it; only a caller who already passed the manage
+     * check can get this far, so it is no probe for who blocked whom.
+     */
+    async #assertNotBlocked(issuerId: number, holderId: number): Promise<void> {
+        if (!(await this.stores.userBlock.isBlocked(holderId, issuerId))) {
+            return;
+        }
+        throw new HttpError(403, 'recipient is not accepting shares', {
+            legacyCode: 'recipient_not_accepting_shares',
+        });
+    }
+
     // -- Internals ----------------------------------------------------
+
+    async #requireUserByUsername(username: string): Promise<UserRow> {
+        const name = typeof username === 'string' ? username.trim() : '';
+        const user = name ? await this.stores.user.getByUsername(name) : null;
+        if (!user?.username) {
+            throw new HttpError(404, 'Recipient does not exist', {
+                legacyCode: 'user_does_not_exist',
+            });
+        }
+        return user;
+    }
 
     /**
      * Turn every invite aimed at `email` into a real grant, now that its owner
@@ -1112,6 +1190,17 @@ export class ShareService extends PuterService {
                     Number(row.issuer_user_id),
                 );
                 if (!issuer) {
+                    await this.stores.share.deleteByUid(row.uid);
+                    continue;
+                }
+                // An invite can sit for weeks; its address's owner may have
+                // blocked the sender since.
+                if (
+                    await this.stores.userBlock.isBlocked(
+                        holderUserId,
+                        Number(row.issuer_user_id),
+                    )
+                ) {
                     await this.stores.share.deleteByUid(row.uid);
                     continue;
                 }

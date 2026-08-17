@@ -19,7 +19,7 @@
 
 import type { Request, Response } from 'express';
 import type { Actor } from '../../core/actor.js';
-import { Controller, Get, Post } from '../../core/http/decorators.js';
+import { Controller, Delete, Get, Post } from '../../core/http/decorators.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import type {
     ResolvedShare,
@@ -296,7 +296,72 @@ export class ShareController extends PuterController {
         });
     }
 
+    // -- Blocking -----------------------------------------------------
+
+    /** GET /share/blocks — who the caller is refusing shares from. */
+    @Get('/blocks', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: SHARE_LIST_LIMIT,
+    })
+    async listBlocks(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const items = await this.services.share.listBlockedSenders(actor);
+        res.json({
+            items: items.map((item) => ({
+                username: item.username,
+                created_at: item.createdAt,
+            })),
+        });
+    }
+
+    /**
+     * POST /share/blocks — stop accepting shares from `username`. Idempotent:
+     * blocking someone twice is the state the caller asked for either way.
+     * Access they already have is untouched — `POST /share/revoke` is what
+     * withdraws that.
+     */
+    @Post('/blocks', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: SHARE_LIMIT,
+    })
+    async createBlock(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const { username, created } = await this.services.share.blockSender(
+            actor,
+            this.#username(this.#body(req)),
+        );
+        res.json({ username, blocked: true, created });
+    }
+
+    /** DELETE /share/blocks — accept shares from `username` again. */
+    @Delete('/blocks', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: SHARE_LIMIT,
+    })
+    async deleteBlock(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const { username, unblocked } = await this.services.share.unblockSender(
+            actor,
+            this.#username(this.#body(req)),
+        );
+        res.json({ username, blocked: false, unblocked });
+    }
+
     // -- Helpers ------------------------------------------------------
+
+    #username(body: Record<string, unknown>): string {
+        const username =
+            typeof body.username === 'string' ? body.username.trim() : '';
+        if (!username) {
+            throw new HttpError(400, '`username` is required', {
+                legacyCode: 'bad_request',
+            });
+        }
+        return username;
+    }
 
     /**
      * Only ever the username — never the internal id, and never an email the
