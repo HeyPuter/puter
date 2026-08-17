@@ -8,6 +8,7 @@ import { hash as bcryptHash } from 'bcrypt';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { runWithContext } from '../../core/context.js';
 import { generateDefaultFsentries } from '../../util/userProvisioning.js';
 import type { WebDAVController } from './WebDAVController.js';
 
@@ -1166,6 +1167,68 @@ describe('WebDAVController verbs', () => {
                 '<D:getcontenttype>text/markdown</D:getcontenttype>',
             );
         });
+
+        it("answers a share root's parent with a virtual collection", async () => {
+            const owner = await makeUser();
+            const holder = await makeUser();
+            await dispatch({
+                method: 'MKCOL',
+                path: `/${owner.username}/Documents/Album`,
+                actor: owner.actor,
+            });
+            const root = (await server.stores.fsEntry.getEntryByPath(
+                `/${owner.username}/Documents/Album`,
+            ))!;
+            await server.services.acl.setUserUser(
+                owner.actor as never,
+                holder.actor as never,
+                {
+                    path: root.path,
+                    resolveAncestors: () =>
+                        server.services.fs.getAncestorChain(root.path),
+                },
+                'read',
+            );
+
+            // `/<owner>/<uuid>` is where Up from a share root lands; it is not
+            // a real path, so it answers as a virtual collection whose only
+            // member is the share root at its masked path.
+            const captured = await dispatch({
+                method: 'PROPFIND',
+                path: `/${owner.username}/${root.uuid}`,
+                actor: holder.actor,
+            });
+            expect(captured.statusCode).toBe(207);
+            const xml = captured.body as string;
+            expect(xml).toContain(
+                `<D:href>/${owner.username}/${root.uuid}/</D:href>`,
+            );
+            expect(xml).toContain(
+                `<D:href>/${owner.username}/${root.uuid}/Album/</D:href>`,
+            );
+            // The owner's real tree never shows through.
+            expect(xml).not.toContain('/Documents/');
+        });
+
+        it("keeps a share root's parent a 404 for a caller with no share", async () => {
+            const owner = await makeUser();
+            const stranger = await makeUser();
+            await dispatch({
+                method: 'MKCOL',
+                path: `/${owner.username}/Documents/Private`,
+                actor: owner.actor,
+            });
+            const root = (await server.stores.fsEntry.getEntryByPath(
+                `/${owner.username}/Documents/Private`,
+            ))!;
+
+            const captured = await dispatch({
+                method: 'PROPFIND',
+                path: `/${owner.username}/${root.uuid}`,
+                actor: stranger.actor,
+            });
+            expect(captured.statusCode).toBe(404);
+        });
     });
 
     describe('PROPPATCH', () => {
@@ -1653,4 +1716,62 @@ describe('WebDAVController verbs', () => {
             expect(captured.body).toBe('Lock token does not match this path');
         });
     });
+
+    describe('shared-path masking', () => {
+        // The DAV controller authenticates in-controller, after the request
+        // context snapshotted an empty `req.actor` — so it has to place the
+        // actor into the context itself or outbound masking silently turns
+        // off and PROPFIND lists the owner's real paths.
+        it('lists a shared folder under its masked path, not the owner’s real one', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+
+            const dirUuid = uuidv4();
+            const dirPath = `/${owner.username}/Documents/Secrets`;
+            const now = Math.floor(Date.now() / 1000);
+            const parent = (await server.stores.fsEntry.getEntryByPath(
+                `/${owner.username}/Documents`,
+            ))!;
+            await server.clients.db.write(
+                'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, 1, ?, ?, ?)',
+                [dirUuid, 'Secrets', dirPath, owner.userId, now, parent.id, parent.uuid],
+            );
+            const dir = (await server.stores.fsEntry.getEntryByPath(dirPath))!;
+            await server.clients.db.write(
+                'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, 0, ?, ?, ?)',
+                [uuidv4(), 'plan.txt', `${dirPath}/plan.txt`, owner.userId, now, dir.id, dir.uuid],
+            );
+
+            await runWithContext({ actor: owner.actor as never }, () =>
+                server.services.share.share(owner.actor as never, {
+                    uid: dirUuid,
+                    recipient: { username: recipient.username! },
+                    mode: 'read',
+                }),
+            );
+
+            const masked = `/${owner.username}/${dirUuid}/Secrets`;
+            const { res, captured } = makeRes();
+            // The same ALS wrap every real request gets from the
+            // request-context middleware, with the pre-auth (empty) actor.
+            await runWithContext({ actor: undefined }, () =>
+                dispatchMiddleware(
+                    makeReq({
+                        method: 'PROPFIND',
+                        path: masked,
+                        headers: { depth: '1' },
+                        actor: recipient.actor,
+                    }),
+                    res,
+                    noop,
+                ),
+            );
+
+            expect(captured.statusCode).toBe(207);
+            const xml = String(captured.body);
+            expect(xml).toContain(`${masked}/plan.txt`);
+            expect(xml).not.toContain('/Documents/Secrets');
+        });
+    });
+
 });

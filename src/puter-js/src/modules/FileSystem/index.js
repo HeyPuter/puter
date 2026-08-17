@@ -13,6 +13,8 @@ import FSItem from '../FSItem.js';
 import copy from './operations/copy.js';
 import deleteFSEntry from './operations/deleteFSEntry.js';
 import getReadURL from './operations/getReadUrl.js';
+import getShares from './operations/getShares.js';
+import listShared from './operations/listShared.js';
 import mkdir from './operations/mkdir.js';
 import move from './operations/move.js';
 import read from './operations/read.js';
@@ -20,9 +22,11 @@ import readdir from './operations/readdir.js';
 import readdirSubdomains from './operations/readdirSubdomains.js';
 import rename from './operations/rename.js';
 import revokeReadURL from './operations/revokeReadUrl.js';
+import share from './operations/share.js';
 import sign from './operations/sign.js';
 import space from './operations/space.js';
 import stat from './operations/stat.js';
+import unshare from './operations/unshare.js';
 import upload from './operations/upload/index.js';
 import write from './operations/write.js';
 
@@ -54,6 +58,12 @@ export class PuterJSFileSystemModule extends PuterModule {
     readdir = readdir;
     readdirSubdomains = readdirSubdomains;
     stat = stat;
+
+    // Sharing
+    share = share;
+    unshare = unshare;
+    listShared = listShared;
+    getShares = getShares;
 
     FSItem = FSItem;
 

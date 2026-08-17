@@ -30,10 +30,16 @@ import { HttpError } from '../../core/http/HttpError.js';
 import {
     resolveNode,
     normalizeAbsolutePath,
+    isOwnersTrash,
     joinChildPath,
     expandTildePath,
 } from '../../services/fs/resolveNode.js';
 import {
+    maskEntryPath,
+    resolveSharePath,
+} from '../../services/fs/sharePathMask.js';
+import {
+    NON_OWNER_SIGNATURE_TTL_SECONDS,
     signFile,
     type SigningConfig,
     type SignedFile,
@@ -93,6 +99,22 @@ export function getBoolean(
 // username, read from the ALS-backed Context. Legacy clients send tilde-
 // rooted paths (e.g. `~/AppData/<app-uid>/...`); FSController does the same
 // expansion via its own `#normalizePath` helper.
+/**
+ * Everything a client-authored path needs before it names a row: `~` expanded,
+ * and a masked share path turned back into the owner's real one.
+ */
+export async function expandClientPath(
+    fsEntryStore: FSEntryStore,
+    raw: string,
+    username?: string,
+): Promise<string> {
+    return resolveSharePath(
+        fsEntryStore,
+        Context.get('actor'),
+        expandTildePath(raw, username),
+    );
+}
+
 export async function resolveV1Selector(
     fsEntryStore: FSEntryStore,
     raw: unknown,
@@ -106,7 +128,7 @@ export async function resolveV1Selector(
     if (typeof raw === 'string') {
         const isPath = raw.startsWith('/') || raw.startsWith('~');
         const ref = isPath
-            ? { path: expandTildePath(raw, username) }
+            ? { path: await expandClientPath(fsEntryStore, raw, username) }
             : { uid: raw };
         const entry = await resolveNode(fsEntryStore, ref, { required: true });
         if (!entry)
@@ -138,7 +160,7 @@ export async function resolveV1Selector(
     const ref = {
         path:
             rawPath !== undefined
-                ? expandTildePath(rawPath, username)
+                ? await expandClientPath(fsEntryStore, rawPath, username)
                 : undefined,
         uid:
             typeof record.uid === 'string'
@@ -258,6 +280,24 @@ export async function assertCanCreate(
         return;
     }
     await assertAccess(aclService, fsService, actor, parentForCheck, 'write');
+}
+
+/** `write` on the destination parent, unless it is the entry's own Trash. */
+export async function assertCanMoveInto(
+    aclService: ACLService,
+    fsService: FSService,
+    actor: Actor,
+    source: FSEntry,
+    destinationParent: FSEntry,
+): Promise<void> {
+    if (isOwnersTrash(source, destinationParent)) return;
+    await assertAccess(
+        aclService,
+        fsService,
+        actor,
+        destinationParent.path,
+        'write',
+    );
 }
 
 // -- Response shaping ------------------------------------------------
@@ -411,7 +451,10 @@ export async function toLegacyEntry(
         appsById?: Map<number, Record<string, unknown>>;
     } = {},
 ): Promise<Record<string, unknown>> {
-    const dirname = pathPosix.dirname(entry.path);
+    // Someone else's entry is published under its masked path; the owner's
+    // real one, and everything above the share, stays server-side.
+    const publishedPath = maskEntryPath(entry);
+    const dirname = pathPosix.dirname(publishedPath);
     const mimeType = fsEntryMimeType(entry);
 
     const pathComponents = entry.path.split('/');
@@ -424,7 +467,7 @@ export async function toLegacyEntry(
         uuid: entry.uuid,
         parent_id: entry.parentUid,
         parent_uid: entry.parentUid,
-        path: entry.path,
+        path: publishedPath,
         dirname,
         dirpath: dirname,
         name: entry.name,
@@ -520,7 +563,13 @@ export function signingConfigFromAppConfig(config: IConfig): SigningConfig {
     return { secret, apiBaseUrl };
 }
 
-/** Convenience wrapper: turn an FSEntry into a signed-file response object. */
+/**
+ * Convenience wrapper: turn an FSEntry into a signed-file response object.
+ *
+ * Pass `actorUserId` so a signature over someone else's entry — a shared file —
+ * expires rather than outliving the share (see
+ * NON_OWNER_SIGNATURE_TTL_SECONDS).
+ */
 export function signEntry(
     entry: {
         uuid: string;
@@ -530,8 +579,19 @@ export function signEntry(
         accessed: number | null;
         modified: number;
         created: number | null;
+        userId?: number;
     },
     config: SigningConfig,
+    opts: { actorUserId?: number; ttlSeconds?: number } = {},
 ): SignedFile {
-    return signFile(entry as Parameters<typeof signFile>[0], config);
+    const isForeign =
+        typeof opts.actorUserId === 'number' &&
+        typeof entry.userId === 'number' &&
+        entry.userId !== opts.actorUserId;
+    const ttlSeconds =
+        opts.ttlSeconds ??
+        (isForeign ? NON_OWNER_SIGNATURE_TTL_SECONDS : undefined);
+    return signFile(entry as Parameters<typeof signFile>[0], config, {
+        ...(ttlSeconds === undefined ? {} : { ttlSeconds }),
+    });
 }

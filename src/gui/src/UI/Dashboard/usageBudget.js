@@ -48,9 +48,16 @@ export const usageBudget = (usage, allowanceInfo) => {
         ? Math.max(0, allowanceInfo.monthUsageAllowance)
         : 0;
     const total = Number.isFinite(usage?.total) ? Math.max(0, usage.total) : 0;
-    const allowanceUsed = Number.isFinite(usage?.allowanceUsed)
-        ? Math.max(0, usage.allowanceUsed)
-        : Math.min(total, capacity);
+    // Allowance-charged spend is a subset of spend, so a reported value past
+    // the total is corrupt (a raced or repeated server write) — same clamp
+    // the server applies when it computes `remaining`. Without it the two
+    // surfaces disagree: the bar overstates while remaining stays right.
+    const allowanceUsed = Math.min(
+        Number.isFinite(usage?.allowanceUsed)
+            ? Math.max(0, usage.allowanceUsed)
+            : Math.min(total, capacity),
+        total,
+    );
     const addons = allowanceInfo?.addons ?? {};
     const purchased = Number.isFinite(addons.purchasedCredits)
         ? addons.purchasedCredits

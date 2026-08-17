@@ -27,6 +27,7 @@ import { AuthService } from './auth/AuthService';
 import { OIDCService } from './auth/OIDCService';
 import { TokenService } from './auth/TokenService';
 import { BroadcastService } from './broadcast/BroadcastService';
+import { CacheReplicationService } from './cache/CacheReplicationService';
 import { AppFeedbackService } from './feedback/AppFeedbackService';
 import { FSService } from './fs/FSService';
 import { ServerHealthService } from './health/ServerHealthService';
@@ -36,6 +37,7 @@ import { MeteringService } from './metering/MeteringService';
 import { NotificationService } from './notification/NotificationService';
 import { PermissionService } from './permission/PermissionService';
 import { DefaultUserService } from './selfhosted/DefaultUserService';
+import { ShareService } from './share/ShareService';
 import { SocketService } from './socket/SocketService';
 import { SubdomainPermissionService } from './subdomain/SubdomainPermissionService';
 import type { IPuterServiceRegistry } from './types';
@@ -54,6 +56,7 @@ declare module './types' {
         appOriginBlocklist: AppOriginBlocklistService;
         permission: PermissionService;
         acl: ACLService;
+        share: ShareService;
         token: TokenService;
         auth: AuthService;
         fs: FSService;
@@ -65,6 +68,7 @@ declare module './types' {
         notification: NotificationService;
         appFeedback: AppFeedbackService;
         broadcast: BroadcastService;
+        cacheReplication: CacheReplicationService;
         oidc: OIDCService;
         appIcon: AppIconService;
         defaultUser: DefaultUserService;
@@ -93,6 +97,9 @@ export const puterServices = {
     token: TokenService,
     auth: AuthService,
     fs: FSService,
+    // Needs acl (setUserUser), permission (canManagePermission) and fs
+    // (ancestor chains), so it follows all three.
+    share: ShareService,
     // Declared after `fs` — account teardown tears the user's filesystem down
     // first.
     userAccount: UserAccountService,
@@ -110,6 +117,8 @@ export const puterServices = {
     // AuthService.appUidFromOrigin).
     appFeedback: AppFeedbackService,
     broadcast: BroadcastService,
+    // Independent — only needs the event client and redis.
+    cacheReplication: CacheReplicationService,
     oidc: OIDCService,
     appIcon: AppIconService,
     defaultUser: DefaultUserService,

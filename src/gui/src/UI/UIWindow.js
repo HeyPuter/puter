@@ -30,6 +30,8 @@ import launch_app from '../helpers/launch_app.js';
 import publish_as_website from '../helpers/publish_as_website.js';
 
 import item_icon from '../helpers/item_icon.js';
+import { parent_path_for, shared_crumbs_for } from '../helpers/share_paths.js';
+import { has_shared_roots } from '../helpers/shared_access.js';
 import { is_window_hidden, is_unseen_background_window, user_facing_windows } from '../helpers/window_visibility.js';
 
 const el_body = document.getElementsByTagName('body')[0];
@@ -363,6 +365,7 @@ async function UIWindow (options) {
             h += `<div draggable="false" title="${i18n('pictures')}" class="window-sidebar-item disable-user-select ${options.path === window.pictures_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.pictures_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-pictures.svg'])}">${i18n('pictures')}</div>`;
             h += `<div draggable="false" title="${i18n('desktop')}" class="window-sidebar-item disable-user-select ${options.path === window.desktop_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.desktop_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-desktop.svg'])}">${i18n('desktop')}</div>`;
             h += `<div draggable="false" title="${i18n('videos')}" class="window-sidebar-item disable-user-select ${options.path === window.videos_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.videos_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-videos.svg'])}">${i18n('videos')}</div>`;
+            h += `<div draggable="false" title="${i18n('shared')}" class="window-sidebar-item disable-user-select ${options.path === window.shared_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.shared_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-shared.svg'])}">${i18n('shared')}</div>`;
         } else {
             let items = JSON.parse(window.sidebar_items);
             // Saved sidebar orders may predate the Home entry — make sure it's always present
@@ -395,6 +398,10 @@ async function UIWindow (options) {
                 {
                     icon = window.icons['sidebar-folder-videos.svg'];
                 }
+                else if ( item.path === window.shared_path )
+                {
+                    icon = window.icons['sidebar-folder-shared.svg'];
+                }
                 else
                 {
                     icon = window.icons['sidebar-folder.svg'];
@@ -417,7 +424,7 @@ async function UIWindow (options) {
         // Forward
         h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-forward window-navbar-btn-disabled" src="${html_encode(window.icons['arrow-right.svg'])}" title="${i18n('window_click_to_go_forward')}">`;
         // Up
-        h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-up ${options.path === '/' ? 'window-navbar-btn-disabled' : ''}" src="${html_encode(window.icons['arrow-up.svg'])}" title="${i18n('window_click_to_go_up')}">`;
+        h += `<img draggable="false" class="window-navbar-btn window-navbar-btn-up ${options.path === '/' || options.path === window.shared_path ? 'window-navbar-btn-disabled' : ''}" src="${html_encode(window.icons['arrow-up.svg'])}" title="${i18n('window_click_to_go_up')}">`;
         h += '</div>';
         // Path
         h += `<div class="window-navbar-path">${window.navbar_path(options.path, window.user.username)}</div>`;
@@ -1076,6 +1083,18 @@ async function UIWindow (options) {
     if ( options.is_dir ) {
         window.navbar_path_droppable(el_window);
         window.sidebar_item_droppable(el_window);
+
+        // Saved sidebar orders predate the Shared entry, and unlike Home it
+        // only matters to users who actually have shares — so append it once
+        // that's known, rather than backfilling it for everyone.
+        if ( window.sidebar_items && !JSON.parse(window.sidebar_items).some(item => item.path === window.shared_path) ) {
+            has_shared_roots().then((has_shares) => {
+                const el_sidebar = $(el_window).find('.window-sidebar');
+                if ( ! has_shares || el_sidebar.length === 0 ) return;
+                if ( el_sidebar.find(`.window-sidebar-item[data-path="${html_encode(window.shared_path)}"]`).length > 0 ) return;
+                el_sidebar.append(`<div draggable="false" title="${i18n('shared')}" class="window-sidebar-item disable-user-select ${$(el_window).attr('data-path') === window.shared_path ? 'window-sidebar-item-active' : ''}" data-path="${html_encode(window.shared_path)}"><img draggable="false" class="window-sidebar-item-icon" src="${html_encode(window.icons['sidebar-folder-shared.svg'])}">${i18n('shared')}</div>`);
+            });
+        }
         // --------------------------------------------------------
         // Back button
         // --------------------------------------------------------
@@ -1224,7 +1243,13 @@ async function UIWindow (options) {
         // Up button
         // --------------------------------------------------------
         $(el_window_navbar_up_btn).on('click', function (e) {
-            const target_path = path.resolve(path.join($(el_window).attr('data-path'), '..'));
+            // The Shared view has no parent — and `path.resolve` would mangle
+            // its `puter://` form into a navigable-looking garbage path.
+            const current_path = $(el_window).attr('data-path');
+            if ( current_path === window.shared_path ) return;
+            // Above a shared item is its owner's folder, which is not ours to
+            // open — `parent_path_for` sends us to Shared instead.
+            const target_path = parent_path_for(path.resolve(current_path));
             // if ctrl/cmd are pressed, open in new window
             if ( e.ctrlKey || e.metaKey && (target_path !== undefined && target_path !== null) ) {
                 UIWindow({
@@ -1766,7 +1791,8 @@ async function UIWindow (options) {
         },
         drop: function (dragsterEvent, event) {
             const e = event.originalEvent;
-            if ( options.is_dir ) {
+            // The Shared view is a query, not a directory — nowhere to upload.
+            if ( options.is_dir && $(el_window).attr('data-path') !== window.shared_path ) {
                 // if files were dropped...
                 if ( e.dataTransfer?.items?.length > 0 ) {
                     window.upload_items(e.dataTransfer.items, $(el_window).attr('data-path'));
@@ -2532,7 +2558,9 @@ async function UIWindow (options) {
                     },
                 });
 
-                if ( $(el_window).attr('data-path') !== '/' ) {
+                // The Shared view is a query, not a directory — nothing can
+                // be created or pasted "into" it.
+                if ( $(el_window).attr('data-path') !== '/' && $(el_window).attr('data-path') !== window.shared_path ) {
                     // -------------------------------------------
                     // -
                     // -------------------------------------------
@@ -3194,6 +3222,10 @@ window.navbar_path_droppable = (el_window) => {
             if ( $(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id') ) {
                 return;
             }
+            // The Shared view is a query, not a directory — not a drop target.
+            if ( $(this).attr('data-path') === window.shared_path ) {
+                return;
+            }
             const items_to_move = [];
 
             // first item
@@ -3291,6 +3323,22 @@ window.navbar_path = (abs_path) => {
     const dirs = (abs_path === '/' ? [''] : abs_path.split('/'));
     const dirpaths = (abs_path === '/' ? ['/'] : []);
     const path_seperator_html = `<img class="path-seperator" draggable="false" src="${html_encode(window.icons['triangle-right.svg'])}">`;
+
+    // The Shared view is a query, not a directory — one crumb, no ancestry.
+    if ( abs_path === window.shared_path ) {
+        return `${path_seperator_html}<span class="window-navbar-path-dirname" data-path="${html_encode(window.shared_path)}">${html_encode(i18n('shared'))}</span>`;
+    }
+
+    // Someone else's tree is shown from the share down, not from their home.
+    const shared = shared_crumbs_for(abs_path);
+    if ( shared ) {
+        let str = `${path_seperator_html}<span class="window-navbar-path-dirname" data-path="${html_encode(window.shared_path)}">${html_encode(i18n('shared'))}</span>`;
+        for ( const crumb of shared ) {
+            str += `${path_seperator_html}<span class="window-navbar-path-dirname" data-path="${html_encode(crumb.path)}">${html_encode(crumb.label)}</span>`;
+        }
+        return str;
+    }
+
     if ( dirs.length > 1 ) {
         for ( let i = 0; i < dirs.length; i++ ) {
             dirpaths[i] = '';
@@ -3348,7 +3396,7 @@ window.update_window_path = async function (el_window, target_path) {
         }
 
         // disabled Up button if this is root
-        if ( target_path === '/' )
+        if ( target_path === '/' || target_path === window.shared_path )
         {
             $(el_window_navbar_up_btn).addClass('window-navbar-btn-disabled');
         }
@@ -3407,7 +3455,14 @@ window.update_window_path = async function (el_window, target_path) {
     $(el_window).attr('data-name', html_encode(path.basename(target_path)));
 
     // /stat
-    if ( target_path !== '/' ) {
+    if ( target_path === window.shared_path ) {
+        // A query, not a directory — nothing to stat.
+        $(el_window).removeClass(`window-${ $(el_window).attr('data-uid')}`);
+        $(el_window).attr('data-uid', 'null');
+        $(el_window).find('.window-head-title').text(i18n('shared_with_me'));
+        $(el_window).find('.window-head-icon').attr('src', window.icons['shared.svg']);
+    }
+    else if ( target_path !== '/' ) {
         try {
             puter.fs.stat({ path: target_path, consistency: 'eventual' }).then(fsentry => {
                 $(el_window).removeClass(`window-${ $(el_window).attr('data-uid')}`);
@@ -3498,6 +3553,11 @@ window.sidebar_item_droppable = (el_window) => {
         drop: function ( event, ui ) {
             // check if item was actually dropped on this navbar path
             if ( $(window.mouseover_window).attr('data-id') !== $(el_window).attr('data-id') ) {
+                return;
+            }
+            // The Shared view is a query, not a directory — not a drop target.
+            if ( $(this).attr('data-path') === window.shared_path ) {
+                $(this).removeClass('window-sidebar-item-drag-active');
                 return;
             }
             const items_to_move = [];
