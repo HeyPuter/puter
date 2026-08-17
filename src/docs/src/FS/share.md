@@ -120,6 +120,31 @@ filesystem socket events go to the item's owner only. A client that shows
 shared content and needs it current should re-read it (`readdir`/`stat`)
 when freshness matters, for example on focus or an explicit refresh.
 
+## What sharing does not promise
+
+Three things are worth knowing before you share something sensitive.
+
+**A signed URL outlives the share.** Anyone who can read a shared item can
+mint a signed URL for it, and that URL is a bearer token: it works for whoever
+holds it, signed in or not. Signatures over an item you do not own expire after
+an hour, but withdrawing access does not invalidate one that has already been
+issued. Treat an hour as the floor on how long a recipient can keep, or pass
+on, what you gave them.
+
+**An app you have authorized can share on your behalf.** Sharing is done in
+your name, so an app acting for you can share the items it can already reach —
+its own AppData, and whatever you handed it — with anyone, and at any level it
+holds itself. It cannot reach past that into the rest of your files. Shares an
+app issued are marked with `issued_by_app` in
+[`getShares()`](/FS/getShares/), so you can tell them apart from your own.
+
+**Moving an item into someone else's folder hands it over.** The folder's owner
+becomes the item's owner, its bytes start counting against their storage rather
+than yours, and any shares you had on it are withdrawn — they were yours to
+give, and it is no longer yours. The same applies in reverse: files a recipient
+creates inside a folder you shared belong to you and count against your
+storage.
+
 ## Related
 
 - [`puter.fs.unshare()`](/FS/unshare/) - Withdraw access

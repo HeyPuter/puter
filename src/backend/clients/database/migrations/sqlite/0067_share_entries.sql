@@ -49,3 +49,12 @@ CREATE INDEX IF NOT EXISTS `idx_share_fsentry` ON `share` (`fsentry_id`);
 -- invite flow.
 CREATE UNIQUE INDEX IF NOT EXISTS `idx_share_holder_entry_issuer`
     ON `share` (`holder_user_id`, `fsentry_id`, `issuer_user_id`);
+
+-- Retiring a deleted node's grants looks them up by permission text
+-- (`fs:<uuid>` and `fs:<uuid>:%`), and the subject only lives in that text —
+-- no column, so no foreign key can cascade it. The table's primary key is
+-- (issuer, holder, permission), which never puts `permission` first, so
+-- without this the equality and the left-anchored LIKE both degrade to a full
+-- scan on the delete path. With it, each is a range scan.
+CREATE INDEX IF NOT EXISTS `idx_user_to_user_permissions_permission`
+    ON `user_to_user_permissions` (`permission`);

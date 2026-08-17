@@ -290,7 +290,17 @@ export type EventMap = {
         sourceObjectKey: string;
         copyObjectKey: string;
     };
-    'fs.move.node': { node: FSEntry; fromPath: string; toPath: string };
+    /**
+     * `fromUserId` is the owner the node had before the move. A move into
+     * someone else's tree re-owns the row, and `node` already carries the new
+     * owner — listeners that care about the hand-over need the old one.
+     */
+    'fs.move.node': {
+        node: FSEntry;
+        fromPath: string;
+        toPath: string;
+        fromUserId?: number;
+    };
     'fs.remove.node': { node: FSEntry; entry: FSEntry; target: FSEntry };
     'fs.write.file': { node: FSEntry; entry: FSEntry; target: FSEntry };
     'fs.storage.upload-progress': {
@@ -557,10 +567,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;

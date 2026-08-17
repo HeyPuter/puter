@@ -1446,4 +1446,152 @@ describe('ShareService', () => {
         );
         expect(withTotal.total).toBe(3);
     });
+
+    // ── review fixes ────────────────────────────────────────────────
+
+    it('drops a listing whose grant was withdrawn outside the index', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: recipient.email },
+            mode: 'read',
+        });
+        const before = await server.services.share.listSharedWithMe(
+            recipient.actor,
+        );
+        expect(before.items.map((i) => i.entryUid)).toContain(file.uuid);
+
+        // Straight at the permission layer, the way `/auth/revoke-user-user`
+        // does — the share row survives, so the index alone would keep
+        // publishing the entry's name, size and a signed thumbnail URL.
+        await server.services.permission.revokeUserUserPermission(
+            owner.actor,
+            recipient.user.username!,
+            `fs:${file.uuid}:read`,
+        );
+        expect(await canRead(recipient.actor, file.path)).toBe(false);
+
+        const after = await server.services.share.listSharedWithMe(
+            recipient.actor,
+        );
+        expect(after.items.map((i) => i.entryUid)).not.toContain(file.uuid);
+    });
+
+    it('lets a recipient leave a share that was never indexed', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        // A grant with no share row behind it — how anything predating the
+        // index looks.
+        await server.services.acl.setUserUser(
+            owner.actor,
+            recipient.actor,
+            {
+                path: file.path,
+                resolveAncestors: () =>
+                    server.services.fs.getAncestorChain(file.path),
+            },
+            'read',
+        );
+        expect(await canRead(recipient.actor, file.path)).toBe(true);
+
+        const result = await unshare(recipient.actor, {
+            uid: file.uuid,
+            recipient: { username: recipient.user.username },
+        });
+
+        expect(result.revoked).toBeGreaterThan(0);
+        expect(await canRead(recipient.actor, file.path)).toBe(false);
+    });
+
+    it('refuses to let a manage delegate hand out manage', async () => {
+        const owner = await makeUser();
+        const delegate = await makeUser();
+        const third = await makeUser();
+        const { dir } = await makeDirWithFile(owner.user);
+
+        await share(owner.actor, {
+            uid: dir.uuid,
+            recipient: { email: delegate.email },
+            mode: 'manage',
+        });
+
+        // Write is theirs to pass on; manage is not.
+        await expect(
+            share(delegate.actor, {
+                uid: dir.uuid,
+                recipient: { email: third.email },
+                mode: 'write',
+            }),
+        ).resolves.toMatchObject({ mode: 'write' });
+
+        await expect(
+            share(delegate.actor, {
+                uid: dir.uuid,
+                recipient: { email: third.email },
+                mode: 'manage',
+            }),
+        ).rejects.toMatchObject({ statusCode: expect.any(Number) });
+    });
+
+    it('retires a share when the item changes owner', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+        const newOwner = await makeUser();
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: recipient.email },
+            mode: 'read',
+        });
+        expect(await canRead(recipient.actor, file.path)).toBe(true);
+
+        // What a move into someone else's tree does to the row.
+        await server.stores.fsEntry.updateEntry(file.uuid, {
+            userId: newOwner.user.id,
+        });
+        const moved = await server.stores.fsEntry.getEntryByUuid(file.uuid);
+        await server.services.share.onEntryOwnerChanged(moved!);
+
+        expect(await canRead(recipient.actor, file.path)).toBe(false);
+        expect((await server.stores.share.listByFsentry(file.id)).length).toBe(
+            0,
+        );
+    });
+
+    it('retires a whole burst of deletions in one flush', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const files = [];
+        for (let i = 0; i < 5; i++) {
+            const file = await makeFile(owner.user);
+            files.push(file);
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+        }
+
+        const removed = await server.services.share.onEntryDeleted(
+            files.map((f) => f.uuid),
+        );
+        expect(
+            new Set(
+                removed.map(
+                    (row) =>
+                        row.permission.replace(/^manage:/u, '').split(':')[1],
+                ),
+            ),
+        ).toEqual(new Set(files.map((f) => f.uuid)));
+
+        for (const file of files) {
+            expect(await canRead(recipient.actor, file.path)).toBe(false);
+        }
+    });
 });

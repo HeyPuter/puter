@@ -116,8 +116,18 @@ export class SharePathMasker {
         this.#actorUserId = actorUserId;
     }
 
+    /** The actor this masker was built for; `undefined` means "unknown". */
+    get actorUserId(): number | undefined {
+        return this.#actorUserId;
+    }
+
     learn(realPrefix: string, maskedPrefix: string): void {
         this.#roots.set(realPrefix, maskedPrefix);
+    }
+
+    /** The roots proved so far, so a rebuild doesn't have to reprove them. */
+    learnedRoots(): ReadonlyArray<readonly [string, string]> {
+        return [...this.#roots.entries()];
     }
 
     /** The path to publish for `entry`. */
@@ -135,15 +145,7 @@ export class SharePathMasker {
             return entry.path;
         }
 
-        let bestReal: string | null = null;
-        for (const real of this.#roots.keys()) {
-            if (entry.path !== real && !entry.path.startsWith(`${real}/`)) {
-                continue;
-            }
-            if (bestReal === null || real.length > bestReal.length) {
-                bestReal = real;
-            }
-        }
+        const bestReal = this.#longestLearnedRoot(entry.path);
         if (bestReal !== null) {
             return (
                 (this.#roots.get(bestReal) as string) +
@@ -155,6 +157,35 @@ export class SharePathMasker {
         const name = entry.name ?? pathPosix.basename(entry.path);
         if (!owner || !name) return entry.path;
         return `/${owner}/${entry.uuid}/${name}`;
+    }
+
+    /**
+     * The path to publish for a location that has no row behind it yet — a
+     * pending upload, or the progress meta for one.
+     *
+     * Only the roots this request already proved are applied. There is no
+     * self-mask fallback because there is no uuid to build one from, and none
+     * is needed: reaching a foreign path without going through a masked one
+     * means the caller named the owner's real path themselves.
+     */
+    maskPath(path: string): string {
+        const bestReal = this.#longestLearnedRoot(path);
+        if (bestReal === null) return path;
+        return (
+            (this.#roots.get(bestReal) as string) + path.slice(bestReal.length)
+        );
+    }
+
+    /** The deepest learned root `path` sits at or under. */
+    #longestLearnedRoot(path: string): string | null {
+        let bestReal: string | null = null;
+        for (const real of this.#roots.keys()) {
+            if (path !== real && !path.startsWith(`${real}/`)) continue;
+            if (bestReal === null || real.length > bestReal.length) {
+                bestReal = real;
+            }
+        }
+        return bestReal;
     }
 }
 
@@ -168,10 +199,40 @@ export class SharePathMasker {
 export function maskerFor(actor: Actor | undefined): SharePathMasker | null {
     if (!Context.current()) return null;
     const existing = Context.get(MASKER_KEY);
-    if (existing instanceof SharePathMasker) return existing;
+    if (existing instanceof SharePathMasker) {
+        const actorUserId = actor?.user?.id;
+        // First caller wins on the actor, and getting that wrong fails open:
+        // a masker built before the request context knew who was acting has no
+        // actor id, and `mask()` then publishes every path unmasked. Adopt the
+        // first actor that turns up, and rebuild outright if a different one
+        // does — one request's learned roots are not another actor's to use.
+        if (actorUserId === undefined || actorUserId === existing.actorUserId) {
+            return existing;
+        }
+        if (existing.actorUserId === undefined) {
+            const adopted = new SharePathMasker(actorUserId);
+            for (const [real, masked] of existing.learnedRoots()) {
+                adopted.learn(real, masked);
+            }
+            Context.set(MASKER_KEY, adopted);
+            return adopted;
+        }
+        const replacement = new SharePathMasker(actorUserId);
+        Context.set(MASKER_KEY, replacement);
+        return replacement;
+    }
     const masker = new SharePathMasker(actor?.user?.id);
     Context.set(MASKER_KEY, masker);
     return masker;
+}
+
+/**
+ * Mask a bare path for the current request — for locations with no row behind
+ * them, where {@link maskEntryPath} has no entry to work from.
+ */
+export function maskPathForRequest(path: string): string {
+    const masker = maskerFor(Context.get('actor'));
+    return masker ? masker.maskPath(path) : path;
 }
 
 /** Mask `entry`'s path for the current request. */

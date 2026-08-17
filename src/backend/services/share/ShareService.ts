@@ -25,6 +25,7 @@ import type { FSEntry } from '../../stores/fs/FSEntry';
 import type { LayerInstances } from '../../types';
 import type { AclMode } from '../acl/ACLService';
 import type { puterServices } from '../index';
+import { MANAGE_PERM_PREFIX } from '../permission/consts';
 import { PuterService } from '../types';
 import {
     learnShareRoots,
@@ -109,6 +110,40 @@ export const entryPermissions = (uuid: string): string[] => [
     `manage:fs:${uuid}`,
 ];
 
+/**
+ * The permission a share of `mode` actually grants — which is what authority to
+ * issue that share has to be measured against.
+ */
+export const entryPermissionForMode = (
+    uuid: string,
+    mode: AclMode | string,
+): string =>
+    mode === MANAGE_PERM_PREFIX
+        ? `${MANAGE_PERM_PREFIX}:fs:${uuid}`
+        : `fs:${uuid}:${mode}`;
+
+/**
+ * The entry a grant names, read back out of the permission text.
+ *
+ * `fs:<uuid>[:mode]` and `manage:fs:<uuid>` are the only two shapes this
+ * service writes; anything else belongs to another domain and is not ours to
+ * interpret.
+ */
+export const uuidFromEntryPermission = (permission: string): string | null => {
+    const parts = permission.split(':');
+    const fsAt = parts[0] === MANAGE_PERM_PREFIX ? 1 : 0;
+    if (parts[fsAt] !== 'fs') return null;
+    return parts[fsAt + 1] || null;
+};
+
+/**
+ * How many entries' grants one retire query covers. Each entry contributes two
+ * indexed range scans (`fs:<uuid>` and `manage:fs:<uuid>`), so this bounds the
+ * work per statement while still collapsing a deleted subtree into a few round
+ * trips instead of one per descendant.
+ */
+const RETIRE_CHUNK_SIZE = 100;
+
 /** Shares one user may create per UTC day, absent a config override. */
 export const DEFAULT_DAILY_SHARE_LIMIT = 200;
 
@@ -163,6 +198,11 @@ const maskedSelfPath = (entry: FSEntry, realPath: string): string => {
 export class ShareService extends PuterService {
     declare protected services: LayerInstances<typeof puterServices>;
 
+    /** Entries awaiting the next retire flush, deduped by uuid. */
+    #pendingRetire = new Map<string, FSEntry>();
+    /** The in-flight flush, shared by everything buffered for it. */
+    #retireFlush: Promise<void> | null = null;
+
     /**
      * FS mutations only notify the owner, leaving a recipient's open window
      * stale. Handled here rather than per controller so the audience logic
@@ -175,7 +215,7 @@ export class ShareService extends PuterService {
             if (!entry?.uuid) return;
             // Returned so an `emitAndWait` caller can observe the cleanup; the
             // FS path uses plain `emit`, where it stays best-effort.
-            return this.#onEntryRemoved(entry).catch((err) => {
+            return this.#scheduleRetire(entry).catch((err) => {
                 console.warn(
                     '[ShareService] failed to retire grants for a deleted entry:',
                     entry.uuid,
@@ -185,12 +225,13 @@ export class ShareService extends PuterService {
         });
 
         this.clients.event.on('fs.move.node', (_key, data) => {
-            const { node, fromPath } = (data ?? {}) as {
+            const { node, fromPath, fromUserId } = (data ?? {}) as {
                 node?: FSEntry;
                 fromPath?: string;
+                fromUserId?: number;
             };
             if (!node?.uuid) return;
-            return this.#fanOutToHolders(node, 'outer.gui.item.moved', {
+            const notify = this.#fanOutToHolders(node, 'outer.gui.item.moved', {
                 ...holderPayload(node),
                 from_path: fromPath
                     ? maskedSelfPath(node, fromPath)
@@ -198,6 +239,24 @@ export class ShareService extends PuterService {
             }).catch(() => {
                 // A stale window is better than a failed move.
             });
+
+            // Grants are keyed on uuid, so they would otherwise follow the
+            // entry into its new owner's tree — leaving the new owner with
+            // recipients they never agreed to. Awaited alongside the notify so
+            // an `emitAndWait` caller sees both.
+            if (typeof fromUserId !== 'number' || fromUserId === node.userId) {
+                return notify;
+            }
+            return Promise.all([
+                notify,
+                this.onEntryOwnerChanged(node).catch((err: unknown): void => {
+                    console.warn(
+                        '[ShareService] failed to retire grants after an ownership change:',
+                        node.uuid,
+                        err,
+                    );
+                }),
+            ]).then((): void => undefined);
         });
 
         this.clients.event.on('fs.write.file', (_key, data) => {
@@ -214,22 +273,66 @@ export class ShareService extends PuterService {
     }
 
     /**
+     * Buffer a removed entry for the next retire flush, and hand back the
+     * promise for the flush that will carry it.
+     *
+     * `remove()` emits one `fs.remove.node` per descendant in a synchronous
+     * loop, so deleting a directory arrives here as a burst. Retiring each one
+     * on its own would put one permission lookup per descendant on the delete
+     * path; coalescing turns a whole subtree into a handful of queries. The
+     * buffer is swapped out before the flush runs, so entries removed while it
+     * is in flight land in the next one rather than being lost.
+     */
+    #scheduleRetire(entry: FSEntry): Promise<void> {
+        this.#pendingRetire.set(entry.uuid, entry);
+        this.#retireFlush ??= new Promise<void>((resolve, reject) => {
+            setImmediate(() => {
+                const batch = this.#pendingRetire;
+                this.#pendingRetire = new Map();
+                this.#retireFlush = null;
+                this.#flushRetire([...batch.values()]).then(resolve, reject);
+            });
+        });
+        return this.#retireFlush;
+    }
+
+    /**
      * Retire the grants, then tell the recipients. The revoke reports exactly
      * who lost access, which the index can no longer answer — its rows cascade
-     * away with the fsentry.
+     * away with the fsentry — and it reports it per permission, so the holders
+     * are attributed back to the entry each grant named.
      */
-    async #onEntryRemoved(entry: FSEntry): Promise<void> {
-        const removed = await this.onEntryDeleted(entry.uuid);
-        const holders = [
-            ...new Set(removed.map((row) => Number(row.holder_user_id))),
-        ].filter((id) => Number.isFinite(id) && id !== entry.userId);
-        if (holders.length === 0) return;
+    async #flushRetire(entries: FSEntry[]): Promise<void> {
+        const ownerOf = new Map(entries.map((e) => [e.uuid, e]));
 
-        await this.#emitGui(
-            'outer.gui.item.removed',
-            holders,
-            holderPayload(entry),
-        );
+        for (let i = 0; i < entries.length; i += RETIRE_CHUNK_SIZE) {
+            const chunk = entries.slice(i, i + RETIRE_CHUNK_SIZE);
+            const removed = await this.onEntryDeleted(
+                chunk.map((entry) => entry.uuid),
+            );
+
+            const holdersByEntry = new Map<string, Set<number>>();
+            for (const row of removed) {
+                const uuid = uuidFromEntryPermission(row.permission);
+                const entry = uuid ? ownerOf.get(uuid) : undefined;
+                const holderId = Number(row.holder_user_id);
+                if (!entry || !Number.isFinite(holderId)) continue;
+                if (holderId === entry.userId) continue;
+                const holders =
+                    holdersByEntry.get(entry.uuid) ?? new Set<number>();
+                holders.add(holderId);
+                holdersByEntry.set(entry.uuid, holders);
+            }
+
+            for (const [uuid, holders] of holdersByEntry) {
+                const entry = ownerOf.get(uuid) as FSEntry;
+                await this.#emitGui(
+                    'outer.gui.item.removed',
+                    [...holders],
+                    holderPayload(entry),
+                );
+            }
+        }
     }
 
     async #fanOutToHolders(
@@ -253,9 +356,14 @@ export class ShareService extends PuterService {
     }
 
     /**
-     * Active shares on this node or on anything above it. Runs behind every
-     * write event, so the ancestor paths come off the entry's own path and the
-     * whole answer is one query.
+     * Active shares on this node or on anything above it.
+     *
+     * This runs behind every file write, so it stays on indexed access paths
+     * only: the ancestors are resolved to row ids through the fsentry store
+     * (cached, and by path, which is indexed), and the share lookup is then a
+     * single `fsentry_id IN (...)` against `idx_share_fsentry`. Asking the
+     * share table to join fsentries and match `path IN (...)` instead put an
+     * un-indexable OR on the write path.
      */
     async #sharesReaching(
         entry: FSEntry,
@@ -268,7 +376,15 @@ export class ShareService extends PuterService {
         ) {
             ancestorPaths.push(cursor);
         }
-        return this.stores.share.listReaching(entry.id, ancestorPaths);
+        const ancestors =
+            ancestorPaths.length > 0
+                ? await this.stores.fsEntry.getEntriesByPaths(ancestorPaths)
+                : new Map<string, FSEntry>();
+        const ids = [
+            entry.id,
+            ...[...ancestors.values()].map((node) => node.id),
+        ].filter((id): id is number => typeof id === 'number');
+        return this.stores.share.listReaching(ids);
     }
 
     async #emitGui(
@@ -444,6 +560,64 @@ export class ShareService extends PuterService {
         return rows.some((row) => Number(row.issuer_user_id) === issuerId);
     }
 
+    /** Everyone currently granting `holderId` something on this node. */
+    async #issuersGranting(
+        entry: FSEntry,
+        holderId: number,
+    ): Promise<number[]> {
+        const rows = await this.stores.permission.readLinkedUserUserPerms(
+            holderId,
+            entryPermissions(entry.uuid),
+        );
+        return [
+            ...new Set(rows.map((row) => Number(row.issuer_user_id))),
+        ].filter((id) => Number.isFinite(id));
+    }
+
+    /**
+     * Of `entries`, the uuids `holderId` still holds a live grant on.
+     *
+     * The index is not proof of access: a grant can be withdrawn or downgraded
+     * by a path that never touches a share row (`/auth/revoke-user-user`, or an
+     * ACL mode change), and this listing publishes name, size and a signed
+     * thumbnail URL — so it has to be checked against the grants themselves.
+     *
+     * Two batched reads for the whole page, both keyed on the holder: the
+     * linked rows are indexed on `holder_user_id`, and the flat view is a
+     * multi-get. An ACL walk per row would be the same answer at hundreds of
+     * times the cost.
+     */
+    async #liveGrants(
+        holderId: number,
+        entries: FSEntry[],
+    ): Promise<Set<string>> {
+        if (entries.length === 0) return new Set();
+        const wanted = entries.flatMap((entry) => entryPermissions(entry.uuid));
+        const [linked, flat] = await Promise.all([
+            this.stores.permission.readLinkedUserUserPerms(holderId, wanted),
+            this.stores.permission.getFlatUserPerms(holderId, wanted),
+        ]);
+
+        const live = new Set<string>();
+        for (const row of linked) {
+            const uuid = uuidFromEntryPermission(row.permission);
+            if (uuid) live.add(uuid);
+        }
+        for (let i = 0; i < wanted.length; i++) {
+            const value = flat[i];
+            if (!value || value.deleted) continue;
+            const uuid = uuidFromEntryPermission(wanted[i]);
+            if (uuid) live.add(uuid);
+        }
+        // An owner listing something shared *to* them can't happen, but a
+        // recipient who has since become the owner (a move handed the tree
+        // over) holds it outright and has no grant row.
+        for (const entry of entries) {
+            if (entry.userId === holderId) live.add(entry.uuid);
+        }
+        return live;
+    }
+
     /**
      * Withdraw a recipient's access. An owner may clear any issuer's share of
      * their node; anyone else may only clear the ones they issued.
@@ -482,9 +656,14 @@ export class ShareService extends PuterService {
                 (isOwner || isLeaving || row.issuer_user_id === issuerId),
         );
 
-        // Fall back to the issuer's own grant when no index row exists — the
-        // grant may predate the index, and a revoke must still work.
-        const issuers =
+        // Fall back to the live grants when no index row exists — a grant may
+        // predate the index, and a revoke must still work. Reading them is what
+        // makes "leave this share" work at all: the issuer there is whoever
+        // shared with you, never yourself, so defaulting to the caller would
+        // scope the delete to a row that cannot exist and report nothing
+        // revoked. Indexed on holder_user_id, and only reached when the index
+        // came up empty.
+        let issuers: number[] =
             rows.length > 0
                 ? [
                       ...new Set(
@@ -494,7 +673,11 @@ export class ShareService extends PuterService {
                           ),
                       ),
                   ]
-                : [issuerId];
+                : await this.#issuersGranting(entry, holder.id);
+        if (!isOwner && !isLeaving) {
+            issuers = issuers.filter((issuer) => issuer === issuerId);
+        }
+        if (issuers.length === 0) issuers = [issuerId];
 
         // Whatever the holder re-shared goes with them, and this has to run
         // first: when the holder is the actor, clearing their own grants would
@@ -607,15 +790,21 @@ export class ShareService extends PuterService {
      * rows removed, which is the only record of who had access — the index rows
      * cascade away with the fsentry.
      */
-    async onEntryDeleted(
-        entryUid: string,
-    ): Promise<Array<{ holder_user_id: number; issuer_user_id: number }>> {
-        // Two prefixes, because `manage:fs:<uuid>` does not sit under
+    async onEntryDeleted(entryUids: string | string[]): Promise<
+        Array<{
+            holder_user_id: number;
+            issuer_user_id: number;
+            permission: string;
+        }>
+    > {
+        const uids = Array.isArray(entryUids) ? entryUids : [entryUids];
+        if (uids.length === 0) return [];
+        // Two prefixes per entry, because `manage:fs:<uuid>` does not sit under
         // `fs:<uuid>` — leaving it behind would keep a live grant on a node
         // that no longer exists, and `manage` answers every mode.
         const removed =
             await this.stores.permission.deleteUserUserPermsByPermissionPrefixes(
-                [`fs:${entryUid}`, `manage:fs:${entryUid}`],
+                uids.flatMap((uid) => [`fs:${uid}`, `manage:fs:${uid}`]),
             );
 
         // Retiring the rows is not enough: a holder's cached scan still answers
@@ -632,6 +821,37 @@ export class ShareService extends PuterService {
         );
 
         return removed;
+    }
+
+    /**
+     * Retire the shares on a node that has just changed owner.
+     *
+     * A grant names a uuid, so it would otherwise ride along into the new
+     * owner's tree and leave them with recipients they never agreed to. The
+     * fsentry survives the move, so nothing cascades — the rows have to go
+     * explicitly.
+     *
+     * Scoped by the share index rather than by walking the subtree: the work is
+     * bounded by how many shares exist under the node (usually none), not by
+     * how many files it holds, and the recursive walk rides `parent_id`.
+     */
+    async onEntryOwnerChanged(entry: FSEntry): Promise<void> {
+        const rows = entry.isDir
+            ? await this.stores.share.listByFsentrySubtree(entry.id)
+            : await this.stores.share.listByFsentry(entry.id);
+        const fsentryIds = [
+            ...new Set([
+                entry.id,
+                ...rows.map((row: { fsentry_id: number }) =>
+                    Number(row.fsentry_id),
+                ),
+            ]),
+        ].filter((id) => Number.isFinite(id));
+
+        const nodes = await this.stores.fsEntry.getEntriesByIds(fsentryIds);
+        const uuids = [...nodes.values()].map((node) => node.uuid);
+        if (uuids.length > 0) await this.onEntryDeleted(uuids);
+        await this.stores.share.deleteByFsentryIds(fsentryIds);
     }
 
     // -- Reads --------------------------------------------------------
@@ -670,15 +890,20 @@ export class ShareService extends PuterService {
         // reached by opening one keep the same masked root and stay navigable.
         await learnShareRoots([...entries.values()], actor);
 
-        // A session sees everything shared with it. An app sees only the part
-        // of that its user handed to the app — this listing is otherwise the
-        // one share surface with no per-entry check behind it.
-        const reachable = await this.#reachableBy(actor, [...entries.values()]);
+        // Two independent bounds. The grant has to still be there — the index
+        // row outlives it if access was withdrawn any other way. And an app
+        // sees only the part of that its user handed to the app, where a
+        // session sees all of it.
+        const [live, reachable] = await Promise.all([
+            this.#liveGrants(holderId, [...entries.values()]),
+            this.#reachableBy(actor, [...entries.values()]),
+        ]);
 
         const items: ResolvedShare[] = [];
         for (const row of page.items) {
             const entry = entries.get(Number(row.fsentry_id));
             if (!entry || this.#isTrashed(entry)) continue;
+            if (!live.has(entry.uuid)) continue;
             if (!reachable.has(entry.uuid)) continue;
             const issuer = issuers.get(Number(row.issuer_user_id));
             const owner = issuers.get(Number(entry.userId));
@@ -917,9 +1142,15 @@ export class ShareService extends PuterService {
         // Authority to share lives with the user: they own the node, or hold a
         // `manage` grant on it. An app inherits that authority but is not the
         // one who has it, so this asks the user behind the actor.
+        //
+        // Asked about the permission actually being handed out, not a fixed
+        // `read`. Handing out `manage` needs authority over `manage`, which
+        // only the owner has — `grantUserUserPermission` enforces that too, but
+        // two layers down and with a rawer error, so a caller who cannot do it
+        // should be turned away here.
         const allowed = await this.services.permission.canManagePermission(
             userRelatedActor(actor),
-            `fs:${entry.uuid}:read`,
+            entryPermissionForMode(entry.uuid, mode),
         );
         // Reach is the second, independent bound: a credential may only hand
         // out access it holds itself. For a session that is a no-op; for an app

@@ -157,22 +157,23 @@ export class ShareStore extends PuterStore {
     }
 
     /**
-     * Active shares on one node or any of its ancestors, named by path. One
-     * query, because this sits behind every file-write event — the caller
-     * derives the ancestor paths from the entry's own path for free.
+     * Active shares on any of `fsentryIds` — a node plus its ancestors, which
+     * the caller has already resolved to row ids.
      *
-     * @param {number} fsentryId
-     * @param {string[]} ancestorPaths
+     * This sits behind every file-write event, so it must stay on
+     * `idx_share_fsentry`: a plain `IN` does, whereas joining `fsentries` and
+     * OR-ing a path match does not, and the optimizer falls back to a scan of
+     * `share`.
+     *
+     * @param {number[]} fsentryIds
      */
-    async listReaching(fsentryId, ancestorPaths) {
-        const placeholders = ancestorPaths.map(() => '?').join(', ');
+    async listReaching(fsentryIds) {
+        if (fsentryIds.length === 0) return [];
+        const placeholders = fsentryIds.map(() => '?').join(', ');
         const rows = await this.clients.db.read(
-            'SELECT `share`.* FROM `share` ' +
-                'JOIN `fsentries` `f` ON `share`.`fsentry_id` = `f`.`id` ' +
-                'WHERE `share`.`holder_user_id` IS NOT NULL AND ' +
-                `(\`share\`.\`fsentry_id\` = ?${ancestorPaths.length > 0 ? ` OR \`f\`.\`path\` IN (${placeholders})` : ''}) ` +
-                'ORDER BY `share`.`id`',
-            [fsentryId, ...ancestorPaths],
+            `SELECT * FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders}) ` +
+                'AND `holder_user_id` IS NOT NULL ORDER BY `id`',
+            fsentryIds,
         );
         return rows.map((r) => this.#normalizeRow(r));
     }
@@ -324,6 +325,23 @@ export class ShareStore extends PuterStore {
         );
         if ((result?.affectedRows ?? result?.changes ?? 0) === 0) return null;
         return this.getByUid(uid);
+    }
+
+    /**
+     * Drop every active share on any of `fsentryIds`. Used when a node changes
+     * hands: the fsentry survives, so the delete cascade that normally retires
+     * its shares never fires.
+     *
+     * @param {number[]} fsentryIds
+     */
+    async deleteByFsentryIds(fsentryIds) {
+        if (fsentryIds.length === 0) return 0;
+        const placeholders = fsentryIds.map(() => '?').join(', ');
+        const result = await this.clients.db.write(
+            `DELETE FROM \`share\` WHERE \`fsentry_id\` IN (${placeholders})`,
+            fsentryIds,
+        );
+        return result?.affectedRows ?? result?.changes ?? 0;
     }
 
     async deleteByUid(uid) {

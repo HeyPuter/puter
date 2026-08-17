@@ -2489,7 +2489,8 @@ export class FSEntryStore extends PuterStore {
         } = {},
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
         const payload = decodeCursor(options.cursor) as
-            { v: unknown; id: number; s?: string; o?: string } | undefined;
+            | { v: unknown; id: number; s?: string; o?: string }
+            | undefined;
 
         const requestedSort = options.sortBy ?? null;
         const requestedOrder = options.sortOrder ?? null;
@@ -2604,11 +2605,8 @@ export class FSEntryStore extends PuterStore {
 
     // All descendants of a directory path (recursive). Paths in fsentries are
     // absolute and don't carry a trailing slash, so the prefix pattern is
-    // `${prefix}/%`. Scoped by user_id to keep the index tight.
-    async listDescendantsByPath(
-        userId: number,
-        pathPrefix: string,
-    ): Promise<FSEntry[]> {
+    // `${prefix}/%`, served by `idx_fsentries_path`.
+    async listDescendantsByPath(pathPrefix: string): Promise<FSEntry[]> {
         const normalizedPrefix = this.#normalizePath(pathPrefix);
         if (normalizedPrefix === '/') {
             // Refuse to list all user entries this way — caller must mean something else.
@@ -2617,9 +2615,15 @@ export class FSEntryStore extends PuterStore {
             });
         }
         const likePattern = `${this.#escapeLikePattern(normalizedPrefix)}/%`;
+        // Everything under the prefix, whoever owns it. A subtree is meant to
+        // have one owner, but rows written before that was enforced don't, and
+        // `AND user_id = ?` would leave those behind when the caller deletes
+        // the directory above them — orphaned rows, and their S3 objects with
+        // them. `idx_fsentries_path` leads on `path`, so the access path is
+        // unchanged.
         const rows = (await this.clients.db.read(
-            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE user_id = ? AND path LIKE ? ESCAPE '!' ORDER BY path ASC`,
-            [userId, likePattern],
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path LIKE ? ESCAPE '!' ORDER BY path ASC`,
+            [likePattern],
         )) as unknown as FSEntryRow[];
         return rows.map((row) => this.#mapFSEntryRow(row));
     }
@@ -2672,7 +2676,8 @@ export class FSEntryStore extends PuterStore {
         const limit = normalizeLimit(options.limit, { cap: 10_000 }) ?? 1000;
 
         const payload = decodeCursor(options.cursor) as
-            { p: string } | undefined;
+            | { p: string }
+            | undefined;
         const seek = payload ? 'AND path > ?' : '';
         const params: unknown[] = payload
             ? [userId, likePattern, maxSlashes, payload.p, limit + 1]
@@ -2982,18 +2987,23 @@ export class FSEntryStore extends PuterStore {
             otherwise: 'CONCAT(?, SUBSTR(path, ?))',
         });
         const reowning = newUserId !== undefined && newUserId !== userId;
+        // Scoped by path alone. A subtree is meant to have one owner, but rows
+        // written before that was enforced don't — an app writing into another
+        // user's AppData used to stamp itself as the owner — and an `AND
+        // user_id = ?` would walk straight past them, leaving descendants
+        // pointing at a path their parent no longer has. `idx_fsentries_path`
+        // leads on `path`, so this is the same index range either way.
         const result = await this.clients.db.write(
             `UPDATE fsentries
              SET path = ${rewrittenPath},
                  ${reowning ? 'user_id = ?,' : ''}
                  modified = ?
-             WHERE user_id = ? AND path LIKE ? ESCAPE '!'`,
+             WHERE path LIKE ? ESCAPE '!'`,
             [
                 normalizedNew,
                 oldPrefixLen + 1,
                 ...(reowning ? [newUserId] : []),
                 now,
-                userId,
                 likePattern,
             ],
         );

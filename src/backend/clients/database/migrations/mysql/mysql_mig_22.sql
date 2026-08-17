@@ -59,6 +59,23 @@ BEGIN
       (`holder_user_id`, `fsentry_id`, `issuer_user_id`);
   END IF;
 
+  -- Retiring a deleted node's grants looks them up by permission text
+  -- (`fs:<uuid>` and `fs:<uuid>:%`); the subject lives in that text rather
+  -- than a column, so no foreign key can cascade it. The primary key is
+  -- (issuer, holder, permission), which never puts `permission` first, so
+  -- without this both the equality and the left-anchored LIKE degrade to a
+  -- full scan on the delete path. The column is ascii varchar(255), well
+  -- inside InnoDB's key limit, so it is indexed whole.
+  IF NOT EXISTS (
+    SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME = 'user_to_user_permissions'
+      AND INDEX_NAME = 'idx_user_to_user_permissions_permission'
+  ) THEN
+    ALTER TABLE `user_to_user_permissions`
+      ADD INDEX `idx_user_to_user_permissions_permission` (`permission`);
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
     WHERE TABLE_SCHEMA = DATABASE()

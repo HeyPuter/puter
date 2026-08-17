@@ -1339,10 +1339,15 @@ export class LegacyFSController extends PuterController {
                 );
                 let finalAction: 'read' | 'write' = 'read';
                 if (action === 'write') {
+                    // The real path, not the masked one: ACL reads the path
+                    // string itself for its short-circuits (own home, an app's
+                    // AppData under another user), and a mask hides the
+                    // `AppData/<appUid>` shape those match on. Nothing here
+                    // publishes the descriptor, so there is nothing to hide.
                     const writeOk = await this.services.acl.check(
                         actor,
                         {
-                            path: maskEntryPath(entry),
+                            path: entry.path,
                             resolveAncestors: () =>
                                 this.services.fs.getAncestorChain(entry.path),
                         },
@@ -1785,10 +1790,11 @@ export class LegacyFSController extends PuterController {
         // read. `/writeFile`'s ACL re-check would still block the write, but
         // returning `write_url` to a read-only caller is the same
         // privilege-leak shape that `/sign` and `/readdir` strip.
+        // Real path — see the note on the other `acl.check` above.
         const writeOk = await this.services.acl.check(
             actor,
             {
-                path: maskEntryPath(entry),
+                path: entry.path,
                 resolveAncestors: () =>
                     this.services.fs.getAncestorChain(entry.path),
             },

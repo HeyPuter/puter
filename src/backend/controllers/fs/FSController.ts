@@ -31,6 +31,7 @@ import {
 } from '../../services/fs/resolveNode.js';
 import {
     maskEntryPath,
+    maskPathForRequest,
     resolveSharePath,
 } from '../../services/fs/sharePathMask.js';
 import type {
@@ -2539,11 +2540,16 @@ export class FSController extends PuterController {
         const normalizedPath = await this.#resolveClientPath(
             requestBody.fileMetadata.path,
         );
+        // This goes to the *acting* user, not the owner, so a recipient writing
+        // into a shared folder would otherwise be handed the owner's real path
+        // — the one thing the masking exists to withhold. There is no row yet,
+        // so the mask is built from the path the caller already named.
+        const publishedPath = maskPathForRequest(normalizedPath);
         const pendingResponse = {
             id: response.objectKey,
             uid: response.objectKey,
             uuid: response.objectKey,
-            path: normalizedPath,
+            path: publishedPath,
             name: pathPosix.basename(normalizedPath),
             is_dir: false,
             content_type: response.contentType,
@@ -2826,7 +2832,10 @@ export class FSController extends PuterController {
                     user_id: userId,
                     userId: userId,
                     item_uid: itemUid,
-                    item_path: itemPath,
+                    // Progress is reported to the acting user, who is not the
+                    // owner when the write lands in a shared folder — publish
+                    // the path in the form they addressed it by.
+                    item_path: maskPathForRequest(itemPath),
                     ...this.#toEventGuiMetadata(guiMetadata),
                 },
             },

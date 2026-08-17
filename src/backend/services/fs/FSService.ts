@@ -3395,14 +3395,7 @@ export class FSService extends PuterService {
         newName: string,
     ): Promise<FSEntry> {
         await this.#assertCanRename(entry, userId);
-        if (newName.includes('/'))
-            throw new HttpError(400, 'Name cannot contain a slash', {
-                legacyCode: 'bad_request',
-            });
-        if (newName.trim().length === 0)
-            throw new HttpError(400, 'Name cannot be empty', {
-                legacyCode: 'bad_request',
-            });
+        this.#assertUsableName(newName);
         if (entry.name === newName) return entry;
         await this.#assertCrossAppDeleteAllowed(entry.path);
 
@@ -3515,6 +3508,28 @@ export class FSService extends PuterService {
     }
 
     /**
+     * A name has to be one path segment. Rename, move and copy all splice the
+     * caller's name straight into the parent's path, so a slash or a `.`/`..`
+     * segment would name a row outside the directory the caller was authorized
+     * against — and `move` into the owner's Trash is authorized without a write
+     * check on the destination at all.
+     */
+    #assertUsableName(name: string): void {
+        if (typeof name !== 'string' || name.trim().length === 0)
+            throw new HttpError(400, 'Name cannot be empty', {
+                legacyCode: 'bad_request',
+            });
+        if (name.includes('/'))
+            throw new HttpError(400, 'Name cannot contain a slash', {
+                legacyCode: 'bad_request',
+            });
+        if (name === '.' || name === '..')
+            throw new HttpError(400, 'Name cannot be `.` or `..`', {
+                legacyCode: 'bad_request',
+            });
+    }
+
+    /**
      * A FILE shared directly with you is renameable with `write` on it — the
      * name is the file's own, and rename stays in place. A folder's name is
      * structure the owner's whole subtree hangs off, so folders (and anything
@@ -3600,7 +3615,6 @@ export class FSService extends PuterService {
 
         if (entry.isDir) {
             const descendants = await this.stores.fsEntry.listDescendantsByPath(
-                entry.userId,
                 entry.path,
             );
             if (descendants.length > 0 && !input.recursive) {
@@ -3849,6 +3863,7 @@ export class FSService extends PuterService {
         }
 
         let name = input.newName ?? source.name;
+        this.#assertUsableName(name);
         const targetPath =
             destinationParent.path === '/'
                 ? `/${name}`
@@ -3925,6 +3940,7 @@ export class FSService extends PuterService {
                     node: updated,
                     fromPath: source.path,
                     toPath: finalPath,
+                    fromUserId: source.userId,
                 },
                 {},
             );
@@ -3971,6 +3987,7 @@ export class FSService extends PuterService {
         }
 
         let name = input.newName ?? source.name;
+        this.#assertUsableName(name);
         const targetPath =
             destinationParent.path === '/'
                 ? `/${name}`
@@ -4045,7 +4062,6 @@ export class FSService extends PuterService {
         });
 
         const descendants = await this.stores.fsEntry.listDescendantsByPath(
-            source.userId,
             source.path,
         );
         // Sort shallow-first so parents exist before children.

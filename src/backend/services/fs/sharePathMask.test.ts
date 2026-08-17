@@ -20,9 +20,12 @@
 import { describe, expect, it } from 'vitest';
 import {
     SharePathMasker,
+    maskPathForRequest,
+    maskerFor,
     parseMaskedSharePath,
     resolveSharePath,
 } from './sharePathMask';
+import { runWithContext } from '../../core/context';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore';
 import type { Actor } from '../../core/actor';
 
@@ -166,5 +169,60 @@ describe('SharePathMasker', () => {
                 userId: 1,
             }),
         ).toBe('/alice/deeper/Work/f.txt');
+    });
+});
+
+describe('maskerFor', () => {
+    const run = <T>(fn: () => T): T => runWithContext({}, fn);
+
+    it('adopts the actor when the first caller had none', () => {
+        run(() => {
+            // Whoever touches the masker first fixes its actor. A caller that
+            // runs before the request context knows who is acting would
+            // otherwise pin `undefined` for the whole request — and `mask()`
+            // then publishes every path unmasked, which is the failure that
+            // matters.
+            const blind = maskerFor(undefined) as SharePathMasker;
+            blind.learn('/alice/Documents/Work', `/alice/${UID}/Work`);
+            expect(blind.actorUserId).toBeUndefined();
+
+            const seeing = maskerFor(actorFor('bob', 2)) as SharePathMasker;
+            expect(seeing.actorUserId).toBe(2);
+            // The roots it already proved carry over.
+            expect(
+                seeing.mask({
+                    path: '/alice/Documents/Work/f.txt',
+                    uuid: 'child',
+                    name: 'f.txt',
+                    userId: 1,
+                }),
+            ).toBe(`/alice/${UID}/Work/f.txt`);
+        });
+    });
+
+    it('starts over rather than lend one actor’s roots to another', () => {
+        run(() => {
+            const first = maskerFor(actorFor('bob', 2)) as SharePathMasker;
+            first.learn('/alice/Documents/Work', `/alice/${UID}/Work`);
+
+            const second = maskerFor(actorFor('carol', 3)) as SharePathMasker;
+            expect(second.actorUserId).toBe(3);
+            expect(second.learnedRoots()).toEqual([]);
+        });
+    });
+
+    it('masks a bare path against the roots this request proved', () => {
+        run(() => {
+            const masker = maskerFor(actorFor('bob', 2)) as SharePathMasker;
+            masker.learn('/alice/Documents/Work', `/alice/${UID}/Work`);
+            // A pending upload has no row yet, so there is no entry to mask.
+            expect(maskPathForRequest('/alice/Documents/Work/new.txt')).toBe(
+                `/alice/${UID}/Work/new.txt`,
+            );
+            // Nothing proved about it — the caller named it themselves.
+            expect(maskPathForRequest('/bob/Desktop/mine.txt')).toBe(
+                '/bob/Desktop/mine.txt',
+            );
+        });
     });
 });

@@ -2463,6 +2463,53 @@ describe('FSService move', () => {
         expect(await entryAt(user, '/Desktop/moveddir/in.txt')).not.toBeNull();
     });
 
+    it('refuses a name that would steer the move out of the destination', async () => {
+        const entry = await writeFile(
+            user,
+            `${user.home}/Documents/steer.txt`,
+            'x',
+        );
+        const destination = (await entryAt(user, '/Desktop'))!;
+
+        for (const newName of ['../Documents/pwned.txt', 'a/b.txt', '..']) {
+            const error = await caught(() =>
+                fs.move(user.userId, {
+                    source: entry,
+                    destinationParent: destination,
+                    newName,
+                }),
+            );
+            expect(error.statusCode).toBe(400);
+        }
+        expect(await entryAt(user, '/Documents/steer.txt')).not.toBeNull();
+    });
+
+    it('deletes descendants a different user owns', async () => {
+        // Rows predating the one-owner-per-subtree invariant: an app writing
+        // into another user's AppData used to stamp itself as the owner. The
+        // walk has to reach them, or the parent's deletion orphans them.
+        const other = await makeUser();
+        const dir = await fs.mkdir(user.userId, {
+            path: `${user.home}/Documents/mixed`,
+        });
+        await writeFile(user, `${user.home}/Documents/mixed/mine.txt`, 'x');
+        const foreign = await writeFile(
+            user,
+            `${user.home}/Documents/mixed/theirs.txt`,
+            'x',
+        );
+        await server.clients.db.write(
+            'UPDATE `fsentries` SET `user_id` = ? WHERE `uuid` = ?',
+            [other.userId, foreign.uuid],
+        );
+
+        await fs.remove(user.userId, { entry: dir, recursive: true });
+
+        expect(
+            await server.stores.fsEntry.getEntryByUuid(foreign.uuid),
+        ).toBeNull();
+    });
+
     it('refuses to move another user’s entry', async () => {
         const other = await makeUser();
         const foreign = await writeFile(
