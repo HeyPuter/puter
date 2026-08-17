@@ -156,15 +156,15 @@ describe('AzureResponsesProvider construction', () => {
 // -- Model catalog ---------------------------------------------------
 
 describe('AzureResponsesProvider model catalog', () => {
-    it('returns gpt-5-codex as the default model', () => {
-        expect(makeProvider().getDefaultModel()).toBe('gpt-5-codex');
+    it('returns gpt-5.3-codex as the default model', () => {
+        expect(makeProvider().getDefaultModel()).toBe('gpt-5.3-codex');
     });
 
     it('models() exposes only the responses_api_only slice of the Azure catalog', () => {
         const ids = makeProvider()
             .models()
             .map((m) => m.id);
-        expect(ids).toContain('gpt-5-codex');
+        expect(ids).toContain('gpt-5.3-codex');
         // Chat-Completions models belong to the sibling provider.
         expect(ids).not.toContain('gpt-4o');
     });
@@ -173,15 +173,15 @@ describe('AzureResponsesProvider model catalog', () => {
         const ids = makeProvider()
             .models({ no_restrictions: true })
             .map((m) => m.id);
-        expect(ids).toContain('gpt-5-codex');
+        expect(ids).toContain('gpt-5.3-codex');
         expect(ids).toContain('gpt-4o');
         expect(ids).toHaveLength(AZURE_MODELS.length);
     });
 
     it('list() flattens responses-only ids and their aliases', () => {
         const ids = makeProvider().list();
-        expect(ids).toContain('gpt-5-codex');
-        expect(ids).toContain('openai/gpt-5-codex');
+        expect(ids).toContain('gpt-5.3-codex');
+        expect(ids).toContain('openai/gpt-5.3-codex');
         expect(ids).not.toContain('gpt-4o');
     });
 });
@@ -194,7 +194,7 @@ describe('AzureResponsesProvider.complete argument validation', () => {
         await expect(
             withTestActor(() =>
                 provider.complete({
-                    model: 'gpt-5-codex',
+                    model: 'gpt-5.3-codex',
                     messages: 'hello' as unknown as never,
                 }),
             ),
@@ -212,7 +212,7 @@ describe('AzureResponsesProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-codex',
+                model: 'gpt-5.3-codex',
                 messages: [{ role: 'user', content: 'hello' }],
                 max_tokens: 256,
                 temperature: 0.3,
@@ -220,7 +220,7 @@ describe('AzureResponsesProvider.complete request shape', () => {
         );
 
         const [args] = responsesCreateMock.mock.calls[0]!;
-        expect(args.model).toBe('gpt-5-codex');
+        expect(args.model).toBe('gpt-5.3-codex');
         expect(args.input).toEqual([{ role: 'user', content: 'hello' }]);
         expect(args.max_output_tokens).toBe(256);
         expect(args.temperature).toBe(0.3);
@@ -233,12 +233,12 @@ describe('AzureResponsesProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'openai/gpt-5-codex',
+                model: 'openai/gpt-5.3-codex',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
-        expect(responsesCreateMock.mock.calls[0]![0].model).toBe('gpt-5-codex');
+        expect(responsesCreateMock.mock.calls[0]![0].model).toBe('gpt-5.3-codex');
     });
 
     it('falls back to the default model for an unknown id', async () => {
@@ -252,7 +252,7 @@ describe('AzureResponsesProvider.complete request shape', () => {
             }),
         );
 
-        expect(responsesCreateMock.mock.calls[0]![0].model).toBe('gpt-5-codex');
+        expect(responsesCreateMock.mock.calls[0]![0].model).toBe('gpt-5.3-codex');
     });
 
     it('flattens chat-style function tools into the Responses shape', async () => {
@@ -261,7 +261,7 @@ describe('AzureResponsesProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-codex',
+                model: 'gpt-5.3-codex',
                 messages: [{ role: 'user', content: 'hi' }],
                 tools: [
                     {
@@ -299,7 +299,7 @@ describe('AzureResponsesProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-codex',
+                model: 'gpt-5.3-codex',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -338,7 +338,7 @@ describe('AzureResponsesProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-codex',
+                model: 'gpt-5.3-codex',
                 messages: [{ role: 'user', content: 'hi' }],
                 tool_choice: 'auto',
                 parallel_tool_calls: false,
@@ -380,7 +380,7 @@ describe('AzureResponsesProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-codex',
+                model: 'gpt-5.3-codex',
                 messages: [{ role: 'user', content: 'hi' }],
                 compaction: { trigger_tokens: 120_000 },
             } as never),
@@ -398,7 +398,7 @@ describe('AzureResponsesProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-codex',
+                model: 'gpt-5.3-codex',
                 messages: [{ role: 'user', content: 'hi' }],
                 compaction: true,
                 context_management: raw,
@@ -416,7 +416,7 @@ describe('AzureResponsesProvider.complete request shape', () => {
         responsesCreateMock.mockResolvedValueOnce(okResponse);
         await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-codex',
+                model: 'gpt-5.3-codex',
                 messages: [{ role: 'user', content: 'hi' }],
                 reasoning: { effort: 'high' },
                 verbosity: 'high',
@@ -460,7 +460,7 @@ describe('AzureResponsesProvider usage accounting', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-codex',
+                model: 'gpt-5.3-codex',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -475,11 +475,11 @@ describe('AzureResponsesProvider usage accounting', () => {
             cached_tokens: 10,
         });
 
-        const codex = AZURE_MODELS.find((m) => m.id === 'gpt-5-codex')!;
+        const codex = AZURE_MODELS.find((m) => m.id === 'gpt-5.3-codex')!;
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] = recordSpy.mock.calls[0]!;
         expect(actor).toBe(SYSTEM_ACTOR);
-        expect(prefix).toBe('azure-openai:gpt-5-codex');
+        expect(prefix).toBe('azure-openai:gpt-5.3-codex');
         expect(usage).toEqual({
             prompt_tokens: 90,
             completion_tokens: 50,
@@ -502,7 +502,7 @@ describe('AzureResponsesProvider usage accounting', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-codex',
+                model: 'gpt-5.3-codex',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -539,7 +539,7 @@ describe('AzureResponsesProvider.complete streaming', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'gpt-5-codex',
+                model: 'gpt-5.3-codex',
                 messages: [{ role: 'user', content: 'say hi' }],
                 stream: true,
             }),
@@ -563,7 +563,7 @@ describe('AzureResponsesProvider.complete streaming', () => {
             completion_tokens: 2,
             cached_tokens: 1,
         });
-        expect(recordSpy.mock.calls[0]![2]).toBe('azure-openai:gpt-5-codex');
+        expect(recordSpy.mock.calls[0]![2]).toBe('azure-openai:gpt-5.3-codex');
     });
 });
 
@@ -617,7 +617,7 @@ describe('AzureResponsesProvider.complete error mapping', () => {
         await expect(
             withTestActor(() =>
                 provider.complete({
-                    model: 'gpt-5-codex',
+                    model: 'gpt-5.3-codex',
                     messages: [{ role: 'user', content: 'boom' }],
                 }),
             ),

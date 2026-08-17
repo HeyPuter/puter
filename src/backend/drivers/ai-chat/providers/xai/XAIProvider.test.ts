@@ -177,8 +177,8 @@ describe('XAIProvider model catalog', () => {
             }
         }
         // Sanity: a known alias resolves to its expected id sibling.
-        expect(names).toContain('grok-3');
-        expect(names).toContain('x-ai/grok-3');
+        expect(names).toContain('grok-4.6');
+        expect(names).toContain('x-ai/grok-4.6');
     });
 });
 
@@ -201,13 +201,13 @@ describe('XAIProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'grok-3',
+                model: 'grok-4.6',
                 messages: [{ role: 'user', content: 'hello' }],
             }),
         );
 
         const [args] = createMock.mock.calls[0]!;
-        expect(args.model).toBe('grok-3');
+        expect(args.model).toBe('grok-4.6');
         expect(args.messages).toEqual([{ role: 'user', content: 'hello' }]);
         // max_tokens is hardcoded by the provider — the call to xAI
         // should always cap at 1000 tokens of completion.
@@ -220,7 +220,7 @@ describe('XAIProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'grok-3',
+                model: 'grok-4.6',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -251,7 +251,7 @@ describe('XAIProvider.complete request shape', () => {
         ];
         await withTestActor(() =>
             provider.complete({
-                model: 'grok-3',
+                model: 'grok-4.6',
                 messages: [{ role: 'user', content: 'hi' }],
                 tools,
             }),
@@ -268,7 +268,7 @@ describe('XAIProvider.complete request shape', () => {
         createMock.mockResolvedValueOnce(baseCompletion);
         await withTestActor(() =>
             provider.complete({
-                model: 'grok-3',
+                model: 'grok-4.6',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: false,
             }),
@@ -281,7 +281,7 @@ describe('XAIProvider.complete request shape', () => {
         createMock.mockReturnValueOnce(asAsyncIterable([]));
         await withTestActor(() =>
             provider.complete({
-                model: 'grok-3',
+                model: 'grok-4.6',
                 messages: [{ role: 'user', content: 'hi' }],
                 stream: true,
             }),
@@ -297,7 +297,7 @@ describe('XAIProvider.complete request shape', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'grok-3',
+                model: 'grok-4.6',
                 messages: [
                     {
                         role: 'assistant',
@@ -350,17 +350,17 @@ describe('XAIProvider model resolution', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'grok-3-mini',
+                model: 'grok-build-0.1',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
-        expect(createMock.mock.calls[0]![0].model).toBe('grok-3-mini');
+        expect(createMock.mock.calls[0]![0].model).toBe('grok-build-0.1');
         // Metering namespace mirrors the resolved canonical id.
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'xai:grok-3-mini',
+            'xai:grok-build-0.1',
             expect.any(Object),
         );
     });
@@ -371,18 +371,18 @@ describe('XAIProvider model resolution', () => {
 
         await withTestActor(() =>
             provider.complete({
-                // `x-ai/grok-3` is an alias of `grok-3` in models.ts.
-                model: 'x-ai/grok-3',
+                // `x-ai/grok-4.6` is an alias of `grok-4.6` in models.ts.
+                model: 'x-ai/grok-4.6',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
 
         // The wire model should be the canonical id, not the alias.
-        expect(createMock.mock.calls[0]![0].model).toBe('grok-3');
+        expect(createMock.mock.calls[0]![0].model).toBe('grok-4.6');
         expect(recordSpy).toHaveBeenCalledWith(
             expect.any(Object),
             expect.anything(),
-            'xai:grok-3',
+            'xai:grok-4.6',
             expect.any(Object),
         );
     });
@@ -465,7 +465,7 @@ describe('XAIProvider.complete non-stream output', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'grok-3',
+                model: 'grok-4.6',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -486,7 +486,7 @@ describe('XAIProvider.complete non-stream output', () => {
 
         // Metering: usage is recorded once, with the right model
         // namespace, actor, and a costsOverride priced from
-        // models.ts (grok-3: prompt=300, completion=1500, cached=0.75).
+        // models.ts (grok-4.6: prompt=200, completion=600, cached=50).
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [usage, actor, prefix, overrides] =
             recordSpy.mock.calls[0]!;
@@ -496,11 +496,11 @@ describe('XAIProvider.complete non-stream output', () => {
             cached_tokens: 10,
         });
         expect(actor).toBe(SYSTEM_ACTOR);
-        expect(prefix).toBe('xai:grok-3');
+        expect(prefix).toBe('xai:grok-4.6');
         expect(overrides).toEqual({
-            prompt_tokens: 100 * 300,
-            completion_tokens: 50 * 1500,
-            cached_tokens: 10 * 0.75,
+            prompt_tokens: 100 * 200,
+            completion_tokens: 50 * 600,
+            cached_tokens: 10 * 50,
         });
     });
 
@@ -531,7 +531,7 @@ describe('XAIProvider.complete non-stream output', () => {
 
         const result = (await withTestActor(() =>
             provider.complete({
-                model: 'grok-3',
+                model: 'grok-4.6',
                 messages: [{ role: 'user', content: 'do a tool call' }],
                 tools: [
                     {
@@ -572,7 +572,7 @@ describe('XAIProvider.complete non-stream output', () => {
 
         await withTestActor(() =>
             provider.complete({
-                model: 'grok-3',
+                model: 'grok-4.6',
                 messages: [{ role: 'user', content: 'hi' }],
             }),
         );
@@ -607,7 +607,7 @@ describe('XAIProvider.complete streaming', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'grok-3-mini',
+                model: 'grok-build-0.1',
                 messages: [{ role: 'user', content: 'say hi' }],
                 stream: true,
             }),
@@ -634,15 +634,15 @@ describe('XAIProvider.complete streaming', () => {
             cached_tokens: 1,
         });
 
-        // grok-3-mini costs: prompt=30, completion=50, cached=0.075.
+        // grok-build-0.1 costs: prompt=100, completion=200, cached=20.
         expect(recordSpy).toHaveBeenCalledTimes(1);
         const [, , prefix, overrides] =
             recordSpy.mock.calls[0]!;
-        expect(prefix).toBe('xai:grok-3-mini');
+        expect(prefix).toBe('xai:grok-build-0.1');
         expect(overrides).toEqual({
-            prompt_tokens: 4 * 30,
-            completion_tokens: 2 * 50,
-            cached_tokens: 1 * 0.075,
+            prompt_tokens: 4 * 100,
+            completion_tokens: 2 * 200,
+            cached_tokens: 1 * 20,
         });
     });
 
@@ -691,7 +691,7 @@ describe('XAIProvider.complete streaming', () => {
 
         const result = await withTestActor(() =>
             provider.complete({
-                model: 'grok-3',
+                model: 'grok-4.6',
                 messages: [{ role: 'user', content: 'do tool call' }],
                 tools: [
                     {
@@ -733,7 +733,7 @@ describe('XAIProvider.complete error mapping', () => {
         await expect(
             withTestActor(() =>
                 provider.complete({
-                    model: 'grok-3',
+                    model: 'grok-4.6',
                     messages: [{ role: 'user', content: 'boom' }],
                 }),
             ),

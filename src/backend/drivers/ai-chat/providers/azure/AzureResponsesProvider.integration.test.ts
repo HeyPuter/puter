@@ -20,7 +20,7 @@
 /**
  * Integration test for the Azure AI Foundry Responses provider.
  *
- * Hits the real Azure endpoint with `gpt-5-codex` — a Responses-API-only
+ * Hits the real Azure endpoint with `gpt-5.3-codex` — a Responses-API-only
  * (Codex) model that the Chat Completions endpoint rejects. This verifies
  * the completions/responses split actually routes Codex correctly. Codex is
  * a reasoning model, so we give it a generous `max_tokens` and low reasoning
@@ -47,7 +47,7 @@ describe.skipIf(skipUnlessEnv(KEY_ENV) || skipUnlessEnv(URL_ENV))(
     'AzureResponsesProvider (integration)',
     () => {
         it(
-            'returns a non-empty completion from gpt-5-codex',
+            'returns a non-empty completion from gpt-5.3-codex',
             { timeout: INTEGRATION_TEST_TIMEOUT_MS },
             async () => {
                 const provider = new AzureResponsesProvider(
@@ -65,7 +65,7 @@ describe.skipIf(skipUnlessEnv(KEY_ENV) || skipUnlessEnv(URL_ENV))(
 
                 const result = await withTestActor(() =>
                     provider.complete({
-                        model: 'gpt-5-codex',
+                        model: 'gpt-5.3-codex',
                         messages: [
                             { role: 'user', content: 'Say hi in one word.' },
                         ],

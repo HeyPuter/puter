@@ -49,7 +49,7 @@ export class AzureResponsesProvider implements IChatProvider {
     /** @type {import('openai').OpenAI} */
     #openAi: OpenAI;
 
-    #defaultModel = 'gpt-5-codex';
+    #defaultModel = 'gpt-5.3-codex';
 
     #meteringService: MeteringService;
 

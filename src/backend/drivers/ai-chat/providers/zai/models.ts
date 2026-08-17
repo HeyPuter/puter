@@ -44,31 +44,15 @@ const textModel = (
     costs,
 });
 
-const visionModel = (
-    id: string,
-    name: string,
-    context: number,
-    maxTokens: number,
-    costs: IChatModel['costs'],
-): IChatModel => ({
-    puterId: `z-ai:z-ai/${id}`,
-    id,
-    name,
-    aliases: [`z-ai/${id}`, `zai/${id}`],
-    modalities: { input: ['text', 'image', 'video', 'file'], output: ['text'] },
-    open_weights: false,
-    tool_call: true,
-    context,
-    max_tokens: maxTokens,
-    costs_currency: 'usd-cents',
-    input_cost_key: 'prompt_tokens',
-    output_cost_key: 'completion_tokens',
-    costs,
-});
-
-// Hardcoded from https://docs.z.ai/api-reference/llm/chat-completion and
-// https://docs.z.ai/guides/overview/pricing.
+// Hardcoded from live Z.AI /models and https://docs.z.ai/guides/overview/pricing.
 export const ZAI_MODELS: IChatModel[] = [
+    textModel(
+        'glm-5.3',
+        'GLM-5.3',
+        1_000 * K,
+        128 * K,
+        usdPerMToken(1.4, 4.4, 0.26),
+    ),
     textModel(
         'glm-5.2',
         'GLM-5.2',
@@ -99,20 +83,6 @@ export const ZAI_MODELS: IChatModel[] = [
         usdPerMToken(0.6, 2.2, 0.11),
     ),
     textModel(
-        'glm-4.7-flashx',
-        'GLM-4.7-FlashX',
-        200 * K,
-        128 * K,
-        usdPerMToken(0.07, 0.4, 0.01),
-    ),
-    textModel(
-        'glm-4.7-flash',
-        'GLM-4.7-Flash',
-        200 * K,
-        128 * K,
-        usdPerMToken(0, 0, 0),
-    ),
-    textModel(
         'glm-4.6',
         'GLM-4.6',
         200 * K,
@@ -127,80 +97,10 @@ export const ZAI_MODELS: IChatModel[] = [
         usdPerMToken(0.6, 2.2, 0.11),
     ),
     textModel(
-        'glm-4.5-x',
-        'GLM-4.5-X',
-        128 * K,
-        96 * K,
-        usdPerMToken(2.2, 8.9, 0.45),
-    ),
-    textModel(
         'glm-4.5-air',
         'GLM-4.5-Air',
         128 * K,
         96 * K,
         usdPerMToken(0.2, 1.1, 0.03),
-    ),
-    textModel(
-        'glm-4.5-airx',
-        'GLM-4.5-AirX',
-        128 * K,
-        96 * K,
-        usdPerMToken(1.1, 4.5, 0.22),
-    ),
-    textModel(
-        'glm-4.5-flash',
-        'GLM-4.5-Flash',
-        128 * K,
-        96 * K,
-        usdPerMToken(0, 0, 0),
-    ),
-    textModel(
-        'glm-4-32b-0414-128k',
-        'GLM-4-32B-0414-128K',
-        128 * K,
-        16 * K,
-        usdPerMToken(0.1, 0.1, 0),
-    ),
-    visionModel(
-        'glm-5v-turbo',
-        'GLM-5V-Turbo',
-        200 * K,
-        128 * K,
-        usdPerMToken(1.2, 4, 0.24),
-    ),
-    visionModel(
-        'glm-4.6v',
-        'GLM-4.6V',
-        128 * K,
-        32 * K,
-        usdPerMToken(0.3, 0.9, 0.05),
-    ),
-    visionModel(
-        'glm-4.6v-flashx',
-        'GLM-4.6V-FlashX',
-        128 * K,
-        32 * K,
-        usdPerMToken(0.04, 0.4, 0.004),
-    ),
-    visionModel(
-        'glm-4.6v-flash',
-        'GLM-4.6V-Flash',
-        128 * K,
-        32 * K,
-        usdPerMToken(0, 0, 0),
-    ),
-    visionModel(
-        'glm-4.5v',
-        'GLM-4.5V',
-        128 * K,
-        16 * K,
-        usdPerMToken(0.6, 1.8, 0.11),
-    ),
-    visionModel(
-        'autoglm-phone-multilingual',
-        'AutoGLM-Phone-Multilingual',
-        4 * K,
-        4 * K,
-        usdPerMToken(0, 0, 0),
     ),
 ];
