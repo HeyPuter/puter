@@ -228,9 +228,13 @@ export class ShareStore extends PuterStore {
      * `holder_user_id`, which is NULL here, and SQL treats NULLs as distinct —
      * so re-inviting would otherwise pile up rows.
      *
+     * `recipientEmail` is the canonical form claims match on; `displayEmail` is
+     * what the sharer typed, kept for the dialog and nothing else.
+     *
      * @param {object} input
      * @param {number} input.issuerUserId
      * @param {string} input.recipientEmail
+     * @param {string} [input.displayEmail]
      * @param {number} input.fsentryId
      * @param {string} input.mode
      * @param {string | null} [input.issuerAppUid]
@@ -238,6 +242,7 @@ export class ShareStore extends PuterStore {
     async upsertPending({
         issuerUserId,
         recipientEmail,
+        displayEmail,
         fsentryId,
         mode,
         issuerAppUid = null,
@@ -275,7 +280,12 @@ export class ShareStore extends PuterStore {
                 recipientEmail,
                 fsentryId,
                 mode,
-                JSON.stringify(issuerAppUid ? { issuerAppUid } : {}),
+                JSON.stringify({
+                    ...(issuerAppUid ? { issuerAppUid } : {}),
+                    ...(displayEmail && displayEmail !== recipientEmail
+                        ? { invitedAddress: displayEmail }
+                        : {}),
+                }),
             ],
         );
         return { row: await this.getByUid(uid), created: true };

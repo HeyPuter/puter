@@ -306,6 +306,32 @@ describe('share endpoints over HTTP', () => {
         expect(res.status).toBe(404);
     });
 
+
+    it('runs a duplicated pair once, and answers for both positions', async () => {
+        const owner = env.users.user;
+        const file = await makeFile(owner);
+        const invitee = `dup-${crypto.randomUUID().slice(0, 8)}@puter.local`;
+
+        // The same pair twice raced itself into two pending rows; it must
+        // execute once, with the one outcome reported in both positions.
+        const res = await post('/share', owner.token, {
+            recipients: [invitee],
+            items: [{ uid: file.uid }, { uid: file.uid }],
+            mode: 'read',
+        });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as {
+            status: string;
+            results: Array<{ status: string; uid?: string }>;
+        };
+        expect(body.results).toHaveLength(2);
+        expect(body.results[0].status).toBe('pending');
+        expect(body.results[1]).toEqual(body.results[0]);
+
+        const rows = await env.server.stores.share.listPendingByEmail(invitee);
+        expect(rows).toHaveLength(1);
+    });
+
     it('rejects an unauthenticated share', async () => {
         const res = await fetch(new URL('/share', env.apiOrigin), {
             method: 'POST',

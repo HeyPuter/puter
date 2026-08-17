@@ -83,42 +83,52 @@ export class ShareNotificationService extends PuterService {
      * interrupting anyone for.
      */
     async notifyShared(actor: Actor, shares: ResolvedShare[]): Promise<void> {
+        const issuerId = actor.user?.id;
+        const issuer = actor.user?.username;
+        if (typeof issuerId !== 'number') return;
+
+        const counts = new Map<number, number>();
+        const named = new Map<number, string>();
+        for (const share of shares) {
+            if (share.pending) continue;
+            if (!share.isNew || !share.holderId) continue;
+            if (share.holderId === issuerId) continue;
+            counts.set(share.holderId, (counts.get(share.holderId) ?? 0) + 1);
+            if (share.name) named.set(share.holderId, share.name);
+        }
+
+        // Each recipient fails alone: one refused SMTP send must not cost the
+        // next person their notification, or the invites their announcement.
+        // Best-effort still — failures are logged, never thrown.
+        await Promise.allSettled(
+            [...counts].map(async ([holderId, count]) => {
+                try {
+                    const interrupt = await this.#claimInterruption(
+                        issuerId,
+                        holderId,
+                    );
+                    await this.#announce(holderId, issuer, count, interrupt);
+                    if (!interrupt) return;
+                    await this.#emailHolder(
+                        holderId,
+                        issuer,
+                        count,
+                        named.get(holderId),
+                    );
+                } catch (err) {
+                    console.warn(
+                        '[share-notify] could not announce to user',
+                        holderId,
+                        err,
+                    );
+                }
+            }),
+        );
+
         try {
-            const issuerId = actor.user?.id;
-            const issuer = actor.user?.username;
-            if (typeof issuerId !== 'number') return;
-
-            const counts = new Map<number, number>();
-            const named = new Map<number, string>();
-            for (const share of shares) {
-                if (share.pending) continue;
-                if (!share.isNew || !share.holderId) continue;
-                if (share.holderId === issuerId) continue;
-                counts.set(
-                    share.holderId,
-                    (counts.get(share.holderId) ?? 0) + 1,
-                );
-                if (share.name) named.set(share.holderId, share.name);
-            }
-
-            for (const [holderId, count] of counts) {
-                const interrupt = await this.#claimInterruption(
-                    issuerId,
-                    holderId,
-                );
-                await this.#announce(holderId, issuer, count, interrupt);
-                if (!interrupt) continue;
-                await this.#emailHolder(
-                    holderId,
-                    issuer,
-                    count,
-                    named.get(holderId),
-                );
-            }
-
             await this.#emailInvites(actor, shares);
-        } catch {
-            // Best-effort by design; see the class comment.
+        } catch (err) {
+            console.warn('[share-notify] could not email invites:', err);
         }
     }
 
@@ -231,9 +241,18 @@ export class ShareNotificationService extends PuterService {
      *
      * Both axes matter: the pair budget stops one person nagging, and the
      * recipient budget bounds the noise a pair limit can't, since twenty
-     * accounts would each spend a full one on the same person. Narrowest first
-     * — a refused check records nothing, so broader budgets stay unspent. Fails
-     * open, because one notification too many beats going silent.
+     * accounts would each spend a full one on the same person. Fails open,
+     * because one notification too many beats going silent.
+     *
+     * Order carries the cost of refusal: `checkRateLimit` records the hit as it
+     * allows, with no refund, so every budget after the refusing one stays
+     * unspent — and each earlier one paid for an interruption that never
+     * happened. The pair window leads (it refuses most, and what it burns
+     * self-expires in minutes, while letting a re-sharing pair drain the
+     * recipient's budgets would mute everyone else). The pair-day budget goes
+     * last for the same reason in reverse: burning a day-scale token because
+     * the _recipient_ was saturated would let twenty refusals mute a sender's
+     * first-ever contact for the rest of the day.
      */
     async #claimInterruption(
         issuerId: number,
@@ -246,20 +265,20 @@ export class ShareNotificationService extends PuterService {
                 1,
                 limits.pairWindowSeconds * 1000,
             ],
+            [`share:notify:to:${holderId}`, limits.recipientHourly, HOUR_MS],
+            [`share:notify:to-day:${holderId}`, limits.recipientDaily, DAY_MS],
             [
                 `share:notify:pair-day:${issuerId}:${holderId}`,
                 limits.pairDaily,
                 DAY_MS,
             ],
-            [`share:notify:to:${holderId}`, limits.recipientHourly, HOUR_MS],
-            [`share:notify:to-day:${holderId}`, limits.recipientDaily, DAY_MS],
         ]);
     }
 
     /**
-     * The same question for an address with no account. Keyed on the canonical
-     * form, so `foo+1@` and `foo+2@` can't each buy a budget, and hashed to
-     * keep addresses out of cache keys.
+     * The same question for an address with no account, in the same order for
+     * the same reasons. Keyed on the canonical form, so `foo+1@` and `foo+2@`
+     * can't each buy a budget, and hashed to keep addresses out of cache keys.
      */
     async #claimInviteEmail(issuerId: number, email: string): Promise<boolean> {
         const limits = this.#limits();
@@ -270,13 +289,13 @@ export class ShareNotificationService extends PuterService {
                 1,
                 limits.pairWindowSeconds * 1000,
             ],
+            [`share:notify:to-addr:${to}`, limits.recipientHourly, HOUR_MS],
+            [`share:notify:to-addr-day:${to}`, limits.recipientDaily, DAY_MS],
             [
                 `share:notify:invite-day:${issuerId}:${to}`,
                 limits.pairDaily,
                 DAY_MS,
             ],
-            [`share:notify:to-addr:${to}`, limits.recipientHourly, HOUR_MS],
-            [`share:notify:to-addr-day:${to}`, limits.recipientDaily, DAY_MS],
         ]);
     }
 
@@ -368,16 +387,22 @@ export class ShareNotificationService extends PuterService {
 
         const issuer = actor.user?.username;
         for (const [to, { count, name }] of byEmail) {
-            if (!(await this.clients.email.validate(to))) continue;
-            if (!(await this.#claimInviteEmail(issuerId, to))) continue;
-            await this.clients.email.send(to, 'file_shared_invite', {
-                email: to,
-                issuer,
-                count,
-                multiple: count > 1,
-                item_name: name ?? 'an item',
-                link: this.#appLink(),
-            });
+            // Each address fails alone — one refused send must not cost the
+            // next invitee their only channel.
+            try {
+                if (!(await this.clients.email.validate(to))) continue;
+                if (!(await this.#claimInviteEmail(issuerId, to))) continue;
+                await this.clients.email.send(to, 'file_shared_invite', {
+                    email: to,
+                    issuer,
+                    count,
+                    multiple: count > 1,
+                    item_name: name ?? 'an item',
+                    link: this.#appLink(),
+                });
+            } catch (err) {
+                console.warn('[share-notify] invite email failed:', err);
+            }
         }
     }
 
@@ -403,9 +428,15 @@ export class ShareNotificationService extends PuterService {
         }
     }
 
+    /**
+     * `config.origin` is what every other email link uses, and it carries the
+     * port — re-deriving from protocol and domain sent self-hosters' "Open it
+     * on Puter" links to an address nothing answers on.
+     */
     #appLink(): string {
-        const protocol = this.config.protocol ?? 'http';
-        const domain = this.config.domain ?? 'puter.com';
-        return `${protocol}://${domain}`;
+        return (
+            this.config.origin ??
+            `${this.config.protocol ?? 'http'}://${this.config.domain ?? 'puter.com'}`
+        );
     }
 }

@@ -116,13 +116,16 @@ export class ShareController extends PuterController {
 
         // Every (recipient, item) pair is a distinct (holder, entry) key, so
         // they can run together. Two writes to the *same* pair could not —
-        // setUserUser is a read-modify-write.
+        // setUserUser is a read-modify-write, and a duplicated invite races
+        // itself into two pending rows — so duplicates in the request execute
+        // once and every original position reports that one outcome.
         const pairs = recipients.flatMap((recipient) =>
             items.map((item) => ({ recipient, item })),
         );
+        const { unique, indexOf } = this.#dedupePairs(pairs);
 
-        const settled = await runWithConcurrencyLimitSettled(
-            pairs,
+        const settledUnique = await runWithConcurrencyLimitSettled(
+            unique,
             SHARE_CONCURRENCY,
             async ({ recipient, item }) => {
                 const share = await this.services.share.share(actor, {
@@ -133,6 +136,7 @@ export class ShareController extends PuterController {
                 return share;
             },
         );
+        const settled = indexOf.map((i) => settledUnique[i]);
 
         const results: ShareOutcome[] = await Promise.all(
             settled.map(async (outcome, index) => {
@@ -158,10 +162,11 @@ export class ShareController extends PuterController {
         );
 
         // Off the response path: a share that landed must not be reported as
-        // failed because telling the recipient didn't.
+        // failed because telling the recipient didn't. Fanned out from the
+        // unique outcomes, so a duplicated pair is not counted twice.
         void this.services.shareNotification.notifyShared(
             actor,
-            settled
+            settledUnique
                 .filter((o) => o.status === 'fulfilled')
                 .map((o) => (o as PromiseFulfilledResult<ResolvedShare>).value),
         );
@@ -198,20 +203,29 @@ export class ShareController extends PuterController {
         const pairs = recipients.flatMap((recipient) =>
             items.map((item) => ({ recipient, item })),
         );
+        const { unique, indexOf } = this.#dedupePairs(pairs);
 
-        const settled = await runWithConcurrencyLimitSettled(
-            pairs,
+        const settledUnique = await runWithConcurrencyLimitSettled(
+            unique,
             SHARE_CONCURRENCY,
             ({ recipient, item }) =>
                 this.services.share.unshare(actor, { ...item, recipient }),
         );
+        const settled = indexOf.map((i) => settledUnique[i]);
 
-        let revoked = 0;
+        // Totalled over the unique outcomes: a pair listed twice revoked its
+        // grants once.
+        const revoked = settledUnique.reduce(
+            (total, outcome) =>
+                outcome.status === 'fulfilled'
+                    ? total + outcome.value.revoked
+                    : total,
+            0,
+        );
         const results: ShareOutcome[] = settled.map((outcome, index) => {
             const { recipient, item } = pairs[index];
             const label = recipient.email ?? recipient.username ?? '';
             if (outcome.status === 'fulfilled') {
-                revoked += outcome.value.revoked;
                 return {
                     recipient: label,
                     ...(item.path ? { path: item.path } : {}),
@@ -351,6 +365,35 @@ export class ShareController extends PuterController {
     }
 
     // -- Helpers ------------------------------------------------------
+
+    /**
+     * Collapse repeated (recipient, item) pairs to one execution. `indexOf`
+     * maps every original position onto its unique pair, so a request that
+     * names the same pair twice still gets a result in both positions — the
+     * same result, which is the truth of what happened.
+     */
+    #dedupePairs<T extends { recipient: ShareRecipient; item: ShareTarget }>(
+        pairs: T[],
+    ): { unique: T[]; indexOf: number[] } {
+        const unique: T[] = [];
+        const seen = new Map<string, number>();
+        const indexOf = pairs.map((pair) => {
+            const key = JSON.stringify([
+                pair.recipient.email ?? null,
+                pair.recipient.username ?? null,
+                pair.item.uid ?? null,
+                pair.item.path ?? null,
+            ]);
+            let at = seen.get(key);
+            if (at === undefined) {
+                at = unique.length;
+                seen.set(key, at);
+                unique.push(pair);
+            }
+            return at;
+        });
+        return { unique, indexOf };
+    }
 
     #username(body: Record<string, unknown>): string {
         const username =

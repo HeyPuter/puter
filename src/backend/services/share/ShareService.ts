@@ -21,6 +21,8 @@ import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
 import { userRelatedActor, type Actor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
+import { isUniqueViolation } from '../../util/dbError.js';
+import { cleanEmail } from '../../util/email.js';
 import type { FSEntry } from '../../stores/fs/FSEntry';
 import type { UserRow } from '../../stores/user/UserStore';
 import type { LayerInstances } from '../../types';
@@ -158,6 +160,13 @@ const RETIRE_CHUNK_SIZE = 100;
 export const DEFAULT_DAILY_SHARE_LIMIT = 200;
 
 /**
+ * The least an address must look like before an invite row is written for it.
+ * Deliverability is the inbox's business, but `a@b` or a pasted sentence must
+ * not become a permanent pending share that spent quota.
+ */
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+
+/**
  * What a share recipient's browser is told about someone else's entry.
  *
  * Curated rather than the row: the row carries the owner's real path, their
@@ -262,13 +271,13 @@ export class ShareService extends PuterService {
             ]).then((): void => undefined);
         });
 
-        // Confirming an address is what turns it from a claim into an
-        // identity, and so the only moment an invite may become a grant.
-        this.clients.event.on('user.email-confirmed', (_key, data) => {
-            const { user_id, email } = (data ?? {}) as {
-                user_id?: number;
-                email?: string;
-            };
+        // Owning a confirmed address is what turns it from a claim into an
+        // identity, and so the only moment an invite may become a grant. That
+        // happens on more paths than typing a code: an OIDC signup arrives with
+        // the provider's word for the address, and the change-email flow
+        // confirms the new one before it lands. Missing any of them strands the
+        // invite forever — there is no later event to catch.
+        const claimFor = (user_id?: number, email?: string) => {
             if (!user_id || !email) return;
             return this.claimPendingShares(user_id, email)
                 .then((claimed) =>
@@ -284,6 +293,20 @@ export class ShareService extends PuterService {
                         err,
                     );
                 });
+        };
+        this.clients.event.on('user.email-confirmed', (_key, data) => {
+            const { user_id, email } = (data ?? {}) as {
+                user_id?: number;
+                email?: string;
+            };
+            return claimFor(user_id, email);
+        });
+        this.clients.event.on('user.email-changed', (_key, data) => {
+            const { user_id, new_email } = (data ?? {}) as {
+                user_id?: number;
+                new_email?: string;
+            };
+            return claimFor(user_id, new_email);
         });
 
         this.clients.event.on('fs.write.file', (_key, data) => {
@@ -1053,7 +1076,12 @@ export class ShareService extends PuterService {
                 },
                 holder: { username: null },
                 pending: true,
-                recipientEmail: row.recipient_email,
+                // What the sharer typed, when it differs from the canonical
+                // form the row is keyed on — that is the address they will
+                // recognize in the dialog.
+                recipientEmail:
+                    (row.data as { invitedAddress?: string } | null)
+                        ?.invitedAddress ?? row.recipient_email,
                 createdAt: row.created_at,
                 issuedByApp: issuedByApp(row),
                 inheritedFrom: null,
@@ -1163,7 +1191,11 @@ export class ShareService extends PuterService {
         holderUserId: number,
         email: string,
     ): Promise<ResolvedShare[]> {
-        const pending = await this.stores.share.listPendingByEmail(email);
+        // Canonical on both sides: rows are stored cleaned, and the confirmed
+        // address may be any variant of what the sharer typed.
+        const pending = await this.stores.share.listPendingByEmail(
+            cleanEmail(email),
+        );
         if (pending.length === 0) return [];
 
         const holder = await this.stores.user.getById(holderUserId);
@@ -1207,27 +1239,57 @@ export class ShareService extends PuterService {
                     continue;
                 }
                 const issuerActor = this.#actorFor(issuer);
+                // Re-authorized against the mode the invite actually grants:
+                // an issuer can keep authority over `read` while having lost
+                // `write`, and checking a fixed `read` here would wave a
+                // write-mode invite through to a grant that then fails.
                 const stillAllowed =
                     await this.services.permission.canManagePermission(
                         issuerActor,
-                        `fs:${entry.uuid}:read`,
+                        entryPermissionForMode(entry.uuid, row.mode as string),
                     );
                 if (!stillAllowed) {
                     await this.stores.share.deleteByUid(row.uid);
                     continue;
                 }
 
-                await this.services.acl.setUserUser(
-                    issuerActor,
-                    this.#actorFor(holder),
-                    this.#descriptorFor(entry),
-                    row.mode as AclMode,
-                );
-                const applied = await this.stores.share.applyPending({
-                    uid: row.uid,
-                    holderUserId,
-                });
+                // The row is claimed before the grant is written. In this
+                // order, losing the race to a concurrent cancel means no grant
+                // exists yet — nothing to clean up. Granting first left a
+                // durable permission behind whenever the cancel won, and no
+                // listing showed it, because listings are driven by the rows.
+                let applied;
+                try {
+                    applied = await this.stores.share.applyPending({
+                        uid: row.uid,
+                        holderUserId,
+                    });
+                } catch (err) {
+                    // A duplicate of an invite already claimed (or of an
+                    // active share) collides with the unique index the moment
+                    // it gains a holder. It can never be applied, so it is
+                    // noise to be cleared, not an invite to keep retrying.
+                    if (!isUniqueViolation(err)) throw err;
+                    await this.stores.share.deleteByUid(row.uid);
+                    continue;
+                }
                 if (!applied) continue;
+
+                try {
+                    await this.services.acl.setUserUser(
+                        issuerActor,
+                        this.#actorFor(holder),
+                        this.#descriptorFor(entry),
+                        row.mode as AclMode,
+                    );
+                } catch (err) {
+                    // The row now names a holder but no grant backs it; left
+                    // standing it would re-fail identically on every future
+                    // claim. An invite whose grant cannot be written no longer
+                    // holds, and those are dropped.
+                    await this.stores.share.deleteByUid(row.uid);
+                    throw err;
+                }
 
                 claimed.push({
                     ...this.#resolve(applied, entry, issuerActor, holder),
@@ -1255,7 +1317,9 @@ export class ShareService extends PuterService {
         issuerId: number,
     ): Promise<{ revoked: number }> {
         const isOwner = entry.userId === issuerId;
-        const rows = (await this.stores.share.listPendingByEmail(email)).filter(
+        const rows = (
+            await this.stores.share.listPendingByEmail(cleanEmail(email))
+        ).filter(
             (row: { fsentry_id: number; issuer_user_id: number }) =>
                 Number(row.fsentry_id) === entry.id &&
                 (isOwner || Number(row.issuer_user_id) === issuerId),
@@ -1281,7 +1345,27 @@ export class ShareService extends PuterService {
         email: string,
         mode: AclMode,
     ): Promise<ResolvedShare> {
-        const existing = await this.stores.share.listPendingByEmail(email);
+        // Checked before anything is written or spent: an address that can't
+        // receive the invite must not become a permanent pending row. The
+        // send-time check can't do this — by then the row exists whatever
+        // happens to the email.
+        if (
+            !EMAIL_SHAPE.test(email) ||
+            !(await this.clients.email.validate(email))
+        ) {
+            throw new HttpError(400, 'invalid recipient email address', {
+                legacyCode: 'email_not_allowed',
+            });
+        }
+
+        // Stored canonicalized, because claiming matches on it: the confirmed
+        // address arrives in whatever form the signup normalized to, and an
+        // exact match against what the sharer happened to type loses the
+        // invite to a capital letter. The typed form still matters — it is
+        // where the invite email goes, and what the sharer recognizes in the
+        // dialog — so it rides along in the row's data.
+        const canonical = cleanEmail(email);
+        const existing = await this.stores.share.listPendingByEmail(canonical);
         const already = existing.some(
             (row: { fsentry_id: number; issuer_user_id: number }) =>
                 Number(row.fsentry_id) === entry.id &&
@@ -1294,7 +1378,8 @@ export class ShareService extends PuterService {
         try {
             const { row, created } = await this.stores.share.upsertPending({
                 issuerUserId: issuerId,
-                recipientEmail: email,
+                recipientEmail: canonical,
+                displayEmail: email,
                 fsentryId: entry.id,
                 mode,
                 issuerAppUid: actor.app?.uid ?? null,
@@ -1394,8 +1479,13 @@ export class ShareService extends PuterService {
     > {
         const email = recipient?.email?.trim();
         const username = recipient?.username?.trim();
+        // `findEmailOwner`, not an exact match: `Bob@…` and `bob+x@…` are the
+        // same inbox, and resolving them to the account is what routes an
+        // alias through the same self/owner/blocked checks as the address
+        // itself — an exact match here turned any variant into an invite that
+        // skipped all three.
         const user = email
-            ? await this.stores.user.getByEmail(email)
+            ? await this.stores.user.findEmailOwner(email)
             : username
               ? await this.stores.user.getByUsername(username)
               : null;

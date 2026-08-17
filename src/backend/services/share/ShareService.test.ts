@@ -41,8 +41,11 @@ describe('ShareService', () => {
         const user = await server.stores.user.getByUsername(username);
         if (!user) throw new Error('test user missing');
         const email = `${username}@test.local`;
+        // clean_email too, as real signup writes it — canonical resolution
+        // (alias and case variants) rides on that column.
         await server.stores.user.update(user.id, {
             email,
+            clean_email: email,
             email_confirmed: true,
         });
         const fresh = await server.stores.user.getById(user.id, {
@@ -1990,6 +1993,261 @@ describe('ShareService', () => {
 
             expect(claimed).toEqual([]);
             expect(await canRead(claimer.actor, file.path)).toBe(false);
+            expect(await server.stores.share.listPendingByEmail(email)).toEqual(
+                [],
+            );
+        });
+    });
+
+    describe('email variants resolve to the inbox, not the string', () => {
+        it('shares to the account behind a case or alias variant', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            // `Bob@…` and `bob+x@…` are the recipient's inbox; treating them
+            // as strangers minted an unclaimable invite instead of a grant.
+            const variant = `${recipient.email.split('@')[0].toUpperCase()}+tag@test.local`;
+            const result = await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: variant },
+                mode: 'read',
+            });
+
+            expect(result.pending).toBeUndefined();
+            expect(result.holder.username).toBe(recipient.user.username);
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+        });
+
+        it('a blocked sender cannot reach their blocker through a variant', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            await server.services.share.blockSender(
+                recipient.actor,
+                owner.user.username,
+            );
+
+            // The variant resolves to the account, so the block applies —
+            // an exact-string lookup turned this into an invite that emailed
+            // the blocker on the sender's behalf.
+            const variant = `${recipient.email.split('@')[0]}+x@test.local`;
+            await expect(
+                share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { email: variant },
+                    mode: 'read',
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 403,
+                legacyCode: 'recipient_not_accepting_shares',
+            });
+            expect(
+                await server.stores.share.listPendingByEmail(recipient.email),
+            ).toEqual([]);
+        });
+
+        it('claims an invite whatever case the sharer typed it in', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const local = `cased-${Math.random().toString(36).slice(2, 8)}`;
+            const typed = `${local.toUpperCase()}@Test.Local`;
+            const confirmed = `${local}@test.local`;
+
+            const invited = await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: typed },
+                mode: 'read',
+            });
+            expect(invited.pending).toBe(true);
+            // The sharer sees what they typed, not the canonical form.
+            expect(invited.recipientEmail).toBe(typed);
+            const [listed] = await server.services.share.listSharesOf(
+                owner.actor,
+                { uid: file.uuid },
+            );
+            expect(listed.recipientEmail).toBe(typed);
+
+            const claimer = await makeUser();
+            await server.stores.user.update(claimer.user.id, {
+                email: confirmed,
+                clean_email: confirmed,
+            });
+            const claimed = await server.services.share.claimPendingShares(
+                claimer.user.id,
+                confirmed,
+            );
+
+            expect(claimed).toHaveLength(1);
+            expect(await canRead(claimer.actor, file.path)).toBe(true);
+        });
+
+        it('claims invites when the address arrives by other confirmed routes', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = `changed-${Math.random().toString(36).slice(2, 8)}@test.local`;
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            // The change-email flow confirms the new address without ever
+            // emitting `user.email-confirmed` — the invite has no other
+            // moment to become a grant.
+            const claimer = await makeUser();
+            await server.stores.user.update(claimer.user.id, {
+                email,
+                clean_email: email,
+            });
+            server.clients.event.emit(
+                'user.email-changed' as never,
+                { user_id: claimer.user.id, new_email: email } as never,
+                {},
+            );
+
+            const deadline = Date.now() + 5000;
+            while (Date.now() < deadline) {
+                if (await canRead(claimer.actor, file.path)) break;
+                await new Promise((resolve) => setTimeout(resolve, 25));
+            }
+            expect(await canRead(claimer.actor, file.path)).toBe(true);
+        });
+
+
+        it('claims invites when the address arrives via OIDC signup', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = `oidc-${Math.random().toString(36).slice(2, 8)}@test.local`;
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            // The provider's attestation is the confirmation; there is no
+            // code-entry step for this event to fire from later.
+            const fakeReq = {
+                ip: '127.0.0.1',
+                headers: {},
+                socket: { remoteAddress: '127.0.0.1' },
+            };
+            const outcome = await runWithContext({ req: fakeReq }, () =>
+                server.services.oidc.createUserFromOIDC('test-provider', {
+                    sub: `sub-${Math.random().toString(36).slice(2, 10)}`,
+                    email,
+                    email_verified: true,
+                }),
+            );
+            expect(outcome.success, outcome.error).toBe(true);
+
+            const created = outcome.user!;
+            const actor: Actor = {
+                user: created as Actor['user'],
+                effectiveApp: null,
+            };
+            const deadline = Date.now() + 5000;
+            while (Date.now() < deadline) {
+                if (await canRead(actor, file.path)) break;
+                await new Promise((resolve) => setTimeout(resolve, 25));
+            }
+            expect(await canRead(actor, file.path)).toBe(true);
+        });
+
+        it('refuses an address that cannot receive the invite', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const before = await server.stores.share.incrementDailyShareCount(
+                owner.user.id,
+                0,
+            );
+
+            // `a@b` must not become a permanent pending row that spent quota.
+            await expect(
+                share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { email: 'a@b' },
+                    mode: 'read',
+                }),
+            ).rejects.toMatchObject({
+                statusCode: 400,
+                legacyCode: 'email_not_allowed',
+            });
+
+            expect(await server.stores.share.listPendingByEmail('a@b')).toEqual(
+                [],
+            );
+            expect(
+                await server.stores.share.incrementDailyShareCount(
+                    owner.user.id,
+                    0,
+                ),
+            ).toBe(before);
+        });
+    });
+
+    describe('claiming is safe against races and duplicates', () => {
+        it('claims once when two confirmations race', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = `race-${Math.random().toString(36).slice(2, 8)}@test.local`;
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            const claimer = await makeUser();
+            await server.stores.user.update(claimer.user.id, {
+                email,
+                clean_email: email,
+            });
+
+            // The row is claimed before any grant is written, so whichever
+            // call loses the row has granted nothing it must take back.
+            const [a, b] = await Promise.all([
+                server.services.share.claimPendingShares(claimer.user.id, email),
+                server.services.share.claimPendingShares(claimer.user.id, email),
+            ]);
+
+            expect(a.length + b.length).toBe(1);
+            expect(await canRead(claimer.actor, file.path)).toBe(true);
+            expect(await server.stores.share.listPendingByEmail(email)).toEqual(
+                [],
+            );
+        });
+
+        it('clears a duplicate pending row instead of keeping a phantom invite', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = `dup-${Math.random().toString(36).slice(2, 8)}@test.local`;
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            // A duplicate that slipped past the in-code dedup (its unique
+            // index cannot cover NULL holders). Claiming makes it collide;
+            // it must be cleared, not retried forever.
+            const { v4: uuidv4 } = await import('uuid');
+            await server.clients.db.write(
+                'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, `fsentry_id`, `mode`, `data`) VALUES (?, ?, ?, ?, ?, ?)',
+                [uuidv4(), owner.user.id, email, file.id, 'read', '{}'],
+            );
+
+            const claimer = await makeUser();
+            await server.stores.user.update(claimer.user.id, {
+                email,
+                clean_email: email,
+            });
+            const claimed = await server.services.share.claimPendingShares(
+                claimer.user.id,
+                email,
+            );
+
+            expect(claimed).toHaveLength(1);
+            expect(await canRead(claimer.actor, file.path)).toBe(true);
             expect(await server.stores.share.listPendingByEmail(email)).toEqual(
                 [],
             );

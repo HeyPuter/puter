@@ -194,6 +194,32 @@ describe('ShareNotificationService', () => {
         expect(calls).toHaveLength(0);
     });
 
+
+    it('one recipient failing does not silence the rest', async () => {
+        const sender = actorFor(await makeUser());
+        const alice = await makeUser();
+        const bob = await makeUser();
+
+        const reached: number[] = [];
+        vi.spyOn(server.services.notification, 'notify').mockImplementation(
+            async (userIds: number[]) => {
+                if (userIds[0] === alice.id) {
+                    throw new Error('notification backend down for alice');
+                }
+                reached.push(userIds[0]);
+                return 'stub-uid';
+            },
+        );
+
+        await server.services.shareNotification.notifyShared(sender, [
+            shareTo(alice),
+            shareTo(bob),
+        ]);
+
+        // Alice's failure is hers alone — bob still hears about his share.
+        expect(reached).toContain(bob.id);
+    });
+
     it('interrupts a pair once per window, recording the rest silently', async () => {
         const sender = actorFor(await makeUser());
         const alice = await makeUser();
@@ -327,6 +353,76 @@ describe('ShareNotificationService budgets', () => {
             effectiveApp: null,
         }) as Actor;
 
+
+    /**
+     * User ids repeat across this file's two servers and ioredis-mock shares
+     * one keyspace per process, so budgets must start empty per test.
+     */
+    const forgetBudgets = async (holderId: number, senderIds: number[]) => {
+        const keys = [
+            `rate:share:notify:to:${holderId}`,
+            `rate:share:notify:to-day:${holderId}`,
+        ];
+        for (const senderId of senderIds) {
+            keys.push(
+                `rate:share:notify:pair:${senderId}:${holderId}`,
+                `rate:share:notify:pair-day:${senderId}:${holderId}`,
+            );
+        }
+        await server.clients.redis.del(...keys);
+    };
+
+    it('a recipient-level refusal does not spend the sender\'s day budget', async () => {
+        const holder = await makeUser();
+        const first = actorFor(await makeUser());
+        const second = actorFor(await makeUser());
+        vi.spyOn(server.services.notification, 'notify').mockResolvedValue(
+            'stub-uid',
+        );
+        await forgetBudgets(holder.id, [first.user.id, second.user.id]);
+
+        const shareFrom = (sender: Actor) =>
+            server.services.shareNotification.notifyShared(sender, [
+                {
+                    uid: 'u',
+                    mode: 'read',
+                    path: '/somewhere/file.txt',
+                    entryUid: 'e',
+                    isDir: false,
+                    issuer: { username: sender.user.username },
+                    holder: { username: holder.username },
+                    holderId: holder.id,
+                    isNew: true,
+                    createdAt: null,
+                    modified: 0,
+                    size: null,
+                } as ResolvedShare,
+            ]);
+
+        // First sender saturates the recipient (recipientHourly is 2 here,
+        // minus what other tests spent — drain it deterministically).
+        await shareFrom(first);
+        await shareFrom(actorFor(await makeUser()));
+        // Second sender's first-ever contact lands on a saturated recipient.
+        await shareFrom(second);
+
+        // Refused by the recipient's ceiling — but the sender's day-scale
+        // budget must not have paid for an interruption that never happened,
+        // or twenty such refusals mute their first real contact all day.
+        const secondId = second.user.id;
+        const pairDay = await server.clients.redis.zcard(
+            `rate:share:notify:pair-day:${secondId}:${holder.id}`,
+        );
+        expect(pairDay).toBe(0);
+        // The pair window did record — it is checked first, and what it burns
+        // expires in minutes.
+        const pairWindow = await server.clients.redis.zcard(
+            `rate:share:notify:pair:${secondId}:${holder.id}`,
+        );
+        expect(pairWindow).toBe(1);
+        vi.restoreAllMocks();
+    });
+
     it('stops interrupting a recipient once their own budget is spent, whoever is sharing', async () => {
         const holder = await makeUser();
         const senders = [
@@ -334,6 +430,10 @@ describe('ShareNotificationService budgets', () => {
             actorFor(await makeUser()),
             actorFor(await makeUser()),
         ];
+        await forgetBudgets(
+            holder.id,
+            senders.map((sender) => sender.user.id as number),
+        );
         const silent: boolean[] = [];
         vi.spyOn(server.services.notification, 'notify').mockImplementation(
             async (

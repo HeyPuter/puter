@@ -243,7 +243,9 @@ describe('share email', () => {
         // account on any other address will not find the share.
         expect(mail.html).toContain(invitee);
         expect(mail.html).toContain('Create your account');
-        expect(mail.html).toContain(new URL(env.origin).hostname);
+        // The full origin, port included — a rebuilt protocol://domain link
+        // is dead on any self-host that doesn't run on the default port.
+        expect(mail.html).toContain(`href="${env.origin}"`);
 
         // Nobody else hears about it — least of all the sender.
         await sleep(SETTLE_MS);
@@ -306,6 +308,7 @@ describe('share email', () => {
         );
         expect(mail.html).toContain(first.name);
         expect(mail.html).toContain('Open it on Puter');
+        expect(mail.html).toContain(`href="${env.origin}"`);
         expect(mail.html).toContain(recipient.username);
 
         // A second share to the same pair inside the window is one more thing to
