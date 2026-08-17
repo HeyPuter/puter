@@ -64,7 +64,7 @@ describe('share endpoints over HTTP', () => {
             'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, 0, ?)',
             [uid, name, path, user!.id, Math.floor(Date.now() / 1000)],
         );
-        return { uid, path };
+        return { uid, path, name };
     };
 
     it('shares an item, lists it for the recipient, then revokes it', async () => {
@@ -80,10 +80,11 @@ describe('share endpoints over HTTP', () => {
         expect(shareRes.status).toBe(200);
         const shareBody = (await shareRes.json()) as {
             status: string;
-            results: Array<{ status: string; mode?: string }>;
+            results: Array<{ status: string; mode?: string; name?: string }>;
         };
         expect(shareBody.status).toBe('success');
         expect(shareBody.results[0].mode).toBe('read');
+        expect(shareBody.results[0].name).toBe(file.name);
 
         const listRes = await get(
             '/share/shared-with-me',

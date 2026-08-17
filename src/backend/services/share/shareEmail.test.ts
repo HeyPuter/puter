@@ -235,8 +235,10 @@ describe('share email', () => {
         });
 
         const mail = await waitForMail({ to: invitee });
-        expect(mail.subject).toContain(`${owner.username} shared`);
-        expect(mail.subject).toContain('on Puter');
+        expect(mail.subject).toBe(
+            `${owner.username} shared ${file.name} with you on Puter`,
+        );
+        expect(mail.html).toContain(file.name);
         // The address is in the body because it is the one to sign up with: an
         // account on any other address will not find the share.
         expect(mail.html).toContain(invitee);
@@ -299,8 +301,10 @@ describe('share email', () => {
         await shareWith(owner, recipient.email, [{ uid: first.uid }]);
 
         const mail = await waitForMail({ to: recipient.email });
-        expect(mail.subject).toContain(`${owner.username} shared`);
-        expect(mail.subject).toContain('with you');
+        expect(mail.subject).toBe(
+            `${owner.username} shared ${first.name} with you`,
+        );
+        expect(mail.html).toContain(first.name);
         expect(mail.html).toContain('Open it on Puter');
         expect(mail.html).toContain(recipient.username);
 

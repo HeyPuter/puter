@@ -35,6 +35,8 @@ export default suite('sharing', {
         t.assert.equal(shares.length, 1);
         t.assert.equal(shares[0].mode, 'read');
         t.assert.equal(shares[0].holder, t.env.users.other.username);
+        // The path a recipient sees is masked, so the name is what labels it.
+        t.assert.equal(shares[0].name, path.split('/').pop());
 
         const after = await readAsOther(t, path);
         t.assert.equal(after.status, 200);

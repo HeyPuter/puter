@@ -139,6 +139,7 @@ describe('ShareService', () => {
 
         expect(result.mode).toBe('read');
         expect(result.path).toBe(file.path);
+        expect(result.name).toBe(file.name);
         expect(await canRead(recipient.actor, file.path)).toBe(true);
 
         const listed = await server.services.share.listSharedWithMe(

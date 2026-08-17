@@ -58,8 +58,10 @@ export interface ResolvedShare {
     mode: string;
     path: string;
     /**
-     * The entry's own name, content type and thumbnail. A share listing has no
-     * fsentry behind it for the client to stat for them.
+     * The entry's own name, content type and thumbnail. A share has no fsentry
+     * behind it for the client to stat for them, and the masked path hides
+     * which folder it sits in. `type` and `thumbnail` come with a listing
+     * only.
      */
     name?: string;
     type?: string | null;
@@ -1319,6 +1321,7 @@ export class ShareService extends PuterService {
             uid: row.uid,
             mode: row.mode,
             path: maskEntryPath(entry),
+            name: entry.name,
             entryUid: entry.uuid,
             isDir: Boolean(entry.isDir),
             issuer: { username: issuer.user.username ?? null },

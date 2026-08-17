@@ -59,6 +59,7 @@ A `Promise` that resolves to an array of share objects, one per recipient/item p
 - `uid` (String) - Identifier for this share.
 - `mode` (String) - Access the recipient now has.
 - `path` (String) - Path of the shared item, masked when you do not own it (see [`listShared()`](/FS/listShared/)).
+- `name` (String) - Name of the shared item. The masked path hides the folder it sits in, so this is what to label it with.
 - `entryUid` (String) - UID of the shared item.
 - `isDir` (Boolean) - Whether the shared item is a directory.
 - `issuer` (String) - Username of whoever granted the share.

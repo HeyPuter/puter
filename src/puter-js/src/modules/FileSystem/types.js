@@ -294,7 +294,8 @@
  * @property {string} path Path of the shared item.
  * @property {string} entryUid UID of the shared item.
  * @property {boolean} isDir Whether the shared item is a directory.
- * @property {string | null} name The item's name. Only set by `listShared()`.
+ * @property {string | null} name The item's name. Not set by `getShares()`,
+ * which describes access to an item the caller already named.
  * @property {string | null} type The item's content type, or `'folder'`. Only
  * set by `listShared()`.
  * @property {string | null} thumbnail URL of the item's thumbnail, if it has
