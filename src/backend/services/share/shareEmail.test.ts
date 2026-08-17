@@ -377,6 +377,52 @@ describe('share email', () => {
     });
 
 
+
+    it('counts every file when they are shared one call at a time', async () => {
+        const owner = env.users.user;
+        const recipient = await signUpAndConfirm(uninvitedAddress());
+        sent = [];
+
+        // Four separate calls, as the dialog makes them: only the first may
+        // interrupt, but all four must reach the digest.
+        const files = [];
+        for (const label of ['one', 'two', 'three', 'four']) {
+            const file = await makeFile(owner, label);
+            files.push(file);
+            await shareWith(owner, recipient.email, [{ uid: file.uid }]);
+        }
+
+        const mail = await waitForMail({ to: recipient.email });
+        await sleep(SETTLE_MS);
+        expect(mailTo(recipient.email)).toHaveLength(1);
+        expect(mail.subject).toBe(
+            `${owner.username} shared 4 items with you`,
+        );
+        expect(mail.html).toContain('4 items');
+        expect(mail.html).toContain(files[0].name);
+        expect(mail.html).toContain('+1 more');
+    });
+
+    it('names several files shared in one call', async () => {
+        const sender = env.users.admin;
+        const recipient = await signUpAndConfirm(uninvitedAddress());
+        sent = [];
+
+        const files = [];
+        for (const label of ['multi-a', 'multi-b']) {
+            files.push(await makeFile(sender, label));
+        }
+        await shareWith(
+            sender,
+            recipient.email,
+            files.map((file) => ({ uid: file.uid })),
+        );
+
+        const mail = await waitForMail({ to: recipient.email });
+        // Both names, not just whichever happened to be last.
+        for (const file of files) expect(mail.html).toContain(file.name);
+    });
+
     it('honors an account-wide unsubscribe, and offers the link to those who have not', async () => {
         const owner = env.users.user;
         const recipient = await signUpAndConfirm(uninvitedAddress());

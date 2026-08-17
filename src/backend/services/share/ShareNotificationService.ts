@@ -66,6 +66,9 @@ const DIGEST_LOCK_SECONDS = 30;
 // timer leaves entries behind, and mail this stale is noise rather than news.
 const DIGEST_ENTRY_TTL_SECONDS = 24 * 60 * 60;
 
+/** Names carried per sender; the wording counts the rest. */
+const DIGEST_NAMES_PER_SENDER = 5;
+
 /** How far back to look for the notification a new share folds into. */
 const OPEN_NOTIFICATION_SCAN = 20;
 
@@ -217,13 +220,19 @@ export class ShareNotificationService extends PuterService {
         if (typeof issuerId !== 'number') return;
 
         const counts = new Map<number, number>();
-        const named = new Map<number, string>();
+        const named = new Map<number, string[]>();
         for (const share of shares) {
             if (share.pending) continue;
             if (!share.isNew || !share.holderId) continue;
             if (share.holderId === issuerId) continue;
             counts.set(share.holderId, (counts.get(share.holderId) ?? 0) + 1);
-            if (share.name) named.set(share.holderId, share.name);
+            if (share.name) {
+                const names = named.get(share.holderId) ?? [];
+                if (names.length < DIGEST_NAMES_PER_SENDER) {
+                    names.push(share.name);
+                }
+                named.set(share.holderId, names);
+            }
         }
 
         // Each recipient fails alone: one refused send must not cost the next
@@ -236,18 +245,12 @@ export class ShareNotificationService extends PuterService {
                         holderId,
                     );
                     await this.#announce(holderId, issuer, count, interrupt);
-                    if (!interrupt) {
-                        skipped('interruption budget spent', {
-                            issuerId,
-                            holderId,
-                        });
-                        return;
-                    }
                     await this.#emailHolder(
                         holderId,
                         issuer,
                         count,
-                        named.get(holderId),
+                        named.get(holderId) ?? [],
+                        interrupt,
                     );
                 } catch (err) {
                     console.warn(
@@ -472,7 +475,8 @@ export class ShareNotificationService extends PuterService {
         holderId: number,
         issuer: string | undefined,
         count: number,
-        itemName: string | undefined,
+        itemNames: string[],
+        mayOpen: boolean,
     ): Promise<void> {
         // Explicitly false, not falsy: unset means on.
         if (this.config.share_email_notifications === false) {
@@ -514,7 +518,8 @@ export class ShareNotificationService extends PuterService {
             },
             issuer,
             count,
-            itemName ? [itemName] : [],
+            itemNames,
+            mayOpen,
         );
     }
 
@@ -532,7 +537,15 @@ export class ShareNotificationService extends PuterService {
         sender: string | undefined,
         count: number,
         names: string[],
+        mayOpen: boolean,
     ): Promise<void> {
+        // A digest is one email, so the budget is spent opening one, not per
+        // share — anything arriving while one collects joins it for free.
+        if (!mayOpen && !(await this.#digestIsOpen(key))) {
+            skipped('interruption budget spent, no digest open', { key });
+            return;
+        }
+
         const record: DigestEntryRecord = {
             ...seed,
             sender,
@@ -566,6 +579,28 @@ export class ShareNotificationService extends PuterService {
             this.#digestTimers.set(key, timer);
         } else {
             await this.#flushDigest(key);
+        }
+    }
+
+    /**
+     * Whether a digest is already collecting for this recipient. Falls back to
+     * KV, since another node or region may have opened it.
+     */
+    async #digestIsOpen(key: string): Promise<boolean> {
+        if (this.#digestTimers.has(key)) return true;
+        try {
+            const { res } = await this.stores.kv.list({
+                as: 'keys',
+                pattern: `share:digest:${key}:`,
+                limit: 1,
+            });
+            const listed = Array.isArray(res)
+                ? res
+                : ((res as { items?: unknown[] })?.items ?? []);
+            return listed.length > 0;
+        } catch {
+            // Fail closed: a broken read must not become unlimited joins.
+            return false;
         }
     }
 
@@ -723,20 +758,25 @@ export class ShareNotificationService extends PuterService {
         const issuerId = actor.user?.id;
         if (typeof issuerId !== 'number') return;
 
-        const byEmail = new Map<string, { count: number; name?: string }>();
+        const byEmail = new Map<string, { count: number; names: string[] }>();
         for (const share of shares) {
             if (!share.pending || !share.isNew || !share.recipientEmail) {
                 continue;
             }
-            const seen = byEmail.get(share.recipientEmail) ?? { count: 0 };
+            const seen = byEmail.get(share.recipientEmail) ?? {
+                count: 0,
+                names: [],
+            };
             seen.count += 1;
-            seen.name ??= share.name;
+            if (share.name && seen.names.length < DIGEST_NAMES_PER_SENDER) {
+                seen.names.push(share.name);
+            }
             byEmail.set(share.recipientEmail, seen);
         }
         if (byEmail.size === 0) return;
 
         const issuer = actor.user?.username;
-        for (const [to, { count, name }] of byEmail) {
+        for (const [to, { count, names }] of byEmail) {
             // Each address fails alone — one refused send must not cost the
             // next invitee their only channel.
             try {
@@ -744,16 +784,14 @@ export class ShareNotificationService extends PuterService {
                     skipped('invite address refused by validate', { to });
                     continue;
                 }
-                if (!(await this.#claimInviteEmail(issuerId, to))) {
-                    skipped('invite budget spent', { issuerId, to });
-                    continue;
-                }
+                const mayOpen = await this.#claimInviteEmail(issuerId, to);
                 await this.#queueDigest(
                     `invite:${to}`,
                     { kind: 'invite', to },
                     issuer,
                     count,
-                    name ? [name] : [],
+                    names,
+                    mayOpen,
                 );
             } catch (err) {
                 console.warn('[share-notify] invite email failed:', err);
