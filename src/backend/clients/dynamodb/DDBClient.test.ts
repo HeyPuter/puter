@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import { createServer, type Server } from 'node:http';
@@ -301,6 +302,35 @@ describe('DDBClient — batch writes', () => {
 
         const stored = await client.query(TABLE, { pk: 'bulk' });
         expect(stored.Items).toHaveLength(60);
+    });
+
+    it('reports no consumed capacity for an empty delete batch', async () => {
+        await expect(client.batchDel([])).resolves.toEqual({
+            ConsumedCapacity: [],
+        });
+    });
+
+    it('batch-deletes across chunks, leaving unrelated items alone', async () => {
+        const items = Array.from({ length: 30 }, (_, index) => ({
+            table: TABLE,
+            item: { pk: 'bulk-del', sk: `item-${index}`, index },
+        }));
+        await client.batchPut(items);
+
+        // Delete all but the last item — 29 keys still exercises chunking
+        // paths shared with batchPut while proving deletion is targeted.
+        const result = await client.batchDel(
+            items.slice(0, -1).map(({ table, item }) => ({
+                table,
+                key: { pk: item.pk, sk: item.sk },
+            })),
+        );
+
+        expect(result.ConsumedCapacity).toHaveLength(1);
+        expect(result.ConsumedCapacity[0].TableName).toBe(TABLE);
+
+        const stored = await client.query(TABLE, { pk: 'bulk-del' });
+        expect(stored.Items?.map((item) => item.sk)).toEqual(['item-29']);
     });
 });
 
