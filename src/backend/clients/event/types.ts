@@ -290,7 +290,17 @@ export type EventMap = {
         sourceObjectKey: string;
         copyObjectKey: string;
     };
-    'fs.move.node': { node: FSEntry; fromPath: string; toPath: string };
+    /**
+     * `fromUserId` is the owner the node had before the move. A move into
+     * someone else's tree re-owns the row, and `node` already carries the new
+     * owner — listeners that care about the hand-over need the old one.
+     */
+    'fs.move.node': {
+        node: FSEntry;
+        fromPath: string;
+        toPath: string;
+        fromUserId?: number;
+    };
     'fs.remove.node': { node: FSEntry; entry: FSEntry; target: FSEntry };
     'fs.write.file': { node: FSEntry; entry: FSEntry; target: FSEntry };
     'fs.storage.upload-progress': {
@@ -343,6 +353,21 @@ export type EventMap = {
         cacheKey: string[];
         data?: unknown;
         ttlSeconds?: number;
+    };
+    /**
+     * Permission cache generations were bumped, so peer regions must bump their
+     * own — the counter is per-cluster, so a local bump says nothing to them.
+     * Carries the actors, not the values: the numbers only have to change.
+     */
+    'outer.permission.generationBumped': { actorUids: string[] };
+    /**
+     * Flat permission entries were deleted. Grant-path flat entries carry no
+     * expiry, so without this a revoke never lands in a peer region whose KV
+     * table isn't replicated. Revoke-only: a grant that fails to replicate just
+     * denies there, which is the safe direction.
+     */
+    'outer.permission.flatInvalidated': {
+        entries: Array<{ holderUserId: number; permission: string }>;
     };
     'outer.fs.write-hash': { hash: string; uuid: string };
     /**
@@ -542,10 +567,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;

@@ -20,6 +20,8 @@
 import path from '../lib/path.js';
 import UIItem from '../UI/UIItem.js';
 import item_icon from './item_icon.js';
+import list_all_shared from './list_all_shared.js';
+import { remember_shared_roots } from './shared_access.js';
 
 const refresh_item_container = function (el_item_container, options) {
     // start a transaction
@@ -73,7 +75,19 @@ const refresh_item_container = function (el_item_container, options) {
     // --------------------------------------------------------
     // Folder's configs and properties
     // --------------------------------------------------------
-    puter.fs.stat({ path: container_path, consistency: options.consistency ?? 'eventual' }).then(fsentry => {
+    // The Shared view is a query, not a directory — there is no fsentry to
+    // stat, and its entries live under their owners' paths.
+    const is_shared_view = container_path === window.shared_path;
+
+    if ( is_shared_view && el_window ) {
+        $(el_window).attr('data-uid', 'null');
+        $(el_window).find('.window-head-title').text(i18n('shared_with_me'));
+        if ( el_window_head_icon ) {
+            $(el_window_head_icon).attr('src', window.icons['shared.svg']);
+        }
+    }
+
+    if ( !is_shared_view ) puter.fs.stat({ path: container_path, consistency: options.consistency ?? 'eventual' }).then(fsentry => {
         if ( el_window ) {
             $(el_window).attr('data-uid', fsentry.id);
             $(el_window).attr('data-sort_by', fsentry.sort_by ?? 'name');
@@ -114,7 +128,32 @@ const refresh_item_container = function (el_item_container, options) {
     $(el_item_container).find('.item').removeItems();
 
     // get items with subdomains/workers included to avoid per-item stat calls
-    puter.fs.readdir({ path: container_path, consistency: options.consistency ?? 'eventual' }).then(async (fsentries) => {
+    const entries_promise = is_shared_view
+        ? list_all_shared().then((shares) => {
+            remember_shared_roots(shares);
+            return shares;
+        }).then((shares) => shares.map((share) => ({
+            uid: share.entryUid,
+            // Share paths are masked (`/owner/uuid/name`), so prefer the name
+            // the share row carries over parsing it off the path.
+            name: share.name ?? path.basename(share.path),
+            path: share.path,
+            is_dir: share.isDir,
+            type: share.type,
+            thumbnail: share.thumbnail,
+            modified: share.modified,
+            size: share.size,
+            // Carried so the context menu can offer "remove from shared"
+            // rather than a delete the backend would refuse.
+            shared_with_me: true,
+            share_mode: share.mode,
+            shared_by: share.issuer,
+            owner: share.owner,
+            metadata: '',
+        })))
+        : puter.fs.readdir({ path: container_path, consistency: options.consistency ?? 'eventual' });
+
+    entries_promise.then(async (fsentries) => {
         // Check if the same folder is still loading since el_item_container's
         // data-path might have changed by other operations while waiting for the response to this `readdir`.
         if ( $(el_item_container).attr('data-path') !== container_path )
@@ -212,6 +251,10 @@ const refresh_item_container = function (el_item_container, options) {
                             disabled: is_disabled,
                             visible: visible,
                             position: position,
+                            shared_with_me: fsentry.shared_with_me,
+                            share_mode: fsentry.share_mode,
+                            shared_by: fsentry.shared_by,
+                            owner: fsentry.owner?.username ?? fsentry.owner,
                         });
                     }
                 }

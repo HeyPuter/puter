@@ -825,6 +825,21 @@ interface IConfigOptional {
     /** When true, ACL grants read/list/see on `/<user>/Public` to any actor. */
     enable_public_folders: boolean;
 
+    /**
+     * Ceiling on how many shares one user may create per UTC day. An abuse
+     * bound, not an accounting one — it exists so a script can't blanket other
+     * accounts with unwanted items and the notifications that follow. Omit to
+     * use the built-in default.
+     */
+    share_daily_limit?: number;
+
+    /**
+     * Ceiling on recipients, and on items, in a single share request. Bounds
+     * the fan-out one call can trigger; the daily limit bounds the total.
+     */
+    share_max_recipients?: number;
+    share_max_items?: number;
+
     // -- Storage / S3 ------------------------------------------------
 
     /** S3 storage config (local fauxqs or remote). */

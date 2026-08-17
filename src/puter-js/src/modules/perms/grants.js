@@ -7,6 +7,10 @@ import { req } from './lib/req.js';
 
 /**
  * Grants a permission to another user.
+ *
+ * @deprecated Retired server-side — the endpoint now returns 501. Share files
+ * with {@link https://docs.puter.com/FS/share/ puter.fs.share()} instead, which
+ * records the share so it can be listed and revoked.
  * @this {PermsModule}
  * @param {string} username
  * @param {string} permission

@@ -196,3 +196,20 @@ export function joinChildPath(parentPath: string, name: string): string {
     const parent = normalizeAbsolutePath(parentPath);
     return parent === '/' ? `/${name}` : `${parent}/${name}`;
 }
+
+/**
+ * The top-level Trash of `entry`'s own owner. Moving there is how an entry gets
+ * deleted, so it goes by rights over the entry — a share recipient deleting
+ * inside a shared folder has no access to the owner's Trash.
+ */
+export function isOwnersTrash(
+    entry: { userId: number },
+    destination: { userId: number; isDir: boolean; name: string; path: string },
+): boolean {
+    return (
+        destination.userId === entry.userId &&
+        destination.isDir &&
+        destination.name === 'Trash' &&
+        pathPosix.dirname(pathPosix.dirname(destination.path)) === '/'
+    );
+}

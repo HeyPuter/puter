@@ -6537,3 +6537,123 @@ html.dark-mode .usage-table-show-less:hover {
         background: #1e1e22;
     }
 }
+
+/**
+ * Share dialog
+ */
+.share-dialog {
+    padding: 20px;
+}
+
+.share-dialog-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 15px;
+}
+
+.share-dialog .share-recipient {
+    flex: 1;
+}
+
+.share-dialog .share-mode {
+    width: 130px;
+    flex: none;
+}
+
+.share-dialog-heading {
+    font-size: 13px;
+    font-weight: 500;
+    color: #5f6b7a;
+    margin: 24px 0 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.share-dialog-empty {
+    font-size: 13px;
+    color: #7f8b99;
+    margin: 0;
+    padding: 6px 0;
+}
+
+.share-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 0;
+    border-top: 1px solid #eef1f4;
+    font-size: 14px;
+}
+
+.share-row:first-child {
+    border-top: none;
+}
+
+.share-row-who {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.share-row-mode {
+    color: #7f8b99;
+    font-size: 12px;
+    margin-left: auto;
+    flex: none;
+}
+
+.share-dialog .share-row-mode-select {
+    width: auto;
+    min-width: 110px;
+    margin-left: auto;
+    flex: none;
+    padding: 4px 6px;
+    font-size: 13px;
+}
+
+.share-row-inherited {
+    color: #7f8b99;
+}
+
+.share-row-via {
+    font-size: 12px;
+    color: #9aa5b1;
+    flex: none;
+}
+
+.share-row-inherited .share-row-mode {
+    margin-left: 0;
+}
+
+.share-dialog .share-revoke {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    flex: none;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: #6b7785;
+    cursor: pointer;
+}
+
+.share-dialog .share-revoke:hover:not(:disabled) {
+    background-color: #eceff2;
+    color: #d1242f;
+}
+
+.share-dialog .share-revoke:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.share-row-owner {
+    color: #7f8b99;
+    font-size: 12px;
+    flex: none;
+    padding-right: 4px;
+}

@@ -24,6 +24,7 @@ import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequir
 import UIContextMenu from './UIContextMenu.js';
 import UIAlert from './UIAlert.js';
 import UIWindowPublishWorker from './UIWindowPublishWorker.js';
+import UIWindowShare from './UIWindowShare.js';
 import path from '../lib/path.js';
 import truncate_filename from '../helpers/truncate_filename.js';
 import launch_app from '../helpers/launch_app.js';
@@ -31,6 +32,8 @@ import open_item from '../helpers/open_item.js';
 import publish_as_website from '../helpers/publish_as_website.js';
 import mime from '../lib/mime.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js';
+import { is_owned_by_me } from '../helpers/path_owner.js';
+import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from '../helpers/shared_access.js';
 
 const AI_APP_NAME = 'ai';
 
@@ -129,6 +132,10 @@ async function UIItem (options) {
     options.is_selected = options.is_selected ?? false;
     options.is_shortcut = options.is_shortcut ?? 0;
     options.is_trash = options.is_trash ?? false;
+    options.shared_with_me = options.shared_with_me ?? false;
+    options.share_mode = options.share_mode ?? '';
+    options.shared_by = options.shared_by ?? '';
+    options.owner = options.owner ?? '';
     options.metadata = options.metadata ?? '';
     options.multiselectable = (options.multiselectable === undefined || options.multiselectable === true) ? true : false;
     options.shortcut_to = options.shortcut_to ?? '';
@@ -161,6 +168,10 @@ async function UIItem (options) {
                 data-uid="${options.uid}" 
                 data-is_dir="${options.is_dir ? 1 : 0}" 
                 data-is_trash="${options.is_trash ? 1 : 0}"
+                data-shared_with_me="${options.shared_with_me ? 1 : 0}"
+                data-share_mode="${html_encode(options.share_mode)}"
+                data-shared_by="${html_encode(options.shared_by)}"
+                data-owner="${html_encode(options.owner)}"
                 data-has_website="${show_website_badge ? 1 : 0 }" 
                 data-website_url = "${website_url ? html_encode(website_url) : ''}"
                 data-immutable="${options.immutable}" 
@@ -1134,6 +1145,26 @@ async function UIItem (options) {
         // -------------------------------------------------------
         else {
             const is_trash = $(el_item).attr('data-path') === window.trash_path || $(el_item).attr('data-shortcut_to_path') === window.trash_path;
+            // Has its own share, so it is a row the Shared view listed.
+            const is_shared_root = $(el_item).attr('data-shared_with_me') === '1';
+            // Someone else's, however we got here — including items reached by
+            // opening a shared folder, which carry no share markers.
+            const is_not_mine = !is_owned_by_me($(el_item).attr('data-path'));
+            // `manage` inherits downwards, so a file inside a folder you manage
+            // counts too — the row itself only carries a mode at a shared root.
+            const can_manage_share =
+                $(el_item).attr('data-share_mode') === 'manage'
+                || (await shared_mode_for($(el_item).attr('data-path'))) === 'manage';
+            // Moving and deleting go by the holding folder, not by the item.
+            const may_restructure = !is_not_mine
+                || await can_restructure($(el_item).attr('data-path'));
+            // A shared FILE you hold write on is renameable even though it
+            // can't be moved; a shared folder root is not.
+            const may_rename = !is_not_mine
+                || await can_rename(
+                    $(el_item).attr('data-path'),
+                    ['1', 'true'].includes($(el_item).attr('data-is_dir')),
+                );
             const is_shortcut = !! $(el_item).attr('data-shortcut_to_path');
             const is_weblink = isWeblinkName($(el_item).attr('data-name'));
             menu_items = [];
@@ -1555,9 +1586,48 @@ async function UIItem (options) {
                 menu_items.push(weblinkChangeIconMenuItem(el_item));
             }
             // -------------------------------------------
+            // Share
+            // -------------------------------------------
+            if ( !is_trash && !is_trashed && (!is_not_mine || can_manage_share) ) {
+                menu_items.push({
+                    html: i18n('share_ellipsis'),
+                    onClick: async function () {
+                        UIWindowShare({
+                            path: $(el_item).attr('data-path'),
+                            name: $(el_item).attr('data-name'),
+                        });
+                    },
+                });
+            }
+            // -------------------------------------------
+            // Remove from Shared
+            // -------------------------------------------
+            // Someone else owns this, so deleting it would move their file into
+            // our trash — which the backend refuses. Give up our own access
+            // instead, which is what "remove it from my view" actually means.
+            if ( is_shared_root ) {
+                menu_items.push({
+                    html: i18n('share_remove_from_shared'),
+                    onClick: async function () {
+                        try {
+                            await puter.fs.unshare(
+                                $(el_item).attr('data-path'),
+                                window.user.username,
+                            );
+                            // Or mode lookups keep answering for a share we
+                            // just walked away from.
+                            invalidate_shared_roots();
+                            $(el_item).removeItems();
+                        } catch (e) {
+                            UIAlert({ message: e?.message ?? i18n('error_unknown_cause') });
+                        }
+                    },
+                });
+            }
+            // -------------------------------------------
             // Delete
             // -------------------------------------------
-            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed ) {
+            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && may_restructure ) {
                 menu_items.push({
                     html: i18n('delete'),
                     onClick: async function () {
@@ -1597,7 +1667,7 @@ async function UIItem (options) {
             // -------------------------------------------
             // Rename
             // -------------------------------------------
-            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_trash ) {
+            if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_trash && may_rename ) {
                 menu_items.push({
                     html: i18n('rename'),
                     onClick: function () {
@@ -1856,7 +1926,7 @@ $.fn.removeItems = async function (options) {
     return this;
 };
 
-window.activate_item_name_editor = function (el_item) {
+window.activate_item_name_editor = async function (el_item) {
     // files in trash cannot be renamed, the user should be notified with an Alert.
     if ( $(el_item).attr('data-immutable') !== '0' ) {
         return;
@@ -1864,6 +1934,15 @@ window.activate_item_name_editor = function (el_item) {
     // files in trash cannot be renamed, user should be notified with an Alert.
     else if ( path.dirname($(el_item).attr('data-path')) === window.trash_path ) {
         UIAlert(i18n('items_in_trash_cannot_be_renamed'));
+        return;
+    }
+    // Someone else's item is renameable only with write on it (files, not
+    // shared folder roots) — this also covers the click-to-edit and keyboard
+    // paths, not just the context menu.
+    else if ( ! await can_rename(
+        $(el_item).attr('data-path'),
+        ['1', 'true'].includes($(el_item).attr('data-is_dir')),
+    ) ) {
         return;
     }
 

@@ -16,39 +16,36 @@ const readAsOther = (t: TestContext, path: string) =>
     );
 
 export default suite('perms', {
-    'grantUser lets another user read a file': async (t) => {
-        const path = `${home(t)}/perms-suite-shared.txt`;
-        await t.puter.fs.write(path, 'shared content');
-
-        const before = await readAsOther(t, path);
-        t.assert.ok(
-            before.status !== 200,
-            `other user should not read before grant (got ${before.status})`,
-        );
-
-        const granted = await t.puter.perms.grantUser(
+    'grantUser is retired in favour of fs.share': async (t) => {
+        // Direct user-to-user grants left no share row, so the owner could
+        // neither see nor revoke them. Cross-user access is covered end to end
+        // by the sharing suite.
+        const res = await t.puter.perms.grantUser(
             t.env.users.other.username,
-            `fs:${path}:read`,
+            `fs:${home(t)}/perms-suite-shared.txt:read`,
         );
-        t.assert.ok(!granted.error, `grant failed: ${JSON.stringify(granted)}`);
-
-        const after = await readAsOther(t, path);
-        t.assert.equal(after.status, 200);
-        t.assert.equal(await after.text(), 'shared content');
+        t.assert.ok(res.error, 'grantUser should be refused');
+        t.assert.equal(res.code, 'not_implemented');
     },
 
-    'revokeUser takes a granted permission away': async (t) => {
+    'revokeUser takes a shared permission away': async (t) => {
+        // Revoking still works: it is how access granted before `grantUser`
+        // was retired, or through a share, gets taken back at the permission
+        // layer.
         const path = `${home(t)}/perms-suite-revoked.txt`;
         await t.puter.fs.write(path, 'soon private again');
-        const permission = `fs:${path}:read`;
 
-        await t.puter.perms.grantUser(t.env.users.other.username, permission);
+        await t.puter.fs.share({
+            path,
+            recipient: t.env.users.other.username,
+            mode: 'read',
+        });
         const whileGranted = await readAsOther(t, path);
         t.assert.equal(whileGranted.status, 200);
 
         const revoked = await t.puter.perms.revokeUser(
             t.env.users.other.username,
-            permission,
+            `fs:${path}:read`,
         );
         t.assert.ok(!revoked.error, `revoke failed: ${JSON.stringify(revoked)}`);
 
@@ -57,14 +54,6 @@ export default suite('perms', {
             afterRevoke.status !== 200,
             `read should fail after revoke (got ${afterRevoke.status})`,
         );
-    },
-
-    'grantUser to an unknown user reports an error': async (t) => {
-        const res = await t.puter.perms.grantUser(
-            'perms-suite-no-such-user',
-            `fs:${home(t)}/whatever.txt:read`,
-        );
-        t.assert.ok(res.error, 'granting to an unknown user should error');
     },
 
     'createGroup returns a group uid': async (t) => {
@@ -202,15 +191,6 @@ export default suite('perms', {
         t.assert.ok(!granted.error, `grant failed: ${JSON.stringify(granted)}`);
         const revoked = await t.puter.perms.revokeAppAnyUser(app.uid, permission);
         t.assert.ok(!revoked.error, `revoke failed: ${JSON.stringify(revoked)}`);
-    },
-
-    'granting a permission on a path that does not exist is refused': async (t) => {
-        const result = await t.puter.perms.grantUser(
-            t.env.users.other.username,
-            `fs:${home(t)}/perms-suite-never-created.txt:read`,
-        );
-        t.assert.ok(result.error, 'granting on a missing entry should error');
-        t.assert.equal(result.code, 'subject_does_not_exist');
     },
 
     // -- Groups --

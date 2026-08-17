@@ -20,19 +20,18 @@
 import type { Actor } from '../../core/actor.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { FSEntryStore } from '../../stores/fs/FSEntryStore.js';
-import type { PermissionService } from '../permission/PermissionService.js';
 
 /**
  * Synthesize the listing for the virtual root `/`. There is no fsentry row at
- * `/` — instead root is a virtual aggregate of user-directory entries the actor
- * can see: the actor's own home plus any other users' homes granted via
- * permission issuers (i.e. users that have shared something with this actor).
- * Mirrors v1's `LLListUsers`.
+ * `/` — root stands in for the actor's own home.
+ *
+ * Issuer homes are deliberately absent: a grant on a file says nothing about
+ * its ancestors, so listing them advertised folders `readdir` then refused to
+ * open. Shares are reached through the sharing API instead.
  */
 export async function listRootEntries(
     actor: Actor,
     fsEntryStore: FSEntryStore,
-    permissionService: PermissionService,
 ): Promise<FSEntry[]> {
     const entries: FSEntry[] = [];
     const seenPaths = new Set<string>();
@@ -68,16 +67,6 @@ export async function listRootEntries(
     }
 
     await pushByUsername(actor.user.username);
-
-    if (typeof userId === 'number') {
-        const issuers = await permissionService.listUserPermissionIssuers({
-            id: userId,
-        });
-        for (const issuer of issuers) {
-            if (!issuer) continue;
-            await pushByUsername(issuer.username);
-        }
-    }
 
     return entries;
 }
