@@ -20,7 +20,7 @@
 /**
  * Integration test for the Gemini chat provider.
  *
- * Hits the real Google Gemini API with `gemini-2.5-flash-lite` (one
+ * Hits the real Google Gemini API with `gemini-3.7-flash` (one
  * of the cheapest variants). Skipped when `PUTER_TEST_AI_GEMINI_API_KEY`
  * is unset.
  */
@@ -40,14 +40,14 @@ const ENV_VAR = 'PUTER_TEST_AI_GEMINI_API_KEY';
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'GeminiChatProvider (integration)',
     () => {
-        it('returns a non-empty completion from gemini-2.5-flash-lite', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
+        it('returns a non-empty completion from gemini-3.7-flash', { timeout: INTEGRATION_TEST_TIMEOUT_MS }, async () => {
             const provider = new GeminiChatProvider(makeMeteringStub(), {
                 apiKey: optionalEnv(ENV_VAR)!,
             });
 
             const result = await withTestActor(() =>
                 provider.complete({
-                    model: 'gemini-2.5-flash-lite',
+                    model: 'gemini-3.7-flash',
                     messages: [
                         { role: 'user', content: 'Say hi in one word.' },
                     ],
