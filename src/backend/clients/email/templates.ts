@@ -183,6 +183,42 @@ immediately</p>
 <p>Puter</p>
         `,
     },
+    file_shared_with_you: {
+        subject:
+            '{{issuer}} shared {{#if multiple}}{{count}} items{{else}}{{item_name}}{{/if}} with you',
+        html: `
+<p>Hi there {{recipient}},</p>
+{{#if multiple}}
+    <p>{{issuer}} shared {{count}} items with you on Puter.</p>
+{{else}}
+    <p>{{issuer}} shared <strong>{{item_name}}</strong> with you on Puter.</p>
+{{/if}}
+<p><a href="{{link}}">Open it on Puter</a></p>
+<p>Sincerely,</p>
+<p>Puter</p>
+        `,
+    },
+    // The only way to reach someone with no account.
+    file_shared_invite: {
+        subject:
+            '{{issuer}} shared {{#if multiple}}{{count}} items{{else}}{{item_name}}{{/if}} with you on Puter',
+        html: `
+<p>Hi there,</p>
+{{#if multiple}}
+    <p>{{issuer}} shared {{count}} items with you on Puter.</p>
+{{else}}
+    <p>{{issuer}} shared <strong>{{item_name}}</strong> with you on Puter.</p>
+{{/if}}
+<p>
+You don't have a Puter account for this address yet. Create one with
+<strong>{{email}}</strong> and confirm it, and what was shared will be waiting
+for you.
+</p>
+<p><a href="{{link}}">Create your account</a></p>
+<p>Sincerely,</p>
+<p>Puter</p>
+        `,
+    },
     share_by_username: {
         subject: 'Puter share from {{susername}}',
         html: `

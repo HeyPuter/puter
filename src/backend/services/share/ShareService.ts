@@ -22,6 +22,7 @@ import { posix as pathPosix } from 'node:path';
 import { userRelatedActor, type Actor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { FSEntry } from '../../stores/fs/FSEntry';
+import type { UserRow } from '../../stores/user/UserStore';
 import type { LayerInstances } from '../../types';
 import type { AclMode } from '../acl/ACLService';
 import type { puterServices } from '../index';
@@ -82,6 +83,13 @@ export interface ResolvedShare {
      */
     holderId?: number;
     isNew?: boolean;
+    /**
+     * An invite to an address with no confirmed account. No grant exists yet —
+     * it is written when the recipient confirms the address.
+     */
+    pending?: boolean;
+    /** Address the invite was aimed at. Set only when `pending`. */
+    recipientEmail?: string;
 }
 
 const SHAREABLE_MODES: ReadonlySet<string> = new Set([
@@ -259,6 +267,30 @@ export class ShareService extends PuterService {
             ]).then((): void => undefined);
         });
 
+        // Confirming an address is what turns it from a claim into an
+        // identity, and so the only moment an invite may become a grant.
+        this.clients.event.on('user.email-confirmed', (_key, data) => {
+            const { user_id, email } = (data ?? {}) as {
+                user_id?: number;
+                email?: string;
+            };
+            if (!user_id || !email) return;
+            return this.claimPendingShares(user_id, email)
+                .then((claimed) =>
+                    this.services.shareNotification.notifyClaimed(
+                        user_id,
+                        claimed,
+                    ),
+                )
+                .catch((err) => {
+                    console.warn(
+                        '[ShareService] failed to claim pending shares for',
+                        user_id,
+                        err,
+                    );
+                });
+        });
+
         this.clients.event.on('fs.write.file', (_key, data) => {
             const entry = (data as { node?: FSEntry })?.node;
             if (!entry?.uuid) return;
@@ -425,7 +457,12 @@ export class ShareService extends PuterService {
         // exist" may only be observed by someone entitled to share.
         const entry = await this.#resolveEntry(input, actor);
         await this.#assertCanManage(actor, entry, mode);
-        const holder = await this.#resolveRecipient(input.recipient);
+        const resolved = await this.#resolveRecipient(input.recipient);
+
+        if (resolved.kind === 'pending') {
+            return this.#invite(actor, issuerId, entry, resolved.email, mode);
+        }
+        const holder = resolved.user;
 
         if (holder.id === issuerId) {
             throw new HttpError(400, 'cannot share with yourself', {
@@ -576,10 +613,17 @@ export class ShareService extends PuterService {
         input: ShareTarget & { recipient: ShareRecipient },
     ): Promise<{ revoked: number }> {
         const issuerId = this.#requireUserId(actor);
-        const [entry, holder] = await Promise.all([
+        const [entry, resolved] = await Promise.all([
             this.#resolveEntry(input, actor),
             this.#resolveRecipient(input.recipient),
         ]);
+
+        // Nothing was granted, so there is only the invitation to take back.
+        if (resolved.kind === 'pending') {
+            await this.#assertCanManage(actor, entry);
+            return this.#cancelInvite(entry, resolved.email, issuerId);
+        }
+        const holder = resolved.user;
 
         // Dropping your own access needs no authority over the node — only
         // enough visibility that the call can't be used to probe for one.
@@ -922,12 +966,20 @@ export class ShareService extends PuterService {
             );
 
         const rows = await this.stores.share.listByFsentry(entry.id);
-        const userIds = [...rows, ...inherited.map((i) => i.row)].flatMap(
-            (row: { issuer_user_id: number; holder_user_id: number }) => [
-                Number(row.issuer_user_id),
-                Number(row.holder_user_id),
-            ],
+        const pendingRows = await this.stores.share.listPendingOnFsentry(
+            entry.id,
         );
+        const userIds = [
+            ...[...rows, ...inherited.map((i) => i.row)].flatMap(
+                (row: { issuer_user_id: number; holder_user_id: number }) => [
+                    Number(row.issuer_user_id),
+                    Number(row.holder_user_id),
+                ],
+            ),
+            ...pendingRows.map((row: { issuer_user_id: number }) =>
+                Number(row.issuer_user_id),
+            ),
+        ];
         const users = await this.stores.user.getByIds(userIds);
         const maskedPath = maskEntryPath(entry);
 
@@ -983,10 +1035,190 @@ export class ShareService extends PuterService {
                 size: entry.size,
             }),
         );
-        return inheritedShares.concat(own);
+        // Nobody holds an invite yet, but whoever manages the node needs to
+        // see who was asked, and be able to take it back.
+        const pending: ResolvedShare[] = pendingRows.map(
+            (row: {
+                uid: string;
+                mode: string;
+                issuer_user_id: number;
+                recipient_email: string;
+                created_at: unknown;
+                data?: unknown;
+            }): ResolvedShare => ({
+                uid: row.uid,
+                mode: row.mode,
+                path: maskedPath,
+                entryUid: entry.uuid,
+                isDir: Boolean(entry.isDir),
+                issuer: {
+                    username:
+                        users.get(Number(row.issuer_user_id))?.username ?? null,
+                },
+                holder: { username: null },
+                pending: true,
+                recipientEmail: row.recipient_email,
+                createdAt: row.created_at,
+                issuedByApp: issuedByApp(row),
+                inheritedFrom: null,
+                modified: entry.modified,
+                size: entry.size,
+            }),
+        );
+
+        return inheritedShares.concat(own, pending);
     }
 
     // -- Internals ----------------------------------------------------
+
+    /**
+     * Turn every invite aimed at `email` into a real grant, now that its owner
+     * is known.
+     *
+     * Each is re-authorized as it is claimed: an invite can sit for weeks, and
+     * the issuer may have lost the right to share it since. One that no longer
+     * holds is dropped, and never blocks the rest.
+     */
+    async claimPendingShares(
+        holderUserId: number,
+        email: string,
+    ): Promise<ResolvedShare[]> {
+        const pending = await this.stores.share.listPendingByEmail(email);
+        if (pending.length === 0) return [];
+
+        const holder = await this.stores.user.getById(holderUserId);
+        if (!holder?.username) return [];
+
+        const claimed: ResolvedShare[] = [];
+        for (const row of pending) {
+            try {
+                const entry = await this.stores.fsEntry.getEntryById(
+                    Number(row.fsentry_id),
+                );
+                if (!entry) {
+                    await this.stores.share.deleteByUid(row.uid);
+                    continue;
+                }
+                // The address may have been theirs all along.
+                if (
+                    entry.userId === holderUserId ||
+                    Number(row.issuer_user_id) === holderUserId
+                ) {
+                    await this.stores.share.deleteByUid(row.uid);
+                    continue;
+                }
+
+                const issuer = await this.stores.user.getById(
+                    Number(row.issuer_user_id),
+                );
+                if (!issuer) {
+                    await this.stores.share.deleteByUid(row.uid);
+                    continue;
+                }
+                const issuerActor = this.#actorFor(issuer);
+                const stillAllowed =
+                    await this.services.permission.canManagePermission(
+                        issuerActor,
+                        `fs:${entry.uuid}:read`,
+                    );
+                if (!stillAllowed) {
+                    await this.stores.share.deleteByUid(row.uid);
+                    continue;
+                }
+
+                await this.services.acl.setUserUser(
+                    issuerActor,
+                    this.#actorFor(holder),
+                    this.#descriptorFor(entry),
+                    row.mode as AclMode,
+                );
+                const applied = await this.stores.share.applyPending({
+                    uid: row.uid,
+                    holderUserId,
+                });
+                if (!applied) continue;
+
+                claimed.push({
+                    ...this.#resolve(applied, entry, issuerActor, holder),
+                    holderId: holderUserId,
+                    isNew: true,
+                });
+            } catch (err) {
+                console.warn(
+                    '[ShareService] could not claim pending share',
+                    row.uid,
+                    err,
+                );
+            }
+        }
+        return claimed;
+    }
+
+    /**
+     * Withdraw an invite before it is claimed. An owner may clear any issuer's
+     * invite on their node; anyone else only the ones they sent.
+     */
+    async #cancelInvite(
+        entry: FSEntry,
+        email: string,
+        issuerId: number,
+    ): Promise<{ revoked: number }> {
+        const isOwner = entry.userId === issuerId;
+        const rows = (await this.stores.share.listPendingByEmail(email)).filter(
+            (row: { fsentry_id: number; issuer_user_id: number }) =>
+                Number(row.fsentry_id) === entry.id &&
+                (isOwner || Number(row.issuer_user_id) === issuerId),
+        );
+        let revoked = 0;
+        for (const row of rows) {
+            if (await this.stores.share.deleteByUid(row.uid)) revoked += 1;
+        }
+        return { revoked };
+    }
+
+    /**
+     * Record a share for an address with no confirmed account. There is nobody
+     * to grant to, so the row is the whole share until it is claimed.
+     *
+     * Spends daily quota: an invite is reach the issuer is handing out, and
+     * exempting it would make the limit optional.
+     */
+    async #invite(
+        actor: Actor,
+        issuerId: number,
+        entry: FSEntry,
+        email: string,
+        mode: AclMode,
+    ): Promise<ResolvedShare> {
+        const existing = await this.stores.share.listPendingByEmail(email);
+        const already = existing.some(
+            (row: { fsentry_id: number; issuer_user_id: number }) =>
+                Number(row.fsentry_id) === entry.id &&
+                Number(row.issuer_user_id) === issuerId,
+        );
+        const releaseQuota = already
+            ? null
+            : await this.#reserveDailyQuota(issuerId);
+
+        try {
+            const { row, created } = await this.stores.share.upsertPending({
+                issuerUserId: issuerId,
+                recipientEmail: email,
+                fsentryId: entry.id,
+                mode,
+                issuerAppUid: actor.app?.uid ?? null,
+            });
+            return {
+                ...this.#resolve(row, entry, actor, { username: null }),
+                pending: true,
+                recipientEmail: email,
+                isNew: created,
+            };
+        } catch (err) {
+            await releaseQuota?.();
+            throw err;
+        }
+    }
 
     #resolve(
         row: { uid: string; mode: string; created_at?: unknown },
@@ -1059,7 +1291,15 @@ export class ShareService extends PuterService {
         return entry;
     }
 
-    async #resolveRecipient(recipient: ShareRecipient) {
+    /**
+     * Who the share is for. An unconfirmed address resolves to an invite rather
+     * than a failure; a username cannot be invited, there is nothing to reach.
+     */
+    async #resolveRecipient(
+        recipient: ShareRecipient,
+    ): Promise<
+        { kind: 'user'; user: UserRow } | { kind: 'pending'; email: string }
+    > {
         const email = recipient?.email?.trim();
         const username = recipient?.username?.trim();
         const user = email
@@ -1070,12 +1310,15 @@ export class ShareService extends PuterService {
         // An unconfirmed email is a claim, not an identity: resolving it would
         // hand the share to whoever registered the address first.
         const unconfirmedEmailMatch = Boolean(email) && !user?.email_confirmed;
-        if (!user?.username || unconfirmedEmailMatch) {
+        if (email && (!user?.username || unconfirmedEmailMatch)) {
+            return { kind: 'pending', email };
+        }
+        if (!user?.username) {
             throw new HttpError(404, 'Recipient does not exist', {
                 legacyCode: 'user_does_not_exist',
             });
         }
-        return user;
+        return { kind: 'user', user };
     }
 
     /**

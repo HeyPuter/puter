@@ -826,6 +826,14 @@ interface IConfigOptional {
     enable_public_folders: boolean;
 
     /**
+     * When true, a recipient who already has an account is emailed about a
+     * share as well as notified in-app. Off by default: there is no per-user
+     * preference yet, so nobody can decline. An invite to an address with no
+     * account is emailed regardless — it has no other way to arrive.
+     */
+    share_email_notifications?: boolean;
+
+    /**
      * Ceiling on how many shares one user may create per UTC day. An abuse
      * bound, not an accounting one — it exists so a script can't blanket other
      * accounts with unwanted items and the notifications that follow. Omit to

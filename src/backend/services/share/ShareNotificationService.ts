@@ -57,15 +57,17 @@ export class ShareNotificationService extends PuterService {
             if (typeof issuerId !== 'number') return;
 
             const counts = new Map<number, number>();
+            const named = new Map<number, string>();
             for (const share of shares) {
+                if (share.pending) continue;
                 if (!share.isNew || !share.holderId) continue;
                 if (share.holderId === issuerId) continue;
                 counts.set(
                     share.holderId,
                     (counts.get(share.holderId) ?? 0) + 1,
                 );
+                if (share.name) named.set(share.holderId, share.name);
             }
-            if (counts.size === 0) return;
 
             for (const [holderId, count] of counts) {
                 if (!(await this.#claimNotifySlot(issuerId, holderId))) {
@@ -77,10 +79,108 @@ export class ShareNotificationService extends PuterService {
                     template: 'file-shared-with-you',
                     fields: { username: issuer, count },
                 });
+                await this.#emailHolder(
+                    holderId,
+                    issuer,
+                    count,
+                    named.get(holderId),
+                );
             }
+
+            await this.#emailInvites(actor, shares);
         } catch {
             // Best-effort by design; see the class comment.
         }
+    }
+
+    /**
+     * Email an existing recipient. Off by default: with no per-user preference
+     * yet, nobody could decline.
+     */
+    async #emailHolder(
+        holderId: number,
+        issuer: string | undefined,
+        count: number,
+        itemName: string | undefined,
+    ): Promise<void> {
+        if (!this.config.share_email_notifications) return;
+        if (!this.clients.email.isConfigured) return;
+
+        const holder = await this.stores.user.getById(holderId);
+        const to = holder?.email;
+        if (!to || !holder?.email_confirmed) return;
+        if (!(await this.clients.email.validate(to))) return;
+
+        await this.clients.email.send(to, 'file_shared_with_you', {
+            recipient: holder.username,
+            issuer,
+            count,
+            multiple: count > 1,
+            item_name: itemName ?? 'an item',
+            link: this.#appLink(),
+        });
+    }
+
+    /**
+     * Email an address with no account. Always sent — there is no Puter inbox
+     * to notify instead.
+     */
+    async #emailInvites(actor: Actor, shares: ResolvedShare[]): Promise<void> {
+        if (!this.clients.email.isConfigured) return;
+
+        const byEmail = new Map<string, { count: number; name?: string }>();
+        for (const share of shares) {
+            if (!share.pending || !share.isNew || !share.recipientEmail) {
+                continue;
+            }
+            const seen = byEmail.get(share.recipientEmail) ?? { count: 0 };
+            seen.count += 1;
+            seen.name ??= share.name;
+            byEmail.set(share.recipientEmail, seen);
+        }
+        if (byEmail.size === 0) return;
+
+        const issuer = actor.user?.username;
+        for (const [to, { count, name }] of byEmail) {
+            if (!(await this.clients.email.validate(to))) continue;
+            await this.clients.email.send(to, 'file_shared_invite', {
+                email: to,
+                issuer,
+                count,
+                multiple: count > 1,
+                item_name: name ?? 'an item',
+                link: this.#appLink(),
+            });
+        }
+    }
+
+    /**
+     * Tell someone what was waiting once they confirmed their address. One
+     * notification for the lot: several people may have shared with the address
+     * before it had an owner.
+     */
+    async notifyClaimed(
+        holderId: number,
+        shares: ResolvedShare[],
+    ): Promise<void> {
+        if (shares.length === 0) return;
+        try {
+            const count = shares.length;
+            await this.services.notification.notify([holderId], {
+                source: 'sharing',
+                title: `${count === 1 ? 'An item was' : `${count} items were`} shared with you before you joined`,
+                template: 'file-shared-with-you',
+                fields: { count },
+            });
+        } catch {
+            // Best-effort by design; see the class comment.
+        }
+    }
+
+    #appLink(): string {
+        const protocol = this.config.protocol ?? 'http';
+        const domain = this.config.domain ?? 'puter.com';
+        return `${protocol}://${domain}`;
     }
 
     /** False when this pair was already notified inside the window. */

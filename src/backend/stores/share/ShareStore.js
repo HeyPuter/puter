@@ -186,7 +186,100 @@ export class ShareStore extends PuterStore {
         return Number(rows[0]?.count ?? 0);
     }
 
+    /**
+     * Pending invites for one address: a share aimed at someone who had no
+     * account when it was made. `fsentry_id` distinguishes these from the
+     * legacy invite rows, which name no node.
+     *
+     * @param {string} recipientEmail
+     */
+    async listPendingByEmail(recipientEmail) {
+        const rows = await this.clients.db.read(
+            'SELECT * FROM `share` WHERE `recipient_email` = ? AND ' +
+                '`holder_user_id` IS NULL AND `fsentry_id` IS NOT NULL ' +
+                'ORDER BY `id`',
+            [recipientEmail],
+        );
+        return rows.map((r) => this.#normalizeRow(r));
+    }
+
+    /**
+     * Unclaimed invites on one node, whoever sent them. What someone managing
+     * the node needs to see who has been asked but has not arrived.
+     *
+     * @param {number} fsentryId
+     */
+    async listPendingOnFsentry(fsentryId) {
+        const rows = await this.clients.db.read(
+            'SELECT * FROM `share` WHERE `fsentry_id` = ? AND ' +
+                '`holder_user_id` IS NULL ORDER BY `id`',
+            [fsentryId],
+        );
+        return rows.map((r) => this.#normalizeRow(r));
+    }
+
     // -- Writes -------------------------------------------------------
+
+    /**
+     * Record an invite for an address with no account yet, or move an existing
+     * one to a new mode.
+     *
+     * Deduped on (email, node, issuer) in code: the unique index covers
+     * `holder_user_id`, which is NULL here, and SQL treats NULLs as distinct —
+     * so re-inviting would otherwise pile up rows.
+     *
+     * @param {object} input
+     * @param {number} input.issuerUserId
+     * @param {string} input.recipientEmail
+     * @param {number} input.fsentryId
+     * @param {string} input.mode
+     * @param {string | null} [input.issuerAppUid]
+     */
+    async upsertPending({
+        issuerUserId,
+        recipientEmail,
+        fsentryId,
+        mode,
+        issuerAppUid = null,
+    }) {
+        if (!issuerUserId || !recipientEmail || !fsentryId || !mode) {
+            throw new Error(
+                'upsertPending: issuerUserId, recipientEmail, fsentryId and mode are required',
+            );
+        }
+
+        const existing = await this.clients.db.read(
+            'SELECT `uid` FROM `share` WHERE `recipient_email` = ? AND ' +
+                '`fsentry_id` = ? AND `issuer_user_id` = ? AND ' +
+                '`holder_user_id` IS NULL LIMIT 1',
+            [recipientEmail, fsentryId, issuerUserId],
+        );
+        if (existing[0]?.uid) {
+            await this.clients.db.write(
+                'UPDATE `share` SET `mode` = ? WHERE `uid` = ?',
+                [mode, existing[0].uid],
+            );
+            return {
+                row: await this.getByUid(existing[0].uid),
+                created: false,
+            };
+        }
+
+        const uid = uuidv4();
+        await this.clients.db.write(
+            'INSERT INTO `share` (`uid`, `issuer_user_id`, `recipient_email`, ' +
+                '`fsentry_id`, `mode`, `data`) VALUES (?, ?, ?, ?, ?, ?)',
+            [
+                uid,
+                issuerUserId,
+                recipientEmail,
+                fsentryId,
+                mode,
+                JSON.stringify(issuerAppUid ? { issuerAppUid } : {}),
+            ],
+        );
+        return { row: await this.getByUid(uid), created: true };
+    }
 
     async create({ issuerUserId, recipientEmail, data }) {
         if (!issuerUserId || !recipientEmail) {

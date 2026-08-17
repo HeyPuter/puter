@@ -193,17 +193,9 @@ describe('ShareService', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('refuses an unknown mode and an unknown recipient', async () => {
+    it('refuses an unknown mode', async () => {
         const owner = await makeUser();
         const file = await makeFile(owner.user);
-
-        await expect(
-            share(owner.actor, {
-                uid: file.uuid,
-                recipient: { email: 'nobody@nowhere.test' },
-                mode: 'read',
-            }),
-        ).rejects.toMatchObject({ statusCode: 404 });
 
         await expect(
             share(owner.actor, {
@@ -214,7 +206,7 @@ describe('ShareService', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('does not resolve an email its account has not confirmed', async () => {
+    it('grants nothing to an email its account has not confirmed', async () => {
         const owner = await makeUser();
         const squatter = await makeUser();
         await server.stores.user.update(squatter.user.id, {
@@ -222,16 +214,15 @@ describe('ShareService', () => {
         });
         const file = await makeFile(owner.user);
 
-        await expect(
-            share(owner.actor, {
-                uid: file.uuid,
-                recipient: { email: squatter.email },
-                mode: 'read',
-            }),
-        ).rejects.toMatchObject({
-            statusCode: 404,
-            legacyCode: 'user_does_not_exist',
+        // The address is a claim, not an identity: the share waits as an
+        // invite rather than handing access to whoever registered it first.
+        const result = await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: squatter.email },
+            mode: 'read',
         });
+        expect(result.pending).toBe(true);
+        expect(await canRead(squatter.actor, file.path)).toBe(false);
 
         // A username names exactly one account, confirmed or not.
         await share(owner.actor, {
@@ -239,6 +230,7 @@ describe('ShareService', () => {
             recipient: { username: squatter.user.username },
             mode: 'read',
         });
+        expect(await canRead(squatter.actor, file.path)).toBe(true);
     });
 
     it('hides a file from a stranger trying to share it', async () => {
@@ -1595,5 +1587,186 @@ describe('ShareService', () => {
         for (const file of files) {
             expect(await canRead(recipient.actor, file.path)).toBe(false);
         }
+    });
+
+    describe('an address with no account yet', () => {
+        const pendingEmail = () =>
+            `pending-${Math.random().toString(36).slice(2, 9)}@test.local`;
+
+        it('records an invite instead of refusing the share', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = pendingEmail();
+
+            const result = await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            expect(result.pending).toBe(true);
+            expect(result.recipientEmail).toBe(email);
+            expect(result.holder.username).toBeNull();
+
+            const rows = await server.stores.share.listPendingByEmail(email);
+            expect(rows).toHaveLength(1);
+            expect(Number(rows[0].fsentry_id)).toBe(file.id);
+            expect(rows[0].holder_user_id).toBeNull();
+        });
+
+        it('still refuses a username that does not exist', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await expect(
+                share(owner.actor, {
+                    uid: file.uuid,
+                    recipient: { username: 'nobody-by-that-name' },
+                    mode: 'read',
+                }),
+            ).rejects.toMatchObject({ statusCode: 404 });
+        });
+
+        it('does not pile up a row per re-invite', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = pendingEmail();
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+            const again = await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'write',
+            });
+
+            const rows = await server.stores.share.listPendingByEmail(email);
+            expect(rows).toHaveLength(1);
+            expect(rows[0].mode).toBe('write');
+            expect(again.isNew).toBe(false);
+        });
+
+        it('grants nothing until the address is confirmed', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = pendingEmail();
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            const claimer = await makeUser();
+            expect(await canRead(claimer.actor, file.path)).toBe(false);
+        });
+
+        it('becomes a real grant when the address is confirmed', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = pendingEmail();
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            const claimer = await makeUser();
+            await server.stores.user.update(claimer.user.id, { email });
+            const claimed = await server.services.share.claimPendingShares(
+                claimer.user.id,
+                email,
+            );
+
+            expect(claimed).toHaveLength(1);
+            expect(await canRead(claimer.actor, file.path)).toBe(true);
+
+            expect(await server.stores.share.listPendingByEmail(email)).toEqual(
+                [],
+            );
+            const listed = await server.services.share.listSharedWithMe(
+                claimer.actor,
+            );
+            expect(listed.items).toHaveLength(1);
+        });
+
+        it('drops an invite whose issuer can no longer share it', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = pendingEmail();
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            await server.clients.db.write(
+                'DELETE FROM `fsentries` WHERE `id` = ?',
+                [file.id],
+            );
+
+            const claimer = await makeUser();
+            const claimed = await server.services.share.claimPendingShares(
+                claimer.user.id,
+                email,
+            );
+
+            expect(claimed).toEqual([]);
+            expect(await server.stores.share.listPendingByEmail(email)).toEqual(
+                [],
+            );
+        });
+
+        it('withdraws an invite before it is claimed', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = pendingEmail();
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            const result = await unshare(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+            });
+
+            expect(result.revoked).toBe(1);
+            expect(await server.stores.share.listPendingByEmail(email)).toEqual(
+                [],
+            );
+
+            const claimer = await makeUser();
+            expect(
+                await server.services.share.claimPendingShares(
+                    claimer.user.id,
+                    email,
+                ),
+            ).toEqual([]);
+        });
+
+        it('never grants an invite back to the node owner', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = pendingEmail();
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            const claimed = await server.services.share.claimPendingShares(
+                owner.user.id,
+                email,
+            );
+
+            expect(claimed).toEqual([]);
+            expect(await server.stores.share.listPendingByEmail(email)).toEqual(
+                [],
+            );
+        });
     });
 });

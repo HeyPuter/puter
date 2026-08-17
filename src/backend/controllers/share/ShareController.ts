@@ -66,10 +66,13 @@ const LIST_LIMIT_CAP = 200;
 export const DEFAULT_MAX_RECIPIENTS = 10;
 export const DEFAULT_MAX_ITEMS = 50;
 
-/** A success carries the created share; a failure carries why. */
+/**
+ * A success carries the created share; a failure carries why. `pending` is an
+ * invite: recorded, but not access anyone holds yet.
+ */
 interface ShareOutcome {
     recipient: string;
-    status: 'success' | 'error';
+    status: 'success' | 'error' | 'pending';
     path?: string;
     uid?: string;
     mode?: string;
@@ -142,7 +145,7 @@ export class ShareController extends PuterController {
                     return {
                         ...(await this.#toClientShare(share)),
                         recipient: label,
-                        status: 'success',
+                        status: share.pending ? 'pending' : 'success',
                     };
                 }
                 return {
@@ -163,7 +166,7 @@ export class ShareController extends PuterController {
                 .map((o) => (o as PromiseFulfilledResult<ResolvedShare>).value),
         );
 
-        const succeeded = results.filter((r) => r.status === 'success').length;
+        const succeeded = results.filter((r) => r.status !== 'error').length;
         res.json({
             status:
                 succeeded === results.length
@@ -323,6 +326,9 @@ export class ShareController extends PuterController {
             ...(share.owner === undefined
                 ? {}
                 : { owner: share.owner.username }),
+            ...(share.pending
+                ? { pending: true, recipient_email: share.recipientEmail }
+                : {}),
             uid_entry: share.entryUid,
             is_dir: share.isDir,
             issuer: share.issuer.username,
