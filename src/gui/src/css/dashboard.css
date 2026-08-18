@@ -2535,9 +2535,10 @@ select.share-modal-row-mode:disabled {
     display: block;
 }
 
-/* Status line (aria-live) */
+/* Status line (aria-live). It collapses when empty rather than going
+   display:none — a live region revealed in the same frame as its text is
+   unreliably announced, so it stays in the a11y tree between messages. */
 .share-modal-status {
-    display: none;
     margin-top: 12px;
     padding: 9px 12px;
     border: 1px solid transparent;
@@ -2546,14 +2547,17 @@ select.share-modal-row-mode:disabled {
     line-height: 1.45;
     word-break: break-word;
 }
+.share-modal-status:empty {
+    margin-top: 0;
+    padding: 0;
+    border-width: 0;
+}
 .share-modal-status-error {
-    display: block;
     background: var(--dashboard-danger-background);
     border-color: var(--dashboard-danger-border);
     color: var(--dashboard-danger-text);
 }
 .share-modal-status-success {
-    display: block;
     background: var(--dashboard-success-background);
     border-color: var(--dashboard-success-border);
     color: var(--dashboard-success-text);
