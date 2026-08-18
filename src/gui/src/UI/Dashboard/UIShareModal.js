@@ -22,6 +22,7 @@ import item_icon from '../../helpers/item_icon.js';
 import { owner_of_path } from '../../helpers/path_owner.js';
 import { invalidate_shared_roots } from '../../helpers/shared_access.js';
 import { icons } from '../../helpers/actionIcons.js';
+import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 
 const { html_encode } = window;
 
@@ -137,9 +138,16 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
     const $submit = $overlay.find('.share-modal-submit');
 
     // Focus returns to wherever the user was (usually the shared row) when
-    // the modal closes; the input takes it while the modal is up.
+    // the modal closes. While it's up, the recipient input takes it on
+    // desktop; on touch-primary devices the dialog itself does, because
+    // focusing the input would pop the on-screen keyboard over the sheet
+    // before the user has chosen what to do (add, change, or revoke).
     const el_previous_focus = document.activeElement;
-    $recipient.get(0)?.focus({ preventScroll: true });
+    if ( isTouchPrimaryDevice() ) {
+        $overlay.find('.share-modal').get(0)?.focus({ preventScroll: true });
+    } else {
+        $recipient.get(0)?.focus({ preventScroll: true });
+    }
 
     let closed = false;
     const close = () => {
