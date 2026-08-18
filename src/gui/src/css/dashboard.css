@@ -2293,6 +2293,11 @@ p.myapps-add-error {
     transform: scale(1);
     opacity: 1;
 }
+/* The dialog takes focus programmatically (tabindex=-1) when an action
+   removes the focused row; that's a resting place, not a target. */
+.share-modal:focus {
+    outline: none;
+}
 
 /* Header */
 .share-modal-header {

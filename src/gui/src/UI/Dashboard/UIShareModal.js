@@ -93,7 +93,7 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
 
     const $overlay = $(`
         <div class="share-modal-overlay">
-            <div class="share-modal" role="dialog" aria-modal="true" aria-label="${html_encode(item_name)} — ${i18n('share')}">
+            <div class="share-modal" role="dialog" aria-modal="true" tabindex="-1" aria-label="${html_encode(item_name)} — ${i18n('share')}">
                 <div class="share-modal-header">
                     <div class="share-modal-title">
                         <span class="share-modal-title-icon"></span>
@@ -158,6 +158,22 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
     // The last successfully fetched share list, so canceling an inline revoke
     // confirmation can restore the row without another network round-trip.
     let last_shares = [];
+
+    // Re-rendering the list replaces its nodes wholesale, and disabling a
+    // focused control drops focus onto <body> — either would strand a
+    // keyboard user outside the dialog, past the reach of the Tab trap.
+    // Every action that does one of those puts focus back explicitly:
+    // on the same holder's control when it survives, else on the dialog.
+    const focus_list_control = (selector, holder) => {
+        const $el = $list.find(selector)
+            .filter((_, el) => $(el).attr('data-holder') === holder);
+        if ( !$el.length ) return false;
+        $el.get(0).focus({ preventScroll: true });
+        return true;
+    };
+    const focus_dialog = () => {
+        $overlay.find('.share-modal').get(0)?.focus({ preventScroll: true });
+    };
 
     const show_error = (message) => {
         $status
@@ -237,8 +253,11 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
     $(document).on('keydown.share-modal', function (e) {
         if ( e.key !== 'Escape' ) return;
         // An open revoke confirmation swallows the first Escape.
-        if ( $list.find('.share-modal-row-confirm').length ) {
+        const $confirm = $list.find('.share-modal-row-confirm');
+        if ( $confirm.length ) {
+            const holder = $confirm.attr('data-holder');
             render(last_shares);
+            focus_list_control('.share-modal-revoke', holder) || focus_dialog();
             return;
         }
         close();
@@ -253,7 +272,13 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
         if ( !focusables.length ) return;
         const first = focusables.get(0);
         const last = focusables.get(focusables.length - 1);
-        if ( e.shiftKey && document.activeElement === first ) {
+        // Focus can legitimately sit on the dialog container (it takes focus
+        // after a revoke removes the focused row); step into the cycle from
+        // either end instead of letting Tab walk out of the dialog.
+        if ( focusables.index(document.activeElement) === -1 ) {
+            e.preventDefault();
+            (e.shiftKey ? last : first).focus();
+        } else if ( e.shiftKey && document.activeElement === first ) {
             e.preventDefault();
             last.focus();
         } else if ( !e.shiftKey && document.activeElement === last ) {
@@ -302,6 +327,9 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
         } catch (err) {
             show_error(err?.message ?? i18n('share_failed', [], false));
             $submit.prop('disabled', false);
+            // Disabling the clicked button dropped focus to <body>; put it
+            // where the correction happens.
+            $recipient.get(0)?.focus({ preventScroll: true });
         } finally {
             $submit.removeClass('share-modal-btn-busy');
         }
@@ -322,6 +350,7 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
             invalidate_shared_roots();
             await refresh();
         }
+        focus_list_control('.share-modal-row-mode', holder) || focus_dialog();
     });
 
     // -- Revoke, confirmed inline in the row --
@@ -352,9 +381,7 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
     $overlay.on('click', '.share-modal-confirm-cancel', function () {
         const holder = $(this).closest('.share-modal-row-confirm').attr('data-holder');
         render(last_shares);
-        $list.find('.share-modal-revoke')
-            .filter((_, el) => $(el).attr('data-holder') === holder)
-            .trigger('focus');
+        focus_list_control('.share-modal-revoke', holder) || focus_dialog();
     });
 
     $overlay.on('click', '.share-modal-confirm-remove', async function () {
@@ -365,9 +392,13 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
             show_success(i18n('share_access_removed', { recipient: holder }));
             invalidate_shared_roots();
             await refresh();
+            // The focused row is gone; the dialog itself takes focus (the
+            // input would pop the on-screen keyboard on touch devices).
+            focus_dialog();
         } catch (err) {
             show_error(err?.message ?? i18n('share_failed', [], false));
             render(last_shares);
+            focus_list_control('.share-modal-revoke', holder) || focus_dialog();
         }
     });
 
