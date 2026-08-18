@@ -2732,8 +2732,8 @@ select.share-modal-row-mode:focus {
 /* Touch: every control clears 44px. The icon buttons keep their 30-32px
    visuals but hit-test at 44x44 via a centered pseudo-element (the 10px
    gap to the row's select and the 18px between rows absorb the overhang
-   without overlap); the submit, the confirm pair (Remove is destructive
-   and sits 6px from Cancel), and the row's mode select grow for real.
+   without overlap); everything else grows for real via min-height, which
+   holds whatever the inherited line-height turns out to be.
    This block sits below every base rule it overrides — a media query
    adds no specificity, so source order decides. */
 @media (pointer: coarse) {
@@ -2751,8 +2751,15 @@ select.share-modal-row-mode:focus {
         height: 44px;
         transform: translate(-50%, -50%);
     }
+    input.share-modal-recipient,
+    input.share-modal-recipient:focus,
+    select.share-modal-mode,
+    select.share-modal-mode:focus {
+        min-height: 44px;
+    }
     select.share-modal-row-mode,
     select.share-modal-row-mode:focus {
+        min-height: 44px;
         padding-top: 9px;
         padding-bottom: 9px;
     }
