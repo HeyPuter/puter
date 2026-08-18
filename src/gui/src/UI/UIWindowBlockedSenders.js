@@ -42,6 +42,14 @@ async function UIWindowBlockedSenders (options) {
     h += '<div class="form-error-msg"></div>';
     h += '<div class="form-success-msg"></div>';
 
+    h += `<label class="blocked-all-row">
+                <input class="blocked-all" type="checkbox" />
+                <span>
+                    <strong>${i18n('blocked_all')}</strong>
+                    <span class="share-dialog-empty">${i18n('blocked_all_note')}</span>
+                </span>
+             </label>`;
+
     h += `<label for="blocked-username">${i18n('blocked_add')}</label>`;
     h += '<div class="share-dialog-row">';
     h += `<input class="blocked-username" id="blocked-username" type="text" autocomplete="off" spellcheck="false"
@@ -137,12 +145,30 @@ async function UIWindowBlockedSenders (options) {
 
     const refresh = async () => {
         try {
-            const { items } = await api('GET');
+            const { all, items } = await api('GET');
+            $(el_window).find('.blocked-all').prop('checked', Boolean(all));
             render(items ?? []);
         } catch (e) {
             show_error(e?.message ?? i18n('blocked_failed'));
         }
     };
+
+    // The per-sender list stays live and editable while everyone is refused:
+    // turning the blanket switch back off restores exactly what it hid, rather
+    // than asking the user to rebuild it.
+    $(el_window).on('change', '.blocked-all', async function () {
+        const on = $(this).is(':checked');
+        $(this).prop('disabled', true);
+        try {
+            await api(on ? 'POST' : 'DELETE', { all: true });
+            show_success(i18n(on ? 'blocked_all_on' : 'blocked_all_off'));
+        } catch (e) {
+            $(this).prop('checked', !on);
+            show_error(e?.message ?? i18n('blocked_failed'));
+        } finally {
+            $(this).prop('disabled', false);
+        }
+    });
 
     $(el_window).on('click', '.blocked-add-btn', async function () {
         const username = $(el_window).find('.blocked-username').val()?.trim();

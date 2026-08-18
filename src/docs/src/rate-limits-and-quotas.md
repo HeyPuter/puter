@@ -124,7 +124,7 @@ Separately, the notification and email that tell a recipient about a share are b
 
 Recipients are emailed by default and opt out with the unsubscribe link the mail carries; a deployment can turn share email off entirely with `share_email_notifications: false`.
 
-Over these, **the share still succeeds** — only the announcement is dropped. The recipient's notification is kept up to date either way, and folds several senders into one ("alice and bob shared 5 items with you"), so nothing is lost; it just doesn't interrupt them again. Emails are additionally batched: everything triggered for one recipient within a 90-second window goes as a single digest message. Recipients can also block an individual sender outright, which refuses that sender's shares with `recipient_not_accepting_shares`.
+Over these, **the share still succeeds** — only the announcement is dropped. The recipient's notification is kept up to date either way, and folds several senders into one ("alice and bob shared 5 items with you"), so nothing is lost; it just doesn't interrupt them again. Emails are additionally batched: everything triggered for one recipient within a 90-second window goes as a single digest message. Recipients can also refuse shares outright — from one sender, or from everyone — which fails that sender's `share` call with `recipient_not_accepting_shares`. Both are managed from **Settings → Security → Blocked people**.
 
 ### Everything at once
 

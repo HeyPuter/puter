@@ -239,7 +239,12 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
+        | 'sms'
+        | 'rcs'
+        | 'whatsapp'
+        | 'viber'
+        | 'zalo'
+        | 'telegram';
 }
 
 /**
@@ -865,7 +870,7 @@ interface IConfigOptional {
         recipientDaily?: number;
         /**
          * How long emails to one recipient are held and merged into a single
-         * digest, in seconds. Default 60; non-positive sends immediately.
+         * digest, in seconds. Default 90; non-positive sends immediately.
          */
         emailBatchSeconds?: number;
     };
@@ -1103,8 +1108,7 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

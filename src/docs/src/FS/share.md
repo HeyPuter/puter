@@ -83,7 +83,7 @@ A rejection carries `{ message, code }`. Because each recipient/item pair succee
 | `subject_does_not_exist` | No such item, or you cannot see it. Also what a caller without permission to share gets, so the response never reveals which. |
 | `forbidden` | You can see the item but may not share it at the level you asked for. |
 | `user_does_not_exist` | The username has no account. (An unknown *email* is invited instead — see below.) |
-| `recipient_not_accepting_shares` | The recipient has blocked you. Nothing is granted and they are not notified. |
+| `recipient_not_accepting_shares` | The recipient is not accepting this share — they have blocked you, or turned off new shares from everyone. Nothing is granted and they are not notified. Which of the two it is is not reported. |
 | `email_not_allowed` | The address can't receive an invite — malformed, or refused by the deployment's policy. |
 | `cannot_share_with_self` | You are the recipient. |
 | `cannot_share_with_owner` | The recipient already owns the item. |

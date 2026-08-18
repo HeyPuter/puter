@@ -66,6 +66,26 @@ const DIGEST_LOCK_SECONDS = 30;
 // timer leaves entries behind, and mail this stale is noise rather than news.
 const DIGEST_ENTRY_TTL_SECONDS = 24 * 60 * 60;
 
+/**
+ * How long past its window an entry must sit before the sweep treats it as
+ * orphaned.
+ *
+ * The sweep exists for entries whose timer died with the node that armed it,
+ * and only the owning node can tell the difference between that and a timer
+ * about to fire. Claiming an entry is exclusive only among flushers that can
+ * see each other's deletes, so a sweep racing a live timer elsewhere can send
+ * the same digest twice. Waiting gives the owner first refusal, and costs a
+ * genuinely stranded digest only this much delay.
+ */
+const DIGEST_SWEEP_GRACE_MS = 5 * 60_000;
+
+/**
+ * Entries one listing carries. A recipient over this in a single window has the
+ * rest picked up by the next pass rather than dropped, but the cap is logged
+ * either way — a silent truncation here reads as "nothing left to send".
+ */
+const DIGEST_LIST_LIMIT = 200;
+
 /** Names carried per sender; the wording counts the rest. */
 const DIGEST_NAMES_PER_SENDER = 5;
 
@@ -172,7 +192,7 @@ export class ShareNotificationService extends PuterService {
             const { res } = await this.stores.kv.list({
                 as: 'entries',
                 pattern: 'share:digest:',
-                limit: 200,
+                limit: DIGEST_LIST_LIMIT,
             });
             const listed = (
                 Array.isArray(res)
@@ -180,8 +200,14 @@ export class ShareNotificationService extends PuterService {
                     : ((res as { items?: unknown[] })?.items ?? [])
             ) as Array<{ key: string; value: unknown }>;
             if (listed.length === 0) return;
+            if (listed.length >= DIGEST_LIST_LIMIT) {
+                console.log('[share-notify] sweep listing hit its cap:', {
+                    limit: DIGEST_LIST_LIMIT,
+                });
+            }
 
-            const windowMs = this.#limits().emailBatchSeconds * 1000;
+            const staleAfterMs =
+                this.#limits().emailBatchSeconds * 1000 + DIGEST_SWEEP_GRACE_MS;
             const due = new Set<string>();
             for (const entry of listed) {
                 const key = entry.key.slice(
@@ -192,7 +218,7 @@ export class ShareNotificationService extends PuterService {
                 const queuedAt = Number(
                     (entry.value as DigestEntryRecord | null)?.queuedAt ?? 0,
                 );
-                if (Date.now() - queuedAt < windowMs) continue;
+                if (Date.now() - queuedAt < staleAfterMs) continue;
                 due.add(key);
             }
             if (due.size === 0) return;
@@ -468,8 +494,9 @@ export class ShareNotificationService extends PuterService {
     }
 
     /**
-     * Email an existing recipient. Off by default: with no per-user preference
-     * yet, nobody could decline.
+     * Email a recipient who already has an account. On unless configuration
+     * says otherwise: they decline with the unsubscribe link the mail carries,
+     * or by blocking the sender.
      */
     async #emailHolder(
         holderId: number,
@@ -636,7 +663,7 @@ export class ShareNotificationService extends PuterService {
             const { res } = await this.stores.kv.list({
                 as: 'keys',
                 pattern: prefix,
-                limit: 200,
+                limit: DIGEST_LIST_LIMIT,
             });
             // `list` answers with a paged envelope; unwrap defensively.
             const listed = Array.isArray(res)
@@ -645,6 +672,14 @@ export class ShareNotificationService extends PuterService {
             const keys = listed.filter(
                 (entry): entry is string => typeof entry === 'string',
             );
+            if (keys.length >= DIGEST_LIST_LIMIT) {
+                // The rest keep their TTL and go in a later flush; say so,
+                // because the digest that goes out now undercounts.
+                console.log('[share-notify] digest listing hit its cap:', {
+                    key,
+                    limit: DIGEST_LIST_LIMIT,
+                });
+            }
 
             const claimed: Array<{ key: string; record: DigestEntryRecord }> =
                 [];

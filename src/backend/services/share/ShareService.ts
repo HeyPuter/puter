@@ -165,6 +165,20 @@ export const DEFAULT_DAILY_SHARE_LIMIT = 200;
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 
 /**
+ * Where "refuse shares from everyone" lives on the user row.
+ *
+ * A key in the existing `metadata` blob rather than a column of its own: the
+ * share path already holds the recipient's row by the time it asks, so reading
+ * it costs nothing either way, and a one-bit preference doesn't earn a
+ * migration per dialect.
+ */
+const BLOCK_ALL_SHARES_KEY = 'blockAllShares';
+
+/** Whether this account refuses shares from everyone. */
+const blocksAllShares = (user: Pick<UserRow, 'metadata'> | null): boolean =>
+    Boolean(user?.metadata?.[BLOCK_ALL_SHARES_KEY]);
+
+/**
  * What a share recipient's browser is told about someone else's entry.
  *
  * Curated rather than the row: the row carries the owner's real path, their
@@ -488,7 +502,7 @@ export class ShareService extends PuterService {
                 legacyCode: 'cannot_share_with_owner',
             });
         }
-        await this.#assertNotBlocked(issuerId, holder.id);
+        await this.#assertNotBlocked(issuerId, holder);
 
         // Changing the mode on an existing share isn't new reach, so it
         // shouldn't spend budget — only a share to someone who doesn't already
@@ -1092,6 +1106,26 @@ export class ShareService extends PuterService {
     // -- Blocking -----------------------------------------------------
 
     /**
+     * Refuse shares from everyone, or accept them again. The blanket answer to
+     * the same question `blockSender` answers about one person; the per-sender
+     * list is kept either way, so turning this off restores it rather than
+     * asking the user to rebuild it.
+     *
+     * `updateMetadata` merges rather than replaces, and refreshes the cached
+     * row, so the switch bites on the very next share.
+     */
+    async setBlockAllSenders(
+        actor: Actor,
+        blocked: boolean,
+    ): Promise<{ all: boolean }> {
+        const blockerId = this.#requireUserId(actor);
+        await this.stores.user.updateMetadata(blockerId, {
+            [BLOCK_ALL_SHARES_KEY]: blocked,
+        });
+        return { all: blocked };
+    }
+
+    /**
      * Refuse further shares from `username`. Existing shares stand: access
      * someone already has is theirs until it is withdrawn, and a control
      * labelled "block" silently revoking it would be a surprise.
@@ -1128,12 +1162,19 @@ export class ShareService extends PuterService {
         return { username: target.username as string, unblocked };
     }
 
-    /** Who the caller refuses shares from. Usernames only — ids aren't theirs. */
-    async listBlockedSenders(
-        actor: Actor,
-    ): Promise<Array<{ username: string; createdAt: number }>> {
+    /**
+     * Who the caller refuses shares from, and whether they refuse everyone.
+     * Usernames only — ids aren't theirs.
+     */
+    async listBlockedSenders(actor: Actor): Promise<{
+        all: boolean;
+        items: Array<{ username: string; createdAt: number }>;
+    }> {
         const blockerId = this.#requireUserId(actor);
-        const rows = await this.stores.userBlock.listByBlocker(blockerId);
+        const [blocker, rows] = await Promise.all([
+            this.stores.user.getById(blockerId),
+            this.stores.userBlock.listByBlocker(blockerId),
+        ]);
         const users = await this.stores.user.getByIds(
             rows.map((row) => Number(row.blocked_user_id)),
         );
@@ -1144,19 +1185,27 @@ export class ShareService extends PuterService {
             if (!username) continue;
             items.push({ username, createdAt: Number(row.created_at) });
         }
-        return items;
+        return { all: blocksAllShares(blocker), items };
     }
 
     /**
-     * Stop here when the recipient has blocked the sharer. Said plainly rather
-     * than disguised as a missing recipient, so a sender whose share will never
-     * arrive stops re-sending it; only a caller who already passed the manage
-     * check can get this far, so it is no probe for who blocked whom.
+     * Stop here when the recipient is not accepting this share. Said plainly
+     * rather than disguised as a missing recipient, so a sender whose share
+     * will never arrive stops re-sending it; only a caller who already passed
+     * the manage check can get this far, so it is no probe for who blocked
+     * whom.
+     *
+     * Refusing everyone and refusing this sender report identically — which of
+     * the two it is is the recipient's business, not the sender's.
+     *
+     * The recipient's row is already in hand from resolution, so the blanket
+     * switch is free; only a caller who cleared it pays for the pair lookup.
      */
-    async #assertNotBlocked(issuerId: number, holderId: number): Promise<void> {
-        if (!(await this.stores.userBlock.isBlocked(holderId, issuerId))) {
-            return;
-        }
+    async #assertNotBlocked(issuer: number, holder: UserRow): Promise<void> {
+        const blocked =
+            blocksAllShares(holder) ||
+            (await this.stores.userBlock.isBlocked(holder.id, issuer));
+        if (!blocked) return;
         throw new HttpError(403, 'recipient is not accepting shares', {
             legacyCode: 'recipient_not_accepting_shares',
         });
@@ -1224,12 +1273,14 @@ export class ShareService extends PuterService {
                     continue;
                 }
                 // An invite can sit for weeks; its address's owner may have
-                // blocked the sender since.
+                // stopped accepting shares — from this sender, or from anyone
+                // — since it was sent.
                 if (
-                    await this.stores.userBlock.isBlocked(
+                    blocksAllShares(holder) ||
+                    (await this.stores.userBlock.isBlocked(
                         holderUserId,
                         Number(row.issuer_user_id),
-                    )
+                    ))
                 ) {
                     await this.stores.share.deleteByUid(row.uid);
                     continue;

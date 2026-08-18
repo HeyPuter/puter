@@ -455,9 +455,58 @@ describe('share endpoints over HTTP', () => {
         expect(await res.json()).toMatchObject({ code: 'bad_request' });
     });
 
+    it('refuses every sender while the blanket switch is on', async () => {
+        const owner = env.users.user;
+        const recipient = env.users.other;
+        const file = await makeFile(owner);
+        const del = (body: unknown) =>
+            fetch(new URL('/share/blocks', env.apiOrigin), {
+                method: 'DELETE',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${recipient.token}`,
+                },
+                body: JSON.stringify(body),
+            });
+
+        const on = await post('/share/blocks', recipient.token, { all: true });
+        expect(on.status).toBe(200);
+        expect(await on.json()).toMatchObject({ all: true, blocked: true });
+
+        const listed = await get('/share/blocks', recipient.token, {});
+        expect(await listed.json()).toMatchObject({ all: true, items: [] });
+
+        const refused = await post('/share', owner.token, {
+            recipients: [recipient.username],
+            items: [{ uid: file.uid }],
+            mode: 'read',
+        });
+        expect(await refused.json()).toMatchObject({
+            status: 'aborted',
+            results: [
+                { status: 'error', code: 'recipient_not_accepting_shares' },
+            ],
+        });
+
+        const off = await del({ all: true });
+        expect(off.status).toBe(200);
+        expect(await off.json()).toMatchObject({ all: false, blocked: false });
+
+        const shared = await post('/share', owner.token, {
+            recipients: [recipient.username],
+            items: [{ uid: file.uid }],
+            mode: 'read',
+        });
+        expect(await shared.json()).toMatchObject({ status: 'success' });
+
+        // Cleaned up so a later assertion on this recipient isn't reading
+        // state this test left behind.
+        expect((await del({ all: true })).status).toBe(200);
+    });
+
     it('keeps one caller\'s blocklist out of another\'s', async () => {
         const res = await get('/share/blocks', env.users.admin.token, {});
-        const body = (await res.json()) as { items: unknown[] };
-        expect(body.items).toEqual([]);
+        const body = (await res.json()) as { all: boolean; items: unknown[] };
+        expect(body).toEqual({ all: false, items: [] });
     });
 });
