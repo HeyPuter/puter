@@ -6576,6 +6576,27 @@ html.dark-mode .usage-table-show-less:hover {
     padding: 6px 0;
 }
 
+/* The blanket "refuse everyone" switch, above the per-sender list. */
+.blocked-all-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #eef1f4;
+    cursor: pointer;
+}
+
+.blocked-all-row input {
+    margin-top: 2px;
+    flex: none;
+}
+
+.blocked-all-row .share-dialog-empty {
+    display: block;
+    padding: 2px 0 0;
+}
+
 .share-row {
     display: flex;
     align-items: center;

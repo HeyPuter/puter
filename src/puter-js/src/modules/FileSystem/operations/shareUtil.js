@@ -73,6 +73,14 @@ export const toShare = (row) => ({
     holder: /** @type {string | null} */ (row.holder ?? null),
     inheritedFrom: /** @type {string | null} */ (row.inherited_from ?? null),
     issuedByApp: /** @type {string | null} */ (row.issued_by_app ?? null),
+    ...(row.status === 'pending' || row.pending === true
+        ? {
+            pending: true,
+            recipientEmail: /** @type {string | null} */ (
+                row.recipient_email ?? row.recipientEmail ?? row.recipient ?? null
+            ),
+        }
+        : {}),
     modified: /** @type {number} */ (row.modified ?? 0),
     size: /** @type {number | null} */ (row.size ?? null),
 });

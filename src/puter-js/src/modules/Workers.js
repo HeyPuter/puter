@@ -11,6 +11,7 @@ import { fetchAllPages, iteratePages } from '../lib/pagination.js';
  * @property {string} url The URL of the worker.
  * @property {string} file_path The file path of the worker's source code.
  * @property {string} file_uid The unique identifier of the worker file.
+ * @property {string | null} app_uid The unique identifier of the app or sandbox app owning the worker, or null if user-scoped.
  * @property {string} created_at The date and time when the worker was created.
  */
 

@@ -54,14 +54,22 @@ const sentMessage = (info: unknown) =>
     };
 
 describe('EmailClient — transport lifecycle', () => {
-    it('reports as configured once a transport is wired up', () => {
+    it('stops sending once the transport is shut down', async () => {
         const client = startClient();
-        expect(client.isConfigured).toBe(true);
+        expect(
+            await client.sendRaw({ to: 'a@b.test', subject: 'up', text: 'x' }),
+        ).not.toBeNull();
+
         client.onServerShutdown();
-        expect(client.isConfigured).toBe(false);
+
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        expect(
+            await client.sendRaw({ to: 'a@b.test', subject: 'down', text: 'x' }),
+        ).toBeNull();
+        warn.mockRestore();
     });
 
-    it('warns and stays unconfigured when no transport is set', () => {
+    it('warns at boot when no transport is set', () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const client = new EmailClient({
             port: 0,
@@ -69,7 +77,6 @@ describe('EmailClient — transport lifecycle', () => {
         } as unknown as IConfig);
         client.onServerStart();
 
-        expect(client.isConfigured).toBe(false);
         expect(warn).toHaveBeenCalledWith(
             expect.stringContaining('no email transport configured'),
         );

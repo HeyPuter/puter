@@ -294,7 +294,8 @@
  * @property {string} path Path of the shared item.
  * @property {string} entryUid UID of the shared item.
  * @property {boolean} isDir Whether the shared item is a directory.
- * @property {string | null} name The item's name. Only set by `listShared()`.
+ * @property {string | null} name The item's name. Not set by `getShares()`,
+ * which describes access to an item the caller already named.
  * @property {string | null} type The item's content type, or `'folder'`. Only
  * set by `listShared()`.
  * @property {string | null} thumbnail URL of the item's thumbnail, if it has
@@ -306,6 +307,11 @@
  * @property {string | null} [inheritedFrom] Shared ancestor this access comes from, if any.
  * @property {string | null} [issuedByApp] UID of the app that asked for this
  * share, or `null` when a person made it directly.
+ * @property {boolean} [pending] True when the recipient's email has no
+ * confirmed account yet. The share is recorded but grants nothing until they
+ * create an account with that address and confirm it.
+ * @property {string | null} [recipientEmail] Address a pending share was sent
+ * to. Only set when `pending`.
  * @property {number} modified Last-modified time of the item, unix seconds.
  * @property {number | null} size Size of the item in bytes; null for a directory.
  */

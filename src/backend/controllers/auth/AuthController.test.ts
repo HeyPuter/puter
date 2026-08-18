@@ -5343,6 +5343,33 @@ describe('AuthController 2FA flows', () => {
         ).toHaveLength(10);
     });
 
+    it('a recovery code minted by configure-2fa setup satisfies /login/recovery-code', async () => {
+        const { user, actor } = await makeUserAndActor({ email_confirmed: 1 });
+        const setupRes = makeRes();
+        await controller.handleConfigure2fa(
+            makeReq({}, { actor, params: { action: 'setup' } }),
+            setupRes,
+        );
+        const { codes } = setupRes.body as { codes: string[] };
+
+        await controller.handleConfigure2fa(
+            makeReq({}, { actor, params: { action: 'enable' } }),
+            makeRes(),
+        );
+
+        const otpJwt = server.services.token.sign(
+            'otp',
+            { user_uid: user.uuid, purpose: 'otp-login' },
+            { expiresIn: '5m' },
+        );
+        const res = makeRes();
+        await controller.handleLoginRecoveryCode(
+            makeReq({ token: otpJwt, code: codes[0] }),
+            res,
+        );
+        expect(isCompleteLoginResponse(res.body)).toBe(true);
+    });
+
     it('configure-2fa setup: 409 when 2FA is already enabled', async () => {
         const { actor } = await makeUserAndActor({ otp_enabled: 1 });
         await expect(

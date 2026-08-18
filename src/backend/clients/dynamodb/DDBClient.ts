@@ -355,11 +355,18 @@ export class DDBClient extends PuterClient {
     }
 
     @Span('ddb.del', (table: string) => ({ 'db.table': table }))
-    async del<T extends Record<string, unknown>>(table: string, key: T) {
+    async del<T extends Record<string, unknown>>(
+        table: string,
+        key: T,
+        opts?: { returnOld?: boolean },
+    ) {
         const command = new DeleteCommand({
             TableName: table,
             Key: key,
             ReturnConsumedCapacity: 'TOTAL',
+            // ALL_OLD makes the delete an atomic claim: exactly one caller
+            // gets the attributes back.
+            ...(opts?.returnOld ? { ReturnValues: 'ALL_OLD' as const } : {}),
         });
 
         const client = await this.#getDocumentClient();
@@ -628,8 +635,7 @@ export class DDBClient extends PuterClient {
             );
 
             lastEvaluatedKey = scan.LastEvaluatedKey as
-                | Record<string, unknown>
-                | undefined;
+                Record<string, unknown> | undefined;
             const items = scan.Items;
             if (!items || items.length === 0) continue;
 
