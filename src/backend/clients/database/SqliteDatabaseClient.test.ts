@@ -27,11 +27,11 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 64;
+const CURRENT_SCHEMA_VERSION = 65;
 
 /**
  * These suites migrate real files on disk. Idle they finish in well under a
- * second, but the whole 64-migration chain runs against the filesystem — enough
+ * second, but the whole migration chain runs against the filesystem — enough
  * that a loaded runner blows the 5s default and reports a timeout where there
  * is no fault.
  */

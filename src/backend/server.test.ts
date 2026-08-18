@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 import http from 'node:http';
@@ -40,10 +41,11 @@ const rawRequest = (
     port: number,
     path: string,
     headers: Record<string, string> = {},
+    method = 'GET',
 ): Promise<RawResponse> =>
     new Promise((resolve, reject) => {
         const req = http.request(
-            { host: '127.0.0.1', port, path, method: 'GET', headers },
+            { host: '127.0.0.1', port, path, method, headers },
             (res) => {
                 let body = '';
                 res.setEncoding('utf8');
@@ -93,8 +95,11 @@ describe('PuterServer host header validation', () => {
         await server?.shutdown();
     });
 
-    const request = (path: string, headers: Record<string, string> = {}) =>
-        rawRequest(port, path, headers);
+    const request = (
+        path: string,
+        headers: Record<string, string> = {},
+        method = 'GET',
+    ) => rawRequest(port, path, headers, method);
 
     it('accepts the configured main domain and its subdomains', async () => {
         for (const host of [
@@ -183,6 +188,31 @@ describe('PuterServer host header validation', () => {
         expect(res.headers['access-control-allow-private-network']).toBe(
             'true',
         );
+    });
+
+    it('lets the dav subdomain answer its own OPTIONS', async () => {
+        // A DAV client opens a mount with OPTIONS and reads `DAV:` to decide
+        // the host speaks WebDAV at all. The blanket preflight reply is a bare
+        // 200 with no such header, which makes macOS abandon the mount before
+        // it ever sends credentials — so this request has to reach the
+        // controller instead.
+        const res = await request(
+            '/some-user',
+            { host: `dav.puter.localhost:${port}` },
+            'OPTIONS',
+        );
+        expect(res.headers['dav']).toContain('1');
+        expect(res.headers['dav']).toContain('2');
+    });
+
+    it('still short-circuits OPTIONS preflight off the dav subdomain', async () => {
+        const res = await request(
+            '/some-path',
+            { host: `api.puter.localhost:${port}` },
+            'OPTIONS',
+        );
+        expect(res.status).toBe(200);
+        expect(res.headers['dav']).toBeUndefined();
     });
 
     it('pins X-Frame-Options on the main domain only', async () => {

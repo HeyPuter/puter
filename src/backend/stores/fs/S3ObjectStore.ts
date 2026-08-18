@@ -139,6 +139,12 @@ export class S3ObjectStore extends PuterStore {
                         Bucket: fileMetadata.bucket,
                         Key: fileMetadata.objectKey,
                         ContentType: fileMetadata.contentType,
+                        // Binds the URL to the declared size, which is what
+                        // the start-write quota check ran against. Without it
+                        // the client can declare 0 and PUT gigabytes: signing
+                        // covers `content-length`, so any other body length
+                        // fails the signature instead of landing.
+                        ContentLength: fileMetadata.size,
                     });
                     const url = await getSignedUrl(presignClient, command, {
                         expiresIn: expiresInSeconds,
@@ -191,6 +197,8 @@ export class S3ObjectStore extends PuterStore {
                                 (_, index) => index + 1,
                             ),
                             expiresInSeconds,
+                            declaredTotalSize: fileMetadata.size,
+                            multipartPartSize,
                         },
                         region,
                     );
@@ -279,13 +287,36 @@ export class S3ObjectStore extends PuterStore {
         // handed back below.
         recordStorageOps('write', input.partNumbers.length);
 
+        // Same binding as the single-PUT path: every part carries `partSize`
+        // bytes except the last, which carries the remainder.
+        const { declaredTotalSize, multipartPartSize } = input;
+        const partContentLength = (partNumber: number): number | undefined => {
+            if (
+                declaredTotalSize === undefined ||
+                multipartPartSize === undefined ||
+                !Number.isFinite(declaredTotalSize) ||
+                !Number.isFinite(multipartPartSize) ||
+                multipartPartSize <= 0
+            ) {
+                return undefined;
+            }
+            const offset = (partNumber - 1) * multipartPartSize;
+            const remaining = declaredTotalSize - offset;
+            if (remaining <= 0) return undefined;
+            return Math.min(multipartPartSize, remaining);
+        };
+
         return Promise.all(
             input.partNumbers.map(async (partNumber) => {
+                const contentLength = partContentLength(partNumber);
                 const command = new UploadPartCommand({
                     Bucket: input.bucket,
                     Key: input.objectKey,
                     UploadId: input.multipartUploadId,
                     PartNumber: partNumber,
+                    ...(contentLength !== undefined
+                        ? { ContentLength: contentLength }
+                        : {}),
                 });
                 const url = await getSignedUrl(presignClient, command, {
                     expiresIn: expiresInSeconds,

@@ -1123,6 +1123,54 @@ describe('WebDAVController verbs', () => {
             );
         });
 
+        it('reports timestamps in the present, not the epoch', async () => {
+            // Entry timestamps are stored as Unix seconds. Handing those to
+            // `Date` unscaled reads them as milliseconds and dates every file
+            // to January 1970, which clients sort and sync against.
+            const { actor, username } = await makeUser();
+            const path = `/${username}/Documents/dated.txt`;
+            await putFile(actor, path, 'x');
+
+            const captured = await dispatch({
+                method: 'PROPFIND',
+                path,
+                actor,
+                headers: { depth: '0' },
+            });
+            const xml = captured.body as string;
+            const modified = xml.match(
+                /<D:getlastmodified>(.*?)<\/D:getlastmodified>/,
+            )?.[1];
+            expect(modified).toBeDefined();
+            const skew = Math.abs(
+                new Date(modified as string).getTime() - Date.now(),
+            );
+            expect(skew).toBeLessThan(5 * 60 * 1000);
+        });
+
+        it('emits the same ETag for an entry over PROPFIND and GET', async () => {
+            // A client that sees the validator change between the two treats
+            // the file as modified and re-downloads it on every pass.
+            const { actor, username } = await makeUser();
+            const path = `/${username}/Documents/etag-match.txt`;
+            await putFile(actor, path, 'x');
+
+            const propfind = await dispatch({
+                method: 'PROPFIND',
+                path,
+                actor,
+                headers: { depth: '0' },
+            });
+            const propfindEtag = (propfind.body as string).match(
+                /<D:getetag>(.*?)<\/D:getetag>/,
+            )?.[1];
+
+            const get = await dispatch({ method: 'GET', path, actor });
+
+            expect(propfindEtag).toBeDefined();
+            expect(get.headers['etag']).toBe(propfindEtag);
+        });
+
         it('omits children at depth 0', async () => {
             const { actor, username } = await makeUser();
             await putFile(actor, `/${username}/Documents/hidden.txt`, 'x');

@@ -23,6 +23,10 @@ A string containing the file path of the worker source code.
 
 A string containing the unique identifier of the worker file.
 
+#### `app_uid` (String)
+
+A string containing the unique identifier of the app or sandbox app associated with the worker, or `null` if the worker is user-scoped.
+
 #### `created_at` (String)
 
 A string containing the date and time when the worker was created.

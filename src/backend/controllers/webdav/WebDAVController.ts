@@ -376,15 +376,14 @@ export class WebDAVController extends PuterController {
 
         await this.#assertRead(actor, davPath);
 
-        const etag = `"${entry.uuid}-${Math.floor(entry.modified ?? entry.created ?? 0)}"`;
+        const modified = entry.modified ?? entry.created ?? 0;
+        const etag = entryEtag(entry.uuid, modified);
         const size = entry.size ?? 0;
 
         res.set({
             'Accept-Ranges': 'bytes',
             'Content-Length': String(size),
-            'Last-Modified': new Date(
-                entry.modified ?? entry.created ?? 0,
-            ).toUTCString(),
+            'Last-Modified': entryDate(modified).toUTCString(),
             ETag: etag,
         });
 
@@ -622,13 +621,11 @@ export class WebDAVController extends PuterController {
         );
 
         const fe = writeResult.fsEntry;
-        const etag = `"${fe.uuid}-${Math.floor(fe.modified ?? fe.created ?? 0)}"`;
+        const modified = fe.modified ?? fe.created ?? 0;
         res.status(existing ? 204 : 201)
             .set({
-                ETag: etag,
-                'Last-Modified': new Date(
-                    fe.modified ?? fe.created ?? 0,
-                ).toUTCString(),
+                ETag: entryEtag(fe.uuid, modified),
+                'Last-Modified': entryDate(modified).toUTCString(),
             })
             .end();
     }
@@ -1007,6 +1004,30 @@ function wrapMultistatus(inner: string): string {
     return `<?xml version="1.0" encoding="utf-8"?>\n<D:multistatus xmlns:D="DAV:">\n${inner}\n</D:multistatus>`;
 }
 
+/**
+ * FSEntry timestamps are Unix seconds. Entries with nothing stored fall back to
+ * an ISO string literal, so both forms have to be accepted here.
+ */
+function toEpochSeconds(ts: number | string): number {
+    return typeof ts === 'number'
+        ? Math.floor(ts)
+        : Math.floor(new Date(ts).getTime() / 1000);
+}
+
+/** `Date` takes milliseconds, so entry seconds must be scaled to format them. */
+function entryDate(ts: number | string): Date {
+    return new Date(toEpochSeconds(ts) * 1000);
+}
+
+/**
+ * Opaque validator. Built from seconds so every verb emits the same ETag for an
+ * entry — a client that gets one value from PROPFIND and another from GET
+ * treats the resource as changed and re-fetches it on every pass.
+ */
+function entryEtag(uid: string, ts: number | string): string {
+    return `"${uid}-${toEpochSeconds(ts)}"`;
+}
+
 function propfindEntry(
     href: string,
     entry: FSEntry | null,
@@ -1019,14 +1040,13 @@ function propfindEntry(
     const created = entry?.created ?? '2025-01-01T00:00:00Z';
     const name = entry?.name ?? (pathPosix.basename(href) || '/');
     const uid = entry?.uuid ?? 'root';
-    const modTs = Math.floor(new Date(modified as string).getTime());
 
     let props = `
         <D:displayname>${escapeXml(String(name))}</D:displayname>
-        <D:getlastmodified>${new Date(modified as string).toUTCString()}</D:getlastmodified>
-        <D:creationdate>${new Date(created as string).toISOString()}</D:creationdate>
+        <D:getlastmodified>${entryDate(modified).toUTCString()}</D:getlastmodified>
+        <D:creationdate>${entryDate(created).toISOString()}</D:creationdate>
         <D:resourcetype>${isDir ? '<D:collection/>' : ''}</D:resourcetype>
-        <D:getetag>"${uid}-${modTs}"</D:getetag>
+        <D:getetag>${entryEtag(uid, modified)}</D:getetag>
         <D:supportedlock>
           <D:lockentry><D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockentry>
           <D:lockentry><D:lockscope><D:shared/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockentry>

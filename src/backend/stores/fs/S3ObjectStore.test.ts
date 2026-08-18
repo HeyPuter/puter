@@ -276,6 +276,104 @@ describe('S3ObjectStore object round trips', () => {
         expect(result.multipartUploadId).toBeUndefined();
     });
 
+    it('binds the presigned single-upload URL to the declared size', async () => {
+        const key = uuidv4();
+        const result = await store().createSignedUploadUrl(
+            {
+                bucket,
+                objectKey: key,
+                size: 1234,
+                contentType: 'text/plain',
+                uploadMode: 'single',
+                expiresInSeconds: 900,
+            },
+            region,
+        );
+
+        // `content-length` in the signed headers is what makes the declared
+        // size binding: S3 rejects a body of any other length. Declaring 0 and
+        // then PUTting gigabytes was the storage-quota bypass this closes.
+        const signedHeaders = new URL(result.url as string).searchParams.get(
+            'X-Amz-SignedHeaders',
+        );
+        expect(signedHeaders).toContain('content-length');
+    });
+
+    it("binds each multipart part URL to that part's declared length", async () => {
+        const key = uuidv4();
+        const partSize = store().getMultipartPartSize();
+        // Two full parts plus a 500-byte remainder.
+        const declaredTotalSize = partSize * 2 + 500;
+        const opened = await store().createSignedUploadUrl(
+            {
+                bucket,
+                objectKey: key,
+                size: declaredTotalSize,
+                contentType: 'application/octet-stream',
+                uploadMode: 'multipart',
+                expiresInSeconds: 900,
+            },
+            region,
+        );
+
+        for (const part of opened.multipartPartUrls ?? []) {
+            const signedHeaders = new URL(part.url).searchParams.get(
+                'X-Amz-SignedHeaders',
+            );
+            expect(signedHeaders).toContain('content-length');
+        }
+        // Part count follows the store's resolved part size, not the raw
+        // one — the point here is that every part it hands out is bound.
+        expect((opened.multipartPartUrls ?? []).length).toBeGreaterThanOrEqual(
+            2,
+        );
+
+        await store().abortMutipartUpload(
+            opened.multipartUploadId as string,
+            region,
+            bucket,
+            key,
+        );
+    });
+
+    it('leaves part URLs unbound when the declared sizes are not supplied', async () => {
+        const key = uuidv4();
+        const opened = await store().createSignedUploadUrl(
+            {
+                bucket,
+                objectKey: key,
+                size: store().getMultipartPartSize() * 2,
+                contentType: 'application/octet-stream',
+                uploadMode: 'multipart',
+                expiresInSeconds: 900,
+            },
+            region,
+        );
+
+        const partUrls = await store().createSignedMultipartPartUrls(
+            {
+                bucket,
+                objectKey: key,
+                multipartUploadId: opened.multipartUploadId as string,
+                partNumbers: [1],
+                expiresInSeconds: 900,
+            },
+            region,
+        );
+
+        const signedHeaders = new URL(
+            partUrls[0]?.url as string,
+        ).searchParams.get('X-Amz-SignedHeaders');
+        expect(signedHeaders).not.toContain('content-length');
+
+        await store().abortMutipartUpload(
+            opened.multipartUploadId as string,
+            region,
+            bucket,
+            key,
+        );
+    });
+
     it('opens a real multipart upload when the declared size exceeds the single-upload limit', async () => {
         const key = uuidv4();
         // The effective part size is never below the single-upload limit.
