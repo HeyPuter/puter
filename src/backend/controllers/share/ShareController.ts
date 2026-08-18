@@ -312,7 +312,10 @@ export class ShareController extends PuterController {
 
     // -- Blocking -----------------------------------------------------
 
-    /** GET /share/blocks — who the caller is refusing shares from. */
+    /**
+     * GET /share/blocks — who the caller is refusing shares from, and whether
+     * they are refusing everyone.
+     */
     @Get('/blocks', {
         subdomain: 'api',
         requireVerified: true,
@@ -320,8 +323,10 @@ export class ShareController extends PuterController {
     })
     async listBlocks(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
-        const items = await this.services.share.listBlockedSenders(actor);
+        const { all, items } =
+            await this.services.share.listBlockedSenders(actor);
         res.json({
+            all,
             items: items.map((item) => ({
                 username: item.username,
                 created_at: item.createdAt,
@@ -330,9 +335,11 @@ export class ShareController extends PuterController {
     }
 
     /**
-     * POST /share/blocks — stop accepting shares from `username`. Idempotent:
-     * blocking someone twice is the state the caller asked for either way.
-     * Access they already have is untouched — `POST /share/revoke` is what
+     * POST /share/blocks — stop accepting shares. `{ all: true }` refuses
+     * everyone; `{ username }` refuses one person. Idempotent either way:
+     * blocking twice is the state the caller asked for.
+     *
+     * Access already granted is untouched — `POST /share/revoke` is what
      * withdraws that.
      */
     @Post('/blocks', {
@@ -342,14 +349,26 @@ export class ShareController extends PuterController {
     })
     async createBlock(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
+        const body = this.#body(req);
+        if (this.#isBlockAll(body)) {
+            const { all } = await this.services.share.setBlockAllSenders(
+                actor,
+                true,
+            );
+            res.json({ all, blocked: true });
+            return;
+        }
         const { username, created } = await this.services.share.blockSender(
             actor,
-            this.#username(this.#body(req)),
+            this.#username(body),
         );
         res.json({ username, blocked: true, created });
     }
 
-    /** DELETE /share/blocks — accept shares from `username` again. */
+    /**
+     * DELETE /share/blocks — accept shares again. `{ all: true }` lifts the
+     * blanket refusal, leaving the per-sender list as it was.
+     */
     @Delete('/blocks', {
         subdomain: 'api',
         requireVerified: true,
@@ -357,9 +376,18 @@ export class ShareController extends PuterController {
     })
     async deleteBlock(req: Request, res: Response): Promise<void> {
         const actor = this.#requireActor(req);
+        const body = this.#body(req);
+        if (this.#isBlockAll(body)) {
+            const { all } = await this.services.share.setBlockAllSenders(
+                actor,
+                false,
+            );
+            res.json({ all, blocked: false });
+            return;
+        }
         const { username, unblocked } = await this.services.share.unblockSender(
             actor,
-            this.#username(this.#body(req)),
+            this.#username(body),
         );
         res.json({ username, blocked: false, unblocked });
     }
@@ -393,6 +421,15 @@ export class ShareController extends PuterController {
             return at;
         });
         return { unique, indexOf };
+    }
+
+    /**
+     * Whether this call is about the blanket switch rather than one person.
+     * Only the literal `true` counts, so a client sending `all: false`
+     * alongside a username still means the username.
+     */
+    #isBlockAll(body: Record<string, unknown>): boolean {
+        return body.all === true;
     }
 
     #username(body: Record<string, unknown>): string {

@@ -1940,20 +1940,21 @@ describe('ShareService', () => {
                 recipient.actor,
             );
             // Most recent first, and named by username only.
-            expect(listed.map((row) => row.username)).toEqual([
+            expect(listed.items.map((row) => row.username)).toEqual([
                 second.user.username,
                 first.user.username,
             ]);
-            for (const row of listed) {
+            for (const row of listed.items) {
                 expect(Object.keys(row).sort()).toEqual([
                     'createdAt',
                     'username',
                 ]);
             }
+            expect(listed.all).toBe(false);
             // Someone else's blocklist is not the caller's.
             expect(
                 await server.services.share.listBlockedSenders(first.actor),
-            ).toEqual([]);
+            ).toEqual({ all: false, items: [] });
         });
 
         it('refuses to block an account that does not exist', async () => {
@@ -1964,6 +1965,137 @@ describe('ShareService', () => {
                 statusCode: 404,
                 legacyCode: 'user_does_not_exist',
             });
+        });
+
+        it('refuses every sender once the blanket switch is on', async () => {
+            const recipient = await makeUser();
+            const first = await makeUser();
+            const second = await makeUser();
+            const fileOne = await makeFile(first.user);
+            const fileTwo = await makeFile(second.user);
+
+            await server.services.share.setBlockAllSenders(
+                recipient.actor,
+                true,
+            );
+
+            // Nobody is on the per-sender list, so this can only be the
+            // blanket switch answering.
+            for (const [sender, file] of [
+                [first, fileOne],
+                [second, fileTwo],
+            ] as const) {
+                await expect(
+                    share(sender.actor, {
+                        uid: file.uuid,
+                        recipient: { username: recipient.user.username },
+                        mode: 'read',
+                    }),
+                ).rejects.toMatchObject({
+                    statusCode: 403,
+                    legacyCode: 'recipient_not_accepting_shares',
+                });
+            }
+            expect(await canRead(recipient.actor, fileOne.path)).toBe(false);
+        });
+
+        it('reports the same code whether it is everyone or one person', async () => {
+            const recipient = await makeUser();
+            const sender = await makeUser();
+            const file = await makeFile(sender.user);
+
+            // Which of the two it is is the recipient's business — a sender
+            // who could tell them apart would learn they were singled out.
+            await server.services.share.setBlockAllSenders(
+                recipient.actor,
+                true,
+            );
+            const blanket = await share(sender.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            }).catch((err) => err);
+
+            await server.services.share.setBlockAllSenders(
+                recipient.actor,
+                false,
+            );
+            await server.services.share.blockSender(
+                recipient.actor,
+                sender.user.username,
+            );
+            const personal = await share(sender.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            }).catch((err) => err);
+
+            expect(personal.statusCode).toBe(blanket.statusCode);
+            expect(personal.legacyCode).toBe(blanket.legacyCode);
+            expect(personal.message).toBe(blanket.message);
+        });
+
+        it('keeps the per-sender list intact while it is on', async () => {
+            const recipient = await makeUser();
+            const sender = await makeUser();
+            const other = await makeUser();
+            const file = await makeFile(other.user);
+
+            await server.services.share.blockSender(
+                recipient.actor,
+                sender.user.username,
+            );
+            await server.services.share.setBlockAllSenders(
+                recipient.actor,
+                true,
+            );
+            expect(
+                await server.services.share.listBlockedSenders(
+                    recipient.actor,
+                ),
+            ).toMatchObject({
+                all: true,
+                items: [{ username: sender.user.username }],
+            });
+
+            // Turning it back off restores exactly what it hid: `other` gets
+            // through again, `sender` still does not.
+            await server.services.share.setBlockAllSenders(
+                recipient.actor,
+                false,
+            );
+            await share(other.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+            await expect(
+                share(sender.actor, {
+                    uid: (await makeFile(sender.user)).uuid,
+                    recipient: { username: recipient.user.username },
+                    mode: 'read',
+                }),
+            ).rejects.toMatchObject({
+                legacyCode: 'recipient_not_accepting_shares',
+            });
+        });
+
+        it('leaves access already granted alone when switched on', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            await server.services.share.setBlockAllSenders(
+                recipient.actor,
+                true,
+            );
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
         });
 
         it('drops an invite from a sender blocked before it was claimed', async () => {
@@ -1992,6 +2124,38 @@ describe('ShareService', () => {
             );
 
             expect(claimed).toEqual([]);
+            expect(await canRead(claimer.actor, file.path)).toBe(false);
+            expect(await server.stores.share.listPendingByEmail(email)).toEqual(
+                [],
+            );
+        });
+
+        it('drops an invite when the claimer refuses everyone', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = blockEmail();
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            // Same reasoning as the per-sender case: an invite can sit for
+            // weeks, and the address's owner may have said no to all of this
+            // since it was sent.
+            const claimer = await makeUser();
+            await server.stores.user.update(claimer.user.id, { email });
+            await server.services.share.setBlockAllSenders(
+                claimer.actor,
+                true,
+            );
+
+            expect(
+                await server.services.share.claimPendingShares(
+                    claimer.user.id,
+                    email,
+                ),
+            ).toEqual([]);
             expect(await canRead(claimer.actor, file.path)).toBe(false);
             expect(await server.stores.share.listPendingByEmail(email)).toEqual(
                 [],

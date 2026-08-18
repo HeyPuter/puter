@@ -406,6 +406,11 @@ const en = {
         blocked_senders_summary: 'People who can’t share with you',
         blocked_senders_note:
             'Blocked people can’t share anything new with you. What they already shared stays until you remove it.',
+        blocked_all: 'Don’t let anyone share with me',
+        blocked_all_note:
+            'Refuses every new share, whoever it’s from. What’s already shared with you stays.',
+        blocked_all_on: 'New shares are now refused from everyone',
+        blocked_all_off: 'You’re accepting shares again',
         blocked_add: 'Block someone',
         blocked_add_placeholder: 'Username',
         blocked_none: 'You haven’t blocked anyone.',
