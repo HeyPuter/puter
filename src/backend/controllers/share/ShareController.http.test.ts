@@ -67,6 +67,48 @@ describe('share endpoints over HTTP', () => {
         return { uid, path, name };
     };
 
+    // Masking hides where an item sits, not who may open it.
+    it('will not let a masked path reach an unshared sibling', async () => {
+        const owner = env.users.user;
+        const recipient = env.users.other;
+        const shared = await makeFile(owner);
+        const secret = await makeFile(owner);
+
+        await post('/share', owner.token, {
+            recipients: [recipient.username],
+            items: [{ uid: shared.uid }],
+            mode: 'read',
+        });
+
+        const read = (path: string) =>
+            fetch(
+                `${env.apiOrigin}/read?${new URLSearchParams({ file: path })}`,
+                {
+                    headers: {
+                        authorization: `Bearer ${recipient.token}`,
+                        origin: env.apiOrigin,
+                    },
+                },
+            );
+
+        const masked = `/${owner.username}/${shared.uid}/${shared.name}`;
+        expect((await read(masked)).status).toBe(200);
+
+        for (const attempt of [
+            // The shared item's root, renamed to the sibling.
+            `/${owner.username}/${shared.uid}/${secret.name}`,
+            // The sibling's own uuid, as if it had leaked.
+            `/${owner.username}/${secret.uid}/${secret.name}`,
+            // Back out of the root the uuid vouched for.
+            `/${owner.username}/${shared.uid}/${shared.name}/../${secret.name}`,
+            // The owner's real path, named outright.
+            secret.path,
+        ]) {
+            const res = await read(attempt);
+            expect(res.status, `reachable: ${attempt}`).not.toBe(200);
+        }
+    });
+
     it('shares an item, lists it for the recipient, then revokes it', async () => {
         const owner = env.users.user;
         const recipient = env.users.other;

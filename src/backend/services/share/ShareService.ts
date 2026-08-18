@@ -22,7 +22,11 @@ import { posix as pathPosix } from 'node:path';
 import { userRelatedActor, type Actor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
 import { isUniqueViolation } from '../../util/dbError.js';
-import { cleanEmail } from '../../util/email.js';
+import {
+    abuseKey,
+    cleanEmail,
+    isProviderCanonicalized,
+} from '../../util/email.js';
 import type { FSEntry } from '../../stores/fs/FSEntry';
 import type { UserRow } from '../../stores/user/UserStore';
 import type { AclMode } from '../acl/ACLService';
@@ -45,6 +49,17 @@ export interface ShareRecipient {
 export interface ShareTarget {
     path?: string;
     uid?: string;
+}
+
+/** A `share` row, as much of it as this service reads back. */
+interface ShareIndexRow {
+    uid: string;
+    mode: string;
+    holder_user_id: number;
+    issuer_user_id: number;
+    fsentry_id: number;
+    created_at?: unknown;
+    data?: unknown;
 }
 
 export interface ShareInput extends ShareTarget {
@@ -618,10 +633,10 @@ export class ShareService extends PuterService {
             const uuid = uuidFromEntryPermission(row.permission);
             if (uuid) live.add(uuid);
         }
-        for (let i = 0; i < wanted.length; i++) {
-            const value = flat[i];
-            if (!value || value.deleted) continue;
-            const uuid = uuidFromEntryPermission(wanted[i]);
+        // Not positional against `wanted`: misses are dropped, keys deduped.
+        for (const value of flat) {
+            if (!value?.permission || value.deleted) continue;
+            const uuid = uuidFromEntryPermission(value.permission);
             if (uuid) live.add(uuid);
         }
         // An owner listing something shared *to* them can't happen, but a
@@ -630,6 +645,37 @@ export class ShareService extends PuterService {
         for (const entry of entries) {
             if (entry.userId === holderId) live.add(entry.uuid);
         }
+        return live;
+    }
+
+    /** The `<holderId>:<fsentryId>` pairs whose grant is still standing. */
+    async #reachingHolders(
+        rows: ShareIndexRow[],
+        nodeById: Map<number, FSEntry>,
+    ): Promise<Set<string>> {
+        const nodesByHolder = new Map<number, Map<number, FSEntry>>();
+        for (const row of rows) {
+            const holderId = Number(row.holder_user_id);
+            const node = nodeById.get(Number(row.fsentry_id));
+            if (!node || !Number.isFinite(holderId)) continue;
+            const nodes = nodesByHolder.get(holderId) ?? new Map();
+            nodes.set(node.id as number, node);
+            nodesByHolder.set(holderId, nodes);
+        }
+
+        const live = new Set<string>();
+        await Promise.all(
+            [...nodesByHolder].map(async ([holderId, nodes]) => {
+                const uuids = await this.#liveGrants(holderId, [
+                    ...nodes.values(),
+                ]);
+                for (const node of nodes.values()) {
+                    if (uuids.has(node.uuid)) {
+                        live.add(`${holderId}:${node.id}`);
+                    }
+                }
+            }),
+        );
         return live;
     }
 
@@ -986,13 +1032,15 @@ export class ShareService extends PuterService {
                 maskEntryPath(node),
             ]),
         );
-        const inherited: Array<{ row: Record<string, unknown>; via: string }> =
-            (await this.stores.share.listByFsentries([...viaById.keys()])).map(
-                (row: { fsentry_id: number }) => ({
-                    row,
-                    via: viaById.get(Number(row.fsentry_id)) as string,
-                }),
-            );
+        const nodeById = new Map(
+            [entry, ...ancestorNodes.values()].map((node) => [node.id, node]),
+        );
+        const inherited: Array<{ row: ShareIndexRow; via: string }> = (
+            await this.stores.share.listByFsentries([...viaById.keys()])
+        ).map((row: ShareIndexRow) => ({
+            row,
+            via: viaById.get(Number(row.fsentry_id)) as string,
+        }));
 
         const rows = await this.stores.share.listByFsentry(entry.id);
         const pendingRows = await this.stores.share.listPendingOnFsentry(
@@ -1012,8 +1060,19 @@ export class ShareService extends PuterService {
         const users = await this.stores.user.getByIds(userIds);
         const maskedPath = maskEntryPath(entry);
 
-        const inheritedShares: ResolvedShare[] = inherited.map(
-            ({ row, via }) => ({
+        // As in `#liveGrants`: an index row outlives the grant it records.
+        const stillReaches = await this.#reachingHolders(
+            [...rows, ...inherited.map((i) => i.row)],
+            nodeById,
+        );
+        const isLive = (row: ShareIndexRow): boolean =>
+            stillReaches.has(
+                `${Number(row.holder_user_id)}:${Number(row.fsentry_id)}`,
+            );
+
+        const inheritedShares: ResolvedShare[] = inherited
+            .filter(({ row }) => isLive(row))
+            .map(({ row, via }) => ({
                 uid: String(row.uid),
                 mode: String(row.mode),
                 path: maskedPath,
@@ -1032,38 +1091,41 @@ export class ShareService extends PuterService {
                 inheritedFrom: via,
                 modified: entry.modified,
                 size: entry.size,
-            }),
-        );
+            }));
 
-        const own: ResolvedShare[] = rows.map(
-            (row: {
-                uid: string;
-                mode: string;
-                issuer_user_id: number;
-                holder_user_id: number;
-                created_at: unknown;
-                data?: unknown;
-            }): ResolvedShare => ({
-                uid: row.uid,
-                mode: row.mode,
-                path: maskedPath,
-                entryUid: entry.uuid,
-                isDir: Boolean(entry.isDir),
-                issuer: {
-                    username:
-                        users.get(Number(row.issuer_user_id))?.username ?? null,
-                },
-                holder: {
-                    username:
-                        users.get(Number(row.holder_user_id))?.username ?? null,
-                },
-                createdAt: row.created_at,
-                issuedByApp: issuedByApp(row),
-                inheritedFrom: null,
-                modified: entry.modified,
-                size: entry.size,
-            }),
-        );
+        const own: ResolvedShare[] = rows
+            .filter(isLive)
+            .map(
+                (row: {
+                    uid: string;
+                    mode: string;
+                    issuer_user_id: number;
+                    holder_user_id: number;
+                    created_at: unknown;
+                    data?: unknown;
+                }): ResolvedShare => ({
+                    uid: row.uid,
+                    mode: row.mode,
+                    path: maskedPath,
+                    entryUid: entry.uuid,
+                    isDir: Boolean(entry.isDir),
+                    issuer: {
+                        username:
+                            users.get(Number(row.issuer_user_id))?.username ??
+                            null,
+                    },
+                    holder: {
+                        username:
+                            users.get(Number(row.holder_user_id))?.username ??
+                            null,
+                    },
+                    createdAt: row.created_at,
+                    issuedByApp: issuedByApp(row),
+                    inheritedFrom: null,
+                    modified: entry.modified,
+                    size: entry.size,
+                }),
+            );
         // Nobody holds an invite yet, but whoever manages the node needs to
         // see who was asked, and be able to take it back.
         const pending: ResolvedShare[] = pendingRows.map(
@@ -1405,6 +1467,12 @@ export class ShareService extends PuterService {
             });
         }
 
+        // An alias we won't grant on can still land in the blocker's inbox.
+        const mayReach =
+            (await this.stores.user.findEmailOwner(email)) ??
+            (await this.stores.user.getByCleanEmail(abuseKey(email)));
+        if (mayReach) await this.#assertNotBlocked(issuerId, mayReach);
+
         // Stored canonicalized, because claiming matches on it: the confirmed
         // address arrives in whatever form the signup normalized to, and an
         // exact match against what the sharer happened to type loses the
@@ -1526,13 +1594,9 @@ export class ShareService extends PuterService {
     > {
         const email = recipient?.email?.trim();
         const username = recipient?.username?.trim();
-        // `findEmailOwner`, not an exact match: `Bob@…` and `bob+x@…` are the
-        // same inbox, and resolving them to the account is what routes an
-        // alias through the same self/owner/blocked checks as the address
-        // itself — an exact match here turned any variant into an invite that
-        // skipped all three.
+        // Case and provider aliases resolve to the account; see #addressOwner.
         const user = email
-            ? await this.stores.user.findEmailOwner(email)
+            ? await this.#addressOwner(email)
             : username
               ? await this.stores.user.getByUsername(username)
               : null;
@@ -1548,6 +1612,16 @@ export class ShareService extends PuterService {
             });
         }
         return { kind: 'user', user };
+    }
+
+    /** Who holds this address. A rewritten local part needs a known domain. */
+    async #addressOwner(email: string): Promise<UserRow | null> {
+        const owner = await this.stores.user.findEmailOwner(email);
+        if (!owner?.email) return owner ?? null;
+        const sameAddress =
+            owner.email.trim().toLowerCase() === email.trim().toLowerCase();
+        if (sameAddress || isProviderCanonicalized(email)) return owner;
+        return null;
     }
 
     /**

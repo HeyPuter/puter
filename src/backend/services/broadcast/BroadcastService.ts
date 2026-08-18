@@ -98,6 +98,8 @@ export class BroadcastService extends PuterService {
 
     #webhookReplayWindowSeconds = 300;
     #outboundFlushMs = 2000;
+    /** Bound on re-queued events, so a peer that stays down can't grow it. */
+    #outboundMaxQueued = 10_000;
     #webhookProtocol: 'http' | 'https' = 'https';
     #webhookHostHeader: string | null = null;
     /** Self-signed certs are common between Puter nodes — accept them. */
@@ -350,23 +352,47 @@ export class BroadcastService extends PuterService {
             const events = [...this.#outboundEventsByDedupKey.values()];
             this.#outboundEventsByDedupKey.clear();
 
+            let undelivered = false;
             for (const peer of this.#webhookPeers) {
                 try {
                     await this.#sendWebhookToPeer(peer, events);
                 } catch (err) {
                     const peerId = peer.peerId ?? 'unknown';
+                    undelivered = true;
                     console.warn(
                         `[broadcast] webhook send to peer ${peerId} failed`,
                         err,
                     );
                 }
             }
+            // A lost flat-perm invalidation has no TTL to heal it.
+            if (undelivered) this.#requeueOutbound(events);
         } finally {
             this.#outboundIsFlushing = false;
             // Anything that arrived during flush gets the next tick.
             if (this.#outboundEventsByDedupKey.size > 0) {
                 this.#scheduleOutboundFlush();
             }
+        }
+    }
+
+    /** Put undelivered events back for the next flush, oldest dropped first. */
+    #requeueOutbound(events: BroadcastEvent[]): void {
+        for (const event of events) {
+            const dedupKey = this.#createDedupKey(event);
+            // Whatever arrived since is fresher — never overwrite it.
+            if (this.#outboundEventsByDedupKey.has(dedupKey)) continue;
+            this.#outboundEventsByDedupKey.set(dedupKey, event);
+        }
+        let overflow =
+            this.#outboundEventsByDedupKey.size - this.#outboundMaxQueued;
+        if (overflow <= 0) return;
+        console.warn(
+            `[broadcast] outbound queue over ${this.#outboundMaxQueued}; dropping ${overflow} oldest`,
+        );
+        for (const key of this.#outboundEventsByDedupKey.keys()) {
+            if (overflow-- <= 0) break;
+            this.#outboundEventsByDedupKey.delete(key);
         }
     }
 

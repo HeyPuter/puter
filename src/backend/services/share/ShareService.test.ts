@@ -237,6 +237,59 @@ describe('ShareService', () => {
         expect(await canRead(squatter.actor, file.path)).toBe(true);
     });
 
+    // `+` is only an alias separator where the domain says so.
+    it('does not hand a plus-addressed share to the base account', async () => {
+        const owner = await makeUser();
+        const file = await makeFile(owner.user);
+        const base = `finance-${Math.random().toString(36).slice(2, 8)}@example.test`;
+        const holder = await makeUser();
+        await server.stores.user.update(holder.user.id, {
+            email: base,
+            clean_email: base,
+            email_confirmed: true,
+        });
+        const [local, domain] = base.split('@');
+        const distinct = `${local}+board@${domain}`;
+
+        const result = await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: distinct },
+            mode: 'read',
+        });
+
+        expect(result.holder.username).not.toBe(holder.user.username);
+        expect(await canRead(holder.actor, file.path)).toBe(false);
+    });
+
+    // The invite variant: no account need exist when the share is made.
+    it('does not let the base address claim a plus-addressed invite', async () => {
+        const owner = await makeUser();
+        const file = await makeFile(owner.user);
+        const stem = `payroll-${Math.random().toString(36).slice(2, 8)}`;
+        const base = `${stem}@example.test`;
+        const distinct = `${stem}+contractors@example.test`;
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: distinct },
+            mode: 'read',
+        });
+
+        const claimer = await makeUser();
+        await server.stores.user.update(claimer.user.id, {
+            email: base,
+            clean_email: base,
+            email_confirmed: true,
+        });
+        const claimed = await server.services.share.claimPendingShares(
+            claimer.user.id,
+            base,
+        );
+
+        expect(claimed).toEqual([]);
+        expect(await canRead(claimer.actor, file.path)).toBe(false);
+    });
+
     it('hides a file from a stranger trying to share it', async () => {
         const owner = await makeUser();
         const stranger = await makeUser();
@@ -1251,6 +1304,97 @@ describe('ShareService', () => {
         });
     });
 
+    // The other derived actor: same reach bound, a different arm of the check.
+    describe('a token is bounded by what it was minted for', () => {
+        /** Mint a token and resolve it the way an authenticated request does. */
+        const asToken = async (
+            owner: { actor: Actor },
+            permissions: Array<[string]>,
+        ) => {
+            const token = await runWithContext({ actor: owner.actor }, () =>
+                server.services.auth.createAccessToken(
+                    owner.actor,
+                    permissions,
+                    { label: 'share-test' },
+                ),
+            );
+            const actor =
+                await server.services.auth.authenticateFromToken(token);
+            if (!actor) throw new Error('token did not resolve to an actor');
+            return actor;
+        };
+
+        it('shares a file the token carries', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            const actor = await asToken(owner, [[`fs:${file.uuid}:read`]]);
+
+            const result = await share(actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            expect(result.mode).toBe('read');
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+        });
+
+        it('refuses a file of its issuer’s that the token does not carry', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const carried = await makeFile(owner.user);
+            const other = await makeFile(owner.user);
+            const actor = await asToken(owner, [[`fs:${carried.uuid}:read`]]);
+
+            await expect(
+                share(actor, {
+                    uid: other.uuid,
+                    recipient: { username: recipient.user.username },
+                    mode: 'read',
+                }),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            expect(await canRead(recipient.actor, other.path)).toBe(false);
+        });
+
+        it('cannot hand out more than it holds', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            const actor = await asToken(owner, [[`fs:${file.uuid}:read`]]);
+
+            await expect(
+                share(actor, {
+                    uid: file.uuid,
+                    recipient: { username: recipient.user.username },
+                    mode: 'write',
+                }),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            expect(await canRead(recipient.actor, file.path)).toBe(false);
+        });
+
+        it('cannot withdraw a share on a file it does not carry', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const carried = await makeFile(owner.user);
+            const other = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: other.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            const actor = await asToken(owner, [[`fs:${carried.uuid}:read`]]);
+            await expect(
+                unshare(actor, {
+                    uid: other.uuid,
+                    recipient: { username: recipient.user.username },
+                }),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            // The share it could not reach is still standing.
+            expect(await canRead(recipient.actor, other.path)).toBe(true);
+        });
+    });
+
     it('retires grants when the entry is deleted', async () => {
         const owner = await makeUser();
         const recipient = await makeUser();
@@ -1487,6 +1631,93 @@ describe('ShareService', () => {
             recipient.actor,
         );
         expect(after.items.map((i) => i.entryUid)).not.toContain(file.uuid);
+    });
+
+    // One entry's answer must not vouch for another's in the batched read.
+    it('drops a withdrawn listing even when another share survives', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const withdrawn = await makeFile(owner.user);
+        const kept = await makeFile(owner.user);
+
+        for (const file of [withdrawn, kept]) {
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+        }
+
+        await server.services.permission.revokeUserUserPermission(
+            owner.actor,
+            recipient.user.username!,
+            `fs:${withdrawn.uuid}:read`,
+        );
+        expect(await canRead(recipient.actor, withdrawn.path)).toBe(false);
+        expect(await canRead(recipient.actor, kept.path)).toBe(true);
+
+        const after = await server.services.share.listSharedWithMe(
+            recipient.actor,
+        );
+        const listed = after.items.map((i) => i.entryUid);
+        expect(listed).toContain(kept.uuid);
+        expect(listed).not.toContain(withdrawn.uuid);
+    });
+
+    // `total` counts rows; items are filtered after the page is read.
+    it('reports a total that can exceed what paging yields', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const withdrawn = await makeFile(owner.user);
+        const kept = await makeFile(owner.user);
+
+        for (const file of [withdrawn, kept]) {
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+        }
+        await server.services.permission.revokeUserUserPermission(
+            owner.actor,
+            recipient.user.username!,
+            `fs:${withdrawn.uuid}:read`,
+        );
+
+        const page = await server.services.share.listSharedWithMe(
+            recipient.actor,
+            { includeTotal: true },
+        );
+        expect(page.items.map((i) => i.entryUid)).toEqual([kept.uuid]);
+        expect(page.total).toBe(2);
+    });
+
+    // The owner's view of the same withdrawal.
+    it('stops naming a holder whose grant was withdrawn outside the index', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: recipient.email },
+            mode: 'read',
+        });
+        await server.services.permission.revokeUserUserPermission(
+            owner.actor,
+            recipient.user.username!,
+            `fs:${file.uuid}:read`,
+        );
+        expect(await canRead(recipient.actor, file.path)).toBe(false);
+
+        const shares = await runWithContext({ actor: owner.actor }, () =>
+            server.services.share.listSharesOf(owner.actor, {
+                uid: file.uuid,
+            }),
+        );
+        expect(shares.map((s) => s.holder.username)).not.toContain(
+            recipient.user.username,
+        );
     });
 
     it('lets a recipient leave a share that was never indexed', async () => {
@@ -2164,14 +2395,13 @@ describe('ShareService', () => {
     });
 
     describe('email variants resolve to the inbox, not the string', () => {
-        it('shares to the account behind a case or alias variant', async () => {
+        it('shares to the account behind a case variant', async () => {
             const owner = await makeUser();
             const recipient = await makeUser();
             const file = await makeFile(owner.user);
 
-            // `Bob@…` and `bob+x@…` are the recipient's inbox; treating them
-            // as strangers minted an unclaimable invite instead of a grant.
-            const variant = `${recipient.email.split('@')[0].toUpperCase()}+tag@test.local`;
+            // Treating `Bob@…` as a stranger minted an unclaimable invite.
+            const variant = recipient.email.toUpperCase();
             const result = await share(owner.actor, {
                 uid: file.uuid,
                 recipient: { email: variant },
