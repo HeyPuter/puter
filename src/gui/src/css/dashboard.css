@@ -2771,6 +2771,11 @@ select.share-modal-row-mode:focus {
     .share-modal-overlay.share-modal-show .share-modal {
         transform: translateY(0);
     }
+    /* The sheet sits flush with the physical bottom edge (viewport-fit=
+       cover), so the scrollable body clears the home indicator itself. */
+    .share-modal-body {
+        padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {
