@@ -1251,6 +1251,97 @@ describe('ShareService', () => {
         });
     });
 
+    // The other derived actor: same reach bound, a different arm of the check.
+    describe('a token is bounded by what it was minted for', () => {
+        /** Mint a token and resolve it the way an authenticated request does. */
+        const asToken = async (
+            owner: { actor: Actor },
+            permissions: Array<[string]>,
+        ) => {
+            const token = await runWithContext({ actor: owner.actor }, () =>
+                server.services.auth.createAccessToken(
+                    owner.actor,
+                    permissions,
+                    { label: 'share-test' },
+                ),
+            );
+            const actor =
+                await server.services.auth.authenticateFromToken(token);
+            if (!actor) throw new Error('token did not resolve to an actor');
+            return actor;
+        };
+
+        it('shares a file the token carries', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            const actor = await asToken(owner, [[`fs:${file.uuid}:read`]]);
+
+            const result = await share(actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            expect(result.mode).toBe('read');
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+        });
+
+        it('refuses a file of its issuer’s that the token does not carry', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const carried = await makeFile(owner.user);
+            const other = await makeFile(owner.user);
+            const actor = await asToken(owner, [[`fs:${carried.uuid}:read`]]);
+
+            await expect(
+                share(actor, {
+                    uid: other.uuid,
+                    recipient: { username: recipient.user.username },
+                    mode: 'read',
+                }),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            expect(await canRead(recipient.actor, other.path)).toBe(false);
+        });
+
+        it('cannot hand out more than it holds', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            const actor = await asToken(owner, [[`fs:${file.uuid}:read`]]);
+
+            await expect(
+                share(actor, {
+                    uid: file.uuid,
+                    recipient: { username: recipient.user.username },
+                    mode: 'write',
+                }),
+            ).rejects.toMatchObject({ statusCode: 403 });
+            expect(await canRead(recipient.actor, file.path)).toBe(false);
+        });
+
+        it('cannot withdraw a share on a file it does not carry', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const carried = await makeFile(owner.user);
+            const other = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: other.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            const actor = await asToken(owner, [[`fs:${carried.uuid}:read`]]);
+            await expect(
+                unshare(actor, {
+                    uid: other.uuid,
+                    recipient: { username: recipient.user.username },
+                }),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            // The share it could not reach is still standing.
+            expect(await canRead(recipient.actor, other.path)).toBe(true);
+        });
+    });
+
     it('retires grants when the entry is deleted', async () => {
         const owner = await makeUser();
         const recipient = await makeUser();
@@ -1487,6 +1578,65 @@ describe('ShareService', () => {
             recipient.actor,
         );
         expect(after.items.map((i) => i.entryUid)).not.toContain(file.uuid);
+    });
+
+    // One entry's answer must not vouch for another's in the batched read.
+    it('drops a withdrawn listing even when another share survives', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const withdrawn = await makeFile(owner.user);
+        const kept = await makeFile(owner.user);
+
+        for (const file of [withdrawn, kept]) {
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+        }
+
+        await server.services.permission.revokeUserUserPermission(
+            owner.actor,
+            recipient.user.username!,
+            `fs:${withdrawn.uuid}:read`,
+        );
+        expect(await canRead(recipient.actor, withdrawn.path)).toBe(false);
+        expect(await canRead(recipient.actor, kept.path)).toBe(true);
+
+        const after = await server.services.share.listSharedWithMe(
+            recipient.actor,
+        );
+        const listed = after.items.map((i) => i.entryUid);
+        expect(listed).toContain(kept.uuid);
+        expect(listed).not.toContain(withdrawn.uuid);
+    });
+
+    // The owner's view of the same withdrawal.
+    it('stops naming a holder whose grant was withdrawn outside the index', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const file = await makeFile(owner.user);
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: recipient.email },
+            mode: 'read',
+        });
+        await server.services.permission.revokeUserUserPermission(
+            owner.actor,
+            recipient.user.username!,
+            `fs:${file.uuid}:read`,
+        );
+        expect(await canRead(recipient.actor, file.path)).toBe(false);
+
+        const shares = await runWithContext({ actor: owner.actor }, () =>
+            server.services.share.listSharesOf(owner.actor, {
+                uid: file.uuid,
+            }),
+        );
+        expect(shares.map((s) => s.holder.username)).not.toContain(
+            recipient.user.username,
+        );
     });
 
     it('lets a recipient leave a share that was never indexed', async () => {
