@@ -2397,6 +2397,9 @@ input.share-modal-recipient {
     flex: 1 1 auto;
     width: auto;
     min-width: 0;
+    /* On narrow screens the placeholder outgrows the field; fade it out
+       with an ellipsis instead of clipping mid-letter. */
+    text-overflow: ellipsis;
     padding: 8px 10px;
     border: 1px solid var(--dashboard-border);
     border-radius: 8px;
