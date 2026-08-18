@@ -640,6 +640,53 @@ describe('share consistency across KV, SQL and Redis', () => {
             // answering "allowed" until its generation moves.
             expect(await canRead(B.actor, entry.path)).toBe(false);
         });
+
+        // Arrives as a replicated SQL delete plus the invalidation events.
+        it('applies a revoke that happened in another region', async () => {
+            const A = await makeParty('A');
+            const B = await makeParty('B');
+            const entry = await makeEntry(A);
+
+            await share(A.actor, {
+                uid: entry.uuid,
+                recipient: { email: B.email },
+                mode: 'read',
+            });
+            // Warm this region's scan cache and flat entry.
+            expect(await canRead(B.actor, entry.path)).toBe(true);
+
+            const permission = `fs:${entry.uuid}:read`;
+            // The peer's write, as SQL replication delivers it: rows only.
+            await server.clients.db.write(
+                'DELETE FROM `user_to_user_permissions` WHERE `holder_user_id` = ? AND `permission` = ?',
+                [B.id, permission],
+            );
+
+            // Still allowed — the caches this region owns were never told.
+            expect(await canRead(B.actor, entry.path)).toBe(true);
+
+            for (const [event, data] of [
+                // Row cache, flat view and generation are each per-cluster.
+                [
+                    'outer.cacheUpdate',
+                    { cacheKey: [`perms:u2u:holder:${B.id}`] },
+                ],
+                [
+                    'outer.permission.flatInvalidated',
+                    { entries: [{ holderUserId: B.id, permission }] },
+                ],
+                [
+                    'outer.permission.generationBumped',
+                    { actorUids: [`user:${B.uuid}`] },
+                ],
+            ] as const) {
+                await server.clients.event.emitAndWait(event, data, {
+                    from_outside: true,
+                });
+            }
+
+            expect(await canRead(B.actor, entry.path)).toBe(false);
+        });
     });
 
     describe('a caller who cannot see the item', () => {
