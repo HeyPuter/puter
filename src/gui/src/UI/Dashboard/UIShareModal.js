@@ -22,49 +22,16 @@ import item_icon from '../../helpers/item_icon.js';
 import { owner_of_path } from '../../helpers/path_owner.js';
 import { invalidate_shared_roots } from '../../helpers/shared_access.js';
 import { icons } from '../../helpers/actionIcons.js';
+import { mode_label, options_for } from '../../helpers/share_modes.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
+import { avatarHue, avatarInitial } from './shareAvatar.js';
 
 const { html_encode } = window;
 
 const closeIcon = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
 
-// Offered when granting. The API accepts `see` and `list` too, but they are a
-// developer-level distinction with no place in this dialog — a row already set
-// to one is shown as-is rather than quietly rounded up to `read`.
-const MODES = ['read', 'write', 'manage'];
-
-// Raw (unencoded) text: i18n() html-encodes by default, and callers wrap this
-// in html_encode() — leaving that on would render "&" as a literal "&amp;".
-const mode_label = (mode) => {
-    if ( mode === 'write' ) return i18n('share_access_write', [], false);
-    if ( mode === 'manage' ) return i18n('share_access_manage', [], false);
-    if ( mode === 'read' ) return i18n('share_access_read', [], false);
-    return mode;
-};
-
-const options_for = (current) => {
-    const modes = MODES.includes(current) ? MODES : [current, ...MODES];
-    return modes
-        .map(
-            (mode) =>
-                `<option value="${html_encode(mode)}"${mode === current ? ' selected' : ''}>${html_encode(mode_label(mode))}</option>`,
-        )
-        .join('');
-};
-
-// Stable, name-derived hue so a person keeps the same avatar color across
-// rows and reopenings. The CSS derives both fill and glyph color from it.
-const hue_for = (name) => {
-    let hue = 0;
-    for ( let i = 0; i < name.length; i++ ) {
-        hue = (hue * 31 + name.charCodeAt(i)) % 360;
-    }
-    return hue;
-};
-
 const avatar_html = (name) => {
-    const initial = (name || '?').trim().charAt(0).toUpperCase() || '?';
-    return `<span class="share-modal-avatar" style="--share-avatar-hue: ${hue_for(name || '')}" aria-hidden="true">${html_encode(initial)}</span>`;
+    return `<span class="share-modal-avatar" style="--share-avatar-hue: ${avatarHue(name)}" aria-hidden="true">${html_encode(avatarInitial(name))}</span>`;
 };
 
 /**
@@ -183,19 +150,22 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
         $overlay.find('.share-modal').get(0)?.focus({ preventScroll: true });
     };
 
-    const show_error = (message) => {
+    // Both take HTML-safe text; `error_html` encodes the one raw source.
+    const show_error = (html) => {
         $status
             .removeClass('share-modal-status-success')
             .addClass('share-modal-status-error')
-            .html(html_encode(message));
+            .html(html);
     };
 
-    const show_success = (message_html) => {
+    const show_success = (html) => {
         $status
             .removeClass('share-modal-status-error')
             .addClass('share-modal-status-success')
-            .html(message_html);
+            .html(html);
     };
+
+    const error_html = (err) => (err?.message ? html_encode(err.message) : i18n('share_failed'));
 
     const clear_status = () => {
         $status.removeClass('share-modal-status-error share-modal-status-success').empty();
@@ -220,7 +190,18 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
                 rows += '<div class="share-modal-row share-modal-row-inherited">';
                 rows += avatar_html(share.holder ?? '');
                 rows += `<span class="share-modal-row-who"><span class="share-modal-row-name enable-user-select">${holder}${you_suffix}</span><span class="share-modal-row-via">${i18n('share_inherited_via', { folder: path.basename(share.inheritedFrom) })}</span></span>`;
-                rows += `<span class="share-modal-row-tag">${html_encode(mode_label(share.mode))}</span>`;
+                rows += `<span class="share-modal-row-tag">${mode_label(share.mode)}</span>`;
+                rows += '</div>';
+                continue;
+            }
+            if ( share.pending ) {
+                // Invited by email with no account yet: nothing to change until they join.
+                const invited = share.recipientEmail ?? '';
+                rows += '<div class="share-modal-row share-modal-row-pending">';
+                rows += avatar_html(invited);
+                rows += `<span class="share-modal-row-who"><span class="share-modal-row-name enable-user-select">${html_encode(invited)}</span><span class="share-modal-row-via">${i18n('share_awaiting_signup')}</span></span>`;
+                rows += `<span class="share-modal-row-tag">${mode_label(share.mode)}</span>`;
+                rows += `<button type="button" class="share-modal-revoke" data-holder="${html_encode(invited)}" title="${i18n('share_cancel_invite')}" aria-label="${i18n('share_cancel_invite_for', { recipient: invited })}">${icons.trash}</button>`;
                 rows += '</div>';
                 continue;
             }
@@ -245,7 +226,7 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
             render(await puter.fs.getShares(item_path));
         } catch (e) {
             $list.attr('aria-busy', 'false').empty();
-            show_error(e?.message ?? i18n('share_failed', [], false));
+            show_error(error_html(e));
         }
     };
 
@@ -325,18 +306,25 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
 
         $submit.prop('disabled', true).addClass('share-modal-btn-busy');
         try {
-            await puter.fs.share({
+            const created = await puter.fs.share({
                 path: item_path,
                 recipient,
                 mode: $overlay.find('.share-modal-mode').val(),
             });
-            $recipient.val('');
-            show_success(i18n('share_shared_with', { recipient }));
+            // Clear only what we sent; a name typed mid-flight shouldn't vanish.
+            if ( $recipient.val().trim() === recipient ) $recipient.val('');
+            $submit.prop('disabled', $recipient.val().trim() === '');
+            // "Shared with" would claim access an invite does not grant.
+            show_success(
+                created?.some((share) => share.pending)
+                    ? i18n('share_invited', { recipient })
+                    : i18n('share_shared_with', { recipient }),
+            );
             invalidate_shared_roots();
             await refresh();
             $recipient.get(0)?.focus({ preventScroll: true });
         } catch (err) {
-            show_error(err?.message ?? i18n('share_failed', [], false));
+            show_error(error_html(err));
             $submit.prop('disabled', false);
             // Disabling the clicked button dropped focus to <body>; put it
             // where the correction happens.
@@ -357,7 +345,7 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
             invalidate_shared_roots();
             await refresh();
         } catch (err) {
-            show_error(err?.message ?? i18n('share_failed', [], false));
+            show_error(error_html(err));
             invalidate_shared_roots();
             await refresh();
         }
@@ -368,6 +356,8 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
     $overlay.on('click', '.share-modal-revoke', function () {
         const holder = $(this).attr('data-holder');
         const enc = html_encode(holder);
+        // Withdrawing an invitation isn't taking access away; the prompt must say which.
+        const is_pending = $(this).closest('.share-modal-row').hasClass('share-modal-row-pending');
         // One confirmation at a time: opening a second one restores the first
         // row. The re-render replaces every row, so re-find this holder's
         // instead of using the (now detached) clicked button.
@@ -379,10 +369,10 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
             .closest('.share-modal-row')
             .replaceWith(`
             <div class="share-modal-row share-modal-row-confirm" data-holder="${enc}">
-                <span class="share-modal-confirm-text">${i18n('share_confirm_remove', { recipient: holder })}</span>
+                <span class="share-modal-confirm-text">${is_pending ? i18n('share_confirm_cancel_invite', { recipient: holder }) : i18n('share_confirm_remove', { recipient: holder })}</span>
                 <span class="share-modal-confirm-actions">
                     <button type="button" class="share-modal-btn-quiet share-modal-confirm-cancel">${i18n('cancel')}</button>
-                    <button type="button" class="share-modal-btn-danger share-modal-confirm-remove" data-holder="${enc}">${i18n('share_remove')}</button>
+                    <button type="button" class="share-modal-btn-danger share-modal-confirm-remove" data-holder="${enc}" data-pending="${is_pending}">${i18n('share_remove')}</button>
                 </span>
             </div>
         `);
@@ -397,17 +387,20 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
 
     $overlay.on('click', '.share-modal-confirm-remove', async function () {
         const holder = $(this).attr('data-holder');
+        const is_pending = $(this).attr('data-pending') === 'true';
         $(this).closest('.share-modal-row-confirm').find('button').prop('disabled', true);
         try {
             await puter.fs.unshare(item_path, holder);
-            show_success(i18n('share_access_removed', { recipient: holder }));
+            show_success(is_pending
+                ? i18n('share_invite_cancelled', { recipient: holder })
+                : i18n('share_access_removed', { recipient: holder }));
             invalidate_shared_roots();
             await refresh();
             // The focused row is gone; the dialog itself takes focus (the
             // input would pop the on-screen keyboard on touch devices).
             focus_dialog();
         } catch (err) {
-            show_error(err?.message ?? i18n('share_failed', [], false));
+            show_error(error_html(err));
             render(last_shares);
             focus_list_control('.share-modal-revoke', holder) || focus_dialog();
         }
