@@ -387,14 +387,14 @@ for await (const part of resp) {
 
 ## Examples
 
-<strong class="example-title">Ask GPT-5.4 nano a question</strong>
+<strong class="example-title">Ask GPT-5.6 Luna a question</strong>
 
 ```html;ai-chatgpt
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
     <script>
-        puter.ai.chat(`What is life?`, { model: "gpt-5.4-nano" }).then(puter.print);
+        puter.ai.chat(`What is life?`, { model: "gpt-5.6-luna" }).then(puter.print);
     </script>
 </body>
 </html>
@@ -410,7 +410,7 @@ for await (const part of resp) {
     <script>
         puter.ai
             .chat(`What do you see?`, `https://assets.puter.site/doge.jpeg`, {
-                model: "gpt-5.4-nano",
+                model: "gpt-5.6-luna",
             })
             .then(puter.print);
     </script>
