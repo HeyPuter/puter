@@ -37,6 +37,9 @@ import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
 const BOOT_TIMEOUT_MS = 120_000;
 const SETTLE_MS = 300;
 
+/** Window for the tests that need several calls to land inside one. */
+const DIGEST_WINDOW_SECONDS = 3;
+
 /** One send, as the transport would have received it. */
 interface SentEmail {
     to: string;
@@ -52,6 +55,39 @@ const uninvitedAddress = (): string => `invited-${uniqueSuffix()}@puter.local`;
 
 const sleep = (ms: number): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Run `body` with the digest window widened, for the tests whose point is that
+ * several calls land in one window.
+ *
+ * The suite's default window is short enough that the run doesn't wait on it,
+ * which is fine for a test making one call — but a test making four sequential
+ * round trips inside it is racing the timer, and on a loaded runner the last
+ * one lands after the window closed and arrives as a second email. Widening it
+ * for those cases costs the run that much wall clock and nothing else: the
+ * behaviour under test is what the digest *contains*, not how long it waits.
+ */
+const withDigestWindow = async <T>(
+    env: PuterTestEnv,
+    seconds: number,
+    body: () => Promise<T>,
+): Promise<T> => {
+    // Read off the service, which holds the same config object the server was
+    // built with — `#limits()` re-reads it per call, so this takes effect
+    // without a reboot. Same shape as `OIDCService.test.ts`.
+    const limits = (
+        env.server.services.shareNotification.config as {
+            share_notify_limits: { emailBatchSeconds?: number };
+        }
+    ).share_notify_limits;
+    const previous = limits.emailBatchSeconds;
+    limits.emailBatchSeconds = seconds;
+    try {
+        return await body();
+    } finally {
+        limits.emailBatchSeconds = previous;
+    }
+};
 
 describe('share email', () => {
     let env: PuterTestEnv;
@@ -361,8 +397,10 @@ describe('share email', () => {
 
         const fromFirst = await makeFile(first, 'digest-a');
         const fromSecond = await makeFile(second, 'digest-b');
-        await shareWith(first, recipient.email, [{ uid: fromFirst.uid }]);
-        await shareWith(second, recipient.email, [{ uid: fromSecond.uid }]);
+        await withDigestWindow(env, DIGEST_WINDOW_SECONDS, async () => {
+            await shareWith(first, recipient.email, [{ uid: fromFirst.uid }]);
+            await shareWith(second, recipient.email, [{ uid: fromSecond.uid }]);
+        });
 
         // Two people sharing within the window is one email that names them
         // both — not two messages ten seconds apart.
@@ -387,10 +425,13 @@ describe('share email', () => {
         // interrupt, but all four must reach the digest.
         const files = [];
         for (const label of ['one', 'two', 'three', 'four']) {
-            const file = await makeFile(owner, label);
-            files.push(file);
-            await shareWith(owner, recipient.email, [{ uid: file.uid }]);
+            files.push(await makeFile(owner, label));
         }
+        await withDigestWindow(env, DIGEST_WINDOW_SECONDS, async () => {
+            for (const file of files) {
+                await shareWith(owner, recipient.email, [{ uid: file.uid }]);
+            }
+        });
 
         const mail = await waitForMail({ to: recipient.email });
         await sleep(SETTLE_MS);
@@ -524,7 +565,8 @@ describe('share email digest durability', () => {
         const invitee = `orphan-${crypto.randomUUID().slice(0, 8)}@puter.local`;
 
         // An entry with no timer anywhere — what a restart or a rolling deploy
-        // leaves behind. Queued in the past so it is already due.
+        // leaves behind. Queued far enough in the past to be past its window
+        // and the sweep's grace on top of it.
         await env.server.stores.kv.set({
             key: `share:digest:invite:${invitee}:${crypto.randomUUID()}`,
             value: {
@@ -533,7 +575,7 @@ describe('share email digest durability', () => {
                 sender: owner.username,
                 count: 1,
                 names: ['orphan.txt'],
-                queuedAt: Date.now() - 10 * 60_000,
+                queuedAt: Date.now() - 60 * 60_000,
             },
         });
 
@@ -542,6 +584,32 @@ describe('share email digest durability', () => {
         expect(sent).toHaveLength(1);
         expect(sent[0].to).toBe(invitee);
         expect(sent[0].html).toContain('orphan.txt');
+    });
+
+    it('leaves an entry whose window has only just closed to its own timer', async () => {
+        const owner = env.users.user;
+        const invitee = `fresh-${crypto.randomUUID().slice(0, 8)}@puter.local`;
+
+        // Past its window, but only just. Claiming an entry is exclusive only
+        // among flushers that can see each other's deletes, so a sweep that
+        // pounced the instant a window closed could send a digest another node
+        // is at that moment sending too. The grace is what keeps that from
+        // being a coin flip.
+        await env.server.stores.kv.set({
+            key: `share:digest:invite:${invitee}:${crypto.randomUUID()}`,
+            value: {
+                kind: 'invite',
+                to: invitee,
+                sender: owner.username,
+                count: 1,
+                names: ['fresh.txt'],
+                queuedAt: Date.now() - 11 * 60_000,
+            },
+        });
+
+        await env.server.services.shareNotification.sweepForTests();
+
+        expect(sent.filter((mail) => mail.to === invitee)).toHaveLength(0);
     });
 
     it('holds queued sends durably and drains them once on shutdown', async () => {
