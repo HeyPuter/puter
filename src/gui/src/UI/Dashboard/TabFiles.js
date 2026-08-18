@@ -664,6 +664,12 @@ const TabFiles = {
             // Only handle if Dashboard Files tab is active
             if ( ! _this.isDashboardFilesActive() ) return;
 
+            // A Files-tab modal (share, item properties) owns the keyboard
+            // while open: Enter/Space must reach its buttons, arrows its
+            // selects, and typing must not retarget row selection — nor may
+            // Enter/Delete open or trash the rows behind the overlay.
+            if ( $('.share-modal-overlay, .item-props-overlay').length > 0 ) return;
+
             const focused_el = document.activeElement;
 
             // Skip if user is typing in an input/textarea (except for Escape)
