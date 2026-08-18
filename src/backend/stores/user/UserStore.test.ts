@@ -532,6 +532,100 @@ describe('UserStore batched and uncached lookups', () => {
         ).resolves.toBeUndefined();
     });
 
+    describe('referral codes', () => {
+        it('claims a code once and resolves it back to the account', async () => {
+            const user = await makeUser();
+            expect(user.referral_code ?? null).toBeNull();
+
+            expect(
+                await server.stores.user.claimReferralCode(user.id, 'ABCD1234'),
+            ).toBe(true);
+            expect(
+                (await server.stores.user.getById(user.id))?.referral_code,
+            ).toBe('ABCD1234');
+
+            const resolved =
+                await server.stores.user.getByReferralCode('ABCD1234');
+            expect(resolved?.id).toBe(user.id);
+        });
+
+        it('refuses a second claim, so a shared code cannot be replaced', async () => {
+            const user = await makeUser();
+            await server.stores.user.claimReferralCode(user.id, 'FIRST123');
+
+            expect(
+                await server.stores.user.claimReferralCode(user.id, 'SECOND12'),
+            ).toBe(false);
+            expect(
+                (await server.stores.user.getById(user.id))?.referral_code,
+            ).toBe('FIRST123');
+            expect(
+                await server.stores.user.getByReferralCode('SECOND12'),
+            ).toBeNull();
+        });
+
+        it('lets the database reject a code another account already holds', async () => {
+            const first = await makeUser();
+            const second = await makeUser();
+            await server.stores.user.claimReferralCode(first.id, 'TAKEN123');
+
+            await expect(
+                server.stores.user.claimReferralCode(second.id, 'TAKEN123'),
+            ).rejects.toMatchObject({
+                code: expect.stringContaining('SQLITE_CONSTRAINT'),
+            });
+            expect(
+                (await server.stores.user.getByReferralCode('TAKEN123'))?.id,
+            ).toBe(first.id);
+        });
+
+        it('resolves a code however it was typed, and rejects non-codes', async () => {
+            const user = await makeUser();
+            await server.stores.user.claimReferralCode(user.id, 'MIXED123');
+
+            for (const typed of ['mixed123', 'MiXeD123', '  mixed123  ']) {
+                expect(
+                    (await server.stores.user.getByReferralCode(typed))?.id,
+                ).toBe(user.id);
+            }
+            // Never reaches the DB, so a code-shaped injection can't either.
+            expect(
+                await server.stores.user.getByReferralCode("' OR 1=1 --"),
+            ).toBeNull();
+        });
+
+        it('stops resolving a code the account no longer holds', async () => {
+            const user = await makeUser();
+            await server.stores.user.claimReferralCode(user.id, 'OLDCODE1');
+            // Warm the cache under the code's key.
+            expect(
+                (await server.stores.user.getByReferralCode('OLDCODE1'))?.id,
+            ).toBe(user.id);
+
+            await server.stores.user.update(user.id, {
+                referral_code: 'NEWCODE1',
+            });
+
+            expect(
+                await server.stores.user.getByReferralCode('OLDCODE1'),
+            ).toBeNull();
+            expect(
+                (await server.stores.user.getByReferralCode('NEWCODE1'))?.id,
+            ).toBe(user.id);
+        });
+
+        it('allows any number of accounts without a code', async () => {
+            const first = await makeUser();
+            const second = await makeUser();
+            expect(
+                (await server.stores.user.getById(first.id))?.referral_code,
+            ).toBeNull();
+            expect(
+                (await server.stores.user.getById(second.id))?.referral_code,
+            ).toBeNull();
+        });
+    });
+
     it('normalizes a corrupt metadata column to an empty object', async () => {
         const user = await makeUser();
         await server.clients.db.write(

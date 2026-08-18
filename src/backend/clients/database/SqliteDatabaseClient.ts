@@ -97,6 +97,7 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [60, ['0065_app-feedback.sql']],
     [61, ['0066_owned-email-unique.sql']],
     [62, ['0067_share_entries.sql']],
+    [63, ['0068_referral-code-unique.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {
