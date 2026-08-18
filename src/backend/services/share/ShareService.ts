@@ -22,7 +22,11 @@ import { posix as pathPosix } from 'node:path';
 import { userRelatedActor, type Actor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
 import { isUniqueViolation } from '../../util/dbError.js';
-import { cleanEmail } from '../../util/email.js';
+import {
+    abuseKey,
+    cleanEmail,
+    isProviderCanonicalized,
+} from '../../util/email.js';
 import type { FSEntry } from '../../stores/fs/FSEntry';
 import type { UserRow } from '../../stores/user/UserStore';
 import type { AclMode } from '../acl/ACLService';
@@ -1089,35 +1093,39 @@ export class ShareService extends PuterService {
                 size: entry.size,
             }));
 
-        const own: ResolvedShare[] = rows.filter(isLive).map(
-            (row: {
-                uid: string;
-                mode: string;
-                issuer_user_id: number;
-                holder_user_id: number;
-                created_at: unknown;
-                data?: unknown;
-            }): ResolvedShare => ({
-                uid: row.uid,
-                mode: row.mode,
-                path: maskedPath,
-                entryUid: entry.uuid,
-                isDir: Boolean(entry.isDir),
-                issuer: {
-                    username:
-                        users.get(Number(row.issuer_user_id))?.username ?? null,
-                },
-                holder: {
-                    username:
-                        users.get(Number(row.holder_user_id))?.username ?? null,
-                },
-                createdAt: row.created_at,
-                issuedByApp: issuedByApp(row),
-                inheritedFrom: null,
-                modified: entry.modified,
-                size: entry.size,
-            }),
-        );
+        const own: ResolvedShare[] = rows
+            .filter(isLive)
+            .map(
+                (row: {
+                    uid: string;
+                    mode: string;
+                    issuer_user_id: number;
+                    holder_user_id: number;
+                    created_at: unknown;
+                    data?: unknown;
+                }): ResolvedShare => ({
+                    uid: row.uid,
+                    mode: row.mode,
+                    path: maskedPath,
+                    entryUid: entry.uuid,
+                    isDir: Boolean(entry.isDir),
+                    issuer: {
+                        username:
+                            users.get(Number(row.issuer_user_id))?.username ??
+                            null,
+                    },
+                    holder: {
+                        username:
+                            users.get(Number(row.holder_user_id))?.username ??
+                            null,
+                    },
+                    createdAt: row.created_at,
+                    issuedByApp: issuedByApp(row),
+                    inheritedFrom: null,
+                    modified: entry.modified,
+                    size: entry.size,
+                }),
+            );
         // Nobody holds an invite yet, but whoever manages the node needs to
         // see who was asked, and be able to take it back.
         const pending: ResolvedShare[] = pendingRows.map(
@@ -1459,6 +1467,12 @@ export class ShareService extends PuterService {
             });
         }
 
+        // An alias we won't grant on can still land in the blocker's inbox.
+        const mayReach =
+            (await this.stores.user.findEmailOwner(email)) ??
+            (await this.stores.user.getByCleanEmail(abuseKey(email)));
+        if (mayReach) await this.#assertNotBlocked(issuerId, mayReach);
+
         // Stored canonicalized, because claiming matches on it: the confirmed
         // address arrives in whatever form the signup normalized to, and an
         // exact match against what the sharer happened to type loses the
@@ -1580,13 +1594,9 @@ export class ShareService extends PuterService {
     > {
         const email = recipient?.email?.trim();
         const username = recipient?.username?.trim();
-        // `findEmailOwner`, not an exact match: `Bob@…` and `bob+x@…` are the
-        // same inbox, and resolving them to the account is what routes an
-        // alias through the same self/owner/blocked checks as the address
-        // itself — an exact match here turned any variant into an invite that
-        // skipped all three.
+        // Case and provider aliases resolve to the account; see #addressOwner.
         const user = email
-            ? await this.stores.user.findEmailOwner(email)
+            ? await this.#addressOwner(email)
             : username
               ? await this.stores.user.getByUsername(username)
               : null;
@@ -1602,6 +1612,16 @@ export class ShareService extends PuterService {
             });
         }
         return { kind: 'user', user };
+    }
+
+    /** Who holds this address. A rewritten local part needs a known domain. */
+    async #addressOwner(email: string): Promise<UserRow | null> {
+        const owner = await this.stores.user.findEmailOwner(email);
+        if (!owner?.email) return owner ?? null;
+        const sameAddress =
+            owner.email.trim().toLowerCase() === email.trim().toLowerCase();
+        if (sameAddress || isProviderCanonicalized(email)) return owner;
+        return null;
     }
 
     /**

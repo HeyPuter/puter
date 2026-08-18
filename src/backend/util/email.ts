@@ -41,28 +41,39 @@ const RULES: Record<RuleName, (p: Parts) => void> = {
     },
 };
 
-/**
- * Providers whose addresses should be canonicalized before comparison. `rules`
- * are added on top of the default `remove_subaddressing`; `rmrules` are
- * subtracted (Yahoo permits `+` in local parts).
- */
-const PROVIDERS: Record<string, { rules?: RuleName[]; rmrules?: RuleName[] }> =
-    {
-        gmail: { rules: ['dots_dont_matter'] },
-        icloud: { rules: ['dots_dont_matter'] },
-        yahoo: { rmrules: ['remove_subaddressing'] },
-    };
+/** Rules each provider's semantics allow. Unlisted domains get none. */
+const PROVIDERS: Record<string, { rules: RuleName[] }> = {
+    gmail: { rules: ['dots_dont_matter', 'remove_subaddressing'] },
+    icloud: { rules: ['dots_dont_matter', 'remove_subaddressing'] },
+    outlook: { rules: ['remove_subaddressing'] },
+    proton: { rules: ['remove_subaddressing'] },
+    fastmail: { rules: ['remove_subaddressing'] },
+    zoho: { rules: ['remove_subaddressing'] },
+    // Listed to record the finding: yahoo makes `+` significant, using `-`.
+    yahoo: { rules: [] },
+};
 
 const DOMAIN_TO_PROVIDER: Record<string, string> = {
     'gmail.com': 'gmail',
     'googlemail.com': 'gmail',
+    'icloud.com': 'icloud',
+    'me.com': 'icloud',
+    'mac.com': 'icloud',
+    'outlook.com': 'outlook',
+    'hotmail.com': 'outlook',
+    'live.com': 'outlook',
+    'msn.com': 'outlook',
+    'proton.me': 'proton',
+    'protonmail.com': 'proton',
+    'pm.me': 'proton',
+    'fastmail.com': 'fastmail',
+    'fastmail.fm': 'fastmail',
+    'zoho.com': 'zoho',
+    'zohomail.com': 'zoho',
     'yahoo.com': 'yahoo',
     'yahoo.co.uk': 'yahoo',
     'yahoo.ca': 'yahoo',
     'yahoo.com.au': 'yahoo',
-    'icloud.com': 'icloud',
-    'me.com': 'icloud',
-    'mac.com': 'icloud',
 };
 
 /** Aliases that resolve to the same inbox on the provider side. */
@@ -85,15 +96,23 @@ export function cleanEmail(email: string): string {
         domain: DOMAIN_NONDISTINCT[domainRaw] ?? domainRaw,
     };
 
-    const applied = new Set<RuleName>(['remove_subaddressing']);
+    // Nothing is assumed about a domain we don't know: lowercasing only.
     const provider = PROVIDERS[DOMAIN_TO_PROVIDER[parts.domain] ?? ''];
-    if (provider) {
-        for (const r of provider.rules ?? []) applied.add(r);
-        for (const r of provider.rmrules ?? []) applied.delete(r);
-    }
-    for (const rule of applied) RULES[rule](parts);
+    for (const rule of provider?.rules ?? []) RULES[rule](parts);
 
     return `${parts.local}@${parts.domain}`;
+}
+
+/** Strips `+` on any domain. For abuse decisions only, never for identity. */
+export function abuseKey(email: string): string {
+    const [local, domain] = cleanEmail(email).split('@');
+    return domain ? `${local.split('+')[0]}@${domain}` : local;
+}
+
+/** Whether we have asserted how this domain treats its own local parts. */
+export function isProviderCanonicalized(email: string): boolean {
+    const domain = email.toLowerCase().split('@')[1] ?? '';
+    return Boolean(DOMAIN_TO_PROVIDER[DOMAIN_NONDISTINCT[domain] ?? domain]);
 }
 
 /**

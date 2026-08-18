@@ -237,6 +237,59 @@ describe('ShareService', () => {
         expect(await canRead(squatter.actor, file.path)).toBe(true);
     });
 
+    // `+` is only an alias separator where the domain says so.
+    it('does not hand a plus-addressed share to the base account', async () => {
+        const owner = await makeUser();
+        const file = await makeFile(owner.user);
+        const base = `finance-${Math.random().toString(36).slice(2, 8)}@example.test`;
+        const holder = await makeUser();
+        await server.stores.user.update(holder.user.id, {
+            email: base,
+            clean_email: base,
+            email_confirmed: true,
+        });
+        const [local, domain] = base.split('@');
+        const distinct = `${local}+board@${domain}`;
+
+        const result = await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: distinct },
+            mode: 'read',
+        });
+
+        expect(result.holder.username).not.toBe(holder.user.username);
+        expect(await canRead(holder.actor, file.path)).toBe(false);
+    });
+
+    // The invite variant: no account need exist when the share is made.
+    it('does not let the base address claim a plus-addressed invite', async () => {
+        const owner = await makeUser();
+        const file = await makeFile(owner.user);
+        const stem = `payroll-${Math.random().toString(36).slice(2, 8)}`;
+        const base = `${stem}@example.test`;
+        const distinct = `${stem}+contractors@example.test`;
+
+        await share(owner.actor, {
+            uid: file.uuid,
+            recipient: { email: distinct },
+            mode: 'read',
+        });
+
+        const claimer = await makeUser();
+        await server.stores.user.update(claimer.user.id, {
+            email: base,
+            clean_email: base,
+            email_confirmed: true,
+        });
+        const claimed = await server.services.share.claimPendingShares(
+            claimer.user.id,
+            base,
+        );
+
+        expect(claimed).toEqual([]);
+        expect(await canRead(claimer.actor, file.path)).toBe(false);
+    });
+
     it('hides a file from a stranger trying to share it', async () => {
         const owner = await makeUser();
         const stranger = await makeUser();
@@ -2342,14 +2395,13 @@ describe('ShareService', () => {
     });
 
     describe('email variants resolve to the inbox, not the string', () => {
-        it('shares to the account behind a case or alias variant', async () => {
+        it('shares to the account behind a case variant', async () => {
             const owner = await makeUser();
             const recipient = await makeUser();
             const file = await makeFile(owner.user);
 
-            // `Bob@…` and `bob+x@…` are the recipient's inbox; treating them
-            // as strangers minted an unclaimable invite instead of a grant.
-            const variant = `${recipient.email.split('@')[0].toUpperCase()}+tag@test.local`;
+            // Treating `Bob@…` as a stranger minted an unclaimable invite.
+            const variant = recipient.email.toUpperCase();
             const result = await share(owner.actor, {
                 uid: file.uuid,
                 recipient: { email: variant },
