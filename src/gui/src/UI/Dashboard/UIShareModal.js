@@ -227,8 +227,11 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
             rows += '<div class="share-modal-row">';
             rows += avatar_html(share.holder ?? '');
             rows += `<span class="share-modal-row-who"><span class="share-modal-row-name enable-user-select">${holder}${you_suffix}</span></span>`;
-            rows += `<select class="share-modal-row-mode" data-holder="${holder}" aria-label="${i18n('share_access_level')}">${options_for(share.mode)}</select>`;
-            rows += `<button type="button" class="share-modal-revoke" data-holder="${holder}" title="${i18n('share_remove_access')}" aria-label="${i18n('share_remove_access')}">${icons.trash}</button>`;
+            // The accessible names carry the holder: a list where every row
+            // reads as bare "Access level" / "Remove access" leaves a screen
+            // reader user unable to tell whose grant a control changes.
+            rows += `<select class="share-modal-row-mode" data-holder="${holder}" aria-label="${i18n('share_access_level_for', { recipient: share.holder ?? '' })}">${options_for(share.mode)}</select>`;
+            rows += `<button type="button" class="share-modal-revoke" data-holder="${holder}" title="${i18n('share_remove_access')}" aria-label="${i18n('share_remove_access_for', { recipient: share.holder ?? '' })}">${icons.trash}</button>`;
             rows += '</div>';
         }
         if ( !shares.length ) {
