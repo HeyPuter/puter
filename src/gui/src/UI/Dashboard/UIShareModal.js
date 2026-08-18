@@ -93,7 +93,7 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
 
     const $overlay = $(`
         <div class="share-modal-overlay">
-            <div class="share-modal" role="dialog" aria-modal="true" tabindex="-1" aria-label="${html_encode(item_name)} — ${i18n('share')}">
+            <div class="share-modal" role="dialog" aria-modal="true" tabindex="-1" aria-label="${html_encode(item_name)} ${i18n('share')}">
                 <div class="share-modal-header">
                     <div class="share-modal-title">
                         <span class="share-modal-title-icon"></span>
