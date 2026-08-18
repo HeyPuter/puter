@@ -222,7 +222,10 @@ export const ALIBABA_MODELS: IChatModel[] = [
     {
         puterId: 'alibaba:qwen/qwen3.8-max',
         id: 'qwen3.8-max',
-        modalities: { input: ['text', 'image', 'video', 'pdf'], output: ['text'] },
+        modalities: {
+            input: ['text', 'image', 'video', 'pdf'],
+            output: ['text'],
+        },
         open_weights: false,
         tool_call: true,
         release_date: '2026-08-03',
@@ -240,7 +243,6 @@ export const ALIBABA_MODELS: IChatModel[] = [
         },
         max_tokens: 131_072,
     },
-
 
     // -- Turbo / Flash tier -----------------------------------------
     {

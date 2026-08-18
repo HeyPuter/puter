@@ -116,6 +116,27 @@ export class NotificationStore extends PuterStore {
         return this.getByUid(uid, { userId });
     }
 
+    /**
+     * Rewrite a notification the recipient hasn't dismissed. `shown` is cleared
+     * with it, so changed wording goes out again on their next connect —
+     * `#sendUnreads` only carries what was never shown. The unacknowledged
+     * count doesn't move, so there is nothing to invalidate.
+     *
+     * False when no such row exists, so callers can fall back to a fresh
+     * notification instead of dropping what they were reporting.
+     *
+     * @param {string} uid @param {number} userId @param {unknown} value
+     */
+    async updateValue(uid, userId, value) {
+        const serialized =
+            typeof value === 'string' ? value : JSON.stringify(value ?? {});
+        const result = await this.clients.db.write(
+            'UPDATE `notification` SET `value` = ?, `shown` = NULL WHERE `uid` = ? AND `user_id` = ? AND `acknowledged` IS NULL',
+            [serialized, uid, userId],
+        );
+        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
+    }
+
     async markAcknowledged(uid, userId) {
         const now = Math.floor(Date.now() / 1000);
         const result = await this.clients.db.write(

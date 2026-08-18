@@ -263,8 +263,7 @@ export const handleWhoami = async (
     }
 
     const subscription = details.subscription as
-        | { offering?: Record<string, unknown> }
-        | undefined;
+        { offering?: Record<string, unknown> } | undefined;
     if (subscription?.offering) {
         delete subscription.offering.group;
         delete subscription.offering.benefits;

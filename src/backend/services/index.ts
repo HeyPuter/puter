@@ -37,6 +37,7 @@ import { MeteringService } from './metering/MeteringService';
 import { NotificationService } from './notification/NotificationService';
 import { PermissionService } from './permission/PermissionService';
 import { DefaultUserService } from './selfhosted/DefaultUserService';
+import { ShareNotificationService } from './share/ShareNotificationService';
 import { ShareService } from './share/ShareService';
 import { SocketService } from './socket/SocketService';
 import { SubdomainPermissionService } from './subdomain/SubdomainPermissionService';
@@ -57,6 +58,7 @@ declare module './types' {
         permission: PermissionService;
         acl: ACLService;
         share: ShareService;
+        shareNotification: ShareNotificationService;
         token: TokenService;
         auth: AuthService;
         fs: FSService;
@@ -100,6 +102,9 @@ export const puterServices = {
     // Needs acl (setUserUser), permission (canManagePermission) and fs
     // (ancestor chains), so it follows all three.
     share: ShareService,
+    // Delivery only; it reaches `notification` at call time, so its position
+    // relative to that service does not matter.
+    shareNotification: ShareNotificationService,
     // Declared after `fs` — account teardown tears the user's filesystem down
     // first.
     userAccount: UserAccountService,

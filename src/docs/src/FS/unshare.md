@@ -55,6 +55,8 @@ An item's owner cannot be removed from their own item.
 
 Withdrawing someone's access also withdraws whatever **they** re-shared of that item. Their authority to grant came from the access being removed, so it cannot outlive it.
 
+Passing an email address that was **invited** but has not yet joined cancels the invitation. Nothing was granted, so nothing is revoked from anyone — the pending share simply stops waiting.
+
 ## Examples
 
 <strong class="example-title">Stop sharing a file</strong>

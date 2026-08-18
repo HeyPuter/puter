@@ -21,7 +21,10 @@ import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
 import { userRelatedActor, type Actor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
+import { isUniqueViolation } from '../../util/dbError.js';
+import { cleanEmail } from '../../util/email.js';
 import type { FSEntry } from '../../stores/fs/FSEntry';
+import type { UserRow } from '../../stores/user/UserStore';
 import type { AclMode } from '../acl/ACLService';
 import {
     learnShareRoots,
@@ -55,8 +58,10 @@ export interface ResolvedShare {
     mode: string;
     path: string;
     /**
-     * The entry's own name, content type and thumbnail. A share listing has no
-     * fsentry behind it for the client to stat for them.
+     * The entry's own name, content type and thumbnail. A share has no fsentry
+     * behind it for the client to stat for them, and the masked path hides
+     * which folder it sits in. `type` and `thumbnail` come with a listing
+     * only.
      */
     name?: string;
     type?: string | null;
@@ -80,6 +85,13 @@ export interface ResolvedShare {
      */
     holderId?: number;
     isNew?: boolean;
+    /**
+     * An invite to an address with no confirmed account. No grant exists yet —
+     * it is written when the recipient confirms the address.
+     */
+    pending?: boolean;
+    /** Address the invite was aimed at. Set only when `pending`. */
+    recipientEmail?: string;
 }
 
 const SHAREABLE_MODES: ReadonlySet<string> = new Set([
@@ -146,11 +158,25 @@ const RETIRE_CHUNK_SIZE = 100;
 export const DEFAULT_DAILY_SHARE_LIMIT = 200;
 
 /**
- * How long a recipient stays quiet after one sharer reaches them. Re-sharing an
- * item the recipient already has is not new reach and costs no quota, so
- * without a window it is an unmetered way to keep interrupting someone.
+ * The least an address must look like before an invite row is written for it.
+ * Deliverability is the inbox's business, but `a@b` or a pasted sentence must
+ * not become a permanent pending share that spent quota.
  */
-export const SHARE_NOTIFY_WINDOW_SECONDS = 15 * 60;
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
+
+/**
+ * Where "refuse shares from everyone" lives on the user row.
+ *
+ * A key in the existing `metadata` blob rather than a column of its own: the
+ * share path already holds the recipient's row by the time it asks, so reading
+ * it costs nothing either way, and a one-bit preference doesn't earn a
+ * migration per dialect.
+ */
+const BLOCK_ALL_SHARES_KEY = 'blockAllShares';
+
+/** Whether this account refuses shares from everyone. */
+const blocksAllShares = (user: Pick<UserRow, 'metadata'> | null): boolean =>
+    Boolean(user?.metadata?.[BLOCK_ALL_SHARES_KEY]);
 
 /**
  * What a share recipient's browser is told about someone else's entry.
@@ -253,6 +279,44 @@ export class ShareService extends PuterService {
                     );
                 }),
             ]).then((): void => undefined);
+        });
+
+        // Owning a confirmed address is what turns it from a claim into an
+        // identity, and so the only moment an invite may become a grant. That
+        // happens on more paths than typing a code: an OIDC signup arrives with
+        // the provider's word for the address, and the change-email flow
+        // confirms the new one before it lands. Missing any of them strands the
+        // invite forever — there is no later event to catch.
+        const claimFor = (user_id?: number, email?: string) => {
+            if (!user_id || !email) return;
+            return this.claimPendingShares(user_id, email)
+                .then((claimed) =>
+                    this.services.shareNotification.notifyClaimed(
+                        user_id,
+                        claimed,
+                    ),
+                )
+                .catch((err) => {
+                    console.warn(
+                        '[ShareService] failed to claim pending shares for',
+                        user_id,
+                        err,
+                    );
+                });
+        };
+        this.clients.event.on('user.email-confirmed', (_key, data) => {
+            const { user_id, email } = (data ?? {}) as {
+                user_id?: number;
+                email?: string;
+            };
+            return claimFor(user_id, email);
+        });
+        this.clients.event.on('user.email-changed', (_key, data) => {
+            const { user_id, new_email } = (data ?? {}) as {
+                user_id?: number;
+                new_email?: string;
+            };
+            return claimFor(user_id, new_email);
         });
 
         this.clients.event.on('fs.write.file', (_key, data) => {
@@ -421,7 +485,12 @@ export class ShareService extends PuterService {
         // exist" may only be observed by someone entitled to share.
         const entry = await this.#resolveEntry(input, actor);
         await this.#assertCanManage(actor, entry, mode);
-        const holder = await this.#resolveRecipient(input.recipient);
+        const resolved = await this.#resolveRecipient(input.recipient);
+
+        if (resolved.kind === 'pending') {
+            return this.#invite(actor, issuerId, entry, resolved.email, mode);
+        }
+        const holder = resolved.user;
 
         if (holder.id === issuerId) {
             throw new HttpError(400, 'cannot share with yourself', {
@@ -433,6 +502,7 @@ export class ShareService extends PuterService {
                 legacyCode: 'cannot_share_with_owner',
             });
         }
+        await this.#assertNotBlocked(issuerId, holder);
 
         // Changing the mode on an existing share isn't new reach, so it
         // shouldn't spend budget — only a share to someone who doesn't already
@@ -489,57 +559,6 @@ export class ShareService extends PuterService {
                 );
             }
             throw err;
-        }
-    }
-
-    /**
-     * Tell recipients they were given something: one notification per recipient
-     * per request, and at most one per sharer per window.
-     *
-     * Only shares that created new reach count. A mode change is not something
-     * to interrupt someone for, and re-sharing what they already have spends no
-     * quota — so the window is what keeps that from becoming a way to spam.
-     */
-    async notifyRecipients(actor: Actor, shares: ResolvedShare[]) {
-        const counts = new Map<number, number>();
-        for (const share of shares) {
-            if (!share.isNew || !share.holderId) continue;
-            counts.set(share.holderId, (counts.get(share.holderId) ?? 0) + 1);
-        }
-        if (counts.size === 0) return;
-
-        const issuerId = this.#requireUserId(actor);
-        const username = actor.user.username;
-        await Promise.all(
-            [...counts].map(async ([holderId, count]) => {
-                if (!(await this.#claimNotifySlot(issuerId, holderId))) return;
-                await this.services.notification.notify([holderId], {
-                    source: 'sharing',
-                    title: `${username} shared ${count === 1 ? 'an item' : `${count} items`} with you`,
-                    template: 'file-shared-with-you',
-                    fields: { username, count },
-                });
-            }),
-        );
-    }
-
-    /** False when this pair was already notified inside the window. */
-    async #claimNotifySlot(
-        issuerId: number,
-        holderId: number,
-    ): Promise<boolean> {
-        try {
-            const claimed = await this.clients.redis.set(
-                `share:notify:${issuerId}:${holderId}`,
-                '1',
-                'EX',
-                SHARE_NOTIFY_WINDOW_SECONDS,
-                'NX',
-            );
-            return claimed === 'OK';
-        } catch {
-            // Notifying twice beats going silent when the cache is down.
-            return true;
         }
     }
 
@@ -623,10 +642,17 @@ export class ShareService extends PuterService {
         input: ShareTarget & { recipient: ShareRecipient },
     ): Promise<{ revoked: number }> {
         const issuerId = this.#requireUserId(actor);
-        const [entry, holder] = await Promise.all([
+        const [entry, resolved] = await Promise.all([
             this.#resolveEntry(input, actor),
             this.#resolveRecipient(input.recipient),
         ]);
+
+        // Nothing was granted, so there is only the invitation to take back.
+        if (resolved.kind === 'pending') {
+            await this.#assertCanManage(actor, entry);
+            return this.#cancelInvite(entry, resolved.email, issuerId);
+        }
+        const holder = resolved.user;
 
         // Dropping your own access needs no authority over the node — only
         // enough visibility that the call can't be used to probe for one.
@@ -969,12 +995,20 @@ export class ShareService extends PuterService {
             );
 
         const rows = await this.stores.share.listByFsentry(entry.id);
-        const userIds = [...rows, ...inherited.map((i) => i.row)].flatMap(
-            (row: { issuer_user_id: number; holder_user_id: number }) => [
-                Number(row.issuer_user_id),
-                Number(row.holder_user_id),
-            ],
+        const pendingRows = await this.stores.share.listPendingOnFsentry(
+            entry.id,
         );
+        const userIds = [
+            ...[...rows, ...inherited.map((i) => i.row)].flatMap(
+                (row: { issuer_user_id: number; holder_user_id: number }) => [
+                    Number(row.issuer_user_id),
+                    Number(row.holder_user_id),
+                ],
+            ),
+            ...pendingRows.map((row: { issuer_user_id: number }) =>
+                Number(row.issuer_user_id),
+            ),
+        ];
         const users = await this.stores.user.getByIds(userIds);
         const maskedPath = maskEntryPath(entry);
 
@@ -1030,10 +1064,384 @@ export class ShareService extends PuterService {
                 size: entry.size,
             }),
         );
-        return inheritedShares.concat(own);
+        // Nobody holds an invite yet, but whoever manages the node needs to
+        // see who was asked, and be able to take it back.
+        const pending: ResolvedShare[] = pendingRows.map(
+            (row: {
+                uid: string;
+                mode: string;
+                issuer_user_id: number;
+                recipient_email: string;
+                created_at: unknown;
+                data?: unknown;
+            }): ResolvedShare => ({
+                uid: row.uid,
+                mode: row.mode,
+                path: maskedPath,
+                entryUid: entry.uuid,
+                isDir: Boolean(entry.isDir),
+                issuer: {
+                    username:
+                        users.get(Number(row.issuer_user_id))?.username ?? null,
+                },
+                holder: { username: null },
+                pending: true,
+                // What the sharer typed, when it differs from the canonical
+                // form the row is keyed on — that is the address they will
+                // recognize in the dialog.
+                recipientEmail:
+                    (row.data as { invitedAddress?: string } | null)
+                        ?.invitedAddress ?? row.recipient_email,
+                createdAt: row.created_at,
+                issuedByApp: issuedByApp(row),
+                inheritedFrom: null,
+                modified: entry.modified,
+                size: entry.size,
+            }),
+        );
+
+        return inheritedShares.concat(own, pending);
+    }
+
+    // -- Blocking -----------------------------------------------------
+
+    /**
+     * Refuse shares from everyone, or accept them again. The blanket answer to
+     * the same question `blockSender` answers about one person; the per-sender
+     * list is kept either way, so turning this off restores it rather than
+     * asking the user to rebuild it.
+     *
+     * `updateMetadata` merges rather than replaces, and refreshes the cached
+     * row, so the switch bites on the very next share.
+     */
+    async setBlockAllSenders(
+        actor: Actor,
+        blocked: boolean,
+    ): Promise<{ all: boolean }> {
+        const blockerId = this.#requireUserId(actor);
+        await this.stores.user.updateMetadata(blockerId, {
+            [BLOCK_ALL_SHARES_KEY]: blocked,
+        });
+        return { all: blocked };
+    }
+
+    /**
+     * Refuse further shares from `username`. Existing shares stand: access
+     * someone already has is theirs until it is withdrawn, and a control
+     * labelled "block" silently revoking it would be a surprise.
+     */
+    async blockSender(
+        actor: Actor,
+        username: string,
+    ): Promise<{ username: string; created: boolean }> {
+        const blockerId = this.#requireUserId(actor);
+        const target = await this.#requireUserByUsername(username);
+        if (target.id === blockerId) {
+            throw new HttpError(400, 'cannot block yourself', {
+                legacyCode: 'cannot_block_self',
+            });
+        }
+        const created = await this.stores.userBlock.create(
+            blockerId,
+            target.id,
+        );
+        return { username: target.username as string, created };
+    }
+
+    /** Accept shares from `username` again. */
+    async unblockSender(
+        actor: Actor,
+        username: string,
+    ): Promise<{ username: string; unblocked: boolean }> {
+        const blockerId = this.#requireUserId(actor);
+        const target = await this.#requireUserByUsername(username);
+        const unblocked = await this.stores.userBlock.deleteByPair(
+            blockerId,
+            target.id,
+        );
+        return { username: target.username as string, unblocked };
+    }
+
+    /**
+     * Who the caller refuses shares from, and whether they refuse everyone.
+     * Usernames only — ids aren't theirs.
+     */
+    async listBlockedSenders(actor: Actor): Promise<{
+        all: boolean;
+        items: Array<{ username: string; createdAt: number }>;
+    }> {
+        const blockerId = this.#requireUserId(actor);
+        const [blocker, rows] = await Promise.all([
+            this.stores.user.getById(blockerId),
+            this.stores.userBlock.listByBlocker(blockerId),
+        ]);
+        const users = await this.stores.user.getByIds(
+            rows.map((row) => Number(row.blocked_user_id)),
+        );
+        const items: Array<{ username: string; createdAt: number }> = [];
+        for (const row of rows) {
+            // A miss means the read raced an account deletion.
+            const username = users.get(Number(row.blocked_user_id))?.username;
+            if (!username) continue;
+            items.push({ username, createdAt: Number(row.created_at) });
+        }
+        return { all: blocksAllShares(blocker), items };
+    }
+
+    /**
+     * Stop here when the recipient is not accepting this share. Said plainly
+     * rather than disguised as a missing recipient, so a sender whose share
+     * will never arrive stops re-sending it; only a caller who already passed
+     * the manage check can get this far, so it is no probe for who blocked
+     * whom.
+     *
+     * Refusing everyone and refusing this sender report identically — which of
+     * the two it is is the recipient's business, not the sender's.
+     *
+     * The recipient's row is already in hand from resolution, so the blanket
+     * switch is free; only a caller who cleared it pays for the pair lookup.
+     */
+    async #assertNotBlocked(issuer: number, holder: UserRow): Promise<void> {
+        const blocked =
+            blocksAllShares(holder) ||
+            (await this.stores.userBlock.isBlocked(holder.id, issuer));
+        if (!blocked) return;
+        throw new HttpError(403, 'recipient is not accepting shares', {
+            legacyCode: 'recipient_not_accepting_shares',
+        });
     }
 
     // -- Internals ----------------------------------------------------
+
+    async #requireUserByUsername(username: string): Promise<UserRow> {
+        const name = typeof username === 'string' ? username.trim() : '';
+        const user = name ? await this.stores.user.getByUsername(name) : null;
+        if (!user?.username) {
+            throw new HttpError(404, 'Recipient does not exist', {
+                legacyCode: 'user_does_not_exist',
+            });
+        }
+        return user;
+    }
+
+    /**
+     * Turn every invite aimed at `email` into a real grant, now that its owner
+     * is known.
+     *
+     * Each is re-authorized as it is claimed: an invite can sit for weeks, and
+     * the issuer may have lost the right to share it since. One that no longer
+     * holds is dropped, and never blocks the rest.
+     */
+    async claimPendingShares(
+        holderUserId: number,
+        email: string,
+    ): Promise<ResolvedShare[]> {
+        // Canonical on both sides: rows are stored cleaned, and the confirmed
+        // address may be any variant of what the sharer typed.
+        const pending = await this.stores.share.listPendingByEmail(
+            cleanEmail(email),
+        );
+        if (pending.length === 0) return [];
+
+        const holder = await this.stores.user.getById(holderUserId);
+        if (!holder?.username) return [];
+
+        const claimed: ResolvedShare[] = [];
+        for (const row of pending) {
+            try {
+                const entry = await this.stores.fsEntry.getEntryById(
+                    Number(row.fsentry_id),
+                );
+                if (!entry) {
+                    await this.stores.share.deleteByUid(row.uid);
+                    continue;
+                }
+                // The address may have been theirs all along.
+                if (
+                    entry.userId === holderUserId ||
+                    Number(row.issuer_user_id) === holderUserId
+                ) {
+                    await this.stores.share.deleteByUid(row.uid);
+                    continue;
+                }
+
+                const issuer = await this.stores.user.getById(
+                    Number(row.issuer_user_id),
+                );
+                if (!issuer) {
+                    await this.stores.share.deleteByUid(row.uid);
+                    continue;
+                }
+                // An invite can sit for weeks; its address's owner may have
+                // stopped accepting shares — from this sender, or from anyone
+                // — since it was sent.
+                if (
+                    blocksAllShares(holder) ||
+                    (await this.stores.userBlock.isBlocked(
+                        holderUserId,
+                        Number(row.issuer_user_id),
+                    ))
+                ) {
+                    await this.stores.share.deleteByUid(row.uid);
+                    continue;
+                }
+                const issuerActor = this.#actorFor(issuer);
+                // Re-authorized against the mode the invite actually grants:
+                // an issuer can keep authority over `read` while having lost
+                // `write`, and checking a fixed `read` here would wave a
+                // write-mode invite through to a grant that then fails.
+                const stillAllowed =
+                    await this.services.permission.canManagePermission(
+                        issuerActor,
+                        entryPermissionForMode(entry.uuid, row.mode as string),
+                    );
+                if (!stillAllowed) {
+                    await this.stores.share.deleteByUid(row.uid);
+                    continue;
+                }
+
+                // The row is claimed before the grant is written. In this
+                // order, losing the race to a concurrent cancel means no grant
+                // exists yet — nothing to clean up. Granting first left a
+                // durable permission behind whenever the cancel won, and no
+                // listing showed it, because listings are driven by the rows.
+                let applied;
+                try {
+                    applied = await this.stores.share.applyPending({
+                        uid: row.uid,
+                        holderUserId,
+                    });
+                } catch (err) {
+                    // A duplicate of an invite already claimed (or of an
+                    // active share) collides with the unique index the moment
+                    // it gains a holder. It can never be applied, so it is
+                    // noise to be cleared, not an invite to keep retrying.
+                    if (!isUniqueViolation(err)) throw err;
+                    await this.stores.share.deleteByUid(row.uid);
+                    continue;
+                }
+                if (!applied) continue;
+
+                try {
+                    await this.services.acl.setUserUser(
+                        issuerActor,
+                        this.#actorFor(holder),
+                        this.#descriptorFor(entry),
+                        row.mode as AclMode,
+                    );
+                } catch (err) {
+                    // The row now names a holder but no grant backs it; left
+                    // standing it would re-fail identically on every future
+                    // claim. An invite whose grant cannot be written no longer
+                    // holds, and those are dropped.
+                    await this.stores.share.deleteByUid(row.uid);
+                    throw err;
+                }
+
+                claimed.push({
+                    ...this.#resolve(applied, entry, issuerActor, holder),
+                    holderId: holderUserId,
+                    isNew: true,
+                });
+            } catch (err) {
+                console.warn(
+                    '[ShareService] could not claim pending share',
+                    row.uid,
+                    err,
+                );
+            }
+        }
+        return claimed;
+    }
+
+    /**
+     * Withdraw an invite before it is claimed. An owner may clear any issuer's
+     * invite on their node; anyone else only the ones they sent.
+     */
+    async #cancelInvite(
+        entry: FSEntry,
+        email: string,
+        issuerId: number,
+    ): Promise<{ revoked: number }> {
+        const isOwner = entry.userId === issuerId;
+        const rows = (
+            await this.stores.share.listPendingByEmail(cleanEmail(email))
+        ).filter(
+            (row: { fsentry_id: number; issuer_user_id: number }) =>
+                Number(row.fsentry_id) === entry.id &&
+                (isOwner || Number(row.issuer_user_id) === issuerId),
+        );
+        let revoked = 0;
+        for (const row of rows) {
+            if (await this.stores.share.deleteByUid(row.uid)) revoked += 1;
+        }
+        return { revoked };
+    }
+
+    /**
+     * Record a share for an address with no confirmed account. There is nobody
+     * to grant to, so the row is the whole share until it is claimed.
+     *
+     * Spends daily quota: an invite is reach the issuer is handing out, and
+     * exempting it would make the limit optional.
+     */
+    async #invite(
+        actor: Actor,
+        issuerId: number,
+        entry: FSEntry,
+        email: string,
+        mode: AclMode,
+    ): Promise<ResolvedShare> {
+        // Checked before anything is written or spent: an address that can't
+        // receive the invite must not become a permanent pending row. The
+        // send-time check can't do this — by then the row exists whatever
+        // happens to the email.
+        if (
+            !EMAIL_SHAPE.test(email) ||
+            !(await this.clients.email.validate(email))
+        ) {
+            throw new HttpError(400, 'invalid recipient email address', {
+                legacyCode: 'email_not_allowed',
+            });
+        }
+
+        // Stored canonicalized, because claiming matches on it: the confirmed
+        // address arrives in whatever form the signup normalized to, and an
+        // exact match against what the sharer happened to type loses the
+        // invite to a capital letter. The typed form still matters — it is
+        // where the invite email goes, and what the sharer recognizes in the
+        // dialog — so it rides along in the row's data.
+        const canonical = cleanEmail(email);
+        const existing = await this.stores.share.listPendingByEmail(canonical);
+        const already = existing.some(
+            (row: { fsentry_id: number; issuer_user_id: number }) =>
+                Number(row.fsentry_id) === entry.id &&
+                Number(row.issuer_user_id) === issuerId,
+        );
+        const releaseQuota = already
+            ? null
+            : await this.#reserveDailyQuota(issuerId);
+
+        try {
+            const { row, created } = await this.stores.share.upsertPending({
+                issuerUserId: issuerId,
+                recipientEmail: canonical,
+                displayEmail: email,
+                fsentryId: entry.id,
+                mode,
+                issuerAppUid: actor.app?.uid ?? null,
+            });
+            return {
+                ...this.#resolve(row, entry, actor, { username: null }),
+                pending: true,
+                recipientEmail: email,
+                isNew: created,
+            };
+        } catch (err) {
+            await releaseQuota?.();
+            throw err;
+        }
+    }
 
     #resolve(
         row: { uid: string; mode: string; created_at?: unknown },
@@ -1045,6 +1453,7 @@ export class ShareService extends PuterService {
             uid: row.uid,
             mode: row.mode,
             path: maskEntryPath(entry),
+            name: entry.name,
             entryUid: entry.uuid,
             isDir: Boolean(entry.isDir),
             issuer: { username: issuer.user.username ?? null },
@@ -1106,23 +1515,39 @@ export class ShareService extends PuterService {
         return entry;
     }
 
-    async #resolveRecipient(recipient: ShareRecipient) {
+    /**
+     * Who the share is for. An unconfirmed address resolves to an invite rather
+     * than a failure; a username cannot be invited, there is nothing to reach.
+     */
+    async #resolveRecipient(
+        recipient: ShareRecipient,
+    ): Promise<
+        { kind: 'user'; user: UserRow } | { kind: 'pending'; email: string }
+    > {
         const email = recipient?.email?.trim();
         const username = recipient?.username?.trim();
+        // `findEmailOwner`, not an exact match: `Bob@…` and `bob+x@…` are the
+        // same inbox, and resolving them to the account is what routes an
+        // alias through the same self/owner/blocked checks as the address
+        // itself — an exact match here turned any variant into an invite that
+        // skipped all three.
         const user = email
-            ? await this.stores.user.getByEmail(email)
+            ? await this.stores.user.findEmailOwner(email)
             : username
               ? await this.stores.user.getByUsername(username)
               : null;
         // An unconfirmed email is a claim, not an identity: resolving it would
         // hand the share to whoever registered the address first.
         const unconfirmedEmailMatch = Boolean(email) && !user?.email_confirmed;
-        if (!user?.username || unconfirmedEmailMatch) {
+        if (email && (!user?.username || unconfirmedEmailMatch)) {
+            return { kind: 'pending', email };
+        }
+        if (!user?.username) {
             throw new HttpError(404, 'Recipient does not exist', {
                 legacyCode: 'user_does_not_exist',
             });
         }
-        return user;
+        return { kind: 'user', user };
     }
 
     /**

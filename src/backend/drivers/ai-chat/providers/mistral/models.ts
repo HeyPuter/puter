@@ -231,7 +231,8 @@ export const MISTRAL_MODELS: IChatModel[] = [
             prompt_tokens: 4,
             completion_tokens: 4,
         },
-    },    {
+    },
+    {
         puterId: 'mistralai:mistralai/voxtral-small-2507',
         id: 'voxtral-small-2507',
         modalities: { input: ['text', 'audio'], output: ['text'] },

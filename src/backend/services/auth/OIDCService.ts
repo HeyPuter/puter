@@ -722,6 +722,25 @@ export class OIDCService extends PuterService {
         // Fire signup events — keys match the password-based signup path so
         // downstream listeners (welcome email, mailchimp sync, etc.) treat
         // both signup routes identically.
+        //
+        // That includes `user.email-confirmed`: the provider's attestation IS
+        // the confirmation, and anything keyed on owning a confirmed address —
+        // pending share invites, most importantly — has no other moment to
+        // fire. Without it, an invitee who follows the email and signs in with
+        // Google never receives what was shared with them.
+        try {
+            this.clients.event?.emit(
+                'user.email-confirmed',
+                {
+                    user_id: resolved.id,
+                    user_uid: resolved.uuid,
+                    email: resolved.email,
+                },
+                {},
+            );
+        } catch {
+            // ignore — event emission shouldn't block signup
+        }
         try {
             this.clients.event?.emit(
                 'puter.signup.success',

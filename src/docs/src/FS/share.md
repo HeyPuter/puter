@@ -59,17 +59,55 @@ A `Promise` that resolves to an array of share objects, one per recipient/item p
 - `uid` (String) - Identifier for this share.
 - `mode` (String) - Access the recipient now has.
 - `path` (String) - Path of the shared item, masked when you do not own it (see [`listShared()`](/FS/listShared/)).
+- `name` (String) - Name of the shared item. The masked path hides the folder it sits in, so this is what to label it with.
 - `entryUid` (String) - UID of the shared item.
 - `isDir` (Boolean) - Whether the shared item is a directory.
 - `issuer` (String) - Username of whoever granted the share.
 - `holder` (String) - Username of whoever received it.
 - `inheritedFrom` (String) - Path of the shared ancestor this access comes from, or `null` when the share is on the item itself.
+- `pending` (Boolean) - Present and `true` when the recipient's email has no confirmed Puter account. See below.
+- `recipientEmail` (String) - Address a pending share was sent to. Only set when `pending`.
 - `modified` (Number) - Last-modified time of the item, in unix seconds.
 - `size` (Number) - Size of the item in bytes; `null` for a directory.
 
 Sharing the same item with the same person again **replaces** their access rather than adding a second share, so raising someone from `read` to `write` is just another call.
 
 If some recipients succeed and others fail, the promise resolves with the ones that worked. It rejects only when every pair failed.
+
+## Errors
+
+A rejection carries `{ message, code }`. Because each recipient/item pair succeeds or fails on its own, these are the codes of the *pairs* that failed — you only see one as a rejection when every pair failed.
+
+| `code` | Meaning |
+| --- | --- |
+| `subject_does_not_exist` | No such item, or you cannot see it. Also what a caller without permission to share gets, so the response never reveals which. |
+| `forbidden` | You can see the item but may not share it at the level you asked for. |
+| `user_does_not_exist` | The username has no account. (An unknown *email* is invited instead — see below.) |
+| `recipient_not_accepting_shares` | The recipient is not accepting this share — they have blocked you, or turned off new shares from everyone. Nothing is granted and they are not notified. Which of the two it is is not reported. |
+| `email_not_allowed` | The address can't receive an invite — malformed, or refused by the deployment's policy. |
+| `cannot_share_with_self` | You are the recipient. |
+| `cannot_share_with_owner` | The recipient already owns the item. |
+| `invalid_mode` | `mode` is not one of `see`, `list`, `read`, `write`, `manage`. |
+| `share_daily_limit_reached` | You have handed out as many new shares as one account may per day (see [rate limits](/rate-limits-and-quotas/)). |
+| `too_many_recipients`, `too_many_items` | One call's fan-out cap; split the request. |
+
+## Sharing with someone who has no account
+
+A **well-formed** email address with no confirmed Puter account is **invited** rather than refused. The share is recorded and the recipient is emailed, but it grants nothing yet — the returned share carries `pending: true` and a `null` `holder`. An address that could never receive that invite is rejected with `email_not_allowed` instead of becoming an invite nobody can claim.
+
+Access is written when they create an account with that address **and confirm it**. Signing up alone is not enough: until the address is confirmed it is a claim rather than an identity, and honouring it would hand the share to whoever registered it first.
+
+An invite shows up in [`getShares()`](/FS/getShares/) with `pending: true`, and [`unshare()`](/FS/unshare/) cancels it.
+
+```js
+const [share] = await puter.fs.share('report.txt', 'newcomer@example.com');
+
+if ( share.pending ) {
+    puter.print(`Invited ${share.recipientEmail} — access starts when they join`);
+} else {
+    puter.print(`Shared with ${share.holder}`);
+}
+```
 
 ## Examples
 

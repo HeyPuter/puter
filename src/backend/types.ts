@@ -239,7 +239,12 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
+        | 'sms'
+        | 'rcs'
+        | 'whatsapp'
+        | 'viber'
+        | 'zalo'
+        | 'telegram';
 }
 
 /**
@@ -826,12 +831,49 @@ interface IConfigOptional {
     enable_public_folders: boolean;
 
     /**
+     * Whether a recipient who already has an account is emailed about a share
+     * as well as notified in-app. **On unless set to false**; recipients
+     * decline with the unsubscribe link the mail carries, or by blocking a
+     * sender. An invite to an address with no account is emailed regardless.
+     */
+    share_email_notifications?: boolean;
+
+    /**
      * Ceiling on how many shares one user may create per UTC day. An abuse
      * bound, not an accounting one — it exists so a script can't blanket other
      * accounts with unwanted items and the notifications that follow. Omit to
      * use the built-in default.
      */
     share_daily_limit?: number;
+
+    /**
+     * How often a share may interrupt its recipient — the notification pushed
+     * to their screen and the email that goes with it. The share itself is
+     * never refused for being over budget; only the announcement is dropped.
+     *
+     * Both axes are needed: the pair bounds hold one sharer back, and the
+     * recipient bounds are what stop many senders from burying one person
+     * between them. Omit any field for the built-in default; a non-positive
+     * value removes that bound.
+     */
+    share_notify_limits?: {
+        /**
+         * Quiet period after one sharer reaches a recipient, in seconds. Also
+         * how long their notification keeps absorbing new shares.
+         */
+        pairWindowSeconds?: number;
+        /** Interruptions one sharer may cause a recipient per day. */
+        pairDaily?: number;
+        /** Interruptions a recipient may receive per hour, from anyone. */
+        recipientHourly?: number;
+        /** Same, per day. */
+        recipientDaily?: number;
+        /**
+         * How long emails to one recipient are held and merged into a single
+         * digest, in seconds. Default 90; non-positive sends immediately.
+         */
+        emailBatchSeconds?: number;
+    };
 
     /**
      * Ceiling on recipients, and on items, in a single share request. Bounds
@@ -1066,8 +1108,7 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

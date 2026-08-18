@@ -35,6 +35,8 @@ export default suite('sharing', {
         t.assert.equal(shares.length, 1);
         t.assert.equal(shares[0].mode, 'read');
         t.assert.equal(shares[0].holder, t.env.users.other.username);
+        // The path a recipient sees is masked, so the name is what labels it.
+        t.assert.equal(shares[0].name, path.split('/').pop());
 
         const after = await readAsOther(t, path);
         t.assert.equal(after.status, 200);
@@ -196,5 +198,33 @@ export default suite('sharing', {
             t.env.users.other.username,
         );
         t.assert.equal(result.revoked, 0);
+    },
+
+    'sharing with an unregistered address records an invite': async (t) => {
+        const path = scratch(t, 'invite');
+        await t.puter.fs.write(path, 'x');
+        const email = `nobody-${Math.random().toString(36).slice(2, 8)}@test.local`;
+
+        // An address with no account is invited rather than refused: the
+        // share waits for whoever proves they own it.
+        const created = await t.puter.fs.share(path, email);
+        t.assert.equal(created.length, 1);
+        t.assert.equal(created[0].pending, true);
+        t.assert.equal(created[0].recipientEmail, email);
+
+        // It shows on the item so the sharer can see who was asked.
+        const shares = await t.puter.fs.getShares(path);
+        const invite = shares.find((share) => share.pending);
+        t.assert.ok(invite, 'the invite should be listed');
+        t.assert.equal(invite!.recipientEmail, email);
+
+        // And can be taken back before it is claimed.
+        const result = await t.puter.fs.unshare(path, email);
+        t.assert.equal(result.revoked, 1);
+        const after = await t.puter.fs.getShares(path);
+        t.assert.equal(
+            after.filter((share) => share.pending).length,
+            0,
+        );
     },
 });

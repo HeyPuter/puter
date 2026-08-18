@@ -73,10 +73,7 @@ export const MOONSHOT_MODELS: IChatModel[] = [
         puterId: 'moonshotai:moonshotai/kimi-k2.7-code',
         id: 'kimi-k2.7-code',
         name: 'Kimi K2.7 Code',
-        aliases: [
-            'moonshotai/kimi-k2.7-code',
-            'moonshot/kimi-k2.7-code',
-        ],
+        aliases: ['moonshotai/kimi-k2.7-code', 'moonshot/kimi-k2.7-code'],
         modalities: { input: ['text', 'image', 'video'], output: ['text'] },
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -115,7 +112,6 @@ export const MOONSHOT_MODELS: IChatModel[] = [
         tool_call: true,
         release_date: '2026-06-12',
     },
-
 
     // -- Kimi K2.5 --------------------------------------------------
     {

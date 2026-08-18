@@ -27,7 +27,15 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 64;
+const CURRENT_SCHEMA_VERSION = 65;
+
+/**
+ * These suites migrate real files on disk. Idle they finish in well under a
+ * second, but the whole migration chain runs against the filesystem — enough
+ * that a loaded runner blows the 5s default and reports a timeout where there
+ * is no fault.
+ */
+const DISK_MIGRATION_TIMEOUT_MS = 30_000;
 const SYSTEM_USER_UUID = '5d4adce0-a381-4982-9c02-6e2540026238';
 
 const sqliteConfig = (
@@ -52,7 +60,7 @@ const userVersionOf = async (client: SqliteDatabaseClient): Promise<number> => {
     return row.user_version as number;
 };
 
-describe('SqliteDatabaseClient — boot and migrations', () => {
+describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATION_TIMEOUT_MS }, () => {
     let client: SqliteDatabaseClient;
 
     beforeEach(async () => {
@@ -137,7 +145,10 @@ describe('SqliteDatabaseClient — boot and migrations', () => {
     });
 });
 
-describe('SqliteDatabaseClient — legacy version inference', () => {
+describe(
+    'SqliteDatabaseClient — legacy version inference',
+    { timeout: DISK_MIGRATION_TIMEOUT_MS },
+    () => {
     let dir: string;
 
     beforeEach(() => {

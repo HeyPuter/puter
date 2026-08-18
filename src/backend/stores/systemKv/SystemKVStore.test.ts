@@ -1117,4 +1117,20 @@ describe('SystemKVStore', () => {
             ).rejects.toMatchObject({ statusCode: 403 });
         });
     });
+
+    describe('take', () => {
+        it('returns the value to exactly one caller, null after', async () => {
+            await target.set({ key: 'claim-me', value: { by: 'me' } }, opts);
+
+            const first = await target.take({ key: 'claim-me' }, opts);
+            expect(first.res).toEqual({ by: 'me' });
+
+            // The delete IS the claim — a second taker finds nothing, which
+            // is what lets racing flushers send a queued item exactly once.
+            const second = await target.take({ key: 'claim-me' }, opts);
+            expect(second.res).toBeNull();
+            const { res } = await target.get({ key: 'claim-me' }, opts);
+            expect(res).toBeNull();
+        });
+    });
 });
