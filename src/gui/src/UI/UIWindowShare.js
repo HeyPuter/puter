@@ -253,10 +253,13 @@ async function UIWindowShare (options) {
         $(this).prop('disabled', true);
         try {
             await puter.fs.unshare(item_path, holder);
+            // `i18n()` encodes what it returns, replacements included, so the
+            // raw value goes in — encoding first would show the entities to
+            // anyone whose address or username contains one.
             show_success(
                 is_pending
-                    ? i18n('share_invite_cancelled', { recipient: html_encode(holder) })
-                    : i18n('share_access_removed', { recipient: html_encode(holder) }),
+                    ? i18n('share_invite_cancelled', { recipient: holder })
+                    : i18n('share_access_removed', { recipient: holder }),
             );
             invalidate_shared_roots();
             await refresh();
