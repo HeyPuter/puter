@@ -2351,6 +2351,13 @@ export class FSService extends PuterService {
                     multipartUploadId: session.multipartUploadId,
                     partNumbers: uniquePartNumbers,
                     expiresInSeconds,
+                    // Re-signed parts need the same size binding the
+                    // originals got, or this route hands out unbounded URLs
+                    // for a session that was already quota-checked.
+                    declaredTotalSize: session.size,
+                    ...(session.multipartPartSize !== null
+                        ? { multipartPartSize: session.multipartPartSize }
+                        : {}),
                 },
                 session.bucketRegion,
             );
@@ -2447,12 +2454,11 @@ export class FSService extends PuterService {
             }
 
             // The size recorded so far is the client-declared value from the
-            // start-write request. On a signed (direct-to-S3) upload the
-            // client could declare `1` and PUT gigabytes — the presigned URL
-            // doesn't bound the body — so reconcile against the object's true
-            // size before persisting. Without this, storage accounting is
-            // understated permanently (quota is SUM(size)) and the free-tier
-            // limit is bypassable. Mirrors the server-proxied /write path.
+            // start-write request. The presigned URL binds that size as
+            // `Content-Length`, but the stored object is still the authority
+            // on what landed, so reconcile before persisting — sessions signed
+            // before the binding, and stores that don't enforce it, would
+            // otherwise understate SUM(size). Mirrors /write.
             const reconcileBucket =
                 session.bucket ?? createInput.bucket ?? this.#resolveBucket();
             const reconcileRegion =
@@ -2472,16 +2478,13 @@ export class FSService extends PuterService {
                 trueSize = null;
             }
             if (typeof trueSize === 'number' && trueSize >= 0) {
-                // Record the true size only — do not re-assert the quota here.
-                // The bytes are already in S3, so a completion-time reject
-                // can't reclaim them; it only false-rejects (the start-check
-                // may have used a higher storageAllowanceMax override that
-                // isn't persisted in the session) and deletes within-quota
-                // uploads. Recording real bytes is what closes the bypass:
-                // the user's SUM(size) becomes accurate so their next signed
-                // -write start-check (#assertStorageAllowance via
-                // getUserStorageAllowance) blocks them. The residual is a
-                // single in-flight upload over quota — the same bounded
+                // Record the true size only — do not re-assert the quota
+                // here. The bytes are already in S3, so a completion-time
+                // reject can't reclaim them; it only false-rejects (the
+                // start-check may have used a higher storageAllowanceMax
+                // override that isn't persisted in the session) and deletes
+                // within-quota uploads. Over-declaration is closed at
+                // signing time now, so what's left is the bounded
                 // check-then-act window the start-check already has.
                 createInput.size = trueSize;
             }
