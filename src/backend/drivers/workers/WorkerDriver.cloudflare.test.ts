@@ -152,11 +152,11 @@ const waitFor = async (
 
 const putCalls = () =>
     fetchSpy.mock.calls.filter(
-        ([, init]) => (init as RequestInit | undefined)?.method === 'PUT',
+        (call) => (call[1] as RequestInit | undefined)?.method === 'PUT',
     );
 const deleteCalls = () =>
     fetchSpy.mock.calls.filter(
-        ([, init]) => (init as RequestInit | undefined)?.method === 'DELETE',
+        (call) => (call[1] as RequestInit | undefined)?.method === 'DELETE',
     );
 
 // -- create ----------------------------------------------------------
@@ -504,6 +504,7 @@ describe('WorkerDriver.getFilePaths source resolution', () => {
             url: string;
             file_path: string | null;
             file_uid: string | null;
+            app_uid: string | null;
             created_at: string | null;
         }>;
 
@@ -512,6 +513,7 @@ describe('WorkerDriver.getFilePaths source resolution', () => {
         expect(row.url).toBe(`https://${name}.puter.work`);
         expect(row.file_path).toBe(path);
         expect(row.file_uid).toBe(entry.uuid);
+        expect(row.app_uid).toBeNull();
         expect(row.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
 
@@ -619,7 +621,7 @@ describe('WorkerDriver hot reload', () => {
             );
             return !row;
         }, 'subdomain row removal after source delete');
-        expect(deleteCalls().map(([u]) => u)).toContain(
+        expect(deleteCalls().map((call) => call[0])).toContain(
             `${SCRIPTS_BASE}/${name}/`,
         );
         expect(path).toContain(user.username);
@@ -646,7 +648,7 @@ describe('WorkerDriver hot reload', () => {
             );
             return !row;
         }, 'subdomain row removal after trash move');
-        expect(deleteCalls().map(([u]) => u)).toContain(
+        expect(deleteCalls().map((call) => call[0])).toContain(
             `${SCRIPTS_BASE}/${name}/`,
         );
     });

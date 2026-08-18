@@ -161,9 +161,20 @@ export default suite('workers', {
     },
 
     'get returns the deployed worker': async (t) => {
-        await deployWorker(t, 'workers-suite-get');
-        const worker = await t.puter.workers.get('workers-suite-get');
+        const name = 'workers-suite-get';
+        await deployWorker(t, name);
+        const worker = await t.puter.workers.get(name);
         t.assert.ok(worker, 'get should return the worker');
+        const sandboxApp = await t.puter.apps.get(`sandbox-${name}`);
+        t.assert.equal(worker.app_uid, sandboxApp.uid, 'worker app_uid should match sandbox app uid');
+    },
+
+    'get returns null app_uid for unsandboxed worker': async (t) => {
+        const name = 'workers-suite-get-plain';
+        await deployWorker(t, name, { sandbox: false });
+        const worker = await t.puter.workers.get(name);
+        t.assert.ok(worker, 'get should return the worker');
+        t.assert.equal(worker.app_uid, null, 'unsandboxed worker app_uid should be null');
     },
 
     'list includes deployed workers': async (t) => {
@@ -231,7 +242,7 @@ export default suite('workers', {
 
     'create binds the worker to a named app': async (t) => {
         const appName = 'workers-suite-host-app';
-        await t.puter.apps.create(appName, 'https://example.com/worker-host');
+        const hostApp = await t.puter.apps.create(appName, 'https://example.com/worker-host');
         const name = 'workers-suite-bound';
         const sourcePath = `${home(t)}/workers-suite-${name}.js`;
         await t.puter.fs.write(sourcePath, WORKER_SOURCE);
@@ -242,6 +253,8 @@ export default suite('workers', {
             false,
             'binding to an app should not create a sandbox app',
         );
+        const worker = await t.puter.workers.get(name);
+        t.assert.equal(worker?.app_uid, hostApp.uid, 'bound worker app_uid should match host app uid');
     },
 
     'create with an unknown app name rejects with app_not_found': async (t) => {
