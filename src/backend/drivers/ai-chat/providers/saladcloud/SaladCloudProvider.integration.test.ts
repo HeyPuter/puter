@@ -28,6 +28,8 @@ import {
 import { SaladCloudProvider } from './SaladCloudProvider.js';
 
 const ENV_VAR = 'PUTER_TEST_AI_SALADCLOUD_API_KEY';
+const stores = {} as ConstructorParameters<typeof SaladCloudProvider>[2];
+const fsService = {} as ConstructorParameters<typeof SaladCloudProvider>[3];
 
 describe.skipIf(skipUnlessEnv(ENV_VAR))(
     'SaladCloudProvider (integration)',
@@ -39,6 +41,8 @@ describe.skipIf(skipUnlessEnv(ENV_VAR))(
                 const provider = new SaladCloudProvider(
                     { apiKey: optionalEnv(ENV_VAR)! },
                     makeMeteringStub(),
+                    stores,
+                    fsService,
                 );
 
                 const result = await withTestActor(() =>

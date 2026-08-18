@@ -139,7 +139,7 @@ describe('SaladCloudProvider.complete', () => {
                 top_p: 0.8,
                 reasoning: { effort: 'medium' },
                 text: {
-                    verbosity: 'concise',
+                    verbosity: 'low',
                 } as ICompleteArguments['text'],
             }),
         );
@@ -154,7 +154,7 @@ describe('SaladCloudProvider.complete', () => {
             temperature: 0,
             top_p: 0.8,
             reasoning_effort: 'medium',
-            verbosity: 'concise',
+            verbosity: 'low',
             stream: false,
         });
     });
