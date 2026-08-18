@@ -18,6 +18,7 @@
  */
 
 import { cleanEmail } from '../../util/email.js';
+import { normalizeReferralCode } from '../../util/referralCode.js';
 import { PuterStore } from '../types';
 
 // -- Types ------------------------------------------------------------
@@ -53,6 +54,14 @@ export interface UserRow {
     reputation?: number;
     /** E.164 phone number collected during SMS verification. */
     phone?: string | null;
+    /**
+     * The account's own referral code — unique across accounts, shareable, and
+     * minted on demand rather than at signup, so accounts that never look at
+     * theirs never get one. Null for every account that hasn't asked.
+     */
+    referral_code?: string | null;
+    /** `user.id` of the account whose referral code this one signed up with. */
+    referred_by?: number | null;
     /** True while the account must complete SMS phone verification before use. */
     requires_phone_verification?: boolean;
     /** True while the account must complete credit-card verification before use. */
@@ -73,7 +82,13 @@ export interface UserRow {
  * is as simple as adding a key here — lookups + cache fan-out follow
  * automatically.
  */
-export const USER_ID_PROPERTIES = ['id', 'uuid', 'username', 'email'] as const;
+export const USER_ID_PROPERTIES = [
+    'id',
+    'uuid',
+    'username',
+    'email',
+    'referral_code',
+] as const;
 export type UserIdProperty = (typeof USER_ID_PROPERTIES)[number];
 
 // -- Constants --------------------------------------------------------
@@ -205,6 +220,24 @@ export class UserStore extends PuterStore {
         opts: { cached?: boolean; force?: boolean } = {},
     ): Promise<UserRow | null> {
         return this.getByProperty('email', email, opts);
+    }
+
+    /**
+     * Resolve a referral code to the account that owns it.
+     *
+     * Codes are stored canonically (upper case), so the lookup normalizes
+     * first: on a case-sensitive collation a typed-in lower-case code would
+     * otherwise miss the row, and a case-varying code would resolve to the same
+     * account under two different cache keys. A value outside the stored shape
+     * can't match any row, so it never reaches the DB.
+     */
+    async getByReferralCode(
+        code: string,
+        opts: { cached?: boolean; force?: boolean } = {},
+    ): Promise<UserRow | null> {
+        const normalized = normalizeReferralCode(code);
+        if (!normalized) return null;
+        return this.getByProperty('referral_code', normalized, opts);
     }
 
     /**
@@ -565,9 +598,33 @@ export class UserStore extends PuterStore {
     }
 
     /**
-     * Shared write path for `update` / `claimPlaceholder`. `guard` is extra SQL
-     * ANDed into the WHERE clause; the write is reported as lost when it
-     * matches no row.
+     * Assign a referral code to an account that doesn't have one yet.
+     *
+     * Two guards, for two different races:
+     *
+     * - `referral_code IS NULL` — two concurrent requests for one account's code
+     *   each mint a candidate, and an unguarded write would let the second
+     *   replace the first. The account's code is a value it shares with other
+     *   people, so it has to be write-once: a code that changes after being
+     *   shared silently stops crediting anyone. Returns false to the loser,
+     *   which then reads the winner's code.
+     * - The unique index on the column, which surfaces as a thrown unique
+     *   violation when two accounts happen to mint the same code. Callers
+     *   distinguish the two: false means "someone already set yours", a throw
+     *   means "pick a different code and retry".
+     */
+    async claimReferralCode(userId: number, code: string): Promise<boolean> {
+        return this.#write(
+            userId,
+            { referral_code: code },
+            '`referral_code` IS NULL',
+        );
+    }
+
+    /**
+     * Shared write path for `update` / `claimPlaceholder` /
+     * `claimReferralCode`. `guard` is extra SQL ANDed into the WHERE clause;
+     * the write is reported as lost when it matches no row.
      */
     async #write(
         userId: number,
@@ -823,7 +880,6 @@ export class UserStore extends PuterStore {
      * strings on SQLite, parsed objects on MySQL.
      */
     #normalizeRow(row: Record<string, unknown>): UserRow {
-        const { referral_code: _referralCode, ...rest } = row;
         const asBool = (v: unknown): boolean | undefined => {
             if (v === null || v === undefined) return undefined;
             if (typeof v === 'boolean') return v;
@@ -848,23 +904,27 @@ export class UserStore extends PuterStore {
         })();
 
         return {
-            ...rest,
-            id: Number(rest.id),
-            uuid: String(rest.uuid),
-            username: String(rest.username),
-            email: rest.email == null ? null : String(rest.email),
-            suspended: asBool(rest.suspended),
-            email_confirmed: asBool(rest.email_confirmed),
+            ...row,
+            id: Number(row.id),
+            uuid: String(row.uuid),
+            username: String(row.username),
+            email: row.email == null ? null : String(row.email),
+            suspended: asBool(row.suspended),
+            email_confirmed: asBool(row.email_confirmed),
             requires_email_confirmation: asBool(
-                rest.requires_email_confirmation,
+                row.requires_email_confirmation,
             ),
             requires_phone_verification: asBool(
-                rest.requires_phone_verification,
+                row.requires_phone_verification,
             ),
-            requires_card_verification: asBool(rest.requires_card_verification),
-            phone: rest.phone == null ? null : String(rest.phone),
+            requires_card_verification: asBool(row.requires_card_verification),
+            phone: row.phone == null ? null : String(row.phone),
             reputation:
-                rest.reputation == null ? undefined : Number(rest.reputation),
+                row.reputation == null ? undefined : Number(row.reputation),
+            // Normalized on the way out so a code stored before the canonical
+            // form was enforced still reads back as the canonical one, and the
+            // cache key fanned out for it matches what a lookup asks for.
+            referral_code: normalizeReferralCode(row.referral_code),
             metadata,
         };
     }
