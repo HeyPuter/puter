@@ -1611,6 +1611,34 @@ describe('ShareService', () => {
         expect(listed).not.toContain(withdrawn.uuid);
     });
 
+    // `total` counts rows; items are filtered after the page is read.
+    it('reports a total that can exceed what paging yields', async () => {
+        const owner = await makeUser();
+        const recipient = await makeUser();
+        const withdrawn = await makeFile(owner.user);
+        const kept = await makeFile(owner.user);
+
+        for (const file of [withdrawn, kept]) {
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+        }
+        await server.services.permission.revokeUserUserPermission(
+            owner.actor,
+            recipient.user.username!,
+            `fs:${withdrawn.uuid}:read`,
+        );
+
+        const page = await server.services.share.listSharedWithMe(
+            recipient.actor,
+            { includeTotal: true },
+        );
+        expect(page.items.map((i) => i.entryUid)).toEqual([kept.uuid]);
+        expect(page.total).toBe(2);
+    });
+
     // The owner's view of the same withdrawal.
     it('stops naming a holder whose grant was withdrawn outside the index', async () => {
         const owner = await makeUser();
