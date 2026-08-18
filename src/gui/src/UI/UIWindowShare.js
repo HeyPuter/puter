@@ -202,7 +202,7 @@ async function UIWindowShare (options) {
         $(this).prop('disabled', true);
         try {
             await puter.fs.share({ path: item_path, recipient: holder, mode });
-            show_success(i18n('share_shared_with', { recipient: html_encode(holder) }));
+            show_success(i18n('share_access_updated', { recipient: holder }));
             invalidate_shared_roots();
             await refresh();
         } catch (e) {

@@ -342,7 +342,7 @@ export default function UIShareModal ({ path: item_path, name, owner, fsentry, $
         $(this).prop('disabled', true);
         try {
             await puter.fs.share({ path: item_path, recipient: holder, mode });
-            show_success(i18n('share_shared_with', { recipient: holder }));
+            show_success(i18n('share_access_updated', { recipient: holder }));
             invalidate_shared_roots();
             await refresh();
         } catch (err) {
