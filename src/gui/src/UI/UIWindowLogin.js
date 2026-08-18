@@ -714,11 +714,17 @@ async function UIWindowLogin (options) {
 
                         // ── Recovery code handling ──
                         $w.find('.login-2fa-recovery-input').on('input', async function () {
-                            const value = $(this).val();
+                            // Codes are 8-char base32; a pasted one usually
+                            // carries the newline it was copied with.
+                            const value = $(this).val().trim().toUpperCase();
                             if ( value.length !== 8 ) return;
                             let error_i18n_key = 'something_went_wrong';
                             try {
-                                const resp = await fetch(`${window.api_origin}/login/recovery-code`, {
+                                // Root origin, like `/login/otp` above: the
+                                // route is `guiOriginOnly` and carries no
+                                // `subdomain`, so on `api_origin` the
+                                // subdomain gate skips it and Express 404s.
+                                const resp = await fetch(`${window.gui_origin}/login/recovery-code`, {
                                     method: 'POST',
                                     headers: { 'Content-Type': 'application/json' },
                                     body: JSON.stringify({
