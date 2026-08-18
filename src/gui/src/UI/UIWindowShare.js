@@ -29,10 +29,12 @@ import { icons } from '../helpers/actionIcons.js';
 // to one is shown as-is rather than quietly rounded up to `read`.
 const MODES = ['read', 'write', 'manage'];
 
+// Raw (unencoded) text: i18n() html-encodes by default, and callers wrap this
+// in html_encode() — leaving that on would render "&" as a literal "&amp;".
 const mode_label = (mode) => {
-    if ( mode === 'write' ) return i18n('share_access_write');
-    if ( mode === 'manage' ) return i18n('share_access_manage');
-    if ( mode === 'read' ) return i18n('share_access_read');
+    if ( mode === 'write' ) return i18n('share_access_write', [], false);
+    if ( mode === 'manage' ) return i18n('share_access_manage', [], false);
+    if ( mode === 'read' ) return i18n('share_access_read', [], false);
     return mode;
 };
 

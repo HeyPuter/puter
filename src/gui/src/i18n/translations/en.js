@@ -380,6 +380,7 @@ const en = {
         share_access_read: 'Can view',
         share_access_write: 'Can edit',
         share_access_manage: 'Can edit & share',
+        share_access_level: 'Access level',
         share_add_people: 'Add people by email or username',
         share_who_has_access: 'Who has access',
         share_no_one: 'Not shared with anyone yet.',

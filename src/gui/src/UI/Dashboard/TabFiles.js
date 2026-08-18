@@ -33,6 +33,7 @@ import new_context_menu_item from '../../helpers/new_context_menu_item.js';
 import publish_as_website from '../../helpers/publish_as_website.js';
 import ContextMenuModal, { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import UIItemPropertiesModal from './UIItemPropertiesModal.js';
+import UIShareModal from './UIShareModal.js';
 import { dedupedName } from './dedupedName.js';
 import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js';
 
@@ -3879,6 +3880,16 @@ const TabFiles = {
                     name,
                     path: item_path,
                     uid,
+                    $container: _this.$el_window,
+                });
+            },
+            onShare: ({ name, path: item_path }) => {
+                // Dashboard uses a responsive modal instead of the desktop UIWindow.
+                UIShareModal({
+                    name,
+                    path: item_path,
+                    // The row's fs entry, so the modal can show the item's icon.
+                    fsentry: options,
                     $container: _this.$el_window,
                 });
             },
