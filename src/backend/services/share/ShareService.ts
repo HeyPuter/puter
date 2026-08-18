@@ -22,16 +22,14 @@ import { posix as pathPosix } from 'node:path';
 import { userRelatedActor, type Actor } from '../../core/actor';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { FSEntry } from '../../stores/fs/FSEntry';
-import type { LayerInstances } from '../../types';
 import type { AclMode } from '../acl/ACLService';
-import type { puterServices } from '../index';
-import { MANAGE_PERM_PREFIX } from '../permission/consts';
-import { PuterService } from '../types';
 import {
     learnShareRoots,
     maskEntryPath,
     resolveSharePath,
 } from '../fs/sharePathMask';
+import { MANAGE_PERM_PREFIX } from '../permission/consts';
+import { PuterService } from '../types';
 
 // -- Types ------------------------------------------------------------
 
@@ -196,8 +194,6 @@ const maskedSelfPath = (entry: FSEntry, realPath: string): string => {
  * explicit `manage:fs:<uid>` grant.
  */
 export class ShareService extends PuterService {
-    declare protected services: LayerInstances<typeof puterServices>;
-
     /** Entries awaiting the next retire flush, deduped by uuid. */
     #pendingRetire = new Map<string, FSEntry>();
     /** The in-flight flush, shared by everything buffered for it. */

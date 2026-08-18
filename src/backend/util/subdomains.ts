@@ -39,3 +39,13 @@ export function subdomainOffsetForDomain(
         .filter(Boolean);
     return labels.length > 0 ? labels.length : DEFAULT_SUBDOMAIN_OFFSET;
 }
+
+/**
+ * The subdomain a request is addressed to, or `''` for the root domain.
+ * `req.subdomains` is reverse-of-URL order, so the active one is last.
+ */
+export function activeSubdomain(req: { subdomains?: string[] }): string {
+    const subdomains = req.subdomains;
+    if (!subdomains?.length) return '';
+    return subdomains[subdomains.length - 1] ?? '';
+}
