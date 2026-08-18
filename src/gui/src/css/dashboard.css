@@ -2666,32 +2666,6 @@ select.share-modal-row-mode:focus {
     color: var(--dashboard-text-muted);
 }
 
-/* Touch: the icon buttons keep their 30-32px visuals but hit-test at
-   44x44 via a centered pseudo-element (the 10px gap to the row's select
-   and the 18px between rows absorb the overhang without overlap), and
-   the row's mode select grows to a comfortable height. */
-@media (pointer: coarse) {
-    .share-modal-close,
-    .share-modal-revoke {
-        position: relative;
-    }
-    .share-modal-close::before,
-    .share-modal-revoke::before {
-        content: '';
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        width: 44px;
-        height: 44px;
-        transform: translate(-50%, -50%);
-    }
-    select.share-modal-row-mode,
-    select.share-modal-row-mode:focus {
-        padding-top: 9px;
-        padding-bottom: 9px;
-    }
-}
-
 /* Inline revoke confirmation (in place of the row it removes) */
 .share-modal-row-confirm {
     flex-wrap: wrap;
@@ -2749,6 +2723,44 @@ select.share-modal-row-mode:focus {
 .share-modal-btn-danger:disabled {
     opacity: 0.55;
     cursor: default;
+}
+
+/* Touch: every control clears 44px. The icon buttons keep their 30-32px
+   visuals but hit-test at 44x44 via a centered pseudo-element (the 10px
+   gap to the row's select and the 18px between rows absorb the overhang
+   without overlap); the submit, the confirm pair (Remove is destructive
+   and sits 6px from Cancel), and the row's mode select grow for real.
+   This block sits below every base rule it overrides — a media query
+   adds no specificity, so source order decides. */
+@media (pointer: coarse) {
+    .share-modal-close,
+    .share-modal-revoke {
+        position: relative;
+    }
+    .share-modal-close::before,
+    .share-modal-revoke::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
+    select.share-modal-row-mode,
+    select.share-modal-row-mode:focus {
+        padding-top: 9px;
+        padding-bottom: 9px;
+    }
+    .share-modal-submit {
+        height: 44px;
+    }
+    .share-modal-btn-quiet,
+    .share-modal-btn-danger {
+        box-sizing: border-box;
+        min-height: 44px;
+        padding: 10px 16px;
+    }
 }
 
 @media (prefers-color-scheme: dark) {
