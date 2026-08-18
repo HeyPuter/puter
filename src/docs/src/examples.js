@@ -44,8 +44,8 @@ const examples = [
         title: 'AI',
         children: [
             {
-                title: 'Chat with GPT-5.4 nano',
-                description: 'Chat with GPT-5.4 nano using Puter.js AI API. Run and experiment with this chatbot example directly in the playground.',
+                title: 'Chat with GPT-5.6 Luna',
+                description: 'Chat with GPT-5.6 Luna using Puter.js AI API. Run and experiment with this chatbot example directly in the playground.',
                 slug: 'ai-chatgpt',
                 source: '/playground/examples/ai-chatgpt.html',
             },

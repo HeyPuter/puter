@@ -22,14 +22,14 @@ You can use AI models from various providers to perform tasks such as chat, text
 
 <div class="example-content" data-section="ai-chat" style="display:block;">
 
-#### Chat with GPT-5.4 nano
+#### Chat with GPT-5.6 Luna
 
 ```html;ai-chatgpt
 <html>
 <body>
     <script src="https://js.puter.com/v2/"></script>
     <script>
-        puter.ai.chat(`What is life?`, { model: "gpt-5.4-nano" }).then(puter.print);
+        puter.ai.chat(`What is life?`, { model: "gpt-5.6-luna" }).then(puter.print);
     </script>
 </body>
 </html>
@@ -208,7 +208,7 @@ These AI features are supported out of the box when using Puter.js:
 You can see various Puter.js AI features in action from the following examples:
 
 - AI Chat
-  - [Chat with GPT-5.4 nano](/playground/ai-chatgpt/)
+  - [Chat with GPT-5.6 Luna](/playground/ai-chatgpt/)
   - [Image Analysis](/playground/ai-gpt-vision/)
   - [Stream the response](/playground/ai-chat-stream/)
   - [Function Calling](/playground/ai-function-calling/)
