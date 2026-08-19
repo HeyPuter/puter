@@ -27,6 +27,7 @@ import { PuterDriver } from '../types.js';
 import { secureFetch } from '../../util/secureHttp.js';
 import { AI_CONCURRENT, AI_RATE_LIMIT } from '../util/aiLimits.js';
 import { BytePlusVideoProvider } from './providers/byteplus/BytePlusVideoProvider.js';
+import { GeminiOmniVideoProvider } from './providers/gemini/GeminiOmniVideoProvider.js';
 import { GeminiVideoProvider } from './providers/gemini/GeminiVideoProvider.js';
 import { OpenAIVideoProvider } from './providers/openai/OpenAIVideoProvider.js';
 import { TogetherVideoProvider } from './providers/together/TogetherVideoProvider.js';
@@ -297,6 +298,11 @@ export class VideoGenerationDriver extends PuterDriver {
         if (geminiKey) {
             this.#providers['gemini-video-generation'] =
                 new GeminiVideoProvider({ apiKey: geminiKey }, m);
+            // Omni reaches Gemini through the Interactions API rather than
+            // generateVideos, so it is its own provider rather than another
+            // entry in the Veo catalog.
+            this.#providers['gemini-omni-video-generation'] =
+                new GeminiOmniVideoProvider({ apiKey: geminiKey }, m);
         }
 
         // Falls back to the shared `byteplus` (ai-chat) key; `apiBaseUrl`

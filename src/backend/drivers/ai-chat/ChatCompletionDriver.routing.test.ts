@@ -65,6 +65,24 @@ vi.mock('openai', () => {
     return { OpenAI: OpenAICtor, default: { OpenAI: OpenAICtor } };
 });
 
+// -- Gemini SDK mock ------------------------------------------------
+// The Interactions route talks to Google through @google/genai rather than
+// the OpenAI shim, so it needs its own egress point stubbed for the
+// registration tests below to observe a failed attempt offline.
+
+const { interactionsCreateMock } = vi.hoisted(() => ({
+    interactionsCreateMock: vi.fn(),
+}));
+
+vi.mock('@google/genai', () => {
+    const GoogleGenAI = vi.fn().mockImplementation(function (
+        this: Record<string, unknown>,
+    ) {
+        this.interactions = { create: interactionsCreateMock };
+    });
+    return { GoogleGenAI };
+});
+
 // -- axios mock (gateway model catalog) -----------------------------
 
 const { axiosRequestMock } = vi.hoisted(() => ({ axiosRequestMock: vi.fn() }));
@@ -241,12 +259,93 @@ describe('ChatCompletionDriver gemini routing', () => {
         }
     });
 
+    it('leaves the Interactions route out of the bucket unless configured', async () => {
+        // Registering it by default would put a second first-party route in
+        // front of every reseller, changing what the fallback loop tries
+        // second for deployments that never opted in.
+        const attempts = await attemptsFor('gemini-2.5-flash');
+        expect(attempts.some((a) => a.provider === 'gemini-interactions')).toBe(
+            false,
+        );
+    });
+
     it('still routes models only the gateway carries to the gateway', async () => {
         const attempts = await attemptsFor(
             'google/gemini-2.5-flash-image-preview',
         );
 
         expect(attempts[0]).toMatchObject({ provider: 'infron' });
+    });
+});
+
+describe('ChatCompletionDriver gemini-interactions registration', () => {
+    /**
+     * Built in isolation from the shared driver: this one only needs the
+     * catalog to prove the route joined the bucket, and routing a request
+     * through it would reach the real Gemini SDK rather than the mocked OpenAI
+     * one.
+     */
+    const driverWith = async (providers: Record<string, unknown>) => {
+        const d = new ChatCompletionDriver(
+            { providers } as never,
+            server.clients,
+            server.stores,
+            server.services,
+        );
+        d.onServerStart();
+        // `onServerStart` doesn't await `#buildModelMap`; poll until the
+        // catalog lands, same as the shared driver above.
+        for (let i = 0; i < 200; i++) {
+            if ((await d.list()).includes('google:google/gemini-2.5-flash')) {
+                break;
+            }
+            await new Promise((r) => setTimeout(r, 5));
+        }
+        return d;
+    };
+
+    it('registers nothing without a keyed gemini-interactions block', async () => {
+        const d = await driverWith({
+            gemini: { apiKey: 'test-key' },
+            ollama: { enabled: false },
+        });
+        const models = await d.models();
+
+        expect(models.some((m) => m.provider === 'gemini-interactions')).toBe(
+            false,
+        );
+    });
+
+    it('joins the same bucket, behind the shim, once configured', async () => {
+        const d = await driverWith({
+            gemini: { apiKey: 'test-key' },
+            'gemini-interactions': { apiKey: 'test-key' },
+            ollama: { enabled: false },
+        });
+
+        createMock.mockRejectedValue(new Error('upstream down'));
+        interactionsCreateMock.mockRejectedValue(new Error('upstream down'));
+
+        let attempts: { provider: string }[] = [];
+        try {
+            await withTestActor(() =>
+                d.complete({
+                    model: 'gemini-2.5-flash',
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+        } catch (e) {
+            attempts = (
+                e as unknown as {
+                    fields: { attempts: { provider: string }[] };
+                }
+            ).fields.attempts;
+        }
+
+        expect(attempts.map((a) => a.provider)).toEqual([
+            'gemini',
+            'gemini-interactions',
+        ]);
     });
 });
 

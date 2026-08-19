@@ -40,6 +40,7 @@ import { ClaudeProvider } from './providers/claude/ClaudeProvider.js';
 import { DeepSeekProvider } from './providers/deepseek/DeepSeekProvider.js';
 import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import { GeminiChatProvider } from './providers/gemini/GeminiChatProvider.js';
+import { GeminiInteractionsChatProvider } from './providers/gemini/GeminiInteractionsChatProvider.js';
 import { GroqAIProvider } from './providers/groq/GroqAIProvider.js';
 import { InfronProvider } from './providers/infron/InfronProvider.js';
 import { MiniMaxProvider } from './providers/minimax/MiniMaxProvider.js';
@@ -1131,6 +1132,19 @@ export class ChatCompletionDriver extends PuterDriver {
             this.#providers['gemini'] = new GeminiChatProvider(metering, {
                 apiKey: geminiKey,
             });
+        }
+
+        // Same catalog as `gemini`, reached over Google's Interactions API
+        // instead of its OpenAI-compat shim. Keyed separately rather than
+        // sharing the `gemini` key: two routes to one model doubles every
+        // Gemini bucket, which changes what the fallback loop tries second for
+        // deployments that never asked for it.
+        const geminiInteractionsKey = readKey(providers['gemini-interactions']);
+        if (geminiInteractionsKey) {
+            this.#providers['gemini-interactions'] =
+                new GeminiInteractionsChatProvider(metering, {
+                    apiKey: geminiInteractionsKey,
+                });
         }
 
         const groqKey = readKey(providers['groq']);

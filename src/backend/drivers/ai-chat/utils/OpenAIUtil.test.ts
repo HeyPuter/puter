@@ -536,6 +536,66 @@ describe('create_chat_stream_handler', () => {
         expect(toolEvent?.input).toEqual({ q: 'puter' });
     });
 
+    it('flushes every parallel tool_use block, not just the last one', async () => {
+        // Regression: only the most recently touched block was ended, so a
+        // completion with two tool calls emitted one and silently dropped the
+        // other — after the caller had already been billed for both.
+        const completion = asAsyncIterable([
+            {
+                choices: [
+                    {
+                        delta: {
+                            tool_calls: [
+                                {
+                                    index: 0,
+                                    id: 'call_1',
+                                    function: {
+                                        name: 'first',
+                                        arguments: '{"n":1}',
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+            {
+                choices: [
+                    {
+                        delta: {
+                            tool_calls: [
+                                {
+                                    index: 1,
+                                    id: 'call_2',
+                                    function: {
+                                        name: 'second',
+                                        arguments: '{"n":2}',
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+            { choices: [{ delta: {} }], usage: { prompt_tokens: 3 } },
+        ]);
+        const init = create_chat_stream_handler({
+            deviations: undefined,
+            completion,
+            usage_calculator: () => ({}),
+        });
+        const harness = makeCapturingChatStream();
+        await init({ chatStream: harness.chatStream });
+
+        const toolEvents = harness
+            .events()
+            .filter((e) => e.type === 'tool_use');
+        expect(toolEvents.map((e) => [e.name, e.input])).toEqual([
+            ['first', { n: 1 }],
+            ['second', { n: 2 }],
+        ]);
+    });
+
     it('honors the deviations.chunk_but_like_actually unwrap', async () => {
         // Mistral wraps each chunk under `.data`.
         const completion = asAsyncIterable([

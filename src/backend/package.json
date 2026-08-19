@@ -17,7 +17,7 @@
     "@aws-sdk/credential-providers": "^3.1021.0",
     "@aws-sdk/lib-dynamodb": "^3.490.0",
     "@aws-sdk/s3-request-presigner": "^3.1028.0",
-    "@google/genai": "^1.19.0",
+    "@google/genai": "^1.52.0",
     "@heyputer/kv.js": "^0.2.1",
     "@heyputer/putility": "^1.0.0",
     "@mistralai/mistralai": "^1.15.1",

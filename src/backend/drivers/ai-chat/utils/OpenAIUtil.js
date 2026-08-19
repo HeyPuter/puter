@@ -406,7 +406,13 @@ export const create_chat_stream_handler =
         chatStream.reportUsage(usage);
 
         if (mode === 'text') textblock.end();
-        if (mode === 'tool') toolblock.end();
+        // Every tool block, not just the one the last chunk happened to touch:
+        // parallel tool calls arrive as separate indices, and ending only the
+        // final `toolblock` dropped the others on the floor — the completion
+        // was generated and billed, and the caller saw one of the calls.
+        if (mode === 'tool') {
+            for (const block of tool_call_blocks) block?.end();
+        }
 
         message.end();
         chatStream.end(usage);

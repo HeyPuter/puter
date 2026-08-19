@@ -346,6 +346,10 @@
             "apiURL": ""
         },
         "gemini": { "apiKey": "" },
+        // Gemini again, over Google's Interactions API instead of its
+        // OpenAI-compat shim. Same models and same prices; set a key here as
+        // well as under `gemini` to add it as a second route.
+        "gemini-interactions": { "apiKey": "" },
         "groq": { "apiKey": "" },
         "deepseek": { "apiKey": "" },
         "mistral": { "apiKey": "" },

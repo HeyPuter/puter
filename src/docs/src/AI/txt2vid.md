@@ -65,6 +65,26 @@ Available when using a Veo model (`veo-2.0-generate-001`, `veo-3.0-generate-001`
 
 For more details, see the [Google Veo API reference](https://ai.google.dev/gemini-api/docs/video).
 
+#### Google (Omni) Options
+
+Available when using `gemini-omni-flash-preview`. Omni chooses its own clip
+length, so `seconds` is ignored; it also takes no `negative_prompt`,
+`last_frame`, `fps`, or `seed`.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `model` | `String` | Video model to use. Available: `'gemini-omni-flash-preview'` |
+| `size` | `String` | Output dimensions: `'1280x720'` (landscape, default) or `'720x1280'` (portrait). `resolution` is an alias |
+| `input_reference` | `String` | Base64 image used as the first frame (image-to-video) |
+| `reference_images` | `Array<String>` | Base64 images used as style/asset references |
+
+Omni is billed per output token rather than per second — roughly $0.10 for each
+second of 720p video. Because the request cannot cap the clip length, a
+generation is rejected up front unless the account can cover the longest clip
+the model may return.
+
+For more details, see the [Gemini Omni API reference](https://ai.google.dev/gemini-api/docs/omni).
+
 #### TogetherAI Options
 
 Available when using a TogetherAI model:
