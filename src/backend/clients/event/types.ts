@@ -338,6 +338,18 @@ export type EventMap = {
     // is pricing workers that came into existence, not deploys.
     'worker.create': { actor: Actor; workerName: string };
 
+    // The same announcement for worker code that lives inside a hosted site
+    // and is deployed on demand rather than by an explicit call. Such a worker
+    // has no row of ours to key on, so what stands in for "genuinely new" is
+    // the absence of any prior record that it ran — which is why it is
+    // announced separately, and identified by where its source lives rather
+    // than by a worker name.
+    'worker.dynamic.create': {
+        actor: Actor;
+        subdomain: string;
+        worker: string;
+    };
+
     // ---- Outer / GUI broadcast ----
     'outer.cacheUpdate': {
         cacheKey: string[];
@@ -540,10 +552,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
