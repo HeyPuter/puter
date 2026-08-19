@@ -99,6 +99,7 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [62, ['0067_share_entries.sql']],
     [63, ['0068_referral-code-unique.sql']],
     [64, ['0069_user-block.sql']],
+    [65, ['0070_drop-orphaned-default-groups.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {
