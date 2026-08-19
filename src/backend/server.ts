@@ -681,8 +681,29 @@ export class PuterServer {
             'Overwrite',
             'If',
             'Lock-Token',
+            'Timeout',
+            'X-Expected-Entity-Length',
             'DAV',
             'stripe-signature',
+        ].join(', ');
+
+        // What a browser DAV client is allowed to read back off a response.
+        // Everything below is a header the WebDAV controller sets and a client
+        // acts on: without this list `fetch` hands the page a response whose
+        // ETag, lock token and content range are all invisible, so it can't
+        // cache, lock, or resume anything.
+        const davExposedHeaders = [
+            'DAV',
+            'MS-Author-Via',
+            'Allow',
+            'ETag',
+            'Last-Modified',
+            'Content-Length',
+            'Content-Range',
+            'Accept-Ranges',
+            'Location',
+            'Lock-Token',
+            'WWW-Authenticate',
         ].join(', ');
 
         this.#app.use((req, res, next) => {
@@ -700,6 +721,10 @@ export class PuterServer {
                 res.setHeader('Access-Control-Allow-Credentials', 'true');
             } else if (subdomain === 'dav') {
                 res.setHeader('Access-Control-Allow-Credentials', 'false');
+                res.setHeader(
+                    'Access-Control-Expose-Headers',
+                    davExposedHeaders,
+                );
             }
 
             res.setHeader('Access-Control-Allow-Methods', allowedMethods);
