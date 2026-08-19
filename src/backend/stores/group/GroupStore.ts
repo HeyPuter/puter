@@ -17,9 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
-import { HttpError } from '../../core/http/HttpError.js';
 
 // -- Types ------------------------------------------------------------
 
@@ -32,34 +30,17 @@ export interface GroupRow {
     [k: string]: unknown;
 }
 
-// -- Constants --------------------------------------------------------
-
-const CREATE_RATE_LIMIT_PER_HOUR = 20;
-const PUBLIC_GROUPS_CACHE_TTL_SECONDS = 10 * 60;
-
 // -- GroupStore -------------------------------------------------------
 
 /**
  * Persistence layer for persistent user groups.
  *
- * Owns CRUD over the `group` table and the `jct_user_group` junction table,
- * plus a per-process redis cache for the (small, frequently-read) set of public
- * groups (the hardcoded default user + temp groups from config).
- *
- * Returns plain rows. Callers that need the members of a group can call
- * `listMemberUsernames(uid)` explicitly.
+ * Reads the `group` table and maintains the `jct_user_group` junction table.
+ * Groups themselves are seeded by migration (the default user, temp, admin and
+ * moderator groups) — nothing creates one at runtime, so this owns membership
+ * writes only.
  */
 export class GroupStore extends PuterStore {
-    /**
-     * Random per-process cache namespace so restart-staleness can't cross
-     * processes. Populated in `onServerStart`.
-     */
-    private redisNamespace: string = '';
-
-    override onServerStart(): void {
-        this.redisNamespace = uuidv4();
-    }
-
     // -- Reads --------------------------------------------------------
 
     async getByUid(uid: string): Promise<GroupRow | null> {
@@ -70,135 +51,7 @@ export class GroupStore extends PuterStore {
         return rows[0] ? this.#decodeGroup(rows[0]) : null;
     }
 
-    async listGroupsWithOwner(ownerUserId: number): Promise<GroupRow[]> {
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `group` WHERE `owner_user_id` = ?',
-            [ownerUserId],
-        );
-        return rows.map((r) => this.#decodeGroup(r));
-    }
-
-    async listGroupsWithMember(userId: number): Promise<GroupRow[]> {
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `group` WHERE `id` IN (' +
-                'SELECT `group_id` FROM `jct_user_group` WHERE `user_id` = ?)',
-            [userId],
-        );
-        return rows.map((r) => this.#decodeGroup(r));
-    }
-
-    /**
-     * Lists the two default public groups (user + temp). Redis-cached for 60s
-     * per-process. Falls back to DB on cache miss or decode failure.
-     */
-    async listPublicGroups(): Promise<GroupRow[]> {
-        const userGroupUid = this.config.default_user_group;
-        const tempGroupUid = this.config.default_temp_group;
-        const publicUids = [userGroupUid, tempGroupUid].filter(
-            (v): v is string => typeof v === 'string' && v.length > 0,
-        );
-        if (publicUids.length === 0) return [];
-
-        const cacheKey = this.#publicGroupsCacheKey();
-        try {
-            const cached = await this.clients.redis.get(cacheKey);
-            if (cached) {
-                const parsed = JSON.parse(cached) as GroupRow[];
-                if (Array.isArray(parsed)) return parsed;
-            }
-        } catch {
-            // fall through to DB read
-        }
-
-        const placeholders = publicUids.map(() => '?').join(', ');
-        const rows = await this.clients.db.read(
-            `SELECT * FROM \`group\` WHERE \`uid\` IN (${placeholders})`,
-            publicUids,
-        );
-        const decoded = rows.map((r) => this.#decodeGroup(r));
-
-        try {
-            await this.clients.redis.set(
-                cacheKey,
-                JSON.stringify(decoded),
-                'EX',
-                PUBLIC_GROUPS_CACHE_TTL_SECONDS,
-            );
-        } catch {
-            // cache writes are best-effort
-        }
-        return decoded;
-    }
-
-    /** Usernames of the group's members. */
-    async listMemberUsernames(uid: string): Promise<string[]> {
-        const rows = await this.clients.db.read(
-            'SELECT u.username FROM `user` u ' +
-                'JOIN (SELECT user_id FROM `jct_user_group` WHERE group_id = ' +
-                '(SELECT id FROM `group` WHERE uid = ?)) ug ' +
-                'ON u.id = ug.user_id',
-            [uid],
-        );
-        return rows.map((r) => String(r.username));
-    }
-
-    /**
-     * UUIDs of a group's members — used to bump each member's permission cache
-     * generation when a group grant changes, so the grant/revoke takes effect
-     * for members without waiting for the cache TTL.
-     */
-    async listMemberUserUuids(uid: string): Promise<string[]> {
-        const rows = await this.clients.db.read(
-            'SELECT u.uuid FROM `user` u ' +
-                'JOIN (SELECT user_id FROM `jct_user_group` WHERE group_id = ' +
-                '(SELECT id FROM `group` WHERE uid = ?)) ug ' +
-                'ON u.id = ug.user_id',
-            [uid],
-        );
-        return rows.map((r) => String(r.uuid));
-    }
-
     // -- Writes -------------------------------------------------------
-
-    /**
-     * Creates a new group owned by `ownerUserId`. Enforces a 20/hour per-owner
-     * rate limit (throws `Error('too_many_requests')` if exceeded).
-     */
-    async create({
-        ownerUserId,
-        extra = {},
-        metadata = {},
-    }: {
-        ownerUserId: number;
-        extra?: Record<string, unknown>;
-        metadata?: Record<string, unknown>;
-    }): Promise<string> {
-        const windowClause = this.clients.db.case<string>({
-            sqlite: "datetime('now', '-1 hour')",
-            postgres: "NOW() - INTERVAL '1 hour'",
-            otherwise: 'NOW() - INTERVAL 1 HOUR',
-        });
-        const [countRow] = await this.clients.db.read(
-            `SELECT COUNT(*) AS n_groups FROM \`group\` WHERE \`owner_user_id\` = ? AND \`created_at\` >= ${windowClause}`,
-            [ownerUserId],
-        );
-        if (Number(countRow?.n_groups ?? 0) >= CREATE_RATE_LIMIT_PER_HOUR) {
-            throw new HttpError(
-                429,
-                'Too many groups created in the last hour',
-                {
-                    legacyCode: 'too_many_requests',
-                },
-            );
-        }
-
-        const uid = uuidv4();
-        await this.clients.db.write(
-            'INSERT INTO `group` (`uid`, `owner_user_id`, `extra`, `metadata`) VALUES (?, ?, ?, ?)',
-            [uid, ownerUserId, JSON.stringify(extra), JSON.stringify(metadata)],
-        );
-        return uid;
-    }
 
     /**
      * Adds users (by username) to the group identified by `uid`. No-op if
@@ -234,10 +87,6 @@ export class GroupStore extends PuterStore {
     }
 
     // -- Internals ----------------------------------------------------
-
-    #publicGroupsCacheKey(): string {
-        return `${this.redisNamespace}:group:public-groups`;
-    }
 
     #decodeGroup(row: Record<string, unknown>): GroupRow {
         const parse = (v: unknown): Record<string, unknown> => {

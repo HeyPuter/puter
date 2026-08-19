@@ -629,17 +629,20 @@ describe('ShareService', () => {
         const member = await makeUser();
         const { dir, file } = await makeDirWithFile(owner.user);
 
-        const groupUid = await server.stores.group.create({
-            ownerUserId: owner.user.id,
-        });
+        // Group permissions are migration-seeded rather than written at
+        // runtime, so the rows go in directly.
+        const groupUid = uuidv4();
+        await server.clients.db.write(
+            'INSERT INTO `group` (`uid`, `owner_user_id`, `extra`, `metadata`) ' +
+                'VALUES (?, ?, ?, ?)',
+            [groupUid, owner.user.id, '{}', '{}'],
+        );
         const group = (await server.stores.group.getByUid(groupUid))!;
         await server.stores.group.addUsers(groupUid, [member.user.username!]);
-        await runWithContext({ actor: owner.actor }, () =>
-            server.services.permission.grantUserGroupPermission(
-                owner.actor,
-                { id: Number(group.id), uid: groupUid },
-                `manage:fs:${dir.uuid}`,
-            ),
+        await server.clients.db.write(
+            'INSERT INTO `user_to_group_permissions` ' +
+                '(`user_id`, `group_id`, `permission`, `extra`) VALUES (?, ?, ?, ?)',
+            [owner.user.id, Number(group.id), `manage:fs:${dir.uuid}`, '{}'],
         );
 
         // The grant sits on the folder and reached the member through the
@@ -1617,9 +1620,9 @@ describe('ShareService', () => {
         );
         expect(before.items.map((i) => i.entryUid)).toContain(file.uuid);
 
-        // Straight at the permission layer, the way `/auth/revoke-user-user`
-        // does — the share row survives, so the index alone would keep
-        // publishing the entry's name, size and a signed thumbnail URL.
+        // Straight at the permission layer, bypassing the share row — it
+        // survives, so the index alone would keep publishing the entry's name,
+        // size and a signed thumbnail URL.
         await server.services.permission.revokeUserUserPermission(
             owner.actor,
             recipient.user.username!,

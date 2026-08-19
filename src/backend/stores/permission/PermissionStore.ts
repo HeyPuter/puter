@@ -707,6 +707,9 @@ export class PermissionStore extends PuterStore {
     }
 
     // -- SQL: user-to-group permissions ------------------------------
+    //
+    // Read-only. Group grants are seeded by migration (the admin group's
+    // unrestricted `driver` access); nothing writes them at runtime.
 
     /**
      * Reads group permissions granted to groups the user is a member of, for a
@@ -728,63 +731,6 @@ export class PermissionStore extends PuterStore {
         );
         return rows.map((row) =>
             this.#decodeExtra<LinkedUserGroupPermRow>(row),
-        );
-    }
-
-    async upsertUserGroupPerm(
-        userId: number,
-        groupId: number,
-        permission: string,
-        extra: Record<string, unknown>,
-    ): Promise<void> {
-        const upsertClause = this.clients.db.upsertClause(
-            ['user_id', 'group_id', 'permission'],
-            ['extra'],
-        );
-        await this.clients.db.write(
-            'INSERT INTO `user_to_group_permissions` (`user_id`, `group_id`, `permission`, `extra`) ' +
-                `VALUES (?, ?, ?, ?) ${upsertClause}`,
-            [
-                userId,
-                groupId,
-                permission,
-                JSON.stringify(extra),
-                JSON.stringify(extra),
-            ],
-        );
-    }
-
-    async deleteUserGroupPerm(
-        userId: number,
-        groupId: number,
-        permission: string,
-    ): Promise<void> {
-        await this.clients.db.write(
-            'DELETE FROM `user_to_group_permissions` WHERE `user_id` = ? AND `group_id` = ? AND `permission` = ?',
-            [userId, groupId, permission],
-        );
-    }
-
-    async auditUserGroupPerm(
-        entry: AuditEntry & {
-            user_id: number;
-            group_id: number;
-            permission: string;
-        },
-    ): Promise<void> {
-        await this.clients.db.write(
-            'INSERT INTO `audit_user_to_group_permissions` (' +
-                '`user_id`, `user_id_keep`, `group_id`, `group_id_keep`, ' +
-                '`permission`, `action`, `reason`) VALUES (?, ?, ?, ?, ?, ?, ?)',
-            [
-                entry.user_id,
-                entry.user_id,
-                entry.group_id,
-                entry.group_id,
-                entry.permission,
-                entry.action,
-                entry.reason,
-            ],
         );
     }
 

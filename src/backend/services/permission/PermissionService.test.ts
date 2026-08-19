@@ -596,31 +596,6 @@ describe('PermissionService (integration)', () => {
         });
     });
 
-    describe('grantUserGroupPermission / revokeUserGroupPermission', () => {
-        it('grantUserGroupPermission throws 403 when issuer lacks manage:<perm>', async () => {
-            const { actor } = await makeUserActor();
-            await expect(
-                runWithContext({ actor }, () =>
-                    permService.grantUserGroupPermission(
-                        actor,
-                        { id: 1, uid: 'grp-doesnt-matter' },
-                        `zztest:unmanaged-${uuidv4()}:ii:read`,
-                    ),
-                ),
-            ).rejects.toMatchObject({ statusCode: 403 });
-        });
-
-        it('revokeUserGroupPermission rejects when actor has no user.id', async () => {
-            await expect(
-                permService.revokeUserGroupPermission(
-                    { user: undefined } as unknown as Actor,
-                    { id: 1, uid: 'grp-x' },
-                    'zztest:foo:ii:read',
-                ),
-            ).rejects.toMatchObject({ statusCode: 403 });
-        });
-    });
-
     describe('queryIssuerHolderPermissionsByPrefix', () => {
         it('returns [] for actors without user.id', async () => {
             const out = await permService.queryIssuerHolderPermissionsByPrefix(
@@ -1349,49 +1324,23 @@ describe('PermissionService — scan paths', () => {
             ).toBe(false);
         });
 
-        it('never queries group membership to resolve a user permission', async () => {
-            // The membership lookup existed only to re-derive the flattened
-            // constant above, so no scan should reach for it now.
-            const { actor } = await makeGroupedUser();
-            const spy = vi.spyOn(server.stores.group, 'listGroupsWithMember');
-            try {
-                expect(
-                    await permService.check(actor, 'driver:puter-kvstore', {
-                        noCache: true,
-                    }),
-                ).toBe(true);
-                expect(
-                    await permService.check(actor, `zztest:${uuidv4()}:read`, {
-                        noCache: true,
-                    }),
-                ).toBe(false);
-                expect(spy).not.toHaveBeenCalled();
-            } finally {
-                spy.mockRestore();
-            }
-        });
-
-        it('honours a group grant issued by a user, and drops it on revoke', async () => {
-            const { row: issuer, actor: issuerActor } = await makeGroupedUser();
+        // Group permissions are seeded by migration, not written at runtime, so
+        // this drives the rows directly the way a migration does.
+        it('honours a group permission row, and drops it when the row goes', async () => {
+            const { row: issuer } = await makeGroupedUser();
             const { row: member, actor: memberActor } = await makeGroupedUser();
-            const groupUid = await server.stores.group.create({
-                ownerUserId: issuer.id,
-            });
+            const groupUid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `group` (`uid`, `owner_user_id`, `extra`, `metadata`) ' +
+                    'VALUES (?, ?, ?, ?)',
+                [groupUid, issuer.id, '{}', '{}'],
+            );
             const group = (await server.stores.group.getByUid(groupUid))!;
             await server.stores.group.addUsers(groupUid, [member.username]);
 
             const permission = `zztest:grp-${uuidv4()}:ii:read`;
-            await server.stores.permission.setFlatUserPerm(
-                issuer.id,
-                `manage:${permission}`,
-                {
-                    permission: `manage:${permission}`,
-                    deleted: false,
-                    issuer_user_id: issuer.id,
-                } as never,
-            );
-            // The issuer must hold the permission itself for the delegation
-            // chain to terminate.
+            // The group reading embeds the issuer's own reading, so the issuer
+            // has to hold the permission for the chain to terminate.
             await server.stores.permission.setFlatUserPerm(
                 issuer.id,
                 permission,
@@ -1401,23 +1350,23 @@ describe('PermissionService — scan paths', () => {
                     issuer_user_id: issuer.id,
                 } as never,
             );
-
-            await runWithContext({ actor: issuerActor }, () =>
-                permService.grantUserGroupPermission(
-                    issuerActor,
-                    { id: group.id, uid: group.uid },
-                    permission,
-                ),
+            await server.clients.db.write(
+                'INSERT INTO `user_to_group_permissions` ' +
+                    '(`user_id`, `group_id`, `permission`, `extra`) VALUES (?, ?, ?, ?)',
+                [issuer.id, group.id, permission, '{}'],
             );
             expect(await permService.check(memberActor, permission)).toBe(true);
 
-            await runWithContext({ actor: issuerActor }, () =>
-                permService.revokeUserGroupPermission(
-                    issuerActor,
-                    { id: group.id, uid: group.uid },
-                    permission,
-                ),
+            await server.clients.db.write(
+                'DELETE FROM `user_to_group_permissions` ' +
+                    'WHERE `group_id` = ? AND `permission` = ?',
+                [group.id, permission],
             );
+            // The member's reading resolved through the group, so their cached
+            // answer has to be orphaned before the next check sees the deletion.
+            await permService.bumpPermissionCacheForUsernames([
+                member.username,
+            ]);
             expect(await permService.check(memberActor, permission)).toBe(
                 false,
             );

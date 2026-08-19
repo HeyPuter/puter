@@ -608,9 +608,9 @@ export class ShareService extends PuterService {
      * Of `entries`, the uuids `holderId` still holds a live grant on.
      *
      * The index is not proof of access: a grant can be withdrawn or downgraded
-     * by a path that never touches a share row (`/auth/revoke-user-user`, or an
-     * ACL mode change), and this listing publishes name, size and a signed
-     * thumbnail URL — so it has to be checked against the grants themselves.
+     * by a path that never touches a share row (an ACL mode change, say), and
+     * this listing publishes name, size and a signed thumbnail URL — so it has
+     * to be checked against the grants themselves.
      *
      * Two batched reads for the whole page, both keyed on the holder: the
      * linked rows are indexed on `holder_user_id`, and the flat view is a
