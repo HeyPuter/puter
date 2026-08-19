@@ -17,6 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { metrics } from '@opentelemetry/api';
 import { PuterStore } from '../types';
 import type { Actor } from '../../core/actor';
 import {
@@ -46,6 +47,48 @@ import {
     type KvCachedItem,
     type KvCacheSettings,
 } from './readCache';
+
+const meter = metrics.getMeter('puter-backend');
+
+/**
+ * What the read cache did with each key it was asked about, by `result`:
+ *
+ * - `hit` — answered from a cached value
+ * - `miss` — answered from a cached absence, which saves the same read a `hit`
+ *   does and belongs on the same side of the ratio
+ * - `expired` — a cached value whose own deadline had passed, so it answered
+ *   nothing and the key was read through
+ * - `blocked` — a recent write left a marker, so the read deliberately went
+ *   through and did not populate
+ * - `absent` — nothing was cached; the read went through and populated
+ * - `error` — the cache could not be reached and the read degraded to uncached
+ *
+ * The rate worth watching is `(hit + miss) / total`. Deliberately not split by
+ * namespace: namespaces are per-app, so that would be unbounded cardinality.
+ */
+const cacheLookupCounter = meter.createCounter('kv.cache.lookup', {
+    description: 'KV read-cache lookups by outcome',
+});
+
+type CacheOutcomes = Record<
+    'hit' | 'miss' | 'expired' | 'blocked' | 'absent',
+    number
+>;
+
+const countedOutcomes = (): CacheOutcomes => ({
+    hit: 0,
+    miss: 0,
+    expired: 0,
+    blocked: 0,
+    absent: 0,
+});
+
+/** One `add` per outcome that actually occurred, rather than one per key. */
+const recordCacheOutcomes = (outcomes: CacheOutcomes): void => {
+    for (const [result, count] of Object.entries(outcomes)) {
+        if (count > 0) cacheLookupCounter.add(count, { result });
+    }
+};
 
 // -- Types ------------------------------------------------------------
 
@@ -454,6 +497,7 @@ export class SystemKVStore extends PuterStore {
             const resolved = new Set<string>();
             let readUnits = 0;
             const now = Date.now() / 1000;
+            const outcomes = countedOutcomes();
 
             keys.forEach((key, index) => {
                 const cached = decodeCachedRead(raw[index], key);
@@ -461,21 +505,33 @@ export class SystemKVStore extends PuterStore {
                     // The entry carries its own deadline and the cache TTL is
                     // only an upper bound on it, so an entry that lapsed since
                     // it was written counts as nothing cached at all.
-                    if (cached.item.ttl && cached.item.ttl <= now) return;
+                    if (cached.item.ttl && cached.item.ttl <= now) {
+                        outcomes.expired++;
+                        return;
+                    }
+                    outcomes.hit++;
                     items.push(cached.item);
                     resolved.add(key);
                     readUnits += cached.readUnits;
                     return;
                 }
                 if (cached.state === 'miss') {
+                    outcomes.miss++;
                     resolved.add(key);
                     readUnits += cached.readUnits;
+                    return;
                 }
+                if (cached.state === 'blocked') outcomes.blocked++;
+                else outcomes.absent++;
             });
 
+            recordCacheOutcomes(outcomes);
             return { items, resolved, readUnits };
         } catch (e) {
             // A cache that is down degrades to no cache, never to an error.
+            // Counted so that a cache which has stopped answering reads as
+            // exactly that, rather than as a cache nobody is asking.
+            cacheLookupCounter.add(keys.length, { result: 'error' });
             console.warn(
                 '[kv] read cache lookup failed:',
                 (e as Error).message,
@@ -759,7 +815,8 @@ export class SystemKVStore extends PuterStore {
                 fetched = response.Item ? [response.Item as KvCachedItem] : [];
                 fetchUnits = Number(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 0,
+                        | number
+                        | undefined) ?? 0,
                 );
             }
 
@@ -831,7 +888,8 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined,
+                        | number
+                        | undefined,
                 ),
             ),
         };
@@ -925,7 +983,8 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             ),
         };
@@ -953,7 +1012,8 @@ export class SystemKVStore extends PuterStore {
         await this.#invalidate(namespace, [key]);
 
         const old = response.Attributes as
-            { value?: unknown; ttl?: number } | undefined;
+            | { value?: unknown; ttl?: number }
+            | undefined;
         const now = Date.now() / 1000;
         const res =
             old === undefined || (old.ttl && old.ttl <= now)
@@ -966,7 +1026,8 @@ export class SystemKVStore extends PuterStore {
                 probeUsage,
                 writeUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             ),
         };
@@ -1044,7 +1105,9 @@ export class SystemKVStore extends PuterStore {
             | { key: string; value: unknown }[]
             | {
                   items:
-                      string[] | unknown[] | { key: string; value: unknown }[];
+                      | string[]
+                      | unknown[]
+                      | { key: string; value: unknown }[];
                   cursor?: string;
                   total?: number;
               }
@@ -1123,7 +1186,8 @@ export class SystemKVStore extends PuterStore {
                 usage,
                 readUsage(
                     (response.ConsumedCapacity?.CapacityUnits as
-                        number | undefined) ?? 1,
+                        | number
+                        | undefined) ?? 1,
                 ),
             );
             return response;
@@ -1140,7 +1204,8 @@ export class SystemKVStore extends PuterStore {
                 const skip = await runQuery(remaining, startKey, 'COUNT');
                 remaining -= Number(skip.Count ?? 0);
                 startKey = skip.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
                 if (!startKey) {
                     exhausted = remaining > 0;
                     break;
@@ -1163,7 +1228,8 @@ export class SystemKVStore extends PuterStore {
                     >),
                 );
                 nextKey = response.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
                 pages++;
                 if (normalizedLimit === undefined) {
                     // Legacy full listing: follow continuation pages so the
@@ -1199,7 +1265,8 @@ export class SystemKVStore extends PuterStore {
                 const counted = await runQuery(0, countKey, 'COUNT');
                 total += Number(counted.Count ?? 0);
                 countKey = counted.LastEvaluatedKey as
-                    Record<string, unknown> | undefined;
+                    | Record<string, unknown>
+                    | undefined;
             } while (countKey);
         }
 
@@ -1554,7 +1621,8 @@ export class SystemKVStore extends PuterStore {
                     probeUsage,
                     writeUsage(
                         (response.ConsumedCapacity?.CapacityUnits as
-                            number | undefined) ?? 1,
+                            | number
+                            | undefined) ?? 1,
                     ),
                 ),
             };

@@ -328,10 +328,16 @@ for i = 1, #abandoned do
     redis.call('ZREM', KEYS[2], abandoned[i])
 end
 local taken = redis.call('SPOP', KEYS[1], ARGV[1]) or {}
+-- Nothing taken means the dirty set is empty, including anything just put back
+-- above, so the SCARD below could only be 0. Returning it directly matters
+-- because most buckets are idle on most cycles: SPOP is a write and doesn't
+-- count as a keyspace read, so skipping the SCARD is what keeps an idle
+-- bucket's drain from registering as a cache miss.
+if #taken == 0 then return { taken, 0 } end
 for i = 1, #taken do
     redis.call('ZADD', KEYS[2], ARGV[2], taken[i])
 end
-if #taken > 0 then redis.call('PEXPIRE', KEYS[2], ARGV[3]) end
+redis.call('PEXPIRE', KEYS[2], ARGV[3])
 return { taken, redis.call('SCARD', KEYS[1]) }
 `;
 

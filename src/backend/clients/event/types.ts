@@ -32,6 +32,24 @@ type GuiEvent<R = Record<string, unknown>> = {
     response: R;
 };
 
+/**
+ * Extension-augmentable half of {@link EventMap}. Extensions that emit their own
+ * events declare the payload here by declaration merging, so both the emitter
+ * and every listener are typed against the same shape:
+ *
+ *     declare module '@heyputer/backend/clients/event/types' {
+ *         interface IExtensionEventMap {
+ *             'my.thing.happened': { thingId: string };
+ *         }
+ *     }
+ *
+ * Deliberately member-less and index-signature-free: an index signature here
+ * would widen `keyof EventMap` to `string` and silently disable key checking on
+ * every `emit` in the tree.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface IExtensionEventMap {}
+
 export type EventMap = {
     // ---- Server lifecycle ----
     serverStart: Record<string, never>;
@@ -499,7 +517,7 @@ export type EventMap = {
      * have all dropped that answer.
      */
     'outer.pubsub.metering.credits-changed': { userUuid: string };
-};
+} & IExtensionEventMap;
 
 /**
  * Phase of a request/method lifecycle. `reject` is emitted when a `before`
