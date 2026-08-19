@@ -234,6 +234,39 @@ export class StaticPagesController extends PuterController {
             },
         );
 
+        // RFC 8058 one-click unsubscribe: mailbox providers POST to the URL
+        // the List-Unsubscribe header carries, with no person in a browser —
+        // so this answers plain text, not the HTML page above.
+        router.post(
+            '/unsubscribe',
+            { rateLimit: TOKEN_LINK_LIMIT },
+            async (req, res) => {
+                const userUuid =
+                    typeof req.query.user_uuid === 'string'
+                        ? req.query.user_uuid
+                        : undefined;
+                if (!userUuid) {
+                    res.status(400)
+                        .type('text/plain')
+                        .send('user_uuid is required');
+                    return;
+                }
+
+                const user = await this.stores.user.getByUuid(userUuid);
+                if (!user) {
+                    res.status(404).type('text/plain').send('User not found.');
+                    return;
+                }
+
+                if (!user.unsubscribed) {
+                    await this.stores.user.update(user.id, {
+                        unsubscribed: 1,
+                    });
+                }
+                res.type('text/plain').send('Unsubscribed.');
+            },
+        );
+
         // -- /confirm-email-by-token ---------------------------------
         router.get(
             '/confirm-email-by-token',

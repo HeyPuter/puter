@@ -278,6 +278,57 @@ describe('StaticPagesController GET /unsubscribe', () => {
     });
 });
 
+// RFC 8058 one-click: mailbox providers POST to the List-Unsubscribe URL
+// with nobody in a browser, so the route answers plain text, not the page.
+describe('StaticPagesController POST /unsubscribe (one-click)', () => {
+    it('flips unsubscribed=1 and answers plain text, not a page', async () => {
+        const user = await makeUser({ unsubscribed: 0 });
+        const { res, captured } = makeRes();
+        await callRoute(
+            'post',
+            '/unsubscribe',
+            makeReq({ query: { user_uuid: user.uuid } }),
+            res,
+        );
+        expect(captured.statusCode).toBe(200);
+        expect(captured.contentType).toBe('text/plain');
+        expect(String(captured.body)).not.toContain('<html');
+        const refreshed = await server.stores.user.getById(user.id);
+        expect(Boolean(refreshed?.unsubscribed)).toBe(true);
+    });
+
+    it('answers 200 again for an already-unsubscribed user', async () => {
+        const user = await makeUser({ unsubscribed: 1 });
+        const { res, captured } = makeRes();
+        await callRoute(
+            'post',
+            '/unsubscribe',
+            makeReq({ query: { user_uuid: user.uuid } }),
+            res,
+        );
+        expect(captured.statusCode).toBe(200);
+    });
+
+    it('rejects a missing user_uuid', async () => {
+        const { res, captured } = makeRes();
+        await callRoute('post', '/unsubscribe', makeReq({}), res);
+        expect(captured.statusCode).toBe(400);
+    });
+
+    it('rejects an unknown user', async () => {
+        const { res, captured } = makeRes();
+        await callRoute(
+            'post',
+            '/unsubscribe',
+            makeReq({
+                query: { user_uuid: '00000000-0000-0000-0000-000000000000' },
+            }),
+            res,
+        );
+        expect(captured.statusCode).toBe(404);
+    });
+});
+
 // ── /confirm-email-by-token ─────────────────────────────────────────
 
 describe('StaticPagesController GET /confirm-email-by-token', () => {

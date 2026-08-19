@@ -45,6 +45,10 @@ interface SentEmail {
     to: string;
     subject: string;
     html: string;
+    /** The plain-text alternative part, when the template defines one. */
+    text?: string;
+    /** Extra message headers (List-Unsubscribe et al.). */
+    headers?: Record<string, string>;
 }
 
 const uniqueSuffix = (): string =>
@@ -116,11 +120,19 @@ describe('share email', () => {
     beforeEach(() => {
         sent = [];
         vi.spyOn(env.server.clients.email, 'sendRaw').mockImplementation(
-            async (options: { to: string; subject: string; html?: string }) => {
+            async (options: {
+                to: string;
+                subject: string;
+                html?: string;
+                text?: string;
+                headers?: Record<string, string>;
+            }) => {
                 sent.push({
                     to: options.to,
                     subject: options.subject,
                     html: options.html ?? '',
+                    text: options.text,
+                    headers: options.headers,
                 });
                 return null;
             },
@@ -284,6 +296,12 @@ describe('share email', () => {
         // The full origin, port included — a rebuilt protocol://domain link
         // is dead on any self-host that doesn't run on the default port.
         expect(mail.html).toContain(`href="${env.origin}"`);
+
+        // The plain-text part carries the same story, and there is no
+        // unsubscribe header — an invitee has no account to unsubscribe.
+        expect(mail.text).toContain(file.name);
+        expect(mail.text).toContain(invitee);
+        expect(mail.headers).toBeUndefined();
 
         // Nobody else hears about it — least of all the sender.
         await sleep(SETTLE_MS);
@@ -491,6 +509,34 @@ describe('share email', () => {
                 (item) => item.uid_entry === second.uid,
             ),
         );
+    });
+
+    it('carries a plain-text part and one-click unsubscribe headers', async () => {
+        const owner = env.users.user;
+        const recipient = await signUpAndConfirm(uninvitedAddress());
+        sent = [];
+
+        const file = await makeFile(owner, 'alt-part');
+        await shareWith(owner, recipient.email, [{ uid: file.uid }]);
+        const mail = await waitForMail({ to: recipient.email });
+
+        // multipart/alternative: the text part mirrors the html for clients
+        // (and filters) that don't read HTML.
+        expect(mail.text).toContain(`${owner.username} shared ${file.name}`);
+        expect(mail.text).toContain(env.origin);
+
+        // RFC 8058 one-click: the provider-level unsubscribe affordance,
+        // pointing at the same URL the body's link uses.
+        const row = await env.server.stores.user.getByUsername(
+            recipient.username,
+        );
+        expect(mail.headers?.['List-Unsubscribe']).toBe(
+            `<${env.origin}/unsubscribe?user_uuid=${row!.uuid}>`,
+        );
+        expect(mail.headers?.['List-Unsubscribe-Post']).toBe(
+            'List-Unsubscribe=One-Click',
+        );
+        expect(mail.text).toContain(`/unsubscribe?user_uuid=${row!.uuid}`);
     });
 
     it('sends nothing to a recipient who has blocked the sender', async () => {

@@ -29,7 +29,128 @@
 export interface EmailTemplate {
     subject: string;
     html: string;
+    /**
+     * Plain-text alternative part. When present the message goes out as
+     * multipart/alternative — better deliverability, and a readable fallback
+     * for clients (and filters) that don't render HTML. Compiled with
+     * `noEscape`: it is not HTML, so entities would be read literally.
+     */
+    text?: string;
 }
+
+// -- Share email layout -------------------------------------------------
+//
+// The sharing notifications are the emails most often sent to addresses that
+// never asked to hear from Puter, so they carry the full email-client
+// boilerplate: a complete document, table layout, inline styles, hidden
+// preview text, and dark-mode overrides. Interpolations sit at column 0 so
+// `dedent` (applied at compile time) leaves the markup untouched.
+
+const FONT =
+    "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
+
+/**
+ * Bulletproof-enough CTA: padding lives on the link so the whole button is
+ * clickable, `mso-padding-alt` gives Outlook the same visual size (there only
+ * the label is clickable, which is the accepted degradation).
+ */
+const shareCta = (label: string, href: string): string => `
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin: 24px 0 0;">
+<tr>
+<td style="border-radius: 8px; background-color: #0473c9; mso-padding-alt: 13px 36px;">
+<a href="${href}" target="_blank" style="display: inline-block; padding: 13px 36px; font-family: ${FONT}; font-size: 15px; font-weight: 600; line-height: 20px; color: #ffffff; text-decoration: none; border-radius: 8px;">${label}</a>
+</td>
+</tr>
+</table>`;
+
+/** One row per sender: "**alice** shared report.txt". */
+const shareList = `
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="list-panel" style="margin: 20px 0 0; background-color: #f6f8fb; border-radius: 10px; border-collapse: separate;">
+{{#each shares}}
+<tr>
+<td class="share-row" style="padding: 12px 16px;{{#unless @first}} border-top: 1px solid #e9edf3;{{/unless}} font-family: ${FONT}; font-size: 15px; line-height: 22px; color: #1f2937;">
+<strong style="font-weight: 600;">{{this.sender}}</strong> shared {{this.what}}
+</td>
+</tr>
+{{/each}}
+</table>`;
+
+const shareEmailShell = (opts: {
+    /** Preview line clients show next to the subject; hidden in the body. */
+    preheader: string;
+    /** `<title>` — read by screen readers and a few clients. */
+    title: string;
+    /** The card's inner HTML: tables and inline styles only. */
+    content: string;
+    /** Small print under the card: why they got this, how to opt out. */
+    footer: string;
+}): string => `
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="format-detection" content="telephone=no,address=no,email=no,date=no,url=no">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>${opts.title}</title>
+<!--[if mso]>
+<xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml>
+<style>td, p, a, span { font-family: Arial, Helvetica, sans-serif !important; }</style>
+<![endif]-->
+<style>
+  html, body { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+  body { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+  table, td { mso-table-lspace: 0pt !important; mso-table-rspace: 0pt !important; }
+  img { border: 0; line-height: 100%; outline: none; text-decoration: none; }
+  @media screen and (max-width: 600px) {
+    .container { width: 100% !important; }
+    .card { padding: 24px 20px !important; }
+    .px { padding-left: 12px !important; padding-right: 12px !important; }
+  }
+  @media (prefers-color-scheme: dark) {
+    .email-bg { background-color: #16181d !important; }
+    .card { background-color: #1f2229 !important; border-color: #2e323b !important; }
+    .text-main { color: #e7eaee !important; }
+    .text-muted { color: #9aa3b0 !important; }
+    .list-panel { background-color: #262a32 !important; }
+    .share-row { border-color: #333845 !important; color: #e7eaee !important; }
+    .wordmark { color: #e7eaee !important; }
+    .footer-link { color: #9aa3b0 !important; }
+  }
+</style>
+</head>
+<body class="email-bg" style="margin: 0; padding: 0; background-color: #f0f3f7; word-break: break-word;">
+<div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">${opts.preheader}${'&nbsp;&zwnj;'.repeat(30)}</div>
+<div role="article" aria-roledescription="email" lang="en">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="email-bg" style="background-color: #f0f3f7;">
+<tr>
+<td align="center" class="px" style="padding: 32px 24px;">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0" class="container" style="width: 560px; max-width: 560px;">
+<tr>
+<td align="center" style="padding: 0 0 20px;">
+<a href="{{link}}" target="_blank" class="wordmark" style="font-family: ${FONT}; font-size: 22px; font-weight: 700; letter-spacing: -0.02em; color: #1f2937; text-decoration: none;">Puter</a>
+</td>
+</tr>
+<tr>
+<td class="card" style="background-color: #ffffff; border: 1px solid #e3e8ee; border-radius: 12px; padding: 32px;">
+${opts.content}
+</td>
+</tr>
+<tr>
+<td style="padding: 20px 12px 0;">
+${opts.footer}
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</div>
+</body>
+</html>`;
 
 export const EMAIL_TEMPLATES = {
     'approved-for-listing': {
@@ -190,57 +311,76 @@ immediately</p>
      */
     file_shared_with_you: {
         subject: '{{subject_line}}',
-        html: `
-<div style="max-width: 520px; margin: 0 auto; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937; line-height: 1.5;">
-    <p style="font-size: 16px;">Hi {{recipient}},</p>
-    <p>Shared with you on Puter:</p>
-    <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin: 4px 0 16px;">
-        {{#each shares}}
-        <tr>
-            <td style="padding: 8px 12px; border-top: 1px solid #eef1f4;">
-                <strong>{{this.sender}}</strong> shared {{this.what}}
-            </td>
-        </tr>
-        {{/each}}
-    </table>
-    <p>
-        <a href="{{link}}" style="display: inline-block; padding: 10px 18px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Open Puter</a>
-    </p>
-    <p style="color: #6b7280; font-size: 13px; margin-top: 24px;">Sincerely,<br />Puter</p>
-    {{#if unsubscribe_uuid}}
-    <p style="color: #9ca3af; font-size: 12px;">
-        Don't want these? <a href="{{link}}/unsubscribe?user_uuid={{unsubscribe_uuid}}" style="color: #9ca3af;">Unsubscribe</a>.
-    </p>
-    {{/if}}
-</div>
+        html: shareEmailShell({
+            title: '{{subject_line}}',
+            preheader: 'It&rsquo;s waiting for you in your Puter account.',
+            content: `
+<p class="text-main" style="margin: 0; font-family: ${FONT}; font-size: 16px; line-height: 24px; font-weight: 600; color: #111827;">Hi {{recipient}},</p>
+<p class="text-main" style="margin: 12px 0 0; font-family: ${FONT}; font-size: 15px; line-height: 22px; color: #374151;">Here&rsquo;s what was shared with you on Puter:</p>
+${shareList}
+${shareCta('Open Puter', '{{link}}')}
+<p class="text-muted" style="margin: 20px 0 0; font-family: ${FONT}; font-size: 13px; line-height: 20px; color: #6b7280;">You&rsquo;ll find everything under &ldquo;Shared with me&rdquo; in your files.</p>`,
+            footer: `
+<p class="text-muted" style="margin: 0; font-family: ${FONT}; font-size: 12px; line-height: 18px; color: #8a94a3; text-align: center;">
+You&rsquo;re receiving this because someone shared items with your Puter account.
+{{#if unsubscribe_uuid}}
+<br><a href="{{link}}/unsubscribe?user_uuid={{unsubscribe_uuid}}" target="_blank" class="footer-link" style="color: #8a94a3; text-decoration: underline;">Unsubscribe</a> from Puter email notifications.
+{{/if}}
+</p>`,
+        }),
+        text: `
+Hi {{recipient}},
+
+Here's what was shared with you on Puter:
+
+{{#each shares}}
+* {{this.sender}} shared {{this.what}}
+{{/each}}
+
+Open Puter: {{link}}
+
+You're receiving this because someone shared items with your Puter account.
+{{#if unsubscribe_uuid}}Unsubscribe: {{link}}/unsubscribe?user_uuid={{unsubscribe_uuid}}{{/if}}
         `,
     },
     // The only way to reach someone with no account. Same digest shape.
+    // Careful: "Open Puter" must not appear here — it is how the holder
+    // digest is told apart from this one.
     file_shared_invite: {
         subject: '{{subject_line}}',
-        html: `
-<div style="max-width: 520px; margin: 0 auto; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937; line-height: 1.5;">
-    <p style="font-size: 16px;">Hi there,</p>
-    <p>Shared with you on Puter:</p>
-    <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin: 4px 0 16px;">
-        {{#each shares}}
-        <tr>
-            <td style="padding: 8px 12px; border-top: 1px solid #eef1f4;">
-                <strong>{{this.sender}}</strong> shared {{this.what}}
-            </td>
-        </tr>
-        {{/each}}
-    </table>
-    <p>
-        You don't have a Puter account for this address yet. Create one with
-        <strong>{{email}}</strong> and confirm it, and what was shared will be
-        waiting for you.
-    </p>
-    <p>
-        <a href="{{link}}" style="display: inline-block; padding: 10px 18px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Create your account</a>
-    </p>
-    <p style="color: #6b7280; font-size: 13px; margin-top: 24px;">Sincerely,<br />Puter</p>
-</div>
+        html: shareEmailShell({
+            title: '{{subject_line}}',
+            preheader:
+                'Create a free Puter account with this email address to view it.',
+            content: `
+<p class="text-main" style="margin: 0; font-family: ${FONT}; font-size: 16px; line-height: 24px; font-weight: 600; color: #111827;">Hi there,</p>
+<p class="text-main" style="margin: 12px 0 0; font-family: ${FONT}; font-size: 15px; line-height: 22px; color: #374151;">Here&rsquo;s what was shared with you on Puter:</p>
+${shareList}
+<p class="text-main" style="margin: 20px 0 0; font-family: ${FONT}; font-size: 15px; line-height: 22px; color: #374151;">There&rsquo;s no Puter account for <strong>{{email}}</strong> yet. Create a free account with this exact address, confirm it, and everything shared with you will be waiting in your files.</p>
+${shareCta('Create your account', '{{link}}')}
+<p class="text-muted" style="margin: 20px 0 0; font-family: ${FONT}; font-size: 13px; line-height: 20px; color: #6b7280;">New to Puter? It&rsquo;s the open-source Internet OS &mdash; your files, apps, and games in one place, from any device.</p>`,
+            footer: `
+<p class="text-muted" style="margin: 0; font-family: ${FONT}; font-size: 12px; line-height: 18px; color: #8a94a3; text-align: center;">
+You&rsquo;re receiving this because a Puter user shared something with this email address.
+<br>If you weren&rsquo;t expecting it, you can safely ignore this email.
+</p>`,
+        }),
+        text: `
+Hi there,
+
+Here's what was shared with you on Puter:
+
+{{#each shares}}
+* {{this.sender}} shared {{this.what}}
+{{/each}}
+
+There's no Puter account for {{email}} yet. Create a free account with this
+exact address, confirm it, and everything shared with you will be waiting.
+
+Create your account: {{link}}
+
+You're receiving this because a Puter user shared something with this email
+address. If you weren't expecting it, you can safely ignore this email.
         `,
     },
     share_by_username: {

@@ -22,7 +22,11 @@ import handlebars, { template } from 'handlebars';
 import nodemailer from 'nodemailer';
 import type { IConfig } from '../../types';
 import { PuterClient } from '../types';
-import { EMAIL_TEMPLATES, type EmailTemplateName } from './templates';
+import {
+    EMAIL_TEMPLATES,
+    type EmailTemplate,
+    type EmailTemplateName,
+} from './templates';
 
 /** Attachment shape passed through to the underlying transport. */
 export interface EmailAttachment {
@@ -64,6 +68,8 @@ export type EmailValidator = (email: string) => Promise<boolean> | boolean;
 interface CompiledTemplate {
     subject: ReturnType<typeof template>;
     html: ReturnType<typeof template>;
+    /** Present only for templates that define a plain-text part. */
+    text?: ReturnType<typeof template>;
 }
 
 // -- Clean-email rules ------------------------------------------------
@@ -155,13 +161,15 @@ export class EmailClient extends PuterClient {
     /**
      * Render a template and send it to `to`. `options.replyTo` sets the
      * Reply-To header (e.g. so a recipient can respond to the originator of the
-     * message rather than the no-reply From address).
+     * message rather than the no-reply From address); `options.headers` adds
+     * extra message headers (e.g. List-Unsubscribe). Templates with a `text`
+     * part go out as multipart/alternative.
      */
     async send<T extends EmailTemplateName>(
         to: string,
         template: T,
         values: Record<string, unknown> = {},
-        options: { replyTo?: string } = {},
+        options: { replyTo?: string; headers?: Record<string, string> } = {},
     ): Promise<void> {
         const compiled = this.compiledTemplates[template];
         if (!compiled) {
@@ -173,7 +181,9 @@ export class EmailClient extends PuterClient {
             to,
             subject: compiled.subject(values),
             html: compiled.html(values),
+            ...(compiled.text ? { text: compiled.text(values) } : {}),
             ...(options.replyTo ? { replyTo: options.replyTo } : {}),
+            ...(options.headers ? { headers: options.headers } : {}),
         });
     }
 
@@ -285,7 +295,9 @@ export class EmailClient extends PuterClient {
     }
 
     private compileTemplates(): void {
-        for (const [name, template] of Object.entries(EMAIL_TEMPLATES)) {
+        for (const [name, template] of Object.entries<EmailTemplate>(
+            EMAIL_TEMPLATES,
+        )) {
             this.compiledTemplates[name as EmailTemplateName] = {
                 // Subjects are plain-text headers: HTML-escaping would put
                 // literal entities in front of the recipient (&amp; etc.).
@@ -296,6 +308,15 @@ export class EmailClient extends PuterClient {
                     noEscape: true,
                 }),
                 html: handlebars.compile(dedent(template.html)),
+                // The text part is not HTML either: escaped entities would
+                // reach the reader as literal "&amp;".
+                ...(template.text
+                    ? {
+                          text: handlebars.compile(dedent(template.text), {
+                              noEscape: true,
+                          }),
+                      }
+                    : {}),
             };
         }
     }

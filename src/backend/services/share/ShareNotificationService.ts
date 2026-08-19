@@ -721,6 +721,12 @@ export class ShareNotificationService extends PuterService {
 
             try {
                 if (first.kind === 'holder') {
+                    // RFC 8058 one-click headers: providers surface their
+                    // native "Unsubscribe" affordance instead of the spam
+                    // button, and POST here without a person in a browser.
+                    const unsubscribeUrl = first.recipientUuid
+                        ? `${this.#appLink()}/unsubscribe?user_uuid=${first.recipientUuid}`
+                        : null;
                     await this.clients.email.send(
                         first.to,
                         'file_shared_with_you',
@@ -733,6 +739,15 @@ export class ShareNotificationService extends PuterService {
                             // stay literal instead of escaping to `&#x3D;`.
                             unsubscribe_uuid: first.recipientUuid ?? null,
                         },
+                        unsubscribeUrl
+                            ? {
+                                  headers: {
+                                      'List-Unsubscribe': `<${unsubscribeUrl}>`,
+                                      'List-Unsubscribe-Post':
+                                          'List-Unsubscribe=One-Click',
+                                  },
+                              }
+                            : {},
                     );
                 } else {
                     await this.clients.email.send(
