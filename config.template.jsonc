@@ -371,6 +371,13 @@
             "apiKey": "",
             "apiBaseUrl": "https://ark.ap-southeast.bytepluses.com/api/v3"
         },
+        // Meta Model API (Muse Spark). Keys are issued per team at
+        // https://dev.meta.ai/; `apiBaseUrl` only needs setting to reach a
+        // non-default endpoint.
+        "meta": {
+            "apiKey": "",
+            "apiBaseUrl": "https://api.meta.ai/v1"
+        },
         "zai": { "apiKey": "" },
         "alibaba": { "apiKey": "" },
         "together-ai": { "apiKey": "" },

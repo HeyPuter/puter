@@ -128,6 +128,7 @@ const OPENROUTER_CATALOG = [
     'deepseek/deepseek-v4-pro',
     'deepseek-ai/deepseek-v4-pro',
     'google/gemini-2.5-flash',
+    'meta/muse-spark-1.2',
 ].map((id) => ({
     id,
     name: `${id} (via OpenRouter)`,
@@ -159,6 +160,7 @@ beforeAll(async () => {
                 gemini: { apiKey: 'test-key' },
                 deepseek: { apiKey: 'test-key' },
                 infron: { apiKey: 'test-key' },
+                meta: { apiKey: 'test-key' },
                 openrouter: { apiKey: 'test-key' },
                 ollama: { enabled: false },
             },
@@ -247,6 +249,31 @@ describe('ChatCompletionDriver gemini routing', () => {
         );
 
         expect(attempts[0]).toMatchObject({ provider: 'infron' });
+    });
+});
+
+describe('ChatCompletionDriver muse-spark routing', () => {
+    // The reseller route to these models sits behind an account-level content
+    // gate upstream, so every request through it fails no matter whose it is.
+    // The direct vendor has to be tried first for the model to work at all.
+    it('serves muse-spark from Meta, with the reseller only as fallback', async () => {
+        const attempts = await attemptsFor('meta/muse-spark-1.2');
+
+        expect(attempts[0]).toMatchObject({
+            provider: 'meta',
+            model: 'muse-spark-1.2',
+        });
+        expect(attempts[1]).toMatchObject({
+            provider: 'openrouter',
+            model: 'openrouter:meta/muse-spark-1.2',
+        });
+    });
+
+    it('routes the bare and puterId forms to Meta too', async () => {
+        for (const alias of ['muse-spark-1.2', 'meta:meta/muse-spark-1.2']) {
+            const attempts = await attemptsFor(alias);
+            expect(attempts[0].provider).toBe('meta');
+        }
     });
 });
 

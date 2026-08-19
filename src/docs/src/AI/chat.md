@@ -112,7 +112,7 @@ In case of an error, the `Promise` will reject with an error message.
 
 ## Vendors
 
-We use different vendors for different models and try to use the best vendor available at the time of the request. Vendors currently include Alibaba Cloud, Anthropic, Azure OpenAI, DeepSeek, Google, Infron, MiniMax, Mistral, Moonshot AI, OpenAI, OpenRouter, Together AI, xAI, and Z.AI. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the current list, or pass `provider` in the options object to pin a request to one of them.
+We use different vendors for different models and try to use the best vendor available at the time of the request. Vendors currently include Alibaba Cloud, Anthropic, Azure OpenAI, BytePlus, DeepSeek, Google, Groq, Infron, Meta, MiniMax, Mistral, Moonshot AI, Neuralwatt, OpenAI, OpenRouter, Together AI, xAI, and Z.AI. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the current list, or pass `provider` in the options object to pin a request to one of them.
 
 ## Function Calling
 

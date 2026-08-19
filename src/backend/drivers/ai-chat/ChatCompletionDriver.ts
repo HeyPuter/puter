@@ -42,6 +42,7 @@ import { FakeChatProvider } from './providers/FakeChatProvider.js';
 import { GeminiChatProvider } from './providers/gemini/GeminiChatProvider.js';
 import { GroqAIProvider } from './providers/groq/GroqAIProvider.js';
 import { InfronProvider } from './providers/infron/InfronProvider.js';
+import { MetaProvider } from './providers/meta/MetaProvider.js';
 import { MiniMaxProvider } from './providers/minimax/MiniMaxProvider.js';
 import { MistralAIProvider } from './providers/mistral/MistralAiProvider.js';
 import { MoonshotProvider } from './providers/moonshot/MoonshotProvider.js';
@@ -1206,6 +1207,25 @@ export class ChatCompletionDriver extends PuterDriver {
                     apiBaseUrl: alibaba?.apiBaseUrl as string | undefined,
                 },
                 metering,
+            );
+        }
+
+        // Meta Model API (Muse Spark). A direct vendor route for models the
+        // aggregators also carry, so it outranks them in the shared bucket.
+        const meta = providers['meta'];
+        const metaKey = readKey(meta);
+        if (metaKey) {
+            this.#providers['meta'] = new MetaProvider(
+                {
+                    apiKey: metaKey,
+                    apiBaseUrl: meta?.apiBaseUrl as string | undefined,
+                },
+                metering,
+                {
+                    fsEntry: this.stores.fsEntry,
+                    s3Object: this.stores.s3Object,
+                },
+                this.services.fs,
             );
         }
 
