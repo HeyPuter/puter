@@ -4,10 +4,9 @@
     <button id="request-apps">Request Apps Read Access</button>
     <script>
         document.getElementById('request-apps').addEventListener('click', async () => {
-            const granted = await puter.perms.requestReadApps();
+            const granted = await puter.perms.requestApps();
             if (granted) {
                 puter.print('Apps read access granted');
-                // Now you can list the user's apps
                 const apps = await puter.apps.list();
                 puter.print(`User has ${apps.length} apps`);
             } else {
@@ -17,4 +16,3 @@
     </script>
 </body>
 </html>
-

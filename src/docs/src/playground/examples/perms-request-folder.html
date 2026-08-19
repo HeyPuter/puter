@@ -4,7 +4,7 @@
     <button id="request-documents">Request Documents Write Access</button>
     <script>
         document.getElementById('request-documents').addEventListener('click', async () => {
-            const documentsPath = await puter.perms.requestWriteDocuments();
+            const documentsPath = await puter.perms.requestFolder('Documents', 'write');
             if (documentsPath) {
                 puter.print(`Documents path: ${documentsPath}`);
                 // Now you can write files to the Documents folder
@@ -17,4 +17,3 @@
     </script>
 </body>
 </html>
-

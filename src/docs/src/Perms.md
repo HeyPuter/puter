@@ -54,7 +54,7 @@ When requesting permissions, users will be prompted to grant or deny access. If 
     <button id="request-desktop">Request Desktop Access</button>
     <script>
         document.getElementById('request-desktop').addEventListener('click', async () => {
-            const desktopPath = await puter.perms.requestReadDesktop();
+            const desktopPath = await puter.perms.requestFolder('Desktop');
             if (desktopPath) {
                 puter.print(`Desktop path: ${desktopPath}`);
             } else {
@@ -79,7 +79,7 @@ When requesting permissions, users will be prompted to grant or deny access. If 
     <button id="request-documents">Request Documents Write Access</button>
     <script>
         document.getElementById('request-documents').addEventListener('click', async () => {
-            const documentsPath = await puter.perms.requestWriteDocuments();
+            const documentsPath = await puter.perms.requestFolder('Documents', 'write');
             if (documentsPath) {
                 puter.print(`Documents path: ${documentsPath}`);
                 // Now you can write to the Documents folder
@@ -107,7 +107,7 @@ When requesting permissions, users will be prompted to grant or deny access. If 
     <button id="request-apps">Request Apps Read Access</button>
     <script>
         document.getElementById('request-apps').addEventListener('click', async () => {
-            const granted = await puter.perms.requestReadApps();
+            const granted = await puter.perms.requestApps();
             if (granted) {
                 puter.print('Apps read access granted');
                 // Now you can list the user's apps
@@ -155,6 +155,8 @@ When requesting permissions, users will be prompted to grant or deny access. If 
 
 These permission features are supported out of the box when using Puter.js:
 
+Each method takes the resource it is about, and an optional access level — `'read'` (the default) or `'write'`.
+
 ### General Permissions
 
 - **[`puter.perms.request()`](/Perms/request/)** - Request a specific permission string
@@ -163,36 +165,18 @@ These permission features are supported out of the box when using Puter.js:
 
 - **[`puter.perms.requestEmail()`](/Perms/requestEmail/)** - Request access to the user's email address
 
-### Special Folders - Desktop
+### Special Folders
 
-- **[`puter.perms.requestReadDesktop()`](/Perms/requestReadDesktop/)** - Request read access to the Desktop folder
-- **[`puter.perms.requestWriteDesktop()`](/Perms/requestWriteDesktop/)** - Request write access to the Desktop folder
-
-### Special Folders - Documents
-
-- **[`puter.perms.requestReadDocuments()`](/Perms/requestReadDocuments/)** - Request read access to the Documents folder
-- **[`puter.perms.requestWriteDocuments()`](/Perms/requestWriteDocuments/)** - Request write access to the Documents folder
-
-### Special Folders - Pictures
-
-- **[`puter.perms.requestReadPictures()`](/Perms/requestReadPictures/)** - Request read access to the Pictures folder
-- **[`puter.perms.requestWritePictures()`](/Perms/requestWritePictures/)** - Request write access to the Pictures folder
-
-### Special Folders - Videos
-
-- **[`puter.perms.requestReadVideos()`](/Perms/requestReadVideos/)** - Request read access to the Videos folder
-- **[`puter.perms.requestWriteVideos()`](/Perms/requestWriteVideos/)** - Request write access to the Videos folder
+- **[`puter.perms.requestFolder()`](/Perms/requestFolder/)** - Request access to the Desktop, Documents, Pictures, or Videos folder
 
 ### Apps Management
 
-- **[`puter.perms.requestReadApps()`](/Perms/requestReadApps/)** - Request read access to the user's apps
-- **[`puter.perms.requestManageApps()`](/Perms/requestManageApps/)** - Request write (manage) access to the user's apps
+- **[`puter.perms.requestApps()`](/Perms/requestApps/)** - Request access to the user's apps
+
+### Subdomains Management
+
+- **[`puter.perms.requestSubdomains()`](/Perms/requestSubdomains/)** - Request access to the user's subdomains
 
 ### Other Apps' Data
 
 - **[`puter.perms.requestAppData()`](/Perms/requestAppData/)** - Request permission to use another app's key-value data and `AppData` files
-
-### Subdomains Management
-
-- **[`puter.perms.requestReadSubdomains()`](/Perms/requestReadSubdomains/)** - Request read access to the user's subdomains
-- **[`puter.perms.requestManageSubdomains()`](/Perms/requestManageSubdomains/)** - Request write (manage) access to the user's subdomains
