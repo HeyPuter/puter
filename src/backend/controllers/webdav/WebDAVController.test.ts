@@ -1,11 +1,12 @@
 // This suite tests basic features of puter webdav. it is not a comprehensive webdav test suite unlike litmus
 // but rather it performs some common sense checks to ensure that WebDAV support isn't irrevocably broken in puter
-import type { Request, Response } from 'express';
+import type { Request, RequestHandler, Response } from 'express';
 import { Readable, Writable } from 'node:stream';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { v4 as uuidv4 } from 'uuid';
 import { hash as bcryptHash } from 'bcrypt';
 import { PuterRouter } from '../../core/http/PuterRouter.js';
+import type { RouteDescriptor } from '../../core/http/types.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
 import { runWithContext } from '../../core/context.js';
@@ -14,7 +15,7 @@ import type { WebDAVController } from './WebDAVController.js';
 
 let server: PuterServer;
 let controller: WebDAVController;
-let dispatchMiddleware: Function;
+let routes: RouteDescriptor[];
 
 beforeAll(async () => {
     server = await setupTestServer();
@@ -22,11 +23,59 @@ beforeAll(async () => {
 
     const router = new PuterRouter();
     controller.registerRoutes(router);
-
-    // WebDAVController registers a single `use()` middleware on the `dav`
-    // subdomain. Grab it to call directly in tests.
-    dispatchMiddleware = router.routes[0]!.handler;
+    routes = router.routes;
 });
+
+/** Run one handler; true when it called `next` instead of answering. */
+const runHandler = async (
+    handler: RequestHandler,
+    req: Request,
+    res: Response,
+): Promise<boolean> => {
+    let advanced = false;
+    await handler(req, res, (() => {
+        advanced = true;
+    }) as never);
+    return advanced;
+};
+
+/**
+ * Stand in for express's router: walk the controller's collected routes in
+ * order and run the first one that matches the request's method, plus any
+ * `middleware` it declares.
+ *
+ * The options the real server materializes into gates — subdomain, rate limit,
+ * concurrency — are deliberately not applied here; those belong to the
+ * materializer's own tests, and reproducing them would make every case below
+ * share one DAV budget. `server.test.ts` covers the wiring on a real port.
+ */
+const dispatchMiddleware = async (
+    req: Request,
+    res: Response,
+    next: () => void,
+): Promise<void> => {
+    const method = req.method.toLowerCase();
+    for (const route of routes) {
+        if (
+            route.method !== 'use' &&
+            route.method !== 'all' &&
+            route.method !== method
+        ) {
+            continue;
+        }
+        let advanced = true;
+        for (const handler of [
+            ...(route.options.middleware ?? []),
+            route.handler,
+        ]) {
+            advanced = await runHandler(handler, req, res);
+            if (!advanced) break;
+        }
+        // A chain that stopped short of `next` answered the request.
+        if (!advanced) return;
+    }
+    next();
+};
 
 afterAll(async () => {
     await server?.shutdown();
@@ -152,10 +201,45 @@ const makeUser = async () => {
 
 describe('WebDAVController', () => {
     describe('route registration', () => {
-        it('registers a single catch-all use() route', () => {
+        it('registers one catch-all per DAV verb, all on the dav subdomain', () => {
             const router = new PuterRouter();
             controller.registerRoutes(router);
-            expect(router.routes.length).toBeGreaterThanOrEqual(1);
+
+            for (const verb of [
+                'options',
+                'head',
+                'get',
+                'propfind',
+                'proppatch',
+                'mkcol',
+                'put',
+                'delete',
+                'copy',
+                'move',
+                'lock',
+                'unlock',
+            ]) {
+                const route = router.routes.find((r) => r.method === verb);
+                expect(route, verb).toBeDefined();
+                expect(route!.path).toBe('/{*splat}');
+                expect(route!.options.subdomain).toBe('dav');
+                // The gates the materializer installs ahead of the handler.
+                expect(route!.options.rateLimit).toBeDefined();
+                expect(route!.options.concurrent).toBeDefined();
+            }
+
+            // `all` catches the verbs we don't implement, so it has to come
+            // after every route that does.
+            const allIndex = router.routes.findIndex((r) => r.method === 'all');
+            expect(allIndex).toBe(router.routes.length - 1);
+        });
+
+        it('registers HEAD ahead of GET so express does not fold the two', () => {
+            const router = new PuterRouter();
+            controller.registerRoutes(router);
+            const head = router.routes.findIndex((r) => r.method === 'head');
+            const get = router.routes.findIndex((r) => r.method === 'get');
+            expect(head).toBeLessThan(get);
         });
     });
 
@@ -238,6 +322,48 @@ describe('WebDAVController', () => {
             expect(captured.headers['allow']).toContain('GET');
             expect(captured.headers['allow']).toContain('PUT');
             expect(captured.headers['allow']).toContain('DELETE');
+        });
+    });
+
+    describe('CORS preflight', () => {
+        it('answers a browser preflight before the auth gate', async () => {
+            const { res, captured } = makeRes();
+            await dispatchMiddleware(
+                makeReq({
+                    method: 'OPTIONS',
+                    path: '/someone/.vscode/settings.json',
+                    headers: {
+                        origin: 'https://code.puter.com',
+                        'access-control-request-method': 'PROPFIND',
+                    },
+                }),
+                res,
+                noop,
+            );
+            // A non-2xx here is what made every browser DAV client give up
+            // before it could send a token.
+            expect(captured.statusCode).toBe(200);
+            expect(captured.headers['dav']).toContain('1');
+            expect(captured.headers['allow']).toContain('PROPFIND');
+            expect(captured.headers['access-control-max-age']).toBe('86400');
+            expect(captured.headers['www-authenticate']).toBeUndefined();
+        });
+
+        it('still authenticates an OPTIONS that is not a preflight', async () => {
+            const { res, captured } = makeRes();
+            await dispatchMiddleware(
+                makeReq({
+                    method: 'OPTIONS',
+                    // An Origin alone isn't a preflight — only the
+                    // `Access-Control-Request-Method` probe is.
+                    headers: { origin: 'https://code.puter.com' },
+                }),
+                res,
+                noop,
+            );
+            expect(captured.statusCode).toBe(401);
+            // macOS opens a mount on this reply, so it keeps the DAV header.
+            expect(captured.headers['dav']).toContain('1');
         });
     });
 
@@ -1766,14 +1892,11 @@ describe('WebDAVController verbs', () => {
     });
 
     describe('shared-path masking', () => {
-        // The DAV controller authenticates in-controller, after the request
-        // context snapshotted an empty `req.actor` — so it has to place the
-        // actor into the context itself or outbound masking silently turns
-        // off and PROPFIND lists the owner's real paths.
-        it('lists a shared folder under its masked path, not the owner’s real one', async () => {
-            const owner = await makeUser();
-            const recipient = await makeUser();
-
+        /** A `Secrets/plan.txt` folder in `owner`'s Documents, shared with `to`. */
+        const shareFolder = async (
+            owner: Awaited<ReturnType<typeof makeUser>>,
+            to: Awaited<ReturnType<typeof makeUser>>,
+        ) => {
             const dirUuid = uuidv4();
             const dirPath = `/${owner.username}/Documents/Secrets`;
             const now = Math.floor(Date.now() / 1000);
@@ -1782,44 +1905,353 @@ describe('WebDAVController verbs', () => {
             ))!;
             await server.clients.db.write(
                 'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, 1, ?, ?, ?)',
-                [dirUuid, 'Secrets', dirPath, owner.userId, now, parent.id, parent.uuid],
+                [
+                    dirUuid,
+                    'Secrets',
+                    dirPath,
+                    owner.userId,
+                    now,
+                    parent.id,
+                    parent.uuid,
+                ],
             );
             const dir = (await server.stores.fsEntry.getEntryByPath(dirPath))!;
             await server.clients.db.write(
                 'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, ?, ?, 0, ?, ?, ?)',
-                [uuidv4(), 'plan.txt', `${dirPath}/plan.txt`, owner.userId, now, dir.id, dir.uuid],
+                [
+                    uuidv4(),
+                    'plan.txt',
+                    `${dirPath}/plan.txt`,
+                    owner.userId,
+                    now,
+                    dir.id,
+                    dir.uuid,
+                ],
             );
 
             await runWithContext({ actor: owner.actor as never }, () =>
                 server.services.share.share(owner.actor as never, {
                     uid: dirUuid,
-                    recipient: { username: recipient.username! },
+                    recipient: { username: to.username! },
                     mode: 'read',
                 }),
             );
+            return { dirUuid, dirPath };
+        };
 
-            const masked = `/${owner.username}/${dirUuid}/Secrets`;
+        /**
+         * PROPFIND under the ALS wrap a real request gets, pre-auth actor
+         * empty.
+         */
+        const propfind = async (path: string, actor: unknown, depth = '1') => {
             const { res, captured } = makeRes();
-            // The same ALS wrap every real request gets from the
-            // request-context middleware, with the pre-auth (empty) actor.
             await runWithContext({ actor: undefined }, () =>
                 dispatchMiddleware(
                     makeReq({
                         method: 'PROPFIND',
-                        path: masked,
-                        headers: { depth: '1' },
-                        actor: recipient.actor,
+                        path,
+                        headers: { depth },
+                        actor,
                     }),
                     res,
                     noop,
                 ),
             );
+            return captured;
+        };
+
+        // The DAV controller authenticates in-controller, after the request
+        // context snapshotted an empty `req.actor` — so it has to place the
+        // actor into the context itself or outbound masking silently turns
+        // off and PROPFIND lists the owner's real paths.
+        it('lists a shared folder under its masked path, not the owner’s real one', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dirUuid } = await shareFolder(owner, recipient);
+
+            const masked = `/${owner.username}/${dirUuid}/Secrets`;
+            const captured = await propfind(masked, recipient.actor);
 
             expect(captured.statusCode).toBe(207);
             const xml = String(captured.body);
             expect(xml).toContain(`${masked}/plan.txt`);
             expect(xml).not.toContain('/Documents/Secrets');
         });
+
+        it('lists each sharer as a collection under the root', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            await shareFolder(owner, recipient);
+
+            const captured = await propfind('/', recipient.actor);
+            expect(captured.statusCode).toBe(207);
+            const xml = String(captured.body);
+            // The recipient's own home, plus the owner who shared with them.
+            expect(xml).toContain(`<D:href>/${recipient.username}/</D:href>`);
+            expect(xml).toContain(`<D:href>/${owner.username}/</D:href>`);
+        });
+
+        it('omits the sharers at depth 0', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            await shareFolder(owner, recipient);
+
+            const captured = await propfind('/', recipient.actor, '0');
+            expect(captured.statusCode).toBe(207);
+            expect(String(captured.body)).not.toContain(`/${owner.username}/`);
+        });
+
+        it('answers a sharer’s collection with the shares they issued', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dirUuid } = await shareFolder(owner, recipient);
+
+            const captured = await propfind(
+                `/${owner.username}`,
+                recipient.actor,
+            );
+            expect(captured.statusCode).toBe(207);
+            const xml = String(captured.body);
+            expect(xml).toContain(`<D:href>/${owner.username}/</D:href>`);
+            // The `<uuid>` level, which the share root hangs off. It borrows
+            // the shared item's name so a client has something to show.
+            expect(xml).toContain(
+                `<D:href>/${owner.username}/${dirUuid}/</D:href>`,
+            );
+            expect(xml).toContain('<D:displayname>Secrets</D:displayname>');
+            // Nothing else of the owner's shows through — not their home
+            // directory's other children, not the folder the share sits in.
+            expect(xml).not.toContain('Documents');
+        });
+
+        it('keeps a sharer’s collection a 403 for a caller with no share', async () => {
+            const owner = await makeUser();
+            const stranger = await makeUser();
+            await shareFolder(owner, await makeUser());
+
+            const captured = await propfind(
+                `/${owner.username}`,
+                stranger.actor,
+            );
+            expect(captured.statusCode).toBe(403);
+        });
     });
 
+    // The virtual collections invent two levels of path that no fsentry backs.
+    // Everything here checks that they only ever widen to what was actually
+    // shared — the rest of the owner's tree has to stay unreachable and
+    // unnamed.
+    describe('shared-space containment', () => {
+        /**
+         * `owner` shares `Shared/` (holding `in.txt`) with `to`, and keeps
+         * `Private/` (holding `out.txt`) to themselves.
+         */
+        const shareOneOfTwo = async (
+            owner: Awaited<ReturnType<typeof makeUser>>,
+            to: Awaited<ReturnType<typeof makeUser>>,
+        ) => {
+            const mk = async (
+                method: string,
+                path: string,
+                extra: Record<string, string> = {},
+            ) => {
+                const { res, captured } = makeRes();
+                await runWithContext({ actor: undefined }, () =>
+                    dispatchMiddleware(
+                        makeReq({
+                            method,
+                            path,
+                            actor: owner.actor,
+                            headers: extra,
+                        }),
+                        res,
+                        noop,
+                    ),
+                );
+                return captured;
+            };
+            await mk('MKCOL', `/${owner.username}/Documents/Shared`);
+            await mk('MKCOL', `/${owner.username}/Documents/Private`);
+
+            const shared = (await server.stores.fsEntry.getEntryByPath(
+                `/${owner.username}/Documents/Shared`,
+            ))!;
+            const private_ = (await server.stores.fsEntry.getEntryByPath(
+                `/${owner.username}/Documents/Private`,
+            ))!;
+
+            await runWithContext({ actor: owner.actor as never }, () =>
+                server.services.share.share(owner.actor as never, {
+                    uid: shared.uuid,
+                    recipient: { username: to.username! },
+                    mode: 'read',
+                }),
+            );
+            return { shared, private: private_ };
+        };
+
+        const propfind = async (path: string, actor: unknown, depth = '1') => {
+            const { res, captured } = makeRes();
+            await runWithContext({ actor: undefined }, () =>
+                dispatchMiddleware(
+                    makeReq({
+                        method: 'PROPFIND',
+                        path,
+                        headers: { depth },
+                        actor,
+                    }),
+                    res,
+                    noop,
+                ),
+            );
+            return captured;
+        };
+
+        it('lists only the items that were shared, not the owner’s siblings', async () => {
+            const owner = await makeUser();
+            const holder = await makeUser();
+            const { shared, private: hidden } = await shareOneOfTwo(
+                owner,
+                holder,
+            );
+
+            const captured = await propfind(`/${owner.username}`, holder.actor);
+            expect(captured.statusCode).toBe(207);
+            const xml = String(captured.body);
+            expect(xml).toContain(shared.uuid);
+            expect(xml).not.toContain(hidden.uuid);
+            expect(xml).not.toContain('Private');
+        });
+
+        it('does not recurse past the uuid level at Depth: infinity', async () => {
+            const owner = await makeUser();
+            const holder = await makeUser();
+            const { shared } = await shareOneOfTwo(owner, holder);
+
+            const captured = await propfind(
+                `/${owner.username}`,
+                holder.actor,
+                'infinity',
+            );
+            expect(captured.statusCode).toBe(207);
+            const xml = String(captured.body);
+            // The share's own href lives one segment deeper; asking for the
+            // world must not walk into it.
+            expect(xml).toContain(`/${shared.uuid}/`);
+            expect(xml).not.toContain(`/${shared.uuid}/Shared`);
+        });
+
+        it('refuses every way out of a share', async () => {
+            const owner = await makeUser();
+            const holder = await makeUser();
+            const { shared, private: hidden } = await shareOneOfTwo(
+                owner,
+                holder,
+            );
+            const root = `/${owner.username}/${shared.uuid}/Shared`;
+
+            for (const escape of [
+                // Up and sideways out of the shared subtree.
+                `${root}/../Private`,
+                `${root}/../../Documents`,
+                // Percent-encoded, because the path is decoded before it is
+                // resolved — the guard has to sit after that, not before.
+                `${root}/%2e%2e/Private`,
+                // The owner's real path, named directly rather than walked to.
+                `/${owner.username}/Documents/Private`,
+                `/${owner.username}/Documents`,
+                // A mask pointing at an entry the holder was never given —
+                // both a bad tail under a uuid they do hold, and the uuid of
+                // one they don't.
+                `/${owner.username}/${shared.uuid}/Private`,
+                `/${owner.username}/${hidden.uuid}`,
+                `/${owner.username}/${hidden.uuid}/Private`,
+            ]) {
+                const captured = await propfind(escape, holder.actor);
+                expect(captured.statusCode, escape).toBeGreaterThanOrEqual(400);
+                expect(captured.statusCode, escape).toBeLessThan(500);
+                expect(String(captured.body), escape).not.toContain('Private');
+            }
+        });
+
+        it('does not leak one holder’s shares to another', async () => {
+            const owner = await makeUser();
+            const holder = await makeUser();
+            const outsider = await makeUser();
+            await shareOneOfTwo(owner, holder);
+
+            const captured = await propfind('/', outsider.actor);
+            expect(captured.statusCode).toBe(207);
+            expect(String(captured.body)).not.toContain(owner.username);
+        });
+
+        it('drops the sharer once the share is revoked', async () => {
+            const owner = await makeUser();
+            const holder = await makeUser();
+            const { shared } = await shareOneOfTwo(owner, holder);
+
+            expect(String((await propfind('/', holder.actor)).body)).toContain(
+                `/${owner.username}/`,
+            );
+
+            await runWithContext({ actor: owner.actor as never }, () =>
+                server.services.share.unshare(owner.actor as never, {
+                    uid: shared.uuid,
+                    recipient: { username: holder.username! },
+                }),
+            );
+
+            const root = await propfind('/', holder.actor);
+            expect(String(root.body)).not.toContain(`/${owner.username}/`);
+            // And the level it used to stand in for is a plain 403 again.
+            const owned = await propfind(`/${owner.username}`, holder.actor);
+            expect(owned.statusCode).toBe(403);
+        });
+
+        it('refuses writes and reads aimed at the invented levels', async () => {
+            const owner = await makeUser();
+            const holder = await makeUser();
+            const { shared } = await shareOneOfTwo(owner, holder);
+
+            const attempt = async (method: string, path: string) => {
+                const { res, captured } = makeRes();
+                await runWithContext({ actor: undefined }, () =>
+                    dispatchMiddleware(
+                        makeReq({
+                            method,
+                            path,
+                            actor: holder.actor,
+                            headers: { 'content-length': '3' },
+                        }),
+                        res,
+                        noop,
+                    ),
+                );
+                return captured.statusCode;
+            };
+
+            // A collection, so GET is a 400 either way — what matters is that
+            // neither the owner level nor the uuid level accepts a write.
+            expect(await attempt('GET', `/${owner.username}`)).not.toBe(200);
+            expect(
+                await attempt('MKCOL', `/${owner.username}/intruder`),
+            ).toBeGreaterThanOrEqual(400);
+            expect(
+                await attempt(
+                    'MKCOL',
+                    `/${owner.username}/${shared.uuid}/intruder`,
+                ),
+            ).toBeGreaterThanOrEqual(400);
+            expect(
+                await attempt('DELETE', `/${owner.username}/${shared.uuid}`),
+            ).toBeGreaterThanOrEqual(400);
+
+            // Nothing landed in the owner's tree.
+            expect(
+                await server.stores.fsEntry.getEntryByPath(
+                    `/${owner.username}/intruder`,
+                ),
+            ).toBeFalsy();
+        });
+    });
 });
