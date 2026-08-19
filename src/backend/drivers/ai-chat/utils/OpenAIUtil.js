@@ -564,7 +564,7 @@ export const handle_completion_output = async (
  * @param {(args: {
  *     usage: import('openai/resources/completions.mjs').CompletionUsage;
  * }) => unknown} params.usage_calculator
- * @returns
+ * @returns {ReturnType<import('../types').IChatProvider['complete']>}
  */
 export const handle_completion_output_responses_api = async ({
     deviations,
