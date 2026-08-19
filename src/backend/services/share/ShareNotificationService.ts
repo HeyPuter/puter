@@ -18,10 +18,8 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import type { Actor } from '../../core/actor';
-import type { LayerInstances } from '../../types';
-import type { puterServices } from '../index';
+import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { PuterService } from '../types';
 import {
     digestLines,
@@ -141,8 +139,6 @@ interface DigestEntryRecord {
 }
 
 export class ShareNotificationService extends PuterService {
-    declare protected services: LayerInstances<typeof puterServices>;
-
     /**
      * The flush timers this node owns, keyed per recipient. Timers only — the
      * queued sends live in KV, where any node's flush can pick them up.
