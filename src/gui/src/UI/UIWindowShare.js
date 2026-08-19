@@ -23,31 +23,7 @@ import path from '../lib/path.js';
 import { owner_of_path } from '../helpers/path_owner.js';
 import { invalidate_shared_roots } from '../helpers/shared_access.js';
 import { icons } from '../helpers/actionIcons.js';
-
-// Offered when granting. The API accepts `see` and `list` too, but they are a
-// developer-level distinction with no place in this dialog — a row already set
-// to one is shown as-is rather than quietly rounded up to `read`.
-const MODES = ['read', 'write', 'manage'];
-
-// Already HTML-safe: `i18n()` encodes what it returns, and an unencoded mode
-// from the API is encoded here. Encoding a label again turns the `&` in
-// "Can edit & share" into a literal `&amp;`.
-const mode_label = (mode) => {
-    if ( mode === 'write' ) return i18n('share_access_write');
-    if ( mode === 'manage' ) return i18n('share_access_manage');
-    if ( mode === 'read' ) return i18n('share_access_read');
-    return html_encode(mode);
-};
-
-const options_for = (current) => {
-    const modes = MODES.includes(current) ? MODES : [current, ...MODES];
-    return modes
-        .map(
-            (mode) =>
-                `<option value="${html_encode(mode)}"${mode === current ? ' selected' : ''}>${mode_label(mode)}</option>`,
-        )
-        .join('');
-};
+import { mode_label, options_for } from '../helpers/share_modes.js';
 
 /**
  * Sharing dialog for one file or directory.
@@ -220,7 +196,7 @@ async function UIWindowShare (options) {
         $(this).prop('disabled', true);
         try {
             await puter.fs.share({ path: item_path, recipient: holder, mode });
-            show_success(i18n('share_shared_with', { recipient: holder }));
+            show_success(i18n('share_access_updated', { recipient: holder }));
             invalidate_shared_roots();
             await refresh();
         } catch (e) {

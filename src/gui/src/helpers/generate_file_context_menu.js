@@ -44,6 +44,7 @@ import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for }
  * @param {string} options.associated_app_name - Optional associated app
  * @param {Function} options.onOpen - Optional custom open handler (used by Dashboard)
  * @param {Function} options.onShowProperties - Optional custom properties handler (used by Dashboard); receives {name, path, uid, element}
+ * @param {Function} options.onShare - Optional custom share handler (used by Dashboard); receives {name, path, uid, element}
  * @returns {Promise<Array>} Array of context menu items
  */
 const generate_file_context_menu = async function (options) {
@@ -323,6 +324,18 @@ const generate_file_context_menu = async function (options) {
         menu_items.push({
             html: i18n('share_ellipsis'),
             onClick: async function () {
+                // The Dashboard swaps in its own responsive modal via this hook;
+                // everywhere else falls back to the desktop share window.
+                if ( options.onShare ) {
+                    options.onShare({
+                        name: $(el_item).attr('data-name'),
+                        path: $(el_item).attr('data-path'),
+                        uid: $(el_item).attr('data-uid'),
+                        element: el_item,
+                    });
+                    return;
+                }
+
                 UIWindowShare({
                     path: $(el_item).attr('data-path'),
                     name: $(el_item).attr('data-name'),
