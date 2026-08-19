@@ -2,6 +2,7 @@ import { PuterJSError } from '../../lib/PuterJSError.js';
 import { req } from './lib/req.js';
 
 /** @typedef {import('./index.js').PermsModule} PermsModule */
+/** @typedef {import('./types.js').PermsAccess} PermsAccess */
 
 /**
  * Requests access at the given level to the root directory of one of the
@@ -10,11 +11,11 @@ import { req } from './lib/req.js';
  * invalidation), returning the fs item on success or `undefined` if denied.
  *
  * @param {import('../../index.js').Puter} puter
- * @param {'read' | 'write'} access
+ * @param {PermsAccess} access
  * @param {string | { uid: string }} appUidOrObject
  * @returns {Promise<Record<string, unknown> | undefined>}
  */
-async function requestAppRootDir (puter, access, appUidOrObject) {
+async function requestAppRootDirAccess (puter, access, appUidOrObject) {
     const appUid = (typeof appUidOrObject === 'object' && appUidOrObject !== null)
         ? appUidOrObject.uid
         : appUidOrObject;
@@ -56,23 +57,41 @@ async function requestAppRootDir (puter, access, appUidOrObject) {
 }
 
 /**
- * Request read access to the root directory of one of the user's apps.
+ * Request access to the root directory of one of the user's apps.
  *
  * @this {PermsModule}
  * @param {string | { uid: string }} appUid - The app uid, or an object with a `uid`.
+ * @param {PermsAccess} [accessLevel] - Defaults to `'read'`.
  * @returns {Promise<Record<string, unknown> | undefined>} The directory fs item, or `undefined` if denied.
  */
-export async function requestReadAppRootDir (appUid) {
-    return await requestAppRootDir(this.puter, 'read', appUid);
+export async function requestAppRootDir (appUid, accessLevel = 'read') {
+    if ( accessLevel !== 'read' && accessLevel !== 'write' ) {
+        throw new PuterJSError(
+            'parameter accessLevel must be `read` or `write`',
+            'invalid_argument',
+        );
+    }
+    return await requestAppRootDirAccess(this.puter, accessLevel, appUid);
+}
+
+// -- Deprecated aliases --
+
+/**
+ * @deprecated Use {@link requestAppRootDir} instead.
+ * @this {PermsModule}
+ * @param {string | { uid: string }} appUid
+ * @returns {Promise<Record<string, unknown> | undefined>}
+ */
+export function requestReadAppRootDir (appUid) {
+    return this.requestAppRootDir(appUid, 'read');
 }
 
 /**
- * Request write access to the root directory of one of the user's apps.
- *
+ * @deprecated Use {@link requestAppRootDir} instead.
  * @this {PermsModule}
- * @param {string | { uid: string }} appUid - The app uid, or an object with a `uid`.
- * @returns {Promise<Record<string, unknown> | undefined>} The directory fs item, or `undefined` if denied.
+ * @param {string | { uid: string }} appUid
+ * @returns {Promise<Record<string, unknown> | undefined>}
  */
-export async function requestWriteAppRootDir (appUid) {
-    return await requestAppRootDir(this.puter, 'write', appUid);
+export function requestWriteAppRootDir (appUid) {
+    return this.requestAppRootDir(appUid, 'write');
 }

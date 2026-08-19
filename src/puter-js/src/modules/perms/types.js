@@ -1,6 +1,20 @@
 // Shapes shared across the `puter.perms` operations. JSDoc-only; no runtime exports.
 
 /**
+ * An access level a request can ask for. `write` implies `read`.
+ *
+ * @typedef {'read' | 'write'} PermsAccess
+ */
+
+/**
+ * A special folder `requestFolder` can name. Trash and AppData are deliberately
+ * absent: nothing should ask for blanket access to either, and another app's
+ * AppData is reached through `requestAppData` instead.
+ *
+ * @typedef {'Desktop' | 'Documents' | 'Pictures' | 'Videos'} PermsFolderName
+ */
+
+/**
  * The stores an `app-data` scope can name.
  *
  * @typedef {'kv' | 'fs'} AppDataStore

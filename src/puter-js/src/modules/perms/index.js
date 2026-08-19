@@ -1,42 +1,47 @@
 import { PuterModule } from '../../lib/PuterModule.js';
 import { requestAppData } from './appData.js';
-import { requestReadAppRootDir, requestWriteAppRootDir } from './appRootDir.js';
 import {
-    requestFolder_,
+    requestAppRootDir,
+    requestReadAppRootDir, requestWriteAppRootDir,
+} from './appRootDir.js';
+import {
+    requestFolder, requestFolder_,
     requestReadDesktop, requestWriteDesktop,
     requestReadDocuments, requestWriteDocuments,
     requestReadPictures, requestWritePictures,
     requestReadVideos, requestWriteVideos,
 } from './folders.js';
 import {
-    grantApp, grantAppAnyUser, grantGroup, grantOrigin, grantUser,
-    revokeApp, revokeAppAnyUser, revokeGroup, revokeOrigin, revokeUser,
+    grantApp, grantAppAnyUser, grantOrigin,
+    revokeApp, revokeAppAnyUser, revokeOrigin,
 } from './grants.js';
-import { addUsersToGroup, createGroup, listGroups, removeUsersFromGroup } from './groups.js';
-import { req } from './lib/req.js';
 import {
-    request, requestEmail, requestManageApps, requestManageSubdomains,
+    request, requestApps, requestEmail,
+    requestManageApps, requestManageSubdomains,
     requestPermission, requestReadApps, requestReadSubdomains,
+    requestSubdomains,
 } from './permissions.js';
 
 /** @typedef {import('../../index.js').Puter} Puter */
 
 // Every `this`-context method exposed on the module, rebound in the
-// constructor so both `puter.perms.grantUser(...)` and destructured
-// `const { grantUser } = puter.perms` calls keep the right `this`.
+// constructor so both `puter.perms.requestFolder(...)` and destructured
+// `const { requestFolder } = puter.perms` calls keep the right `this`.
 const METHODS = [
-    'grantUser', 'grantGroup', 'grantApp', 'grantAppAnyUser', 'grantOrigin',
-    'revokeUser', 'revokeGroup', 'revokeApp', 'revokeAppAnyUser', 'revokeOrigin',
-    'createGroup', 'addUsersToGroup', 'removeUsersFromGroup', 'listGroups',
-    'request', 'requestPermission', 'requestEmail',
-    'requestReadApps', 'requestManageApps', 'requestReadSubdomains', 'requestManageSubdomains',
-    'requestFolder_',
+    'grantApp', 'grantAppAnyUser', 'grantOrigin',
+    'revokeApp', 'revokeAppAnyUser', 'revokeOrigin',
+    'request', 'requestEmail',
+    'requestFolder', 'requestApps', 'requestSubdomains',
+    'requestAppRootDir', 'requestAppData',
+    // Deprecated aliases; bound for the same reason as the rest.
+    'requestPermission', 'requestFolder_',
     'requestReadDesktop', 'requestWriteDesktop',
     'requestReadDocuments', 'requestWriteDocuments',
     'requestReadPictures', 'requestWritePictures',
     'requestReadVideos', 'requestWriteVideos',
+    'requestReadApps', 'requestManageApps',
+    'requestReadSubdomains', 'requestManageSubdomains',
     'requestReadAppRootDir', 'requestWriteAppRootDir',
-    'requestAppData',
 ];
 
 /**
@@ -47,50 +52,71 @@ const METHODS = [
  * `types/` is generated from it, never edited by hand.
  */
 export class PermsModule extends PuterModule {
-    // Grant / revoke
-    grantUser = grantUser;
-    grantGroup = grantGroup;
+    // Grant / revoke against an app, its origin, or every user of it
     grantApp = grantApp;
     grantAppAnyUser = grantAppAnyUser;
     grantOrigin = grantOrigin;
-    revokeUser = revokeUser;
-    revokeGroup = revokeGroup;
     revokeApp = revokeApp;
     revokeAppAnyUser = revokeAppAnyUser;
     revokeOrigin = revokeOrigin;
 
-    // Group management
-    createGroup = createGroup;
-    addUsersToGroup = addUsersToGroup;
-    removeUsersFromGroup = removeUsersFromGroup;
-    listGroups = listGroups;
-
     // Permission requests
     request = request;
-    requestPermission = requestPermission;
     requestEmail = requestEmail;
-    requestReadApps = requestReadApps;
-    requestManageApps = requestManageApps;
-    requestReadSubdomains = requestReadSubdomains;
-    requestManageSubdomains = requestManageSubdomains;
 
-    // Folder access
-    requestFolder_ = requestFolder_;
-    requestReadDesktop = requestReadDesktop;
-    requestWriteDesktop = requestWriteDesktop;
-    requestReadDocuments = requestReadDocuments;
-    requestWriteDocuments = requestWriteDocuments;
-    requestReadPictures = requestReadPictures;
-    requestWritePictures = requestWritePictures;
-    requestReadVideos = requestReadVideos;
-    requestWriteVideos = requestWriteVideos;
+    // Special folders
+    requestFolder = requestFolder;
 
-    // App root directory access
-    requestReadAppRootDir = requestReadAppRootDir;
-    requestWriteAppRootDir = requestWriteAppRootDir;
+    // The user's apps and subdomains
+    requestApps = requestApps;
+    requestSubdomains = requestSubdomains;
+
+    // An app's root directory
+    requestAppRootDir = requestAppRootDir;
 
     // Another app's data (KV namespace + AppData directory)
     requestAppData = requestAppData;
+
+    // -- Deprecated aliases --
+    //
+    // Still bound and callable so apps written against the one-method-per-task
+    // surface keep working. They stay in the generated declarations rather than
+    // being hidden: `stripInternal` has no effect on declarations emitted from
+    // JavaScript, and dropping them by hand would break TypeScript callers that
+    // the runtime still serves.
+
+    /** @deprecated Use {@link request}. */
+    requestPermission = requestPermission;
+    /** @deprecated Use {@link requestFolder}. */
+    requestFolder_ = requestFolder_;
+    /** @deprecated Use {@link requestFolder}. */
+    requestReadDesktop = requestReadDesktop;
+    /** @deprecated Use {@link requestFolder}. */
+    requestWriteDesktop = requestWriteDesktop;
+    /** @deprecated Use {@link requestFolder}. */
+    requestReadDocuments = requestReadDocuments;
+    /** @deprecated Use {@link requestFolder}. */
+    requestWriteDocuments = requestWriteDocuments;
+    /** @deprecated Use {@link requestFolder}. */
+    requestReadPictures = requestReadPictures;
+    /** @deprecated Use {@link requestFolder}. */
+    requestWritePictures = requestWritePictures;
+    /** @deprecated Use {@link requestFolder}. */
+    requestReadVideos = requestReadVideos;
+    /** @deprecated Use {@link requestFolder}. */
+    requestWriteVideos = requestWriteVideos;
+    /** @deprecated Use {@link requestApps}. */
+    requestReadApps = requestReadApps;
+    /** @deprecated Use {@link requestApps}. */
+    requestManageApps = requestManageApps;
+    /** @deprecated Use {@link requestSubdomains}. */
+    requestReadSubdomains = requestReadSubdomains;
+    /** @deprecated Use {@link requestSubdomains}. */
+    requestManageSubdomains = requestManageSubdomains;
+    /** @deprecated Use {@link requestAppRootDir}. */
+    requestReadAppRootDir = requestReadAppRootDir;
+    /** @deprecated Use {@link requestAppRootDir}. */
+    requestWriteAppRootDir = requestWriteAppRootDir;
 
     /** @param {Puter} puter */
     constructor (puter) {
@@ -102,19 +128,6 @@ export class PermsModule extends PuterModule {
         for ( const name of METHODS ) {
             methods[name] = methods[name].bind(this);
         }
-    }
-
-    /**
-     * Low-level request helper against the auth/group endpoints, kept on the
-     * instance for backward compatibility. Returns the parsed result object
-     * (with `error: true` set on failure) rather than rejecting.
-     *
-     * @param {string} route
-     * @param {Record<string, unknown>} [body]
-     * @returns {Promise<Record<string, unknown>>}
-     */
-    req_ (route, body) {
-        return req(this.puter, route, body);
     }
 }
 

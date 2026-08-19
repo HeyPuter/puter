@@ -4,7 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockReq = vi.fn();
 vi.mock('./lib/req.js', () => ({ req: (...args) => mockReq(...args) }));
 
-const { requestReadAppRootDir, requestWriteAppRootDir } = await import('./appRootDir.js');
+const {
+    requestAppRootDir,
+    requestReadAppRootDir,
+    requestWriteAppRootDir,
+} = await import('./appRootDir.js');
 const { PuterJSError } = await import('../../lib/PuterJSError.js');
 
 const makeModule = (requestPermission) => ({
@@ -12,6 +16,7 @@ const makeModule = (requestPermission) => ({
         APIOrigin: 'https://api.test',
         ui: { requestPermission: vi.fn(requestPermission) },
     },
+    requestAppRootDir,
 });
 
 describe('perms appRootDir', () => {
@@ -21,7 +26,7 @@ describe('perms appRootDir', () => {
         mockReq.mockResolvedValueOnce({ path: '/root' }); // succeeds first try
         const mod = makeModule();
 
-        const result = await requestWriteAppRootDir.call(mod, 'app-123');
+        const result = await requestAppRootDir.call(mod, 'app-123', 'write');
 
         expect(result).toEqual({ path: '/root' });
         expect(mockReq).toHaveBeenCalledWith(
@@ -33,11 +38,11 @@ describe('perms appRootDir', () => {
         expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
     });
 
-    it('requests read access with access:"read" in the body', async () => {
+    it('defaults to read access', async () => {
         mockReq.mockResolvedValueOnce({ path: '/root' });
         const mod = makeModule();
 
-        await requestReadAppRootDir.call(mod, 'app-xyz');
+        await requestAppRootDir.call(mod, 'app-xyz');
 
         expect(mockReq).toHaveBeenCalledWith(
             mod.puter,
@@ -53,7 +58,7 @@ describe('perms appRootDir', () => {
             .mockResolvedValueOnce({ path: '/root' });
         const mod = makeModule(() => true);
 
-        const result = await requestWriteAppRootDir.call(mod, 'app-123');
+        const result = await requestAppRootDir.call(mod, 'app-123', 'write');
 
         expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
             permission: 'app-root-dir:app-123:write',
@@ -66,7 +71,7 @@ describe('perms appRootDir', () => {
         mockReq.mockResolvedValueOnce({ path: '/root' });
         const mod = makeModule();
 
-        await requestReadAppRootDir.call(mod, { uid: 'app-obj' });
+        await requestAppRootDir.call(mod, { uid: 'app-obj' });
 
         expect(mockReq).toHaveBeenCalledWith(
             mod.puter,
@@ -79,16 +84,43 @@ describe('perms appRootDir', () => {
         mockReq.mockResolvedValue({ error: true });
         const mod = makeModule(() => false);
 
-        const result = await requestWriteAppRootDir.call(mod, 'app-123');
+        const result = await requestAppRootDir.call(mod, 'app-123', 'write');
 
         expect(result).toBeUndefined();
     });
 
     it('rejects a non-string, non-object app uid with a coded error', async () => {
         const mod = makeModule();
-        await expect(requestReadAppRootDir.call(mod, 42)).rejects.toBeInstanceOf(PuterJSError);
-        await expect(requestReadAppRootDir.call(mod, 42)).rejects.toMatchObject({
+        await expect(requestAppRootDir.call(mod, 42)).rejects.toBeInstanceOf(PuterJSError);
+        await expect(requestAppRootDir.call(mod, 42)).rejects.toMatchObject({
             code: 'invalid_argument',
         });
+    });
+
+    it('rejects an access level that is neither read nor write', async () => {
+        const mod = makeModule();
+        await expect(
+            requestAppRootDir.call(mod, 'app-123', 'delete'),
+        ).rejects.toMatchObject({ code: 'invalid_argument' });
+        expect(mockReq).not.toHaveBeenCalled();
+    });
+
+    it('keeps the deprecated read/write aliases delegating', async () => {
+        mockReq.mockResolvedValue({ path: '/root' });
+        const mod = makeModule();
+
+        await requestReadAppRootDir.call(mod, 'app-1');
+        expect(mockReq).toHaveBeenLastCalledWith(
+            mod.puter,
+            '/auth/request-app-root-dir',
+            { app_uid: 'app-1', access: 'read' },
+        );
+
+        await requestWriteAppRootDir.call(mod, 'app-1');
+        expect(mockReq).toHaveBeenLastCalledWith(
+            mod.puter,
+            '/auth/request-app-root-dir',
+            { app_uid: 'app-1', access: 'write' },
+        );
     });
 });

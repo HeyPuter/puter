@@ -1,4 +1,18 @@
+import { PuterJSError } from '../../lib/PuterJSError.js';
+
 /** @typedef {import('./index.js').PermsModule} PermsModule */
+/** @typedef {import('./types.js').PermsAccess} PermsAccess */
+
+/** @param {unknown} accessLevel @returns {PermsAccess} */
+const assertAccess = (accessLevel) => {
+    if ( accessLevel !== 'read' && accessLevel !== 'write' ) {
+        throw new PuterJSError(
+            'parameter accessLevel must be `read` or `write`',
+            'invalid_argument',
+        );
+    }
+    return accessLevel;
+};
 
 /**
  * Request a specific permission string to be granted. Note that some
@@ -46,41 +60,71 @@ export async function requestEmail () {
 }
 
 /**
- * Request read access to the user's apps.
+ * Request access to the user's apps. `write` covers managing them (create,
+ * update, delete) as well as reading them.
+ *
  * @this {PermsModule}
- * @returns {Promise<boolean>}
+ * @param {PermsAccess} [accessLevel] - Defaults to `'read'`.
+ * @returns {Promise<boolean>} `true` if the permission was granted.
  */
-export async function requestReadApps () {
+export async function requestApps (accessLevel = 'read') {
+    const access = assertAccess(accessLevel);
     const whoami = await this.puter.auth.whoami();
-    return await this.puter.ui.requestPermission({ permission: `apps-of-user:${whoami.uuid}:read` });
+    return await this.puter.ui.requestPermission({
+        permission: `apps-of-user:${whoami.uuid}:${access}`,
+    });
 }
 
 /**
- * Request write (manage) access to the user's apps.
+ * Request access to the user's subdomains. `write` covers managing them as well
+ * as reading them.
+ *
+ * @this {PermsModule}
+ * @param {PermsAccess} [accessLevel] - Defaults to `'read'`.
+ * @returns {Promise<boolean>} `true` if the permission was granted.
+ */
+export async function requestSubdomains (accessLevel = 'read') {
+    const access = assertAccess(accessLevel);
+    const whoami = await this.puter.auth.whoami();
+    return await this.puter.ui.requestPermission({
+        permission: `subdomains-of-user:${whoami.uuid}:${access}`,
+    });
+}
+
+// -- Deprecated aliases --
+
+/**
+ * @deprecated Use {@link requestApps} instead.
  * @this {PermsModule}
  * @returns {Promise<boolean>}
  */
-export async function requestManageApps () {
-    const whoami = await this.puter.auth.whoami();
-    return await this.puter.ui.requestPermission({ permission: `apps-of-user:${whoami.uuid}:write` });
+export function requestReadApps () {
+    return this.requestApps('read');
 }
 
 /**
- * Request read access to the user's subdomains.
+ * @deprecated Use {@link requestApps} instead.
  * @this {PermsModule}
  * @returns {Promise<boolean>}
  */
-export async function requestReadSubdomains () {
-    const whoami = await this.puter.auth.whoami();
-    return await this.puter.ui.requestPermission({ permission: `subdomains-of-user:${whoami.uuid}:read` });
+export function requestManageApps () {
+    return this.requestApps('write');
 }
 
 /**
- * Request write (manage) access to the user's subdomains.
+ * @deprecated Use {@link requestSubdomains} instead.
  * @this {PermsModule}
  * @returns {Promise<boolean>}
  */
-export async function requestManageSubdomains () {
-    const whoami = await this.puter.auth.whoami();
-    return await this.puter.ui.requestPermission({ permission: `subdomains-of-user:${whoami.uuid}:write` });
+export function requestReadSubdomains () {
+    return this.requestSubdomains('read');
+}
+
+/**
+ * @deprecated Use {@link requestSubdomains} instead.
+ * @this {PermsModule}
+ * @returns {Promise<boolean>}
+ */
+export function requestManageSubdomains () {
+    return this.requestSubdomains('write');
 }
