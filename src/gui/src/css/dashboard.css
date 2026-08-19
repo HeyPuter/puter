@@ -2254,6 +2254,573 @@ p.myapps-add-error {
     }
 }
 
+/* -- Share modal --
+   Responsive, from-scratch replacement for UIWindowShare in the Dashboard:
+   a centered card on desktop, a bottom sheet on mobile. Mirrors the item
+   properties modal's shell so the two read as one system. */
+.share-modal-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    box-sizing: border-box;
+    background: var(--dashboard-shadow-overlay, rgba(0, 0, 0, 0.5));
+    opacity: 0;
+    transition: opacity 200ms ease;
+    z-index: 1000;
+}
+.share-modal-overlay.share-modal-show {
+    opacity: 1;
+}
+
+.share-modal {
+    display: flex;
+    flex-direction: column;
+    width: min(440px, 100%);
+    max-height: min(620px, 85vh);
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px var(--dashboard-shadow-medium);
+    overflow: hidden;
+    transform: scale(0.96);
+    opacity: 0;
+    transition: transform 200ms ease, opacity 200ms ease;
+}
+.share-modal-overlay.share-modal-show .share-modal {
+    transform: scale(1);
+    opacity: 1;
+}
+/* The dialog takes focus programmatically (tabindex=-1) when an action
+   removes the focused row; that's a resting place, not a target. */
+.share-modal:focus {
+    outline: none;
+}
+
+/* Header */
+.share-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--dashboard-border);
+    flex-shrink: 0;
+}
+.share-modal-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+.share-modal-title-icon {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+/* Until (and unless) the item's icon resolves, the title sits flush left. */
+.share-modal-title-icon:empty {
+    display: none;
+}
+.share-modal-title-icon img {
+    width: 34px;
+    height: 34px;
+    object-fit: contain;
+}
+.share-modal-title-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+.share-modal-title-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.share-modal-title-sub {
+    font-size: 12px;
+    color: var(--dashboard-text-muted);
+}
+.share-modal-close {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+@media (hover: hover) {
+    .share-modal-close:hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
+}
+.share-modal-close:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+
+/* Body */
+.share-modal-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 16px 18px 18px;
+}
+
+/* Add people. style.css's input[type=text] / select rules match these
+   controls at the SAME specificity, so everything must be spelled out here
+   (twice for focus — input[type=text]:focus sets padding 7px / border 2px).
+   Same trap input.myapps-group-name documents. */
+.share-modal-add-row {
+    display: flex;
+    gap: 8px;
+}
+input.share-modal-recipient {
+    -webkit-appearance: none;
+    appearance: none;
+    box-sizing: border-box;
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    /* On narrow screens the placeholder outgrows the field; fade it out
+       with an ellipsis instead of clipping mid-letter. */
+    text-overflow: ellipsis;
+    padding: 8px 10px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 8px;
+    background: var(--dashboard-input-background);
+    font-size: 13.5px;
+    font-family: inherit;
+    color: var(--dashboard-text-primary);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+input.share-modal-recipient::placeholder {
+    color: var(--dashboard-text-muted);
+}
+input.share-modal-recipient:focus {
+    padding: 8px 10px;
+    border: 1px solid var(--select-color);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+select.share-modal-mode,
+select.share-modal-row-mode {
+    -webkit-appearance: none;
+    appearance: none;
+    box-sizing: border-box;
+    width: auto;
+    padding: 8px 26px 8px 10px;
+    border: 1px solid var(--dashboard-border);
+    border-radius: 8px;
+    background-color: var(--dashboard-card-background);
+    /* Chevron stroke: slate-500 clears the 3:1 non-text contrast minimum
+       on light surfaces; the dark override below lightens it again. */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    font-size: 13px;
+    font-family: inherit;
+    color: var(--dashboard-text-primary);
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s, background-color 0.15s;
+}
+select.share-modal-mode {
+    flex-shrink: 0;
+}
+select.share-modal-mode:focus,
+select.share-modal-row-mode:focus {
+    padding: 8px 26px 8px 10px;
+    border: 1px solid var(--select-color);
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+select.share-modal-mode:disabled,
+select.share-modal-row-mode:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+/* to prevent auto-zoom on input focus in mobile — .device-phone's global
+   17px rule loses to these selectors, so restate the threshold */
+.device-phone input.share-modal-recipient,
+.device-phone input.share-modal-recipient:focus,
+.device-phone select.share-modal-mode,
+.device-phone select.share-modal-row-mode {
+    font-size: 16px;
+}
+
+.share-modal-submit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    margin-top: 10px;
+    padding: 0 16px;
+    height: 38px;
+    border: 1px solid var(--dashboard-link);
+    border-radius: 10px;
+    background: var(--dashboard-link);
+    font-size: 13.5px;
+    font-weight: 600;
+    font-family: inherit;
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+@media (hover: hover) {
+    .share-modal-submit:hover:not(:disabled) {
+        background: var(--dashboard-link-hover);
+        border-color: var(--dashboard-link-hover);
+    }
+}
+.share-modal-submit:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+.share-modal-submit:disabled {
+    background: var(--dashboard-input-background);
+    border-color: var(--dashboard-border);
+    color: var(--dashboard-text-muted);
+    cursor: default;
+}
+/* In flight it is disabled too, but should read as working, not empty */
+.share-modal-submit.share-modal-btn-busy:disabled {
+    background: var(--dashboard-link);
+    border-color: var(--dashboard-link);
+    color: #fff;
+    opacity: 0.75;
+}
+
+/* Spinner: hidden until its owner is loading/busy */
+.share-modal-spinner {
+    display: none;
+    width: 14px;
+    height: 14px;
+    border: 2px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: share-modal-spin 0.7s linear infinite;
+}
+@keyframes share-modal-spin {
+    to { transform: rotate(360deg); }
+}
+.share-modal-loading {
+    display: flex;
+    justify-content: center;
+    padding: 18px 0;
+    color: var(--dashboard-text-muted);
+}
+.share-modal-loading .share-modal-spinner {
+    display: block;
+    width: 18px;
+    height: 18px;
+}
+.share-modal-btn-busy .share-modal-spinner {
+    display: block;
+}
+
+/* Status line (aria-live). It collapses when empty rather than going
+   display:none — a live region revealed in the same frame as its text is
+   unreliably announced, so it stays in the a11y tree between messages. */
+.share-modal-status {
+    margin-top: 12px;
+    padding: 9px 12px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.45;
+    word-break: break-word;
+}
+.share-modal-status:empty {
+    margin-top: 0;
+    padding: 0;
+    border-width: 0;
+}
+.share-modal-status-error {
+    background: var(--dashboard-danger-background);
+    border-color: var(--dashboard-danger-border);
+    color: var(--dashboard-danger-text);
+}
+.share-modal-status-success {
+    background: var(--dashboard-success-background);
+    border-color: var(--dashboard-success-border);
+    color: var(--dashboard-success-text);
+}
+
+/* Access list */
+.share-modal-heading {
+    margin: 18px 0 2px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--dashboard-text-secondary);
+}
+.share-modal-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--dashboard-border);
+}
+.share-modal-row:last-child {
+    border-bottom: none;
+}
+.share-modal-avatar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    font-size: 13px;
+    font-weight: 600;
+    background: hsla(var(--share-avatar-hue, 213), 60%, 45%, 0.14);
+    color: hsl(var(--share-avatar-hue, 213), 45%, 38%);
+}
+.share-modal-row-who {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+.share-modal-row-name {
+    font-size: 13.5px;
+    color: var(--dashboard-text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.share-modal-row-via {
+    font-size: 12px;
+    color: var(--dashboard-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* Owner badge and the fixed mode of an inherited grant */
+.share-modal-row-tag {
+    flex-shrink: 0;
+    font-size: 12.5px;
+    color: var(--dashboard-text-secondary);
+}
+select.share-modal-row-mode {
+    flex-shrink: 0;
+    padding: 5px 24px 5px 8px;
+    border-color: transparent;
+    background-color: transparent;
+    font-size: 12.5px;
+    color: var(--dashboard-text-secondary);
+    background-position: right 6px center;
+}
+@media (hover: hover) {
+    select.share-modal-row-mode:hover:not(:disabled) {
+        background-color: var(--dashboard-hover);
+        color: var(--dashboard-text-primary);
+    }
+}
+select.share-modal-row-mode:focus {
+    padding: 5px 24px 5px 8px;
+    border: 1px solid var(--select-color);
+}
+.share-modal-revoke {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--dashboard-text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+@media (hover: hover) {
+    .share-modal-revoke:hover:not(:disabled) {
+        background: var(--dashboard-danger-background);
+        color: var(--dashboard-danger-text);
+    }
+}
+.share-modal-revoke:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+.share-modal-empty {
+    margin: 0;
+    padding: 10px 0;
+    font-size: 13px;
+    color: var(--dashboard-text-muted);
+}
+
+/* Inline revoke confirmation (in place of the row it removes) */
+.share-modal-row-confirm {
+    flex-wrap: wrap;
+}
+.share-modal-confirm-text {
+    flex: 1 1 180px;
+    min-width: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--dashboard-text-primary);
+    word-break: break-word;
+}
+.share-modal-confirm-actions {
+    flex-shrink: 0;
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
+}
+.share-modal-btn-quiet,
+.share-modal-btn-danger {
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12.5px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.share-modal-btn-quiet {
+    border: 1px solid var(--dashboard-border);
+    background: var(--dashboard-card-background);
+    color: var(--dashboard-text-primary);
+}
+@media (hover: hover) {
+    .share-modal-btn-quiet:hover:not(:disabled) {
+        background: var(--dashboard-sidebar-background);
+    }
+}
+.share-modal-btn-danger {
+    border: 1px solid var(--dashboard-danger-border);
+    background: var(--dashboard-danger-background);
+    color: var(--dashboard-danger-text);
+}
+@media (hover: hover) {
+    .share-modal-btn-danger:hover:not(:disabled) {
+        border-color: var(--dashboard-danger-text);
+    }
+}
+.share-modal-btn-quiet:focus-visible,
+.share-modal-btn-danger:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+.share-modal-btn-quiet:disabled,
+.share-modal-btn-danger:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+/* Touch: every control clears 44px. The icon buttons keep their 30-32px
+   visuals but hit-test at 44x44 via a centered pseudo-element (the 10px
+   gap to the row's select and the 18px between rows absorb the overhang
+   without overlap); everything else grows for real via min-height, which
+   holds whatever the inherited line-height turns out to be.
+   This block sits below every base rule it overrides — a media query
+   adds no specificity, so source order decides. */
+@media (pointer: coarse) {
+    .share-modal-close,
+    .share-modal-revoke {
+        position: relative;
+    }
+    .share-modal-close::before,
+    .share-modal-revoke::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44px;
+        height: 44px;
+        transform: translate(-50%, -50%);
+    }
+    input.share-modal-recipient,
+    input.share-modal-recipient:focus,
+    select.share-modal-mode,
+    select.share-modal-mode:focus {
+        min-height: 44px;
+    }
+    select.share-modal-row-mode,
+    select.share-modal-row-mode:focus {
+        min-height: 44px;
+        padding-top: 9px;
+        padding-bottom: 9px;
+    }
+    .share-modal-submit {
+        height: 44px;
+    }
+    .share-modal-btn-quiet,
+    .share-modal-btn-danger {
+        box-sizing: border-box;
+        min-height: 44px;
+        padding: 10px 16px;
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    /* The avatar's tinted fill needs a lighter glyph over dark surfaces */
+    .share-modal-avatar {
+        background: hsla(var(--share-avatar-hue, 213), 55%, 55%, 0.2);
+        color: hsl(var(--share-avatar-hue, 213), 55%, 72%);
+    }
+    /* Chevron: slate-400, lighter than the light theme's stroke */
+    select.share-modal-mode,
+    select.share-modal-row-mode {
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+    }
+}
+
+/* Mobile: dock to the bottom as a slide-up sheet */
+@media (max-width: 600px) {
+    .share-modal-overlay {
+        align-items: flex-end;
+        padding: 0;
+    }
+    .share-modal {
+        width: 100%;
+        max-width: none;
+        max-height: 88vh;
+        border-radius: 16px 16px 0 0;
+        border-bottom: none;
+        transform: translateY(24px);
+    }
+    .share-modal-overlay.share-modal-show .share-modal {
+        transform: translateY(0);
+    }
+    /* The sheet sits flush with the physical bottom edge (viewport-fit=
+       cover), so the scrollable body clears the home indicator itself. */
+    .share-modal-body {
+        padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .share-modal-overlay,
+    .share-modal {
+        transition: none;
+    }
+    .share-modal-spinner {
+        animation-duration: 1.6s;
+    }
+}
+
 /* A tile installed by a deep-link landing, not yet arrived: rendered in
    place — layout, page count, and the wayfinding flip all see it — but held
    invisible for the intro's arrival beat to reveal (see _spliceDeepLinkApp /

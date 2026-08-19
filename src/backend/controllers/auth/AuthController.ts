@@ -1150,7 +1150,8 @@ export class AuthController extends PuterController {
                     is_temp: user!.password === null && user!.email === null,
                     ip:
                         (req?.headers?.['x-forwarded-for'] as
-                            string | undefined) ||
+                            | string
+                            | undefined) ||
                         (
                             req as unknown as {
                                 connection?: { remoteAddress?: string };
@@ -2965,28 +2966,23 @@ export class AuthController extends PuterController {
 
     // -- Permission grants -------------------------------------------
 
+    // Retired. Filesystem access is shared through `/share`, which indexes the
+    // grant so the owner can see and revoke it; nothing else is meant to pass
+    // between two users. This wrote straight to the permission tables with no
+    // such record. Never documented, no callers. Revoking still works, so
+    // anything granted before this can still be taken back.
     @Post('/auth/grant-user-user', {
         subdomain: 'api',
         requireUserActor: true,
         rateLimit: GRANT_LIMIT,
     })
-    async handleGrantUserUser(req: Request, res: Response): Promise<void> {
-        const { target_username, permission, extra, meta } = req.body;
-        if (!target_username || !permission) {
-            throw new HttpError(
-                400,
-                'Missing `target_username` or `permission`',
-                { legacyCode: 'bad_request' },
-            );
-        }
-        await this.services.permission.grantUserUserPermission(
-            req.actor!,
-            target_username,
-            permission,
-            extra,
-            meta,
+    async handleGrantUserUser(_req: Request, _res: Response): Promise<void> {
+        throw new HttpError(
+            501,
+            'Direct user-to-user permission grants are no longer supported; ' +
+                'use puter.fs.share() to share files',
+            { legacyCode: 'not_implemented' },
         );
-        res.json({});
     }
 
     /**

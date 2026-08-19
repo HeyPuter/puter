@@ -1432,6 +1432,54 @@ describe('MeteringService', () => {
             expect(allowed.remaining).toBe(0);
         });
 
+        it('never trusts a stored allowanceUsed past the month total', async () => {
+            const sub = await target.getActorSubscription(actor);
+            const month = `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
+
+            // A corrupt record: allowanceUsed grew past the total (a raced
+            // or repeated write). The split is bookkeeping over the total,
+            // so the total is the most the allowance can have been charged.
+            await server.stores.meteringBuffer.incr({
+                key: `${METRICS_PREFIX}:actor:${actor.user.uuid}:${month}`,
+                pathAndAmountMap: {
+                    total: 1_000_000,
+                    allowanceUsed: sub.monthUsageAllowance + 99_000_000,
+                },
+            });
+
+            const allowed = await target.getAllowedUsage(actor);
+            expect(allowed.remaining).toBe(
+                sub.monthUsageAllowance - 1_000_000,
+            );
+        });
+
+        it('folds the legacy baseline in exactly once under concurrent increments', async () => {
+            const sub = await target.getActorSubscription(actor);
+            const month = `${new Date().getUTCFullYear()}-${String(new Date().getUTCMonth() + 1).padStart(2, '0')}`;
+
+            // Legacy spend with no split recorded — one page load then fires
+            // many metered requests at once, all seeing the field absent.
+            await server.stores.meteringBuffer.incr({
+                key: `${METRICS_PREFIX}:actor:${actor.user.uuid}:${month}`,
+                pathAndAmountMap: { total: 10_000 },
+            });
+
+            await Promise.all(
+                Array.from({ length: 8 }, () =>
+                    target.incrementUsage(actor, 'kv:read', 1, 1_000),
+                ),
+            );
+
+            const { usage } =
+                await target.getActorCurrentMonthUsageDetails(actor);
+            expect(usage.total).toBe(18_000);
+            // Without the claim, every concurrent settle re-adds the ~10_000
+            // baseline and the month reads as nearly exhausted.
+            expect(usage.allowanceUsed).toBe(18_000);
+            const allowed = await target.getAllowedUsage(actor);
+            expect(allowed.remaining).toBe(sub.monthUsageAllowance - 18_000);
+        });
+
         it('counts consumed credits from prior months against the credit pool only', async () => {
             // Simulate a prior-month overage: consumed credits exist but the
             // current month has no usage (monthly usage keys roll over).

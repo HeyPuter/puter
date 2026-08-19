@@ -571,6 +571,11 @@ export class WorkerDriver extends PuterDriver {
             });
         }
 
+        const appOwnerIds = rows
+            .map((r) => r.app_owner)
+            .filter((id): id is number => typeof id === 'number');
+        const appsById = await this.stores.app.getByIds(appOwnerIds);
+
         const items = rows.map((r) => {
             const name =
                 String(r.subdomain ?? '')
@@ -583,17 +588,17 @@ export class WorkerDriver extends PuterDriver {
                 file_path = loaded?.path;
                 file_uid = loaded?.uuid;
             }
-            const app =
-                r.app_owner !== null && r.app_owner !== undefined
-                    ? appsById.get(Number(r.app_owner))
-                    : undefined;
-
+            let app_uid = null;
+            if (typeof r.app_owner === 'number') {
+                const loadedApp = appsById.get(r.app_owner);
+                app_uid = loadedApp?.uid ?? null;
+            }
             return {
                 name,
                 url: `https://${name}.puter.work`,
                 file_path,
                 file_uid,
-                app_uuid: app?.uid ?? null,
+                app_uid,
                 created_at: r.ts
                     ? new Date(r.ts as string).toISOString()
                     : null,

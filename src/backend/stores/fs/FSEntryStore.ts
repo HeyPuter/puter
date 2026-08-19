@@ -697,7 +697,7 @@ export class FSEntryStore extends PuterStore {
                     );
                     insertRows.push(
                         expectedUuid,
-                        userId,
+                        parentEntry ? parentEntry.userId : userId,
                         parentEntry ? parentEntry.id : null,
                         parentEntry ? parentEntry.uuid : null,
                         pathPosix.basename(dirPath),
@@ -848,7 +848,7 @@ export class FSEntryStore extends PuterStore {
                 ) VALUES (?, ?, ?, ?, ?, ?, ${trueLiteral}, ?, ?, ?, ${falseLiteral}, 0)${this.clients.db.insertIgnoreSuffix()}`,
                 [
                     uuidv4(),
-                    userId,
+                    parentEntry ? parentEntry.userId : userId,
                     parentEntry ? parentEntry.id : null,
                     parentEntry ? parentEntry.uuid : null,
                     dirName,
@@ -1875,7 +1875,7 @@ export class FSEntryStore extends PuterStore {
                             entry.input.uuid,
                             entry.bucket,
                             entry.bucketRegion,
-                            userId,
+                            parentEntry.userId,
                             parentEntry.id,
                             parentEntry.uuid,
                             entry.input.associatedAppId ?? null,
@@ -1948,9 +1948,11 @@ export class FSEntryStore extends PuterStore {
                         const placeholders = insertUuidChunk
                             .map(() => '?')
                             .join(', ');
+                        // By uuid alone — the rows just written belong to the
+                        // parent's owner, not necessarily the acting user.
                         const rows = (await this.clients.db.tryHardRead(
-                            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE user_id = ? AND uuid IN (${placeholders})`,
-                            [userId, ...insertUuidChunk],
+                            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE uuid IN (${placeholders})`,
+                            insertUuidChunk,
                         )) as unknown as FSEntryRow[];
 
                         const insertedEntries = rows.map((row) =>
@@ -2276,9 +2278,11 @@ export class FSEntryStore extends PuterStore {
      *
      * Returns the inserted entry with a refreshed row read. Throws 409 on a
      * unique-key collision (caller should pre-check and dedupe).
+     *
+     * The row belongs to whoever owns `parent`, not to whoever created it, so a
+     * shared subtree keeps one owner throughout.
      */
     async createNonFileEntry(input: {
-        userId: number;
         parent: FSEntry;
         name: string;
         kind: 'directory' | 'shortcut' | 'symlink' | 'empty-file';
@@ -2331,7 +2335,7 @@ export class FSEntryStore extends PuterStore {
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
                 uuid,
-                input.userId,
+                input.parent.userId,
                 input.parent.id,
                 input.parent.uuid,
                 input.name,
@@ -2485,7 +2489,8 @@ export class FSEntryStore extends PuterStore {
         } = {},
     ): Promise<{ entries: FSEntry[]; cursor?: string }> {
         const payload = decodeCursor(options.cursor) as
-            { v: unknown; id: number; s?: string; o?: string } | undefined;
+            | { v: unknown; id: number; s?: string; o?: string }
+            | undefined;
 
         const requestedSort = options.sortBy ?? null;
         const requestedOrder = options.sortOrder ?? null;
@@ -2600,11 +2605,8 @@ export class FSEntryStore extends PuterStore {
 
     // All descendants of a directory path (recursive). Paths in fsentries are
     // absolute and don't carry a trailing slash, so the prefix pattern is
-    // `${prefix}/%`. Scoped by user_id to keep the index tight.
-    async listDescendantsByPath(
-        userId: number,
-        pathPrefix: string,
-    ): Promise<FSEntry[]> {
+    // `${prefix}/%`, served by `idx_fsentries_path`.
+    async listDescendantsByPath(pathPrefix: string): Promise<FSEntry[]> {
         const normalizedPrefix = this.#normalizePath(pathPrefix);
         if (normalizedPrefix === '/') {
             // Refuse to list all user entries this way — caller must mean something else.
@@ -2613,9 +2615,15 @@ export class FSEntryStore extends PuterStore {
             });
         }
         const likePattern = `${this.#escapeLikePattern(normalizedPrefix)}/%`;
+        // Everything under the prefix, whoever owns it. A subtree is meant to
+        // have one owner, but rows written before that was enforced don't, and
+        // `AND user_id = ?` would leave those behind when the caller deletes
+        // the directory above them — orphaned rows, and their S3 objects with
+        // them. `idx_fsentries_path` leads on `path`, so the access path is
+        // unchanged.
         const rows = (await this.clients.db.read(
-            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE user_id = ? AND path LIKE ? ESCAPE '!' ORDER BY path ASC`,
-            [userId, likePattern],
+            `SELECT ${this.#selectFsentriesColumns()} FROM fsentries WHERE path LIKE ? ESCAPE '!' ORDER BY path ASC`,
+            [likePattern],
         )) as unknown as FSEntryRow[];
         return rows.map((row) => this.#mapFSEntryRow(row));
     }
@@ -2668,7 +2676,8 @@ export class FSEntryStore extends PuterStore {
         const limit = normalizeLimit(options.limit, { cap: 10_000 }) ?? 1000;
 
         const payload = decodeCursor(options.cursor) as
-            { p: string } | undefined;
+            | { p: string }
+            | undefined;
         const seek = payload ? 'AND path > ?' : '';
         const params: unknown[] = payload
             ? [userId, likePattern, maxSlashes, payload.p, limit + 1]
@@ -2776,6 +2785,7 @@ export class FSEntryStore extends PuterStore {
         patch: {
             name?: string;
             path?: string;
+            userId?: number;
             parentId?: number | null;
             parentUid?: string | null;
             thumbnail?: string | null;
@@ -2800,6 +2810,7 @@ export class FSEntryStore extends PuterStore {
 
         if (patch.name !== undefined) push('name', patch.name);
         if (patch.path !== undefined) push('path', patch.path);
+        if (patch.userId !== undefined) push('user_id', patch.userId);
         if (patch.parentId !== undefined) push('parent_id', patch.parentId);
         if (patch.parentUid !== undefined) push('parent_uid', patch.parentUid);
         if (patch.thumbnail !== undefined) push('thumbnail', patch.thumbnail);
@@ -2947,11 +2958,13 @@ export class FSEntryStore extends PuterStore {
 
     // Rewrites path column for every descendant of `oldPrefix` to use `newPrefix`.
     // Used by move/rename when a directory is relocated. Cache for affected
-    // entries is invalidated coarsely afterwards by the caller.
+    // entries is invalidated coarsely afterwards by the caller. Pass
+    // `newUserId` when the subtree also changes hands.
     async updatePathPrefixForUser(
         userId: number,
         oldPrefix: string,
         newPrefix: string,
+        newUserId?: number,
     ): Promise<number> {
         const normalizedOld = this.#normalizePath(oldPrefix);
         const normalizedNew = this.#normalizePath(newPrefix);
@@ -2973,12 +2986,26 @@ export class FSEntryStore extends PuterStore {
             postgres: '? || SUBSTR(path, ?)',
             otherwise: 'CONCAT(?, SUBSTR(path, ?))',
         });
+        const reowning = newUserId !== undefined && newUserId !== userId;
+        // Scoped by path alone. A subtree is meant to have one owner, but rows
+        // written before that was enforced don't — an app writing into another
+        // user's AppData used to stamp itself as the owner — and an `AND
+        // user_id = ?` would walk straight past them, leaving descendants
+        // pointing at a path their parent no longer has. `idx_fsentries_path`
+        // leads on `path`, so this is the same index range either way.
         const result = await this.clients.db.write(
             `UPDATE fsentries
              SET path = ${rewrittenPath},
+                 ${reowning ? 'user_id = ?,' : ''}
                  modified = ?
-             WHERE user_id = ? AND path LIKE ? ESCAPE '!'`,
-            [normalizedNew, oldPrefixLen + 1, now, userId, likePattern],
+             WHERE path LIKE ? ESCAPE '!'`,
+            [
+                normalizedNew,
+                oldPrefixLen + 1,
+                ...(reowning ? [newUserId] : []),
+                now,
+                likePattern,
+            ],
         );
         const affected = this.#affectedRows(result);
         return affected;

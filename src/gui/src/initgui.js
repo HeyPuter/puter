@@ -2003,9 +2003,12 @@ window.initgui = async function (options) {
     // -------------------------------------------------------------------------------------
     // Un-authed but not first visit -> try to log in/sign up
     // -------------------------------------------------------------------------------------
+    // App landing pages (`/app/<name>`, incl. `/desktop/app/<name>`) require a
+    // real account even on a first visit — never a temp user.
+    const is_app_landing_page = window.url_paths[0] === 'app' && !!window.url_paths[1];
     if (
         !window.is_auth() &&
-        (!window.first_visit_ever || window.disable_temp_users)
+        (!window.first_visit_ever || window.disable_temp_users || is_app_landing_page)
     ) {
         // `npm start --server=<remote>` serves this GUI locally while pointing
         // `gui_origin` at a remote Puter. There is nothing here to log into:

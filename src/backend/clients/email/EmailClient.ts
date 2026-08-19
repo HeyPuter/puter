@@ -183,7 +183,8 @@ export class EmailClient extends PuterClient {
      *
      * Returns the transport's send result, or `null` when no transport is
      * configured (the send is a no-op in that case — callers that must not
-     * silently drop mail should check `isConfigured` first).
+     * silently drop mail should check `config.email` before composing, or the
+     * `null` return after).
      */
     async sendRaw(options: SendMailOptions) {
         if (!this.transport) {
@@ -197,11 +198,6 @@ export class EmailClient extends PuterClient {
             ...options,
             from: options.from ?? this.defaultFrom(),
         });
-    }
-
-    /** Whether an SMTP transport is configured (sends are no-ops otherwise). */
-    get isConfigured(): boolean {
-        return this.transport !== null;
     }
 
     // -- Public API: clean / validate ---------------------------------

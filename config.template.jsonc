@@ -251,6 +251,28 @@
         }
     },
 
+    // ── Sharing ─────────────────────────────────────────────────────────
+    // Email a recipient who already has an account about a new share. On
+    // unless set to false; they opt out via the unsubscribe link, or by
+    // blocking a sender. An invite to an address with no account always goes.
+    // "share_email_notifications": false,
+    //
+    // New shares one account may create per UTC day. Default 200.
+    // "share_daily_limit": 200,
+    //
+    // How often a share may interrupt its recipient — the notification pushed
+    // to their screen and the email with it. Over budget the share still
+    // succeeds and their notification is still brought up to date; only the
+    // interruption is dropped. The recipient bounds are what stop many senders
+    // burying one person between them. A non-positive value removes a bound.
+    // "share_notify_limits": {
+    //     "pairWindowSeconds": 900,
+    //     "pairDaily": 20,
+    //     "recipientHourly": 10,
+    //     "recipientDaily": 50,
+    //     "emailBatchSeconds": 90
+    // },
+
     // ── Alarms / alerting ───────────────────────────────────────────────
     // Where system alarms go. Severity is the routing decision — each
     // transport takes everything at or above its own `minSeverity`:

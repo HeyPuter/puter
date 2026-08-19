@@ -55,6 +55,8 @@ afterAll(async () => {
 
 afterEach(() => {
     vi.restoreAllMocks();
+    // Back to the self-hosted no-SMTP baseline the server booted with.
+    delete liveConfig().email;
 });
 
 const makeUser = async (): Promise<{ actor: Actor; userId: number }> => {
@@ -101,11 +103,15 @@ const makeApp = async (
 
 // Feedback is only offered when the deployment can deliver it (email
 // transport configured); most tests want that baseline without asserting
-// anything about the mail itself.
-const mockEmailConfigured = () =>
-    vi.spyOn(server.clients.email, 'isConfigured', 'get').mockReturnValue(
-        true,
-    );
+// anything about the mail itself. The service reads `config.email` — the
+// same live object every layer holds — so the helper writes it there and
+// the global afterEach clears it.
+const liveConfig = () =>
+    (server.clients.email as unknown as { config: Record<string, unknown> })
+        .config;
+const mockEmailConfigured = () => {
+    liveConfig().email = { jsonTransport: true };
+};
 
 const confirmOwnerEmail = async (userId: number) => {
     await server.clients.db.write(

@@ -270,4 +270,109 @@
  *     | unknown[]} UploadItems
  */
 
+/**
+ * How much access a share grants. Stronger modes imply the weaker ones, so
+ * `write` also allows reading, and `manage` — the strongest — allows
+ * everything `write` does plus re-sharing the item with other people.
+ *
+ * @typedef {'see' | 'list' | 'read' | 'write' | 'manage'} ShareMode
+ */
+
+/**
+ * Who a share is for. Give an `email` or a `username`; a bare string is read
+ * as an email when it contains `@` and a username otherwise.
+ *
+ * @typedef {string | { email?: string, username?: string }} ShareRecipient
+ */
+
+/**
+ * One live share.
+ *
+ * @typedef {Object} Share
+ * @property {string} uid Identifier for this share.
+ * @property {ShareMode} mode Access the recipient has.
+ * @property {string} path Path of the shared item.
+ * @property {string} entryUid UID of the shared item.
+ * @property {boolean} isDir Whether the shared item is a directory.
+ * @property {string | null} name The item's name. Not set by `getShares()`,
+ * which describes access to an item the caller already named.
+ * @property {string | null} type The item's content type, or `'folder'`. Only
+ * set by `listShared()`.
+ * @property {string | null} thumbnail URL of the item's thumbnail, if it has
+ * one. Only set by `listShared()`.
+ * @property {string | null} owner Username of the item's owner. Only set by
+ * `listShared()`.
+ * @property {string | null} issuer Username of whoever granted it.
+ * @property {string | null} holder Username of whoever received it.
+ * @property {string | null} [inheritedFrom] Shared ancestor this access comes from, if any.
+ * @property {string | null} [issuedByApp] UID of the app that asked for this
+ * share, or `null` when a person made it directly.
+ * @property {boolean} [pending] True when the recipient's email has no
+ * confirmed account yet. The share is recorded but grants nothing until they
+ * create an account with that address and confirm it.
+ * @property {string | null} [recipientEmail] Address a pending share was sent
+ * to. Only set when `pending`.
+ * @property {number} modified Last-modified time of the item, unix seconds.
+ * @property {number | null} size Size of the item in bytes; null for a directory.
+ */
+
+/**
+ * @typedef {Object} ShareOptionsOwn
+ * @property {string} [path] Item to share. Relative paths resolve against the
+ * app's root directory.
+ * @property {string} [uid] Item to share, by UID. Use instead of `path`.
+ * @property {string[]} [paths] Several items to share in one call.
+ * @property {ShareRecipient | ShareRecipient[]} [recipient] Who to share with.
+ * @property {ShareRecipient | ShareRecipient[]} [recipients] Alias for
+ * `recipient`.
+ * @property {ShareMode} [mode] Access to grant. Defaults to `'read'`.
+ */
+
+/**
+ * @typedef {ShareOptionsOwn & RequestCallbacks<Share[]>} ShareOptions
+ */
+
+/**
+ * @typedef {Object} UnshareOptionsOwn
+ * @property {string} [path] Item to stop sharing.
+ * @property {string} [uid] Item to stop sharing, by UID.
+ * @property {ShareRecipient} [recipient] Who to withdraw access from. Pass
+ * yourself to leave a share someone else granted you.
+ */
+
+/**
+ * @typedef {UnshareOptionsOwn & RequestCallbacks<{ revoked: number }>} UnshareOptions
+ */
+
+/**
+ * @typedef {Object} ListSharedOptionsOwn
+ * @property {number} [limit] Maximum shares per page.
+ * @property {string} [cursor] Continuation token from a previous page.
+ * @property {boolean} [includeTotal] Include the total count in the response.
+ */
+
+/**
+ * @typedef {ListSharedOptionsOwn & RequestCallbacks<SharePage>} ListSharedOptions
+ */
+
+/**
+ * A page of shares. `cursor` is present only while more pages remain, so
+ * iterate until it is absent rather than counting items.
+ *
+ * @typedef {Object} SharePage
+ * @property {Share[]} items
+ * @property {string} [cursor]
+ * @property {number} [total]
+ */
+
+/**
+ * @typedef {Object} GetSharesOptionsOwn
+ * @property {string} [path] Item to inspect.
+ * @property {string} [uid] Item to inspect, by UID.
+ */
+
+/**
+ * @typedef {GetSharesOptionsOwn & RequestCallbacks<Share[]>} GetSharesOptions
+ */
+
 export {};

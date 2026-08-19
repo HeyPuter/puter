@@ -160,6 +160,10 @@ export const handleWhoami = async (
         desktop_bg_fit: user.desktop_bg_fit,
         is_temp: user.password === null && user.email === null,
         is_user_token: true,
+        // Present only once the account has actually asked for a code (see the
+        // referral extension) — null until then, and never minted from here:
+        // this endpoint is polled, and a mint is a write.
+        referral_code: user.referral_code,
         oidc_only: oidcOnly,
         taskbar_items: isUser
             ? await getTaskbarItems(
@@ -240,6 +244,8 @@ export const handleWhoami = async (
         delete details.created_ts;
         delete details.is_user_token;
         delete details.metadata;
+        // An app has no business reading the code its user earns credit with.
+        delete details.referral_code;
     }
 
     if (actor.app) {

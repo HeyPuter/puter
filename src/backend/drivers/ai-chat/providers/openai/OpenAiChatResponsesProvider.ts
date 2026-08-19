@@ -146,7 +146,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
         // })
 
         const userIdentifier =
-            actor?.user.id + actor?.app?.uid ? `:${actor?.app?.uid}` : '';
+            `${actor?.user.id}` + actor?.app?.uid ? `:${actor?.app?.uid}` : '';
 
         // Resolve any `puter_path` content parts into inline base64 data URLs
         // before the Responses API sees them.
@@ -260,7 +260,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
                 this.#meteringService.utilRecordUsageObject(
                     trackedUsage,
-                    actor,
+                    actor!,
                     `openai:${modelUsed?.id}`,
                     costsOverrideFromModel,
                 );

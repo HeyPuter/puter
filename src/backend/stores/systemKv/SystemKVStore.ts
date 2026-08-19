@@ -931,6 +931,93 @@ export class SystemKVStore extends PuterStore {
         };
     }
 
+    /**
+     * Delete a key and return what it held — an atomic claim. However many
+     * callers race the same key, exactly one gets the value; the rest get
+     * null.
+     */
+    async take(
+        { key }: { key: string },
+        opts?: KVOpts,
+    ): Promise<KVResult<unknown | null>> {
+        assertKey(key);
+        const actor = ensureActor(opts);
+        const namespace = getNamespace(actor, opts);
+        const probeUsage = await this.#assertNotPrivate(namespace, key, opts);
+
+        const response = await this.clients.dynamo.del(
+            this.tableName,
+            { namespace, key },
+            { returnOld: true },
+        );
+        await this.#invalidate(namespace, [key]);
+
+        const old = response.Attributes as
+            { value?: unknown; ttl?: number } | undefined;
+        const now = Date.now() / 1000;
+        const res =
+            old === undefined || (old.ttl && old.ttl <= now)
+                ? null
+                : (old.value ?? null);
+
+        return {
+            res,
+            usage: addUsage(
+                probeUsage,
+                writeUsage(
+                    (response.ConsumedCapacity?.CapacityUnits as
+                        number | undefined) ?? 1,
+                ),
+            ),
+        };
+    }
+
+    async batchDel(
+        { keys }: { keys: string[] },
+        opts?: KVOpts,
+    ): Promise<KVResult<boolean>> {
+        if (!Array.isArray(keys) || keys.length === 0) {
+            return { res: true, usage: emptyUsage() };
+        }
+
+        const unique = new Set<string>();
+        for (const key of keys) {
+            const k = String(key);
+            assertKey(k);
+            unique.add(k);
+        }
+        const uniqueKeys = [...unique];
+
+        const actor = ensureActor(opts);
+        const namespace = getNamespace(actor, opts);
+
+        // One private key refuses the batch — same posture as batchPut:
+        // no partial success to probe with.
+        const probeUsage = await this.#assertNonePrivate(
+            namespace,
+            uniqueKeys,
+            opts,
+        );
+
+        const response = await this.clients.dynamo.batchDel(
+            uniqueKeys.map((key) => ({
+                table: this.tableName,
+                key: { namespace, key },
+            })),
+        );
+        await this.#invalidate(namespace, uniqueKeys);
+        const units =
+            response.ConsumedCapacity?.reduce(
+                (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
+                0,
+            ) ?? unique.size;
+
+        return {
+            res: true,
+            usage: addUsage(probeUsage, writeUsage(units || unique.size)),
+        };
+    }
+
     async list(
         {
             as,
@@ -1139,26 +1226,29 @@ export class SystemKVStore extends PuterStore {
         );
 
         const entries = response.Items ?? [];
-        const results = (
-            await Promise.all(
-                entries.map(async (entry) => {
-                    try {
-                        return await this.clients.dynamo.del(this.tableName, {
-                            namespace,
-                            key: entry.key,
-                        });
-                    } catch (e) {
-                        console.error('[kv] flush delete failed', entry.key, e);
-                        return null;
-                    }
-                }),
-            )
-        ).filter(Boolean);
-
-        const deleteUnits = results.reduce(
-            (acc, r) => acc + Number(r?.ConsumedCapacity?.CapacityUnits ?? 0),
-            0,
-        );
+        // One BatchWriteItem fan-out (25-item chunks with retries inside the
+        // client) instead of an unbounded Promise.all of single deletes.
+        // Failure posture matches the old per-item loop: log and fall through
+        // to invalidation — a partial flush must still drop cached reads for
+        // every key the query saw.
+        let deleteUnits = 0;
+        if (entries.length > 0) {
+            try {
+                const deleted = await this.clients.dynamo.batchDel(
+                    entries.map((entry) => ({
+                        table: this.tableName,
+                        key: { namespace, key: entry.key },
+                    })),
+                );
+                deleteUnits =
+                    deleted.ConsumedCapacity?.reduce(
+                        (acc, curr) => acc + Number(curr.CapacityUnits ?? 0),
+                        0,
+                    ) ?? 0;
+            } catch (e) {
+                console.error('[kv] flush batch delete failed', e);
+            }
+        }
         usage = addUsage(usage, writeUsage(deleteUnits));
 
         // Exactly the keys the query saw, which is also exactly what was

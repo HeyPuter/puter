@@ -1681,57 +1681,25 @@ describe('AuthController grant flows', () => {
         } as Actor;
     });
 
-    it('grant-user-user: rejects missing target_username/permission with 400', async () => {
+    it('grant-user-user: is retired and reports 501', async () => {
+        // Filesystem access goes through /share, which indexes the grant so it
+        // can be listed and revoked; nothing else is meant to pass between two
+        // users. Revoking is untouched, so pre-existing grants can still go.
         await expect(
-            controller.handleGrantUserUser(
-                makeReq({ permission: 'fs:read' }, { actor: issuerActor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('grant-user-user: persists the permission and PermissionService.check sees it', async () => {
-        const permission = `service:test-grant-${uuidv4()}:ii:read`;
-        // The controller calls PermissionService.grantUserUserPermission,
-        // which gates on `manage:<permission>` for non-system actors. Pre-
-        // bootstrap the manage flag directly through the permission store
-        // (the system actor would skip this gate, but its in-memory shape
-        // has no user.id, so it can't issue grants). Then the controller
-        // call exercises persist + check end-to-end.
-        await server.stores.permission.setFlatUserPerm(
-            issuer.id,
-            `manage:${permission}`,
-            {
-                permission: `manage:${permission}`,
-                deleted: false,
-                issuer_user_id: issuer.id,
-            } as never,
-        );
-
-        const res = makeRes();
-        await inCtx(issuerActor, () =>
             controller.handleGrantUserUser(
                 makeReq(
                     {
                         target_username: target.username,
-                        permission,
-                        extra: { reason: 'unit-test' },
+                        permission: `service:test-${uuidv4()}:ii:read`,
                     },
                     { actor: issuerActor },
                 ),
-                res,
+                makeRes(),
             ),
-        );
-        expect(res.body).toEqual({});
-
-        // The target now sees the permission via the user-to-user grant.
-        const targetActor = {
-            user: { ...target, email_confirmed: true },
-        } as Actor;
-        const granted = await server.services.permission
-            .check(targetActor, permission)
-            .catch(() => false);
-        expect(granted).toBeTruthy();
+        ).rejects.toMatchObject({
+            statusCode: 501,
+            legacyCode: 'not_implemented',
+        });
     });
 
     it('grant-user-app: persists a user→app permission grant', async () => {
@@ -4834,14 +4802,13 @@ describe('AuthController permission revokes', () => {
                 issuer_user_id: issuer.id,
             } as never,
         );
-        // Grant first.
+        // Grant first — through the service, since the grant route is retired
+        // and revoking has to keep working for what it left behind.
         await inCtx(issuerActor, () =>
-            controller.handleGrantUserUser(
-                makeReq(
-                    { target_username: target.username, permission },
-                    { actor: issuerActor },
-                ),
-                makeRes(),
+            server.services.permission.grantUserUserPermission(
+                issuerActor,
+                target.username,
+                permission,
             ),
         );
 
@@ -4927,9 +4894,10 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
         );
 
         // A user→user grant must show up under `myself_to_user` for the
-        // issuer and `user_to_myself` for the holder. Grants gate on
-        // `manage:<permission>`, so bootstrap that flag first (mirrors the
-        // grant-user-user persistence test).
+        // issuer and `user_to_myself` for the holder. Seeded through the
+        // service: the grant route is retired, but the listing still has to
+        // report grants made before that, and the ones sharing writes.
+        // Grants gate on `manage:<permission>`, so bootstrap that flag first.
         const { user: holder, actor: holderActor } = await makeUserAndActor();
         const userPermission = 'service:tl-user:ii:read';
         await server.stores.permission.setFlatUserPerm(
@@ -4942,16 +4910,11 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
             } as never,
         );
         await inCtx(actor, () =>
-            controller.handleGrantUserUser(
-                makeReq(
-                    {
-                        target_username: holder.username,
-                        permission: userPermission,
-                        extra: {},
-                    },
-                    { actor },
-                ),
-                makeRes(),
+            server.services.permission.grantUserUserPermission(
+                actor,
+                holder.username,
+                userPermission,
+                {},
             ),
         );
 
@@ -5378,6 +5341,33 @@ describe('AuthController 2FA flows', () => {
         expect(
             ((after!.otp_recovery_codes as string | null) ?? '').split(','),
         ).toHaveLength(10);
+    });
+
+    it('a recovery code minted by configure-2fa setup satisfies /login/recovery-code', async () => {
+        const { user, actor } = await makeUserAndActor({ email_confirmed: 1 });
+        const setupRes = makeRes();
+        await controller.handleConfigure2fa(
+            makeReq({}, { actor, params: { action: 'setup' } }),
+            setupRes,
+        );
+        const { codes } = setupRes.body as { codes: string[] };
+
+        await controller.handleConfigure2fa(
+            makeReq({}, { actor, params: { action: 'enable' } }),
+            makeRes(),
+        );
+
+        const otpJwt = server.services.token.sign(
+            'otp',
+            { user_uid: user.uuid, purpose: 'otp-login' },
+            { expiresIn: '5m' },
+        );
+        const res = makeRes();
+        await controller.handleLoginRecoveryCode(
+            makeReq({ token: otpJwt, code: codes[0] }),
+            res,
+        );
+        expect(isCompleteLoginResponse(res.body)).toBe(true);
     });
 
     it('configure-2fa setup: 409 when 2FA is already enabled', async () => {

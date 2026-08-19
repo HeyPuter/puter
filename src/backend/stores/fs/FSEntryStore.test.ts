@@ -1127,10 +1127,7 @@ describe('FSEntryStore listing and pagination', () => {
     });
 
     it('lists and counts descendants, refusing to walk from root', async () => {
-        const descendants = await store.listDescendantsByPath(
-            user.userId,
-            parent.path,
-        );
+        const descendants = await store.listDescendantsByPath(parent.path);
         expect(descendants.map((entry) => entry.name).sort()).toEqual([
             'a.txt',
             'b.txt',
@@ -1142,9 +1139,7 @@ describe('FSEntryStore listing and pagination', () => {
             store.countDescendantsByPath(user.userId, parent.path),
         ).resolves.toBe(5);
 
-        const rootList = await caught(() =>
-            store.listDescendantsByPath(user.userId, '/'),
-        );
+        const rootList = await caught(() => store.listDescendantsByPath('/'));
         expect(rootList.statusCode).toBe(400);
         await expect(
             store.countDescendantsByPath(user.userId, '/'),

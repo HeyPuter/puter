@@ -215,6 +215,16 @@ async function UIDesktop (options) {
     window.socket.on('notif.message', async ({ uid, notification }) => {
         let icon = window.icons[notification.icon];
 
+        // A notification can be re-sent under its own uid when what it says has
+        // grown — several people sharing with you is one notification that
+        // counts them. Refresh the one on screen rather than stacking a copy.
+        const $showing = $(`.notification[data-uid="${html_encode(uid)}"]`);
+        if ( $showing.length ) {
+            $showing.find('.notification-title').text(notification.title);
+            $showing.find('.notification-text').text(notification.text ?? '');
+            return;
+        }
+
         UINotification({
             title: notification.title,
             text: notification.text,

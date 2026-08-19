@@ -603,6 +603,33 @@ describe('BroadcastService outbound flush', () => {
         );
         expect(occurrences).toBe(1);
     });
+
+    // A dropped invalidation can outlive every TTL meant to heal it.
+    it('sends a failed event again instead of dropping it', async () => {
+        const cacheKey = 'requeue-test';
+        const carries = (call: unknown) => {
+            const body = (call as [{ data?: string }])[0]?.data;
+            return typeof body === 'string' && body.includes(cacheKey);
+        };
+
+        axiosRequestMock.mockRejectedValue(new Error('peer unreachable'));
+        server.clients.event.emit(
+            'outer.cacheUpdate' as never,
+            { cacheKey: [cacheKey] } as never,
+            {},
+        );
+        await waitForFlush(() => axiosRequestMock.mock.calls.some(carries));
+
+        axiosRequestMock.mockReset();
+        axiosRequestMock.mockResolvedValue({
+            status: 200,
+            statusText: 'OK',
+            data: 'ok',
+        });
+
+        // Nothing new is emitted — only the retry can satisfy this.
+        await waitForFlush(() => axiosRequestMock.mock.calls.some(carries));
+    });
 });
 
 // -- Header validation ------------------------------------------------

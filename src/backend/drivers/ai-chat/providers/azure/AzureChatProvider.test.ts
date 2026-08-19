@@ -186,7 +186,7 @@ describe('AzureChatProvider model catalog', () => {
         expect(ids).toContain('openai/gpt-4o');
         expect(ids).toContain('x-ai/grok-4-20-non-reasoning');
         // Codex is Responses-only and must not be advertised here.
-        expect(ids).not.toContain('gpt-5-codex');
+        expect(ids).not.toContain('gpt-5.3-codex');
     });
 });
 

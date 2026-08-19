@@ -56,6 +56,7 @@ import { validateSubscriptionRequirement } from './services/metering/enforcement
 import { createStepUpGate } from './core/http/middleware/stepUpSession';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
 import { installProcessGuards } from './util/processGuards';
+import { activeSubdomain, subdomainOffsetForDomain } from './util/subdomains';
 import {
     requireAntiCsrf,
     setAntiCsrfRedis,
@@ -246,6 +247,14 @@ export class PuterServer {
         // Cloudflare/nginx hop). Never `true` in prod: that trusts every hop
         // and makes XFF forgeable.
         this.#app.set('trust proxy', this.#config.trust_proxy ?? false);
+        // Every subdomain gate reads `req.subdomains`, which express derives by
+        // dropping `subdomain offset` labels from the right of the hostname.
+        // The offset is the root domain's own label count, so a deployment on
+        // `puter.example.com` doesn't read `puter` as an active subdomain.
+        this.#app.set(
+            'subdomain offset',
+            subdomainOffsetForDomain(this.#config.domain),
+        );
         this.#installGlobalMiddleware();
 
         // Instantiate drivers BEFORE controllers so controllers can receive
@@ -473,7 +482,16 @@ export class PuterServer {
         }
 
         // -- OPTIONS preflight ---------------------------------------
-        this.#app.options('/*splat', (_req, res) => {
+        // WebDAV is exempt: OPTIONS is how a DAV client discovers the server,
+        // and the reply has to carry `DAV:` and `Allow:` for the mount to
+        // proceed. Answering it here with a bare 200 tells the client this
+        // isn't a WebDAV server at all, so let it fall through to the
+        // controller, which builds the real response.
+        this.#app.options('/*splat', (req, res, next) => {
+            if (activeSubdomain(req) === 'dav') {
+                next();
+                return;
+            }
             res.sendStatus(200);
         });
 
@@ -669,7 +687,7 @@ export class PuterServer {
 
         this.#app.use((req, res, next) => {
             const origin = req.headers.origin;
-            const subdomain = req.subdomains?.[req.subdomains.length - 1];
+            const subdomain = activeSubdomain(req);
 
             // Allow any origin. puter.js is meant to be consumed from
             // arbitrary third-party sites, so reflect the caller's origin

@@ -33,12 +33,14 @@ export const usageIsCredits = (allowanceInfo) =>
  * Credits as the raw number users see: whole credits once the amount has any
  * size, decimals only while fractions are all there is to show. Never renders
  * a nonzero amount as "0" — a cost that exists shows as at least "<0.01".
+ * Negative amounts (net usage with unspent top-up) keep their sign.
  *
  * @param {number} credits
  * @returns {string}
  */
 export const formatCredits = (credits) => {
     const value = Number.isFinite(credits) ? credits : 0;
+    if (value < 0) return `-${formatCredits(-value)}`;
     if (value <= 0) return '0';
     if (value >= 100) {
         return Math.round(value).toLocaleString('en-US');

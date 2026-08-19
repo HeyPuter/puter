@@ -884,6 +884,11 @@ $(document).bind('keyup keydown', async function (e) {
             {
                 return;
             }
+            // ... or into the Shared view — a query, not a directory
+            if ( target_path === window.shared_path )
+            {
+                return;
+            }
             // execute clipboard operation
             if ( window.clipboard_op === 'copy' )
             {

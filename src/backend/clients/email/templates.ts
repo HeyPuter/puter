@@ -183,6 +183,66 @@ immediately</p>
 <p>Puter</p>
         `,
     },
+    /**
+     * A digest: shares to one recipient are held briefly and merged, so
+     * `shares` may carry several senders. The subject is composed by the
+     * service (see `digestSubject`), which owns the grouped wording.
+     */
+    file_shared_with_you: {
+        subject: '{{subject_line}}',
+        html: `
+<div style="max-width: 520px; margin: 0 auto; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937; line-height: 1.5;">
+    <p style="font-size: 16px;">Hi {{recipient}},</p>
+    <p>Shared with you on Puter:</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin: 4px 0 16px;">
+        {{#each shares}}
+        <tr>
+            <td style="padding: 8px 12px; border-top: 1px solid #eef1f4;">
+                <strong>{{this.sender}}</strong> shared {{this.what}}
+            </td>
+        </tr>
+        {{/each}}
+    </table>
+    <p>
+        <a href="{{link}}" style="display: inline-block; padding: 10px 18px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Open Puter</a>
+    </p>
+    <p style="color: #6b7280; font-size: 13px; margin-top: 24px;">Sincerely,<br />Puter</p>
+    {{#if unsubscribe_uuid}}
+    <p style="color: #9ca3af; font-size: 12px;">
+        Don't want these? <a href="{{link}}/unsubscribe?user_uuid={{unsubscribe_uuid}}" style="color: #9ca3af;">Unsubscribe</a>.
+    </p>
+    {{/if}}
+</div>
+        `,
+    },
+    // The only way to reach someone with no account. Same digest shape.
+    file_shared_invite: {
+        subject: '{{subject_line}}',
+        html: `
+<div style="max-width: 520px; margin: 0 auto; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937; line-height: 1.5;">
+    <p style="font-size: 16px;">Hi there,</p>
+    <p>Shared with you on Puter:</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin: 4px 0 16px;">
+        {{#each shares}}
+        <tr>
+            <td style="padding: 8px 12px; border-top: 1px solid #eef1f4;">
+                <strong>{{this.sender}}</strong> shared {{this.what}}
+            </td>
+        </tr>
+        {{/each}}
+    </table>
+    <p>
+        You don't have a Puter account for this address yet. Create one with
+        <strong>{{email}}</strong> and confirm it, and what was shared will be
+        waiting for you.
+    </p>
+    <p>
+        <a href="{{link}}" style="display: inline-block; padding: 10px 18px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Create your account</a>
+    </p>
+    <p style="color: #6b7280; font-size: 13px; margin-top: 24px;">Sincerely,<br />Puter</p>
+</div>
+        `,
+    },
     share_by_username: {
         subject: 'Puter share from {{susername}}',
         html: `

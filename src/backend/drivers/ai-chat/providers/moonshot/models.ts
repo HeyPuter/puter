@@ -68,6 +68,51 @@ export const MOONSHOT_MODELS: IChatModel[] = [
         knowledge: '2025-01',
     },
 
+    // -- Kimi K2.7 Code ---------------------------------------------
+    {
+        puterId: 'moonshotai:moonshotai/kimi-k2.7-code',
+        id: 'kimi-k2.7-code',
+        name: 'Kimi K2.7 Code',
+        aliases: ['moonshotai/kimi-k2.7-code', 'moonshot/kimi-k2.7-code'],
+        modalities: { input: ['text', 'image', 'video'], output: ['text'] },
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 95,
+            completion_tokens: 400,
+            cached_tokens: 19,
+        },
+        context: 262_144,
+        max_tokens: 262_144,
+        tool_call: true,
+        release_date: '2026-06-12',
+    },
+    {
+        puterId: 'moonshotai:moonshotai/kimi-k2.7-code-highspeed',
+        id: 'kimi-k2.7-code-highspeed',
+        name: 'Kimi K2.7 Code Highspeed',
+        aliases: [
+            'moonshotai/kimi-k2.7-code-highspeed',
+            'moonshot/kimi-k2.7-code-highspeed',
+        ],
+        modalities: { input: ['text', 'image', 'video'], output: ['text'] },
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 190,
+            completion_tokens: 800,
+            cached_tokens: 38,
+        },
+        context: 262_144,
+        max_tokens: 262_144,
+        tool_call: true,
+        release_date: '2026-06-12',
+    },
+
     // -- Kimi K2.5 --------------------------------------------------
     {
         puterId: 'moonshotai:moonshotai/kimi-k2.5',

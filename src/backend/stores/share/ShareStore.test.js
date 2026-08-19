@@ -233,4 +233,276 @@ describe('ShareStore', () => {
             false,
         );
     });
+
+    // -- active shares (the index) -------------------------------------
+
+    describe('active shares', () => {
+        let holder;
+
+        const makeEntry = async (owner) => {
+            const uuid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, 0, ?)',
+                [
+                    uuid,
+                    `f-${uuid.slice(0, 8)}`,
+                    `/x/${uuid}`,
+                    owner.id,
+                    Math.floor(Date.now() / 1000),
+                ],
+            );
+            const rows = await server.clients.db.read(
+                'SELECT `id` FROM `fsentries` WHERE `uuid` = ?',
+                [uuid],
+            );
+            return { id: Number(rows[0].id), uuid };
+        };
+
+        beforeAll(async () => {
+            holder = await makeUser();
+        });
+
+        it('finds a subtree share even when the descendant has no path yet', async () => {
+            const now = Math.floor(Date.now() / 1000);
+            const dirUuid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`) VALUES (?, ?, ?, ?, 1, ?)',
+                [dirUuid, `d-${dirUuid.slice(0, 8)}`, `/x/${dirUuid}`, issuer.id, now],
+            );
+            const dirRows = await server.clients.db.read(
+                'SELECT `id` FROM `fsentries` WHERE `uuid` = ?',
+                [dirUuid],
+            );
+            const dirId = Number(dirRows[0].id);
+
+            const childUuid = uuidv4();
+            await server.clients.db.write(
+                'INSERT INTO `fsentries` (`uuid`, `name`, `path`, `user_id`, `is_dir`, `modified`, `parent_id`, `parent_uid`) VALUES (?, ?, NULL, ?, 0, ?, ?, ?)',
+                [childUuid, `f-${childUuid.slice(0, 8)}`, issuer.id, now, dirId, dirUuid],
+            );
+            const childRows = await server.clients.db.read(
+                'SELECT `id` FROM `fsentries` WHERE `uuid` = ?',
+                [childUuid],
+            );
+            const childId = Number(childRows[0].id);
+
+            await store.upsertActive({
+                issuerUserId: issuer.id,
+                holderUserId: holder.id,
+                fsentryId: childId,
+                mode: 'read',
+            });
+
+            const rows = await store.listByFsentrySubtree(dirId);
+            expect(
+                rows.some((r) => Number(r.fsentry_id) === childId),
+            ).toBe(true);
+        });
+
+        it('records an active share and lists it for the holder', async () => {
+            const entry = await makeEntry(issuer);
+            const created = await store.upsertActive({
+                issuerUserId: issuer.id,
+                holderUserId: holder.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+
+            expect(created.holder_user_id).toBe(holder.id);
+            expect(created.fsentry_id).toBe(entry.id);
+            expect(created.mode).toBe('read');
+            expect(created.applied_at).toBeTruthy();
+
+            const page = await store.listByHolder(holder.id);
+            expect(page.items.map((r) => r.uid)).toContain(created.uid);
+        });
+
+        it('moves an existing share to a new mode instead of duplicating it', async () => {
+            const entry = await makeEntry(issuer);
+            const first = await store.upsertActive({
+                issuerUserId: issuer.id,
+                holderUserId: holder.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            const second = await store.upsertActive({
+                issuerUserId: issuer.id,
+                holderUserId: holder.id,
+                fsentryId: entry.id,
+                mode: 'write',
+            });
+
+            expect(second.uid).toBe(first.uid);
+            expect(second.mode).toBe('write');
+            expect(await store.listByFsentry(entry.id)).toHaveLength(1);
+        });
+
+        it('keeps a separate row per issuer on the same node', async () => {
+            const entry = await makeEntry(issuer);
+            await store.upsertActive({
+                issuerUserId: issuer.id,
+                holderUserId: holder.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            await store.upsertActive({
+                issuerUserId: otherIssuer.id,
+                holderUserId: holder.id,
+                fsentryId: entry.id,
+                mode: 'write',
+            });
+
+            const rows = await store.listByFsentry(entry.id);
+            expect(rows).toHaveLength(2);
+            expect(rows.map((r) => r.issuer_user_id).sort()).toEqual(
+                [issuer.id, otherIssuer.id].sort(),
+            );
+        });
+
+        it('deletes one issuer share, or every issuer share for the holder', async () => {
+            const entry = await makeEntry(issuer);
+            await store.upsertActive({
+                issuerUserId: issuer.id,
+                holderUserId: holder.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+            await store.upsertActive({
+                issuerUserId: otherIssuer.id,
+                holderUserId: holder.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+
+            expect(
+                await store.deleteActive({
+                    holderUserId: holder.id,
+                    fsentryId: entry.id,
+                    issuerUserId: issuer.id,
+                }),
+            ).toBe(true);
+            expect(await store.listByFsentry(entry.id)).toHaveLength(1);
+
+            expect(
+                await store.deleteActive({
+                    holderUserId: holder.id,
+                    fsentryId: entry.id,
+                }),
+            ).toBe(true);
+            expect(await store.listByFsentry(entry.id)).toEqual([]);
+        });
+
+        it('retires the share when the file is deleted', async () => {
+            const entry = await makeEntry(issuer);
+            const created = await store.upsertActive({
+                issuerUserId: issuer.id,
+                holderUserId: holder.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+
+            await server.clients.db.write(
+                'DELETE FROM `fsentries` WHERE `id` = ?',
+                [entry.id],
+            );
+
+            // The cascade is what stops a deleted file lingering in the
+            // recipient's listing forever.
+            expect(await store.getByUid(created.uid)).toBeNull();
+        });
+
+        it('paginates by keyset and stops without a trailing cursor', async () => {
+            const pageHolder = await makeUser();
+            const uids = [];
+            for (let i = 0; i < 5; i++) {
+                const entry = await makeEntry(issuer);
+                const row = await store.upsertActive({
+                    issuerUserId: issuer.id,
+                    holderUserId: pageHolder.id,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+                uids.push(row.uid);
+            }
+
+            const seen = [];
+            let cursor;
+            for (let guard = 0; guard < 10; guard++) {
+                const page = await store.listByHolder(pageHolder.id, {
+                    limit: 2,
+                    cursor,
+                });
+                seen.push(...page.items.map((r) => r.uid));
+                cursor = page.cursor;
+                if (!cursor) break;
+            }
+
+            expect(seen).toEqual(uids);
+            expect(cursor).toBeUndefined();
+            expect(await store.countByHolder(pageHolder.id)).toBe(5);
+        });
+
+        it('never returns another holder rows', async () => {
+            const stranger = await makeUser();
+            const entry = await makeEntry(issuer);
+            await store.upsertActive({
+                issuerUserId: issuer.id,
+                holderUserId: holder.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+
+            const page = await store.listByHolder(stranger.id);
+            expect(page.items).toEqual([]);
+        });
+
+        it('claims a pending invite without dropping the row', async () => {
+            const entry = await makeEntry(issuer);
+            const pending = await store.create({
+                issuerUserId: issuer.id,
+                recipientEmail: `pending-${uuidv4()}@test.local`,
+                data: {},
+            });
+
+            const applied = await store.applyPending({
+                uid: pending.uid,
+                holderUserId: holder.id,
+                fsentryId: entry.id,
+                mode: 'read',
+            });
+
+            expect(applied.holder_user_id).toBe(holder.id);
+            expect(applied.mode).toBe('read');
+            expect(applied.applied_at).toBeTruthy();
+            // Second claim finds nothing left to claim.
+            expect(
+                await store.applyPending({
+                    uid: pending.uid,
+                    holderUserId: holder.id,
+                }),
+            ).toBeNull();
+        });
+
+        it('excludes pending invites from a holder listing', async () => {
+            const freshHolder = await makeUser();
+            await store.create({
+                issuerUserId: issuer.id,
+                recipientEmail: `unclaimed-${uuidv4()}@test.local`,
+                data: {},
+            });
+
+            const page = await store.listByHolder(freshHolder.id);
+            expect(page.items).toEqual([]);
+        });
+
+        it('rejects an incomplete active share', async () => {
+            await expect(
+                store.upsertActive({
+                    issuerUserId: issuer.id,
+                    holderUserId: holder.id,
+                    mode: 'read',
+                }),
+            ).rejects.toThrow('are required');
+        });
+    });
 });

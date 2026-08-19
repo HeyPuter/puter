@@ -23,11 +23,14 @@ import UIWindowItemProperties from '../UI/UIWindowItemProperties.js';
 import UIWindowSaveAccount from '../UI/UIWindowSaveAccount.js';
 import UIWindowEmailConfirmationRequired from '../UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowPublishWorker from '../UI/UIWindowPublishWorker.js';
+import UIWindowShare from '../UI/UIWindowShare.js';
 import publish_as_website from './publish_as_website.js';
 import open_item from './open_item.js';
 import launch_app from './launch_app.js';
 import path from '../lib/path.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from './weblink.js';
+import { is_owned_by_me } from './path_owner.js';
+import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from './shared_access.js';
 
 /**
  * Generates context menu items for file/folder operations
@@ -41,6 +44,7 @@ import { isWeblinkName, weblinkChangeIconMenuItem } from './weblink.js';
  * @param {string} options.associated_app_name - Optional associated app
  * @param {Function} options.onOpen - Optional custom open handler (used by Dashboard)
  * @param {Function} options.onShowProperties - Optional custom properties handler (used by Dashboard); receives {name, path, uid, element}
+ * @param {Function} options.onShare - Optional custom share handler (used by Dashboard); receives {name, path, uid, element}
  * @returns {Promise<Array>} Array of context menu items
  */
 const generate_file_context_menu = async function (options) {
@@ -50,6 +54,27 @@ const generate_file_context_menu = async function (options) {
     const fsentry = options.fsentry || {};
     const is_trash = options.is_trash ?? false;
     const is_trashed = options.is_trashed ?? false;
+    // Has its own share, so it is a row the Shared view listed and can be left.
+    const is_shared_root = $(options.element).attr('data-shared_with_me') === '1';
+    // Someone else's, however we got here — including items reached by opening
+    // a shared folder, which carry no share markers of their own.
+    const is_not_mine = !is_owned_by_me($(options.element).attr('data-path'));
+    // `manage` inherits downwards, so a file inside a folder you manage
+    // counts too — the row itself only carries a mode at a shared root.
+    const can_manage_share =
+        $(options.element).attr('data-share_mode') === 'manage'
+        || (await shared_mode_for($(options.element).attr('data-path'))) === 'manage';
+    // Moving and deleting go by the holding folder, not by the item.
+    const may_restructure = !is_not_mine
+        || await can_restructure($(options.element).attr('data-path'));
+    // A shared FILE you hold write on is renameable even though it can't be
+    // moved; a shared folder root is not.
+    const may_rename = !is_not_mine
+        || await can_rename(
+            $(options.element).attr('data-path'),
+            fsentry.is_dir === true
+                || ['1', 'true'].includes($(options.element).attr('data-is_dir')),
+        );
     const is_worker = options.is_worker ?? false;
     const onOpen = options.onOpen;
     const is_weblink = isWeblinkName(fsentry.name ?? $(el_item).attr('data-name'));
@@ -293,9 +318,61 @@ const generate_file_context_menu = async function (options) {
     }
 
     // -------------------------------------------
+    // Share
+    // -------------------------------------------
+    if ( !is_trash && !is_trashed && (!is_not_mine || can_manage_share) ) {
+        menu_items.push({
+            html: i18n('share_ellipsis'),
+            onClick: async function () {
+                // The Dashboard swaps in its own responsive modal via this hook;
+                // everywhere else falls back to the desktop share window.
+                if ( options.onShare ) {
+                    options.onShare({
+                        name: $(el_item).attr('data-name'),
+                        path: $(el_item).attr('data-path'),
+                        uid: $(el_item).attr('data-uid'),
+                        element: el_item,
+                    });
+                    return;
+                }
+
+                UIWindowShare({
+                    path: $(el_item).attr('data-path'),
+                    name: $(el_item).attr('data-name'),
+                });
+            },
+        });
+    }
+
+    // -------------------------------------------
+    // Remove from Shared
+    // -------------------------------------------
+    // Can't trash someone else's file, so give up our own access instead. Only
+    // for an item shared directly — access to a child is held on the folder.
+    if ( is_shared_root ) {
+        menu_items.push({
+            html: i18n('share_remove_from_shared'),
+            onClick: async function () {
+                try {
+                    await puter.fs.unshare(
+                        $(el_item).attr('data-path'),
+                        window.user.username,
+                    );
+                    // Or mode lookups keep answering for a share we just
+                    // walked away from.
+                    invalidate_shared_roots();
+                    $(el_item).remove();
+                } catch (e) {
+                    UIAlert({ message: e?.message ?? i18n('error_unknown_cause') });
+                }
+            },
+        });
+    }
+
+    // -------------------------------------------
     // Delete
     // -------------------------------------------
-    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed ) {
+    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && may_restructure ) {
         menu_items.push({
             html: i18n('delete'),
             onClick: async function () {
@@ -335,7 +412,7 @@ const generate_file_context_menu = async function (options) {
     // -------------------------------------------
     // Rename
     // -------------------------------------------
-    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_trash ) {
+    if ( $(el_item).attr('data-immutable') === '0' && !is_trashed && !is_trash && may_rename ) {
         menu_items.push({
             html: i18n('rename'),
             onClick: function () {
