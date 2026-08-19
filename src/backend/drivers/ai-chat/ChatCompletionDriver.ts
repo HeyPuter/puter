@@ -1209,20 +1209,24 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
-        const togetherKey = readKey(providers['together-ai']);
-        if (togetherKey) {
-            this.#providers['together-ai'] = new TogetherAIProvider(
-                { apiKey: togetherKey },
-                metering,
-            );
-        }
-
         // Ollama — auto-discover local instance unless `enabled: false`.
         const ollama = providers['ollama'];
         if (ollama?.enabled !== false) {
             this.#providers['ollama'] = new OllamaChatProvider(
                 {
                     apiBaseUrl: ollama?.apiBaseUrl,
+                },
+                metering,
+            );
+        }
+
+        const infron = providers['infron'];
+        const infronKey = readKey(infron);
+        if (infronKey) {
+            this.#providers['infron'] = new InfronProvider(
+                {
+                    apiKey: infronKey,
+                    apiBaseUrl: infron?.apiBaseUrl as string | undefined,
                 },
                 metering,
             );
@@ -1240,14 +1244,10 @@ export class ChatCompletionDriver extends PuterDriver {
             );
         }
 
-        const infron = providers['infron'];
-        const infronKey = readKey(infron);
-        if (infronKey) {
-            this.#providers['infron'] = new InfronProvider(
-                {
-                    apiKey: infronKey,
-                    apiBaseUrl: infron?.apiBaseUrl as string | undefined,
-                },
+        const togetherKey = readKey(providers['together-ai']);
+        if (togetherKey) {
+            this.#providers['together-ai'] = new TogetherAIProvider(
+                { apiKey: togetherKey },
                 metering,
             );
         }

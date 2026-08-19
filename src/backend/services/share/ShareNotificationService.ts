@@ -56,11 +56,11 @@ export const SHARE_NOTIFY_RECIPIENT_DAILY_LIMIT = 50;
  * span goes as a single message. Email can't be rewritten the way the in-app
  * notification can, so it gets the grouped wording by waiting instead.
  */
-export const SHARE_EMAIL_BATCH_SECONDS = 90;
+export const SHARE_EMAIL_BATCH_SECONDS = 30;
 
 // Long enough to list, claim and send; short enough that a crashed flusher
 // doesn't strand the digest.
-const DIGEST_LOCK_SECONDS = 30;
+const DIGEST_LOCK_SECONDS = 20;
 
 // Ceiling on how long an entry may sit unflushed: a node dying with the only
 // timer leaves entries behind, and mail this stale is noise rather than news.
