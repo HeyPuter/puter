@@ -19,40 +19,20 @@
 
 import { PuterStore } from '../types';
 
-// -- Types ------------------------------------------------------------
-
-export interface GroupRow {
-    id: number;
-    uid: string;
-    owner_user_id: number;
-    extra: Record<string, unknown>;
-    metadata: Record<string, unknown>;
-    [k: string]: unknown;
-}
-
 // -- GroupStore -------------------------------------------------------
 
 /**
- * Persistence layer for persistent user groups.
+ * Membership writes for the persistent user groups.
  *
- * Reads the `group` table and maintains the `jct_user_group` junction table.
- * Groups themselves are seeded by migration (the default user, temp, admin and
- * moderator groups) — nothing creates one at runtime, so this owns membership
- * writes only.
+ * Groups themselves are seeded by migration (system, admin, user, temp,
+ * moderator, developer) — nothing creates, reads back or lists one at runtime,
+ * so the `jct_user_group` junction table is all this owns. Signup, OIDC and the
+ * self-hosted admin bootstrap are the callers.
+ *
+ * Permissions attached to a group are read through PermissionStore instead,
+ * which joins the junction table itself.
  */
 export class GroupStore extends PuterStore {
-    // -- Reads --------------------------------------------------------
-
-    async getByUid(uid: string): Promise<GroupRow | null> {
-        const rows = await this.clients.db.read(
-            'SELECT * FROM `group` WHERE `uid` = ? LIMIT 1',
-            [uid],
-        );
-        return rows[0] ? this.#decodeGroup(rows[0]) : null;
-    }
-
-    // -- Writes -------------------------------------------------------
-
     /**
      * Adds users (by username) to the group identified by `uid`. No-op if
      * `usernames` is empty.
@@ -84,28 +64,5 @@ export class GroupStore extends PuterStore {
                 `WHERE u.username IN ${placeholders})`,
             [uid, ...usernames],
         );
-    }
-
-    // -- Internals ----------------------------------------------------
-
-    #decodeGroup(row: Record<string, unknown>): GroupRow {
-        const parse = (v: unknown): Record<string, unknown> => {
-            if (v == null) return {};
-            if (typeof v === 'object') return v as Record<string, unknown>;
-            try {
-                return JSON.parse(String(v));
-            } catch {
-                return {};
-            }
-        };
-        const extra = this.clients.db.case<() => Record<string, unknown>>({
-            mysql: () => (row.extra as Record<string, unknown>) ?? {},
-            otherwise: () => parse(row.extra),
-        })();
-        const metadata = this.clients.db.case<() => Record<string, unknown>>({
-            mysql: () => (row.metadata as Record<string, unknown>) ?? {},
-            otherwise: () => parse(row.metadata),
-        })();
-        return { ...row, extra, metadata } as unknown as GroupRow;
     }
 }

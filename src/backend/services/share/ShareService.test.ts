@@ -637,7 +637,10 @@ describe('ShareService', () => {
                 'VALUES (?, ?, ?, ?)',
             [groupUid, owner.user.id, '{}', '{}'],
         );
-        const group = (await server.stores.group.getByUid(groupUid))!;
+        const [group] = await server.clients.db.read(
+            'SELECT `id` FROM `group` WHERE `uid` = ?',
+            [groupUid],
+        );
         await server.stores.group.addUsers(groupUid, [member.user.username!]);
         await server.clients.db.write(
             'INSERT INTO `user_to_group_permissions` ' +

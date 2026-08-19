@@ -46,21 +46,12 @@ describe('GroupStore', () => {
 
     // Groups are seeded by migration in production; nothing creates one at
     // runtime, so the tests insert rows the same way a migration does.
-    const seedGroup = async (
-        ownerUserId: number,
-        extra: unknown = {},
-        metadata: unknown = {},
-    ): Promise<string> => {
+    const seedGroup = async (ownerUserId: number): Promise<string> => {
         const uid = uuidv4();
         await server.clients.db.write(
             'INSERT INTO `group` (`uid`, `owner_user_id`, `extra`, `metadata`) ' +
                 'VALUES (?, ?, ?, ?)',
-            [
-                uid,
-                ownerUserId,
-                JSON.stringify(extra),
-                JSON.stringify(metadata),
-            ],
+            [uid, ownerUserId, '{}', '{}'],
         );
         return uid;
     };
@@ -84,48 +75,6 @@ describe('GroupStore', () => {
 
     afterAll(async () => {
         await server?.shutdown();
-    });
-
-    // -- read ---------------------------------------------------------
-
-    it('reads a group back by uid with decoded JSON columns', async () => {
-        const uid = await seedGroup(
-            owner.id,
-            { note: 'hi' },
-            { title: 'Team' },
-        );
-
-        const group = await store.getByUid(uid);
-        expect(group).not.toBeNull();
-        expect(group!.uid).toBe(uid);
-        expect(group!.owner_user_id).toBe(owner.id);
-        expect(group!.extra).toEqual({ note: 'hi' });
-        expect(group!.metadata).toEqual({ title: 'Team' });
-    });
-
-    it('returns null for an unknown uid', async () => {
-        expect(await store.getByUid('no-such-group')).toBeNull();
-    });
-
-    it('decodes a NULL json column as an empty object', async () => {
-        const uid = await seedGroup(owner.id);
-        await server.clients.db.write(
-            'UPDATE `group` SET `extra` = NULL, `metadata` = NULL WHERE `uid` = ?',
-            [uid],
-        );
-        const group = await store.getByUid(uid);
-        expect(group!.extra).toEqual({});
-        expect(group!.metadata).toEqual({});
-    });
-
-    it('falls back to an empty object when a json column holds unparseable text', async () => {
-        const uid = await seedGroup(owner.id);
-        await server.clients.db.write(
-            'UPDATE `group` SET `extra` = ? WHERE `uid` = ?',
-            ['{not json', uid],
-        );
-        const group = await store.getByUid(uid);
-        expect(group!.extra).toEqual({});
     });
 
     // -- membership ---------------------------------------------------

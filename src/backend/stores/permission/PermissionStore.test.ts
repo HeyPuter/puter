@@ -400,8 +400,11 @@ describe('PermissionStore', () => {
                     'VALUES (?, ?, ?, ?)',
                 [uid, ownerUserId, '{}', '{}'],
             );
-            const group = await server.stores.group.getByUid(uid);
-            return group!.id;
+            const [group] = await server.clients.db.read(
+                'SELECT `id` FROM `group` WHERE `uid` = ?',
+                [uid],
+            );
+            return Number(group.id);
         };
 
         const seedGroupPerm = (

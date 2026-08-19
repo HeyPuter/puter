@@ -1335,7 +1335,10 @@ describe('PermissionService — scan paths', () => {
                     'VALUES (?, ?, ?, ?)',
                 [groupUid, issuer.id, '{}', '{}'],
             );
-            const group = (await server.stores.group.getByUid(groupUid))!;
+            const [group] = await server.clients.db.read(
+                'SELECT `id` FROM `group` WHERE `uid` = ?',
+                [groupUid],
+            );
             await server.stores.group.addUsers(groupUid, [member.username]);
 
             const permission = `zztest:grp-${uuidv4()}:ii:read`;
