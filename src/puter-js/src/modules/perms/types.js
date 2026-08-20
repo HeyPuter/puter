@@ -15,6 +15,83 @@
  */
 
 /**
+ * What a `request`/`check` call is about; decides the details and the result.
+ *
+ * @typedef {'email'
+ *     | 'folder'
+ *     | 'apps'
+ *     | 'subdomains'
+ *     | 'appData'
+ *     | 'appRootDir'
+ *     | 'permission'} PermsResource
+ */
+
+/**
+ * Details for a resource that only takes an access level — `'apps'` and
+ * `'subdomains'`.
+ *
+ * @typedef {Object} PermsAccessRequest
+ * @property {PermsAccess} [access] - Defaults to `'read'`. `write` implies read.
+ */
+
+/**
+ * Details for `'folder'`.
+ *
+ * @typedef {Object} PermsFolderRequest
+ * @property {PermsFolderName} name - Desktop, Documents, Pictures, or Videos.
+ * @property {PermsAccess} [access] - Defaults to `'read'`.
+ */
+
+/**
+ * Details for `'appData'` — another app's key-value namespace and AppData files.
+ *
+ * @typedef {Object} PermsAppDataRequest
+ * @property {string | { uid: string } | { name: string }} app - The target app,
+ * by uid or by registered name.
+ * @property {AppDataScopes} scopes - What this app wants to do with that data.
+ */
+
+/**
+ * Details for `'appRootDir'` — the root directory of one of the user's own apps.
+ *
+ * @typedef {Object} PermsAppRootDirRequest
+ * @property {string | { uid: string }} app - The app, by uid or an object with one.
+ * @property {PermsAccess} [access] - Defaults to `'read'`.
+ */
+
+/**
+ * Details for `'permission'`, the raw-permission-string escape hatch. Several
+ * at once go under a single prompt.
+ *
+ * @typedef {Object} PermsPermissionRequest
+ * @property {string} [permission] - One permission string.
+ * @property {string[]} [permissions] - Several, instead of `permission`.
+ */
+
+/**
+ * Every details shape a `request`/`check` call accepts; the resource decides
+ * which one applies — see the per-resource overloads.
+ *
+ * @typedef {PermsAccessRequest
+ *     | PermsFolderRequest
+ *     | PermsAppDataRequest
+ *     | PermsAppRootDirRequest
+ *     | PermsPermissionRequest} PermsRequestDetails
+ */
+
+/**
+ * One batch entry: the resource, with its own details in the same object, so
+ * one array can carry entries that each take different fields.
+ *
+ * @typedef {{ resource: 'email' }
+ *     | ({ resource: 'folder' } & PermsFolderRequest)
+ *     | ({ resource: 'apps' | 'subdomains' } & PermsAccessRequest)
+ *     | ({ resource: 'appData' } & PermsAppDataRequest)
+ *     | ({ resource: 'appRootDir' } & PermsAppRootDirRequest)
+ *     | ({ resource: 'permission' } & PermsPermissionRequest)} PermsBatchEntry
+ */
+
+/**
  * The stores an `app-data` scope can name.
  *
  * @typedef {'kv' | 'fs'} AppDataStore

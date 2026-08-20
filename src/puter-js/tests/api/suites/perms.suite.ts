@@ -83,6 +83,146 @@ export default suite('perms', {
         t.assert.ok(!revoked.error, `revoke failed: ${JSON.stringify(revoked)}`);
     },
 
+    // -- request(resource, details) --
+
+    'request resolves a folder to its path and email to the address': async (
+        t,
+    ) => {
+        const whoami = await t.puter.auth.whoami();
+        t.assert.equal(
+            await t.puter.perms.request('folder', { name: 'Desktop' }),
+            `${home(t)}/Desktop`,
+        );
+        t.assert.equal(await t.puter.perms.request('email'), whoami.email);
+    },
+
+    'request rejects a folder it does not cover and an unknown access level': async (
+        t,
+    ) => {
+        const folder = (await t.assert.rejects(() =>
+            t.puter.perms.request('folder', {
+                name: 'Trash' as unknown as 'Desktop',
+            }),
+        )) as Error & { code?: string };
+        t.assert.equal(folder.code, 'invalid_argument');
+
+        const access = (await t.assert.rejects(() =>
+            t.puter.perms.request('apps', {
+                access: 'delete' as unknown as 'read',
+            }),
+        )) as Error & { code?: string };
+        t.assert.equal(access.code, 'invalid_argument');
+    },
+
+    // Details beside a non-resource name is a typo, not the legacy form.
+    'request rejects details passed with an unknown resource': async (t) => {
+        const error = (await t.assert.rejects(() =>
+            (
+                t.puter.perms.request as (
+                    resource: string,
+                    details: unknown,
+                ) => Promise<unknown>
+            )('folders', { name: 'Desktop' }),
+        )) as Error & { code?: string };
+        t.assert.equal(error.code, 'invalid_argument');
+    },
+
+    'request denies what is not granted, in both the resource and raw forms': {
+        platforms: ['node', 'workerd'],
+        fn: async (t) => {
+            t.assert.equal(
+                await t.puter.perms.request('folder', {
+                    name: 'Videos',
+                    access: 'write',
+                }),
+                undefined,
+            );
+            t.assert.equal(
+                await t.puter.perms.request('permission', {
+                    permission: `fs:${home(t)}:write`,
+                }),
+                false,
+            );
+            // A lone string is still the permission string it always was.
+            t.assert.equal(
+                await t.puter.perms.request(`fs:${home(t)}:write`),
+                false,
+            );
+        },
+    },
+
+    // -- check(resource, details) --
+
+    'check answers without prompting': async (t) => {
+        t.assert.equal(
+            await t.puter.perms.check('folder', { name: 'Desktop' }),
+            true,
+        );
+        t.assert.equal(await t.puter.perms.check('email'), true);
+        t.assert.equal(
+            typeof (await t.puter.perms.check('apps', { access: 'write' })),
+            'boolean',
+        );
+    },
+
+    // All-or-nothing: a set is held only when every permission in it is.
+    'check reports false when part of a set is missing': async (t) => {
+        t.assert.equal(
+            await t.puter.perms.check('permission', {
+                permissions: [
+                    `fs:${home(t)}/Desktop:read`,
+                    'nonexistent-namespace:nothing:read',
+                ],
+            }),
+            false,
+        );
+    },
+
+    'check validates its details the same way request does': async (t) => {
+        const error = (await t.assert.rejects(() =>
+            t.puter.perms.check('folder', {
+                name: 'Trash' as unknown as 'Desktop',
+            }),
+        )) as Error & { code?: string };
+        t.assert.equal(error.code, 'invalid_argument');
+    },
+
+    // -- Batching --
+
+    // Both folders are already readable, so no prompt: runs on every platform.
+    'a batch resolves each entry in order': async (t) => {
+        const results = await t.puter.perms.request([
+            { resource: 'folder', name: 'Desktop' },
+            { resource: 'folder', name: 'Documents' },
+        ]);
+        t.assert.deepEqual(results, [
+            `${home(t)}/Desktop`,
+            `${home(t)}/Documents`,
+        ]);
+
+        t.assert.deepEqual(
+            await t.puter.perms.check([
+                { resource: 'folder', name: 'Desktop' },
+                { resource: 'folder', name: 'Documents' },
+            ]),
+            [true, true],
+        );
+    },
+
+    'an empty batch resolves to an empty list': async (t) => {
+        t.assert.deepEqual(await t.puter.perms.request([]), []);
+        t.assert.deepEqual(await t.puter.perms.check([]), []);
+    },
+
+    'a batch rejects an entry naming no resource': async (t) => {
+        const error = (await t.assert.rejects(() =>
+            (
+                t.puter.perms.request as (requests: unknown[]) => Promise<unknown>
+            )([{ name: 'Desktop' }]),
+        )) as Error & { code?: string };
+        t.assert.equal(error.code, 'invalid_argument');
+    },
+
     // -- Special folders --
 
     'requestFolder returns the path of an already-readable folder': async (t) => {

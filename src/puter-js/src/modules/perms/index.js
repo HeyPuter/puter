@@ -16,11 +16,12 @@ import {
     revokeApp, revokeAppAnyUser, revokeOrigin,
 } from './grants.js';
 import {
-    request, requestApps, requestEmail,
+    requestApps, requestEmail,
     requestManageApps, requestManageSubdomains,
     requestPermission, requestReadApps, requestReadSubdomains,
     requestSubdomains,
 } from './permissions.js';
+import { check, request } from './request.js';
 
 /** @typedef {import('../../index.js').Puter} Puter */
 
@@ -30,10 +31,11 @@ import {
 const METHODS = [
     'grantApp', 'grantAppAnyUser', 'grantOrigin',
     'revokeApp', 'revokeAppAnyUser', 'revokeOrigin',
-    'request', 'requestEmail',
+    'request', 'check',
+    // Deprecated aliases; bound for the same reason as the rest.
+    'requestEmail',
     'requestFolder', 'requestApps', 'requestSubdomains',
     'requestAppRootDir', 'requestAppData',
-    // Deprecated aliases; bound for the same reason as the rest.
     'requestPermission', 'requestFolder_',
     'requestReadDesktop', 'requestWriteDesktop',
     'requestReadDocuments', 'requestWriteDocuments',
@@ -60,62 +62,60 @@ export class PermsModule extends PuterModule {
     revokeAppAnyUser = revokeAppAnyUser;
     revokeOrigin = revokeOrigin;
 
-    // Permission requests
+    // The whole supported surface; everything below is a deprecated alias.
     request = request;
-    requestEmail = requestEmail;
-
-    // Special folders
-    requestFolder = requestFolder;
-
-    // The user's apps and subdomains
-    requestApps = requestApps;
-    requestSubdomains = requestSubdomains;
-
-    // An app's root directory
-    requestAppRootDir = requestAppRootDir;
-
-    // Another app's data (KV namespace + AppData directory)
-    requestAppData = requestAppData;
+    check = check;
 
     // -- Deprecated aliases --
     //
-    // Still bound and callable so apps written against the one-method-per-task
-    // surface keep working. They stay in the generated declarations rather than
-    // being hidden: `stripInternal` has no effect on declarations emitted from
-    // JavaScript, and dropping them by hand would break TypeScript callers that
-    // the runtime still serves.
+    // Still bound and callable, and still in the generated declarations:
+    // `stripInternal` does nothing for declarations emitted from JavaScript,
+    // and hiding them by hand would break TypeScript callers we still serve.
+
+    /** @deprecated Use `request('email')`. */
+    requestEmail = requestEmail;
+    /** @deprecated Use `request('folder', { name, access })`. */
+    requestFolder = requestFolder;
+    /** @deprecated Use `request('apps', { access })`. */
+    requestApps = requestApps;
+    /** @deprecated Use `request('subdomains', { access })`. */
+    requestSubdomains = requestSubdomains;
+    /** @deprecated Use `request('appRootDir', { app, access })`. */
+    requestAppRootDir = requestAppRootDir;
+    /** @deprecated Use `request('appData', { app, scopes })`. */
+    requestAppData = requestAppData;
 
     /** @deprecated Use {@link request}. */
     requestPermission = requestPermission;
-    /** @deprecated Use {@link requestFolder}. */
+    /** @deprecated Use `request('folder', { name, access })`. */
     requestFolder_ = requestFolder_;
-    /** @deprecated Use {@link requestFolder}. */
+    /** @deprecated Use `request('folder', { name: 'Desktop' })`. */
     requestReadDesktop = requestReadDesktop;
-    /** @deprecated Use {@link requestFolder}. */
+    /** @deprecated Use `request('folder', { name: 'Desktop', access: 'write' })`. */
     requestWriteDesktop = requestWriteDesktop;
-    /** @deprecated Use {@link requestFolder}. */
+    /** @deprecated Use `request('folder', { name: 'Documents' })`. */
     requestReadDocuments = requestReadDocuments;
-    /** @deprecated Use {@link requestFolder}. */
+    /** @deprecated Use `request('folder', { name: 'Documents', access: 'write' })`. */
     requestWriteDocuments = requestWriteDocuments;
-    /** @deprecated Use {@link requestFolder}. */
+    /** @deprecated Use `request('folder', { name: 'Pictures' })`. */
     requestReadPictures = requestReadPictures;
-    /** @deprecated Use {@link requestFolder}. */
+    /** @deprecated Use `request('folder', { name: 'Pictures', access: 'write' })`. */
     requestWritePictures = requestWritePictures;
-    /** @deprecated Use {@link requestFolder}. */
+    /** @deprecated Use `request('folder', { name: 'Videos' })`. */
     requestReadVideos = requestReadVideos;
-    /** @deprecated Use {@link requestFolder}. */
+    /** @deprecated Use `request('folder', { name: 'Videos', access: 'write' })`. */
     requestWriteVideos = requestWriteVideos;
-    /** @deprecated Use {@link requestApps}. */
+    /** @deprecated Use `request('apps')`. */
     requestReadApps = requestReadApps;
-    /** @deprecated Use {@link requestApps}. */
+    /** @deprecated Use `request('apps', { access: 'write' })`. */
     requestManageApps = requestManageApps;
-    /** @deprecated Use {@link requestSubdomains}. */
+    /** @deprecated Use `request('subdomains')`. */
     requestReadSubdomains = requestReadSubdomains;
-    /** @deprecated Use {@link requestSubdomains}. */
+    /** @deprecated Use `request('subdomains', { access: 'write' })`. */
     requestManageSubdomains = requestManageSubdomains;
-    /** @deprecated Use {@link requestAppRootDir}. */
+    /** @deprecated Use `request('appRootDir', { app })`. */
     requestReadAppRootDir = requestReadAppRootDir;
-    /** @deprecated Use {@link requestAppRootDir}. */
+    /** @deprecated Use `request('appRootDir', { app, access: 'write' })`. */
     requestWriteAppRootDir = requestWriteAppRootDir;
 
     /** @param {Puter} puter */

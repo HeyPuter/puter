@@ -1,11 +1,21 @@
-import { PuterJSError } from '../../lib/PuterJSError.js';
+import { fsPermission } from './lib/permissionStrings.js';
+import { assertAccess, assertFolderName } from './lib/validate.js';
 
 /** @typedef {import('./index.js').PermsModule} PermsModule */
 /** @typedef {import('./types.js').PermsAccess} PermsAccess */
 /** @typedef {import('./types.js').PermsFolderName} PermsFolderName */
 
-/** The special folders a permission can be requested for by name. */
-const FOLDERS = ['Desktop', 'Documents', 'Pictures', 'Videos'];
+/**
+ * Where one of the user's special folders lives, shared with `check`.
+ *
+ * @param {import('../../index.js').Puter} puter
+ * @param {string} folderName
+ * @returns {Promise<string>}
+ */
+export async function folderPathFor (puter, folderName) {
+    const whoami = await puter.auth.whoami();
+    return `/${whoami.username}/${folderName}`;
+}
 
 /**
  * Resolve a folder request to its path, prompting only when the access isn't
@@ -17,8 +27,7 @@ const FOLDERS = ['Desktop', 'Documents', 'Pictures', 'Videos'];
  * @returns {Promise<string | undefined>}
  */
 async function requestFolderPath (puter, folderName, accessLevel) {
-    const whoami = await puter.auth.whoami();
-    const folderPath = `/${whoami.username}/${folderName}`;
+    const folderPath = await folderPathFor(puter, folderName);
 
     // Being able to stat the folder means we already have at least read access.
     try {
@@ -31,7 +40,7 @@ async function requestFolderPath (puter, folderName, accessLevel) {
     }
 
     const granted = await puter.ui.requestPermission({
-        permission: `fs:${folderPath}:${accessLevel}`,
+        permission: fsPermission(folderPath, accessLevel),
     });
     return granted ? folderPath : undefined;
 }
@@ -47,19 +56,9 @@ async function requestFolderPath (puter, folderName, accessLevel) {
  * @returns {Promise<string | undefined>} The folder path, or `undefined` if denied.
  */
 export async function requestFolder (folderName, accessLevel = 'read') {
-    if ( ! FOLDERS.includes(folderName) ) {
-        throw new PuterJSError(
-            `parameter folderName must be one of: ${FOLDERS.join(', ')}`,
-            'invalid_argument',
-        );
-    }
-    if ( accessLevel !== 'read' && accessLevel !== 'write' ) {
-        throw new PuterJSError(
-            'parameter accessLevel must be `read` or `write`',
-            'invalid_argument',
-        );
-    }
-    return await requestFolderPath(this.puter, folderName, accessLevel);
+    const name = assertFolderName(folderName);
+    const access = assertAccess(accessLevel);
+    return await requestFolderPath(this.puter, name, access);
 }
 
 // -- Deprecated aliases --

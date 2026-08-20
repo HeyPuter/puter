@@ -1,8 +1,42 @@
-import { PuterJSError } from '../../lib/PuterJSError.js';
+import { appRootDirPermission } from './lib/permissionStrings.js';
 import { req } from './lib/req.js';
+import { assertAccess, invalidArgument } from './lib/validate.js';
 
 /** @typedef {import('./index.js').PermsModule} PermsModule */
 /** @typedef {import('./types.js').PermsAccess} PermsAccess */
+
+/**
+ * The uid out of either accepted form of app identifier.
+ *
+ * @param {unknown} appUidOrObject
+ * @returns {string}
+ */
+export function appUidOf (appUidOrObject) {
+    const appUid = (typeof appUidOrObject === 'object' && appUidOrObject !== null)
+        ? /** @type {{ uid?: unknown }} */ (appUidOrObject).uid
+        : appUidOrObject;
+
+    if ( typeof appUid !== 'string' ) {
+        throw invalidArgument('parameter app_uid must be a string');
+    }
+    return appUid;
+}
+
+/**
+ * Ask the server for the app's root directory — the directory when the access
+ * is held, an error object when it isn't, so it doubles as a check.
+ *
+ * @param {import('../../index.js').Puter} puter
+ * @param {string} appUid
+ * @param {PermsAccess} access
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function statAppRootDir (puter, appUid, access) {
+    return await req(puter, '/auth/request-app-root-dir', {
+        app_uid: appUid,
+        access,
+    });
+}
 
 /**
  * Requests access at the given level to the root directory of one of the
@@ -16,24 +50,18 @@ import { req } from './lib/req.js';
  * @returns {Promise<Record<string, unknown> | undefined>}
  */
 async function requestAppRootDirAccess (puter, access, appUidOrObject) {
-    const appUid = (typeof appUidOrObject === 'object' && appUidOrObject !== null)
-        ? appUidOrObject.uid
-        : appUidOrObject;
-
-    if ( typeof appUid !== 'string' ) {
-        throw new PuterJSError('parameter app_uid must be a string', 'invalid_argument');
-    }
+    const appUid = appUidOf(appUidOrObject);
 
     let result;
     const fetchIt = async () => {
-        result = await req(puter, '/auth/request-app-root-dir', { app_uid: appUid, access });
+        result = await statAppRootDir(puter, appUid, access);
     };
 
     await fetchIt();
     if ( ! result.error ) return result;
 
     const granted = await puter.ui.requestPermission({
-        permission: `app-root-dir:${appUid}:${access}`,
+        permission: appRootDirPermission(appUid, access),
     });
 
     if ( granted ) {
@@ -65,13 +93,8 @@ async function requestAppRootDirAccess (puter, access, appUidOrObject) {
  * @returns {Promise<Record<string, unknown> | undefined>} The directory fs item, or `undefined` if denied.
  */
 export async function requestAppRootDir (appUid, accessLevel = 'read') {
-    if ( accessLevel !== 'read' && accessLevel !== 'write' ) {
-        throw new PuterJSError(
-            'parameter accessLevel must be `read` or `write`',
-            'invalid_argument',
-        );
-    }
-    return await requestAppRootDirAccess(this.puter, accessLevel, appUid);
+    const access = assertAccess(accessLevel);
+    return await requestAppRootDirAccess(this.puter, access, appUid);
 }
 
 // -- Deprecated aliases --

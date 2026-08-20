@@ -1,41 +1,38 @@
-import { PuterJSError } from '../../lib/PuterJSError.js';
+import {
+    appsPermission,
+    emailPermission,
+    subdomainsPermission,
+} from './lib/permissionStrings.js';
+import { assertAccess } from './lib/validate.js';
 
 /** @typedef {import('./index.js').PermsModule} PermsModule */
 /** @typedef {import('./types.js').PermsAccess} PermsAccess */
 
-/** @param {unknown} accessLevel @returns {PermsAccess} */
-const assertAccess = (accessLevel) => {
-    if ( accessLevel !== 'read' && accessLevel !== 'write' ) {
-        throw new PuterJSError(
-            'parameter accessLevel must be `read` or `write`',
-            'invalid_argument',
-        );
-    }
-    return accessLevel;
-};
-
 /**
- * Request a specific permission string to be granted. Note that some
- * permission strings are not supported and will be denied silently.
+ * Ask for a raw permission string, or several under one prompt. Unsupported
+ * strings are denied silently. Stays on `puter.ui`, which owns the IPC.
  *
- * @this {PermsModule}
- * @param {string} permission - The permission string to request.
- * @returns {Promise<boolean>} `true` if the permission was granted.
+ * @param {import('../../index.js').Puter} puter
+ * @param {string[]} permissions
+ * @returns {Promise<boolean>}
  */
-export async function request (permission) {
-    // Note: this cannot move fully off of `puter.ui` without a significant
-    // refactor, because the UI module owns all of the IPC communication logic.
-    return await this.puter.ui.requestPermission({ permission });
+export async function requestPermissions (puter, permissions) {
+    // Scalar form for a lone permission: the shape the dialog dedupes on.
+    return permissions.length === 1
+        ? await puter.ui.requestPermission({ permission: permissions[0] })
+        : await puter.ui.requestPermission({ permissions });
 }
 
 /**
- * @deprecated Use {@link request} instead.
+ * @deprecated Use {@link import('./request.js').request} instead.
  * @this {PermsModule}
  * @param {...unknown} args
  * @returns {Promise<boolean>}
  */
 export function requestPermission (...args) {
-    return this.request(...args);
+    return this.request(
+        .../** @type {[string, Record<string, unknown> | undefined]} */ (args),
+    );
 }
 
 /**
@@ -51,7 +48,7 @@ export async function requestEmail () {
     if ( whoami.email !== undefined ) return whoami.email;
 
     const granted = await this.puter.ui.requestPermission({
-        permission: `user:${whoami.uuid}:email:read`,
+        permission: emailPermission(whoami.uuid),
     });
     if ( granted ) {
         whoami = await this.puter.auth.whoami();
@@ -71,7 +68,7 @@ export async function requestApps (accessLevel = 'read') {
     const access = assertAccess(accessLevel);
     const whoami = await this.puter.auth.whoami();
     return await this.puter.ui.requestPermission({
-        permission: `apps-of-user:${whoami.uuid}:${access}`,
+        permission: appsPermission(whoami.uuid, access),
     });
 }
 
@@ -87,7 +84,7 @@ export async function requestSubdomains (accessLevel = 'read') {
     const access = assertAccess(accessLevel);
     const whoami = await this.puter.auth.whoami();
     return await this.puter.ui.requestPermission({
-        permission: `subdomains-of-user:${whoami.uuid}:${access}`,
+        permission: subdomainsPermission(whoami.uuid, access),
     });
 }
 
