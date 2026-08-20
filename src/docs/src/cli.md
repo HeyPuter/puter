@@ -3,7 +3,7 @@ title: CLI
 description: Manage your Puter resources directly from your terminal with the Puter CLI. Deploy static sites and serverless workers without leaving your shell.
 ---
 
-The [Puter CLI](https://www.npmjs.com/package/@heyputer/cli) lets you manage your Puter resources straight from the terminal: deploy static websites, ship serverless workers, inspect the apps registered to your account, and explore their key-value stores, all without leaving your shell.
+The [Puter CLI](https://www.npmjs.com/package/@heyputer/cli) lets you manage your Puter resources straight from the terminal: deploy static websites, ship serverless workers, inspect the apps registered to your account, and explore the key-value stores behind your apps and workers, all without leaving your shell.
 
 <div class="info">The Puter CLI is in beta (0.x). Behavior may change between releases.</div>
 
@@ -83,7 +83,7 @@ puter app get <name>     # show one app's details
 
 ## Key-value store
 
-Open an interactive JavaScript shell against one app's [key-value store](/KV/), so you can read and edit its data directly instead of going through the app. Pass an app name or a uid:
+Open an interactive JavaScript shell against the [key-value store](/KV/) of one app or [worker](/Workers/), so you can read and edit its data directly instead of going through the app. Pass an app name, a worker name or its `*.puter.work` URL, or a uid:
 
 ```sh
 puter kv connect my-app
@@ -102,11 +102,22 @@ kv(notes)> list("gre", true)
 [ { key: 'greeting', value: 'hi' } ]
 ```
 
+A worker connects the same way. Deploying a worker from your account gives it its own sandbox app, and that app's store is where the worker's `puter.kv` data lives — so naming the worker connects you to it, and the prompt says which one you're in:
+
+```console
+$ puter kv connect my-api
+✔ Connected to worker my-api (app-9a8b7c6d…) · 3 keys
+kv(worker:my-api)> list()
+[ 'visits' ]
+```
+
+Names are looked up as apps first, so if an app and a worker share a name you get the app; pass the worker's URL (`puter kv connect https://my-api.puter.work`) to ask for the worker instead. A worker deployed by an app rather than by you has no store of its own — connect to the app that owns it.
+
 Every [`puter.kv`](/KV/) method is bound to the connected app and available bare, as `kv.set(…)`, and as `puter.kv.set(…)`, so examples copied from these docs run as written. Results are awaited for you — `get("k")` prints the value rather than a pending promise — and `_` holds the last result.
 
 It's a full JavaScript REPL, so multi-line input, variables, and history between sessions all work. `.help` lists the kv methods, `.clear` resets the session, and `.exit` (or Ctrl-D) quits.
 
-<div class="info">Writes through <code>puter kv connect</code> go to the connected app's store, not your user-level store — the same data the app itself reads and writes.</div>
+<div class="info">Writes through <code>puter kv connect</code> go to the connected app's store, not your user-level store — the same data the app or worker itself reads and writes.</div>
 
 ## CLI reference
 
@@ -213,11 +224,11 @@ Show details for one app.
 
 ### `puter kv connect`
 
-Open an interactive shell against an app's key-value store.
+Open an interactive shell against an app's or worker's key-value store.
 
 | Argument | Description |
 | --- | --- |
-| `<app>` | The app whose store to connect to, by name or uid (`app-…`). |
+| `<identifier>` | The store to connect to: an app name, an app uid (`app-…`), a worker name, or a worker URL (`https://my-api.puter.work`). Ambiguous names resolve to the app. |
 
 Requires a terminal — in a non-interactive context the command exits with an error rather than hanging.
 

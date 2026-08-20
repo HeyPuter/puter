@@ -58,11 +58,16 @@ puter app get <name>
 
 ## Key-value store
 
-Open an interactive JavaScript shell against one app's key-value store. Takes
-an app name or a uid.
+Open an interactive JavaScript shell against the key-value store of one app or
+worker. Takes an app name, a worker name or its `*.puter.work` URL, or a uid —
+a worker resolves to the sandbox app it was deployed with, which is where its
+`puter.kv` data lives. An app name wins a tie with a worker of the same name;
+the worker's URL asks for the worker instead.
 
 ```sh
 puter kv connect <app>
+puter kv connect <worker>
+puter kv connect https://<worker>.puter.work
 ```
 
 Every `puter.kv` method is bound to that app and available bare, so pasted
@@ -79,6 +84,15 @@ kv(notes)> list("gre", true)
 [ { key: 'greeting', value: 'hi' } ]
 kv(notes)> puter.kv.incr("visits")
 1
+```
+
+A worker connects the same way, and the prompt says so:
+
+```console
+$ puter kv connect my-api
+✔ Connected to worker my-api (app-9a8b7c6d…) · 3 keys
+kv(worker:my-api)> list()
+[ 'visits' ]
 ```
 
 Results are awaited for you — `get("k")` prints the value, not a pending

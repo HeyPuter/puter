@@ -132,12 +132,14 @@ app
 
 // --- kv ---------------------------------------------------------------------
 
-const kv = program.command('kv').description("Explore an app's key-value store");
+const kv = program
+  .command('kv')
+  .description("Explore an app's or worker's key-value store");
 
 kv
   .command('connect')
-  .description("Open an interactive shell against an app's KV store")
-  .argument('<app>', 'app name or uid')
+  .description("Open an interactive shell against an app's or worker's KV store")
+  .argument('<identifier>', 'app name, worker name or URL, or app uid')
   .action(action(kvConnect));
 
 program.parseAsync(process.argv);
