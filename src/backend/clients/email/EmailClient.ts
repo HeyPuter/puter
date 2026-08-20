@@ -22,7 +22,11 @@ import handlebars, { template } from 'handlebars';
 import nodemailer from 'nodemailer';
 import type { IConfig } from '../../types';
 import { PuterClient } from '../types';
-import { EMAIL_TEMPLATES, type EmailTemplateName } from './templates';
+import {
+    EMAIL_TEMPLATES,
+    type EmailTemplate,
+    type EmailTemplateName,
+} from './templates';
 
 /** Attachment shape passed through to the underlying transport. */
 export interface EmailAttachment {
@@ -287,7 +291,11 @@ export class EmailClient extends PuterClient {
     }
 
     private compileTemplates(): void {
-        for (const [name, template] of Object.entries(EMAIL_TEMPLATES)) {
+        // Widened to the interface: the literal map keeps a distinct type per
+        // template, and only some of them carry a `text` part.
+        const templates: Record<EmailTemplateName, EmailTemplate> =
+            EMAIL_TEMPLATES;
+        for (const [name, template] of Object.entries(templates)) {
             this.compiledTemplates[name as EmailTemplateName] = {
                 // Subjects are plain-text headers: HTML-escaping would put
                 // literal entities in front of the recipient (&amp; etc.).
