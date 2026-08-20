@@ -52,24 +52,35 @@ const FONT =
 /**
  * Bulletproof-enough CTA: padding lives on the link so the whole button is
  * clickable, `mso-padding-alt` gives Outlook the same visual size (there only
- * the label is clickable, which is the accepted degradation).
+ * the label is clickable, which is the accepted degradation). Goes full-width
+ * on small screens via the `.btn` media rule; `#0473c9` is the darker step of
+ * the GUI's `#088ef0` primary — the brand blue that clears WCAG AA on white.
  */
 const shareCta = (label: string, href: string): string => `
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin: 24px 0 0;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" class="btn" style="margin: 28px 0 0;">
 <tr>
-<td style="border-radius: 8px; background-color: #0473c9; mso-padding-alt: 13px 36px;">
-<a href="${href}" target="_blank" style="display: inline-block; padding: 13px 36px; font-family: ${FONT}; font-size: 15px; font-weight: 600; line-height: 20px; color: #ffffff; text-decoration: none; border-radius: 8px;">${label}</a>
+<td style="border-radius: 10px; background-color: #0473c9; mso-padding-alt: 14px 40px; text-align: center;">
+<a href="${href}" target="_blank" style="display: inline-block; padding: 14px 40px; font-family: ${FONT}; font-size: 15px; font-weight: 600; line-height: 20px; color: #ffffff; text-decoration: none; border-radius: 10px;">${label}</a>
 </td>
 </tr>
 </table>`;
 
-/** One row per sender: "**alice** shared report.txt". */
+/**
+ * The event as the card's headline. It repeats the subject on purpose: the
+ * subject is gone once the mail is open, and the grouped wording ("alice and
+ * bob shared 2 items with you") is the summary the rows below break down.
+ */
+const shareHeading = `
+<h1 class="text-main h1" style="margin: 0; font-family: ${FONT}; font-size: 21px; line-height: 28px; font-weight: 700; letter-spacing: -0.01em; color: #111827;">{{subject_line}}</h1>`;
+
+/** One row per sender, object first: what arrived, then who it's from. */
 const shareList = `
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="list-panel" style="margin: 20px 0 0; background-color: #f6f8fb; border-radius: 10px; border-collapse: separate;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="list-panel" style="margin: 24px 0 0; background-color: #f6f8fb; border-radius: 10px; border-collapse: separate;">
 {{#each shares}}
 <tr>
-<td class="share-row" style="padding: 12px 16px;{{#unless @first}} border-top: 1px solid #e9edf3;{{/unless}} font-family: ${FONT}; font-size: 15px; line-height: 22px; color: #1f2937;">
-<strong style="font-weight: 600;">{{this.sender}}</strong> shared {{this.what}}
+<td class="share-row" style="padding: 14px 18px;{{#unless @first}} border-top: 1px solid #e9edf3;{{/unless}}">
+<span class="text-main" style="font-family: ${FONT}; font-size: 15px; line-height: 22px; font-weight: 600; color: #111827;">{{this.what}}</span><br>
+<span class="text-muted" style="font-family: ${FONT}; font-size: 13px; line-height: 20px; color: #6b7280;">Shared by {{this.sender}}</span>
 </td>
 </tr>
 {{/each}}
@@ -107,8 +118,11 @@ const shareEmailShell = (opts: {
   img { border: 0; line-height: 100%; outline: none; text-decoration: none; }
   @media screen and (max-width: 600px) {
     .container { width: 100% !important; }
-    .card { padding: 24px 20px !important; }
+    .card { padding: 28px 20px !important; }
     .px { padding-left: 12px !important; padding-right: 12px !important; }
+    .h1 { font-size: 19px !important; line-height: 26px !important; }
+    .btn { width: 100% !important; }
+    .btn a { display: block !important; }
   }
   @media (prefers-color-scheme: dark) {
     .email-bg { background-color: #16181d !important; }
@@ -116,10 +130,22 @@ const shareEmailShell = (opts: {
     .text-main { color: #e7eaee !important; }
     .text-muted { color: #9aa3b0 !important; }
     .list-panel { background-color: #262a32 !important; }
-    .share-row { border-color: #333845 !important; color: #e7eaee !important; }
+    .share-row { border-color: #333845 !important; }
     .wordmark { color: #e7eaee !important; }
     .footer-link { color: #9aa3b0 !important; }
   }
+  /* Outlook's apps don't read prefers-color-scheme; when they invert they
+     stamp data-ogsc (text) / data-ogsb (backgrounds) on elements, so the
+     dark palette is repeated under those attributes. */
+  [data-ogsb] .email-bg { background-color: #16181d !important; }
+  [data-ogsb] .card { background-color: #1f2229 !important; }
+  [data-ogsb] .list-panel { background-color: #262a32 !important; }
+  [data-ogsc] .card { border-color: #2e323b !important; }
+  [data-ogsc] .text-main { color: #e7eaee !important; }
+  [data-ogsc] .text-muted { color: #9aa3b0 !important; }
+  [data-ogsc] .share-row { border-color: #333845 !important; }
+  [data-ogsc] .wordmark { color: #e7eaee !important; }
+  [data-ogsc] .footer-link { color: #9aa3b0 !important; }
 </style>
 </head>
 <body class="email-bg" style="margin: 0; padding: 0; background-color: #f0f3f7; word-break: break-word;">
@@ -313,13 +339,14 @@ immediately</p>
         subject: '{{subject_line}}',
         html: shareEmailShell({
             title: '{{subject_line}}',
-            preheader: 'It&rsquo;s waiting for you in your Puter account.',
+            preheader:
+                'Ready in your Puter files, under &ldquo;Shared with me&rdquo;.',
             content: `
-<p class="text-main" style="margin: 0; font-family: ${FONT}; font-size: 16px; line-height: 24px; font-weight: 600; color: #111827;">Hi {{recipient}},</p>
-<p class="text-main" style="margin: 12px 0 0; font-family: ${FONT}; font-size: 15px; line-height: 22px; color: #374151;">Here&rsquo;s what was shared with you on Puter:</p>
+${shareHeading}
+<p class="text-main" style="margin: 12px 0 0; font-family: ${FONT}; font-size: 15px; line-height: 22px; color: #374151;">Hi {{recipient}} &mdash; here&rsquo;s what&rsquo;s new in your files:</p>
 ${shareList}
-${shareCta('Open Puter', '{{link}}')}
-<p class="text-muted" style="margin: 20px 0 0; font-family: ${FONT}; font-size: 13px; line-height: 20px; color: #6b7280;">You&rsquo;ll find everything under &ldquo;Shared with me&rdquo; in your files.</p>`,
+${shareCta('View shared items', '{{link}}')}
+<p class="text-muted" style="margin: 20px 0 0; font-family: ${FONT}; font-size: 13px; line-height: 20px; color: #6b7280;">You&rsquo;ll find these anytime under &ldquo;Shared with me&rdquo; in your files.</p>`,
             footer: `
 <p class="text-muted" style="margin: 0; font-family: ${FONT}; font-size: 12px; line-height: 18px; color: #8a94a3; text-align: center;">
 You&rsquo;re receiving this because someone shared items with your Puter account.
@@ -331,21 +358,23 @@ You&rsquo;re receiving this because someone shared items with your Puter account
         text: `
 Hi {{recipient}},
 
-Here's what was shared with you on Puter:
+Here's what's new in your files:
 
 {{#each shares}}
 * {{this.sender}} shared {{this.what}}
 {{/each}}
 
-Open Puter: {{link}}
+View shared items: {{link}}
+
+You'll find these anytime under "Shared with me" in your files.
 
 You're receiving this because someone shared items with your Puter account.
 {{#if unsubscribe_uuid}}Unsubscribe: {{link}}/unsubscribe?user_uuid={{unsubscribe_uuid}}{{/if}}
         `,
     },
     // The only way to reach someone with no account. Same digest shape.
-    // Careful: "Open Puter" must not appear here — it is how the holder
-    // digest is told apart from this one.
+    // Careful: "View shared items" must not appear here — it is how the
+    // holder digest is told apart from this one.
     file_shared_invite: {
         subject: '{{subject_line}}',
         html: shareEmailShell({
@@ -353,10 +382,10 @@ You're receiving this because someone shared items with your Puter account.
             preheader:
                 'Create a free Puter account with this email address to view it.',
             content: `
-<p class="text-main" style="margin: 0; font-family: ${FONT}; font-size: 16px; line-height: 24px; font-weight: 600; color: #111827;">Hi there,</p>
-<p class="text-main" style="margin: 12px 0 0; font-family: ${FONT}; font-size: 15px; line-height: 22px; color: #374151;">Here&rsquo;s what was shared with you on Puter:</p>
+${shareHeading}
+<p class="text-main" style="margin: 12px 0 0; font-family: ${FONT}; font-size: 15px; line-height: 22px; color: #374151;">Hi there &mdash; here&rsquo;s what&rsquo;s waiting for you:</p>
 ${shareList}
-<p class="text-main" style="margin: 20px 0 0; font-family: ${FONT}; font-size: 15px; line-height: 22px; color: #374151;">There&rsquo;s no Puter account for <strong>{{email}}</strong> yet. Create a free account with this exact address, confirm it, and everything shared with you will be waiting in your files.</p>
+<p class="text-main" style="margin: 20px 0 0; font-family: ${FONT}; font-size: 15px; line-height: 22px; color: #374151;">There&rsquo;s no Puter account for <strong>{{email}}</strong> yet. Create a free account with this exact address, confirm it, and everything above will be waiting in your files.</p>
 ${shareCta('Create your account', '{{link}}')}
 <p class="text-muted" style="margin: 20px 0 0; font-family: ${FONT}; font-size: 13px; line-height: 20px; color: #6b7280;">New to Puter? It&rsquo;s the open-source Internet OS &mdash; your files, apps, and games in one place, from any device.</p>`,
             footer: `
@@ -368,7 +397,7 @@ You&rsquo;re receiving this because a Puter user shared something with this emai
         text: `
 Hi there,
 
-Here's what was shared with you on Puter:
+Here's what's waiting for you on Puter:
 
 {{#each shares}}
 * {{this.sender}} shared {{this.what}}
@@ -381,34 +410,6 @@ Create your account: {{link}}
 
 You're receiving this because a Puter user shared something with this email
 address. If you weren't expecting it, you can safely ignore this email.
-        `,
-    },
-    share_by_username: {
-        subject: 'Puter share from {{susername}}',
-        html: `
-<p>Hi there {{rusername}},</p>
-<p>You've received a share from {{susername}} on Puter.</p>
-<p>Go to puter.com to check it out.</p>
-{{#if message}}
-    <p>The following message was included:</p>
-    <blockquote>{{message}}</blockquote>
-{{/if}}
-<p>Sincerely,</p>
-<p>Puter</p>
-        `,
-    },
-    share_by_email: {
-        subject: 'share by email',
-        html: `
-<p>Hi there,</p>
-<p>You've received a share from {{sender_name}} on Puter:</p>
-<p><a href="{{link}}">{{link}}</a></p>
-{{#if message}}
-    <p>The following message was included:</p>
-    <blockquote>{{message}}</blockquote>
-{{/if}}
-<p>Sincerely,</p>
-<p>Puter</p>
         `,
     },
 } satisfies Record<string, EmailTemplate>;

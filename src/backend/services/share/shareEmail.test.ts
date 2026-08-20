@@ -344,7 +344,9 @@ describe('share email', () => {
         // spent the one message they agreed to receive.
         await sleep(SETTLE_MS);
         expect(
-            mailTo(invitee).filter((mail) => mail.html.includes('Open Puter')),
+            mailTo(invitee).filter((mail) =>
+                mail.html.includes('View shared items'),
+            ),
         ).toHaveLength(0);
     });
 
@@ -361,7 +363,7 @@ describe('share email', () => {
             `${owner.username} shared ${first.name} with you`,
         );
         expect(mail.html).toContain(first.name);
-        expect(mail.html).toContain('Open Puter');
+        expect(mail.html).toContain('View shared items');
         expect(mail.html).toContain(`href="${env.origin}"`);
         expect(mail.html).toContain(recipient.username);
 
