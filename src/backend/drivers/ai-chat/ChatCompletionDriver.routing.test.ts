@@ -128,6 +128,10 @@ const OPENROUTER_CATALOG = [
     'deepseek/deepseek-v4-pro',
     'deepseek-ai/deepseek-v4-pro',
     'google/gemini-2.5-flash',
+    // OpenRouter really does carry Muse Spark under Meta's own id, which is
+    // also the alias the Meta provider publishes — the two have to land in
+    // one bucket rather than becoming separate models.
+    'meta/muse-spark-1.2',
 ].map((id) => ({
     id,
     name: `${id} (via OpenRouter)`,
@@ -158,6 +162,7 @@ beforeAll(async () => {
             providers: {
                 gemini: { apiKey: 'test-key' },
                 deepseek: { apiKey: 'test-key' },
+                meta: { apiKey: 'test-key' },
                 infron: { apiKey: 'test-key' },
                 openrouter: { apiKey: 'test-key' },
                 ollama: { enabled: false },
@@ -247,6 +252,26 @@ describe('ChatCompletionDriver gemini routing', () => {
         );
 
         expect(attempts[0]).toMatchObject({ provider: 'infron' });
+    });
+});
+
+describe('ChatCompletionDriver muse spark routing', () => {
+    it('serves Muse Spark from Meta, with OpenRouter only as fallback', async () => {
+        const attempts = await attemptsFor('muse-spark-1.2');
+
+        expect(attempts[0]).toMatchObject({
+            provider: 'meta',
+            model: 'muse-spark-1.2',
+        });
+        expect(attempts[1]).toMatchObject({
+            provider: 'openrouter',
+            model: 'openrouter:meta/muse-spark-1.2',
+        });
+    });
+
+    it('routes the vendor-qualified alias to Meta too', async () => {
+        const attempts = await attemptsFor('meta/muse-spark-1.2');
+        expect(attempts[0].provider).toBe('meta');
     });
 });
 
