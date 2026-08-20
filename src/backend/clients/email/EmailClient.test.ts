@@ -245,6 +245,139 @@ describe('EmailClient — template rendering', () => {
     });
 });
 
+describe('EmailClient — share notification templates', () => {
+    /** Captures both parts of a send without touching the transport. */
+    const renderShare = async (
+        template: 'file_shared_with_you' | 'file_shared_invite',
+        values: Record<string, unknown>,
+    ) => {
+        const client = startClient();
+        const captured: { html: string; text: string } = { html: '', text: '' };
+        vi.spyOn(client, 'sendRaw').mockImplementation(async (options) => {
+            captured.html = options.html ?? '';
+            captured.text = options.text ?? '';
+            return null;
+        });
+        await client.send('user@example.test', template, values);
+        return captured;
+    };
+
+    const HOLDER = {
+        recipient: 'alice',
+        subject_line: 'bob shared notes.md with you',
+        shares: [
+            { sender: 'bob', what: 'notes.md' },
+            { sender: 'carol', what: '3 items — a.txt, b.txt, +1 more' },
+        ],
+        link: 'https://puter.test',
+        unsubscribe_uuid: null,
+    };
+
+    it('sends a plain-text alternative beside the html', async () => {
+        const { html, text } = await renderShare(
+            'file_shared_with_you',
+            HOLDER,
+        );
+
+        expect(html).toContain('<!DOCTYPE html>');
+        // Every sender reaches both parts, so a text-only client loses nothing.
+        for (const part of [html, text]) {
+            expect(part).toContain('bob');
+            expect(part).toContain('notes.md');
+            expect(part).toContain('carol');
+            expect(part).toContain('+1 more');
+        }
+        expect(text).not.toContain('<');
+    });
+
+    it('escapes item names in the html and leaves them raw in the text', async () => {
+        const { html, text } = await renderShare('file_shared_with_you', {
+            ...HOLDER,
+            shares: [{ sender: 'bob', what: 'r&d "notes".md' }],
+        });
+
+        expect(html).toContain('r&amp;d &quot;notes&quot;.md');
+        expect(text).toContain('r&d "notes".md');
+    });
+
+    it('renders as a responsive single column with no remote assets', async () => {
+        const { html } = await renderShare('file_shared_with_you', HOLDER);
+
+        expect(html).toContain(
+            '<meta name="viewport" content="width=device-width, initial-scale=1" />',
+        );
+        expect(html).toContain('@media only screen and (max-width: 600px)');
+        expect(html).toContain('@media (prefers-color-scheme: dark)');
+        expect(html).toContain('max-width: 600px');
+        // Images are the one thing a client can refuse to load, so the design
+        // does without them — the layout can't depend on a blocked asset.
+        expect(html).not.toContain('<img');
+        // The colors have to survive a client that drops the stylesheet.
+        expect(html).toContain('style="background-color: #ffffff;');
+    });
+
+    it('opens with a preview line that is hidden in the body', async () => {
+        const { html } = await renderShare('file_shared_with_you', HOLDER);
+
+        const preheader = html.indexOf('Waiting for you under Shared with me.');
+        expect(preheader).toBeGreaterThan(-1);
+        expect(html.slice(0, preheader)).toContain('mso-hide: all');
+        expect(preheader).toBeLessThan(html.indexOf('Hi alice,'));
+    });
+
+    it('points the call to action at the app and nowhere else', async () => {
+        const { html, text } = await renderShare(
+            'file_shared_with_you',
+            HOLDER,
+        );
+
+        expect(html).toContain('href="https://puter.test"');
+        expect(html).toContain('>Open Puter</a>');
+        expect(text).toContain('Open Puter: https://puter.test');
+    });
+
+    it('separates senders without a rule above the first', async () => {
+        const { html } = await renderShare('file_shared_with_you', HOLDER);
+
+        // One rule between two senders, none leading the list.
+        expect(html.split('border-top: 1px solid').length - 1).toBe(1);
+    });
+
+    it('offers the unsubscribe link only to a recipient who has an account', async () => {
+        const withAccount = await renderShare('file_shared_with_you', {
+            ...HOLDER,
+            unsubscribe_uuid: 'a-uuid',
+        });
+        expect(withAccount.html).toContain(
+            'href="https://puter.test/unsubscribe?user_uuid=a-uuid"',
+        );
+        expect(withAccount.text).toContain(
+            'https://puter.test/unsubscribe?user_uuid=a-uuid',
+        );
+
+        const anonymous = await renderShare('file_shared_with_you', HOLDER);
+        expect(anonymous.html).not.toContain('/unsubscribe');
+        expect(anonymous.text).not.toContain('/unsubscribe');
+    });
+
+    it('tells an invited address what to do with it', async () => {
+        const { html, text } = await renderShare('file_shared_invite', {
+            email: 'new@example.test',
+            subject_line: 'bob shared notes.md with you on Puter',
+            shares: [{ sender: 'bob', what: 'notes.md' }],
+            link: 'https://puter.test',
+        });
+
+        for (const part of [html, text]) {
+            expect(part).toContain('new@example.test');
+            expect(part).toContain('Create your free account');
+            // An invite has no account to unsubscribe from.
+            expect(part).not.toContain('/unsubscribe');
+        }
+        expect(html).toContain('href="https://puter.test"');
+    });
+});
+
 describe('EmailClient.clean', () => {
     const clean = (email: string) => startClient().clean(email);
 

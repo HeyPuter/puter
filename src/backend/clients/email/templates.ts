@@ -29,7 +29,183 @@
 export interface EmailTemplate {
     subject: string;
     html: string;
+    /**
+     * Optional plain-text alternative. Where a template has one it goes out
+     * beside the HTML as multipart/alternative, which is what plain-text
+     * clients, screen readers and spam scoring all prefer to a machine
+     * down-conversion of the markup.
+     */
+    text?: string;
 }
+
+// -- Shared layout ----------------------------------------------------
+
+/**
+ * Colors, in one place so the two share templates can't drift apart. Every one
+ * of them is also written inline further down: clients that drop `<style>`
+ * (Gmail reading a non-Gmail account, Outlook.com) would otherwise render an
+ * unstyled page, so the stylesheet only carries what inline CSS can't express —
+ * the small-screen and dark-mode overrides.
+ *
+ * `ACCENT` is the GUI's primary blue darkened until white text on it clears
+ * 4.5:1, since a button label is small text however bold it is.
+ */
+const INK = '#101828';
+const INK_SOFT = '#5b6472';
+const INK_FAINT = '#667085';
+const PAGE_BG = '#f2f4f7';
+const CARD_BG = '#ffffff';
+const CARD_BORDER = '#e4e7ec';
+const RULE = '#e6e9ee';
+const PANEL_BG = '#f8f9fb';
+const PANEL_BORDER = '#eceff3';
+const ACCENT = '#0a76cc';
+
+const FONT =
+    "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif";
+
+/** Pads the preview line so body text can't leak into it. */
+const PREHEADER_FILL = '&#847;&zwnj;&nbsp;'.repeat(60);
+
+/**
+ * The document both share notifications render into: one 600px column that goes
+ * full width on a phone, laid out with tables and `bgcolor` because Outlook
+ * renders through Word and ignores anything more modern.
+ *
+ * `preheader` is the line the inbox shows beside the subject — it should add to
+ * the subject, not repeat it. `content` is the card's rows; `footer` sits below
+ * the card, where the reason-for-receiving and unsubscribe belong.
+ */
+const shareEmailLayout = (parts: {
+    preheader: string;
+    content: string;
+    footer: string;
+}): string => `
+<!DOCTYPE html>
+<html lang="en" dir="ltr" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="x-apple-disable-message-reformatting" />
+<meta name="color-scheme" content="light dark" />
+<meta name="supported-color-schemes" content="light dark" />
+<title>{{subject_line}}</title>
+<!--[if mso]>
+<noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
+<![endif]-->
+<style>
+    body { margin: 0; padding: 0; width: 100% !important; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+    table { border-spacing: 0; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    td { mso-line-height-rule: exactly; }
+    a[x-apple-data-detectors] { color: inherit !important; text-decoration: none !important; font-size: inherit !important; font-family: inherit !important; font-weight: inherit !important; line-height: inherit !important; }
+    @media only screen and (max-width: 600px) {
+        .col { width: 100% !important; }
+        .pad { padding-left: 24px !important; padding-right: 24px !important; }
+        .pad-y { padding-top: 28px !important; padding-bottom: 28px !important; }
+        .h1 { font-size: 22px !important; line-height: 30px !important; }
+        .btn { width: 100% !important; }
+    }
+    @media (prefers-color-scheme: dark) {
+        .page { background-color: #0e1116 !important; }
+        .card { background-color: #171b22 !important; border-color: #272d38 !important; }
+        .ink { color: #e9ebef !important; }
+        .ink-soft { color: #9aa3b2 !important; }
+        .ink-soft a { color: #9aa3b2 !important; }
+        .rule { border-color: #272d38 !important; }
+        .panel { background-color: #1d222a !important; border-color: #2b323d !important; }
+        .mark { color: #4da3f2 !important; }
+    }
+</style>
+</head>
+<body class="page" style="margin: 0; padding: 0; width: 100%; background-color: ${PAGE_BG};">
+<div style="display: none; font-size: 1px; line-height: 1px; max-height: 0; max-width: 0; opacity: 0; overflow: hidden; mso-hide: all;">${parts.preheader}${PREHEADER_FILL}</div>
+<div role="article" aria-roledescription="email" lang="en">
+<table role="presentation" class="page" width="100%" cellpadding="0" cellspacing="0" border="0" style="width: 100%; background-color: ${PAGE_BG};">
+<tr>
+<td align="center" style="padding: 32px 12px;">
+<!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+<table role="presentation" class="col" width="600" cellpadding="0" cellspacing="0" border="0" style="width: 100%; max-width: 600px; text-align: left;">
+    <tr>
+        <td class="pad mark" style="padding: 0 4px 14px; font-family: ${FONT}; font-size: 15px; line-height: 20px; font-weight: 700; letter-spacing: 0.01em; color: ${ACCENT};">Puter</td>
+    </tr>
+    <tr>
+        <td class="card" style="background-color: ${CARD_BG}; border: 1px solid ${CARD_BORDER}; border-radius: 14px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width: 100%;">
+                <tr>
+                    <td class="pad pad-y" style="padding: 36px 36px 34px;">
+                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width: 100%;">${parts.content}
+                        </table>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+    <tr>
+        <td class="pad ink-soft" style="padding: 20px 4px 0; font-family: ${FONT}; font-size: 13px; line-height: 20px; color: ${INK_FAINT};">${parts.footer}
+        </td>
+    </tr>
+</table>
+<!--[if mso]></td></tr></table><![endif]-->
+</td>
+</tr>
+</table>
+</div>
+</body>
+</html>
+`;
+
+/** The greeting line above the heading. */
+const greetingRow = (text: string): string => `
+                            <tr>
+                                <td class="ink-soft" style="padding: 0 0 6px; font-family: ${FONT}; font-size: 15px; line-height: 22px; color: ${INK_SOFT};">${text}</td>
+                            </tr>`;
+
+const headingRow = (text: string): string => `
+                            <tr>
+                                <td class="ink h1" style="padding: 0 0 18px; font-family: ${FONT}; font-size: 24px; line-height: 32px; font-weight: 700; letter-spacing: -0.01em; color: ${INK};">${text}</td>
+                            </tr>`;
+
+/**
+ * One row per sender, hairline-separated. The wording comes pre-composed from
+ * the digest (`digestLines`), so the list stays a list however many senders and
+ * items fold into it.
+ */
+const SHARE_LIST_ROW = `
+                            <tr>
+                                <td class="panel" style="padding: 6px 18px; background-color: ${PANEL_BG}; border: 1px solid ${PANEL_BORDER}; border-radius: 10px;">
+                                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width: 100%;">
+                                        {{#each shares}}
+                                        <tr>
+                                            <td class="ink rule" style="padding: 12px 0;{{#unless @first}} border-top: 1px solid ${RULE};{{/unless}} font-family: ${FONT}; font-size: 16px; line-height: 24px; color: ${INK};"><strong style="font-weight: 600;">{{this.sender}}</strong> shared {{this.what}}</td>
+                                        </tr>
+                                        {{/each}}
+                                    </table>
+                                </td>
+                            </tr>`;
+
+/** A body paragraph. `padding` lets a caller tune the rhythm around it. */
+const textRow = (text: string, padding = '18px 0 0'): string => `
+                            <tr>
+                                <td class="ink-soft" style="padding: ${padding}; font-family: ${FONT}; font-size: 15px; line-height: 23px; color: ${INK_SOFT};">${text}</td>
+                            </tr>`;
+
+/**
+ * The call to action. Padding sits on the cell and the color on `bgcolor` so
+ * Outlook still draws a real button (square-cornered, which is fine); the table
+ * goes full width under 600px so the tap target spans the card.
+ */
+const buttonRow = (label: string): string => `
+                            <tr>
+                                <td style="padding: 26px 0 0;">
+                                    <table role="presentation" class="btn" cellpadding="0" cellspacing="0" border="0" style="border-collapse: separate;">
+                                        <tr>
+                                            <td align="center" bgcolor="${ACCENT}" style="background-color: ${ACCENT}; border-radius: 10px; padding: 14px 26px;">
+                                                <a href="{{link}}" style="display: inline-block; font-family: ${FONT}; font-size: 16px; line-height: 20px; font-weight: 600; color: #ffffff; text-decoration: none;">${label}</a>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>`;
 
 export const EMAIL_TEMPLATES = {
     'approved-for-listing': {
@@ -190,85 +366,79 @@ immediately</p>
      */
     file_shared_with_you: {
         subject: '{{subject_line}}',
-        html: `
-<div style="max-width: 520px; margin: 0 auto; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937; line-height: 1.5;">
-    <p style="font-size: 16px;">Hi {{recipient}},</p>
-    <p>Shared with you on Puter:</p>
-    <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin: 4px 0 16px;">
-        {{#each shares}}
-        <tr>
-            <td style="padding: 8px 12px; border-top: 1px solid #eef1f4;">
-                <strong>{{this.sender}}</strong> shared {{this.what}}
-            </td>
-        </tr>
-        {{/each}}
-    </table>
-    <p>
-        <a href="{{link}}" style="display: inline-block; padding: 10px 18px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Open Puter</a>
-    </p>
-    <p style="color: #6b7280; font-size: 13px; margin-top: 24px;">Sincerely,<br />Puter</p>
-    {{#if unsubscribe_uuid}}
-    <p style="color: #9ca3af; font-size: 12px;">
-        Don't want these? <a href="{{link}}/unsubscribe?user_uuid={{unsubscribe_uuid}}" style="color: #9ca3af;">Unsubscribe</a>.
-    </p>
-    {{/if}}
-</div>
+        html: shareEmailLayout({
+            preheader: 'Waiting for you under Shared with me.',
+            content:
+                greetingRow('Hi{{#if recipient}} {{recipient}}{{/if}},') +
+                headingRow('Shared with you') +
+                SHARE_LIST_ROW +
+                buttonRow('Open Puter') +
+                textRow(
+                    'Shared items live under <span style="font-weight: 600;">Shared with me</span> in your files. Nothing to download — the owner\'s changes show up as they make them.',
+                    '24px 0 0',
+                ),
+            footer: `You're receiving this because someone shared with your Puter account.{{#if unsubscribe_uuid}}
+            <br /><a href="{{link}}/unsubscribe?user_uuid={{unsubscribe_uuid}}" style="color: inherit; text-decoration: underline;">Unsubscribe from notification emails</a>{{/if}}`,
+        }),
+        text: `
+            Hi{{#if recipient}} {{recipient}}{{/if}},
+
+            Shared with you on Puter:
+            {{#each shares}}
+            - {{this.sender}} shared {{this.what}}
+            {{/each}}
+
+            Open Puter: {{link}}
+
+            Shared items live under "Shared with me" in your files. Nothing to
+            download — the owner's changes show up as they make them.
+
+            --
+            You're receiving this because someone shared with your Puter account.
+            {{#if unsubscribe_uuid}}Unsubscribe from notification emails:
+            {{link}}/unsubscribe?user_uuid={{unsubscribe_uuid}}{{/if}}
         `,
     },
     // The only way to reach someone with no account. Same digest shape.
     file_shared_invite: {
         subject: '{{subject_line}}',
-        html: `
-<div style="max-width: 520px; margin: 0 auto; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937; line-height: 1.5;">
-    <p style="font-size: 16px;">Hi there,</p>
-    <p>Shared with you on Puter:</p>
-    <table role="presentation" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin: 4px 0 16px;">
-        {{#each shares}}
-        <tr>
-            <td style="padding: 8px 12px; border-top: 1px solid #eef1f4;">
-                <strong>{{this.sender}}</strong> shared {{this.what}}
-            </td>
-        </tr>
-        {{/each}}
-    </table>
-    <p>
-        You don't have a Puter account for this address yet. Create one with
-        <strong>{{email}}</strong> and confirm it, and what was shared will be
-        waiting for you.
-    </p>
-    <p>
-        <a href="{{link}}" style="display: inline-block; padding: 10px 18px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600;">Create your account</a>
-    </p>
-    <p style="color: #6b7280; font-size: 13px; margin-top: 24px;">Sincerely,<br />Puter</p>
-</div>
-        `,
-    },
-    share_by_username: {
-        subject: 'Puter share from {{susername}}',
-        html: `
-<p>Hi there {{rusername}},</p>
-<p>You've received a share from {{susername}} on Puter.</p>
-<p>Go to puter.com to check it out.</p>
-{{#if message}}
-    <p>The following message was included:</p>
-    <blockquote>{{message}}</blockquote>
-{{/if}}
-<p>Sincerely,</p>
-<p>Puter</p>
-        `,
-    },
-    share_by_email: {
-        subject: 'share by email',
-        html: `
-<p>Hi there,</p>
-<p>You've received a share from {{sender_name}} on Puter:</p>
-<p><a href="{{link}}">{{link}}</a></p>
-{{#if message}}
-    <p>The following message was included:</p>
-    <blockquote>{{message}}</blockquote>
-{{/if}}
-<p>Sincerely,</p>
-<p>Puter</p>
+        html: shareEmailLayout({
+            preheader: 'Claim it with a free Puter account.',
+            content:
+                greetingRow('Hi there,') +
+                headingRow('Shared with you on Puter') +
+                SHARE_LIST_ROW +
+                textRow(
+                    'There\'s no Puter account for <span style="font-weight: 600;">{{email}}</span> yet. Create one with this address, confirm it, and everything above will be waiting for you. It\'s free and takes about a minute.',
+                ) +
+                buttonRow('Create your free account') +
+                textRow(
+                    'Already on Puter? Add {{email}} to your account and confirm it to get the same access.',
+                    '24px 0 0',
+                ),
+            footer: `You're receiving this because someone shared with {{email}}. Nothing is shared until the address is confirmed, so you can ignore this email and nothing happens.`,
+        }),
+        text: `
+            Hi there,
+
+            Shared with you on Puter:
+            {{#each shares}}
+            - {{this.sender}} shared {{this.what}}
+            {{/each}}
+
+            There's no Puter account for {{email}} yet. Create one with this
+            address, confirm it, and everything above will be waiting for you.
+            It's free and takes about a minute.
+
+            Create your free account: {{link}}
+
+            Already on Puter? Add {{email}} to your account and confirm it to get
+            the same access.
+
+            --
+            You're receiving this because someone shared with {{email}}. Nothing is
+            shared until the address is confirmed, so you can ignore this email
+            and nothing happens.
         `,
     },
 } satisfies Record<string, EmailTemplate>;
