@@ -4,7 +4,7 @@
     <button id="request-subdomains">Request Subdomains Write Access</button>
     <script>
         document.getElementById('request-subdomains').addEventListener('click', async () => {
-            const granted = await puter.perms.requestSubdomains('write');
+            const granted = await puter.perms.request('subdomains', { access: 'write' });
             if (granted) {
                 puter.print('Subdomains write access granted');
                 const sites = await puter.hosting.list();

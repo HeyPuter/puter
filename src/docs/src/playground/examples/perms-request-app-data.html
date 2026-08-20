@@ -7,7 +7,7 @@
             // Any app the signed-in user has; swap 'contacts' for your own.
             const other = await puter.apps.get('contacts');
 
-            const granted = await puter.perms.requestAppData(other.uid, 'read');
+            const granted = await puter.perms.request('appData', { app: other.uid, scopes: 'read' });
             if (!granted) {
                 puter.print("Permission denied");
                 return;

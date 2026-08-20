@@ -4,7 +4,7 @@
     <button id="request-apps">Request Apps Read Access</button>
     <script>
         document.getElementById('request-apps').addEventListener('click', async () => {
-            const granted = await puter.perms.requestApps();
+            const granted = await puter.perms.request('apps');
             if (granted) {
                 puter.print('Apps read access granted');
                 const apps = await puter.apps.list();
