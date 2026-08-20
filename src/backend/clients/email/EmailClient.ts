@@ -64,6 +64,7 @@ export type EmailValidator = (email: string) => Promise<boolean> | boolean;
 interface CompiledTemplate {
     subject: ReturnType<typeof template>;
     html: ReturnType<typeof template>;
+    text?: ReturnType<typeof template>;
 }
 
 // -- Clean-email rules ------------------------------------------------
@@ -173,6 +174,7 @@ export class EmailClient extends PuterClient {
             to,
             subject: compiled.subject(values),
             html: compiled.html(values),
+            ...(compiled.text ? { text: compiled.text(values) } : {}),
             ...(options.replyTo ? { replyTo: options.replyTo } : {}),
         });
     }
@@ -296,6 +298,15 @@ export class EmailClient extends PuterClient {
                     noEscape: true,
                 }),
                 html: handlebars.compile(dedent(template.html)),
+                // Same reasoning as the subject: a text part is not HTML, so
+                // escaping would show entities to the reader.
+                ...(template.text
+                    ? {
+                          text: handlebars.compile(dedent(template.text), {
+                              noEscape: true,
+                          }),
+                      }
+                    : {}),
             };
         }
     }

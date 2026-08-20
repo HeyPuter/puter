@@ -280,7 +280,7 @@ describe('share email', () => {
         // The address is in the body because it is the one to sign up with: an
         // account on any other address will not find the share.
         expect(mail.html).toContain(invitee);
-        expect(mail.html).toContain('Create your account');
+        expect(mail.html).toContain('Create your free account');
         // The full origin, port included — a rebuilt protocol://domain link
         // is dead on any self-host that doesn't run on the default port.
         expect(mail.html).toContain(`href="${env.origin}"`);
