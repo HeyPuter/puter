@@ -5197,9 +5197,10 @@ body.myapps-reordering .myapps-tile {
     gap: 24px;
 }
 
-/* Three even columns need real width. Below that the plan column lands around
-   230px, which wraps its badge and renewal notice into a tall ribbon — so give
-   the plan its own row and let the two usage meters share the next one. */
+/* Three even columns need real width. Below that, give the plan its own row
+   and let the two usage meters share the next one — they are the pair that
+   reads as a set, and splitting them to put the plan beside one of them makes
+   the row look accidental. */
 @media (max-width: 1200px) {
     .dashboard .bento-usage-grid {
         grid-template-columns: 1fr 1fr;
@@ -5272,12 +5273,18 @@ body.myapps-reordering .myapps-tile {
     line-height: 1.4;
 }
 
-/* Time-boxed but not broken — a trial notice reads as advisory, not as the
-   red dunning banner and not as an amber warning either. */
-.dashboard .bento-plan-warning.info {
-    color: var(--dashboard-notice-text);
-    background: var(--dashboard-notice-background);
-    border-color: var(--dashboard-notice-border);
+/* Time-boxed but not broken. A boxed, tinted, bordered panel is the shape of
+   an alarm, and in a ~230px column it wrapped a trial into a five-line ribbon
+   that stood twice as tall as the storage and resources meters beside it. A
+   trial is a date, not a fault: it reads as the quiet detail line under the
+   badge, exactly where those two columns put their "n% of X". The box stays
+   for the dunning banner, which has earned it. */
+.dashboard .bento-plan-note {
+    display: block;
+    margin-top: 6px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--dashboard-text-hint);
 }
 
 .dashboard .bento-plan-upgrade {
