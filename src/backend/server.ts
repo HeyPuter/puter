@@ -685,6 +685,12 @@ export class PuterServer {
             'X-Expected-Entity-Length',
             'DAV',
             'stripe-signature',
+            // The GUI's fallback channel for the device fingerprint on
+            // authenticated requests that have no body to carry it (see
+            // core/http/middleware/fingerprint.ts). Without it here the
+            // preflight refuses the header and the request never leaves the
+            // browser.
+            'x-puter-device-fingerprint',
         ].join(', ');
 
         // What a browser DAV client is allowed to read back off a response.

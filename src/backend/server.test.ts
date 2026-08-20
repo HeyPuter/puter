@@ -272,6 +272,29 @@ describe('PuterServer host header validation', () => {
         );
     });
 
+    it('lets a cross-origin preflight ask for the device fingerprint header', async () => {
+        // `fingerprint.ts` reads the device fingerprint off
+        // `x-puter-device-fingerprint` for authenticated requests with no body
+        // to carry it. That channel only exists if the preflight admits the
+        // header: a browser abandons the request otherwise, and the call never
+        // leaves it.
+        const res = await request(
+            '/healthcheck',
+            {
+                host: `api.puter.localhost:${port}`,
+                origin: 'http://puter.localhost',
+                'access-control-request-method': 'GET',
+                'access-control-request-headers':
+                    'authorization,x-puter-device-fingerprint',
+            },
+            'OPTIONS',
+        );
+        expect(res.status).toBe(200);
+        expect(
+            String(res.headers['access-control-allow-headers']).toLowerCase(),
+        ).toContain('x-puter-device-fingerprint');
+    });
+
     it('still short-circuits OPTIONS preflight off the dav subdomain', async () => {
         const res = await request(
             '/some-path',
