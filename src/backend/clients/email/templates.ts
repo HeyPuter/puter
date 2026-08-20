@@ -374,7 +374,7 @@ immediately</p>
                 SHARE_LIST_ROW +
                 buttonRow('Open Puter') +
                 textRow(
-                    'Shared items live under <span style="font-weight: 600;">Shared with me</span> in your files. Nothing to download — the owner\'s changes show up as they make them.',
+                    'Shared items live under <span style="font-weight: 600;">Shared</span> in your files.',
                     '24px 0 0',
                 ),
             footer: `You're receiving this because someone shared with your Puter account.{{#if unsubscribe_uuid}}
@@ -390,8 +390,7 @@ immediately</p>
 
             Open Puter: {{link}}
 
-            Shared items live under "Shared with me" in your files. Nothing to
-            download — the owner's changes show up as they make them.
+            Shared items live under "Shared" in your files.
 
             --
             You're receiving this because someone shared with your Puter account.
