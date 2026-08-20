@@ -346,6 +346,10 @@
             "apiURL": ""
         },
         "gemini": { "apiKey": "" },
+        // Meta Model API (Muse Spark). `muse-spark-1.2-contributor`
+        // trades a ~12x discount for Meta training on its prompts and
+        // completions, so it is only served to callers that name it.
+        "meta": { "apiKey": "" },
         "groq": { "apiKey": "" },
         "deepseek": { "apiKey": "" },
         "mistral": { "apiKey": "" },

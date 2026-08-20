@@ -33,7 +33,7 @@ An object containing the following properties:
 - `max_tokens` (Number) - The maximum number of tokens to generate in the completion. By default, the specific model's maximum is used.
 - `temperature` (Number) - A number between 0 and 2 indicating the randomness of the completion. Lower values make the output more focused and deterministic, while higher values make it more random. By default, the specific model's temperature is used.
 - `tools` (Array) (Optional) - Function definitions the AI can call. See [Function Calling](#function-calling) for details.
-- `reasoning_effort` / `reasoning.effort` (String) (Optional) - Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, and `xhigh`. Lower values give faster responses with less reasoning. OpenAI models only.
+- `reasoning_effort` / `reasoning.effort` (String) (Optional) - Controls how much effort reasoning models spend thinking. Supported values: `none`, `minimal`, `low`, `medium`, `high`, and `xhigh`. Lower values give faster responses with less reasoning. OpenAI models and Meta's Muse Spark models only; Muse Spark always reasons, so `none` is ignored for it.
 - `verbosity` / `text.verbosity` (String) (Optional) - Controls how long or short responses are. Supported values: `low`, `medium`, and `high`. Lower values give shorter responses. OpenAI models only.
 - `compaction` (Boolean | Object) (Optional) - Opt into inline context compaction for long conversations. Pass `true` to enable it with provider defaults, or `{ trigger_tokens: number }` to set the token threshold at which earlier context is summarized. When the model compacts, you receive a `compaction` chunk while streaming (or a `compaction` field on the result when not streaming) containing an opaque `encrypted_content` summary. Resend that item in `messages` on the next turn in place of the summarized history. The compaction chunk shape is identical across providers, so the same code works whether `model` is an OpenAI or Anthropic model. See [Compaction](#compaction).
 
@@ -112,7 +112,7 @@ In case of an error, the `Promise` will reject with an error message.
 
 ## Vendors
 
-We use different vendors for different models and try to use the best vendor available at the time of the request. Vendors currently include Alibaba Cloud, Anthropic, Azure OpenAI, DeepSeek, Google, Infron, MiniMax, Mistral, Moonshot AI, OpenAI, OpenRouter, Together AI, xAI, and Z.AI. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the current list, or pass `provider` in the options object to pin a request to one of them.
+We use different vendors for different models and try to use the best vendor available at the time of the request. Vendors currently include Alibaba Cloud, Anthropic, Azure OpenAI, DeepSeek, Google, Infron, Meta, MiniMax, Mistral, Moonshot AI, OpenAI, OpenRouter, Together AI, xAI, and Z.AI. Call [`puter.ai.listModelProviders()`](/AI/listModelProviders) for the current list, or pass `provider` in the options object to pin a request to one of them.
 
 ## Function Calling
 
