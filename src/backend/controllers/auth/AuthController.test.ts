@@ -38,7 +38,11 @@ import type { Actor } from '../../core/actor.js';
 import { Context, runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { requireUserActorGate } from '../../core/http/middleware/gates.js';
-import type { TokenSource } from '../../core/http/types.js';
+import {
+    ROUTES_METADATA_KEY,
+    type CollectedRoute,
+    type TokenSource,
+} from '../../core/http/types.js';
 import { PuterServer } from '../../server.js';
 import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -4724,6 +4728,16 @@ describe('AuthController.handleCaptchaGenerate + handleGetAntiCsrfToken', () => 
 // ── Permission revoke flows ────────────────────────────────────────
 
 describe('AuthController permission revokes', () => {
+    it('revoke-user-user: 400 on missing target_username/permission', async () => {
+        const { actor } = await makeUserAndActor();
+        await expect(
+            controller.handleRevokeUserUser(
+                makeReq({ permission: 'fs:read' }, { actor }),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
     it('revoke-user-app: 400 on missing app_uid/permission', async () => {
         const { actor } = await makeUserAndActor();
         await expect(
@@ -4734,6 +4748,60 @@ describe('AuthController permission revokes', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    // No in-tree caller, so a later cleanup would read it as dead: pin the gate.
+    it('revoke-user-user: stays registered as a user-actor route', () => {
+        const proto = Object.getPrototypeOf(controller) as Record<
+            string,
+            CollectedRoute[] | undefined
+        >;
+        const route = (proto[ROUTES_METADATA_KEY] ?? []).find(
+            (r) => r.path === '/auth/revoke-user-user',
+        );
+        expect(route, '/auth/revoke-user-user is not registered').toBeDefined();
+        expect(route!.method).toBe('post');
+        expect(route!.options).toMatchObject({
+            subdomain: 'api',
+            requireUserActor: true,
+        });
+    });
+
+    // Why the deprecated route exists: older grants stay withdrawable.
+    it('revoke-user-user: round-trips a grant + revoke without throwing', async () => {
+        const { actor: issuerActor, user: issuer } = await makeUserAndActor();
+        const { user: target } = await makeUserAndActor();
+        const permission = `service:test-revoke-${uuidv4()}:ii:read`;
+        await server.stores.permission.setFlatUserPerm(
+            issuer.id,
+            `manage:${permission}`,
+            {
+                permission: `manage:${permission}`,
+                deleted: false,
+                issuer_user_id: issuer.id,
+            } as never,
+        );
+        // Through the service: the grant route is retired, the revoke is not.
+        await inCtx(issuerActor, () =>
+            server.services.permission.grantUserUserPermission(
+                issuerActor,
+                target.username,
+                permission,
+            ),
+        );
+
+        // Asserts the controller path only: the process-wide Redis-mock scan
+        // cache makes a post-revoke `check()` unreliable across tests.
+        const res = makeRes();
+        await inCtx(issuerActor, () =>
+            controller.handleRevokeUserUser(
+                makeReq(
+                    { target_username: target.username, permission },
+                    { actor: issuerActor },
+                ),
+                res,
+            ),
+        );
+        expect(res.body).toEqual({});
+    });
 });
 
 // ── Permission checks + listing ────────────────────────────────────

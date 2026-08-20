@@ -3187,6 +3187,34 @@ export class AuthController extends PuterController {
 
     // -- Permission revokes ------------------------------------------
 
+    /**
+     * @deprecated Use `puter.fs.unshare()`, which withdraws the share row and
+     *   the grant together. Kept for direct HTTP callers: the grant side is
+     *   retired, but access it left behind has to stay withdrawable.
+     */
+    @Post('/auth/revoke-user-user', {
+        subdomain: 'api',
+        requireUserActor: true,
+        rateLimit: GRANT_LIMIT,
+    })
+    async handleRevokeUserUser(req: Request, res: Response): Promise<void> {
+        const { target_username, permission, meta } = req.body;
+        if (!target_username || !permission) {
+            throw new HttpError(
+                400,
+                'Missing `target_username` or `permission`',
+                { legacyCode: 'bad_request' },
+            );
+        }
+        await this.services.permission.revokeUserUserPermission(
+            req.actor!,
+            target_username,
+            permission,
+            meta,
+        );
+        res.json({});
+    }
+
     @Post('/auth/revoke-user-app', {
         subdomain: 'api',
         requireUserActor: true,
