@@ -540,6 +540,11 @@ function UIWindowSignup(options) {
                                             options.window_options ?? {},
                                     });
                             }
+                            // A user the SMS path keeps failing may take the
+                            // card fallback instead; that resolves 'card' and
+                            // clears the card gate along with the phone gate
+                            // (see UIWindowPhoneVerificationRequired).
+                            let card_gate_cleared_by_fallback = false;
                             if (data.user?.requires_phone_verification) {
                                 let phone_ok = false;
                                 do {
@@ -555,9 +560,14 @@ function UIWindowSignup(options) {
                                             },
                                         );
                                 } while (!phone_ok);
+                                card_gate_cleared_by_fallback =
+                                    phone_ok === 'card';
                             }
                             // Card verification is the last gate.
-                            if (data.user?.requires_card_verification) {
+                            if (
+                                data.user?.requires_card_verification &&
+                                !card_gate_cleared_by_fallback
+                            ) {
                                 let card_ok = false;
                                 do {
                                     card_ok =

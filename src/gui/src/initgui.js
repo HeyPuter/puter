@@ -1684,6 +1684,10 @@ window.initgui = async function (options) {
                 } while (!is_verified);
             }
             // is phone verification required? (hard gate for low-rep signups)
+            // A user the SMS path keeps failing may be offered the card
+            // fallback instead; that resolves 'card' and clears the card gate
+            // too (see UIWindowPhoneVerificationRequired).
+            let card_gate_cleared_by_fallback = false;
             if (whoami.requires_phone_verification) {
                 let is_verified;
                 do {
@@ -1696,10 +1700,14 @@ window.initgui = async function (options) {
                         },
                     });
                 } while (!is_verified);
+                card_gate_cleared_by_fallback = is_verified === 'card';
             }
             // Card verification is the last gate: only show it once the email and
             // phone (SMS) gates are cleared, since those show up first.
-            if (whoami.requires_card_verification) {
+            if (
+                whoami.requires_card_verification &&
+                !card_gate_cleared_by_fallback
+            ) {
                 let is_verified;
                 do {
                     is_verified = await UIWindowCardVerificationRequired({
@@ -1948,6 +1956,10 @@ window.initgui = async function (options) {
                 } while (!is_verified);
             }
             // is phone verification required? (hard gate for low-rep signups)
+            // A user the SMS path keeps failing may be offered the card
+            // fallback instead; that resolves 'card' and clears the card gate
+            // too (see UIWindowPhoneVerificationRequired).
+            let card_gate_cleared_by_fallback = false;
             if (whoami.requires_phone_verification) {
                 let is_verified;
                 do {
@@ -1962,10 +1974,14 @@ window.initgui = async function (options) {
                         },
                     });
                 } while (!is_verified);
+                card_gate_cleared_by_fallback = is_verified === 'card';
             }
             // Card verification is the last gate: only show it once the email and
             // phone (SMS) gates are cleared, since those show up first.
-            if (whoami.requires_card_verification) {
+            if (
+                whoami.requires_card_verification &&
+                !card_gate_cleared_by_fallback
+            ) {
                 let is_verified;
                 do {
                     is_verified = await UIWindowCardVerificationRequired({
