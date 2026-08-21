@@ -1,0 +1,14 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            const page = await puter.fs.listShared({ includeTotal: true });
+            puter.print(`About ${page.total} item(s) shared with you<br>`);
+            for (const share of page.items) {
+                puter.print(`${share.path} — ${share.mode} from ${share.issuer}<br>`);
+            }
+        })()
+    </script>
+</body>
+</html>

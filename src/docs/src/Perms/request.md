@@ -62,9 +62,10 @@ The array form resolves to an array of those values, in the order asked.
 - File system: `fs:{path}:{read|write}`
 - Apps: `apps-of-user:{uuid}:{read|write}`
 - Subdomains: `subdomains-of-user:{uuid}:{read|write}`
-- An app's root directory: `app-root-dir:{app_uid}:{read|write}`
 
 Some permission strings are not supported and are denied silently.
+
+An app's root directory has no raw form: `app-root-dir:` reads as nothing during a permission check, so asking for it this way would prompt on every call and [`check()`](/Perms/check/) would report it as not granted even once it is. Use the `'appRootDir'` resource, which asks the server directly.
 
 A lone string that names no resource is treated as a permission string, so `puter.perms.request('fs:/user/Documents:read')` keeps working.
 

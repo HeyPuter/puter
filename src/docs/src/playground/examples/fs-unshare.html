@@ -1,0 +1,14 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            await puter.fs.write('report.txt', 'Quarterly numbers');
+            await puter.fs.share('report.txt', 'friend@example.com');
+
+            const result = await puter.fs.unshare('report.txt', 'friend@example.com');
+            puter.print(`Removed ${result.revoked} share(s)<br>`);
+        })()
+    </script>
+</body>
+</html>
