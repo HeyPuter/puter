@@ -19,11 +19,11 @@ window.permsTests = [
     },
     {
         name: "testRequestApps",
-        description: "[interactive] requestApps() resolves to a boolean",
+        description: "[interactive] request('apps') resolves to a boolean",
         test: async function() {
             try {
-                const granted = await puter.perms.requestApps();
-                assert(typeof granted === 'boolean', "requestApps should resolve to a boolean");
+                const granted = await puter.perms.request('apps');
+                assert(typeof granted === 'boolean', "request('apps') should resolve to a boolean");
                 pass("testRequestApps passed: " + granted);
             } catch (error) {
                 fail("testRequestApps failed:", error);
@@ -32,10 +32,10 @@ window.permsTests = [
     },
     {
         name: "testRequestFolderRead",
-        description: "[interactive] requestFolder('Desktop') returns the path or undefined",
+        description: "[interactive] request('folder', { name: 'Desktop' }) returns the path or undefined",
         test: async function() {
             try {
-                const path = await puter.perms.requestFolder('Desktop');
+                const path = await puter.perms.request('folder', { name: 'Desktop' });
                 assert(path === undefined || typeof path === 'string', "unexpected path value");
                 pass("testRequestFolderRead passed: " + String(path));
             } catch (error) {
@@ -45,10 +45,10 @@ window.permsTests = [
     },
     {
         name: "testRequestFolderWrite",
-        description: "[interactive] requestFolder('Desktop', 'write') returns the path or undefined",
+        description: "[interactive] request('folder', { name: 'Desktop', access: 'write' }) returns the path or undefined",
         test: async function() {
             try {
-                const path = await puter.perms.requestFolder('Desktop', 'write');
+                const path = await puter.perms.request('folder', { name: 'Desktop', access: 'write' });
                 assert(path === undefined || typeof path === 'string', "unexpected path value");
                 pass("testRequestFolderWrite passed: " + String(path));
             } catch (error) {
@@ -58,10 +58,10 @@ window.permsTests = [
     },
     {
         name: "testRequestSubdomainsWrite",
-        description: "[interactive] requestSubdomains('write') resolves to a boolean",
+        description: "[interactive] request('subdomains', { access: 'write' }) resolves to a boolean",
         test: async function() {
             try {
-                const granted = await puter.perms.requestSubdomains('write');
+                const granted = await puter.perms.request('subdomains', { access: 'write' });
                 assert(typeof granted === 'boolean', "should resolve to a boolean");
                 pass("testRequestSubdomainsWrite passed: " + granted);
             } catch (error) {
@@ -71,7 +71,7 @@ window.permsTests = [
     },
     {
         name: "testRequestAppRootDirWriteAccess",
-        description: "[interactive] requestAppRootDir(app, 'write') actually requests WRITE. Set window.__testAppUid to an app uid first.",
+        description: "[interactive] request('appRootDir', { app, access: 'write' }) actually requests WRITE. Set window.__testAppUid to an app uid first.",
         test: async function() {
             const appUid = window.__testAppUid;
             if (!appUid) {
@@ -79,7 +79,7 @@ window.permsTests = [
                 return;
             }
             try {
-                const result = await puter.perms.requestAppRootDir(appUid, 'write');
+                const result = await puter.perms.request('appRootDir', { app: appUid, access: 'write' });
                 assert(result === undefined || typeof result === 'object', "unexpected result");
                 pass("testRequestAppRootDirWriteAccess passed: " + JSON.stringify(result));
             } catch (error) {

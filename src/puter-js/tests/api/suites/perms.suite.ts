@@ -290,9 +290,11 @@ export default suite('perms', {
     },
 
     // The one-method-per-task names still ship for apps written against them,
-    // behaviour unchanged: they prompt without consulting what is already held,
-    // which is why the folder and apps assertions here are the opposite of what
-    // `request` now answers for the same access.
+    // and still prompt without consulting what is already held — which is why
+    // the folder and apps assertions here are the opposite of what `request`
+    // now answers for the same access. `requestPermission` is the exception:
+    // it forwards to `request`, so it picks up the new behaviour (asserted
+    // separately below).
     'the deprecated request aliases keep delegating': {
         platforms: ['node', 'workerd'],
         fn: async (t) => {
@@ -312,14 +314,6 @@ export default suite('perms', {
                 await perms.requestReadDesktop(),
                 `${home(t)}/Desktop`,
             );
-            t.assert.equal(
-                await (
-                    t.puter.perms as unknown as {
-                        requestPermission: (p: string) => Promise<boolean>;
-                    }
-                ).requestPermission(UNHELD_PERMISSION),
-                false,
-            );
             const app = await t.puter.apps.create(
                 t.puter.randName(),
                 'https://example.com/perms-alias-root-dir',
@@ -331,6 +325,28 @@ export default suite('perms', {
             t.assert.equal(
                 await perms.requestWriteAppRootDir(app.uid),
                 undefined,
+            );
+        },
+    },
+
+    // `requestPermission` forwards to `request`, so it settles from what is
+    // held rather than prompting for it. That is a change from prompting every
+    // time: a permission the caller already holds now answers `true` where the
+    // prompt used to decide it.
+    'requestPermission settles a held permission without prompting': {
+        platforms: ['node', 'workerd'],
+        fn: async (t) => {
+            const perms = t.puter.perms as unknown as {
+                requestPermission: (p: string) => Promise<boolean>;
+            };
+            // A user's own credential covers their own home directory.
+            t.assert.equal(
+                await perms.requestPermission(`fs:${home(t)}:write`),
+                true,
+            );
+            t.assert.equal(
+                await perms.requestPermission(UNHELD_PERMISSION),
+                false,
             );
         },
     },

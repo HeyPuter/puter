@@ -201,7 +201,7 @@ The resource decides which details the call takes and what a request resolves to
 | `'apps'` | `{ access }` | `true` if granted |
 | `'subdomains'` | `{ access }` | `true` if granted |
 | `'appData'` | `{ app, scopes }` | `true` if granted |
-| `'appRootDir'` | `{ app, access }` | The app's root directory |
+| `'appRootDir'` | `{ app, access }` | The app's root directory, or `undefined` if denied |
 | `'permission'` | `{ permission }` or `{ permissions }` | `true` if granted |
 
 Anything denied resolves to a falsy value, so one `if` covers both outcomes. `access` is `'read'` (the default) or `'write'`.

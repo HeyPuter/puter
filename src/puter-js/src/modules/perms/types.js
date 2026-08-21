@@ -7,9 +7,9 @@
  */
 
 /**
- * A special folder `requestFolder` can name. Trash and AppData are deliberately
- * absent: nothing should ask for blanket access to either, and another app's
- * AppData is reached through `requestAppData` instead.
+ * A special folder a `'folder'` request can name. Trash and AppData are
+ * deliberately absent: nothing should ask for blanket access to either, and
+ * another app's AppData is reached through `'appData'` instead.
  *
  * @typedef {'Desktop' | 'Documents' | 'Pictures' | 'Videos'} PermsFolderName
  */
@@ -133,7 +133,7 @@
  */
 
 /**
- * What `requestAppData` accepts. A bare class applies to both stores; the array
+ * What an `'appData'` request accepts. A bare class applies to both stores; the array
  * form spells out the store on every entry; the object form groups by store.
  * There is no bare-name array — an entry with no store would be ambiguous
  * between the two.

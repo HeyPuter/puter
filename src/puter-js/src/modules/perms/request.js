@@ -1,5 +1,10 @@
 import { appDataRequest } from './appData.js';
-import { appUidOf, checkAppRootDir, pollAppRootDir } from './appRootDir.js';
+import {
+    appUidOf,
+    checkAppRootDir,
+    pollAppRootDir,
+    statAppRootDir,
+} from './appRootDir.js';
 import { folderPathFor, folderReadable } from './folders.js';
 import { checkPermissions } from './lib/holds.js';
 import {
@@ -87,6 +92,11 @@ const permissionsOf = (details) => {
  * @property {string[]} permissions - What this entry needs, already resolved.
  * @property {(permissions: string[]) => Promise<boolean>} holds - Answered from
  * the call's one pooled permission read.
+ * @property {boolean} prompt - Whether this is a `request`. A resource whose
+ * check would otherwise repeat work the request is about to do anyway can spend
+ * the round trip once and hand the result on through `scratch`.
+ * @property {Record<string, unknown>} scratch - Per-entry, passed from `check`
+ * to `resolve`.
  */
 
 /**
@@ -98,7 +108,7 @@ const permissionsOf = (details) => {
  * @typedef {Object} PermsResourceHandler
  * @property {(query: { ctx: PermsContext, details: Record<string, unknown> }) => Promise<string[]>} permissions
  * @property {(query: PermsQuery) => Promise<boolean>} check
- * @property {(query: { ctx: PermsContext, details: Record<string, unknown> }, held: boolean) => Promise<unknown>} resolve
+ * @property {(query: { ctx: PermsContext, details: Record<string, unknown>, scratch: Record<string, unknown> }, held: boolean) => Promise<unknown>} resolve
  * @property {boolean} [pooled]
  */
 
@@ -191,12 +201,26 @@ const RESOURCES = Object.assign(Object.create(null), {
         // `app-root-dir:…` resolves to nothing in a permission scan, so only the
         // server can answer, and it stays out of the pooled read.
         pooled: false,
-        check: ({ ctx, details }) =>
-            checkAppRootDir(ctx.puter, appUidOf(details.app), accessOf(details)),
-        // Only the server can name the directory, so this asks even once held,
-        // riding out the cache lag behind a fresh grant.
-        resolve: async ({ ctx, details }, held) => {
+        check: async ({ ctx, details, prompt, scratch }) => {
+            const appUid = appUidOf(details.app);
+            const access = accessOf(details);
+            // A check must not provision the directory just for asking.
+            if ( ! prompt ) {
+                return await checkAppRootDir(ctx.puter, appUid, access);
+            }
+            // A request is going to claim it either way, so the claim is the
+            // check — one round trip, as the shipped method has always made.
+            const result = await statAppRootDir(ctx.puter, appUid, access);
+            if ( result.error ) return false;
+            scratch.entry = result;
+            return true;
+        },
+        // Only the server can name the directory. Already in hand when the
+        // check claimed it; otherwise asked for now, riding out the cache lag
+        // behind a fresh grant.
+        resolve: async ({ ctx, details, scratch }, held) => {
             if ( ! held ) return undefined;
+            if ( scratch.entry ) return scratch.entry;
             return await pollAppRootDir(
                 ctx.puter,
                 appUidOf(details.app),
@@ -324,6 +348,9 @@ async function runEntries (ctx, entries, prompt) {
     // to go with that — the prompt it would have raised anyway, which is what
     // it did before there was a check at all. `check` has nowhere to go, and
     // answering "not granted" would prompt someone who already granted it.
+    /** Per entry, for whatever its `check` wants to hand to its `resolve`. */
+    const scratch = entries.map(() => /** @type {Record<string, unknown>} */ ({}));
+
     const held = await Promise.all(
         entries.map(async ({ resource, details }, i) => {
             try {
@@ -332,6 +359,8 @@ async function runEntries (ctx, entries, prompt) {
                     details,
                     permissions: permissions[i],
                     holds,
+                    prompt,
+                    scratch: scratch[i],
                 });
             } catch ( e ) {
                 if ( ! prompt ) throw e;
@@ -351,7 +380,12 @@ async function runEntries (ctx, entries, prompt) {
 
     return await Promise.all(
         entries.map(({ resource, details }, i) =>
-            RESOURCES[resource].resolve({ ctx, details }, held[i] || granted),
+            RESOURCES[resource].resolve(
+                { ctx, details, scratch: scratch[i] },
+                // An entry that named no permission asked nothing, so a grant
+                // covering the others says nothing about it.
+                held[i] || (permissions[i].length > 0 && granted),
+            ),
         ),
     );
 }

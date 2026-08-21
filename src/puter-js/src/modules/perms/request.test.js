@@ -153,9 +153,10 @@ describe('perms request(resource, details)', () => {
 
     // -- An app's root directory --
 
-    it('asks the server for the app root dir at the requested access', async () => {
-        // The read-only probe, then the call that names (and provisions) the dir.
-        routes({ rootDir: [{ allowed: true }, { path: '/root' }] });
+    // A request is going to claim the directory either way, so the claim is
+    // the check: one round trip, the same as the shipped method makes.
+    it('claims the app root dir in one call at the requested access', async () => {
+        routes({ rootDir: [{ path: '/root' }] });
         const mod = makeModule();
 
         const result = await request.call(mod, 'appRootDir', {
@@ -165,7 +166,6 @@ describe('perms request(resource, details)', () => {
 
         expect(result).toEqual({ path: '/root' });
         expect(callsTo(ROOT_DIR_ROUTE).map((call) => call[2])).toEqual([
-            { app_uid: 'app-1', access: 'write', check: true },
             { app_uid: 'app-1', access: 'write' },
         ]);
         expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
@@ -387,8 +387,8 @@ describe('perms request([...]) batching', () => {
     it('keeps asking for the app root dir after the pooled grant', async () => {
         routes({
             rootDir: [
-                { error: true, code: 'forbidden' }, // the read-only probe
-                { error: true }, // first ask after the grant: cache still stale
+                { error: true, code: 'forbidden' }, // refused before the grant
+                { error: true }, // first ask after it: cache still stale
                 { path: '/root' },
             ],
         });
@@ -628,5 +628,33 @@ describe('perms request(...) when the server cannot answer', () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+});
+
+// The behaviour change to the two methods that shipped and go through
+// `request`: they now settle from what is held instead of always prompting.
+describe('perms request(permission) on an already-held permission', () => {
+    it('resolves true without prompting, alone and through requestPermission', async () => {
+        routes({ held: { 'fs:/alice/x:read': true } });
+        const mod = {
+            ...makeModule(),
+            requestPermission: (...args) => request.call(mod, ...args),
+        };
+
+        expect(await request.call(mod, 'fs:/alice/x:read')).toBe(true);
+        expect(await mod.requestPermission('fs:/alice/x:read')).toBe(true);
+        expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
+    });
+
+    it('still prompts for one that is not held', async () => {
+        const mod = {
+            ...makeModule({ requestPermission: () => false }),
+            requestPermission: (...args) => request.call(mod, ...args),
+        };
+
+        expect(await mod.requestPermission('fs:/alice/x:read')).toBe(false);
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
+            permission: 'fs:/alice/x:read',
+        });
     });
 });

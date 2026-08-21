@@ -8,7 +8,7 @@ Ask whether access is already granted. Nothing is prompted and nothing is change
 
 Use it to keep prompts out of the way until they are needed: show a feature as available when the access is in place, and offer an opt-in only where it is not.
 
-It takes the same resources and details as [`puter.perms.request()`](/Perms/request/). Both read the same state, so `check()` returning `true` means the matching `request()` won't prompt.
+It takes the same resources and details as [`puter.perms.request()`](/Perms/request/). Both read the same state, so a `true` here means the matching `request()` won't prompt for that access. In the array form that is per entry: a batch still prompts if any one entry is missing.
 
 ## Syntax
 
