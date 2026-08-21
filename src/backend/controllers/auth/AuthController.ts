@@ -862,6 +862,15 @@ export class AuthController extends PuterController {
                 req.socket?.remoteAddress ||
                 null) as string | null,
             email: body.email,
+            // The same canonical form `email.validate` was given, so a check
+            // in the abuse harness can look up the verdict that hook cached
+            // for this address. Without it an alias (`a+tag@outlook.com`,
+            // `a.b@icloud.com`) reaches the two hooks under two different keys.
+            clean_email: cleanEmail(body.email),
+            // Temp signups carry a synthetic `<username>@gmail.com` and skip
+            // #validateEmail entirely, so an email check must know not to
+            // reason about the address at all.
+            is_temp,
             allow: true,
             no_temp_user: false,
             requires_email_confirmation: false,
