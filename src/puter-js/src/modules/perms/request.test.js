@@ -1,23 +1,39 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Both routes these hit go through the shared helper, so mocking it needs no server.
+// Both routes these reach go through the shared helper, so mocking it needs no server.
 const mockReq = vi.fn();
 vi.mock('./lib/req.js', () => ({ req: (...args) => mockReq(...args) }));
 
 const { check, request } = await import('./request.js');
-const { requestApps, requestEmail, requestSubdomains } = await import(
-    './permissions.js'
-);
-const { requestFolder } = await import('./folders.js');
-const { requestAppRootDir } = await import('./appRootDir.js');
-const { requestAppData } = await import('./appData.js');
+
+const CHECK_ROUTE = '/auth/check-permissions';
+const ROOT_DIR_ROUTE = '/auth/request-app-root-dir';
 
 const WHOAMI = { username: 'alice', uuid: 'u-1' };
 const SELF_UID = 'app-00000000-0000-4000-8000-000000000001';
 
 const denied = async () => { throw new Error('no access'); };
 
-// The real resource methods, with the environment they reach through stubbed.
+/**
+ * Answer the mocked helper by route, so a test says what is held and what the
+ * app-root-dir route replies without depending on the order they are asked in.
+ * An app-root-dir reply queue runs out into a refusal, which is that route's
+ * answer for anything but the app itself.
+ */
+const routes = ({ held = {}, rootDir = [] } = {}) => {
+    const pending = [...rootDir];
+    mockReq.mockImplementation(async (_puter, route) => {
+        if ( route === CHECK_ROUTE ) return { permissions: held };
+        if ( route === ROOT_DIR_ROUTE ) {
+            return pending.length
+                ? pending.shift()
+                : { error: true, code: 'forbidden' };
+        }
+        throw new Error(`unexpected route: ${route}`);
+    });
+};
+
+/** The real `request`/`check`, with the environment they reach through stubbed. */
 const makeModule = ({
     whoami = WHOAMI,
     requestPermission = () => false,
@@ -34,20 +50,18 @@ const makeModule = ({
     },
     request,
     check,
-    requestEmail,
-    requestFolder,
-    requestApps,
-    requestSubdomains,
-    requestAppRootDir,
-    requestAppData,
 });
 
-/** The permission map `/auth/check-permissions` answers with. */
-const heldReply = (held) => ({ permissions: held });
+/** The calls the mocked helper made to one route. */
+const callsTo = (route) =>
+    mockReq.mock.calls.filter((call) => call[1] === route);
+
+beforeEach(() => {
+    mockReq.mockReset();
+    routes();
+});
 
 describe('perms request(resource, details)', () => {
-    beforeEach(() => mockReq.mockReset());
-
     // -- Folders --
 
     it('asks for the folder permission and resolves to its path', async () => {
@@ -71,6 +85,8 @@ describe('perms request(resource, details)', () => {
 
         expect(path).toBe('/alice/Documents');
         expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
+        // Statting answered it, so the permission read was never needed.
+        expect(callsTo(CHECK_ROUTE)).toHaveLength(0);
     });
 
     it('resolves undefined when a folder request is denied', async () => {
@@ -138,7 +154,8 @@ describe('perms request(resource, details)', () => {
     // -- An app's root directory --
 
     it('asks the server for the app root dir at the requested access', async () => {
-        mockReq.mockResolvedValueOnce({ path: '/root' });
+        // The read-only probe, then the call that names (and provisions) the dir.
+        routes({ rootDir: [{ allowed: true }, { path: '/root' }] });
         const mod = makeModule();
 
         const result = await request.call(mod, 'appRootDir', {
@@ -147,11 +164,13 @@ describe('perms request(resource, details)', () => {
         });
 
         expect(result).toEqual({ path: '/root' });
-        expect(mockReq).toHaveBeenCalledWith(
-            mod.puter,
-            '/auth/request-app-root-dir',
+        expect(callsTo(ROOT_DIR_ROUTE).map((call) => call[2])).toEqual([
+            { app_uid: 'app-1', access: 'write', check: true },
             { app_uid: 'app-1', access: 'write' },
-        );
+        ]);
+        expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
+        // `app-root-dir:…` never resolves in a permission scan, so nothing pools it.
+        expect(callsTo(CHECK_ROUTE)).toHaveLength(0);
     });
 
     // -- Raw permission strings --
@@ -191,6 +210,58 @@ describe('perms request(resource, details)', () => {
         });
     });
 
+    // A resource is looked up on an own property, so a permission string that
+    // shares a name with an `Object.prototype` member is still that string.
+    it('reads a permission string that collides with an Object member', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        for ( const name of ['constructor', 'toString', 'hasOwnProperty'] ) {
+            expect(await request.call(mod, name)).toBe(true);
+            expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+                permission: name,
+            });
+        }
+    });
+
+    // -- Prompting only for what is missing --
+
+    it('skips the prompt when the access is already held', async () => {
+        routes({
+            held: {
+                'fs:/alice/Documents:write': true,
+                'apps-of-user:u-1:write': true,
+                'x:read': true,
+            },
+        });
+        const mod = makeModule();
+
+        expect(
+            await request.call(mod, 'folder', {
+                name: 'Documents',
+                access: 'write',
+            }),
+        ).toBe('/alice/Documents');
+        expect(await request.call(mod, 'apps', { access: 'write' })).toBe(true);
+        expect(await request.call(mod, 'x:read')).toBe(true);
+        expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
+    });
+
+    // A read that failed says nothing about what is held, and a request has
+    // somewhere to fall back to: the prompt it would have raised anyway.
+    it('falls through to the prompt when the permission read fails', async () => {
+        mockReq.mockResolvedValue({
+            error: true,
+            message: 'nope',
+            code: 'internal_error',
+        });
+        const mod = makeModule({ requestPermission: () => true });
+
+        expect(await request.call(mod, 'apps')).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
+            permission: 'apps-of-user:u-1:read',
+        });
+    });
+
     // -- Rejected input --
 
     it('rejects details passed with an unknown resource', async () => {
@@ -212,6 +283,9 @@ describe('perms request(resource, details)', () => {
         await expect(
             request.call(mod, 'apps', 'read'),
         ).rejects.toMatchObject({ code: 'invalid_argument' });
+        await expect(
+            request.call(mod, 'appRootDir', { app: 42 }),
+        ).rejects.toMatchObject({ code: 'invalid_argument' });
         expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
     });
 
@@ -227,11 +301,8 @@ describe('perms request(resource, details)', () => {
 });
 
 describe('perms request([...]) batching', () => {
-    beforeEach(() => mockReq.mockReset());
-
     // The point of a batch: one dialog for the set, not one per entry.
     it('pools every missing permission into a single prompt', async () => {
-        mockReq.mockResolvedValue(heldReply({}));
         const mod = makeModule({ requestPermission: () => true });
 
         const results = await request.call(mod, [
@@ -252,13 +323,38 @@ describe('perms request([...]) batching', () => {
         expect(results).toEqual(['/alice/Documents', true, true]);
     });
 
+    // One read for the whole set, and one `whoami` behind all of it.
+    it('reads what is held once for the whole batch', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        await request.call(mod, [
+            { resource: 'folder', name: 'Documents', access: 'write' },
+            { resource: 'apps' },
+            { resource: 'subdomains' },
+            { resource: 'email' },
+        ]);
+
+        expect(callsTo(CHECK_ROUTE)).toHaveLength(1);
+        expect(callsTo(CHECK_ROUTE)[0][2]).toEqual({
+            permissions: [
+                'fs:/alice/Documents:write',
+                'apps-of-user:u-1:read',
+                'subdomains-of-user:u-1:read',
+                'user:u-1:email:read',
+            ],
+        });
+        // Once before the prompt, once after — the grant is what puts the
+        // email on `whoami`, so the copy read before it is stale.
+        expect(mod.puter.auth.whoami).toHaveBeenCalledTimes(2);
+    });
+
     it('never prompts when the whole batch is already held', async () => {
-        mockReq.mockResolvedValue(
-            heldReply({
+        routes({
+            held: {
                 'fs:/alice/Desktop:read': true,
                 'subdomains-of-user:u-1:write': true,
-            }),
-        );
+            },
+        });
         const mod = makeModule();
 
         const results = await request.call(mod, [
@@ -272,7 +368,7 @@ describe('perms request([...]) batching', () => {
 
     // Only the missing half is asked about.
     it('asks only for what is missing, and keeps held entries on a denial', async () => {
-        mockReq.mockResolvedValue(heldReply({ 'apps-of-user:u-1:read': true }));
+        routes({ held: { 'apps-of-user:u-1:read': true } });
         const mod = makeModule({ requestPermission: () => false });
 
         const results = await request.call(mod, [
@@ -286,8 +382,28 @@ describe('perms request([...]) batching', () => {
         expect(results).toEqual([true, undefined]);
     });
 
+    // A grant can lag the permission cache, so the first refusal after one
+    // isn't final — in a batch exactly as in a single request.
+    it('keeps asking for the app root dir after the pooled grant', async () => {
+        routes({
+            rootDir: [
+                { error: true, code: 'forbidden' }, // the read-only probe
+                { error: true }, // first ask after the grant: cache still stale
+                { path: '/root' },
+            ],
+        });
+        const mod = makeModule({ requestPermission: () => true });
+
+        expect(
+            await request.call(mod, [{ resource: 'appRootDir', app: 'app-1' }]),
+        ).toEqual([{ path: '/root' }]);
+        expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
+            permission: 'app-root-dir:app-1:read',
+        });
+        expect(callsTo(ROOT_DIR_ROUTE)).toHaveLength(3);
+    });
+
     it('validates every entry before prompting for any of them', async () => {
-        mockReq.mockResolvedValue(heldReply({}));
         const mod = makeModule({ requestPermission: () => true });
 
         await expect(
@@ -312,13 +428,20 @@ describe('perms request([...]) batching', () => {
         ).rejects.toMatchObject({ code: 'invalid_argument' });
     });
 
+    // An inherited `Object` member is not a resource here either.
+    it('rejects a batch entry naming an Object member as its resource', async () => {
+        await expect(
+            request.call(makeModule(), [{ resource: 'toString' }]),
+        ).rejects.toMatchObject({ code: 'invalid_argument' });
+    });
+
     it('answers a batch check per entry, in order', async () => {
-        mockReq.mockResolvedValue(
-            heldReply({
+        routes({
+            held: {
                 'fs:/alice/Desktop:read': true,
                 'apps-of-user:u-1:write': false,
-            }),
-        );
+            },
+        });
         const mod = makeModule();
 
         expect(
@@ -340,12 +463,8 @@ describe('perms request([...]) batching', () => {
 });
 
 describe('perms check(resource, details)', () => {
-    beforeEach(() => mockReq.mockReset());
-
     it('answers from the permission check without prompting', async () => {
-        mockReq.mockResolvedValueOnce(
-            heldReply({ 'fs:/alice/Documents:write': true }),
-        );
+        routes({ held: { 'fs:/alice/Documents:write': true } });
         const mod = makeModule();
 
         expect(
@@ -354,55 +473,53 @@ describe('perms check(resource, details)', () => {
                 access: 'write',
             }),
         ).toBe(true);
-        expect(mockReq).toHaveBeenCalledWith(
-            mod.puter,
-            '/auth/check-permissions',
-            { permissions: ['fs:/alice/Documents:write'] },
-        );
+        expect(mockReq).toHaveBeenCalledWith(mod.puter, CHECK_ROUTE, {
+            permissions: ['fs:/alice/Documents:write'],
+        });
         expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
     });
 
     it('checks the same permission strings the request asks for', async () => {
-        mockReq.mockResolvedValue(heldReply({}));
         const mod = makeModule();
 
         await check.call(mod, 'apps', { access: 'write' });
-        expect(mockReq).toHaveBeenLastCalledWith(
-            mod.puter,
-            '/auth/check-permissions',
-            { permissions: ['apps-of-user:u-1:write'] },
-        );
+        expect(mockReq).toHaveBeenLastCalledWith(mod.puter, CHECK_ROUTE, {
+            permissions: ['apps-of-user:u-1:write'],
+        });
 
         await check.call(mod, 'subdomains');
-        expect(mockReq).toHaveBeenLastCalledWith(
-            mod.puter,
-            '/auth/check-permissions',
-            { permissions: ['subdomains-of-user:u-1:read'] },
-        );
+        expect(mockReq).toHaveBeenLastCalledWith(mod.puter, CHECK_ROUTE, {
+            permissions: ['subdomains-of-user:u-1:read'],
+        });
 
         await check.call(mod, 'fs:/alice:read');
-        expect(mockReq).toHaveBeenLastCalledWith(
-            mod.puter,
-            '/auth/check-permissions',
-            { permissions: ['fs:/alice:read'] },
-        );
+        expect(mockReq).toHaveBeenLastCalledWith(mod.puter, CHECK_ROUTE, {
+            permissions: ['fs:/alice:read'],
+        });
+    });
+
+    // Read access can come from an ACL grant no `fs:` string names, so the same
+    // stat that settles a request settles the check too.
+    it('accepts a folder it can stat as readable', async () => {
+        const mod = makeModule({ stat: async () => ({ id: 1 }) });
+
+        expect(await check.call(mod, 'folder', { name: 'Desktop' })).toBe(true);
+        expect(callsTo(CHECK_ROUTE)).toHaveLength(0);
     });
 
     it('reports false when the permission is not held', async () => {
-        mockReq.mockResolvedValueOnce(
-            heldReply({ 'apps-of-user:u-1:read': false }),
-        );
+        routes({ held: { 'apps-of-user:u-1:read': false } });
         expect(await check.call(makeModule(), 'apps')).toBe(false);
     });
 
     // A half-granted set still needs the prompt, so it cannot read as held.
     it('reports false when only some of a set is held', async () => {
-        mockReq.mockResolvedValueOnce(
-            heldReply({
+        routes({
+            held: {
                 'app-data:app-target:kv:read': true,
                 'app-data:app-target:fs:read': false,
-            }),
-        );
+            },
+        });
         expect(
             await check.call(makeModule(), 'appData', {
                 app: 'contacts',
@@ -430,34 +547,32 @@ describe('perms check(resource, details)', () => {
     });
 
     it('falls back to the permission check when no email is on whoami', async () => {
-        mockReq.mockResolvedValueOnce(heldReply({ 'user:u-1:email:read': false }));
+        routes({ held: { 'user:u-1:email:read': false } });
         expect(await check.call(makeModule(), 'email')).toBe(false);
     });
 
-    // A permission check on `app-root-dir:…` always answers false; ask the server.
-    it('probes the server for app root dir access', async () => {
-        mockReq.mockResolvedValueOnce({ path: '/root' });
+    // The read-only mode of the route: asking must not provision the directory.
+    it('probes the server for app root dir access without provisioning it', async () => {
+        routes({ rootDir: [{ allowed: true }] });
         const mod = makeModule();
 
         expect(
             await check.call(mod, 'appRootDir', { app: { uid: 'app-1' } }),
         ).toBe(true);
-        expect(mockReq).toHaveBeenCalledWith(
-            mod.puter,
-            '/auth/request-app-root-dir',
-            { app_uid: 'app-1', access: 'read' },
-        );
+        expect(mockReq).toHaveBeenCalledWith(mod.puter, ROOT_DIR_ROUTE, {
+            app_uid: 'app-1',
+            access: 'read',
+            check: true,
+        });
         expect(mod.puter.ui.requestPermission).not.toHaveBeenCalled();
 
-        mockReq.mockResolvedValueOnce({ error: true });
-        expect(
-            await check.call(mod, 'appRootDir', { app: 'app-1' }),
-        ).toBe(false);
+        // The queue is empty now, so the route refuses: not held.
+        expect(await check.call(mod, 'appRootDir', { app: 'app-1' })).toBe(false);
     });
 
     // A failed check is not a denial — reporting one would prompt needlessly.
     it('surfaces a failed check rather than reporting false', async () => {
-        mockReq.mockResolvedValueOnce({
+        mockReq.mockResolvedValue({
             error: true,
             message: 'nope',
             code: 'unauthorized',
@@ -466,5 +581,52 @@ describe('perms check(resource, details)', () => {
             message: 'nope',
             code: 'unauthorized',
         });
+        await expect(
+            check.call(makeModule(), 'appRootDir', { app: 'app-1' }),
+        ).rejects.toMatchObject({ message: 'nope', code: 'unauthorized' });
+    });
+});
+
+// A check that couldn't be made is not a refusal, and a request has the prompt
+// to fall back on — the one it would have raised before there was a check.
+describe('perms request(...) when the server cannot answer', () => {
+    beforeEach(() => {
+        mockReq.mockResolvedValue({
+            error: true,
+            message: 'nope',
+            code: 'internal_error',
+        });
+    });
+
+    it('falls through to the prompt, alone and in a batch', async () => {
+        const mod = makeModule({ requestPermission: () => true });
+
+        expect(await request.call(mod, 'apps')).toBe(true);
+        expect(mod.puter.ui.requestPermission).toHaveBeenLastCalledWith({
+            permission: 'apps-of-user:u-1:read',
+        });
+        expect(
+            await request.call(mod, [
+                { resource: 'apps' },
+                { resource: 'subdomains' },
+            ]),
+        ).toEqual([true, true]);
+    });
+
+    it('falls through for an app root dir the server would not confirm', async () => {
+        vi.useFakeTimers();
+        try {
+            const mod = makeModule({ requestPermission: () => true });
+
+            const pending = request.call(mod, 'appRootDir', { app: 'app-1' });
+            await vi.runAllTimersAsync();
+
+            expect(await pending).toBeUndefined();
+            expect(mod.puter.ui.requestPermission).toHaveBeenCalledWith({
+                permission: 'app-root-dir:app-1:read',
+            });
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

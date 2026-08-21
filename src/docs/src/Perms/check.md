@@ -4,11 +4,11 @@ description: Check whether access has already been granted, without prompting th
 platforms: [websites, apps]
 ---
 
-Ask whether access is already granted. The user is never prompted — this only reports what they have already allowed.
+Ask whether access is already granted. Nothing is prompted and nothing is changed; this only reports what the user has already allowed.
 
 Use it to keep prompts out of the way until they are needed: show a feature as available when the access is in place, and offer an opt-in only where it is not.
 
-It takes the same resources and details as [`puter.perms.request()`](/Perms/request/).
+It takes the same resources and details as [`puter.perms.request()`](/Perms/request/). Both read the same state, so `check()` returning `true` means the matching `request()` won't prompt.
 
 ## Syntax
 

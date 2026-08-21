@@ -1,11 +1,8 @@
 import { PuterModule } from '../../lib/PuterModule.js';
 import { requestAppData } from './appData.js';
+import { requestReadAppRootDir, requestWriteAppRootDir } from './appRootDir.js';
 import {
-    requestAppRootDir,
-    requestReadAppRootDir, requestWriteAppRootDir,
-} from './appRootDir.js';
-import {
-    requestFolder, requestFolder_,
+    requestFolder_,
     requestReadDesktop, requestWriteDesktop,
     requestReadDocuments, requestWriteDocuments,
     requestReadPictures, requestWritePictures,
@@ -16,26 +13,23 @@ import {
     revokeApp, revokeAppAnyUser, revokeOrigin,
 } from './grants.js';
 import {
-    requestApps, requestEmail,
+    requestEmail,
     requestManageApps, requestManageSubdomains,
     requestPermission, requestReadApps, requestReadSubdomains,
-    requestSubdomains,
 } from './permissions.js';
 import { check, request } from './request.js';
 
 /** @typedef {import('../../index.js').Puter} Puter */
 
 // Every `this`-context method exposed on the module, rebound in the
-// constructor so both `puter.perms.requestFolder(...)` and destructured
-// `const { requestFolder } = puter.perms` calls keep the right `this`.
+// constructor so both `puter.perms.request(...)` and destructured
+// `const { request } = puter.perms` calls keep the right `this`.
 const METHODS = [
     'grantApp', 'grantAppAnyUser', 'grantOrigin',
     'revokeApp', 'revokeAppAnyUser', 'revokeOrigin',
     'request', 'check',
     // Deprecated aliases; bound for the same reason as the rest.
-    'requestEmail',
-    'requestFolder', 'requestApps', 'requestSubdomains',
-    'requestAppRootDir', 'requestAppData',
+    'requestEmail', 'requestAppData',
     'requestPermission', 'requestFolder_',
     'requestReadDesktop', 'requestWriteDesktop',
     'requestReadDocuments', 'requestWriteDocuments',
@@ -74,14 +68,6 @@ export class PermsModule extends PuterModule {
 
     /** @deprecated Use `request('email')`. */
     requestEmail = requestEmail;
-    /** @deprecated Use `request('folder', { name, access })`. */
-    requestFolder = requestFolder;
-    /** @deprecated Use `request('apps', { access })`. */
-    requestApps = requestApps;
-    /** @deprecated Use `request('subdomains', { access })`. */
-    requestSubdomains = requestSubdomains;
-    /** @deprecated Use `request('appRootDir', { app, access })`. */
-    requestAppRootDir = requestAppRootDir;
     /** @deprecated Use `request('appData', { app, scopes })`. */
     requestAppData = requestAppData;
 

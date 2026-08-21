@@ -6,7 +6,7 @@ platforms: [websites, apps]
 
 Request access to something belonging to the user. The first argument names the resource; the second carries the details that resource takes.
 
-The user is prompted to allow or deny. If the access has already been granted, they are not prompted again.
+The user is prompted to allow or deny. Anything already granted is skipped, so a call whose access is fully in place doesn't prompt at all. [`puter.perms.check()`](/Perms/check/) reads the same state, so the two always agree.
 
 Inside the Puter desktop the prompt is shown as a dialog. On websites, it opens in a popup window on the Puter origin — call this from a user gesture (e.g. a click handler) so the browser doesn't block the popup; without a gesture, a consent dialog is shown first and the popup opens when the user clicks Continue.
 
@@ -31,6 +31,7 @@ What the request is about. The resource decides which details are accepted and w
 | `'apps'` | `{ access }` | `true` if granted |
 | `'subdomains'` | `{ access }` | `true` if granted |
 | `'appData'` | `{ app, scopes }` | `true` if granted |
+| `'appRootDir'` | `{ app, access }` | The app's root directory, or `undefined` if denied |
 | `'permission'` | `{ permission }` or `{ permissions }` | `true` if granted |
 
 #### `details` (object) (optional)
@@ -39,7 +40,7 @@ The fields the resource takes:
 
 - **`name`** (string) — for `'folder'`: `'Desktop'`, `'Documents'`, `'Pictures'`, or `'Videos'`.
 - **`access`** (string) — `'read'` (the default) or `'write'`. `write` implies read, and for `'apps'` and `'subdomains'` it covers managing them as well as reading them.
-- **`app`** (string | object) — for `'appData'`: the target app, by uid or by registered name.
+- **`app`** (string | object) — for `'appData'`: the target app, by uid or by registered name. For `'appRootDir'`: the app's uid, or an object with one.
 - **`scopes`** (string | array | object) — for `'appData'`: what this app wants to do with that data. See [Using another app's data](/Perms/appData/) for the full scope forms.
 - **`permission`** (string) / **`permissions`** (array of strings) — for `'permission'`: a raw permission string, or several to put behind one prompt. Pass one or the other, not both.
 
@@ -61,6 +62,7 @@ The array form resolves to an array of those values, in the order asked.
 - File system: `fs:{path}:{read|write}`
 - Apps: `apps-of-user:{uuid}:{read|write}`
 - Subdomains: `subdomains-of-user:{uuid}:{read|write}`
+- An app's root directory: `app-root-dir:{app_uid}:{read|write}`
 
 Some permission strings are not supported and are denied silently.
 

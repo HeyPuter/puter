@@ -1,7 +1,7 @@
 import { appDataRequest } from './appData.js';
-import { appUidOf, statAppRootDir } from './appRootDir.js';
-import { folderPathFor } from './folders.js';
-import { holdsPermissions } from './lib/holds.js';
+import { appUidOf, checkAppRootDir, pollAppRootDir } from './appRootDir.js';
+import { folderPathFor, folderReadable } from './folders.js';
+import { checkPermissions } from './lib/holds.js';
 import {
     appRootDirPermission,
     appsPermission,
@@ -13,12 +13,42 @@ import { assertAccess, assertFolderName, invalidArgument } from './lib/validate.
 import { requestPermissions } from './permissions.js';
 
 /** @typedef {import('./index.js').PermsModule} PermsModule */
+/** @typedef {import('../../index.js').Puter} Puter */
 /** @typedef {import('./types.js').PermsAccess} PermsAccess */
 /** @typedef {import('./types.js').PermsResource} PermsResource */
 /** @typedef {import('./types.js').PermsRequestDetails} PermsRequestDetails */
 
+/**
+ * Per-call scratch space. `whoami` is cached here so a ten-entry batch fetches
+ * it once, with `reread` for the one caller that needs it fresh: a grant is
+ * what puts the email on it, so the copy read before the prompt doesn't carry
+ * the address the prompt just released.
+ *
+ * @typedef {Object} PermsContext
+ * @property {Puter} puter
+ * @property {() => Promise<Record<string, any>>} whoami
+ * @property {() => Promise<Record<string, any>>} reread
+ */
+
+/**
+ * @param {Puter} puter
+ * @returns {PermsContext}
+ */
+const makeContext = (puter) => {
+    /** @type {Promise<Record<string, any>> | undefined} */
+    let pending;
+    return {
+        puter,
+        whoami: () => (pending ??= puter.auth.whoami()),
+        reread: () => (pending = puter.auth.whoami()),
+    };
+};
+
 /** @param {Record<string, unknown>} details @returns {PermsAccess} */
 const accessOf = (details) => assertAccess(details.access ?? 'read');
+
+/** @param {Record<string, unknown>} details @returns {string} */
+const folderNameOf = (details) => assertFolderName(details.name);
 
 /**
  * The permission strings a `'permission'` request names, one or many.
@@ -49,192 +79,172 @@ const permissionsOf = (details) => {
 };
 
 /**
- * Per resource: ask for it alone (`request`, delegating to the method that
- * always served it), whether it is held (`check`), the strings a batch pools
- * into one prompt (`permissions`), and the value once held (`resolve`).
+ * One entry's question, handed to that resource's `check` and `resolve`.
  *
- * @type {Record<string, {
- *     request: (perms: PermsModule, details: Record<string, unknown>) => Promise<unknown>,
- *     check: (perms: PermsModule, details: Record<string, unknown>) => Promise<boolean>,
- *     permissions: (perms: PermsModule, details: Record<string, unknown>) => Promise<string[]>,
- *     resolve: (perms: PermsModule, details: Record<string, unknown>, held: boolean) => Promise<unknown>,
- * }>}
+ * @typedef {Object} PermsQuery
+ * @property {PermsContext} ctx
+ * @property {Record<string, unknown>} details
+ * @property {string[]} permissions - What this entry needs, already resolved.
+ * @property {(permissions: string[]) => Promise<boolean>} holds - Answered from
+ * the call's one pooled permission read.
  */
-const RESOURCES = {
+
+/**
+ * Per resource: the permission strings it needs (`permissions`, which also
+ * validates the details), whether they are already held (`check`), and the
+ * value once held (`resolve`). `pooled: false` marks a resource whose `check`
+ * asks the server itself, so its strings stay out of the pooled read.
+ *
+ * @typedef {Object} PermsResourceHandler
+ * @property {(query: { ctx: PermsContext, details: Record<string, unknown> }) => Promise<string[]>} permissions
+ * @property {(query: PermsQuery) => Promise<boolean>} check
+ * @property {(query: { ctx: PermsContext, details: Record<string, unknown> }, held: boolean) => Promise<unknown>} resolve
+ * @property {boolean} [pooled]
+ */
+
+/**
+ * The supported resources. Prototype-free so a permission string that happens
+ * to share a name with an `Object.prototype` member (`constructor`, `toString`)
+ * is still read as the permission string it is.
+ *
+ * @type {Record<string, PermsResourceHandler>}
+ */
+const RESOURCES = Object.assign(Object.create(null), {
     email: {
-        request: (perms) => perms.requestEmail(),
-        check: async (perms) => {
+        permissions: async ({ ctx }) => [
+            emailPermission((await ctx.whoami()).uuid),
+        ],
+        check: async ({ ctx, permissions, holds }) => {
             // The grant is what puts the field on `whoami`, so `null` is granted.
-            const whoami = await perms.puter.auth.whoami();
-            if ( whoami.email !== undefined ) return true;
-            return await holdsPermissions(perms.puter, [
-                emailPermission(whoami.uuid),
-            ]);
+            if ( (await ctx.whoami()).email !== undefined ) return true;
+            return holds(permissions);
         },
-        permissions: async (perms) => {
-            const whoami = await perms.puter.auth.whoami();
-            return [emailPermission(whoami.uuid)];
-        },
-        resolve: async (perms, _details, held) => {
+        resolve: async ({ ctx }, held) => {
             if ( ! held ) return undefined;
-            return (await perms.puter.auth.whoami()).email;
+            // Already there before the prompt, or released by it — one more
+            // read only in the second case.
+            const whoami = await ctx.whoami();
+            if ( whoami.email !== undefined ) return whoami.email;
+            return (await ctx.reread()).email;
         },
     },
 
     folder: {
-        request: (perms, details) =>
-            perms.requestFolder(
-                /** @type {import('./types.js').PermsFolderName} */ (details.name),
+        permissions: async ({ ctx, details }) => [
+            fsPermission(
+                folderPathFor((await ctx.whoami()).username, folderNameOf(details)),
                 accessOf(details),
             ),
-        check: async (perms, details) => {
-            const permissions = await RESOURCES.folder.permissions(perms, details);
-            return await holdsPermissions(perms.puter, permissions);
+        ],
+        check: async ({ ctx, details, permissions, holds }) => {
+            if ( accessOf(details) !== 'write' ) {
+                const path = folderPathFor(
+                    (await ctx.whoami()).username,
+                    folderNameOf(details),
+                );
+                if ( await folderReadable(ctx.puter, path) ) return true;
+            }
+            return holds(permissions);
         },
-        permissions: async (perms, details) => {
-            const access = accessOf(details);
-            const path = await folderPathFor(
-                perms.puter,
-                assertFolderName(details.name),
-            );
-            return [fsPermission(path, access)];
-        },
-        resolve: async (perms, details, held) => {
+        resolve: async ({ ctx, details }, held) => {
             if ( ! held ) return undefined;
-            return await folderPathFor(
-                perms.puter,
-                assertFolderName(details.name),
+            return folderPathFor(
+                (await ctx.whoami()).username,
+                folderNameOf(details),
             );
         },
     },
 
     apps: {
-        request: (perms, details) => perms.requestApps(accessOf(details)),
-        check: async (perms, details) =>
-            await holdsPermissions(
-                perms.puter,
-                await RESOURCES.apps.permissions(perms, details),
-            ),
-        permissions: async (perms, details) => {
-            const access = accessOf(details);
-            const whoami = await perms.puter.auth.whoami();
-            return [appsPermission(whoami.uuid, access)];
-        },
-        resolve: async (_perms, _details, held) => held,
+        permissions: async ({ ctx, details }) => [
+            appsPermission((await ctx.whoami()).uuid, accessOf(details)),
+        ],
+        check: async ({ permissions, holds }) => holds(permissions),
+        resolve: async (_query, held) => held,
     },
 
     subdomains: {
-        request: (perms, details) => perms.requestSubdomains(accessOf(details)),
-        check: async (perms, details) =>
-            await holdsPermissions(
-                perms.puter,
-                await RESOURCES.subdomains.permissions(perms, details),
-            ),
-        permissions: async (perms, details) => {
-            const access = accessOf(details);
-            const whoami = await perms.puter.auth.whoami();
-            return [subdomainsPermission(whoami.uuid, access)];
-        },
-        resolve: async (_perms, _details, held) => held,
+        permissions: async ({ ctx, details }) => [
+            subdomainsPermission((await ctx.whoami()).uuid, accessOf(details)),
+        ],
+        check: async ({ permissions, holds }) => holds(permissions),
+        resolve: async (_query, held) => held,
     },
 
     appData: {
-        request: (perms, details) =>
-            perms.requestAppData(
-                /** @type {string} */ (details.app),
-                /** @type {import('./types.js').AppDataScopes} */ (details.scopes),
-            ),
-        check: async (perms, details) => {
-            const permissions = await RESOURCES.appData.permissions(perms, details);
-            // Its own data, which it may always use.
-            if ( permissions.length === 0 ) return true;
-            return await holdsPermissions(perms.puter, permissions);
-        },
-        permissions: (perms, details) =>
+        permissions: ({ ctx, details }) =>
             appDataRequest(
-                perms.puter,
+                ctx.puter,
                 /** @type {string} */ (details.app),
                 /** @type {import('./types.js').AppDataScopes} */ (details.scopes),
             ),
-        resolve: async (_perms, _details, held) => held,
+        // An empty list is its own data, which it may always use.
+        check: async ({ permissions, holds }) =>
+            permissions.length === 0 || holds(permissions),
+        resolve: async (_query, held) => held,
     },
 
     appRootDir: {
-        request: (perms, details) =>
-            perms.requestAppRootDir(
-                /** @type {string} */ (details.app),
-                accessOf(details),
-            ),
-        // `app-root-dir:…` only resolves while a grant is written, so ask the server.
-        check: async (perms, details) => {
-            const result = await statAppRootDir(
-                perms.puter,
-                appUidOf(details.app),
-                accessOf(details),
-            );
-            return ! result.error;
-        },
-        permissions: async (_perms, details) => [
+        permissions: async ({ details }) => [
             appRootDirPermission(appUidOf(details.app), accessOf(details)),
         ],
-        // Only the server can name the directory, so this asks even once held.
-        resolve: async (perms, details, held) => {
+        // `app-root-dir:…` resolves to nothing in a permission scan, so only the
+        // server can answer, and it stays out of the pooled read.
+        pooled: false,
+        check: ({ ctx, details }) =>
+            checkAppRootDir(ctx.puter, appUidOf(details.app), accessOf(details)),
+        // Only the server can name the directory, so this asks even once held,
+        // riding out the cache lag behind a fresh grant.
+        resolve: async ({ ctx, details }, held) => {
             if ( ! held ) return undefined;
-            const result = await statAppRootDir(
-                perms.puter,
+            return await pollAppRootDir(
+                ctx.puter,
                 appUidOf(details.app),
                 accessOf(details),
             );
-            return result.error ? undefined : result;
         },
     },
 
     permission: {
-        request: (perms, details) =>
-            requestPermissions(perms.puter, permissionsOf(details)),
-        check: (perms, details) =>
-            holdsPermissions(perms.puter, permissionsOf(details)),
-        permissions: async (_perms, details) => permissionsOf(details),
-        resolve: async (_perms, _details, held) => held,
+        permissions: async ({ details }) => permissionsOf(details),
+        check: async ({ permissions, holds }) => holds(permissions),
+        resolve: async (_query, held) => held,
     },
-};
+});
+
+/** The resource names, for the "expected one of" in an unknown-resource error. */
+const RESOURCE_NAMES = Object.keys(RESOURCES);
 
 /**
- * Resolve a call to its resource handler, or to the legacy raw-permission form.
+ * Resolve a call to its resource, or to the legacy raw-permission form.
  *
  * A lone string naming no resource is a permission string: no resource name
  * contains a `:` and every permission string does, so neither can be mistaken
  * for the other. Details beside an unknown resource is a typo, and says so.
  *
- * @param {'request' | 'check'} op
  * @param {unknown} resource
  * @param {unknown} details
- * @returns {{ handler: (perms: PermsModule, details: Record<string, unknown>) => Promise<unknown>, details: Record<string, unknown> }}
+ * @returns {{ resource: string, details: Record<string, unknown> }}
  */
-const resolve = (op, resource, details) => {
+const singleEntry = (resource, details) => {
     if ( typeof resource !== 'string' || resource === '' ) {
         throw invalidArgument('resource must be a non-empty string');
     }
     if ( details !== undefined && (typeof details !== 'object' || details === null || Array.isArray(details)) ) {
         throw invalidArgument('details must be an object');
     }
-
-    const entry = RESOURCES[resource];
-    if ( entry ) {
+    if ( RESOURCES[resource] ) {
         return {
-            handler: entry[op],
+            resource,
             details: /** @type {Record<string, unknown>} */ (details ?? {}),
         };
     }
     if ( details !== undefined ) {
         throw invalidArgument(
-            `unknown resource: ${resource} (expected one of: ${Object.keys(RESOURCES).join(', ')})`,
+            `unknown resource: ${resource} (expected one of: ${RESOURCE_NAMES.join(', ')})`,
         );
     }
-    return {
-        handler: RESOURCES.permission[op],
-        details: { permission: resource },
-    };
+    return { resource: 'permission', details: { permission: resource } };
 };
 
 /**
@@ -256,52 +266,108 @@ const batchEntry = (entry, index) => {
     if ( ! RESOURCES[resource] ) {
         throw invalidArgument(
             `requests[${index}]: unknown resource: ${resource} ` +
-            `(expected one of: ${Object.keys(RESOURCES).join(', ')})`,
+            `(expected one of: ${RESOURCE_NAMES.join(', ')})`,
         );
     }
     return { resource, details };
 };
 
 /**
- * Ask for several resources under a single prompt, which lists only what is
- * missing and never appears when the whole batch is already held. A denial
- * denies every entry that needed the prompt; held entries keep their value.
+ * One read of everything the call asks about, answered per entry. Made on the
+ * first entry that needs it, so a resource that can settle on its own — an
+ * email already on `whoami`, a folder it can stat — costs no round trip, and
+ * read once however many entries then ask.
  *
- * @param {PermsModule} perms
- * @param {unknown[]} requests
+ * @param {PermsContext} ctx
+ * @param {string[]} permissions
+ * @returns {(permissions: string[]) => Promise<boolean>}
+ */
+function pooledHolds (ctx, permissions) {
+    const wanted = [...new Set(permissions)];
+    /** @type {Promise<Record<string, boolean>> | undefined} */
+    let pending;
+
+    return async (needed) => {
+        if ( needed.length === 0 || wanted.length === 0 ) return false;
+        const held = await (pending ??= checkPermissions(ctx.puter, wanted));
+        return needed.every((name) => held[name] === true);
+    };
+}
+
+/**
+ * The one path behind `request` and `check`, and behind both their single and
+ * array forms, so what a request prompts for and what a check reports can't
+ * drift apart.
+ *
+ * @param {PermsContext} ctx
+ * @param {{ resource: string, details: Record<string, unknown> }[]} entries
+ * @param {boolean} prompt
  * @returns {Promise<unknown[]>}
  */
-async function requestBatch (perms, requests) {
-    const entries = requests.map(batchEntry);
-
-    // Validate every entry first, so a bad one can't follow a raised prompt.
+async function runEntries (ctx, entries, prompt) {
+    // Resolved — and so validated — before anything is asked, so a bad entry
+    // can't surface after a prompt has gone up for the rest.
     const permissions = await Promise.all(
         entries.map(({ resource, details }) =>
-            RESOURCES[resource].permissions(perms, details),
-        ),
-    );
-    const held = await Promise.all(
-        entries.map(({ resource, details }) =>
-            RESOURCES[resource].check(perms, details),
+            RESOURCES[resource].permissions({ ctx, details }),
         ),
     );
 
-    const missing = [
-        ...new Set(
-            entries.flatMap((_entry, i) => (held[i] ? [] : permissions[i])),
+    const holds = pooledHolds(
+        ctx,
+        entries.flatMap(({ resource }, i) =>
+            RESOURCES[resource].pooled === false ? [] : permissions[i],
         ),
+    );
+
+    // A check that couldn't be made is not a refusal. `request` has somewhere
+    // to go with that — the prompt it would have raised anyway, which is what
+    // it did before there was a check at all. `check` has nowhere to go, and
+    // answering "not granted" would prompt someone who already granted it.
+    const held = await Promise.all(
+        entries.map(async ({ resource, details }, i) => {
+            try {
+                return await RESOURCES[resource].check({
+                    ctx,
+                    details,
+                    permissions: permissions[i],
+                    holds,
+                });
+            } catch ( e ) {
+                if ( ! prompt ) throw e;
+                return false;
+            }
+        }),
+    );
+    if ( ! prompt ) return held;
+
+    const missing = [
+        ...new Set(entries.flatMap((_entry, i) => (held[i] ? [] : permissions[i]))),
     ];
     const granted =
         missing.length === 0
             ? true
-            : await requestPermissions(perms.puter, missing);
+            : await requestPermissions(ctx.puter, missing);
 
     return await Promise.all(
         entries.map(({ resource, details }, i) =>
-            RESOURCES[resource].resolve(perms, details, held[i] || granted),
+            RESOURCES[resource].resolve({ ctx, details }, held[i] || granted),
         ),
     );
 }
+
+/**
+ * @param {unknown} resource
+ * @param {unknown} details
+ * @returns {{ resource: string, details: Record<string, unknown> }[]}
+ */
+const entriesOf = (resource, details) => {
+    if ( ! Array.isArray(resource) ) return [singleEntry(resource, details)];
+    if ( details !== undefined ) {
+        throw invalidArgument('a batch takes no second argument');
+    }
+    return resource.map(batchEntry);
+};
 
 /**
  * @overload
@@ -349,9 +415,10 @@ async function requestBatch (perms, requests) {
  * @returns {Promise<boolean>}
  */
 /**
- * Ask the user for access, prompting only when it isn't already held. The
+ * Ask the user for access, prompting only for what isn't already held. The
  * resource decides which details are taken and what resolves: `'folder'` gives
- * the path, `'email'` the address, the rest a boolean. Denied is always falsy.
+ * the path, `'email'` the address, `'appRootDir'` the directory, the rest a
+ * boolean. Denied is always falsy.
  *
  *     await puter.perms.request('folder', { name: 'Documents', access: 'write' });
  *
@@ -368,14 +435,9 @@ async function requestBatch (perms, requests) {
  * @returns {Promise<unknown>}
  */
 export async function request (resource, details) {
-    if ( Array.isArray(resource) ) {
-        if ( details !== undefined ) {
-            throw invalidArgument('a batch takes no second argument');
-        }
-        return await requestBatch(this, resource);
-    }
-    const resolved = resolve('request', resource, details);
-    return await resolved.handler(this, resolved.details);
+    const entries = entriesOf(resource, details);
+    const results = await runEntries(makeContext(this.puter), entries, true);
+    return Array.isArray(resource) ? results : results[0];
 }
 
 /**
@@ -424,13 +486,14 @@ export async function request (resource, details) {
  * @returns {Promise<boolean>}
  */
 /**
- * Whether the access is already held, never prompting. Takes the same resource
- * and details as {@link request}, so an app can offer an opt-in only where one
- * is needed. A partly-granted set answers `false` — the prompt is still needed.
+ * Whether the access is already held, never prompting and never changing
+ * anything. Takes the same resource and details as {@link request}, so an app
+ * can offer an opt-in only where one is needed. A partly-granted set answers
+ * `false` — the prompt is still needed.
  *
  *     if ( ! await puter.perms.check('folder', { name: 'Documents' }) ) ...
  *
- * The array form answers per entry, in order, naming which parts are missing.
+ * The array form answers per entry, in order.
  *
  * @this {PermsModule}
  * @param {PermsResource | string | import('./types.js').PermsBatchEntry[]} resource
@@ -438,17 +501,9 @@ export async function request (resource, details) {
  * @returns {Promise<boolean | boolean[]>}
  */
 export async function check (resource, details) {
-    if ( Array.isArray(resource) ) {
-        if ( details !== undefined ) {
-            throw invalidArgument('a batch takes no second argument');
-        }
-        const entries = resource.map(batchEntry);
-        return await Promise.all(
-            entries.map(({ resource: name, details: entryDetails }) =>
-                RESOURCES[name].check(this, entryDetails),
-            ),
-        );
-    }
-    const resolved = resolve('check', resource, details);
-    return /** @type {boolean} */ (await resolved.handler(this, resolved.details));
+    const entries = entriesOf(resource, details);
+    const held = /** @type {boolean[]} */ (
+        await runEntries(makeContext(this.puter), entries, false)
+    );
+    return Array.isArray(resource) ? held : held[0];
 }
