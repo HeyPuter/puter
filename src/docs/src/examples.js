@@ -716,6 +716,59 @@ const examples = [
         ],
     },
     {
+        title: 'Perms',
+        children: [
+            {
+                title: "Request the user's email",
+                description: "Request access to the user's email address with Puter.js permissions API. Run and experiment with this example directly in the playground.",
+                slug: 'perms-request-email',
+                source: '/playground/examples/perms-request-email.html',
+            },
+            {
+                title: 'Request folder access',
+                description: 'Request write access to a special folder with Puter.js permissions API. Run and modify this example instantly in your browser.',
+                slug: 'perms-request-folder',
+                source: '/playground/examples/perms-request-folder.html',
+            },
+            {
+                title: 'Request several at once',
+                description: 'Request everything your app needs under a single prompt with Puter.js permissions API. Run and experiment with this batch example in the playground.',
+                slug: 'perms-request-batch',
+                source: '/playground/examples/perms-request-batch.html',
+            },
+            {
+                title: 'Check without prompting',
+                description: 'Check whether access is already granted before asking for it with Puter.js permissions API. Run and modify this example in the playground.',
+                slug: 'perms-check',
+                source: '/playground/examples/perms-check.html',
+            },
+            {
+                title: "Request access to the user's apps",
+                description: "Request read access to the user's apps with Puter.js permissions API. Run and experiment with this example directly in the playground.",
+                slug: 'perms-request-apps',
+                source: '/playground/examples/perms-request-apps.html',
+            },
+            {
+                title: "Request access to the user's subdomains",
+                description: "Request write access to the user's subdomains with Puter.js permissions API. Run and modify this example instantly in your browser.",
+                slug: 'perms-request-subdomains',
+                source: '/playground/examples/perms-request-subdomains.html',
+            },
+            {
+                title: "Use another app's data",
+                description: "Request permission to use another app's key-value data with Puter.js permissions API. Run and experiment with this example in the playground.",
+                slug: 'perms-request-app-data',
+                source: '/playground/examples/perms-request-app-data.html',
+            },
+            {
+                title: 'Request a raw permission string',
+                description: 'Request a specific permission string with Puter.js permissions API. Run and modify this example directly in your browser.',
+                slug: 'perms-request-permission',
+                source: '/playground/examples/perms-request-permission.html',
+            },
+        ],
+    },
+    {
         title: 'Workers',
         children: [
             {

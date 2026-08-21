@@ -1,0 +1,23 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="save">Save to Documents</button>
+    <script>
+        document.getElementById('save').addEventListener('click', async () => {
+            const details = { name: 'Documents', access: 'write' };
+
+            // check() never prompts, so it can run before deciding whether to.
+            if (await puter.perms.check('folder', details)) {
+                puter.print('Already granted, no prompt needed');
+            } else if (!await puter.perms.request('folder', details)) {
+                puter.print('Documents write access denied');
+                return;
+            }
+
+            const user = await puter.auth.getUser();
+            await puter.fs.write(`/${user.username}/Documents/notes.txt`, 'Saved!');
+            puter.print('Saved to Documents');
+        });
+    </script>
+</body>
+</html>
