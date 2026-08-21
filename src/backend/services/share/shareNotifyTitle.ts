@@ -119,12 +119,18 @@ export const shareNotifyTitle = (senders: ShareSender[]): string => {
 // Email can't be rewritten the way a notification can, so it gets the grouped
 // wording by being held briefly and merged. These shapes are the accumulator.
 
+/** One named item. No `link` when it isn't addressable; wording is unchanged. */
+export interface DigestItem {
+    name: string;
+    link?: string;
+}
+
 /** One sender's contribution to a digest email. */
 export interface DigestEntry {
     username: string;
     count: number;
-    /** Item names, newest last. */
-    names: string[];
+    /** Named items, newest last. */
+    items: DigestItem[];
 }
 
 /** How many item names one digest line spells out before counting the rest. */
@@ -135,20 +141,20 @@ export const mergeDigestEntry = (
     entries: DigestEntry[],
     username: string | undefined,
     count: number,
-    names: string[] = [],
+    items: DigestItem[] = [],
 ): DigestEntry[] => {
     const name = username || 'Someone';
     const merged = entries.map((entry) => ({
         ...entry,
-        names: [...entry.names],
+        items: [...entry.items],
     }));
     const existing = merged.find((entry) => entry.username === name);
     if (existing) {
         existing.count += count;
-        existing.names.push(...names);
+        existing.items.push(...items);
         return merged;
     }
-    merged.push({ username: name, count, names: [...names] });
+    merged.push({ username: name, count, items: [...items] });
     return merged;
 };
 
@@ -166,29 +172,47 @@ export const digestSubject = (
     );
     const what =
         total === 1
-            ? (entries.find((entry) => entry.names.length > 0)?.names[0] ??
+            ? (entries.find((entry) => entry.items.length > 0)?.items[0].name ??
               'an item')
             : `${total} items`;
     const base = `${senderList(entries)} shared ${what} with you`;
     return opts.suffix ? `${base} ${opts.suffix}` : base;
 };
 
+/**
+ * One line per sender, twice over: `what` as a sentence, and
+ * `lead`/`items`/`trail` split at the names so each can be linked.
+ * Concatenating the three reproduces `what` exactly.
+ */
+export interface DigestLine {
+    sender: string;
+    what: string;
+    lead: string;
+    items: DigestItem[];
+    trail: string;
+}
+
 /** One rendered line per sender: who, and what they shared. */
-export const digestLines = (
-    entries: DigestEntry[],
-): Array<{ sender: string; what: string }> =>
+export const digestLines = (entries: DigestEntry[]): DigestLine[] =>
     entries.map((entry) => {
-        const named = entry.names.slice(0, NAMED_ITEMS_LIMIT);
-        let what: string;
+        const named = entry.items.slice(0, NAMED_ITEMS_LIMIT);
+        const names = named.map((item) => item.name);
+        let lead: string;
+        let trail = '';
         if (entry.count === 1 && named.length === 1) {
-            what = named[0];
+            lead = '';
         } else if (named.length === 0) {
-            what = `${entry.count} items`;
+            lead = `${entry.count} items`;
         } else {
             const rest = entry.count - named.length;
-            what =
-                `${entry.count} items — ${named.join(', ')}` +
-                (rest > 0 ? `, +${rest} more` : '');
+            lead = `${entry.count} items — `;
+            if (rest > 0) trail = `, +${rest} more`;
         }
-        return { sender: entry.username, what };
+        return {
+            sender: entry.username,
+            what: lead + names.join(', ') + trail,
+            lead,
+            items: named,
+            trail,
+        };
     });

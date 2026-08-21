@@ -30,8 +30,14 @@ import {
     shareNotifyTitle,
     shareSendersFromFields,
     type DigestEntry,
+    type DigestItem,
     type ShareSender,
 } from './shareNotifyTitle';
+import {
+    maskedSharePath,
+    ownerFromSharePath,
+    shareDeepLink,
+} from './shareDeepLink';
 import type { ResolvedShare } from './ShareService';
 
 /**
@@ -120,6 +126,12 @@ const skipped = (reason: string, detail: Record<string, unknown>): void => {
  * kept current, while whether it may _interrupt_ them — pushed to their screen,
  * mailed to them — is budgeted, since that is the part that can bury someone.
  */
+/** Where a single-item notification points; a masked path, opened in place. */
+interface ShareNotificationTarget {
+    path: string;
+    name: string;
+}
+
 /**
  * A queued send's durable form: persisted to KV so it survives the node that
  * queued it and is visible to every other node's flush.
@@ -134,6 +146,8 @@ interface DigestEntryRecord {
     sender?: string;
     count: number;
     names: string[];
+    /** As `names`, plus links. Absent on records queued before this shipped. */
+    items?: DigestItem[];
     /** Arrival order — KV lists by key, which is a uuid and says nothing. */
     queuedAt: number;
 }
@@ -242,19 +256,27 @@ export class ShareNotificationService extends PuterService {
         if (typeof issuerId !== 'number') return;
 
         const counts = new Map<number, number>();
-        const named = new Map<number, string[]>();
+        const named = new Map<number, DigestItem[]>();
+        const targets = new Map<number, ShareNotificationTarget | null>();
         for (const share of shares) {
             if (share.pending) continue;
             if (!share.isNew || !share.holderId) continue;
             if (share.holderId === issuerId) continue;
             counts.set(share.holderId, (counts.get(share.holderId) ?? 0) + 1);
-            if (share.name) {
-                const names = named.get(share.holderId) ?? [];
-                if (names.length < DIGEST_NAMES_PER_SENDER) {
-                    names.push(share.name);
-                }
-                named.set(share.holderId, names);
+            const item = this.#digestItem(share);
+            if (item) {
+                const items = named.get(share.holderId) ?? [];
+                if (items.length < DIGEST_NAMES_PER_SENDER) items.push(item);
+                named.set(share.holderId, items);
             }
+            // Only a lone item is worth pointing at; a second nulls it.
+            const path = this.#targetPath(share);
+            targets.set(
+                share.holderId,
+                targets.has(share.holderId) || !path
+                    ? null
+                    : { path, name: share.name as string },
+            );
         }
 
         // Each recipient fails alone: one refused send must not cost the next
@@ -266,7 +288,13 @@ export class ShareNotificationService extends PuterService {
                         issuerId,
                         holderId,
                     );
-                    await this.#announce(holderId, issuer, count, interrupt);
+                    await this.#announce(
+                        holderId,
+                        issuer,
+                        count,
+                        interrupt,
+                        targets.get(holderId) ?? null,
+                    );
                     await this.#emailHolder(
                         holderId,
                         issuer,
@@ -301,15 +329,19 @@ export class ShareNotificationService extends PuterService {
         issuer: string | undefined,
         count: number,
         interrupt: boolean,
+        target: ShareNotificationTarget | null,
     ): Promise<void> {
         const silent = !interrupt;
         const open = await this.#openShareNotification(holderId);
 
         if (open) {
+            // Folding means the group now covers more than one item, so no
+            // single target describes it — the click goes to Shared instead.
             const folded = this.#payload(
                 issuer,
                 mergeShareSender(open.senders, issuer, count),
                 open.groupUntil,
+                null,
             );
             if (
                 await this.services.notification.notifyUpdate(
@@ -331,6 +363,7 @@ export class ShareNotificationService extends PuterService {
                 issuer,
                 mergeShareSender([], issuer, count),
                 Date.now() + this.#limits().pairWindowSeconds * 1000,
+                count === 1 ? target : null,
             ),
             { silent },
         );
@@ -346,6 +379,7 @@ export class ShareNotificationService extends PuterService {
         issuer: string | undefined,
         senders: ShareSender[],
         groupUntil: number,
+        target: ShareNotificationTarget | null,
     ): Record<string, unknown> {
         return {
             source: 'sharing',
@@ -358,6 +392,8 @@ export class ShareNotificationService extends PuterService {
                 count: shareNotifyCount(senders),
                 senders,
                 groupUntil,
+                // A masked path, not a URL: the GUI opens it in place.
+                ...(target ? { target } : {}),
             },
         };
     }
@@ -498,7 +534,7 @@ export class ShareNotificationService extends PuterService {
         holderId: number,
         issuer: string | undefined,
         count: number,
-        itemNames: string[],
+        items: DigestItem[],
         mayOpen: boolean,
     ): Promise<void> {
         // Explicitly false, not falsy: unset means on.
@@ -541,9 +577,40 @@ export class ShareNotificationService extends PuterService {
             },
             issuer,
             count,
-            itemNames,
+            items,
             mayOpen,
         );
+    }
+
+    /**
+     * One named, linked item for the digest. Built from the uuid and owner, not
+     * `share.path` — that is the owner's real path here, not the recipient's to
+     * see. Both forms name the owner first, which is where it comes from.
+     */
+    #digestItem(share: ResolvedShare): DigestItem | null {
+        if (!share.name) return null;
+        const path = this.#targetPath(share);
+        if (!path) return { name: share.name };
+        return { name: share.name, link: shareDeepLink(this.#appLink(), path) };
+    }
+
+    /** The masked path for a share, or `null` when it isn't addressable. */
+    #targetPath(share: ResolvedShare): string | null {
+        if (!share.name) return null;
+        const ownerUsername =
+            share.owner?.username ?? ownerFromSharePath(share.path);
+        if (!ownerUsername) return null;
+        return maskedSharePath({
+            name: share.name,
+            uid: share.entryUid,
+            ownerUsername,
+        });
+    }
+
+    /** A record's items, or its names alone when it predates the links. */
+    #recordItems(record: DigestEntryRecord): DigestItem[] {
+        if (record.items?.length) return record.items;
+        return (record.names ?? []).map((name) => ({ name }));
     }
 
     /**
@@ -559,7 +626,7 @@ export class ShareNotificationService extends PuterService {
         >,
         sender: string | undefined,
         count: number,
-        names: string[],
+        items: DigestItem[],
         mayOpen: boolean,
     ): Promise<void> {
         // A digest is one email, so the budget is spent opening one, not per
@@ -573,7 +640,10 @@ export class ShareNotificationService extends PuterService {
             ...seed,
             sender,
             count,
-            names,
+            // `names` stays written so a node still running the previous build
+            // can flush this entry; `items` is what this one reads.
+            names: items.map((item) => item.name),
+            items,
             queuedAt: Date.now(),
         };
         await this.stores.kv.set({
@@ -707,7 +777,7 @@ export class ShareNotificationService extends PuterService {
                     entries,
                     record.sender,
                     record.count,
-                    record.names ?? [],
+                    this.#recordItems(record),
                 );
             }
             const [{ record: first }] = claimed;
@@ -789,25 +859,30 @@ export class ShareNotificationService extends PuterService {
         const issuerId = actor.user?.id;
         if (typeof issuerId !== 'number') return;
 
-        const byEmail = new Map<string, { count: number; names: string[] }>();
+        const byEmail = new Map<
+            string,
+            { count: number; items: DigestItem[] }
+        >();
         for (const share of shares) {
             if (!share.pending || !share.isNew || !share.recipientEmail) {
                 continue;
             }
             const seen = byEmail.get(share.recipientEmail) ?? {
                 count: 0,
-                names: [],
+                items: [] as DigestItem[],
             };
             seen.count += 1;
-            if (share.name && seen.names.length < DIGEST_NAMES_PER_SENDER) {
-                seen.names.push(share.name);
+            if (share.name && seen.items.length < DIGEST_NAMES_PER_SENDER) {
+                // Named but not linked: there is no account to route yet, and
+                // the invite's own call to action is to create one.
+                seen.items.push({ name: share.name });
             }
             byEmail.set(share.recipientEmail, seen);
         }
         if (byEmail.size === 0) return;
 
         const issuer = actor.user?.username;
-        for (const [to, { count, names }] of byEmail) {
+        for (const [to, { count, items }] of byEmail) {
             // Each address fails alone — one refused send must not cost the
             // next invitee their only channel.
             try {
@@ -821,7 +896,7 @@ export class ShareNotificationService extends PuterService {
                     { kind: 'invite', to },
                     issuer,
                     count,
-                    names,
+                    items,
                     mayOpen,
                 );
             } catch (err) {

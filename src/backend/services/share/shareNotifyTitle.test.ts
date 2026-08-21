@@ -133,15 +133,20 @@ describe('shareSendersFromFields', () => {
 });
 
 describe('email digests', () => {
+    const item = (name: string, link?: string) =>
+        link === undefined ? { name } : { name, link };
+
     it('names the item for a single share, counts for more', () => {
         expect(
-            digestSubject([{ username: 'alice', count: 1, names: ['a.txt'] }]),
+            digestSubject([
+                { username: 'alice', count: 1, items: [item('a.txt')] },
+            ]),
         ).toBe('alice shared a.txt with you');
         expect(
             digestSubject(
                 [
-                    { username: 'alice', count: 1, names: ['a.txt'] },
-                    { username: 'bob', count: 2, names: ['b.txt'] },
+                    { username: 'alice', count: 1, items: [item('a.txt')] },
+                    { username: 'bob', count: 2, items: [item('b.txt')] },
                 ],
                 { suffix: 'on Puter' },
             ),
@@ -151,26 +156,73 @@ describe('email digests', () => {
     it('renders one line per sender, naming what it can', () => {
         expect(
             digestLines([
-                { username: 'alice', count: 1, names: ['a.txt'] },
-                { username: 'bob', count: 5, names: ['b.txt', 'c.txt'] },
-                { username: 'carol', count: 2, names: [] },
+                { username: 'alice', count: 1, items: [item('a.txt')] },
+                {
+                    username: 'bob',
+                    count: 5,
+                    items: [item('b.txt'), item('c.txt')],
+                },
+                { username: 'carol', count: 2, items: [] },
             ]),
         ).toEqual([
-            { sender: 'alice', what: 'a.txt' },
-            { sender: 'bob', what: '5 items — b.txt, c.txt, +3 more' },
-            { sender: 'carol', what: '2 items' },
+            {
+                sender: 'alice',
+                what: 'a.txt',
+                lead: '',
+                items: [item('a.txt')],
+                trail: '',
+            },
+            {
+                sender: 'bob',
+                what: '5 items — b.txt, c.txt, +3 more',
+                lead: '5 items — ',
+                items: [item('b.txt'), item('c.txt')],
+                trail: ', +3 more',
+            },
+            {
+                sender: 'carol',
+                what: '2 items',
+                lead: '2 items',
+                items: [],
+                trail: '',
+            },
         ]);
+    });
+
+    // The linked form has to read as the sentence form: whatever the template
+    // renders between `lead` and `trail`, the two must not describe different
+    // shares.
+    it('composes the same wording from the link parts as from `what`', () => {
+        for (const line of digestLines([
+            { username: 'alice', count: 1, items: [item('a.txt', 'l1')] },
+            {
+                username: 'bob',
+                count: 5,
+                items: [item('b.txt', 'l2'), item('c.txt')],
+            },
+            { username: 'carol', count: 2, items: [] },
+        ])) {
+            const rebuilt =
+                line.lead +
+                line.items.map((each) => each.name).join(', ') +
+                line.trail;
+            expect(rebuilt).toBe(line.what);
+        }
     });
 
     it('merges a sender back into their own digest entry', () => {
         const merged = mergeDigestEntry(
-            [{ username: 'alice', count: 1, names: ['a.txt'] }],
+            [{ username: 'alice', count: 1, items: [item('a.txt', 'l1')] }],
             'alice',
             2,
-            ['b.txt'],
+            [item('b.txt', 'l2')],
         );
         expect(merged).toEqual([
-            { username: 'alice', count: 3, names: ['a.txt', 'b.txt'] },
+            {
+                username: 'alice',
+                count: 3,
+                items: [item('a.txt', 'l1'), item('b.txt', 'l2')],
+            },
         ]);
     });
 });
