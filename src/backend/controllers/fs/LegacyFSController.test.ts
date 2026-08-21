@@ -2094,6 +2094,50 @@ describe('LegacyFSController.requestAppRootDir', () => {
         expect(body.path).toBe(`/${username}/AppData/${appUid}`);
         expect(body.is_dir).toBe(true);
     });
+
+    // `check: true` answers the question without acting on the answer, so that
+    // asking whether the access is held is not itself a filesystem write.
+    it('answers check:true without creating the directory', async () => {
+        const { actor } = await makeUser();
+        const username = actor.user!.username!;
+        const appUid = 'app-check-only';
+        const appActor = makeActor({ ...actor, app: { uid: appUid } });
+        const rootPath = `/${username}/AppData/${appUid}`;
+        const { res, captured } = makeRes();
+
+        await withActor(appActor, () =>
+            controller.requestAppRootDir(
+                makeReq({
+                    body: { app_uid: appUid, access: 'read', check: true },
+                    actor: appActor,
+                }),
+                res,
+            ),
+        );
+
+        expect(captured.body).toEqual({ allowed: true });
+        expect(
+            await server.stores.fsEntry.getEntryByPath(rootPath),
+        ).toBeFalsy();
+    });
+
+    // The guard runs first either way, so a caller that may not claim it is
+    // refused rather than told it is allowed.
+    it('still refuses check:true from a caller that is not the app', async () => {
+        const { actor } = await makeUser();
+        const { res } = makeRes();
+        await expect(
+            withActor(actor, () =>
+                controller.requestAppRootDir(
+                    makeReq({
+                        body: { app_uid: 'app-xyz', check: true },
+                        actor,
+                    }),
+                    res,
+                ),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
 });
 
 // ── checkAppAcl ─────────────────────────────────────────────────────

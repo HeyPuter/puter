@@ -832,9 +832,7 @@ export class LegacyFSController extends PuterController {
             // Trash, and `null`/`{}` when restoring. See
             // `src/gui/src/helpers.js` → `window.move_items`.
             newMetadata: (body.new_metadata ?? undefined) as
-                | Record<string, unknown>
-                | null
-                | undefined,
+                Record<string, unknown> | null | undefined,
         });
         const oldPath = source.path;
         await this.#emitGuiEvent('outer.gui.item.moved', moved, {
@@ -1281,8 +1279,7 @@ export class LegacyFSController extends PuterController {
         }
 
         type SignedOrEmpty =
-            | (SignedFile & { path?: string })
-            | Record<string, never>;
+            (SignedFile & { path?: string }) | Record<string, never>;
         const result: { signatures: SignedOrEmpty[]; token?: string } = {
             signatures: [],
         };
@@ -1846,6 +1843,12 @@ export class LegacyFSController extends PuterController {
     /**
      * POST /auth/request-app-root-dir — an app-under-user requests stat on its
      * own app root directory. The app must own itself.
+     *
+     * `check: true` answers whether the caller may claim it and stops there,
+     * for callers asking the question rather than acting on the answer —
+     * otherwise `puter.perms.check('appRootDir', …)` would provision a
+     * directory just by being asked. Answering is the whole response: a caller
+     * that may not claim it gets the 403 below either way.
      */
     requestAppRootDir = async (req: Request, res: Response): Promise<void> => {
         const actor = this.#requireActor(req);
@@ -1872,6 +1875,11 @@ export class LegacyFSController extends PuterController {
                 legacyCode: 'unauthorized',
             });
 
+        if (getBoolean(body, 'check')) {
+            res.json({ allowed: true });
+            return;
+        }
+
         const rootPath = `/${username}/AppData/${appUid}`;
         // Auto-create the AppData/<uid> tree on first call.
         const entry = await this.services.fs.mkdir(userId, {
@@ -1892,10 +1900,7 @@ export class LegacyFSController extends PuterController {
         const subjectRef = body.subject;
         const appRef = body.app;
         const mode = (getString(body, 'mode') ?? 'read') as
-            | 'see'
-            | 'list'
-            | 'read'
-            | 'write';
+            'see' | 'list' | 'read' | 'write';
         if (!subjectRef || !appRef)
             throw new HttpError(400, '`subject` and `app` are required', {
                 legacyCode: 'bad_request',
