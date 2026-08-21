@@ -38,7 +38,11 @@ import type { Actor } from '../../core/actor.js';
 import { Context, runWithContext } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { requireUserActorGate } from '../../core/http/middleware/gates.js';
-import type { TokenSource } from '../../core/http/types.js';
+import {
+    ROUTES_METADATA_KEY,
+    type CollectedRoute,
+    type TokenSource,
+} from '../../core/http/types.js';
 import { PuterServer } from '../../server.js';
 import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import { setupTestServer } from '../../testUtil.js';
@@ -1681,27 +1685,6 @@ describe('AuthController grant flows', () => {
         } as Actor;
     });
 
-    it('grant-user-user: is retired and reports 501', async () => {
-        // Filesystem access goes through /share, which indexes the grant so it
-        // can be listed and revoked; nothing else is meant to pass between two
-        // users. Revoking is untouched, so pre-existing grants can still go.
-        await expect(
-            controller.handleGrantUserUser(
-                makeReq(
-                    {
-                        target_username: target.username,
-                        permission: `service:test-${uuidv4()}:ii:read`,
-                    },
-                    { actor: issuerActor },
-                ),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({
-            statusCode: 501,
-            legacyCode: 'not_implemented',
-        });
-    });
-
     it('grant-user-app: persists a user→app permission grant', async () => {
         // Create an app row owned by the issuer so the grant has somewhere
         // to land.
@@ -2189,20 +2172,6 @@ describe('AuthController grant flows', () => {
         expect(await storedPermissions()).not.toContain(NOTHING);
     });
 
-    it('grant-user-group: 404 when the group does not exist', async () => {
-        await expect(
-            controller.handleGrantUserGroup(
-                makeReq(
-                    {
-                        group_uid: `does-not-exist-${uuidv4()}`,
-                        permission: 'service:foo:ii:read',
-                    },
-                    { actor: issuerActor },
-                ),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 404 });
-    });
 });
 
 // ── Token grants: get-user-app-token / check-app ───────────────────
@@ -4779,16 +4748,24 @@ describe('AuthController permission revokes', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('revoke-user-group: 400 on missing group_uid/permission', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleRevokeUserGroup(
-                makeReq({ permission: 'fs:read' }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
+    // No in-tree caller, so a later cleanup would read it as dead: pin the gate.
+    it('revoke-user-user: stays registered as a user-actor route', () => {
+        const proto = Object.getPrototypeOf(controller) as Record<
+            string,
+            CollectedRoute[] | undefined
+        >;
+        const route = (proto[ROUTES_METADATA_KEY] ?? []).find(
+            (r) => r.path === '/auth/revoke-user-user',
+        );
+        expect(route, '/auth/revoke-user-user is not registered').toBeDefined();
+        expect(route!.method).toBe('post');
+        expect(route!.options).toMatchObject({
+            subdomain: 'api',
+            requireUserActor: true,
+        });
     });
 
+    // Why the deprecated route exists: older grants stay withdrawable.
     it('revoke-user-user: round-trips a grant + revoke without throwing', async () => {
         const { actor: issuerActor, user: issuer } = await makeUserAndActor();
         const { user: target } = await makeUserAndActor();
@@ -4802,8 +4779,7 @@ describe('AuthController permission revokes', () => {
                 issuer_user_id: issuer.id,
             } as never,
         );
-        // Grant first — through the service, since the grant route is retired
-        // and revoking has to keep working for what it left behind.
+        // Through the service: the grant route is retired, the revoke is not.
         await inCtx(issuerActor, () =>
             server.services.permission.grantUserUserPermission(
                 issuerActor,
@@ -4812,13 +4788,8 @@ describe('AuthController permission revokes', () => {
             ),
         );
 
-        // Now revoke — must complete without throwing and return {}.
-        // We don't re-assert the post-revoke `check()` answer here: the
-        // Redis-mock scan cache is process-wide, and intervening grants
-        // from other tests have repeatedly been observed to leave the
-        // cached `true` answer in place even after a successful revoke.
-        // Verifying the controller path rather than the cache eviction
-        // semantics keeps this test focused.
+        // Asserts the controller path only: the process-wide Redis-mock scan
+        // cache makes a post-revoke `check()` unreliable across tests.
         const res = makeRes();
         await inCtx(issuerActor, () =>
             controller.handleRevokeUserUser(
@@ -5461,130 +5432,6 @@ describe('AuthController.handleGetDevProfile', () => {
             joined_incentive_program: false,
             paypal: null,
         });
-    });
-});
-
-// ── Group endpoints ────────────────────────────────────────────────
-
-describe('AuthController group endpoints', () => {
-    it('group/create: rejects non-object extra/metadata with 400', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupCreate(
-                makeReq({ extra: ['x'] }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-        await expect(
-            controller.handleGroupCreate(
-                makeReq({ metadata: ['x'] }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('group/create + add-users + remove-users: full owner-driven lifecycle', async () => {
-        const { actor: owner } = await makeUserAndActor();
-        const { user: target } = await makeUserAndActor();
-
-        // Create.
-        const createRes = makeRes();
-        await controller.handleGroupCreate(
-            makeReq({ metadata: { name: 'g' } }, { actor: owner }),
-            createRes,
-        );
-        const { uid } = createRes.body as { uid: string };
-        expect(typeof uid).toBe('string');
-
-        // Add.
-        const addRes = makeRes();
-        await controller.handleGroupAddUsers(
-            makeReq({ uid, users: [target.username] }, { actor: owner }),
-            addRes,
-        );
-        expect(addRes.body).toEqual({});
-
-        // Remove.
-        const remRes = makeRes();
-        await controller.handleGroupRemoveUsers(
-            makeReq({ uid, users: [target.username] }, { actor: owner }),
-            remRes,
-        );
-        expect(remRes.body).toEqual({});
-    });
-
-    it('group/add-users: 400 on missing uid or non-array users', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupAddUsers(
-                makeReq({ users: ['x'] }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-        await expect(
-            controller.handleGroupAddUsers(
-                makeReq({ uid: 'g-1' }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('group/add-users: 404 on unknown uid; 403 when caller doesn’t own the group', async () => {
-        const { actor: a1 } = await makeUserAndActor();
-        const { actor: a2 } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupAddUsers(
-                makeReq(
-                    { uid: `does-not-exist-${uuidv4()}`, users: [] },
-                    { actor: a1 },
-                ),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 404 });
-
-        // Group owned by a1; a2 tries to add → 403.
-        const createRes = makeRes();
-        await controller.handleGroupCreate(
-            makeReq({}, { actor: a1 }),
-            createRes,
-        );
-        const { uid } = createRes.body as { uid: string };
-        await expect(
-            controller.handleGroupAddUsers(
-                makeReq({ uid, users: [] }, { actor: a2 }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 403 });
-    });
-
-    it('group/list: forwards to GroupStore listByOwner/listByMember (or surfaces the source-side method-name mismatch)', async () => {
-        const { actor } = await makeUserAndActor();
-        const res = makeRes();
-        try {
-            await controller.handleGroupList(makeReq({}, { actor }), res);
-            const body = res.body as {
-                owned_groups: unknown[];
-                in_groups: unknown[];
-            };
-            expect(Array.isArray(body.owned_groups)).toBe(true);
-            expect(Array.isArray(body.in_groups)).toBe(true);
-        } catch (e) {
-            // The handler calls `stores.group.listByOwner(...)`, but the
-            // GroupStore implementation may expose a differently-named
-            // method. Surface the mismatch so a future GroupStore rename
-            // re-enables the assertion above.
-            expect((e as Error).message).toMatch(
-                /listByOwner|listByMember|is not a function/,
-            );
-        }
-    });
-
-    it('group/public-groups: returns {user, temp} from config', async () => {
-        const res = makeRes();
-        await controller.handleGroupPublicGroups(makeReq({}), res);
-        const body = res.body as { user: string | null; temp: string | null };
-        expect(body).toHaveProperty('user');
-        expect(body).toHaveProperty('temp');
     });
 });
 
@@ -6473,16 +6320,6 @@ describe('AuthController grant/revoke additional branches', () => {
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('grant-user-group: 400 on missing group_uid', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGrantUserGroup(
-                makeReq({ permission: 'fs:read' }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
     it('revoke-user-app: 400 when permission is "*" but app_uid is missing', async () => {
         const { actor } = await makeUserAndActor();
         await expect(
@@ -6597,58 +6434,6 @@ describe('AuthController.handleGetDevProfile additional branches', () => {
         await expect(
             controller.handleGetDevProfile(makeReq({}, { actor }), makeRes()),
         ).rejects.toMatchObject({ statusCode: 404 });
-    });
-});
-
-describe('AuthController group endpoints: additional branches', () => {
-    it('group/remove-users: 400 on missing uid', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupRemoveUsers(
-                makeReq({ users: ['x'] }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('group/remove-users: 400 on non-array users', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupRemoveUsers(
-                makeReq({ uid: 'g-1' }, { actor }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 400 });
-    });
-
-    it('group/remove-users: 404 on unknown uid', async () => {
-        const { actor } = await makeUserAndActor();
-        await expect(
-            controller.handleGroupRemoveUsers(
-                makeReq(
-                    { uid: `does-not-exist-${uuidv4()}`, users: [] },
-                    { actor },
-                ),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 404 });
-    });
-
-    it('group/remove-users: 403 when caller does not own the group', async () => {
-        const { actor: a1 } = await makeUserAndActor();
-        const { actor: a2 } = await makeUserAndActor();
-        const createRes = makeRes();
-        await controller.handleGroupCreate(
-            makeReq({}, { actor: a1 }),
-            createRes,
-        );
-        const { uid } = createRes.body as { uid: string };
-        await expect(
-            controller.handleGroupRemoveUsers(
-                makeReq({ uid, users: [] }, { actor: a2 }),
-                makeRes(),
-            ),
-        ).rejects.toMatchObject({ statusCode: 403 });
     });
 });
 

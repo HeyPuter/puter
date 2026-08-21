@@ -1,5 +1,5 @@
 ---
-title: puter.perms.requestAppData()
+title: Using another app's data
 description: Request permission to use another app's data — its key-value store and its AppData files.
 platforms: [websites, apps]
 ---
@@ -8,7 +8,7 @@ Request permission for your app to use another app's data belonging to the signe
 
 The user is prompted once and sees exactly which apps and which kinds of access are involved. If the permission has already been granted the user is not prompted and `true` is returned. If the user declines, `false` is returned.
 
-On a website, sign the user in to your site first with [`puter.auth.signIn()`](/Auth/signIn/). This method reads the signed-in user's identity before it can prompt, so for a signed-out visitor it rejects with `Unauthorized` and no prompt is shown. Answering a permission prompt does not by itself sign the user in to your site, so guard the call:
+On a website, sign the user in to your site first with [`puter.auth.signIn()`](/Auth/signIn/). This reads the signed-in user's identity before it can prompt, so for a signed-out visitor it rejects with `Unauthorized` and no prompt is shown. Answering a permission prompt does not by itself sign the user in to your site, so guard the call:
 
 ```js
 if (!puter.authToken) await puter.auth.signIn();
@@ -17,12 +17,14 @@ if (!puter.authToken) await puter.auth.signIn();
 ## Syntax
 
 ```js
-puter.perms.requestAppData(appIdentifier, scopes)
+puter.perms.request('appData', { app, scopes })
 ```
 
-## Parameters
+See [`puter.perms.request()`](/Perms/request/) for the other resources it takes, and [`puter.perms.check()`](/Perms/check/) to ask whether the access is already granted without prompting.
 
-#### `appIdentifier` (String | Object) (required)
+## Details
+
+#### `app` (String | Object) (required)
 The app whose data you want to use. Either its uid (`app-…`), its registered name, or an object carrying one: `{ uid: 'app-…' }` or `{ name: 'contacts' }`.
 
 #### `scopes` (String | Array | Object) (required)
@@ -64,7 +66,7 @@ The promise rejects if the named app does not exist, or if a scope is misspelled
     <script>
         document.getElementById('request').addEventListener('click', async () => {
             const contacts = await puter.apps.get('contacts');
-            const granted = await puter.perms.requestAppData(contacts.uid, 'read');
+            const granted = await puter.perms.request('appData', { app: contacts.uid, scopes: 'read' });
             if (!granted) {
                 puter.print('Permission denied');
                 return;
@@ -89,8 +91,9 @@ The promise rejects if the named app does not exist, or if a scope is misspelled
         document.getElementById('book').addEventListener('click', async () => {
             const contacts = await puter.apps.get('contacts');
             // Writing and deleting are separate scopes, so ask for both.
-            const granted = await puter.perms.requestAppData(contacts.uid, {
-                kv: ['set', 'del'],
+            const granted = await puter.perms.request('appData', {
+                app: contacts.uid,
+                scopes: { kv: ['set', 'del'] },
             });
             if (!granted) return;
 
@@ -115,7 +118,7 @@ The promise rejects if the named app does not exist, or if a scope is misspelled
     <script>
         document.getElementById('files').addEventListener('click', async () => {
             const contacts = await puter.apps.get('contacts');
-            const granted = await puter.perms.requestAppData(contacts.uid, ['fs:read']);
+            const granted = await puter.perms.request('appData', { app: contacts.uid, scopes: ['fs:read'] });
             if (!granted) return;
 
             const user = await puter.auth.getUser();

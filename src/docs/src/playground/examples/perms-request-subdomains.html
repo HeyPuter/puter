@@ -1,0 +1,18 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <button id="request-subdomains">Request Subdomains Write Access</button>
+    <script>
+        document.getElementById('request-subdomains').addEventListener('click', async () => {
+            const granted = await puter.perms.request('subdomains', { access: 'write' });
+            if (granted) {
+                puter.print('Subdomains write access granted');
+                const sites = await puter.hosting.list();
+                puter.print(`User has ${sites.length} site(s)`);
+            } else {
+                puter.print('Subdomains write access denied');
+            }
+        });
+    </script>
+</body>
+</html>

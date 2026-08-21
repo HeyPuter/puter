@@ -172,6 +172,16 @@ export type {
     AppDataScopePair,
     AppDataScopes,
     AppDataStore,
+    PermsAccess,
+    PermsAccessRequest,
+    PermsAppDataRequest,
+    PermsAppRootDirRequest,
+    PermsBatchEntry,
+    PermsFolderName,
+    PermsFolderRequest,
+    PermsPermissionRequest,
+    PermsRequestDetails,
+    PermsResource,
 } from './types/modules/perms/types.js';
 
 // -- puter.ui --

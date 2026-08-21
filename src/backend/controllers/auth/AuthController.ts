@@ -118,7 +118,7 @@ const TWO_FACTOR_LIMIT = {
     key: 'user',
 } as const;
 
-/** Permission and membership writes. Never called in a loop by a client. */
+/** Permission writes. Never called in a loop by a client. */
 const GRANT_LIMIT = {
     scope: 'auth-grant',
     limit: 60,
@@ -158,7 +158,7 @@ const ANTI_CSRF_MINT_LIMIT = {
     key: 'user',
 } as const;
 
-/** Settings-page reads — enumerating sessions, permissions, groups. */
+/** Settings-page reads — enumerating sessions and permissions. */
 const AUTH_LIST_LIMIT = {
     scope: 'auth-list',
     limit: 120,
@@ -1150,8 +1150,7 @@ export class AuthController extends PuterController {
                     is_temp: user!.password === null && user!.email === null,
                     ip:
                         (req?.headers?.['x-forwarded-for'] as
-                            | string
-                            | undefined) ||
+                            string | undefined) ||
                         (
                             req as unknown as {
                                 connection?: { remoteAddress?: string };
@@ -2966,25 +2965,6 @@ export class AuthController extends PuterController {
 
     // -- Permission grants -------------------------------------------
 
-    // Retired. Filesystem access is shared through `/share`, which indexes the
-    // grant so the owner can see and revoke it; nothing else is meant to pass
-    // between two users. This wrote straight to the permission tables with no
-    // such record. Never documented, no callers. Revoking still works, so
-    // anything granted before this can still be taken back.
-    @Post('/auth/grant-user-user', {
-        subdomain: 'api',
-        requireUserActor: true,
-        rateLimit: GRANT_LIMIT,
-    })
-    async handleGrantUserUser(_req: Request, _res: Response): Promise<void> {
-        throw new HttpError(
-            501,
-            'Direct user-to-user permission grants are no longer supported; ' +
-                'use puter.fs.share() to share files',
-            { legacyCode: 'not_implemented' },
-        );
-    }
-
     /**
      * Shared input validation for the user-app grant/revoke handlers, which
      * accept a caller-supplied `origin` as an alternative to `app_uid`. All
@@ -3205,35 +3185,13 @@ export class AuthController extends PuterController {
         res.json({});
     }
 
-    @Post('/auth/grant-user-group', {
-        subdomain: 'api',
-        requireUserActor: true,
-        rateLimit: GRANT_LIMIT,
-    })
-    async handleGrantUserGroup(req: Request, res: Response): Promise<void> {
-        const { group_uid, permission, extra, meta } = req.body;
-        if (!group_uid || !permission) {
-            throw new HttpError(400, 'Missing `group_uid` or `permission`', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const group = await this.stores.group.getByUid(group_uid);
-        if (!group)
-            throw new HttpError(404, 'Group not found', {
-                legacyCode: 'not_found',
-            });
-        await this.services.permission.grantUserGroupPermission(
-            req.actor!,
-            group,
-            permission,
-            extra,
-            meta,
-        );
-        res.json({});
-    }
-
     // -- Permission revokes ------------------------------------------
 
+    /**
+     * @deprecated Use `puter.fs.unshare()`, which withdraws the share row and
+     *   the grant together. Kept for direct HTTP callers: the grant side is
+     *   retired, but access it left behind has to stay withdrawable.
+     */
     @Post('/auth/revoke-user-user', {
         subdomain: 'api',
         requireUserActor: true,
@@ -3298,27 +3256,6 @@ export class AuthController extends PuterController {
                 );
             }
         }
-        res.json({});
-    }
-
-    @Post('/auth/revoke-user-group', {
-        subdomain: 'api',
-        requireUserActor: true,
-        rateLimit: GRANT_LIMIT,
-    })
-    async handleRevokeUserGroup(req: Request, res: Response): Promise<void> {
-        const { group_uid, permission, meta } = req.body;
-        if (!group_uid || !permission) {
-            throw new HttpError(400, 'Missing `group_uid` or `permission`', {
-                legacyCode: 'bad_request',
-            });
-        }
-        await this.services.permission.revokeUserGroupPermission(
-            req.actor!,
-            { uid: group_uid } as never,
-            permission,
-            meta,
-        );
         res.json({});
     }
 
@@ -3993,147 +3930,6 @@ export class AuthController extends PuterController {
             ),
             joined_incentive_program: Boolean(u.joined_incentive_program),
             paypal: u.paypal ?? null,
-        });
-    }
-
-    // -- Group management --------------------------------------------
-
-    @Post('/group/create', {
-        subdomain: 'api',
-        requireUserActor: true,
-        // Creates a persistent row per call with no quota behind it, so it
-        // sits on the hour-scale budget rather than the grant one.
-        rateLimit: { ...CREDENTIAL_MINT_LIMIT, scope: 'group-create' },
-    })
-    async handleGroupCreate(req: Request, res: Response): Promise<void> {
-        const extra = req.body.extra ?? {};
-        const metadata = req.body.metadata ?? {};
-        if (typeof extra !== 'object' || Array.isArray(extra))
-            throw new HttpError(400, '`extra` must be an object', {
-                legacyCode: 'bad_request',
-            });
-        if (typeof metadata !== 'object' || Array.isArray(metadata))
-            throw new HttpError(400, '`metadata` must be an object', {
-                legacyCode: 'bad_request',
-            });
-
-        const uid = await this.stores.group.create({
-            ownerUserId: req.actor!.user.id,
-            extra: {},
-            metadata,
-        } as never);
-        res.json({ uid });
-    }
-
-    @Post('/group/add-users', {
-        subdomain: 'api',
-        requireUserActor: true,
-        rateLimit: GRANT_LIMIT,
-    })
-    async handleGroupAddUsers(req: Request, res: Response): Promise<void> {
-        const { uid, users } = req.body ?? {};
-        if (!uid)
-            throw new HttpError(400, 'Missing `uid`', {
-                legacyCode: 'bad_request',
-            });
-        if (!Array.isArray(users))
-            throw new HttpError(400, '`users` must be an array', {
-                legacyCode: 'bad_request',
-            });
-
-        const group = await this.stores.group.getByUid(uid);
-        if (!group)
-            throw new HttpError(404, 'Group not found', {
-                legacyCode: 'not_found',
-            });
-        if (
-            (group as { owner_user_id?: number }).owner_user_id !==
-            req.actor!.user.id
-        )
-            throw new HttpError(403, 'Forbidden', {
-                legacyCode: 'forbidden',
-            });
-
-        await this.stores.group.addUsers(uid, users);
-        // New members inherit the group's permissions immediately, not
-        // after the permission-cache TTL.
-        await this.services.permission.bumpPermissionCacheForUsernames(users);
-        res.json({});
-    }
-
-    @Post('/group/remove-users', {
-        subdomain: 'api',
-        requireUserActor: true,
-        rateLimit: GRANT_LIMIT,
-    })
-    async handleGroupRemoveUsers(req: Request, res: Response): Promise<void> {
-        const { uid, users } = req.body ?? {};
-        if (!uid)
-            throw new HttpError(400, 'Missing `uid`', {
-                legacyCode: 'bad_request',
-            });
-        if (!Array.isArray(users))
-            throw new HttpError(400, '`users` must be an array', {
-                legacyCode: 'bad_request',
-            });
-
-        const group = await this.stores.group.getByUid(uid);
-        if (!group)
-            throw new HttpError(404, 'Group not found', {
-                legacyCode: 'not_found',
-            });
-        if (
-            (group as { owner_user_id?: number }).owner_user_id !==
-            req.actor!.user.id
-        )
-            throw new HttpError(403, 'Forbidden', {
-                legacyCode: 'forbidden',
-            });
-
-        await this.stores.group.removeUsers(uid, users);
-        // Removed members must lose the group's permissions immediately,
-        // not after the permission-cache TTL.
-        await this.services.permission.bumpPermissionCacheForUsernames(users);
-        res.json({});
-    }
-
-    @Get('/group/list', {
-        subdomain: 'api',
-        requireUserActor: true,
-        rateLimit: AUTH_LIST_LIMIT,
-    })
-    async handleGroupList(req: Request, res: Response): Promise<void> {
-        const userId = req.actor!.user.id!;
-        const [owned, member] = await Promise.all([
-            this.stores.group.listGroupsWithOwner(userId),
-            this.stores.group.listGroupsWithMember(userId),
-        ]);
-        res.json({
-            owned_groups: owned,
-            in_groups: member,
-        });
-    }
-
-    @Get('/group/public-groups', {
-        subdomain: 'api',
-        // The only unauthenticated route in the group set, so IP is the
-        // only key available — and that makes the bucket an aggregate:
-        // one office, campus or carrier gateway is a single key for
-        // everybody behind it, and each of them reads this once while
-        // bootstrapping. Sized for that population of real people rather
-        // than one browser, and no wider: this sits next to the sign-in
-        // surface, so it stays a real bound on enumeration.
-        rateLimit: {
-            scope: 'public-groups',
-            limit: 1_200,
-            window: 60_000,
-            key: 'ip',
-        },
-    })
-    async handleGroupPublicGroups(_req: Request, res: Response): Promise<void> {
-        res.json({
-            user: this.config.default_user_group ?? null,
-            temp: this.config.default_temp_group ?? null,
         });
     }
 

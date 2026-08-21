@@ -1,86 +1,120 @@
+import {
+    appsPermission,
+    emailPermission,
+    subdomainsPermission,
+} from './lib/permissionStrings.js';
+
 /** @typedef {import('./index.js').PermsModule} PermsModule */
+/** @typedef {import('../../index.js').Puter} Puter */
+/** @typedef {import('./types.js').PermsAccess} PermsAccess */
 
 /**
- * Request a specific permission string to be granted. Note that some
- * permission strings are not supported and will be denied silently.
+ * Ask for a raw permission string, or several under one prompt. Unsupported
+ * strings are denied silently. Stays on `puter.ui`, which owns the IPC.
  *
- * @this {PermsModule}
- * @param {string} permission - The permission string to request.
- * @returns {Promise<boolean>} `true` if the permission was granted.
+ * @param {Puter} puter
+ * @param {string[]} permissions
+ * @returns {Promise<boolean>}
  */
-export async function request (permission) {
-    // Note: this cannot move fully off of `puter.ui` without a significant
-    // refactor, because the UI module owns all of the IPC communication logic.
-    return await this.puter.ui.requestPermission({ permission });
+export async function requestPermissions (puter, permissions) {
+    // Scalar form for a lone permission: the shape the dialog dedupes on.
+    return permissions.length === 1
+        ? await puter.ui.requestPermission({ permission: permissions[0] })
+        : await puter.ui.requestPermission({ permissions });
 }
 
 /**
- * @deprecated Use {@link request} instead.
+ * @param {Puter} puter
+ * @param {PermsAccess} access
+ * @returns {Promise<boolean>}
+ */
+async function requestAppsAccess (puter, access) {
+    const whoami = await puter.auth.whoami();
+    return await requestPermissions(puter, [
+        appsPermission(whoami.uuid, access),
+    ]);
+}
+
+/**
+ * @param {Puter} puter
+ * @param {PermsAccess} access
+ * @returns {Promise<boolean>}
+ */
+async function requestSubdomainsAccess (puter, access) {
+    const whoami = await puter.auth.whoami();
+    return await requestPermissions(puter, [
+        subdomainsPermission(whoami.uuid, access),
+    ]);
+}
+
+// -- Deprecated aliases --
+
+/**
+ * @deprecated Use {@link import('./request.js').request} instead.
  * @this {PermsModule}
  * @param {...unknown} args
  * @returns {Promise<boolean>}
  */
 export function requestPermission (...args) {
-    return this.request(...args);
+    return this.request(
+        .../** @type {[string, Record<string, unknown> | undefined]} */ (args),
+    );
 }
 
 /**
- * Request to see the user's email. If already granted, the user is not
- * prompted and their email is returned.
+ * Request access to the user's email address, returning it when granted.
  *
+ * @deprecated Use `request('email')`.
  * @this {PermsModule}
- * @returns {Promise<string | null | undefined>} The email if granted, `null`
- * if granted but no email is on file, or `undefined` if access is denied.
+ * @returns {Promise<string | null | undefined>}
  */
 export async function requestEmail () {
     let whoami = await this.puter.auth.whoami();
+    // The grant is what puts the field on `whoami`, so it being present at all
+    // means the access is already held — `null` included.
     if ( whoami.email !== undefined ) return whoami.email;
 
     const granted = await this.puter.ui.requestPermission({
-        permission: `user:${whoami.uuid}:email:read`,
+        permission: emailPermission(whoami.uuid),
     });
     if ( granted ) {
         whoami = await this.puter.auth.whoami();
+        return whoami.email;
     }
-    return whoami.email;
 }
 
 /**
- * Request read access to the user's apps.
+ * @deprecated Use `request('apps')`.
  * @this {PermsModule}
  * @returns {Promise<boolean>}
  */
-export async function requestReadApps () {
-    const whoami = await this.puter.auth.whoami();
-    return await this.puter.ui.requestPermission({ permission: `apps-of-user:${whoami.uuid}:read` });
+export function requestReadApps () {
+    return requestAppsAccess(this.puter, 'read');
 }
 
 /**
- * Request write (manage) access to the user's apps.
+ * @deprecated Use `request('apps', { access: 'write' })`.
  * @this {PermsModule}
  * @returns {Promise<boolean>}
  */
-export async function requestManageApps () {
-    const whoami = await this.puter.auth.whoami();
-    return await this.puter.ui.requestPermission({ permission: `apps-of-user:${whoami.uuid}:write` });
+export function requestManageApps () {
+    return requestAppsAccess(this.puter, 'write');
 }
 
 /**
- * Request read access to the user's subdomains.
+ * @deprecated Use `request('subdomains')`.
  * @this {PermsModule}
  * @returns {Promise<boolean>}
  */
-export async function requestReadSubdomains () {
-    const whoami = await this.puter.auth.whoami();
-    return await this.puter.ui.requestPermission({ permission: `subdomains-of-user:${whoami.uuid}:read` });
+export function requestReadSubdomains () {
+    return requestSubdomainsAccess(this.puter, 'read');
 }
 
 /**
- * Request write (manage) access to the user's subdomains.
+ * @deprecated Use `request('subdomains', { access: 'write' })`.
  * @this {PermsModule}
  * @returns {Promise<boolean>}
  */
-export async function requestManageSubdomains () {
-    const whoami = await this.puter.auth.whoami();
-    return await this.puter.ui.requestPermission({ permission: `subdomains-of-user:${whoami.uuid}:write` });
+export function requestManageSubdomains () {
+    return requestSubdomainsAccess(this.puter, 'write');
 }

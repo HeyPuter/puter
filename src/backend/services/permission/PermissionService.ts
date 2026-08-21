@@ -1282,72 +1282,6 @@ export class PermissionService extends PuterService {
             .catch(() => {});
     }
 
-    async grantUserGroupPermission(
-        actor: Actor,
-        group: { id: number; uid: string },
-        permission: string,
-        extra: Record<string, unknown> = {},
-        meta: GrantMeta = {},
-    ): Promise<void> {
-        permission = await this.rewritePermission(permission);
-        if (!(await this.canManagePermission(actor, permission)))
-            throw new HttpError(403, `permission_denied: ${permission}`, {
-                legacyCode: 'permission_denied',
-            });
-        if (!actor.user?.id)
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
-
-        await this.stores.permission.upsertUserGroupPerm(
-            actor.user.id,
-            group.id,
-            permission,
-            extra,
-        );
-        this.stores.permission
-            .auditUserGroupPerm({
-                user_id: actor.user.id,
-                group_id: group.id,
-                permission,
-                action: 'grant',
-                reason: meta.reason ?? 'granted via PermissionService',
-            })
-            .catch(() => {});
-
-        await this.#bumpGroupMembersCacheGeneration(group.uid);
-    }
-
-    async revokeUserGroupPermission(
-        actor: Actor,
-        group: { id: number; uid: string },
-        permission: string,
-        meta: GrantMeta = {},
-    ): Promise<void> {
-        permission = await this.rewritePermission(permission);
-        if (!actor.user?.id)
-            throw new HttpError(403, 'actor must be a user', {
-                legacyCode: 'forbidden',
-            });
-
-        await this.stores.permission.deleteUserGroupPerm(
-            actor.user.id,
-            group.id,
-            permission,
-        );
-        this.stores.permission
-            .auditUserGroupPerm({
-                user_id: actor.user.id,
-                group_id: group.id,
-                permission,
-                action: 'revoke',
-                reason: meta.reason ?? 'revoked via PermissionService',
-            })
-            .catch(() => {});
-
-        await this.#bumpGroupMembersCacheGeneration(group.uid);
-    }
-
     // -- Issuer queries (share discovery et al) -----------------------
 
     async queryIssuerPermissionsByPrefix(
@@ -1485,21 +1419,8 @@ export class PermissionService extends PuterService {
     }
 
     /**
-     * Bump every current member of a group. Used when a group grant changes —
-     * each member's readings may have resolved through the group, so each
-     * member's `user:<uuid>` cache must be orphaned.
-     */
-    async #bumpGroupMembersCacheGeneration(groupUid: string): Promise<void> {
-        const memberUuids =
-            await this.stores.group.listMemberUserUuids(groupUid);
-        await Promise.all(
-            memberUuids.map((uuid) => this.#bumpUserCacheGeneration(uuid)),
-        );
-    }
-
-    /**
-     * Public: bump the permission cache for a set of users by username. Used by
-     * group add/remove-users — membership changes a user's effective
+     * Public: bump the permission cache for a set of users by username. Used
+     * when a group's membership changes — membership changes a user's effective
      * permissions, so their cached readings must be orphaned (a removed user
      * must lose the group's grants on their next check, not after the TTL).
      */

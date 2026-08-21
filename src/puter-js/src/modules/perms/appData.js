@@ -1,4 +1,5 @@
 import { PuterJSError } from '../../lib/PuterJSError.js';
+import { invalidArgument } from './lib/validate.js';
 
 /** @typedef {import('./index.js').PermsModule} PermsModule */
 /** @typedef {import('./types.js').AppDataScopes} AppDataScopes */
@@ -23,7 +24,7 @@ const KV_FORBIDDEN_OPS = ['flush'];
 const APP_UID_RE =
     /^app-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const err = (message) => new PuterJSError(message, 'invalid_argument');
+const err = invalidArgument;
 
 /**
  * Normalise one store's requested scopes into a deduped list of op or class
@@ -133,29 +134,19 @@ const normaliseScopes = (scopes) => {
 };
 
 /**
- * Ask the user to let this app use another app's data — its KV namespace and its
- * AppData directory.
+ * The permission strings a cross-app data request needs, shared with `check`.
  *
- * The target may be named by uid or by registered app name. Scopes accept a
- * shorthand applying to both stores, explicit `store:name` pairs, or a per-store
- * object:
- *
- *     await puter.perms.requestAppData('contacts', 'read');
- *     await puter.perms.requestAppData('contacts', ['kv:get', 'fs:read']);
- *     await puter.perms.requestAppData('contacts', { kv: ['get', 'set'], fs: 'read' });
- *
- * Deleting entries is a separate scope from writing them, so an app that only
- * adds data cannot remove any: request `delete` explicitly when it needs to.
- *
- * @this {PermsModule}
+ * @param {import('../../index.js').Puter} puter
  * @param {string | { uid: string } | { name: string }} appIdentifier
  * @param {AppDataScopes} scopes
- * @returns {Promise<boolean>} `true` if the app may now use that data.
+ * @returns {Promise<string[]>} The permissions to ask for, or an empty list
+ * when the request names this app's own data.
  */
-export async function requestAppData (appIdentifier, scopes) {
+export async function appDataRequest (puter, appIdentifier, scopes) {
     const identifier =
         typeof appIdentifier === 'object' && appIdentifier !== null
-            ? (appIdentifier.uid ?? appIdentifier.name)
+            ? (/** @type {{ uid?: string, name?: string }} */ (appIdentifier).uid ??
+               /** @type {{ uid?: string, name?: string }} */ (appIdentifier).name)
             : appIdentifier;
     if (typeof identifier !== 'string' || identifier === '') {
         throw err('parameter appIdentifier must be a non-empty string');
@@ -165,14 +156,35 @@ export async function requestAppData (appIdentifier, scopes) {
     // `app-store` as a uid, and `puter.apps.get` resolves names only.
     const appUid = APP_UID_RE.test(identifier)
         ? identifier
-        : (await this.puter.apps.get(identifier))?.uid;
+        : (await puter.apps.get(identifier))?.uid;
     if (typeof appUid !== 'string' || appUid === '') {
         throw new PuterJSError(`app not found: ${identifier}`, 'not_found');
     }
 
-    // Already true for its own data, so prompting would ask for nothing.
-    if (appUid === this.puter.appID) return true;
+    // Already allowed for its own data, so there is nothing to ask for.
+    if (appUid === puter.appID) return [];
 
-    const permissions = appDataPermissions(appUid, normaliseScopes(scopes));
+    return appDataPermissions(appUid, normaliseScopes(scopes));
+}
+
+/**
+ * Ask the user to let this app use another app's KV namespace and AppData
+ * directory. Scopes take a shorthand for both stores, `store:name` pairs, or a
+ * per-store object. `delete` is separate from `write` and must be asked for.
+ *
+ *     await puter.perms.request('appData', { app: 'contacts', scopes: 'read' });
+ *
+ * @this {PermsModule}
+ * @param {string | { uid: string } | { name: string }} appIdentifier
+ * @param {AppDataScopes} scopes
+ * @returns {Promise<boolean>} `true` if the app may now use that data.
+ */
+export async function requestAppData (appIdentifier, scopes) {
+    const permissions = await appDataRequest(
+        this.puter,
+        appIdentifier,
+        scopes,
+    );
+    if (permissions.length === 0) return true;
     return await this.puter.ui.requestPermission({ permissions });
 }
