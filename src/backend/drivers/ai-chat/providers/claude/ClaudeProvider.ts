@@ -46,6 +46,7 @@ import type {
     AIChatToolUseStream,
 } from '../../utils/Streaming.js';
 import { FILES_API_BETA, processPuterPathUploads } from './fileUpload.js';
+import { coerceImageContentParts } from './imageHandling.js';
 import { CLAUDE_MODELS } from './models.js';
 
 // Anthropic inline-compaction beta. The vendored SDK (0.68.0) doesn't type the
@@ -289,6 +290,8 @@ export class ClaudeProvider implements IChatProvider {
         ].includes(modelUsed.id);
 
         const actor = Context.get('actor');
+
+        coerceImageContentParts(messages);
 
         // Upload any `puter_path` parts to Anthropic's Files API and rewrite
         // them in-place to reference the returned `file_id`. Must happen
