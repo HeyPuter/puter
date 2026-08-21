@@ -46,6 +46,14 @@ const textModel = (
 
 // Hardcoded from live Z.AI /models and https://docs.z.ai/guides/overview/pricing.
 export const ZAI_MODELS: IChatModel[] = [
+    // GLM-5.3 is not in the docs yet; context/limits/pricing mirror GLM-5.2.
+    textModel(
+        'glm-5.3',
+        'GLM-5.3',
+        1_000 * K,
+        128 * K,
+        usdPerMToken(1.4, 4.4, 0.26),
+    ),
     textModel(
         'glm-5.3',
         'GLM-5.3',
