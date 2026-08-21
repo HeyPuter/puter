@@ -139,8 +139,8 @@ services:
       start_period: 5s
 
   s3-init:
-    # One-shot container that creates the `puter-local` bucket on first
-    # boot. Exits 0 once the bucket exists; stays exited 0 thereafter.
+    # One-shot container that creates the `puter-local` bucket and applies
+    # the browser CORS policy. Both operations are idempotent.
     image: amazon/aws-cli:latest
     container_name: puter-s3-init
     depends_on:
@@ -150,11 +150,13 @@ services:
       AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:-puter}
       AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-puter-secret-change-me}
       AWS_DEFAULT_REGION: us-east-1
+      PUTER_DOMAIN: ${PUTER_DOMAIN:-puter.localhost}
+      PUTER_PROTOCOL: ${PUTER_PROTOCOL:-http}
     entrypoint:
       - /bin/sh
       - -c
       - |
-        set -e
+        set -eu
         endpoint=http://s3:9000
         bucket=${S3_BUCKET:-puter-local}
         if aws --endpoint-url "$$endpoint" s3api head-bucket --bucket "$$bucket" 2>/dev/null; then
@@ -163,6 +165,30 @@ services:
           echo "creating bucket $$bucket"
           aws --endpoint-url "$$endpoint" s3 mb "s3://$$bucket"
         fi
+        cat > /tmp/cors.json <<EOF
+        {
+          "CORSRules": [
+            {
+              "AllowedOrigins": [
+                "$${PUTER_PROTOCOL}://$${PUTER_DOMAIN}",
+                "$${PUTER_PROTOCOL}://api.$${PUTER_DOMAIN}",
+                "$${PUTER_PROTOCOL}://app.$${PUTER_DOMAIN}",
+                "$${PUTER_PROTOCOL}://site.$${PUTER_DOMAIN}",
+                "$${PUTER_PROTOCOL}://dev.$${PUTER_DOMAIN}",
+                "$${PUTER_PROTOCOL}://host.$${PUTER_DOMAIN}"
+              ],
+              "AllowedMethods": ["GET", "HEAD", "PUT", "POST", "DELETE"],
+              "AllowedHeaders": ["*"],
+              "ExposeHeaders": ["ETag", "x-amz-request-id"],
+              "MaxAgeSeconds": 3600
+            }
+          ]
+        }
+        EOF
+        aws --endpoint-url "$$endpoint" s3api put-bucket-cors \
+          --bucket "$$bucket" \
+          --cors-configuration file:///tmp/cors.json
+        echo "bucket $$bucket CORS configured"
     restart: "no"
 
   # ── Optional: local LLM ───────────────────────────────────────────
