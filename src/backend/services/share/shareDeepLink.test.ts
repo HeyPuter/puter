@@ -1,0 +1,114 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import { describe, expect, it } from 'vitest';
+import {
+    maskedSharePath,
+    ownerFromSharePath,
+    shareDeepLink,
+    shareTargetLink,
+} from './shareDeepLink.js';
+
+const UID = '11111111-2222-4333-8444-555555555555';
+
+describe('ownerFromSharePath', () => {
+    // Both forms name the owner first, which is the point: the masked path is
+    // what a recipient holds, the real one is what the issuer's request built.
+    it('reads the owner from either form of path', () => {
+        expect(ownerFromSharePath(`/alice/${UID}/report.txt`)).toBe('alice');
+        expect(ownerFromSharePath('/alice/Documents/Q3/report.txt')).toBe(
+            'alice',
+        );
+    });
+
+    it('has no owner to give for a path that names none', () => {
+        expect(ownerFromSharePath('/')).toBeNull();
+        expect(ownerFromSharePath('')).toBeNull();
+        expect(ownerFromSharePath(undefined as unknown as string)).toBeNull();
+    });
+});
+
+describe('maskedSharePath', () => {
+    it('builds the form a recipient is given', () => {
+        expect(
+            maskedSharePath({
+                name: 'report.txt',
+                uid: UID,
+                ownerUsername: 'alice',
+            }),
+        ).toBe(`/alice/${UID}/report.txt`);
+    });
+
+    it('refuses to build one with a piece missing', () => {
+        const target = { name: 'report.txt', uid: UID, ownerUsername: 'alice' };
+        expect(maskedSharePath({ ...target, name: '' })).toBeNull();
+        expect(maskedSharePath({ ...target, uid: '' })).toBeNull();
+        expect(maskedSharePath({ ...target, ownerUsername: '' })).toBeNull();
+    });
+});
+
+describe('shareDeepLink', () => {
+    it('puts the whole path in one encoded parameter', () => {
+        expect(shareDeepLink('https://puter.com', `/alice/${UID}/a.txt`)).toBe(
+            `https://puter.com/?shared=%2Falice%2F${UID}%2Fa.txt`,
+        );
+    });
+
+    // A self-hoster's origin may carry a port, and may or may not end in a
+    // slash; neither should produce `//?shared=`.
+    it('tolerates a trailing slash on the origin', () => {
+        expect(shareDeepLink('http://localhost:4100/', '/a/b/c')).toBe(
+            'http://localhost:4100/?shared=%2Fa%2Fb%2Fc',
+        );
+    });
+
+    // A name is the owner's text: `&` would start a second parameter and `#`
+    // would truncate the path, so the encoding is what keeps the link whole.
+    it('encodes a name that would otherwise break the query string', () => {
+        const link = shareDeepLink(
+            'https://puter.com',
+            `/alice/${UID}/a&b#c d.txt`,
+        );
+        expect(link).toContain('%26b%23c%20d.txt');
+        expect(link.split('?')).toHaveLength(2);
+        expect(link).not.toContain('#');
+        // Round-trips: what the GUI reads back is the path we meant.
+        const shared = new URL(link).searchParams.get('shared');
+        expect(shared).toBe(`/alice/${UID}/a&b#c d.txt`);
+    });
+});
+
+describe('shareTargetLink', () => {
+    it('links an addressable target and nothing else', () => {
+        expect(
+            shareTargetLink('https://puter.com', {
+                name: 'a.txt',
+                uid: UID,
+                ownerUsername: 'alice',
+            }),
+        ).toBe(`https://puter.com/?shared=%2Falice%2F${UID}%2Fa.txt`);
+        expect(
+            shareTargetLink('https://puter.com', {
+                name: 'a.txt',
+                uid: '',
+                ownerUsername: 'alice',
+            }),
+        ).toBeNull();
+    });
+});

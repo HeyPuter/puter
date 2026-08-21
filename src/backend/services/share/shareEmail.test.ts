@@ -45,6 +45,8 @@ interface SentEmail {
     to: string;
     subject: string;
     html: string;
+    /** The plain-text alternative, which carries its own links. */
+    text: string;
 }
 
 const uniqueSuffix = (): string =>
@@ -116,11 +118,17 @@ describe('share email', () => {
     beforeEach(() => {
         sent = [];
         vi.spyOn(env.server.clients.email, 'sendRaw').mockImplementation(
-            async (options: { to: string; subject: string; html?: string }) => {
+            async (options: {
+                to: string;
+                subject: string;
+                html?: string;
+                text?: string;
+            }) => {
                 sent.push({
                     to: options.to,
                     subject: options.subject,
                     html: options.html ?? '',
+                    text: options.text ?? '',
                 });
                 return null;
             },
@@ -464,6 +472,66 @@ describe('share email', () => {
         for (const file of files) expect(mail.html).toContain(file.name);
     });
 
+    // The name in the mail links to the item. The path is the masked form the
+    // recipient is allowed to see, never the owner's real one.
+    it('links each named file to itself, by its masked path', async () => {
+        const owner = env.users.user;
+        const recipient = await signUpAndConfirm(uninvitedAddress());
+        sent = [];
+
+        const file = await makeFile(owner, 'deeplink');
+        await shareWith(owner, recipient.email, [{ uid: file.uid }]);
+
+        const mail = await waitForMail({ to: recipient.email });
+        const masked = `/${owner.username}/${file.uid}/${file.name}`;
+        const link = `?shared=${encodeURIComponent(masked)}`;
+        expect(mail.html).toContain(link);
+        // Linked, not merely mentioned.
+        expect(mail.html).toContain(`${link}"`);
+        expect(mail.text).toContain(link);
+        // The owner's real path is theirs alone; only the mask travels.
+        expect(mail.html).not.toContain(`/${owner.username}/deeplink`);
+    });
+
+    it('links every file when several are shared at once', async () => {
+        const sender = env.users.admin;
+        const recipient = await signUpAndConfirm(uninvitedAddress());
+        sent = [];
+
+        const files = [];
+        for (const label of ['links-a', 'links-b']) {
+            files.push(await makeFile(sender, label));
+        }
+        await shareWith(
+            sender,
+            recipient.email,
+            files.map((file) => ({ uid: file.uid })),
+        );
+
+        const mail = await waitForMail({ to: recipient.email });
+        for (const file of files) {
+            const masked = `/${sender.username}/${file.uid}/${file.name}`;
+            expect(mail.html).toContain(
+                `?shared=${encodeURIComponent(masked)}`,
+            );
+        }
+    });
+
+    // Nothing to route to yet, so the names stay plain and the call to action
+    // is still "create an account".
+    it('does not link the files in an invite', async () => {
+        const owner = env.users.user;
+        const address = uninvitedAddress();
+        sent = [];
+
+        const file = await makeFile(owner, 'invite-nolink');
+        await shareWith(owner, address, [{ uid: file.uid }]);
+
+        const mail = await waitForMail({ to: address });
+        expect(mail.html).toContain(file.name);
+        expect(mail.html).not.toContain('?shared=');
+    });
+
     it('honors an account-wide unsubscribe, and offers the link to those who have not', async () => {
         const owner = env.users.user;
         const recipient = await signUpAndConfirm(uninvitedAddress());
@@ -544,11 +612,17 @@ describe('share email digest durability', () => {
     beforeEach(() => {
         sent = [];
         vi.spyOn(env.server.clients.email, 'sendRaw').mockImplementation(
-            async (options: { to: string; subject: string; html?: string }) => {
+            async (options: {
+                to: string;
+                subject: string;
+                html?: string;
+                text?: string;
+            }) => {
                 sent.push({
                     to: options.to,
                     subject: options.subject,
                     html: options.html ?? '',
+                    text: options.text ?? '',
                 });
                 return null;
             },
