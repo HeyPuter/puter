@@ -35,6 +35,7 @@ const RECOMMENDED_APP_NAMES = [
     'calculator',
     'contacts',
     'calendar',
+    'meetings',
     'blockarena',
     'music-player',
     'word-processor',
