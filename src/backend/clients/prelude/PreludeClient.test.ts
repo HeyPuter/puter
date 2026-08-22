@@ -30,7 +30,7 @@ describe('PreludeClient', () => {
         expect(makeClient().isConfigured()).toBe(false);
     });
 
-    describe('isCountrySupported (€0.07 cap)', () => {
+    describe('isCountrySupported (€0.20 cap)', () => {
         const client = makeClient('sk_test');
 
         it('allows revenue markets up to the cap (incl. the priciest)', () => {
@@ -38,6 +38,17 @@ describe('PreludeClient', () => {
             expect(client.isCountrySupported('DE')).toBe(true); // €0.0598
             expect(client.isCountrySupported('SA')).toBe(true); // €0.0638
             expect(client.isCountrySupported('us')).toBe(true); // case-insensitive
+        });
+
+        it('allows the markets the old €0.07 cap excluded', () => {
+            // Raising the cap to €0.20 brought ~89 countries into the phone
+            // gate. These pin the new range so a future change to the default
+            // has to say so out loud.
+            expect(client.isCountrySupported('UA')).toBe(true); // €0.0940
+            expect(client.isCountrySupported('PH')).toBe(true); // €0.1237
+            expect(client.isCountrySupported('EG')).toBe(true); // €0.1561
+            expect(client.isCountrySupported('NG')).toBe(true); // €0.1980
+            expect(client.isCountrySupported('WS')).toBe(true); // €0.2000, at the cap
         });
 
         it('rejects countries above the cap, with no SMS, or unknown', () => {
@@ -63,9 +74,7 @@ describe('PreludeClient', () => {
     });
 
     it('createVerification POSTs the phone target + ip signal with bearer auth', async () => {
-        fetchMock.mockResolvedValue(
-            okJson({ id: 'vrf_1', status: 'success' }),
-        );
+        fetchMock.mockResolvedValue(okJson({ id: 'vrf_1', status: 'success' }));
         const client = makeClient('sk_test');
 
         const res = await client.createVerification('+14155550123', {
@@ -81,7 +90,11 @@ describe('PreludeClient', () => {
             target: { type: 'phone_number', value: '+14155550123' },
             // Defaults to RCS (cheaper); Prelude falls back to SMS. locale is
             // hardcoded to en-US so the message text is always English.
-            options: { code_size: 6, preferred_channel: 'rcs', locale: 'en-US' },
+            options: {
+                code_size: 6,
+                preferred_channel: 'rcs',
+                locale: 'en-US',
+            },
             signals: { ip: '203.0.113.7' },
         });
     });
@@ -196,9 +209,9 @@ describe('PreludeClient', () => {
 
     it('throws (does not call fetch) when not configured', async () => {
         const client = makeClient();
-        await expect(
-            client.createVerification('+14155550123'),
-        ).rejects.toThrow(/not configured/i);
+        await expect(client.createVerification('+14155550123')).rejects.toThrow(
+            /not configured/i,
+        );
         expect(fetchMock).not.toHaveBeenCalled();
     });
 

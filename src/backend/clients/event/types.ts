@@ -160,6 +160,19 @@ export type EventMap = {
     'puter.signup.validate': {
         allow: boolean;
         email?: string;
+        /**
+         * The address in the same canonical form the `email.validate` hook was
+         * given (`cleanEmail`), so a handler can correlate the two hooks on one
+         * key. Aliases (`a+tag@outlook.com`, `a.b@icloud.com`) differ from
+         * `email` here.
+         */
+        clean_email?: string;
+        /**
+         * True for a temp (frictionless, no-password) signup. Those carry a
+         * synthetic `<username>@gmail.com` and never reach email validation, so
+         * a handler must not draw conclusions from `email`.
+         */
+        is_temp?: boolean;
         ip?: string | null;
         source?: 'oidc';
         req?: unknown;
