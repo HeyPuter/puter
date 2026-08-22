@@ -377,6 +377,10 @@
         },
         "zai": { "apiKey": "" },
         "alibaba": { "apiKey": "" },
+        "saladcloud": {
+            "apiKey": "",
+            "apiBaseUrl": "https://ai.salad.cloud/v1"
+        },
         "together-ai": { "apiKey": "" },
         // Local Ollama. `enabled: false` skips the auto-probe at startup
         // (otherwise Puter logs ECONNREFUSED on every boot when no Ollama

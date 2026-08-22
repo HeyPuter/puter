@@ -92,18 +92,13 @@ export interface ICompleteArguments {
     truncation?: 'auto' | 'disabled' | undefined;
     background?: boolean;
     service_tier?:
-        | 'auto'
-        | 'default'
-        | 'flex'
-        | 'scale'
-        | 'priority'
-        | undefined;
+        'auto' | 'default' | 'flex' | 'scale' | 'priority' | undefined;
     max_tokens?: number;
     temperature?: number;
     reasoning?: { effort: 'low' | 'medium' | 'high' } | undefined;
-    text?: string & { verbosity?: 'concise' | 'detailed' | undefined };
+    text?: string & { verbosity?: 'low' | 'medium' | 'high' | undefined };
     reasoning_effort?: 'low' | 'medium' | 'high' | undefined;
-    verbosity?: 'concise' | 'detailed' | undefined;
+    verbosity?: 'low' | 'medium' | 'high' | undefined;
     moderation?: boolean;
     custom?: unknown;
     response?: {
