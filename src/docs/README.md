@@ -46,7 +46,6 @@ Connect with the maintainers and community through these channels:
 
 - Bug report or feature request? Please [open an issue](https://github.com/HeyPuter/docs/issues/new).
 - X (Twitter): [x.com/HeyPuter](https://x.com/HeyPuter)
-- Mastodon: [mastodon.social/@puter](https://mastodon.social/@puter)
 - Security issues? [security@puter.com](mailto:security@puter.com)
 - Email maintainers at [hi@puter.com](mailto:hi@puter.com)
 
