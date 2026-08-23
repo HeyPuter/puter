@@ -61,6 +61,16 @@ The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/putera
 | Concurrent calls | 30 | 15 | 8 |
 | Concurrent `list` | 5 | 3 | 2 |
 
+Sizes are fixed for every account:
+
+| Size | Limit |
+| --- | --- |
+| Key | 1 KB |
+| Value | 400 KB |
+| Any number inside a value | ±9,007,199,254,740,991 (2<sup>53</sup>−1) |
+
+A key or value over its size limit is rejected outright. A number over its limit is not: it is stored clamped to the bound, and `NaN` is stored as `null` — the same thing `JSON.stringify()` does with it. This applies to numbers nested anywhere inside an object or array, so a value carrying one still keeps every other field it holds. Anything that has to stay exact past 2<sup>53</sup> — a large id, a running total — should be stored as a string.
+
 ### Filesystem
 
 All per minute unless stated:
