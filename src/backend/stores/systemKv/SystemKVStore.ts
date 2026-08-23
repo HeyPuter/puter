@@ -137,6 +137,11 @@ const GLOBAL_APP_KEY = 'os-global';
 const SYSTEM_NAMESPACE = `v1:${SYSTEM_ACTOR_UUID}:${GLOBAL_APP_KEY}`;
 const MAX_KEY_BYTES = 1024;
 const MAX_VALUE_BYTES = 399 * 1024;
+// A number anywhere inside a value is bounded too, to the IEEE-754 safe
+// integer range — past that it cannot round-trip, so it is clamped to the
+// bound as the write is encoded. Enforced there rather than here because
+// finding one means walking every value of every write: the whole payload's
+// cost again, on the hot path, for something almost nothing sends.
 const BATCH_GET_CHUNK = 100;
 const PATH_CLEANER_REGEX = /[^A-Za-z0-9_]/g;
 // Offset emulation re-scans everything before the requested position, so it
@@ -301,6 +306,11 @@ const assertSafeValueKeys = (value: unknown): void => {
     }
 };
 
+/**
+ * Reject a value too big to store, or one holding a key that cannot be walked
+ * safely. An out-of-range number is not rejected — it is clamped when the write
+ * is encoded.
+ */
 const assertValue = (value: unknown): void => {
     const size = Buffer.byteLength(JSON.stringify(value ?? null), 'utf8');
     if (size > MAX_VALUE_BYTES) {

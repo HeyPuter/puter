@@ -134,6 +134,50 @@ describe('SystemKVStore', () => {
             ).rejects.toMatchObject({ statusCode: 400 });
         });
 
+        it('clamps a number too large to store, rather than failing the write', async () => {
+            await target.set(
+                { key: 'huge', value: 1.6515584833071455e55 },
+                opts,
+            );
+            const result = await target.get({ key: 'huge' }, opts);
+            expect(result.res).toBe(Number.MAX_SAFE_INTEGER);
+        });
+
+        it('clamps numbers nested anywhere inside a value', async () => {
+            await target.set(
+                {
+                    key: 'profile',
+                    value: {
+                        username: 'ambastha',
+                        netWorth: 1.6515584833071455e55,
+                        level: 29,
+                        history: [{ delta: -1e55 }],
+                    },
+                },
+                opts,
+            );
+
+            const result = await target.get({ key: 'profile' }, opts);
+            expect(result.res).toEqual({
+                username: 'ambastha',
+                netWorth: Number.MAX_SAFE_INTEGER,
+                level: 29,
+                history: [{ delta: Number.MIN_SAFE_INTEGER }],
+            });
+        });
+
+        it('stores a value with no numeric representation as null', async () => {
+            await target.set(
+                { key: 'special', value: { score: NaN, ceiling: Infinity } },
+                opts,
+            );
+            const result = await target.get({ key: 'special' }, opts);
+            expect(result.res).toEqual({
+                score: null,
+                ceiling: Number.MAX_SAFE_INTEGER,
+            });
+        });
+
         it('treats a value with an already-elapsed TTL as missing on read', async () => {
             const past = Math.floor(Date.now() / 1000) - 10;
             await target.set(
@@ -182,6 +226,26 @@ describe('SystemKVStore', () => {
                 opts,
             );
             expect(result.res).toEqual(['v1', 'v2', { nested: true }]);
+        });
+
+        it('clamps an out-of-range number in one item without failing the batch', async () => {
+            await target.batchPut(
+                {
+                    items: [
+                        { key: 'bpSafe', value: 7 },
+                        { key: 'bpHuge', value: { netWorth: 1e55 } },
+                    ],
+                },
+                opts,
+            );
+            const result = await target.get(
+                { key: ['bpSafe', 'bpHuge'] },
+                opts,
+            );
+            expect(result.res).toEqual([
+                7,
+                { netWorth: Number.MAX_SAFE_INTEGER },
+            ]);
         });
 
         it('is a no-op for an empty items array', async () => {
@@ -749,6 +813,24 @@ describe('SystemKVStore', () => {
         });
     });
 
+    describe('counter overflow', () => {
+        it('reads back a counter incremented past the safe range as the bound', async () => {
+            const halfway = Number.MAX_SAFE_INTEGER;
+            await target.incr(
+                { key: 'counter', pathAndAmountMap: { '': halfway } },
+                opts,
+            );
+            const bumped = await target.incr(
+                { key: 'counter', pathAndAmountMap: { '': halfway } },
+                opts,
+            );
+
+            expect(bumped.res).toBe(Number.MAX_SAFE_INTEGER);
+            const read = await target.get({ key: 'counter' }, opts);
+            expect(read.res).toBe(Number.MAX_SAFE_INTEGER);
+        });
+    });
+
     describe('add', () => {
         it('appends a single element to an empty path, creating a new list', async () => {
             const result = await target.add(
@@ -799,6 +881,19 @@ describe('SystemKVStore', () => {
             );
             expect(result.res).toMatchObject({
                 profile: { email: 'a@b.com' },
+            });
+        });
+
+        it('clamps an out-of-range number written to a path', async () => {
+            const result = await target.update(
+                {
+                    key: 'docHuge',
+                    pathAndValueMap: { 'stats.netWorth': 1e55 },
+                },
+                opts,
+            );
+            expect(result.res).toMatchObject({
+                stats: { netWorth: Number.MAX_SAFE_INTEGER },
             });
         });
 

@@ -29,6 +29,8 @@ When `amount` is an object: Increments a property within an object value stored 
 - Key: the path to the property (e.g., `"user.score"`)
 - Value: the amount to increment by
 
+`amount` must be within **±9,007,199,254,740,991** (`Number.MAX_SAFE_INTEGER`); a larger one is applied clamped to that bound. A counter stays exact only while its total is inside the same range — store anything that has to count past it as a string with [`puter.kv.set()`](/KV/set/).
+
 ## Return Value
 
 Returns the new value of the key after the increment operation.
