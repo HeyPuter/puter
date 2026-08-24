@@ -156,11 +156,8 @@ function suggestionsForExtension(ext: string): {
     if (CODE_EXTS.has(lower)) {
         return { names: ['code', 'editor'], isFallback: false };
     }
-    if (lower === 'txt' || lower === '') {
+    if (lower === 'txt' || lower === 'md' || lower === '') {
         return { names: ['editor', 'code'], isFallback: false };
-    }
-    if (lower === 'md') {
-        return { names: ['markus', 'editor', 'code'], isFallback: false };
     }
     if (IMAGE_EXTS.has(lower)) {
         return { names: ['viewer', 'draw'], isFallback: false };
