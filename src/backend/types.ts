@@ -784,24 +784,37 @@ interface IConfigOptional {
     /**
      * Let a user who keeps getting blocked on SMS phone verification fall back
      * to credit-card verification, which clears the phone gate (and the card
-     * gate too, when one is set). Off by default.
+     * gate too, when one is set).
      *
-     * The fallback opens after `after_attempts` SMS _send_ attempts inside the
-     * send rate-limit window — successful sends count too, so a user who
-     * receives codes fine can still choose the card path after that many
-     * requests. This trades the phone signal for a card signal; it does NOT
-     * guarantee SMS actually failed. Once open, the fallback stays open for 24
-     * hours so the user can finish the card flow. Requires a payments extension
-     * to run the actual card check.
+     * The fallback opens once the user has made `after_attempts` SMS _send_
+     * attempts inside the send rate-limit window, which by default means only
+     * after they have used up the window's entire send allowance — the card
+     * option is an escape hatch for a phone that isn't working, not a choice
+     * offered alongside a working SMS flow. Successful sends count too, so this
+     * trades the phone signal for a card signal; it does NOT guarantee SMS
+     * actually failed. Once open, the fallback stays open for 24 hours so the
+     * user can finish the card flow. Requires a payments extension to run the
+     * actual card check.
      */
     phone_verification_card_fallback: {
-        enabled: boolean;
+        /**
+         * Tri-state. Set it and that wins, either way — this is the opt-out.
+         * Omit it and the fallback is on wherever both gates it bridges
+         * actually work: an SMS provider is configured _and_ an installed
+         * extension reports card verification enabled. On a build with no card
+         * gate behind it the fallback stays off, since taking the offer there
+         * could only strand the user.
+         */
+        enabled?: boolean;
         /**
          * SMS send attempts (within the send rate-limit window) before the card
-         * fallback opens. Defaults to 2 when omitted. Values above the send
-         * route's rate limit (10/hour) are clamped down to it — requests past
-         * the route limit never reach the attempt counter, so a higher
-         * threshold could never be crossed.
+         * fallback opens. Defaults to the send route's full rate limit
+         * (10/hour), i.e. the fallback appears only once the user is out of SMS
+         * attempts. Values above that limit are clamped down to it — requests
+         * past the route limit never reach the attempt counter, so a higher
+         * threshold could never be crossed. Lower it (e.g. 2) to reach the card
+         * path without burning the whole allowance, which is mainly useful for
+         * QA.
          */
         after_attempts?: number;
     };

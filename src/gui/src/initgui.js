@@ -1696,6 +1696,10 @@ window.initgui = async function (options) {
                         show_close_button: false,
                         stay_on_top: true,
                         has_head: false,
+                        // Already out of SMS attempts (the offer outlives the
+                        // send window, and no send can report it any more).
+                        card_fallback_available:
+                            whoami.card_fallback_available,
                         window_options: {
                             is_draggable: false,
                         },
@@ -1969,6 +1973,10 @@ window.initgui = async function (options) {
                         stay_on_top: true,
                         has_head: false,
                         logout_in_footer: true,
+                        // Already out of SMS attempts (the offer outlives the
+                        // send window, and no send can report it any more).
+                        card_fallback_available:
+                            whoami.card_fallback_available,
                         window_options: {
                             is_draggable: false,
                             cover_page: window.is_embedded,

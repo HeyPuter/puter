@@ -18,7 +18,6 @@
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
-    "cssstyle": "^4.6.0",
     "esbuild": "0.25.11",
     "fs-extra": "^11.2.0",
     "highlight.js": "^11.11.1",
@@ -27,12 +26,9 @@
     "js-yaml": "^4.1.0",
     "jsdom": "^26.1.0",
     "marked": "^11.1.1",
-    "minisearch": "^7.2.0",
-    "nwsapi": "^2.2.23"
+    "minisearch": "^7.2.0"
   },
   "devDependencies": {
-    "@types/highlight.js": "^9.12.4",
-    "@types/jquery": "^3.5.33",
     "concurrently": "^8.2.2",
     "http-server": "^14.1.1",
     "nodemon": "^3.1.4"

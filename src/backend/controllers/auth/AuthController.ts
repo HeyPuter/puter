@@ -54,6 +54,17 @@ import {
 } from '../../services/auth/OTPUtil.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
 import { isOwnedEmailConflict } from '../../stores/user/UserStore.js';
+import type { CardFallbackDeps } from '../../util/cardFallback.js';
+import {
+    CARD_FALLBACK_OPEN_TTL_SECONDS,
+    SEND_PHONE_RATE_LIMIT,
+    SEND_PHONE_RATE_WINDOW_MS,
+    cardFallbackAfterAttempts,
+    cardFallbackFlagKey,
+    isCardFallbackEligible,
+    isCardFallbackEnabled,
+    phoneAttemptsKey,
+} from '../../util/cardFallback.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
 import { cleanEmail, isBlockedEmail } from '../../util/email.js';
 import { generate_identifier } from '../../util/identifier.js';
@@ -77,14 +88,6 @@ const FINGERPRINT_MAX_LENGTH = 128;
 // crafted request from turning a single grant call into a bulk write.
 const MAX_PERMISSIONS_PER_REQUEST = 16;
 const DISPATCH_ID_MAX_LENGTH = 128;
-// Default SMS send attempts before the card fallback opens.
-const DEFAULT_CARD_FALLBACK_ATTEMPTS = 2;
-// /send-confirm-phone route rate limit. Also caps the fallback's
-// `after_attempts`: requests past the route limit are rejected in middleware
-// and never reach the attempt counter, so a higher threshold could never be
-// crossed.
-const SEND_PHONE_RATE_LIMIT = 10;
-const SEND_PHONE_RATE_WINDOW_MS = 60 * 60_000;
 
 // -- Post-login route limits -----------------------------------------
 //
@@ -173,9 +176,6 @@ const SESSION_LIMIT = {
     window: 60_000,
     key: 'user',
 } as const;
-// Once the threshold is crossed the fallback stays open this long, so the
-// user can finish the card flow without racing the attempt counter's expiry.
-const CARD_FALLBACK_OPEN_TTL_SECONDS = 24 * 60 * 60;
 // How long a failed-SMS-send record stays readable by its error_id — long
 // enough to cover the typical support round-trip.
 const SMS_SEND_ERROR_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -862,6 +862,15 @@ export class AuthController extends PuterController {
                 req.socket?.remoteAddress ||
                 null) as string | null,
             email: body.email,
+            // The same canonical form `email.validate` was given, so a check
+            // in the abuse harness can look up the verdict that hook cached
+            // for this address. Without it an alias (`a+tag@outlook.com`,
+            // `a.b@icloud.com`) reaches the two hooks under two different keys.
+            clean_email: cleanEmail(body.email),
+            // Temp signups carry a synthetic `<username>@gmail.com` and skip
+            // #validateEmail entirely, so an email check must know not to
+            // reason about the address at all.
+            is_temp,
             allow: true,
             no_temp_user: false,
             requires_email_confirmation: false,
@@ -1440,9 +1449,10 @@ export class AuthController extends PuterController {
 
     // -- SMS-to-card fallback -----------------------------------------
     //
-    // Once a user has made enough SMS send attempts in the rate-limit window
-    // without getting through, they can verify a card instead to clear the
-    // phone gate. Off unless config enables it.
+    // Once a user has used up their SMS send attempts for the window without
+    // getting through, they can verify a card instead to clear the phone gate.
+    // On wherever both gates work unless config opts out. The rule itself lives
+    // in ../../util/cardFallback.ts, because /whoami answers the same question.
     //
     // Two KV keys: a short-lived counter tied to the send rate-limit window
     // triggers the fallback, and a longer-lived "open" flag holds eligibility
@@ -1451,30 +1461,11 @@ export class AuthController extends PuterController {
     // user is mid-way through the card flow. Every KV failure fails closed
     // (fallback unavailable), never open.
 
-    private cardFallbackConfig(): { enabled: boolean; afterAttempts: number } {
-        const cfg = this.config.phone_verification_card_fallback;
-        const afterAttempts = Math.min(
-            typeof cfg?.after_attempts === 'number' && cfg.after_attempts > 0
-                ? cfg.after_attempts
-                : DEFAULT_CARD_FALLBACK_ATTEMPTS,
-            SEND_PHONE_RATE_LIMIT,
-        );
-        return { enabled: Boolean(cfg?.enabled), afterAttempts };
-    }
-
-    private phoneAttemptsKey(userId: number): string {
-        return `phone-verify-attempts:${userId}`;
-    }
-
-    private cardFallbackFlagKey(userId: number): string {
-        return `card-fallback-open:${userId}`;
-    }
-
     // TTL ties the counter to the send rate-limit window, so it resets with it.
     private async bumpPhoneAttempts(userId: number): Promise<number> {
         try {
             const { res } = await this.stores.kv.incr({
-                key: this.phoneAttemptsKey(userId),
+                key: phoneAttemptsKey(userId),
                 pathAndAmountMap: { attempts: 1 },
                 expireAt:
                     Math.floor(Date.now() / 1000) +
@@ -1498,16 +1489,15 @@ export class AuthController extends PuterController {
         requires_phone_verification?: boolean | number | null;
     }): Promise<boolean> {
         const attempts = await this.bumpPhoneAttempts(user.id);
-        const { enabled, afterAttempts } = this.cardFallbackConfig();
         const open =
-            enabled &&
             Boolean(user.requires_phone_verification) &&
-            attempts >= afterAttempts;
+            attempts >= cardFallbackAfterAttempts(this.config) &&
+            (await isCardFallbackEnabled(this.config, this.cardFallbackDeps()));
         if (open) {
             try {
                 // Plain set, so each eligible attempt refreshes the window.
                 await this.stores.kv.set({
-                    key: this.cardFallbackFlagKey(user.id),
+                    key: cardFallbackFlagKey(user.id),
                     value: true,
                     expireAt:
                         Math.floor(Date.now() / 1000) +
@@ -1528,17 +1518,33 @@ export class AuthController extends PuterController {
         id: number;
         requires_phone_verification?: boolean | number | null;
     }): Promise<boolean> {
-        const { enabled } = this.cardFallbackConfig();
-        if (!enabled || !user.requires_phone_verification) return false;
-        try {
-            const { res } = await this.stores.kv.get({
-                key: this.cardFallbackFlagKey(user.id),
-            });
-            return res === true;
-        } catch (e) {
-            console.warn('[card-verification] fallback flag read failed:', e);
-            return false;
-        }
+        return isCardFallbackEligible(
+            this.config,
+            user,
+            async (key) => (await this.stores.kv.get({ key })).res,
+            this.cardFallbackDeps(),
+        );
+    }
+
+    /**
+     * The two facts the fallback's default rests on: SMS can only work with a
+     * provider configured, and the card gate belongs to an extension, so the
+     * only honest way to ask whether it is on is to ask that extension. Nothing
+     * is listening on a stock build, which reads as "no card gate".
+     */
+    private cardFallbackDeps(): CardFallbackDeps {
+        return {
+            smsConfigured: () => Boolean(this.clients.prelude?.isConfigured()),
+            probeCardVerification: async () => {
+                const statusEvent = { enabled: null as boolean | null };
+                await this.clients.event?.emitAndWait(
+                    'puter.card-verification.status',
+                    statusEvent,
+                    {},
+                );
+                return statusEvent.enabled;
+            },
+        };
     }
 
     @Post('/send-confirm-phone', {

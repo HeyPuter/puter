@@ -160,6 +160,19 @@ export type EventMap = {
     'puter.signup.validate': {
         allow: boolean;
         email?: string;
+        /**
+         * The address in the same canonical form the `email.validate` hook was
+         * given (`cleanEmail`), so a handler can correlate the two hooks on one
+         * key. Aliases (`a+tag@outlook.com`, `a.b@icloud.com`) differ from
+         * `email` here.
+         */
+        clean_email?: string;
+        /**
+         * True for a temp (frictionless, no-password) signup. Those carry a
+         * synthetic `<username>@gmail.com` and never reach email validation, so
+         * a handler must not draw conclusions from `email`.
+         */
+        is_temp?: boolean;
         ip?: string | null;
         source?: 'oidc';
         req?: unknown;
@@ -263,6 +276,14 @@ export type EventMap = {
         client_secret: string | null;
         publishable_key: string | null;
         [key: string]: unknown;
+    };
+    // Side-effect-free "is the card gate usable?" probe. The extension stamps
+    // `enabled` from its own config and does nothing else — no provider call,
+    // no user state, nothing billed. It exists so the SMS-to-card fallback can
+    // default on only where a card gate actually works, which means it gets
+    // asked often and must stay cheap.
+    'puter.card-verification.status': {
+        enabled: boolean | null;
     };
     'puter.card-verification.confirm': {
         user_id: number;
@@ -597,11 +618,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;

@@ -534,6 +534,12 @@ export class OIDCService extends PuterService {
                 null,
             user_agent: req?.headers?.['user-agent'] ?? null,
             email,
+            // See the same field in AuthController: the canonical form
+            // `email.validate` is given, so the abuse harness can find the
+            // verdict that hook cached.
+            clean_email: cleanEmail(email),
+            // OIDC signups are never temp users.
+            is_temp: false,
             allow: true,
             no_temp_user: false,
             requires_email_confirmation: false,
@@ -547,25 +553,13 @@ export class OIDCService extends PuterService {
             // Request Code so support can look the decision up.
             trail_id: undefined as string | undefined,
         };
-        try {
-            await this.clients.event?.emitAndWait(
-                'puter.signup.validate',
-                validateEvent,
-                {},
-            );
-        } catch (e) {
-            console.warn('[oidc] validate hook failed:', e);
-        }
-        if (!validateEvent.allow) {
-            return {
-                success: false,
-                error: validateEvent.message ?? 'Signup blocked',
-                code: validateEvent.code ?? 'signup_blocked',
-                requestCode: validateEvent.trail_id,
-            };
-        }
-
-        // Email validation — mirrors AuthController#validateEmail.
+        // Email validation — mirrors AuthController#validateEmail, and runs
+        // BEFORE the signup harness for the same reason it does there: the
+        // address verdict is an input to the reputation decision. The abuse
+        // extension's `email.validate` handler caches its Kickbox verdict and
+        // its `emailQuality` check reads that cache under
+        // `puter.signup.validate`, so emitting these two in the other order
+        // silently drops the email signal from every OIDC signup.
         if (isBlockedEmail(email, this.config.blockedEmailDomains)) {
             return {
                 success: false,
@@ -592,6 +586,24 @@ export class OIDCService extends PuterService {
                 error:
                     emailEvent.message ??
                     'This email cannot be used. Please try a different email address.',
+            };
+        }
+
+        try {
+            await this.clients.event?.emitAndWait(
+                'puter.signup.validate',
+                validateEvent,
+                {},
+            );
+        } catch (e) {
+            console.warn('[oidc] validate hook failed:', e);
+        }
+        if (!validateEvent.allow) {
+            return {
+                success: false,
+                error: validateEvent.message ?? 'Signup blocked',
+                code: validateEvent.code ?? 'signup_blocked',
+                requestCode: validateEvent.trail_id,
             };
         }
 
