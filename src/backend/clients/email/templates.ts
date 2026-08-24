@@ -169,14 +169,22 @@ const headingRow = (text: string): string => `
  * One row per sender, hairline-separated. The wording comes pre-composed from
  * the digest (`digestLines`), so the list stays a list however many senders and
  * items fold into it.
+ *
+ * Each named item links to itself where it has one; `lead`/`trail` are the
+ * wording around the names. An unlinked item renders as the plain name.
+ *
+ * `link` is triple-braced because we build it, so `?` and `=` stay literal;
+ * `name` is the owner's text and stays escaped.
  */
+const SHARE_ITEM_LIST = `{{this.lead}}{{#each this.items}}{{#unless @first}}, {{/unless}}{{#if this.link}}<a href="{{{this.link}}}" style="color: ${ACCENT}; text-decoration: underline;">{{this.name}}</a>{{else}}{{this.name}}{{/if}}{{/each}}{{this.trail}}`;
+
 const SHARE_LIST_ROW = `
                             <tr>
                                 <td class="panel" style="padding: 6px 18px; background-color: ${PANEL_BG}; border: 1px solid ${PANEL_BORDER}; border-radius: 10px;">
                                     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width: 100%;">
                                         {{#each shares}}
                                         <tr>
-                                            <td class="ink rule" style="padding: 12px 0;{{#unless @first}} border-top: 1px solid ${RULE};{{/unless}} font-family: ${FONT}; font-size: 16px; line-height: 24px; color: ${INK};"><strong style="font-weight: 600;">{{this.sender}}</strong> shared {{this.what}}</td>
+                                            <td class="ink rule" style="padding: 12px 0;{{#unless @first}} border-top: 1px solid ${RULE};{{/unless}} font-family: ${FONT}; font-size: 16px; line-height: 24px; color: ${INK};"><strong style="font-weight: 600;">{{this.sender}}</strong> shared ${SHARE_ITEM_LIST}</td>
                                         </tr>
                                         {{/each}}
                                     </table>
@@ -386,7 +394,8 @@ immediately</p>
             Shared with you on Puter:
             {{#each shares}}
             - {{this.sender}} shared {{this.what}}
-            {{/each}}
+            {{#each this.items}}{{#if this.link}}  {{this.name}}: {{this.link}}
+            {{/if}}{{/each}}{{/each}}
 
             Open Puter: {{link}}
 

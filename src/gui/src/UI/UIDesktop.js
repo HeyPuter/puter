@@ -41,6 +41,8 @@ import UINotification from './UINotification.js';
 import UIWindowWelcome from './UIWindowWelcome.js';
 import launch_app from '../helpers/launch_app.js';
 import item_icon from '../helpers/item_icon.js';
+import { SHARED_PATH_PARAM } from '../helpers/parse_shared_path.js';
+import resolve_shared_item from '../helpers/resolve_shared_item.js';
 import apply_item_added_to_containers from '../helpers/apply_item_added_to_containers.js';
 import UIWindowSearch from './UIWindowSearch.js';
 
@@ -208,6 +210,27 @@ async function UIDesktop (options) {
         }
     });
 
+    /** Clicking a share notification opens the item, or Shared if grouped. */
+    const share_notification_click = (notification) => {
+        if ( notification?.source !== 'sharing' ) return undefined;
+        const target = notification?.fields?.target;
+        if ( target?.path ) {
+            return () => {
+                open_shared_item(target.path);
+            };
+        }
+        // Grouped: open where they all landed rather than picking one.
+        return () => {
+            UIWindow({
+                path: window.shared_path,
+                title: i18n('shared'),
+                icon: window.icons['sidebar-folder-shared.svg'],
+                is_dir: true,
+                app: 'explorer',
+            });
+        };
+    };
+
     /**
      * This event is triggered if a user receives a notification during
      * an active session.
@@ -231,6 +254,7 @@ async function UIDesktop (options) {
             icon: icon,
             value: notification,
             uid,
+            click: share_notification_click(notification),
             close: async () => {
                 await fetch(`${window.api_origin}/notif/mark-ack`, {
                     method: 'POST',
@@ -266,6 +290,8 @@ async function UIDesktop (options) {
                 title: notification.title,
                 text: notification.text ?? notification.title,
                 uid: notif_info.uid,
+                value: notification,
+                click: share_notification_click(notification),
                 close: async () => {
                     await fetch(`${window.api_origin}/notif/mark-ack`, {
                         method: 'POST',
@@ -1723,10 +1749,17 @@ async function UIDesktop (options) {
             return;
         }
 
-        // TODO: DRY everything here with open_item. Unfortunately we can't
-        //       use open_item here because it's coupled with UI logic;
-        //       it requires a UIItem element and cannot operate on a
-        //       file path on its own.
+        await open_path_target(item_path, stat);
+    }
+
+    /**
+     * Open a path as double-clicking would: the associated app for a file, an
+     * explorer window for a directory.
+     *
+     * TODO: DRY with open_item, which is coupled to a UIItem element and can't
+     *       operate on a path alone.
+     */
+    async function open_path_target (item_path, stat) {
         if ( ! stat.is_dir ) {
             if ( stat.associated_app ) {
                 launch_app({ name: stat.associated_app.name });
@@ -1795,6 +1828,64 @@ async function UIDesktop (options) {
             is_dir: true,
             app: 'explorer',
         });
+    }
+
+    /** Open an item somebody shared, addressed as `/<owner>/<uuid>/<name>`. */
+    async function open_shared_item (shared_path) {
+        const stat = await resolve_shared_item(puter.fs, shared_path);
+        if ( ! stat ) {
+            UIAlert({
+                message: i18n('error_user_or_path_not_found'),
+                type: 'error',
+            });
+            return false;
+        }
+
+        // `stat` returns the path this viewer may use, which is the one to open.
+        await open_path_target(stat.path ?? shared_path, stat);
+        return true;
+    }
+
+    /** Take `?shared=` off the address bar so a reload doesn't act on it again. */
+    function clear_shared_param () {
+        const params = new URLSearchParams(window.location.search);
+        params.delete(SHARED_PATH_PARAM);
+        const rest = params.toString();
+        window.history.replaceState(
+            null,
+            document.title,
+            rest ? `${window.location.pathname}?${rest}` : (window.location.pathname || '/'),
+        );
+    }
+
+    /**
+     * Act on a share link. A share only ever reaches a real account, so a
+     * temporary session is never the recipient: signing out of the way first
+     * beats resolving the link as somebody who can't see it and burning it on
+     * a "not found". The link stays in the address bar across the prompt
+     * because login reloads on success, which brings it back for the account
+     * that can actually open it.
+     */
+    async function handle_shared_link (shared_path) {
+        if ( window.user?.is_temp ) {
+            await UIWindowLogin({
+                reload_on_success: true,
+                window_options: { cover_page: true, has_head: false },
+            });
+            // Dismissed without signing in: drop the link rather than loop.
+            if ( window.user?.is_temp ) clear_shared_param();
+            return;
+        }
+        clear_shared_param();
+        await open_shared_item(shared_path);
+    }
+
+    //--------------------------------------------------------------------------------------
+    // Opening an item someone shared, from the link in an email or notification
+    // i.e. https://puter.com/?shared=%2F<owner>%2F<uuid>%2F<name>
+    //--------------------------------------------------------------------------------------
+    if ( window.url_query_params.has(SHARED_PATH_PARAM) ) {
+        await handle_shared_link(window.url_query_params.get(SHARED_PATH_PARAM));
     }
 
     //--------------------------------------------------------------------------------------

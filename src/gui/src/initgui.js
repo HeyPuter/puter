@@ -909,7 +909,7 @@ if (jQuery) {
 // through to the desktop.
 // URLs that carry a desktop-only flow keep booting the desktop: auth popups
 // (`?embedded_in_popup=`), app deep links (`?app=`), direct downloads (`?download=`),
-// fullpage mode (`?puter.fullpage=`), and iframe embeds. App metadata like
+// shared items (`?shared=`), fullpage mode (`?puter.fullpage=`), and iframe embeds. App metadata like
 // fullpage_on_landing does NOT opt a landing out of the dashboard; it only affects
 // boots that still go through the desktop flow.
 {
@@ -925,7 +925,8 @@ if (jQuery) {
         in_iframe ||
         search_params.has('puter.fullpage') ||
         search_params.has('app') ||
-        search_params.has('download');
+        search_params.has('download') ||
+        search_params.has('shared');
     const is_dashboard_alias =
         pathname === '/dashboard' || pathname === '/dashboard/';
     const is_app_landing = /^\/app\/[^/]+\/?$/.test(pathname);

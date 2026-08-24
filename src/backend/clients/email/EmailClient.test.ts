@@ -19,6 +19,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import type { IConfig } from '../../types';
+import { digestLines } from '../../services/share/shareNotifyTitle';
 import { EmailClient } from './EmailClient';
 
 const FROM = '"Puter" <no-reply@puter.test>';
@@ -262,13 +263,23 @@ describe('EmailClient — share notification templates', () => {
         return captured;
     };
 
+    // Built by the producer rather than hand-shaped, so a change to the digest
+    // wording can't leave these fixtures describing a shape it no longer emits.
     const HOLDER = {
         recipient: 'alice',
         subject_line: 'bob shared notes.md with you',
-        shares: [
-            { sender: 'bob', what: 'notes.md' },
-            { sender: 'carol', what: '3 items — a.txt, b.txt, +1 more' },
-        ],
+        shares: digestLines([
+            {
+                username: 'bob',
+                count: 1,
+                items: [{ name: 'notes.md', link: 'https://puter.test/?shared=%2Fbob%2Fu1%2Fnotes.md' }],
+            },
+            {
+                username: 'carol',
+                count: 3,
+                items: [{ name: 'a.txt' }, { name: 'b.txt' }],
+            },
+        ]),
         link: 'https://puter.test',
         unsubscribe_uuid: null,
     };
@@ -293,11 +304,39 @@ describe('EmailClient — share notification templates', () => {
     it('escapes item names in the html and leaves them raw in the text', async () => {
         const { html, text } = await renderShare('file_shared_with_you', {
             ...HOLDER,
-            shares: [{ sender: 'bob', what: 'r&d "notes".md' }],
+            shares: digestLines([
+                {
+                    username: 'bob',
+                    count: 1,
+                    items: [{ name: 'r&d "notes".md' }],
+                },
+            ]),
         });
 
         expect(html).toContain('r&amp;d &quot;notes&quot;.md');
         expect(text).toContain('r&d "notes".md');
+    });
+
+    // The name links to the item. The URL is ours, built from the origin and one
+    // encoded path, so it stays literal — an entity-escaped `=` would still
+    // resolve, but the text part has no parser to undo it.
+    it('links a named item to itself in both parts', async () => {
+        const link = 'https://puter.test/?shared=%2Fbob%2Fu1%2Fnotes.md';
+        const { html, text } = await renderShare('file_shared_with_you', HOLDER);
+
+        expect(html).toContain(`<a href="${link}"`);
+        expect(html).toContain(`>notes.md</a>`);
+        expect(text).toContain(link);
+        expect(html).not.toContain('&#x3D;');
+    });
+
+    // An item with no link — an invite, with no account to route to yet —
+    // renders as the plain name it always did.
+    it('leaves an unlinked item as plain text', async () => {
+        const { html } = await renderShare('file_shared_with_you', HOLDER);
+
+        expect(html).toContain('a.txt');
+        expect(html).not.toContain('>a.txt</a>');
     });
 
     it('renders as a responsive single column with no remote assets', async () => {
@@ -364,7 +403,9 @@ describe('EmailClient — share notification templates', () => {
         const { html, text } = await renderShare('file_shared_invite', {
             email: 'new@example.test',
             subject_line: 'bob shared notes.md with you on Puter',
-            shares: [{ sender: 'bob', what: 'notes.md' }],
+            shares: digestLines([
+                { username: 'bob', count: 1, items: [{ name: 'notes.md' }] },
+            ]),
             link: 'https://puter.test',
         });
 
