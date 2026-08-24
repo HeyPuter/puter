@@ -46,6 +46,7 @@ import {
 import { PuterServer } from '../../server.js';
 import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import { setupTestServer } from '../../testUtil.js';
+import { resetCardVerificationStatusCache } from '../../util/cardFallback.js';
 import { FS_READ_LIMIT } from '../fs/limits.js';
 
 // ── Test harness ────────────────────────────────────────────────────
@@ -3659,31 +3660,180 @@ describe('AuthController SMS → card fallback', () => {
             value: true,
         });
 
-    it('offers the fallback on send once the attempt threshold is reached', async () => {
-        const { actor } = await makeUserAndActor({
+    it('offers the fallback on send only once SMS attempts are exhausted', async () => {
+        const { user, actor } = await makeUserAndActor({
             requires_phone_verification: 1,
         });
-        // No after_attempts → exercises the default threshold of 2.
+        // No after_attempts → the default is the send route's whole allowance,
+        // so the offer appears on the last send that limit allows and not
+        // before: the card path is for a phone that has run out of tries.
         await withFallbackConfig({ enabled: true }, async () => {
             await withPrelude(stubPrelude(), async () => {
-                const first = makeRes();
+                const early = makeRes();
                 await controller.handleSendConfirmPhone(
                     makeReq({ phone: '+14155550123' }, { actor }),
-                    first,
+                    early,
                 );
-                // First attempt is below the threshold — no offer yet.
-                expect(first.body).toEqual({});
+                // One attempt spent, nine still available — no offer.
+                expect(early.body).toEqual({});
 
-                const second = makeRes();
+                // Stop one short of the allowance: still nothing on offer.
+                await seedAttempts(user.id, 7);
+                const penultimate = makeRes();
                 await controller.handleSendConfirmPhone(
                     makeReq({ phone: '+14155550123' }, { actor }),
-                    second,
+                    penultimate,
                 );
-                expect(second.body).toEqual({
+                expect(penultimate.body).toEqual({});
+
+                // The tenth send is the last one the route will allow, so this
+                // is the point the user is out of SMS attempts.
+                const last = makeRes();
+                await controller.handleSendConfirmPhone(
+                    makeReq({ phone: '+14155550123' }, { actor }),
+                    last,
+                );
+                expect(last.body).toEqual({
                     card_fallback_available: true,
                 });
             });
         });
+    });
+
+    // The card gate lives in an extension, so the backend asks for its status
+    // over the event bus. Stub that one client: `null` stands for no extension
+    // listening at all, which is what a stock build looks like.
+    const withCardStatus = async (
+        enabled: boolean | null,
+        fn: () => Promise<void>,
+    ): Promise<void> => {
+        const ctrl = controller as { clients: { event: unknown } };
+        const real = ctrl.clients.event;
+        ctrl.clients.event = {
+            emitAndWait: async (
+                key: string,
+                event: Record<string, unknown>,
+            ) => {
+                if (key === 'puter.card-verification.status') {
+                    if (enabled !== null) event.enabled = enabled;
+                }
+            },
+            emit: () => undefined,
+        };
+        resetCardVerificationStatusCache();
+        try {
+            await fn();
+        } finally {
+            ctrl.clients.event = real;
+            resetCardVerificationStatusCache();
+        }
+    };
+
+    it('defaults on when SMS and card verification are both available', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        // No `phone_verification_card_fallback` at all: the pair it bridges is
+        // what decides, and here both halves work.
+        await withFallbackConfig(undefined, async () => {
+            await withPrelude(stubPrelude(), async () => {
+                await withCardStatus(true, async () => {
+                    await seedAttempts(user.id, 9);
+                    const res = makeRes();
+                    await controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        res,
+                    );
+                    expect(res.body).toEqual({
+                        card_fallback_available: true,
+                    });
+                });
+            });
+        });
+    });
+
+    it('stays off by default with no card gate behind it', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        // Nothing answers the status probe (stock build) — offering a card path
+        // here could only strand the user, so the default holds it closed.
+        await withFallbackConfig(undefined, async () => {
+            await withPrelude(stubPrelude(), async () => {
+                await withCardStatus(null, async () => {
+                    await seedAttempts(user.id, 9);
+                    const res = makeRes();
+                    await controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        res,
+                    );
+                    expect(res.body).toEqual({});
+                });
+            });
+        });
+    });
+
+    it('stays off by default when the card gate reports itself disabled', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        await withFallbackConfig(undefined, async () => {
+            await withPrelude(stubPrelude(), async () => {
+                await withCardStatus(false, async () => {
+                    await seedAttempts(user.id, 9);
+                    const res = makeRes();
+                    await controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        res,
+                    );
+                    expect(res.body).toEqual({});
+                });
+            });
+        });
+    });
+
+    it('honours an explicit opt-out even when both gates are available', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        await withFallbackConfig({ enabled: false }, async () => {
+            await withPrelude(stubPrelude(), async () => {
+                await withCardStatus(true, async () => {
+                    await seedAttempts(user.id, 9);
+                    const res = makeRes();
+                    await controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        res,
+                    );
+                    expect(res.body).toEqual({});
+                });
+            });
+        });
+    });
+
+    it('clamps after_attempts to the send allowance so it stays reachable', async () => {
+        const { user, actor } = await makeUserAndActor({
+            requires_phone_verification: 1,
+        });
+        // A threshold above the send limit could never be crossed on its own
+        // terms — requests past the limit are rejected in middleware and never
+        // reach the counter — so it is clamped down to the allowance.
+        await withFallbackConfig(
+            { enabled: true, after_attempts: 50 },
+            async () => {
+                await withPrelude(stubPrelude(), async () => {
+                    await seedAttempts(user.id, 9);
+                    const res = makeRes();
+                    await controller.handleSendConfirmPhone(
+                        makeReq({ phone: '+14155550123' }, { actor }),
+                        res,
+                    );
+                    expect(res.body).toEqual({
+                        card_fallback_available: true,
+                    });
+                });
+            },
+        );
     });
 
     it('never offers the fallback on send when disabled', async () => {

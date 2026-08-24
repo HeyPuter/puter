@@ -1,5 +1,6 @@
 import { Context } from '@heyputer/backend/src/core';
 import { extension } from '@heyputer/backend/src/extensions';
+import { isCardFallbackEligible } from '@heyputer/backend/src/util/cardFallback.js';
 import { getTaskbarItems } from '@heyputer/backend/src/util/taskbarItems.js';
 import type { Request, Response } from 'express';
 import TimeAgo from 'javascript-time-ago';
@@ -155,6 +156,33 @@ export const handleWhoami = async (
         // every app actor. Only the verification flag ships.
         requires_phone_verification: user.requires_phone_verification,
         requires_card_verification: user.requires_card_verification,
+        // The SMS-to-card escape hatch: true once this user is out of SMS send
+        // attempts and may verify a card instead. It has to ship from here
+        // because /send-confirm-phone can no longer say so — by the time the
+        // fallback opens, further sends are rejected by that route's own rate
+        // limit before any handler runs, so a page reload would otherwise lose
+        // an offer that stays valid for 24 hours. Only for user actors, and it
+        // costs no KV read unless the account is actually phone-gated.
+        card_fallback_available: isUser
+            ? await isCardFallbackEligible(
+                  extension.config,
+                  user,
+                  async (key) => (await stores.kv.get({ key })).res,
+                  {
+                      smsConfigured: () =>
+                          Boolean(clients.prelude?.isConfigured()),
+                      probeCardVerification: async () => {
+                          const status = { enabled: null as boolean | null };
+                          await clients.event?.emitAndWait(
+                              'puter.card-verification.status',
+                              status,
+                              {},
+                          );
+                          return status.enabled;
+                      },
+                  },
+              )
+            : false,
         desktop_bg_url: user.desktop_bg_url,
         desktop_bg_color: user.desktop_bg_color,
         desktop_bg_fit: user.desktop_bg_fit,
