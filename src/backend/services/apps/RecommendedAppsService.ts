@@ -50,6 +50,7 @@ const RECOMMENDED_APP_NAMES = [
     'checkers',
     'backgammon',
     'klondike',
+    'sudoku',
     'blockup',
     'basketball-tap',
     'dev-center',
