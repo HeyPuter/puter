@@ -277,6 +277,14 @@ export type EventMap = {
         publishable_key: string | null;
         [key: string]: unknown;
     };
+    // Side-effect-free "is the card gate usable?" probe. The extension stamps
+    // `enabled` from its own config and does nothing else — no provider call,
+    // no user state, nothing billed. It exists so the SMS-to-card fallback can
+    // default on only where a card gate actually works, which means it gets
+    // asked often and must stay cheap.
+    'puter.card-verification.status': {
+        enabled: boolean | null;
+    };
     'puter.card-verification.confirm': {
         user_id: number;
         user_uid: string;
@@ -610,11 +618,10 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ?
-              | `${Head}.*`
-              | (Tail extends `${string}.${string}`
-                    ? `${Head}.${WildcardPrefixes<Tail>}`
-                    : never)
+        ? | `${Head}.*`
+          | (Tail extends `${string}.${string}`
+                ? `${Head}.${WildcardPrefixes<Tail>}`
+                : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;

@@ -33,12 +33,18 @@ import {
 // The 6-digit code UX mirrors UIWindowEmailConfirmationRequired.js. Used as a
 // hard gate for low-reputation signups, so by default it has no close button.
 //
-// When the server reports `card_fallback_available` on a send (either a
-// successful one or a refusal), SMS is not the only way out: the backend has
-// opened a card-verification path that clears the phone gate too. This dialog
-// surfaces that as an opt-in link rather than leaving the user to retry a send
-// that keeps failing. The card dialog can be dismissed straight back here, so
-// the choice is reversible either way.
+// Once the user is out of SMS send attempts for the window, SMS is not the only
+// way out: the backend opens a card-verification path that clears the phone gate
+// too, and this dialog surfaces it as an opt-in link rather than leaving the user
+// to retry a send that can only be refused. The card dialog can be dismissed
+// straight back here, so the choice is reversible either way.
+//
+// Two things reveal the link, and both are needed. A send response carrying
+// `card_fallback_available` covers the attempt that exhausts the allowance,
+// which is the send that opens the fallback. `options.card_fallback_available`
+// covers every visit after that: further sends are rejected by the route's rate
+// limit before the handler runs, so only whoami can still report the offer —
+// which matters because it stays valid for 24 hours, well past the send window.
 //
 // The number field combines a searchable country-code picker with the national
 // number. Everything the user types is normalized to E.164 with libphonenumber
@@ -512,10 +518,11 @@ function UIWindowPhoneVerificationRequired(options) {
 
         // ---------- Card escape hatch ----------
         //
-        // Revealed by a send response carrying `card_fallback_available`. Once
-        // revealed it stays: the backend keeps the eligibility open for hours,
-        // and a user who came back to try SMS again shouldn't lose the way out
-        // they were already offered.
+        // Revealed by a send response carrying `card_fallback_available`, or
+        // straight away when the caller already knows the fallback is open
+        // (whoami reports it — see below). Once revealed it stays: the backend
+        // keeps the eligibility open for hours, and a user who came back to try
+        // SMS again shouldn't lose the way out they were already offered.
         let card_fallback_available = false;
         let card_fallback_in_progress = false;
         const revealCardFallback = () => {
@@ -523,6 +530,13 @@ function UIWindowPhoneVerificationRequired(options) {
             card_fallback_available = true;
             $(el_window).find('.phone-card-fallback').prop('hidden', false);
         };
+
+        // The fallback only opens once the user is out of SMS send attempts, at
+        // which point every further send is rejected by the route's rate limit
+        // before the handler runs — so a send response can no longer advertise
+        // it. On a reload the offer therefore has to come from whoami, which the
+        // gate's caller passes in.
+        if (options.card_fallback_available) revealCardFallback();
 
         // Hand off to the card dialog. This window stays alive behind it (just
         // hidden) so a user who backs out — or whose card path turns out to be
