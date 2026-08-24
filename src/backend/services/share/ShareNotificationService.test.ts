@@ -148,6 +148,61 @@ describe('ShareNotificationService', () => {
         expect(titles).toContain(`${who} shared 2 items with you`);
     });
 
+    // The masked path, so clicking the notification opens the item. Built from
+    // the uuid and the owner's name rather than from `path`, which is the
+    // owner's real one at this point and not the recipient's to see.
+    it('points a single-item notification at what was shared', async () => {
+        const sender = actorFor(await makeUser());
+        const alice = await makeUser();
+        const calls = captureNotifications();
+
+        await server.services.shareNotification.notifyShared(sender, [
+            shareTo(alice, {
+                name: 'report.txt',
+                entryUid: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+                path: '/owner/Documents/private/report.txt',
+            }),
+        ]);
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].payload.fields).toMatchObject({
+            target: {
+                path: '/owner/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/report.txt',
+                name: 'report.txt',
+            },
+        });
+        // The folder the owner keeps it in stays theirs.
+        expect(JSON.stringify(calls[0].payload)).not.toContain('private');
+    });
+
+    // No single item describes several, so the click falls back to Shared
+    // rather than picking one of them.
+    it('carries no target when the notification covers more than one item', async () => {
+        const sender = actorFor(await makeUser());
+        const alice = await makeUser();
+        const calls = captureNotifications();
+
+        await server.services.shareNotification.notifyShared(sender, [
+            shareTo(alice, { name: 'a.txt', entryUid: 'e1' }),
+            shareTo(alice, { name: 'b.txt', entryUid: 'e2' }),
+        ]);
+
+        expect(calls).toHaveLength(1);
+        expect(calls[0].payload.fields).not.toHaveProperty('target');
+    });
+
+    it('carries no target for a share whose name it never learned', async () => {
+        const sender = actorFor(await makeUser());
+        const alice = await makeUser();
+        const calls = captureNotifications();
+
+        await server.services.shareNotification.notifyShared(sender, [
+            shareTo(alice, { name: undefined }),
+        ]);
+
+        expect(calls[0].payload.fields).not.toHaveProperty('target');
+    });
+
     it('does not notify the sender about their own share', async () => {
         const alice = await makeUser();
         const calls = captureNotifications();
