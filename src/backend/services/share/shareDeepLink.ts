@@ -54,11 +54,19 @@ export const maskedSharePath = (target: ShareTarget): string | null => {
 };
 
 /**
- * Items one link will highlight. Past this the link still opens Shared, just
- * without picking the rest out — a query string of several kilobytes is where
- * mail clients start truncating or refusing to make it clickable.
+ * Items one link will highlight, at most. Past this the link still opens
+ * Shared, just without picking the rest out.
  */
 export const SHARE_DEEP_LINK_ITEMS_LIMIT = 20;
+
+/**
+ * How long a link may run, in characters. Somewhere past two thousand, older
+ * mail clients cut a URL off or stop making it clickable — and this is the
+ * button — so items are added only while the whole link stays within this. A
+ * single item always fits: a username, a uuid and a filename come to a few
+ * hundred, and it takes long names for the count above to matter first.
+ */
+export const SHARE_DEEP_LINK_MAX_LENGTH = 2000;
 
 /**
  * A link that opens the recipient's Shared view with `paths` highlighted, once
@@ -67,18 +75,23 @@ export const SHARE_DEEP_LINK_ITEMS_LIMIT = 20;
  * with the first. With no paths the link still lands on Shared.
  */
 export const sharedViewLink = (origin: string, paths: string[]): string => {
-    const base = origin.replace(/\/+$/, '');
-    const unique = [...new Set(paths)].slice(0, SHARE_DEEP_LINK_ITEMS_LIMIT);
-    const query =
-        unique.length === 0
-            ? `${SHARE_DEEP_LINK_PARAM}=`
-            : unique
-                  .map(
-                      (path) =>
-                          `${SHARE_DEEP_LINK_PARAM}=${encodeURIComponent(path)}`,
-                  )
-                  .join('&');
-    return `${base}/?${query}`;
+    const base = `${origin.replace(/\/+$/, '')}/?`;
+    // The first items that fit, in order — never a later one over an
+    // earlier, so what is highlighted reads as the top of the list.
+    const params: string[] = [];
+    let length = base.length;
+    for (const path of new Set(paths)) {
+        if (params.length === SHARE_DEEP_LINK_ITEMS_LIMIT) break;
+        const param = `${SHARE_DEEP_LINK_PARAM}=${encodeURIComponent(path)}`;
+        const added = param.length + (params.length === 0 ? 0 : '&'.length);
+        if (length + added > SHARE_DEEP_LINK_MAX_LENGTH) break;
+        params.push(param);
+        length += added;
+    }
+    return (
+        base +
+        (params.length === 0 ? `${SHARE_DEEP_LINK_PARAM}=` : params.join('&'))
+    );
 };
 
 /** A link that opens `path`: the Shared view with that one item highlighted. */

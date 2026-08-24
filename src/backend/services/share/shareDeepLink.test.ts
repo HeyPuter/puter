@@ -22,6 +22,7 @@ import {
     maskedSharePath,
     ownerFromSharePath,
     SHARE_DEEP_LINK_ITEMS_LIMIT,
+    SHARE_DEEP_LINK_MAX_LENGTH,
     shareDeepLink,
     sharedViewLink,
     shareTargetLink,
@@ -136,6 +137,26 @@ describe('sharedViewLink', () => {
             sharedViewLink('https://puter.com', paths),
         ).searchParams.getAll('shared');
         expect(shared).toEqual(paths.slice(0, SHARE_DEEP_LINK_ITEMS_LIMIT));
+    });
+
+    // Twenty ordinary names already run to several kilobytes once encoded, so
+    // the count alone is no guard; the link itself has to stay short enough.
+    it('stops adding items before the link outgrows what mail clients tolerate', () => {
+        const paths = Array.from(
+            { length: SHARE_DEEP_LINK_ITEMS_LIMIT },
+            (_, i) => `/alice/${UID}/${'quarterly report '.repeat(8)}${i}.pdf`,
+        );
+        const link = sharedViewLink('https://puter.com', paths);
+        expect(link.length).toBeLessThanOrEqual(SHARE_DEEP_LINK_MAX_LENGTH);
+        const shared = new URL(link).searchParams.getAll('shared');
+        // Only a leading run made it — the first items, none skipped.
+        expect(shared.length).toBeGreaterThan(1);
+        expect(shared.length).toBeLessThan(paths.length);
+        expect(shared).toEqual(paths.slice(0, shared.length));
+        // The next item would not have fit.
+        expect(
+            link.length + `&shared=${encodeURIComponent(paths[shared.length])}`.length,
+        ).toBeGreaterThan(SHARE_DEEP_LINK_MAX_LENGTH);
     });
 });
 
