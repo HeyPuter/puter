@@ -67,4 +67,16 @@ describe('options_for', () => {
         expect(options_for('read')).toContain('>Can edit &amp; share</option>');
         expect(options_for('read')).not.toContain('&amp;amp;');
     });
+
+    it('rests on an unselectable placeholder when the grants disagree', () => {
+        // A batch of mixed modes must not read as any one of them.
+        const html = options_for(null);
+        expect(values(html)).toEqual(['', ...MODES]);
+        expect(html).toContain('<option value="" selected disabled>Mixed</option>');
+        expect(html).not.toContain('<option value="read" selected>');
+    });
+
+    it('treats a missing mode the same as a mixed one', () => {
+        expect(options_for(undefined)).toBe(options_for(null));
+    });
 });

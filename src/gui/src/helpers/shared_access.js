@@ -124,6 +124,26 @@ export const can_rename = async (item_path, is_dir = false) => {
 };
 
 /**
+ * May you share the item at `item_path` with someone else?
+ *
+ * Yours always is. Someone else's needs `manage`, which inherits downwards —
+ * so a file inside a folder you manage counts, even though the row itself
+ * carries a mode only at a shared root. Trashed items are never shareable.
+ *
+ * @param {string} item_path
+ * @param {string} [row_mode] - The `data-share_mode` a Shared listing put on the
+ *   row, which answers without a lookup when the item is a share root
+ * @returns {Promise<boolean>}
+ */
+export const can_share = async (item_path, row_mode) => {
+    if ( typeof item_path !== 'string' || item_path === '' ) return false;
+    if ( item_path === window.trash_path || item_path.startsWith(`${window.trash_path}/`) ) return false;
+    if ( is_owned_by_me(item_path) ) return true;
+    if ( row_mode === 'manage' ) return true;
+    return (await shared_mode_for(item_path)) === 'manage';
+};
+
+/**
  * May you move or delete the item at `item_path`?
  *
  * The folder holding it decides, which is what the backend enforces too. A

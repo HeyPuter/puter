@@ -21,6 +21,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import {
     can_rename,
     can_restructure,
+    can_share,
     invalidate_shared_roots,
     remember_shared_roots,
     shared_mode_for,
@@ -34,7 +35,7 @@ const REPORT = '44444444-4444-4444-4444-444444444444';
 describe('shared_access', () => {
     beforeEach(() => {
         invalidate_shared_roots();
-        globalThis.window = { user: { username: 'sharemate' } };
+        globalThis.window = { user: { username: 'sharemate' }, trash_path: '/sharemate/Trash' };
         // Shared roots arrive masked: `/{owner}/{uid}/{name}`.
         remember_shared_roots([
             { path: `/jf/${CONTENTS}/Contents`, mode: 'write' },
@@ -109,6 +110,41 @@ describe('shared_access', () => {
             expect(await can_restructure('/sharemate/Documents/a.txt')).toBe(
                 true,
             );
+        });
+    });
+
+    describe('can_share', () => {
+        it('allows your own items', async () => {
+            expect(await can_share('/sharemate/Documents/a.txt')).toBe(true);
+        });
+
+        it('refuses someone else\u2019s item held short of manage', async () => {
+            expect(await can_share(`/jf/${CONTENTS}/Contents/a.txt`)).toBe(false);
+            expect(await can_share(`/jf/${PHOTOS}/Photos`, 'read')).toBe(false);
+        });
+
+        it('allows an item held with manage', async () => {
+            expect(await can_share(`/jf/${BUDGET}/Budget`)).toBe(true);
+        });
+
+        it('allows an item inside a folder held with manage', async () => {
+            // The row itself carries a mode only at a shared root.
+            expect(await can_share(`/jf/${BUDGET}/Budget/q1.xlsx`)).toBe(true);
+        });
+
+        it('takes the row\u2019s own mode without a lookup', async () => {
+            invalidate_shared_roots();
+            expect(await can_share('/jf/whatever/a.txt', 'manage')).toBe(true);
+        });
+
+        it('refuses trashed items, yours included', async () => {
+            expect(await can_share('/sharemate/Trash')).toBe(false);
+            expect(await can_share('/sharemate/Trash/a.txt')).toBe(false);
+        });
+
+        it('refuses an empty or non-string path', async () => {
+            expect(await can_share('')).toBe(false);
+            expect(await can_share(undefined)).toBe(false);
         });
     });
 

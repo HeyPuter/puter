@@ -2349,6 +2349,101 @@ p.myapps-add-error {
     font-size: 12px;
     color: var(--dashboard-text-muted);
 }
+/* Several items: their icons fan out from the same 34px slot one item's
+   icon occupies, each ringed in the card color so the pile reads as a pile. */
+.share-modal-title-icon.share-modal-title-stack {
+    width: 50px;
+}
+/* Two rings, card then border: without the outer one, two items with the
+   same icon overlap into one wide smudge instead of a pile. */
+.share-modal-title-icon.share-modal-title-stack img {
+    position: absolute;
+    top: 50%;
+    margin-top: -12px;
+    width: 24px;
+    height: 24px;
+    border-radius: 5px;
+    box-shadow:
+        0 0 0 2px var(--dashboard-card-background),
+        0 0 0 3px var(--dashboard-border);
+}
+.share-modal-title-stack {
+    position: relative;
+}
+.share-modal-title-stack img:nth-child(1) { left: 0; z-index: 3; }
+.share-modal-title-stack img:nth-child(2) { left: 12px; z-index: 2; }
+.share-modal-title-stack img:nth-child(3) { left: 24px; z-index: 1; }
+
+/* The names of what's being shared, folding out into the full list. */
+button.share-modal-title-sub {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 0;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.share-modal-items-summary {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.share-modal-chevron {
+    flex-shrink: 0;
+    transition: transform 0.15s;
+}
+.share-modal-items-toggle[aria-expanded='true'] .share-modal-chevron {
+    transform: rotate(180deg);
+}
+@media (hover: hover) {
+    button.share-modal-title-sub:hover {
+        color: var(--dashboard-text-primary);
+    }
+}
+button.share-modal-title-sub:focus-visible {
+    outline: none;
+    border-radius: 5px;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+.share-modal-items {
+    margin: 0 0 14px;
+    padding: 0 0 12px;
+    /* Long selections scroll here rather than pushing the access list out of
+       reach behind the dialog's own scroll. */
+    max-height: 170px;
+    overflow-y: auto;
+    list-style: none;
+    border-bottom: 1px solid var(--dashboard-border);
+}
+.share-modal-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+}
+.share-modal-item-icon {
+    flex-shrink: 0;
+    width: 20px;
+    height: 20px;
+}
+.share-modal-item-icon img {
+    width: 20px;
+    height: 20px;
+    object-fit: contain;
+}
+.share-modal-item-name {
+    min-width: 0;
+    font-size: 13px;
+    color: var(--dashboard-text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 .share-modal-close {
     flex-shrink: 0;
     display: flex;
@@ -2613,6 +2708,40 @@ select.share-modal-row-mode:disabled {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+/* An inline action can't be ellipsed away, so that line wraps instead —
+   as whole boxes, so a narrow sheet never leaves a separator dangling. */
+.share-modal-row-via-wrap {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 8px;
+    white-space: normal;
+    overflow: visible;
+}
+.share-modal-row-link {
+    padding: 0;
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--select-color);
+    cursor: pointer;
+}
+@media (hover: hover) {
+    .share-modal-row-link:hover:not(:disabled) {
+        text-decoration: underline;
+    }
+}
+.share-modal-row-link:focus-visible {
+    outline: none;
+    border-radius: 4px;
+    box-shadow: 0 0 0 3px var(--select-ring);
+}
+.share-modal-row-link:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
 /* Owner badge and the fixed mode of an inherited grant */
 .share-modal-row-tag {
     flex-shrink: 0;
@@ -2750,6 +2879,22 @@ select.share-modal-row-mode:focus {
         width: 44px;
         height: 44px;
         transform: translate(-50%, -50%);
+    }
+    /* Text controls grow their hit area downwards and upwards only: widening
+       them would reach under the row's select. */
+    .share-modal-items-toggle,
+    .share-modal-row-link {
+        position: relative;
+    }
+    .share-modal-items-toggle::before,
+    .share-modal-row-link::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 50%;
+        height: 44px;
+        transform: translateY(-50%);
     }
     input.share-modal-recipient,
     input.share-modal-recipient:focus,

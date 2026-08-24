@@ -30,7 +30,7 @@ import launch_app from './launch_app.js';
 import path from '../lib/path.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from './weblink.js';
 import { is_owned_by_me } from './path_owner.js';
-import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from './shared_access.js';
+import { can_rename, can_restructure, can_share, invalidate_shared_roots } from './shared_access.js';
 
 /**
  * Generates context menu items for file/folder operations
@@ -59,11 +59,10 @@ const generate_file_context_menu = async function (options) {
     // Someone else's, however we got here — including items reached by opening
     // a shared folder, which carry no share markers of their own.
     const is_not_mine = !is_owned_by_me($(options.element).attr('data-path'));
-    // `manage` inherits downwards, so a file inside a folder you manage
-    // counts too — the row itself only carries a mode at a shared root.
-    const can_manage_share =
-        $(options.element).attr('data-share_mode') === 'manage'
-        || (await shared_mode_for($(options.element).attr('data-path'))) === 'manage';
+    const may_share = await can_share(
+        $(options.element).attr('data-path'),
+        $(options.element).attr('data-share_mode'),
+    );
     // Moving and deleting go by the holding folder, not by the item.
     const may_restructure = !is_not_mine
         || await can_restructure($(options.element).attr('data-path'));
@@ -320,7 +319,7 @@ const generate_file_context_menu = async function (options) {
     // -------------------------------------------
     // Share
     // -------------------------------------------
-    if ( !is_trash && !is_trashed && (!is_not_mine || can_manage_share) ) {
+    if ( !is_trash && !is_trashed && may_share ) {
         menu_items.push({
             html: i18n('share_ellipsis'),
             onClick: async function () {

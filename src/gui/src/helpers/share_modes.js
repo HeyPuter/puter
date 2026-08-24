@@ -44,15 +44,23 @@ export const mode_label = (mode) => {
  * A mode outside `MODES` is listed first rather than dropped, so opening a
  * dialog on a `see`/`list` grant doesn't silently rewrite it.
  *
- * @param {string} current
+ * Pass `null` for a selection whose grants disagree: the `<select>` rests on an
+ * unselectable placeholder, so a batch of mixed modes can't be read as one of
+ * them, and picking a real mode is what levels them.
+ *
+ * @param {string|null} current
  * @returns {string} HTML-safe markup
  */
 export const options_for = (current) => {
-    const modes = MODES.includes(current) ? MODES : [current, ...MODES];
-    return modes
+    const listed = MODES
         .map(
             (mode) =>
                 `<option value="${html_encode(mode)}"${mode === current ? ' selected' : ''}>${mode_label(mode)}</option>`,
         )
         .join('');
+    if ( current === null || current === undefined ) {
+        return `<option value="" selected disabled>${i18n('share_access_mixed')}</option>${listed}`;
+    }
+    if ( MODES.includes(current) ) return listed;
+    return `<option value="${html_encode(current)}" selected>${mode_label(current)}</option>${listed}`;
 };

@@ -39,7 +39,7 @@ import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js'
 
 import { icons } from '../../helpers/actionIcons.js';
 import list_all_shared from '../../helpers/list_all_shared.js';
-import { remember_shared_roots } from '../../helpers/shared_access.js';
+import { can_share, remember_shared_roots } from '../../helpers/shared_access.js';
 import { parent_path_for, shared_crumbs_for } from '../../helpers/share_paths.js';
 
 const { html_encode, SelectionArea } = window;
@@ -123,6 +123,7 @@ const TabFiles = {
                     <div class="files-selection-actions">
                         <button class="selection-action-btn restore-btn" title="${i18n('restore')}">${icons.restore}<span>${i18n('restore')}</span></button>
                         <button class="selection-action-btn download-btn" title="${i18n('download')}">${icons.download}<span>${i18n('download')}</span></button>
+                        <button class="selection-action-btn share-btn" title="${i18n('share')}">${icons.share}<span>${i18n('share')}</span></button>
                         <button class="selection-action-btn cut-btn" title="${i18n('cut')}">${icons.cut}<span>${i18n('cut')}</span></button>
                         <button class="selection-action-btn copy-btn" title="${i18n('copy')}">${icons.copy}<span>${i18n('copy')}</span></button>
                         <button class="selection-action-btn delete-btn" title="${i18n('delete')}">${icons.trash}<span>${i18n('delete')}</span></button>
@@ -1430,6 +1431,11 @@ const TabFiles = {
             }
         });
 
+        // Share button
+        $actions.find('.share-btn').on('click', function () {
+            _this.openShareModal(document.querySelectorAll('.files-tab .row.selected'));
+        });
+
         // Cut button
         $actions.find('.cut-btn').on('click', function () {
             const selectedRows = document.querySelectorAll('.files-tab .row.selected');
@@ -1520,6 +1526,54 @@ const TabFiles = {
             $actions.find('.copy-btn').show();
             $actions.find('.delete-btn span').text(i18n('delete'));
         }
+
+        // Whether the whole selection may be shared can need a lookup, so the
+        // button stays hidden until the answer is in. A selection changed in
+        // the meantime owns the bar, and this answer is discarded.
+        const token = (this._shareCheckToken = {});
+        $actions.find('.share-btn').hide();
+        if ( ! anyTrashed ) {
+            this.canShareRows(selectedRows).then((may_share) => {
+                if ( this._shareCheckToken !== token ) return;
+                $actions.find('.share-btn').toggle(may_share);
+            });
+        }
+    },
+
+    /**
+     * Whether every selected row may be shared with someone else. A selection
+     * mixing your own items with someone else's read-only ones can't be, and
+     * offering the action would only produce a failure per item.
+     *
+     * @param {NodeList|Array<HTMLElement>} rows - The selected row elements
+     * @returns {Promise<boolean>}
+     */
+    async canShareRows (rows) {
+        const list = Array.from(rows);
+        if ( ! list.length ) return false;
+        const answers = await Promise.all(list.map((row) => can_share(
+            $(row).attr('data-path'),
+            $(row).attr('data-share_mode'),
+        )));
+        return answers.every(Boolean);
+    },
+
+    /**
+     * Opens the share modal on a selection of rows, folding their access into
+     * one list. The row's rendered icon comes along so the header can show
+     * what is being shared without re-resolving it.
+     *
+     * @param {NodeList|Array<HTMLElement>} rows - The row elements to share
+     * @returns {void}
+     */
+    openShareModal (rows) {
+        const items = Array.from(rows).map((row) => ({
+            path: $(row).attr('data-path'),
+            name: $(row).attr('data-name'),
+            icon: $(row).find('.item-icon img').attr('src'),
+        }));
+        if ( ! items.length ) return;
+        UIShareModal({ items, $container: this.$el_window });
     },
 
     /**
@@ -2891,12 +2945,15 @@ const TabFiles = {
             e.stopPropagation();
 
             const selectedRows = document.querySelectorAll('.files-tab .row.selected');
-            let items;
-            if ( selectedRows.length > 1 && el_item.classList.contains('selected') ) {
-                items = await _this.generateMultiSelectContextMenu(selectedRows);
-            } else {
-                items = await _this.generateContextMenuItems(el_item, file);
-            }
+            const isMultiSelection = selectedRows.length > 1 && el_item.classList.contains('selected');
+            const items = isMultiSelection
+                ? await _this.generateMultiSelectContextMenu(selectedRows)
+                : await _this.generateContextMenuItems(el_item, file);
+            // The sheet's title names what the menu acts on — the whole
+            // selection, not just the row the long-press landed on.
+            const menuTitle = isMultiSelection
+                ? i18n('items_count_other', { count: selectedRows.length }, false)
+                : file.name;
 
             // The touch sheet is for touch interactions and touch-first
             // devices. A mouse right-click gets the desktop menu at the
@@ -2906,7 +2963,7 @@ const TabFiles = {
             const touchInvoked = e.type === 'taphold' || lastPointerType === 'touch';
             if ( window.isMobile.phone || window.isMobile.tablet || isTouchPrimaryDevice() || touchInvoked ) {
                 const modal = new ContextMenuModal();
-                modal.show(items, el_item.getBoundingClientRect(), { title: file.name });
+                modal.show(items, el_item.getBoundingClientRect(), { title: menuTitle });
             } else {
                 // Keep the row visually active while its menu is open — the
                 // pointer moves onto the menu, so :hover alone would drop it.
@@ -3804,14 +3861,10 @@ const TabFiles = {
 
     async handleMoreClick (rowElement, file, targetElement, fromTouch) {
         const selectedRows = document.querySelectorAll('.files-tab .row.selected');
-
-        let items;
-        if ( selectedRows.length > 1 && rowElement.classList.contains('selected') ) {
-            items = await this.generateMultiSelectContextMenu(selectedRows);
-        }
-        else {
-            items = await this.generateContextMenuItems(rowElement, file);
-        }
+        const isMultiSelection = selectedRows.length > 1 && rowElement.classList.contains('selected');
+        const items = isMultiSelection
+            ? await this.generateMultiSelectContextMenu(selectedRows)
+            : await this.generateContextMenuItems(rowElement, file);
 
         // The touch sheet for touch taps and touch-first devices; a mouse
         // click gets the desktop menu anchored to the button, also on
@@ -3819,7 +3872,11 @@ const TabFiles = {
         if ( window.isMobile.phone || window.isMobile.tablet || isTouchPrimaryDevice() || fromTouch ) {
             const targetRect = targetElement.getBoundingClientRect();
             const modal = new ContextMenuModal();
-            modal.show(items, targetRect, { title: file.name });
+            modal.show(items, targetRect, {
+                title: isMultiSelection
+                    ? i18n('items_count_other', { count: selectedRows.length }, false)
+                    : file.name,
+            });
         } else {
             // The '⋯' click doesn't select the row, so without this class the
             // row would lose all visual state the moment the pointer moves
@@ -3950,6 +4007,17 @@ const TabFiles = {
                     window.zipItems(Array.from(selectedRows), _this.currentPath, true);
                 },
             });
+
+            // Share
+            if ( await _this.canShareRows(selectedRows) ) {
+                items.push({
+                    html: i18n('share_ellipsis'),
+                    onClick: function () {
+                        _this.openShareModal(selectedRows);
+                    },
+                });
+            }
+
             items.push('-');
         }
 

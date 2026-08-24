@@ -198,6 +198,8 @@ const en = {
         incorrect_password: 'Incorrect password',
         invite_link: 'Invite Link',
         item: 'item',
+        items_count_one: '1 item',
+        items_count_other: '{{count}} items',
         items_in_trash_cannot_be_renamed: 'This item can\'t be renamed because it\'s in the trash. To rename this item, first drag it out of the Trash.',
         jpeg_image: 'JPEG image',
         keep_both: 'Keep Both',
@@ -407,7 +409,32 @@ const en = {
         share_invite_cancelled: 'Invitation to {{recipient}} cancelled',
         share_access_removed: 'Removed {{recipient}}',
         share_confirm_remove: 'Remove {{recipient}}’s access to this item?',
+        share_confirm_remove_plain: 'Remove {{recipient}}’s access?',
+        share_confirm_remove_items:
+            'Remove {{recipient}}’s access to {{count}} items?',
+        share_confirm_cancel_invite_items:
+            'Cancel the invitation sent to {{recipient}} for {{count}} items?',
         share_remove: 'Remove',
+        share_access_mixed: 'Mixed',
+        share_coverage: 'On {{count}} of {{total}} items',
+        share_add_to_all: 'Add to all',
+        share_add_to_all_for:
+            'Give {{recipient}} access to the other {{count}} items',
+        share_inherited_via_count: 'via {{count}} folders',
+        share_no_one_items: 'None of these items are shared yet.',
+        share_failed_items: 'Could not share these items.',
+        share_load_partial_failed:
+            'Could not load who has access to every item.',
+        share_access_list_too_many:
+            'Who already has access isn’t listed for this many items. Anyone you add gets all {{total}}.',
+        share_shared_with_items: 'Shared with {{recipient}} on {{count}} items',
+        share_shared_with_partial:
+            'Shared with {{recipient}} on {{count}} of {{total}} items',
+        share_invited_items:
+            'Invited {{recipient}} to {{count}} items — they’ll get access once they join',
+        share_access_updated_items:
+            'Updated access for {{recipient}} on {{count}} items',
+        share_access_removed_items: 'Removed {{recipient}} from {{count}} items',
         block: 'Block',
         unblock: 'Unblock',
         manage: 'Manage',
