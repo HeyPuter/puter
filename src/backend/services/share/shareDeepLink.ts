@@ -18,9 +18,10 @@
  */
 
 /**
- * Links that open a shared item. Not derived from `ResolvedShare.path`: that is
- * masked for the requester, and the issuer owns the entry, so it comes back as
- * the owner's real path — which mailing would leak.
+ * Links that open a shared item: the dashboard's Files tab, on Shared, with the
+ * item highlighted. Not derived from `ResolvedShare.path`: that is masked for
+ * the requester, and the issuer owns the entry, so it comes back as the owner's
+ * real path — which mailing would leak.
  */
 
 /** The query parameter the GUI routes on. */
@@ -53,14 +54,36 @@ export const maskedSharePath = (target: ShareTarget): string | null => {
 };
 
 /**
- * A link that opens `path` once the recipient is signed in. Only the masked
- * path travels — its second segment is the uuid, so a rename is recoverable and
- * there is no second copy to disagree with the first.
+ * Items one link will highlight. Past this the link still opens Shared, just
+ * without picking the rest out — a query string of several kilobytes is where
+ * mail clients start truncating or refusing to make it clickable.
  */
-export const shareDeepLink = (origin: string, path: string): string => {
+export const SHARE_DEEP_LINK_ITEMS_LIMIT = 20;
+
+/**
+ * A link that opens the recipient's Shared view with `paths` highlighted, once
+ * they are signed in. Only masked paths travel — each one's second segment is
+ * the uuid, so a rename is recoverable and there is no second copy to disagree
+ * with the first. With no paths the link still lands on Shared.
+ */
+export const sharedViewLink = (origin: string, paths: string[]): string => {
     const base = origin.replace(/\/+$/, '');
-    return `${base}/?${SHARE_DEEP_LINK_PARAM}=${encodeURIComponent(path)}`;
+    const unique = [...new Set(paths)].slice(0, SHARE_DEEP_LINK_ITEMS_LIMIT);
+    const query =
+        unique.length === 0
+            ? `${SHARE_DEEP_LINK_PARAM}=`
+            : unique
+                  .map(
+                      (path) =>
+                          `${SHARE_DEEP_LINK_PARAM}=${encodeURIComponent(path)}`,
+                  )
+                  .join('&');
+    return `${base}/?${query}`;
 };
+
+/** A link that opens `path`: the Shared view with that one item highlighted. */
+export const shareDeepLink = (origin: string, path: string): string =>
+    sharedViewLink(origin, [path]);
 
 /** The link for a target, or `null` when it isn't addressable. */
 export const shareTargetLink = (

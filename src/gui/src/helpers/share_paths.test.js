@@ -23,6 +23,7 @@ import {
     parent_path_for,
     parse_shared_path,
     shared_crumbs_for,
+    shared_uids_from_paths,
 } from './share_paths.js';
 
 const UID = '11111111-2222-3333-4444-555555555555';
@@ -45,6 +46,29 @@ describe('parse_shared_path', () => {
         expect(parse_shared_path('/jfcastro/Documents/f.txt')).toBeNull();
         expect(parse_shared_path(`/jfcastro/${UID}`)).toBeNull();
         expect(parse_shared_path('relative')).toBeNull();
+    });
+});
+
+describe('shared_uids_from_paths', () => {
+    const OTHER = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+
+    it('reads each link value down to the uid it names, once', () => {
+        expect(shared_uids_from_paths([
+            `/jfcastro/${UID}/Contents`,
+            `/jfcastro/${UID.toUpperCase()}/Contents`,
+            `/other/${OTHER}/f.txt`,
+        ])).toEqual([UID, OTHER]);
+    });
+
+    it('drops anything that is not a shared path', () => {
+        expect(shared_uids_from_paths([
+            '',
+            '/jfcastro/Documents/f.txt',
+            `/jfcastro/${UID}`,
+            'not a path',
+            `/jfcastro/${UID}/f.txt`,
+        ])).toEqual([UID]);
+        expect(shared_uids_from_paths(undefined)).toEqual([]);
     });
 });
 

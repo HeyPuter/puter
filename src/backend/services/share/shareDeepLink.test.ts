@@ -21,7 +21,9 @@ import { describe, expect, it } from 'vitest';
 import {
     maskedSharePath,
     ownerFromSharePath,
+    SHARE_DEEP_LINK_ITEMS_LIMIT,
     shareDeepLink,
+    sharedViewLink,
     shareTargetLink,
 } from './shareDeepLink.js';
 
@@ -91,6 +93,49 @@ describe('shareDeepLink', () => {
         // Round-trips: what the GUI reads back is the path we meant.
         const shared = new URL(link).searchParams.get('shared');
         expect(shared).toBe(`/alice/${UID}/a&b#c d.txt`);
+    });
+});
+
+describe('sharedViewLink', () => {
+    it('repeats the parameter once per item, in order', () => {
+        const link = sharedViewLink('https://puter.com', [
+            `/alice/${UID}/a.txt`,
+            `/bob/${UID}/b.txt`,
+        ]);
+        expect(link).toBe(
+            `https://puter.com/?shared=%2Falice%2F${UID}%2Fa.txt&shared=%2Fbob%2F${UID}%2Fb.txt`,
+        );
+        // Round-trips: the GUI reads back every path, as it was.
+        expect(new URL(link).searchParams.getAll('shared')).toEqual([
+            `/alice/${UID}/a.txt`,
+            `/bob/${UID}/b.txt`,
+        ]);
+    });
+
+    // Nothing addressable still deserves a way in: the parameter alone opens
+    // Shared, the same place a link with items lands.
+    it('still opens Shared when there is nothing to pick out', () => {
+        expect(sharedViewLink('https://puter.com', [])).toBe(
+            'https://puter.com/?shared=',
+        );
+    });
+
+    it('names an item once however often it was queued', () => {
+        const path = `/alice/${UID}/a.txt`;
+        expect(sharedViewLink('https://puter.com', [path, path])).toBe(
+            shareDeepLink('https://puter.com', path),
+        );
+    });
+
+    it('stops adding items where mail clients stop tolerating the length', () => {
+        const paths = Array.from(
+            { length: SHARE_DEEP_LINK_ITEMS_LIMIT + 5 },
+            (_, i) => `/alice/${UID}/file-${i}.txt`,
+        );
+        const shared = new URL(
+            sharedViewLink('https://puter.com', paths),
+        ).searchParams.getAll('shared');
+        expect(shared).toEqual(paths.slice(0, SHARE_DEEP_LINK_ITEMS_LIMIT));
     });
 });
 

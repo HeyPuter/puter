@@ -41,7 +41,7 @@ import UINotification from './UINotification.js';
 import UIWindowWelcome from './UIWindowWelcome.js';
 import launch_app from '../helpers/launch_app.js';
 import item_icon from '../helpers/item_icon.js';
-import { SHARED_PATH_PARAM } from '../helpers/parse_shared_path.js';
+import { SHARED_PATH_PARAM, clear_shared_param } from '../helpers/parse_shared_path.js';
 import resolve_shared_item from '../helpers/resolve_shared_item.js';
 import apply_item_added_to_containers from '../helpers/apply_item_added_to_containers.js';
 import UIWindowSearch from './UIWindowSearch.js';
@@ -1846,18 +1846,6 @@ async function UIDesktop (options) {
         return true;
     }
 
-    /** Take `?shared=` off the address bar so a reload doesn't act on it again. */
-    function clear_shared_param () {
-        const params = new URLSearchParams(window.location.search);
-        params.delete(SHARED_PATH_PARAM);
-        const rest = params.toString();
-        window.history.replaceState(
-            null,
-            document.title,
-            rest ? `${window.location.pathname}?${rest}` : (window.location.pathname || '/'),
-        );
-    }
-
     /**
      * Act on a share link. A share only ever reaches a real account, so a
      * temporary session is never the recipient: signing out of the way first
@@ -1881,8 +1869,9 @@ async function UIDesktop (options) {
     }
 
     //--------------------------------------------------------------------------------------
-    // Opening an item someone shared, from the link in an email or notification
-    // i.e. https://puter.com/?shared=%2F<owner>%2F<uuid>%2F<name>
+    // Opening an item someone shared, on the desktop
+    // i.e. https://puter.com/desktop?shared=%2F<owner>%2F<uuid>%2F<name>
+    // (the same link at the root lands in the dashboard's Shared view instead)
     //--------------------------------------------------------------------------------------
     if ( window.url_query_params.has(SHARED_PATH_PARAM) ) {
         await handle_shared_link(window.url_query_params.get(SHARED_PATH_PARAM));

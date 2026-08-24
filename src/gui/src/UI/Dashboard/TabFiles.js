@@ -40,7 +40,7 @@ import { isEntryVisible, isHiddenName, showHiddenFiles } from './hiddenFiles.js'
 import { icons } from '../../helpers/actionIcons.js';
 import list_all_shared from '../../helpers/list_all_shared.js';
 import { can_share, remember_shared_roots } from '../../helpers/shared_access.js';
-import { parent_path_for, shared_crumbs_for } from '../../helpers/share_paths.js';
+import { parent_path_for, shared_crumbs_for, shared_uids_from_paths } from '../../helpers/share_paths.js';
 
 const { html_encode, SelectionArea } = window;
 
@@ -563,9 +563,14 @@ const TabFiles = {
         // Check for initial file path from URL routing
         if ( window.dashboard_initial_file_path ) {
             const initialPath = window.dashboard_initial_file_path;
+            const sharedPaths = window.dashboard_initial_shared_paths;
             delete window.dashboard_initial_file_path; // Clear so it only runs once
+            delete window.dashboard_initial_shared_paths;
             this.pushNavHistory(initialPath);
-            this.renderDirectory(initialPath, { skipUrlUpdate: true });
+            const rendered = this.renderDirectory(initialPath, { skipUrlUpdate: true });
+            // A share link names what was just shared; pick it out once the
+            // listing is up, the way an upload lands highlighted.
+            if ( sharedPaths ) rendered.then(() => this.selectSharedRows(sharedPaths));
         } else {
             // Auto-select Home folder on initialization
             const homeFolder = $el_window.find('[data-folder="Home"]');
@@ -4695,16 +4700,42 @@ const TabFiles = {
      */
     selectUploadedRows (paths) {
         const wanted = new Set(paths.map(p => String(p).toLowerCase()));
-        const matches = this.$el_window.find('.files-tab .files .row').filter(function () {
-            const rowPath = String($(this).attr('data-path') ?? '').toLowerCase();
-            return wanted.has(rowPath);
+        this.selectRowsWhere((row) => wanted.has(String(row.getAttribute('data-path') ?? '').toLowerCase()));
+    },
+
+    /**
+     * Selects the rows for the items a share link names, replacing the
+     * current selection. Matched by uid — the link's `/<owner>/<uid>/<name>`
+     * form carries it, and unlike the name it survives a rename. Values that
+     * aren't shared paths, or items no longer shared, match nothing.
+     *
+     * @param {string[]} sharedPaths - The link's `?shared=` values
+     * @returns {void}
+     */
+    selectSharedRows (sharedPaths) {
+        const wanted = new Set(shared_uids_from_paths(sharedPaths));
+        if ( wanted.size === 0 ) return;
+        this.selectRowsWhere((row) => wanted.has(String(row.getAttribute('data-uid') ?? '').toLowerCase()));
+    },
+
+    /**
+     * Selects the rendered rows `matches` accepts, replacing the current
+     * selection and scrolling the first into view. No match leaves the
+     * selection untouched.
+     *
+     * @param {(row: HTMLElement) => boolean} matches
+     * @returns {void}
+     */
+    selectRowsWhere (matches) {
+        const rows = this.$el_window.find('.files-tab .files .row').filter(function () {
+            return matches(this);
         });
-        if ( matches.length === 0 ) return;
+        if ( rows.length === 0 ) return;
 
         this.$el_window.find('.files-tab .files .row.selected').removeClass('selected');
-        matches.addClass('selected');
+        rows.addClass('selected');
         this.updateFooterStats();
-        matches[0].scrollIntoView({ block: 'nearest' });
+        rows[0].scrollIntoView({ block: 'nearest' });
     },
 
     /**

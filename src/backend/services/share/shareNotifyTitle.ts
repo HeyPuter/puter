@@ -119,10 +119,15 @@ export const shareNotifyTitle = (senders: ShareSender[]): string => {
 // Email can't be rewritten the way a notification can, so it gets the grouped
 // wording by being held briefly and merged. These shapes are the accumulator.
 
-/** One named item. No `link` when it isn't addressable; wording is unchanged. */
+/**
+ * One named item. No `link` or `path` when it isn't addressable; wording is
+ * unchanged. `path` is the masked form the link was built from, kept so the
+ * digest's own link can point at every item at once.
+ */
 export interface DigestItem {
     name: string;
     link?: string;
+    path?: string;
 }
 
 /** One sender's contribution to a digest email. */
@@ -156,6 +161,17 @@ export const mergeDigestEntry = (
     }
     merged.push({ username: name, count, items: [...items] });
     return merged;
+};
+
+/** Every addressable item's masked path, across senders, in digest order. */
+export const digestItemPaths = (entries: DigestEntry[]): string[] => {
+    const paths: string[] = [];
+    for (const entry of entries) {
+        for (const item of entry.items) {
+            if (item.path && !paths.includes(item.path)) paths.push(item.path);
+        }
+    }
+    return paths;
 };
 
 /**

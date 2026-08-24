@@ -19,6 +19,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    digestItemPaths,
     digestLines,
     digestSubject,
     mergeDigestEntry,
@@ -208,6 +209,26 @@ describe('email digests', () => {
                 line.trail;
             expect(rebuilt).toBe(line.what);
         }
+    });
+
+    it('lists every addressable item once, across senders, for one link', () => {
+        const paths = digestItemPaths([
+            {
+                username: 'alice',
+                count: 3,
+                items: [
+                    { name: 'a.txt', link: 'l1', path: '/alice/u1/a.txt' },
+                    { name: 'plain.txt' },
+                    { name: 'a.txt', link: 'l1', path: '/alice/u1/a.txt' },
+                ],
+            },
+            {
+                username: 'bob',
+                count: 1,
+                items: [{ name: 'b.txt', link: 'l2', path: '/bob/u2/b.txt' }],
+            },
+        ]);
+        expect(paths).toEqual(['/alice/u1/a.txt', '/bob/u2/b.txt']);
     });
 
     it('merges a sender back into their own digest entry', () => {

@@ -909,9 +909,11 @@ if (jQuery) {
 // through to the desktop.
 // URLs that carry a desktop-only flow keep booting the desktop: auth popups
 // (`?embedded_in_popup=`), app deep links (`?app=`), direct downloads (`?download=`),
-// shared items (`?shared=`), fullpage mode (`?puter.fullpage=`), and iframe embeds. App metadata like
-// fullpage_on_landing does NOT opt a landing out of the dashboard; it only affects
-// boots that still go through the desktop flow.
+// fullpage mode (`?puter.fullpage=`), and iframe embeds. A share link (`?shared=`,
+// from an email) lands in the dashboard: Files, on Shared, with the items it names
+// picked out; `/desktop?shared=` opens the item on the desktop instead. App metadata
+// like fullpage_on_landing does NOT opt a landing out of the dashboard; it only
+// affects boots that still go through the desktop flow.
 {
     const pathname = window.location.pathname;
     const search_params = new URLSearchParams(window.location.search);
@@ -925,14 +927,22 @@ if (jQuery) {
         in_iframe ||
         search_params.has('puter.fullpage') ||
         search_params.has('app') ||
-        search_params.has('download') ||
-        search_params.has('shared');
+        search_params.has('download');
     const is_dashboard_alias =
         pathname === '/dashboard' || pathname === '/dashboard/';
     const is_app_landing = /^\/app\/[^/]+\/?$/.test(pathname);
     if (is_dashboard_alias || ((pathname === '/' || is_app_landing) && !needs_desktop_at_root)) {
         window.is_dashboard_mode = true;
         window.dashboard_initial_route = parseDashboardRoute();
+        // A share link outranks the hash: Files, on Shared, with what it names
+        // picked out. The values go through raw — the Files tab validates them.
+        if (search_params.has('shared')) {
+            window.dashboard_initial_route = {
+                tab: 'files',
+                path: null,
+                shared: search_params.getAll('shared'),
+            };
+        }
     }
 }
 
@@ -2029,11 +2039,14 @@ window.initgui = async function (options) {
     // Un-authed but not first visit -> try to log in/sign up
     // -------------------------------------------------------------------------------------
     // App landing pages (`/app/<name>`, incl. `/desktop/app/<name>`) require a
-    // real account even on a first visit — never a temp user.
+    // real account even on a first visit — never a temp user. So does a share
+    // link: a share only ever reaches a real account, so a temporary one could
+    // never see what it points at.
     const is_app_landing_page = window.url_paths[0] === 'app' && !!window.url_paths[1];
+    const is_share_link = window.url_query_params.has('shared');
     if (
         !window.is_auth() &&
-        (!window.first_visit_ever || window.disable_temp_users || is_app_landing_page)
+        (!window.first_visit_ever || window.disable_temp_users || is_app_landing_page || is_share_link)
     ) {
         // `npm start --server=<remote>` serves this GUI locally while pointing
         // `gui_origin` at a remote Puter. There is nothing here to log into:

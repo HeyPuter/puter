@@ -201,6 +201,9 @@ const textRow = (text: string, padding = '18px 0 0'): string => `
  * The call to action. Padding sits on the cell and the color on `bgcolor` so
  * Outlook still draws a real button (square-cornered, which is fine); the table
  * goes full width under 600px so the tap target spans the card.
+ *
+ * `link` is triple-braced for the same reason as an item's: we build it, and a
+ * deep link's `=` and `&` should read the same in the html as in the text.
  */
 const buttonRow = (label: string): string => `
                             <tr>
@@ -208,7 +211,7 @@ const buttonRow = (label: string): string => `
                                     <table role="presentation" class="btn" cellpadding="0" cellspacing="0" border="0" style="border-collapse: separate;">
                                         <tr>
                                             <td align="center" bgcolor="${ACCENT}" style="background-color: ${ACCENT}; border-radius: 10px; padding: 14px 26px;">
-                                                <a href="{{link}}" style="display: inline-block; font-family: ${FONT}; font-size: 16px; line-height: 20px; font-weight: 600; color: #ffffff; text-decoration: none;">${label}</a>
+                                                <a href="{{{link}}}" style="display: inline-block; font-family: ${FONT}; font-size: 16px; line-height: 20px; font-weight: 600; color: #ffffff; text-decoration: none;">${label}</a>
                                             </td>
                                         </tr>
                                     </table>
@@ -370,7 +373,9 @@ immediately</p>
     /**
      * A digest: shares to one recipient are held briefly and merged, so
      * `shares` may carry several senders. The subject is composed by the
-     * service (see `digestSubject`), which owns the grouped wording.
+     * service (see `digestSubject`), which owns the grouped wording. `link`
+     * opens Shared with every item highlighted; `origin` is the bare site, for
+     * the unsubscribe link.
      */
     file_shared_with_you: {
         subject: '{{subject_line}}',
@@ -386,7 +391,7 @@ immediately</p>
                     '24px 0 0',
                 ),
             footer: `You're receiving this because someone shared with your Puter account.{{#if unsubscribe_uuid}}
-            <br /><a href="{{link}}/unsubscribe?user_uuid={{unsubscribe_uuid}}" style="color: inherit; text-decoration: underline;">Unsubscribe from notification emails</a>{{/if}}`,
+            <br /><a href="{{origin}}/unsubscribe?user_uuid={{unsubscribe_uuid}}" style="color: inherit; text-decoration: underline;">Unsubscribe from notification emails</a>{{/if}}`,
         }),
         text: `
             Hi{{#if recipient}} {{recipient}}{{/if}},
@@ -404,7 +409,7 @@ immediately</p>
             --
             You're receiving this because someone shared with your Puter account.
             {{#if unsubscribe_uuid}}Unsubscribe from notification emails:
-            {{link}}/unsubscribe?user_uuid={{unsubscribe_uuid}}{{/if}}
+            {{origin}}/unsubscribe?user_uuid={{unsubscribe_uuid}}{{/if}}
         `,
     },
     // The only way to reach someone with no account. Same digest shape.
