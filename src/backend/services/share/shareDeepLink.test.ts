@@ -121,6 +121,28 @@ describe('sharedViewLink', () => {
         );
     });
 
+    // A name can run to hundreds of characters, and encoding multiplies
+    // non-ASCII ones; the link exists to name the item, so it always does,
+    // however long — the length cap only limits how many more join it.
+    it('keeps the first item even when it alone outgrows the length cap', () => {
+        const long = `/alice/${UID}/${'\u5831\u544a'.repeat(120)}.pdf`;
+        const short = `/alice/${UID}/a.txt`;
+        expect(shareDeepLink('https://puter.com', long).length).toBeGreaterThan(
+            SHARE_DEEP_LINK_MAX_LENGTH,
+        );
+        expect(
+            new URL(
+                shareDeepLink('https://puter.com', long),
+            ).searchParams.getAll('shared'),
+        ).toEqual([long]);
+        // Nothing fits after it, and nothing later is taken instead.
+        expect(
+            new URL(
+                sharedViewLink('https://puter.com', [long, short]),
+            ).searchParams.getAll('shared'),
+        ).toEqual([long]);
+    });
+
     it('names an item once however often it was queued', () => {
         const path = `/alice/${UID}/a.txt`;
         expect(sharedViewLink('https://puter.com', [path, path])).toBe(

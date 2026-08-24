@@ -62,9 +62,10 @@ export const SHARE_DEEP_LINK_ITEMS_LIMIT = 20;
 /**
  * How long a link may run, in characters. Somewhere past two thousand, older
  * mail clients cut a URL off or stop making it clickable — and this is the
- * button — so items are added only while the whole link stays within this. A
- * single item always fits: a username, a uuid and a filename come to a few
- * hundred, and it takes long names for the count above to matter first.
+ * button — so items are added only while the whole link stays within this. The
+ * first item goes in regardless: a link that names nothing is no better than
+ * the origin, and one long name (hundreds of characters, tripled by encoding
+ * when non-ASCII) is still the item the mail is about.
  */
 export const SHARE_DEEP_LINK_MAX_LENGTH = 2000;
 
@@ -84,7 +85,8 @@ export const sharedViewLink = (origin: string, paths: string[]): string => {
         if (params.length === SHARE_DEEP_LINK_ITEMS_LIMIT) break;
         const param = `${SHARE_DEEP_LINK_PARAM}=${encodeURIComponent(path)}`;
         const added = param.length + (params.length === 0 ? 0 : '&'.length);
-        if (length + added > SHARE_DEEP_LINK_MAX_LENGTH) break;
+        const overLength = length + added > SHARE_DEEP_LINK_MAX_LENGTH;
+        if (params.length > 0 && overLength) break;
         params.push(param);
         length += added;
     }
