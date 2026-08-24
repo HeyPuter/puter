@@ -44,7 +44,11 @@ import { runWithContext } from '../../core/context.js';
 import { SYSTEM_ACTOR } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import { setupTestServer } from '../../testUtil.js';
+import { CLOUDFLARE_IMAGE_GENERATION_MODELS } from './providers/cloudflare/models.js';
+import { GEMINI_IMAGE_GENERATION_MODELS } from './providers/gemini/models.js';
 import { OPEN_AI_IMAGE_GENERATION_MODELS } from './providers/openai/models.js';
+import { REPLICATE_IMAGE_GENERATION_MODELS } from './providers/replicate/models.js';
+import { TOGETHER_IMAGE_GENERATION_MODELS } from './providers/together/models.js';
 import { XAI_IMAGE_GENERATION_MODELS } from './providers/xai/models.js';
 import type { ImageGenerationDriver } from './ImageGenerationDriver.js';
 
@@ -220,7 +224,32 @@ describe('ImageGenerationDriver.generate argument validation', () => {
 
 // ── Catalog & list ──────────────────────────────────────────────────
 
+// Providers hand these catalogs to the driver by module-level reference, so
+// #buildModelMap must never write through to them: an in-place id
+// normalization or puterId append would accumulate across map builds. Cloned
+// at import time, before beforeAll boots the server that builds the map.
+// (Same regression as in ChatCompletionDriver.test.ts.)
+const pristineCatalogs = structuredClone({
+    CLOUDFLARE_IMAGE_GENERATION_MODELS,
+    GEMINI_IMAGE_GENERATION_MODELS,
+    OPEN_AI_IMAGE_GENERATION_MODELS,
+    REPLICATE_IMAGE_GENERATION_MODELS,
+    TOGETHER_IMAGE_GENERATION_MODELS,
+    XAI_IMAGE_GENERATION_MODELS,
+});
+
 describe('ImageGenerationDriver model catalog', () => {
+    it('does not mutate the catalog objects providers hand back', () => {
+        expect({
+            CLOUDFLARE_IMAGE_GENERATION_MODELS,
+            GEMINI_IMAGE_GENERATION_MODELS,
+            OPEN_AI_IMAGE_GENERATION_MODELS,
+            REPLICATE_IMAGE_GENERATION_MODELS,
+            TOGETHER_IMAGE_GENERATION_MODELS,
+            XAI_IMAGE_GENERATION_MODELS,
+        }).toEqual(pristineCatalogs);
+    });
+
     it('models() returns a deduped list across providers, sorted by provider then id', async () => {
         const all = await driver.models();
         // Every catalog id from at least one provider must be reachable.
@@ -642,7 +671,3 @@ describe('ImageGenerationDriver.generate puter_output_path', () => {
         expect(openaiImagesGenerateMock).not.toHaveBeenCalled();
     });
 });
-
-// Avoid coupling the 'unused' XAI export to lint. The catalog reference
-// is also used implicitly by the routing tests above.
-void XAI_IMAGE_GENERATION_MODELS;

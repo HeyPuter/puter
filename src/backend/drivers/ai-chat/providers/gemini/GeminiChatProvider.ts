@@ -30,6 +30,7 @@ import {
 } from '../../utils/OpenAIUtil.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
 import { GEMINI_MODELS } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 export class GeminiChatProvider implements IChatProvider {
     meteringService: MeteringService;
@@ -53,9 +54,7 @@ export class GeminiChatProvider implements IChatProvider {
         return GEMINI_MODELS;
     }
     async list() {
-        return (await this.models())
-            .map((m) => [m.id, ...(m.aliases || [])])
-            .flat();
+        return modelLookupNames(await this.models());
     }
 
     async complete({

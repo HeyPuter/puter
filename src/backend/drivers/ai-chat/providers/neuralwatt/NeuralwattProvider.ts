@@ -32,6 +32,7 @@ import type {
     ICompleteArguments,
 } from '../../types.js';
 import { inlineHttpImageUrls } from '../moonshot/imageHandling.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 import {
     mapNeuralwattApiModel,
     messagesHaveImageContent,
@@ -84,13 +85,7 @@ export class NeuralwattProvider implements IChatProvider {
     }
 
     async list() {
-        const models = await this.models();
-        const modelNames: string[] = [];
-        for (const model of models) {
-            modelNames.push(model.id);
-            if (model.aliases) modelNames.push(...model.aliases);
-        }
-        return modelNames;
+        return modelLookupNames(await this.models());
     }
 
     async models(): Promise<IChatModel[]> {

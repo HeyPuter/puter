@@ -171,6 +171,19 @@ describe('GeminiChatProvider model catalog', () => {
         expect(ids).toContain('gemini-2.5-flash');
         expect(ids).toContain('google/gemini-2.5-flash');
     });
+
+    // The assertion above is blind to duplicates: toContain passes just as
+    // happily on a doubled id, and a doubled id is not hypothetical here --
+    // gemini-3.7-flash was once declared twice with two different cache
+    // prices. Catalog-wide uniqueness is enforced for every provider in
+    // providers/modelCatalogs.test.ts; this checks the other end, that the
+    // provider actually routes through the deduplicating helper rather than
+    // flattening the catalog itself.
+    it('list() emits every id exactly once', async () => {
+        const { provider } = makeProvider();
+        const ids = await provider.list();
+        expect(ids).toHaveLength(new Set(ids).size);
+    });
 });
 
 // ── Request shape ──────────────────────────────────────────────────

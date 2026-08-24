@@ -25,6 +25,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import type { IChatProvider, ICompleteArguments } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { DEEPSEEK_MODELS } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 export class DeepSeekProvider implements IChatProvider {
     #openai: OpenAI;
@@ -48,15 +49,7 @@ export class DeepSeekProvider implements IChatProvider {
     }
 
     async list() {
-        const models = this.models();
-        const modelNames: string[] = [];
-        for (const model of models) {
-            modelNames.push(model.id);
-            if (model.aliases) {
-                modelNames.push(...model.aliases);
-            }
-        }
-        return modelNames;
+        return modelLookupNames(this.models());
     }
 
     async complete({

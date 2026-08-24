@@ -24,12 +24,12 @@ import type { IChatModel } from '../types.js';
 import {
     compareModelPreference,
     isIdentityKey,
+    modelLookupNames,
     normalizeModelKey,
 } from './modelRouting.js';
 
-// `#buildModelMap` mutates the catalogs providers hand back, and
 // `GeminiChatProvider.models()` returns the module-level `GEMINI_MODELS` by
-// reference — clone so these fixtures can't be perturbed by another suite.
+// reference — clone so these fixtures stay independent of it.
 const geminiModel = (id: string, provider = 'gemini'): IChatModel => {
     const found = GEMINI_MODELS.find((m) => m.id === id);
     if (!found) throw new Error(`no such gemini model: ${id}`);
@@ -184,5 +184,47 @@ describe('isIdentityKey', () => {
         // `'gpt-4o'.split('/').slice(1).join('/')` is '' — pooling models
         // under that key would put unrelated models in one bucket.
         expect(isIdentityKey('')).toBe(false);
+    });
+});
+
+describe('modelLookupNames', () => {
+    const m = (id: string, aliases?: string[]) =>
+        ({ id, ...(aliases ? { aliases } : {}) }) as IChatModel;
+
+    it('returns the id even when the entry declares no aliases', () => {
+        expect(modelLookupNames([m('solo')])).toEqual(['solo']);
+    });
+
+    it('keeps declaration order, id first', () => {
+        expect(modelLookupNames([m('a', ['vendor/a', 'a-latest'])])).toEqual([
+            'a',
+            'vendor/a',
+            'a-latest',
+        ]);
+    });
+
+    // The three shapes this helper exists to absorb, so no caller has to.
+    it('collapses an alias that merely repeats the entry id', () => {
+        expect(modelLookupNames([m('a', ['a', 'vendor/a'])])).toEqual([
+            'a',
+            'vendor/a',
+        ]);
+    });
+
+    it('collapses an alias repeated within one entry', () => {
+        expect(modelLookupNames([m('a', ['x', 'x'])])).toEqual(['a', 'x']);
+    });
+
+    it('collapses a name two entries both claim', () => {
+        expect(
+            modelLookupNames([m('a', ['shared']), m('b', ['shared'])]),
+        ).toEqual(['a', 'shared', 'b']);
+    });
+
+    it('is unchanged by stripping self-aliases from a catalog', () => {
+        // The property that makes removing them from the catalogs a no-op.
+        const withSelf = [m('a', ['a', 'vendor/a']), m('b', ['b'])];
+        const without = [m('a', ['vendor/a']), m('b')];
+        expect(modelLookupNames(withSelf)).toEqual(modelLookupNames(without));
     });
 });

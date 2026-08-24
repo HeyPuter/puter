@@ -23,6 +23,7 @@ import type { MeteringService } from '../../../../services/metering/MeteringServ
 import { kv } from '../../../../util/kvSingleton.js';
 import { IChatModel, IChatProvider, ICompleteArguments } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 const TOGETHER_AI_CHAT_COST_MAP = {
     prompt_tokens: 'input',
@@ -131,15 +132,7 @@ export class TogetherAIProvider implements IChatProvider {
     }
 
     async list() {
-        const models = await this.models();
-        const modelIds: string[] = [];
-        for (const model of models) {
-            modelIds.push(model.id);
-            if (model.aliases) {
-                modelIds.push(...model.aliases);
-            }
-        }
-        return modelIds;
+        return modelLookupNames(await this.models());
     }
 
     async complete({

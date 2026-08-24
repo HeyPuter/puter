@@ -45,6 +45,9 @@ import { SYSTEM_ACTOR } from '../../core/actor.js';
 import { PuterServer } from '../../server.js';
 import type { MeteringService } from '../../services/metering/MeteringService.js';
 import { setupTestServer } from '../../testUtil.js';
+import { GEMINI_VIDEO_GENERATION_MODELS } from './providers/gemini/models.js';
+import { OPENAI_VIDEO_MODELS } from './providers/openai/models.js';
+import { TOGETHER_VIDEO_GENERATION_MODELS } from './providers/together/models.js';
 import type { VideoGenerationDriver } from './VideoGenerationDriver.js';
 
 // ── SDK mocks ──────────────────────────────────────────────────────
@@ -214,7 +217,27 @@ describe('VideoGenerationDriver.generate argument validation', () => {
 
 // ── Catalog & list ──────────────────────────────────────────────────
 
+// Providers hand these catalogs to the driver by module-level reference
+// (OpenAI's directly; Gemini's and Together's via per-call copies), so
+// #buildModelMap must never write through to them: an in-place id
+// normalization or puterId append would accumulate across map builds. Cloned
+// at import time, before beforeAll boots the server that builds the map.
+// (Same regression as in ChatCompletionDriver.test.ts.)
+const pristineCatalogs = structuredClone({
+    GEMINI_VIDEO_GENERATION_MODELS,
+    OPENAI_VIDEO_MODELS,
+    TOGETHER_VIDEO_GENERATION_MODELS,
+});
+
 describe('VideoGenerationDriver catalog', () => {
+    it('does not mutate the catalog objects providers hand back', () => {
+        expect({
+            GEMINI_VIDEO_GENERATION_MODELS,
+            OPENAI_VIDEO_MODELS,
+            TOGETHER_VIDEO_GENERATION_MODELS,
+        }).toEqual(pristineCatalogs);
+    });
+
     it('models() returns deduped entries sorted by provider then id', async () => {
         const all = await driver.models();
         const ids = all.map((m) => m.id);
