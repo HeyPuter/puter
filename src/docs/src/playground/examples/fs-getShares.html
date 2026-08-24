@@ -1,0 +1,16 @@
+<html>
+<body>
+    <script src="https://js.puter.com/v2/"></script>
+    <script>
+        (async () => {
+            await puter.fs.write('report.txt', 'Quarterly numbers');
+            await puter.fs.share('report.txt', 'friend@example.com', 'read');
+
+            const shares = await puter.fs.getShares('report.txt');
+            for (const share of shares) {
+                puter.print(`${share.holder}: ${share.mode} (from ${share.issuer})<br>`);
+            }
+        })()
+    </script>
+</body>
+</html>
