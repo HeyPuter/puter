@@ -11,6 +11,7 @@ import {
 import type { Actor } from '../../core/actor.ts';
 import { SYSTEM_ACTOR } from '../../core/actor.ts';
 import { PuterServer } from '../../server.ts';
+import { bucketTag } from '../../stores/metering/MeteringBufferStore.ts';
 import { setupTestServer } from '../../testUtil.ts';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
@@ -1245,6 +1246,43 @@ describe('MeteringService', () => {
             );
         });
 
+        it('stays set once the adjustment has been written onward', async () => {
+            await target.incrementUsage(actor, 'kv:read', 1, 10_000);
+            await server.stores.meteringBuffer.flushCycle();
+
+            await target.setActorCurrentMonthUsageTotal(actor, 0);
+            // The adjustment is buffered like any other amount, so the read
+            // that matters is the one after it has settled — a correction that
+            // only holds until then is a correction nobody keeps.
+            await server.stores.meteringBuffer.flushCycle();
+
+            const { usage } =
+                await target.getActorCurrentMonthUsageDetails(actor);
+            expect(usage.total).toBe(0);
+            expect(usage.allowanceUsed).toBe(0);
+        });
+
+        it('repairs a cached view that has drifted from the record', async () => {
+            await target.incrementUsage(actor, 'kv:read', 1, 10_000);
+            await server.stores.meteringBuffer.flushCycle();
+
+            // Whatever the drift came from, re-applying the total the record
+            // already holds is the support-facing repair for it, so it has to
+            // take even though there is nothing to write.
+            const key = `${METRICS_PREFIX}:actor:${actor.user.uuid}:${new Date().toISOString().slice(0, 7)}`;
+            await server.clients.redis.hset(
+                `meter:b:{${bucketTag(key)}}:${key}`,
+                'total',
+                '999999',
+            );
+
+            await target.setActorCurrentMonthUsageTotal(actor, 10_000);
+
+            const { usage } =
+                await target.getActorCurrentMonthUsageDetails(actor);
+            expect(usage.total).toBe(10_000);
+        });
+
         it('rejects a negative total', async () => {
             await expect(
                 target.setActorCurrentMonthUsageTotal(actor, -1),
@@ -1448,9 +1486,7 @@ describe('MeteringService', () => {
             });
 
             const allowed = await target.getAllowedUsage(actor);
-            expect(allowed.remaining).toBe(
-                sub.monthUsageAllowance - 1_000_000,
-            );
+            expect(allowed.remaining).toBe(sub.monthUsageAllowance - 1_000_000);
         });
 
         it('folds the legacy baseline in exactly once under concurrent increments', async () => {
