@@ -32,7 +32,6 @@ export const CLAUDE_MODELS: IChatModel[] = [
             'claude-fable',
             'claude-fable-latest',
             'claude-fable-5-latest',
-            'claude-fable-5',
             'anthropic/claude-fable-5',
         ],
         name: 'Claude Fable 5',
@@ -61,7 +60,6 @@ export const CLAUDE_MODELS: IChatModel[] = [
             'claude-sonnet',
             'claude-sonnet-latest',
             'claude-sonnet-5-latest',
-            'claude-sonnet-5',
             'anthropic/claude-sonnet-5',
         ],
         name: 'Claude Sonnet 5',
@@ -91,7 +89,6 @@ export const CLAUDE_MODELS: IChatModel[] = [
             'claude-opus',
             'claude-opus-latest',
             'claude-opus-5-latest',
-            'claude-opus-5',
             'anthropic/claude-opus-5',
         ],
         name: 'Claude Opus 5',
@@ -120,7 +117,6 @@ export const CLAUDE_MODELS: IChatModel[] = [
         aliases: [
             'claude-opus-4-8-latest',
             'claude-opus-4.8',
-            'claude-opus-4-8',
             'anthropic/claude-opus-4-8',
         ],
         name: 'Claude Opus 4.8',
@@ -149,7 +145,6 @@ export const CLAUDE_MODELS: IChatModel[] = [
         aliases: [
             'claude-opus-4-7-latest',
             'claude-opus-4.7',
-            'claude-opus-4-7',
             'anthropic/claude-opus-4-7',
         ],
         name: 'Claude Opus 4.7',
@@ -178,7 +173,6 @@ export const CLAUDE_MODELS: IChatModel[] = [
         aliases: [
             'claude-sonnet-4-6-latest',
             'claude-sonnet-4.6',
-            'claude-sonnet-4-6',
             'anthropic/claude-sonnet-4-6',
         ],
         name: 'Claude Sonnet 4.6',
@@ -207,7 +201,6 @@ export const CLAUDE_MODELS: IChatModel[] = [
         aliases: [
             'claude-opus-4-6-latest',
             'claude-opus-4.6',
-            'claude-opus-4-6',
             'anthropic/claude-opus-4-6',
         ],
         name: 'Claude Opus 4.6',

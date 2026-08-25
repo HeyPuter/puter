@@ -253,6 +253,52 @@ describe('ClaudeProvider.complete request shape', () => {
         expect(args.max_tokens).toBe(0);
     });
 
+    // With no explicit max_tokens the ceiling has to come from the entry being
+    // called. Deriving it from a second lookup by name-or-alias instead capped
+    // at 4096 every id the catalog doesn't also list among that entry's own
+    // aliases -- which is every dated id.
+    it.each(CLAUDE_MODELS.map((m) => ({ id: m.id, ceiling: m.max_tokens })))(
+        'defaults max_tokens to the catalog ceiling for $id',
+        async ({ id, ceiling }) => {
+            const { provider } = makeProvider();
+            messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+            await withTestActor(() =>
+                provider.complete({
+                    model: id,
+                    messages: [{ role: 'user', content: 'hello' }],
+                }),
+            );
+
+            const [args] = messagesCreateMock.mock.calls[0]!;
+            expect(args.max_tokens).toBe(ceiling);
+        },
+    );
+
+    // A name with no catalog entry is silently served by the default model,
+    // so the ceiling is that entry's own — not the 4096 floor the old second
+    // lookup fell back to. Unreachable through ChatCompletionDriver (which
+    // rejects unknown ids), but pinned here so the fallback's cost profile
+    // can't drift unnoticed for direct callers.
+    it('defaults max_tokens to the default model ceiling for an unknown name', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-model-that-does-not-exist',
+                messages: [{ role: 'user', content: 'hello' }],
+            }),
+        );
+
+        const fallback = CLAUDE_MODELS.find(
+            (m) => m.id === provider.getDefaultModel(),
+        )!;
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        expect(args.model).toBe(fallback.id);
+        expect(args.max_tokens).toBe(fallback.max_tokens);
+    });
+
     it('extracts system messages and forwards them as the top-level `system` field', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);

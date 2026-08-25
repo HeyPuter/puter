@@ -47,6 +47,7 @@ import type {
 } from '../../utils/Streaming.js';
 import { FILES_API_BETA, processPuterPathUploads } from './fileUpload.js';
 import { CLAUDE_MODELS } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 // Anthropic inline-compaction beta. The vendored SDK (0.68.0) doesn't type the
 // `compact_20260112` edit or the `compaction` content block, so the request
@@ -86,15 +87,7 @@ export class ClaudeProvider implements IChatProvider {
     }
 
     async list() {
-        const models = this.models();
-        const model_names: string[] = [];
-        for (const model of models) {
-            model_names.push(model.id);
-            if (model.aliases) {
-                model_names.push(...model.aliases);
-            }
-        }
-        return model_names;
+        return modelLookupNames(this.models());
     }
 
     async complete({
@@ -318,16 +311,18 @@ export class ClaudeProvider implements IChatProvider {
             betas?: string[];
         } = {
             model: modelUsed.id,
+            // The ceiling belongs to the entry actually being called, so it
+            // comes off `modelUsed` — already matched by id or alias — rather
+            // than a second lookup that repeats the matching and can disagree.
+            // The two 3.5 Sonnet ids predate the catalog and have no entry, so
+            // `modelUsed` is the default model for them and their ceiling has
+            // to be named outright.
             max_tokens: Math.floor(
                 max_tokens ??
                     (model === 'claude-3-5-sonnet-20241022' ||
                     model === 'claude-3-5-sonnet-20240620'
                         ? 8192
-                        : this.models().filter(
-                              (e) =>
-                                  (e as any).name === model ||
-                                  e.aliases?.includes(model),
-                          )[0]?.max_tokens || 4096),
+                        : modelUsed.max_tokens || 4096),
             ),
             ...(resolvedTemperature !== undefined
                 ? { temperature: resolvedTemperature }

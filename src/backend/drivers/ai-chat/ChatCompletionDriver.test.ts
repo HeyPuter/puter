@@ -252,6 +252,106 @@ describe('ChatCompletionDriver.complete auth and model resolution', () => {
         expect(passed.model).toBe('realfake');
         expect(passed.provider).toBe('fake-chat');
     });
+
+    // Catalogs are hand-written, so alias lists repeat themselves: an entry
+    // may list its own id, list one alias twice, or differ only by case.
+    // Routing must not depend on anyone having tidied that up.
+    it('routes correctly from a catalog whose aliases repeat the id and each other', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'messy',
+                // self-alias, a repeat, and a case variant of the id
+                aliases: ['messy', 'vendor/messy', 'vendor/messy', 'MESSY'],
+                puterId: 'puter-messy',
+                costs_currency: 'usd-cents',
+                costs: { 'input-tokens': 0, 'output-tokens': 0 },
+                max_tokens: 8192,
+            },
+        ] as never);
+        const d = await makeDriver();
+
+        const completeSpy = vi.spyOn(FakeChatProvider.prototype, 'complete');
+
+        // Every spelling reaches the same model, and the provider is always
+        // handed the canonical id.
+        for (const requested of [
+            'messy',
+            'MESSY',
+            'vendor/messy',
+            'puter-messy',
+        ]) {
+            completeSpy.mockResolvedValueOnce({
+                message: {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'ok' }],
+                },
+                usage: {},
+                finish_reason: 'stop',
+            } as never);
+
+            await withTestActor(() =>
+                d.complete({
+                    model: requested,
+                    messages: [{ role: 'user', content: 'hi' }],
+                }),
+            );
+
+            const call = completeSpy.mock.calls.at(-1)!;
+            const passed = call[0] as ICompleteArguments;
+            expect(passed.model, `requested '${requested}'`).toBe('messy');
+        }
+
+        // The repeats must not have split the model across buckets or
+        // registered a phantom extra route.
+        const listed = (await d.models()).filter((m) => m.id === 'messy');
+        expect(listed).toHaveLength(1);
+    });
+
+    it('does not mutate the catalog objects a provider hands back', async () => {
+        // #buildModelMap used to normalize the id and append puterId in
+        // place. The catalogs are module-level constants shared by every
+        // driver instance, so that accumulated: build the map twice and the
+        // aliases array grew a duplicate puterId each time.
+        const catalog = [
+            {
+                id: 'Shared-Case',
+                aliases: ['shared-alias'],
+                puterId: 'puter-shared',
+                costs_currency: 'usd-cents',
+                costs: { 'input-tokens': 0, 'output-tokens': 0 },
+                max_tokens: 8192,
+            },
+        ];
+        const before = structuredClone(catalog);
+
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValue(
+            catalog as never,
+        );
+        await makeDriver();
+        await makeDriver();
+
+        expect(catalog).toEqual(before);
+        vi.mocked(FakeChatProvider.prototype.models).mockRestore();
+    });
+
+    it('leaves aliases absent in models() for an entry that declares none', async () => {
+        // models() is serialized to the API, so the copy #buildModelMap
+        // stores must not sprout an `aliases: []` key the catalog entry
+        // never had.
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            {
+                id: 'nameless',
+                costs_currency: 'usd-cents',
+                costs: { 'input-tokens': 0, 'output-tokens': 0 },
+                max_tokens: 8192,
+            },
+        ] as never);
+        const d = await makeDriver();
+
+        const listed = (await d.models()).find((m) => m.id === 'nameless')!;
+        expect(listed).toBeDefined();
+        expect('aliases' in listed).toBe(false);
+    });
 });
 
 // ── Happy path: events + cost emission ──────────────────────────────

@@ -1316,20 +1316,40 @@ export class ChatCompletionDriver extends PuterDriver {
         for (const providerName in this.#providers) {
             const provider = this.#providers[providerName];
 
-            for (const model of await provider.models()) {
-                model.id = normalizeModelKey(model.id);
-                if (model.puterId) {
-                    model.aliases = model.aliases
-                        ? [...model.aliases, model.puterId]
-                        : [model.puterId];
-                }
+            for (const entry of await provider.models()) {
+                // Catalogs are module-level constants shared by every driver
+                // instance, so they are read and never written: normalizing
+                // the id or appending puterId in place would accumulate across
+                // instantiations. The bucket gets its own copy instead.
+                const aliases =
+                    entry.puterId &&
+                    !(entry.aliases ?? []).includes(entry.puterId)
+                        ? [...(entry.aliases ?? []), entry.puterId]
+                        : entry.aliases;
+                const model = {
+                    ...entry,
+                    id: normalizeModelKey(entry.id),
+                };
+                // Assigned only when the entry has names to carry: models()
+                // is serialized to the API, and an entry that declared no
+                // aliases should not sprout an `aliases: []` key on the wire.
+                if (aliases) model.aliases = aliases;
 
                 // Catalogs derive an alias by stripping the vendor org off the
                 // id, which yields '' for ids that carry no org. Drop those —
                 // an empty key would pool unrelated models together.
-                const keys = [model.id, ...(model.aliases ?? [])]
-                    .map(normalizeModelKey)
-                    .filter((key) => key.length > 0);
+                //
+                // Names may repeat: an entry is free to list its own id among
+                // its aliases, and normalizing can collapse two spellings onto
+                // one key. Deduplicate so a repeat can neither register a key
+                // twice nor make the bucket search consider it twice.
+                const keys = [
+                    ...new Set(
+                        [model.id, ...(aliases ?? [])]
+                            .map(normalizeModelKey)
+                            .filter((key) => key.length > 0),
+                    ),
+                ];
 
                 const bucket =
                     keys

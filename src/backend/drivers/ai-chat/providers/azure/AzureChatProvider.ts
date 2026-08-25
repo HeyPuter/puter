@@ -34,6 +34,7 @@ import * as OpenAiUtil from '../../utils/OpenAIUtil.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { AZURE_MODELS } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 /**
  * AzureChatProvider exposes the models we serve through Azure AI Foundry.
@@ -102,15 +103,7 @@ export class AzureChatProvider implements IChatProvider {
     }
 
     list() {
-        const models = this.models();
-        const modelNames: string[] = [];
-        for (const model of models) {
-            modelNames.push(model.id);
-            if (model.aliases) {
-                modelNames.push(...model.aliases);
-            }
-        }
-        return modelNames;
+        return modelLookupNames(this.models());
     }
 
     getDefaultModel() {

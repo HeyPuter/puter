@@ -31,6 +31,7 @@ import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { AZURE_MODELS } from './models.js';
 import { HttpError } from '@heyputer/backend/src/core/http/HttpError.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 /**
  * AzureResponsesProvider serves the Responses-API-only models we expose through
@@ -85,15 +86,7 @@ export class AzureResponsesProvider implements IChatProvider {
     }
 
     list() {
-        const models = this.models({ no_restrictions: false });
-        const modelNames: string[] = [];
-        for (const model of models) {
-            modelNames.push(model.id);
-            if (model.aliases) {
-                modelNames.push(...model.aliases);
-            }
-        }
-        return modelNames;
+        return modelLookupNames(this.models({ no_restrictions: false }));
     }
 
     getDefaultModel() {
