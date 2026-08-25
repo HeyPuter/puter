@@ -264,6 +264,105 @@ class FakeRTCPeerConnection {
     close () {}
 }
 
+/** Polls until `pred` holds, for handshakes that resolve across microtasks. */
+const waitFor = async (pred, tries = 50) => {
+    for ( let i = 0; i < tries; i++ ) {
+        if ( pred() ) return;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    throw new Error('condition never became true');
+};
+
+describe('serve as a host', () => {
+    const origWebSocket = globalThis.WebSocket;
+
+    beforeEach(() => {
+        FakeWebSocket.latest = null;
+        globalThis.WebSocket = FakeWebSocket;
+    });
+
+    afterEach(() => {
+        globalThis.WebSocket = origWebSocket;
+    });
+
+    const signaller = respond({
+        url: 'ws://signaller.test/',
+        fallbackIce: [{ urls: 'stun:fallback.test' }],
+    });
+
+    /** Drives the signaller's create handshake and resolves the invite code. */
+    const startServing = async (peer, options) => {
+        const started = peer.serve(options);
+        await waitFor(() => FakeWebSocket.latest?.onmessage);
+        await FakeWebSocket.latest.onmessage({
+            data: JSON.stringify({
+                server: { create: { success: true, invitecode: 'HOST-1234' } },
+            }),
+        });
+        return await started;
+    };
+
+    it('mints relays against the host session', async () => {
+        routeFetch({
+            '/peer/signaller-info': signaller,
+            '/peer/generate-turn': respond({
+                iceServers: HOST_SERVERS,
+                ttl: 3600,
+            }),
+        });
+        const { peer, puter } = makePeer({ authToken: 'host-token' });
+
+        const server = await startServing(peer);
+
+        expect(server.inviteCode).toBe('HOST-1234');
+        expect(puter.ui.authenticateWithPuter).not.toHaveBeenCalled();
+        expect(callTo('/peer/generate-turn')).toBeDefined();
+        expect(callTo('/peer/guest-turn')).toBeUndefined();
+
+        const sent = JSON.parse(FakeWebSocket.latest.sent[0]);
+        expect(sent.server.create.authToken).toBe('host-token');
+    });
+
+    it('prompts an unauthenticated host to sign in', async () => {
+        routeFetch({
+            '/peer/signaller-info': signaller,
+            '/peer/generate-turn': respond({
+                iceServers: HOST_SERVERS,
+                ttl: 3600,
+            }),
+        });
+        const { peer, puter } = makePeer();
+
+        await startServing(peer);
+
+        expect(puter.ui.authenticateWithPuter).toHaveBeenCalledTimes(1);
+    });
+
+    it('hosts anonymously without relays of its own', async () => {
+        // An anonymous host has no account to attribute relay usage to, so it
+        // gets the public ICE servers and no sign-in prompt.
+        routeFetch({
+            '/peer/signaller-info': signaller,
+            '/peer/generate-turn': respond({}, false),
+        });
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const { peer, puter } = makePeer();
+        try {
+            await startServing(peer, {
+                anonToken: '11111111-2222-3333-4444-555555555555',
+            });
+        } finally {
+            warn.mockRestore();
+        }
+
+        expect(puter.ui.authenticateWithPuter).not.toHaveBeenCalled();
+        const sent = JSON.parse(FakeWebSocket.latest.sent[0]);
+        expect(sent.server.create.anonToken).toBe(
+            '11111111-2222-3333-4444-555555555555',
+        );
+    });
+});
+
 describe('connect as a guest', () => {
     const origWebSocket = globalThis.WebSocket;
     const origRTC = globalThis.RTCPeerConnection;
