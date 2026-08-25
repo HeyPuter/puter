@@ -4006,13 +4006,6 @@ const TabFiles = {
         }
 
         if ( ! anyTrashed ) {
-            items.push({
-                html: `${i18n('download')}`,
-                onClick: function () {
-                    window.zipItems(Array.from(selectedRows), _this.currentPath, true);
-                },
-            });
-
             // Share
             if ( await _this.canShareRows(selectedRows) ) {
                 items.push({
@@ -4022,6 +4015,13 @@ const TabFiles = {
                     },
                 });
             }
+
+            items.push({
+                html: `${i18n('download')}`,
+                onClick: function () {
+                    window.zipItems(Array.from(selectedRows), _this.currentPath, true);
+                },
+            });
 
             items.push('-');
         }

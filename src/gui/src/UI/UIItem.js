@@ -1381,6 +1381,20 @@ async function UIItem (options) {
                 });
             }
             // -------------------------------------------
+            // Share
+            // -------------------------------------------
+            if ( !is_trash && !is_trashed && (!is_not_mine || can_manage_share) ) {
+                menu_items.push({
+                    html: i18n('share_ellipsis'),
+                    onClick: async function () {
+                        UIWindowShare({
+                            path: $(el_item).attr('data-path'),
+                            name: $(el_item).attr('data-name'),
+                        });
+                    },
+                });
+            }
+            // -------------------------------------------
             // Download
             // -------------------------------------------
             if ( !is_trash && !is_trashed && (options.associated_app_name === null || options.associated_app_name === undefined) ) {
@@ -1584,20 +1598,6 @@ async function UIItem (options) {
             // -------------------------------------------
             if ( !is_trashed && !is_trash && !is_shortcut && is_weblink ) {
                 menu_items.push(weblinkChangeIconMenuItem(el_item));
-            }
-            // -------------------------------------------
-            // Share
-            // -------------------------------------------
-            if ( !is_trash && !is_trashed && (!is_not_mine || can_manage_share) ) {
-                menu_items.push({
-                    html: i18n('share_ellipsis'),
-                    onClick: async function () {
-                        UIWindowShare({
-                            path: $(el_item).attr('data-path'),
-                            name: $(el_item).attr('data-name'),
-                        });
-                    },
-                });
             }
             // -------------------------------------------
             // Remove from Shared

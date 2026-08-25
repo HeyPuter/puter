@@ -197,6 +197,33 @@ const generate_file_context_menu = async function (options) {
     }
 
     // -------------------------------------------
+    // Share
+    // -------------------------------------------
+    if ( !is_trash && !is_trashed && may_share ) {
+        menu_items.push({
+            html: i18n('share_ellipsis'),
+            onClick: async function () {
+                // The Dashboard swaps in its own responsive modal via this hook;
+                // everywhere else falls back to the desktop share window.
+                if ( options.onShare ) {
+                    options.onShare({
+                        name: $(el_item).attr('data-name'),
+                        path: $(el_item).attr('data-path'),
+                        uid: $(el_item).attr('data-uid'),
+                        element: el_item,
+                    });
+                    return;
+                }
+
+                UIWindowShare({
+                    path: $(el_item).attr('data-path'),
+                    name: $(el_item).attr('data-name'),
+                });
+            },
+        });
+    }
+
+    // -------------------------------------------
     // Download
     // -------------------------------------------
     if ( !is_trash && !is_trashed && (options.associated_app_name === null || options.associated_app_name === undefined) ) {
@@ -316,32 +343,6 @@ const generate_file_context_menu = async function (options) {
         menu_items.push(weblinkChangeIconMenuItem(el_item));
     }
 
-    // -------------------------------------------
-    // Share
-    // -------------------------------------------
-    if ( !is_trash && !is_trashed && may_share ) {
-        menu_items.push({
-            html: i18n('share_ellipsis'),
-            onClick: async function () {
-                // The Dashboard swaps in its own responsive modal via this hook;
-                // everywhere else falls back to the desktop share window.
-                if ( options.onShare ) {
-                    options.onShare({
-                        name: $(el_item).attr('data-name'),
-                        path: $(el_item).attr('data-path'),
-                        uid: $(el_item).attr('data-uid'),
-                        element: el_item,
-                    });
-                    return;
-                }
-
-                UIWindowShare({
-                    path: $(el_item).attr('data-path'),
-                    name: $(el_item).attr('data-name'),
-                });
-            },
-        });
-    }
 
     // -------------------------------------------
     // Remove from Shared
