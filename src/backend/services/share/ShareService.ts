@@ -198,26 +198,64 @@ const blocksAllShares = (user: Pick<UserRow, 'metadata'> | null): boolean =>
  *
  * Curated rather than the row: the row carries the owner's real path, their
  * numeric id, storage internals and the capability tokens — none of which are a
- * recipient's to see. The path is the entry masked against itself, which always
- * resolves; running outside a request, there is no per-request masker to
- * consult for a deeper root.
+ * recipient's to see. The path is masked at `root`, the share they reach it
+ * through, so it matches what their own reads returned.
  */
-const holderPayload = (entry: FSEntry): Record<string, unknown> => ({
-    uid: entry.uuid,
-    uuid: entry.uuid,
-    name: entry.name,
-    path: maskedSelfPath(entry, entry.path),
-    is_dir: Boolean(entry.isDir),
-    size: entry.size ?? null,
-    modified: entry.modified,
-    from_new_service: true,
-});
+const holderPayload = (
+    entry: FSEntry,
+    /** Defaults to the entry itself, for the paths with no root to mask by. */
+    root: FSEntry = entry,
+): Record<string, unknown> => {
+    const path =
+        maskedPathVia(root, entry.path) ?? maskedSelfPath(entry, entry.path);
+    return {
+        uid: entry.uuid,
+        uuid: entry.uuid,
+        name: entry.name,
+        path,
+        // The desktop finds the container to render into by `dirpath`.
+        dirpath: pathPosix.dirname(path),
+        is_dir: Boolean(entry.isDir),
+        type: entry.isDir ? 'folder' : contentTypeFromMime(entry.name) || null,
+        immutable: Boolean(entry.immutable),
+        size: entry.size ?? null,
+        modified: entry.modified,
+        from_new_service: true,
+    };
+};
+
+/** The GUI events a share recipient is an audience for. */
+type HolderGuiEvent =
+    | 'outer.gui.item.added'
+    | 'outer.gui.item.moved'
+    | 'outer.gui.item.removed'
+    | 'outer.gui.item.renamed'
+    | 'outer.gui.item.updated';
 
 /** `/<owner>/<uuid>/<name>` for a path in the owner's tree. */
 const maskedSelfPath = (entry: FSEntry, realPath: string): string => {
     const owner = realPath.split('/')[1];
     const name = realPath.split('/').pop();
     return owner && name ? `/${owner}/${entry.uuid}/${name}` : realPath;
+};
+
+/** Where `entry` was, as this holder knew it; `root` carries the new path. */
+const maskedFormerPath = (
+    root: FSEntry,
+    entry: FSEntry,
+    realPath: string,
+): string | null =>
+    maskedPathVia(root, realPath) ??
+    (root.uuid === entry.uuid ? maskedSelfPath(entry, realPath) : null);
+
+/** `realPath` as a holder of `root` addresses it; null when outside that share. */
+const maskedPathVia = (root: FSEntry, realPath: string): string | null => {
+    const owner = root.path.split('/')[1];
+    if (!owner || !root.name) return null;
+    const base = `/${owner}/${root.uuid}/${root.name}`;
+    if (realPath === root.path) return base;
+    if (!realPath.startsWith(`${root.path}/`)) return null;
+    return base + realPath.slice(root.path.length);
 };
 
 // -- ShareService -----------------------------------------------------
@@ -239,6 +277,9 @@ export class ShareService extends PuterService {
     #pendingRetire = new Map<string, FSEntry>();
     /** The in-flight flush, shared by everything buffered for it. */
     #retireFlush: Promise<void> | null = null;
+    /** New entries awaiting the next fan-out, by parent path. */
+    #pendingCreates = new Map<string, FSEntry[]>();
+    #createFlush: Promise<void> | null = null;
 
     /**
      * FS mutations only notify the owner, leaving a recipient's open window
@@ -268,12 +309,17 @@ export class ShareService extends PuterService {
                 fromUserId?: number;
             };
             if (!node?.uuid) return;
-            const notify = this.#fanOutToHolders(node, 'outer.gui.item.moved', {
-                ...holderPayload(node),
-                from_path: fromPath
-                    ? maskedSelfPath(node, fromPath)
-                    : undefined,
-            }).catch(() => {
+            const notify = this.#fanOutToHolders(
+                node,
+                'outer.gui.item.moved',
+                (root) => {
+                    // Omitted when the move started outside this share.
+                    const from = fromPath
+                        ? maskedFormerPath(root, node, fromPath)
+                        : null;
+                    return from ? { from_path: from } : {};
+                },
+            ).catch(() => {
                 // A stale window is better than a failed move.
             });
 
@@ -337,13 +383,37 @@ export class ShareService extends PuterService {
         this.clients.event.on('fs.write.file', (_key, data) => {
             const entry = (data as { node?: FSEntry })?.node;
             if (!entry?.uuid) return;
+            return this.#fanOutToHolders(entry, 'outer.gui.item.updated').catch(
+                () => {
+                    // Same — never fail a write over its notification.
+                },
+            );
+        });
+
+        // A create is `fs.create.<flavor>`, not `fs.write.file`.
+        this.clients.event.on('fs.create.*', (_key, data) => {
+            const entry = (data as { node?: FSEntry })?.node;
+            if (!entry?.uuid) return;
+            return this.#scheduleCreateFanOut(entry).catch(() => {});
+        });
+
+        this.clients.event.on('fs.rename', (_key, data) => {
+            const { node: entry, old_path: oldPath } = (data ?? {}) as {
+                node?: FSEntry;
+                old_path?: string;
+            };
+            if (!entry?.uuid) return;
             return this.#fanOutToHolders(
                 entry,
-                'outer.gui.item.updated',
-                holderPayload(entry),
-            ).catch(() => {
-                // Same — never fail a write over its notification.
-            });
+                'outer.gui.item.renamed',
+                (root) => {
+                    // The GUI rewrites descendants and open windows by it.
+                    const from = oldPath
+                        ? maskedFormerPath(root, entry, oldPath)
+                        : null;
+                    return from ? { old_path: from } : {};
+                },
+            ).catch(() => {});
         });
     }
 
@@ -369,6 +439,42 @@ export class ShareService extends PuterService {
             });
         });
         return this.#retireFlush;
+    }
+
+    /** Same buffering for creates, by parent: siblings share one lookup. */
+    #scheduleCreateFanOut(entry: FSEntry): Promise<void> {
+        const parent = pathPosix.dirname(entry.path);
+        this.#pendingCreates.set(parent, [
+            ...(this.#pendingCreates.get(parent) ?? []),
+            entry,
+        ]);
+        this.#createFlush ??= new Promise<void>((resolve, reject) => {
+            setImmediate(() => {
+                const batch = this.#pendingCreates;
+                this.#pendingCreates = new Map();
+                this.#createFlush = null;
+                this.#flushCreates(batch).then(resolve, reject);
+            });
+        });
+        return this.#createFlush;
+    }
+
+    async #flushCreates(batch: Map<string, FSEntry[]>): Promise<void> {
+        for (const entries of batch.values()) {
+            const first = entries[0];
+            if (!first) continue;
+            // Safe from one sibling: nothing holds a share on an entry this new.
+            const groups = await this.#reachingRoots(first);
+            for (const { root, holders } of groups) {
+                for (const entry of entries) {
+                    await this.#emitGui(
+                        'outer.gui.item.added',
+                        holders,
+                        holderPayload(entry, root),
+                    );
+                }
+            }
+        }
     }
 
     /**
@@ -412,22 +518,50 @@ export class ShareService extends PuterService {
 
     async #fanOutToHolders(
         entry: FSEntry,
-        event: 'outer.gui.item.moved' | 'outer.gui.item.updated',
-        response: Record<string, unknown>,
+        event: HolderGuiEvent,
+        extrasFor: (root: FSEntry) => Record<string, unknown> = () => ({}),
     ): Promise<void> {
         // Ancestors too: someone given a folder sees what happens inside it,
         // and the changed file itself carries no share of its own.
-        const rows = await this.#sharesReaching(entry);
-        const holders = [
-            ...new Set(
-                rows.map((row: { holder_user_id: number }) =>
-                    Number(row.holder_user_id),
-                ),
-            ),
-        ].filter((id) => Number.isFinite(id) && id !== entry.userId);
-        if (holders.length === 0) return;
+        const groups = await this.#reachingRoots(entry);
+        // One event per root: the path depends on the share they came through.
+        for (const { root, holders } of groups) {
+            await this.#emitGui(event, holders, {
+                ...holderPayload(entry, root),
+                ...extrasFor(root),
+            });
+        }
+    }
 
-        await this.#emitGui(event, holders, response);
+    /** Holders who can reach `entry`, grouped by the share they came through. */
+    async #reachingRoots(
+        entry: FSEntry,
+    ): Promise<Array<{ root: FSEntry; holders: number[] }>> {
+        const { rows, nodesById } = await this.#sharesReaching(entry);
+
+        // Deepest root wins, so a holder with nested shares is told once.
+        const rootByHolder = new Map<number, FSEntry>();
+        for (const row of rows) {
+            const holderId = Number(row.holder_user_id);
+            const root = nodesById.get(Number(row.fsentry_id));
+            if (!root || !Number.isFinite(holderId)) continue;
+            if (holderId === entry.userId) continue;
+            const current = rootByHolder.get(holderId);
+            if (!current || root.path.length > current.path.length) {
+                rootByHolder.set(holderId, root);
+            }
+        }
+
+        const holdersByRoot = new Map<
+            number,
+            { root: FSEntry; holders: number[] }
+        >();
+        for (const [holderId, root] of rootByHolder) {
+            const group = holdersByRoot.get(root.id) ?? { root, holders: [] };
+            group.holders.push(holderId);
+            holdersByRoot.set(root.id, group);
+        }
+        return [...holdersByRoot.values()];
     }
 
     /**
@@ -440,9 +574,10 @@ export class ShareService extends PuterService {
      * share table to join fsentries and match `path IN (...)` instead put an
      * un-indexable OR on the write path.
      */
-    async #sharesReaching(
-        entry: FSEntry,
-    ): Promise<Array<{ holder_user_id: number }>> {
+    async #sharesReaching(entry: FSEntry): Promise<{
+        rows: Array<{ holder_user_id: number; fsentry_id: number }>;
+        nodesById: Map<number, FSEntry>;
+    }> {
         const ancestorPaths: string[] = [];
         for (
             let cursor = pathPosix.dirname(entry.path);
@@ -455,18 +590,19 @@ export class ShareService extends PuterService {
             ancestorPaths.length > 0
                 ? await this.stores.fsEntry.getEntriesByPaths(ancestorPaths)
                 : new Map<string, FSEntry>();
-        const ids = [
-            entry.id,
-            ...[...ancestors.values()].map((node) => node.id),
-        ].filter((id): id is number => typeof id === 'number');
-        return this.stores.share.listReaching(ids);
+        const nodesById = new Map<number, FSEntry>(
+            [entry, ...ancestors.values()]
+                .filter((node) => typeof node.id === 'number')
+                .map((node) => [node.id, node]),
+        );
+        return {
+            rows: await this.stores.share.listReaching([...nodesById.keys()]),
+            nodesById,
+        };
     }
 
     async #emitGui(
-        event:
-            | 'outer.gui.item.removed'
-            | 'outer.gui.item.moved'
-            | 'outer.gui.item.updated',
+        event: HolderGuiEvent,
         userIds: number[],
         response: Record<string, unknown>,
     ): Promise<void> {
