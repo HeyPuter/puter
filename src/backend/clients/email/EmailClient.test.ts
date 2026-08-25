@@ -280,7 +280,8 @@ describe('EmailClient — share notification templates', () => {
                 items: [{ name: 'a.txt' }, { name: 'b.txt' }],
             },
         ]),
-        link: 'https://puter.test',
+        link: 'https://puter.test/?shared=%2Fbob%2Fu1%2Fnotes.md',
+        origin: 'https://puter.test',
         unsubscribe_uuid: null,
     };
 
@@ -364,15 +365,21 @@ describe('EmailClient — share notification templates', () => {
         expect(preheader).toBeLessThan(html.indexOf('Hi alice,'));
     });
 
-    it('points the call to action at the app and nowhere else', async () => {
-        const { html, text } = await renderShare(
-            'file_shared_with_you',
-            HOLDER,
-        );
+    // The button carries every item in the mail, so it is a query string with
+    // `&` and `=` in it — which must reach the client as written, in both parts.
+    it('points the call to action at Shared with every item picked out', async () => {
+        const link =
+            'https://puter.test/?shared=%2Fbob%2Fu1%2Fa.txt&shared=%2Fbob%2Fu2%2Fb.txt';
+        const { html, text } = await renderShare('file_shared_with_you', {
+            ...HOLDER,
+            link,
+        });
 
-        expect(html).toContain('href="https://puter.test"');
+        expect(html).toContain(`href="${link}"`);
         expect(html).toContain('>Open Puter</a>');
-        expect(text).toContain('Open Puter: https://puter.test');
+        expect(text).toContain(`Open Puter: ${link}`);
+        expect(html).not.toContain('&#x3D;');
+        expect(html).not.toContain('&amp;shared');
     });
 
     it('separates senders without a rule above the first', async () => {

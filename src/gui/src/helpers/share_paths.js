@@ -44,6 +44,23 @@ export const parse_shared_path = (abs_path) => {
     return { owner, uid, segments };
 };
 
+/**
+ * The uids a list of shared paths names, in order and without repeats. Anything
+ * that isn't a shared path falls away: a link's values are user-visible text, so
+ * a hand-edited one must be ignored rather than become a lookup.
+ *
+ * @param {string[]} paths
+ * @returns {string[]}
+ */
+export const shared_uids_from_paths = (paths) => {
+    const uids = [];
+    for ( const path of Array.isArray(paths) ? paths : [] ) {
+        const uid = parse_shared_path(path)?.uid.toLowerCase();
+        if ( uid && ! uids.includes(uid) ) uids.push(uid);
+    }
+    return uids;
+};
+
 /** The shared item itself, as opposed to something inside it. */
 export const is_share_root = (abs_path) =>
     parse_shared_path(abs_path)?.segments.length === 1;

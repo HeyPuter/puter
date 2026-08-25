@@ -22,6 +22,7 @@ import type { Actor } from '../../core/actor';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import { PuterService } from '../types';
 import {
+    digestItemPaths,
     digestLines,
     digestSubject,
     mergeDigestEntry,
@@ -37,6 +38,7 @@ import {
     maskedSharePath,
     ownerFromSharePath,
     shareDeepLink,
+    sharedViewLink,
 } from './shareDeepLink';
 import type { ResolvedShare } from './ShareService';
 
@@ -591,7 +593,11 @@ export class ShareNotificationService extends PuterService {
         if (!share.name) return null;
         const path = this.#targetPath(share);
         if (!path) return { name: share.name };
-        return { name: share.name, link: shareDeepLink(this.#appLink(), path) };
+        return {
+            name: share.name,
+            link: shareDeepLink(this.#appLink(), path),
+            path,
+        };
     }
 
     /** The masked path for a share, or `null` when it isn't addressable. */
@@ -798,9 +804,16 @@ export class ShareNotificationService extends PuterService {
                             recipient: first.recipient,
                             subject_line: digestSubject(entries),
                             shares: digestLines(entries),
-                            link: this.#appLink(),
-                            // The template composes the URL, so `?` and `=`
-                            // stay literal instead of escaping to `&#x3D;`.
+                            // "Open Puter" lands on Shared with everything
+                            // in this mail picked out, not just one item.
+                            link: sharedViewLink(
+                                this.#appLink(),
+                                digestItemPaths(entries),
+                            ),
+                            // The template composes the unsubscribe URL from
+                            // the origin, so `?` and `=` stay literal instead
+                            // of escaping to `&#x3D;`.
+                            origin: this.#appLink(),
                             unsubscribe_uuid: first.recipientUuid ?? null,
                         },
                     );

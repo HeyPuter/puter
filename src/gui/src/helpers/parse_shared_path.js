@@ -20,6 +20,22 @@
 /** The query parameter a share link arrives on. */
 export const SHARED_PATH_PARAM = 'shared';
 
+/**
+ * Take `?shared=` off the address bar so a reload doesn't act on it again.
+ *
+ * @param {string} [hash] - What to leave after the `#`; the current hash if omitted
+ */
+export function clear_shared_param (hash = window.location.hash) {
+    const params = new URLSearchParams(window.location.search);
+    params.delete(SHARED_PATH_PARAM);
+    const rest = params.toString();
+    window.history.replaceState(
+        null,
+        document.title,
+        `${window.location.pathname || '/'}${rest ? `?${rest}` : ''}${hash || ''}`,
+    );
+}
+
 // The uuid segment of a shared item's path; see the backend's `sharePathMask`.
 const UID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

@@ -139,6 +139,10 @@ describe('share email', () => {
         vi.restoreAllMocks();
     });
 
+    /** Where the "Open Puter" button points, as distinct from the item links. */
+    const openPuterHref = (html: string): string | undefined =>
+        html.match(/href="([^"]+)"[^>]*>Open Puter<\/a>/)?.[1];
+
     const post = (path: string, token: string, body: unknown) =>
         fetch(new URL(path, env.apiOrigin), {
             method: 'POST',
@@ -351,8 +355,13 @@ describe('share email', () => {
             `${owner.username} shared ${first.name} with you`,
         );
         expect(mail.html).toContain(first.name);
-        expect(mail.html).toContain('Open Puter');
-        expect(mail.html).toContain(`href="${env.origin}"`);
+        // The button opens Shared with the item picked out — on the full
+        // origin, port included, like every other link in the mail.
+        expect(openPuterHref(mail.html)).toBe(
+            `${env.origin}/?shared=${encodeURIComponent(
+                `/${owner.username}/${first.uid}/${first.name}`,
+            )}`,
+        );
         expect(mail.html).toContain(recipient.username);
 
         // A second share to the same pair inside the window is one more thing to
@@ -509,12 +518,20 @@ describe('share email', () => {
         );
 
         const mail = await waitForMail({ to: recipient.email });
-        for (const file of files) {
-            const masked = `/${sender.username}/${file.uid}/${file.name}`;
-            expect(mail.html).toContain(
-                `?shared=${encodeURIComponent(masked)}`,
-            );
+        const masked = files.map(
+            (file) => `/${sender.username}/${file.uid}/${file.name}`,
+        );
+        for (const path of masked) {
+            expect(mail.html).toContain(`?shared=${encodeURIComponent(path)}`);
         }
+        // "Open Puter" is one link for the whole mail: Shared, with every item
+        // in it picked out — not the origin, which would land them on Home.
+        const href = openPuterHref(mail.html);
+        expect(href).toBeDefined();
+        expect(new URL(href!).searchParams.getAll('shared').sort()).toEqual(
+            [...masked].sort(),
+        );
+        expect(mail.text).toContain(`Open Puter: ${href}`);
     });
 
     // Nothing to route to yet, so the names stay plain and the call to action
