@@ -96,6 +96,8 @@ export const loadPuterJsTestOptions = (
         // 402 here. The gate itself is covered against those exact routes in
         // `controllers/puterai/PuterAIController.subscription.http.test.ts`.
         meteringEnforcement: { subscriptions: false },
+        // Same for rate limits: ~500 tests share one free-tier account.
+        unlimitedMetering: true,
     };
 
     for (const mapping of MAPPINGS) {
