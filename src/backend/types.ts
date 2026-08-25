@@ -343,6 +343,22 @@ export interface IPeersConfig {
         /** Credential TTL in seconds. Default 86400. */
         ttl?: number;
     };
+    /**
+     * Relay access for guests of an authenticated host, who mint credentials
+     * against a signed grant instead of an account of their own.
+     */
+    guest_turn?: {
+        /**
+         * HMAC key for guest grants. Absent disables the guest routes with a
+         * 503 — a deployment opts into guest relay access by setting this. Must
+         * not be shared with any other secret.
+         */
+        grant_secret?: string;
+        /** Grant lifetime in seconds. Default 3600. */
+        grant_ttl?: number;
+        /** Guest credential TTL in seconds, clamped to `turn.ttl`. Default 3600. */
+        credential_ttl?: number;
+    };
     /** Shared secret for the internal `/turn/ingest-usage` endpoint. */
     internal_auth_secret?: string;
 }

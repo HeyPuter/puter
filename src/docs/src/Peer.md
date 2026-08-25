@@ -10,7 +10,7 @@ Use the Peer API to build peer-to-peer applications without the need for a serve
 
 <div class="info">
 
-Peer connections require authentication. On websites, Puter.js will prompt the user to authenticate if needed.
+Hosting a session requires authentication — on websites, Puter.js will prompt the user if needed. Guests can join without an account: pass `anonToken`, plus a `turnGrant` from the host so the connection can still use Puter's relays. See [`puter.peer.createGuestGrant()`](/Peer/createGuestGrant/).
 
 </div>
 

@@ -136,6 +136,17 @@ Recipients are emailed by default and opt out with the unsubscribe link the mail
 
 Over these, **the share still succeeds** — only the announcement is dropped. The recipient's notification is kept up to date either way, and folds several senders into one ("alice and bob shared 5 items with you"), so nothing is lost; it just doesn't interrupt them again. Emails are additionally batched: everything triggered for one recipient within a 90-second window goes as a single digest message. Recipients can also refuse shares outright — from one sender, or from everyone — which fails that sender's `share` call with `recipient_not_accepting_shares`. Both are managed from **Settings → Security → Blocked people**.
 
+### Peer connections
+
+| Limit | Paid | Free | Anonymous |
+| --- | --- | --- | --- |
+| Relay credentials per minute | 30 | 10 | 5 |
+| Guest grants issued per minute | 30 | 10 | 5 |
+
+Signalling details are public deployment config and bounded per network instead of per account, at 3,000 reads/min.
+
+Guests are bounded per *host*: everyone holding grants from the same account shares **60 relay-credential requests/min**. Relay traffic a guest sends is metered against the account that issued the grant, so treat a grant as something that spends your allowance — issue it for the session you meant to host, and let it expire rather than reusing one indefinitely.
+
 ### Everything at once
 
 Every driver call also passes one shared per-account budget of **8,000 calls/min** before the per-API limits above. It exists to catch a runaway loop, not to shape normal traffic — a client that sees a 429 from it is looping.
