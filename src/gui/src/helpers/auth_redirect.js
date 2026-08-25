@@ -17,6 +17,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import parse_shared_path, { SHARED_PATH_PARAM } from './parse_shared_path.js';
+
 /**
  * Where to send the user after a successful login/signup started from the
  * current page. Keeps the user on the page they authenticated from — most
@@ -49,18 +51,15 @@ export const get_auth_redirect_url = () => {
 };
 
 /**
- * The `return_to` path to send along when starting an OIDC flow, or null if
- * the current page isn't one the backend will return to. The backend strictly
- * whitelists these (never a client-supplied URL): `/desktop`, `/dashboard`,
- * and direct app landings (`/app/<name>`, plus the desktop-booted
- * `/desktop/app/<name>`), so OIDC login started from an app landing comes back
- * to the app — and to the same interface it was opened in.
+ * The pathname part of an OIDC `return_to`, or null when the current page isn't
+ * one the backend will return to. The root is in here only for the share links
+ * below — on its own it is where the flow already lands.
  *
- * @returns {string|null} whitelistable pathname, or null
+ * @returns {string|null}
  */
-export const get_oidc_return_to = () => {
+const oidc_return_path = () => {
     const pathname = window.location.pathname;
-    if ( pathname === '/desktop' || pathname === '/dashboard' ) {
+    if ( pathname === '/' || pathname === '/desktop' || pathname === '/dashboard' ) {
         return pathname;
     }
     // app landing: normalize away a trailing slash to match the backend whitelist
@@ -68,4 +67,37 @@ export const get_oidc_return_to = () => {
         return pathname.replace(/\/$/, '');
     }
     return null;
+};
+
+/**
+ * The `return_to` to send along when starting an OIDC flow, or null if the
+ * current page isn't one the backend will return to. The backend strictly
+ * whitelists these (never a client-supplied URL): `/desktop`, `/dashboard`,
+ * and direct app landings (`/app/<name>`, plus the desktop-booted
+ * `/desktop/app/<name>`), so OIDC login started from an app landing comes back
+ * to the app — and to the same interface it was opened in.
+ *
+ * A share link (`?shared=`, from an email) is carried along with the path: the
+ * recipient usually has to sign in before they can see what was shared, and an
+ * OIDC round trip leaves the origin, so the parameter has to travel through the
+ * flow or they come back to a bare Home. Only well-formed values go — the
+ * backend refuses the rest, and a hand-edited link is no one's destination.
+ *
+ * @returns {string|null} whitelistable path, with its share items, or null
+ */
+export const get_oidc_return_to = () => {
+    const path = oidc_return_path();
+    if ( path === null ) return null;
+
+    const shared = new URLSearchParams(window.location.search ?? '')
+        .getAll(SHARED_PATH_PARAM)
+        .filter(value => parse_shared_path(value) !== null);
+    if ( shared.length === 0 ) {
+        // The root is only a destination when it names something.
+        return path === '/' ? null : path;
+    }
+
+    const params = new URLSearchParams();
+    for ( const value of shared ) params.append(SHARED_PATH_PARAM, value);
+    return `${path}?${params.toString()}`;
 };

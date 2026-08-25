@@ -23,6 +23,11 @@ import { HttpError } from '../../core/http/HttpError.js';
 import type { PuterRouter } from '../../core/http/PuterRouter.js';
 import { PuterController } from '../types.js';
 import { sessionCookieFlags } from '../../util/cookieFlags.js';
+import { parseMaskedSharePath } from '../../services/fs/sharePathMask.js';
+import {
+    SHARE_DEEP_LINK_ITEMS_LIMIT,
+    SHARE_DEEP_LINK_PARAM,
+} from '../../services/share/shareDeepLink.js';
 
 const REVALIDATION_COOKIE_NAME = 'puter_revalidation';
 const REVALIDATION_EXPIRY_SEC = 300;
@@ -64,16 +69,82 @@ function resolutionErrorCode(code: string | undefined): string {
         : 'signup_blocked';
 }
 
-// GUI pages an OIDC flow may return to: /desktop, /dashboard, and direct app
-// landings (/app/<name> and its desktop-booted twin /desktop/app/<name>,
-// mirroring APP_NAME_REGEX in AppDriver). Strict whitelist — never a
-// client-supplied URL (no open redirect).
+// GUI pages an OIDC flow may return to: the root (where a share email lands),
+// /desktop, /dashboard, and direct app landings (/app/<name> and its
+// desktop-booted twin /desktop/app/<name>, mirroring APP_NAME_REGEX in
+// AppDriver). Strict whitelist — never a client-supplied URL (no open
+// redirect).
 function isWhitelistedReturnPath(path: string): boolean {
     return (
+        path === '/' ||
         path === '/desktop' ||
         path === '/dashboard' ||
         /^(\/desktop)?\/app\/[a-zA-Z0-9_-]{1,100}$/.test(path)
     );
+}
+
+/**
+ * The share items a return target's query names, or null when the query is
+ * anything else at all.
+ *
+ * A share email lands on `/?shared=…`, and its recipient usually has to sign in
+ * before they can see what was shared. An OIDC flow leaves the origin and comes
+ * back to a URL this server builds, so the parameter travels through the flow
+ * or the recipient returns to a bare Home with nothing to say what they were
+ * sent.
+ *
+ * `shared` is the only parameter that makes the trip, and only values shaped
+ * like the masked path the mail was built from — the value is user-visible
+ * text, so a hand-edited one is refused rather than reflected back into the
+ * browser.
+ */
+function sharedPathsFromReturnQuery(query: string): string[] | null {
+    const paths: string[] = [];
+    for (const [key, value] of new URLSearchParams(query)) {
+        if (key !== SHARE_DEEP_LINK_PARAM) return null;
+        const parsed = parseMaskedSharePath(value);
+        // The segment after the uuid is the shared item itself. A mask without
+        // one addresses the owner's parent directory, which is not the
+        // recipient's to open.
+        if (!parsed || !parsed.tail) return null;
+        // Same rule the link builder follows: the first items are the ones
+        // that travel, so what gets highlighted reads as the top of the list.
+        if (
+            paths.length < SHARE_DEEP_LINK_ITEMS_LIMIT &&
+            !paths.includes(value)
+        ) {
+            paths.push(value);
+        }
+    }
+    return paths;
+}
+
+/**
+ * A client-supplied `return_to` reduced to what will actually be redirected to,
+ * or null when it isn't a page an OIDC flow returns to.
+ *
+ * The path is matched as given, never parsed as a URL: a protocol-relative
+ * value (`//evil.test/desktop`) has to fail the whitelist rather than smuggle
+ * an origin through as a `pathname`. The query is rebuilt from the values that
+ * survived, so nothing reaches the redirect verbatim.
+ */
+function sanitizeReturnTo(raw: string): string | null {
+    const separator = raw.indexOf('?');
+    const path = separator === -1 ? raw : raw.slice(0, separator);
+    if (!isWhitelistedReturnPath(path)) return null;
+
+    const shared =
+        separator === -1
+            ? []
+            : sharedPathsFromReturnQuery(raw.slice(separator + 1));
+    if (shared === null) return null;
+    // The root is only a destination when it names something: on its own it is
+    // where the flow already lands.
+    if (shared.length === 0) return path === '/' ? null : path;
+
+    const params = new URLSearchParams();
+    for (const value of shared) params.append(SHARE_DEEP_LINK_PARAM, value);
+    return `${path}?${params.toString()}`;
 }
 
 function buildErrorRedirectUrl(
@@ -100,11 +171,17 @@ function buildErrorRedirectUrl(
     // /app/<name> landing) so the retry — and the eventual success — keeps
     // the user's destination. redirect_uri comes from the signed state and
     // was built server-side, but re-check the path against the whitelist.
+    // A share link's items come back too: the retry happens on that page, and
+    // its success reloads it, so they have to be on it to survive.
     let pagePath = '/';
+    let sharedPaths: string[] = [];
     if (typeof stateDecoded?.redirect_uri === 'string') {
         try {
-            const statePath = new URL(stateDecoded.redirect_uri).pathname;
-            if (isWhitelistedReturnPath(statePath)) pagePath = statePath;
+            const stateUrl = new URL(stateDecoded.redirect_uri);
+            if (isWhitelistedReturnPath(stateUrl.pathname)) {
+                pagePath = stateUrl.pathname;
+                sharedPaths = sharedPathsFromReturnQuery(stateUrl.search) ?? [];
+            }
         } catch {
             // unparsable redirect_uri: fall back to the root page
         }
@@ -144,6 +221,9 @@ function buildErrorRedirectUrl(
     }
     if (requestCode) {
         params.set('request_code', requestCode);
+    }
+    for (const path of sharedPaths) {
+        params.append(SHARE_DEEP_LINK_PARAM, path);
     }
     return `${base}${pagePath}?${params.toString()}`;
 }
@@ -289,16 +369,17 @@ export class OIDCController extends PuterController {
                 let appRedirectUri = flowRedirects[flow] ?? (origin || '/');
 
                 // Optional GUI return path so login started from /desktop,
-                // /dashboard, or an /app/<name> landing lands back there.
+                // /dashboard, an /app/<name> landing, or a share link lands
+                // back there.
                 const rawReturnTo = Array.isArray(req.query.return_to)
                     ? req.query.return_to[0]
                     : req.query.return_to;
-                if (
-                    (flow === 'login' || flow === 'signup') &&
-                    typeof rawReturnTo === 'string' &&
-                    isWhitelistedReturnPath(rawReturnTo)
-                ) {
-                    appRedirectUri = `${origin}${rawReturnTo}`;
+                const returnTo =
+                    typeof rawReturnTo === 'string'
+                        ? sanitizeReturnTo(rawReturnTo)
+                        : null;
+                if ((flow === 'login' || flow === 'signup') && returnTo) {
+                    appRedirectUri = `${origin}${returnTo}`;
                 }
 
                 // Popup support
