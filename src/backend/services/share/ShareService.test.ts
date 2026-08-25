@@ -457,6 +457,96 @@ describe('ShareService', () => {
         ).toBe(dir.path);
     });
 
+    describe('the listing flag', () => {
+        const flags = (actor: Actor, entries: unknown[]) =>
+            server.services.share.shareFlags(actor, entries as never);
+
+        it('flags a shared entry and not its neighbour, until it is revoked', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const shared = await makeFile(owner.user);
+            const untouched = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: shared.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            expect(await flags(owner.actor, [shared, untouched])).toEqual(
+                new Map([
+                    [shared.uuid, true],
+                    [untouched.uuid, false],
+                ]),
+            );
+
+            await unshare(owner.actor, {
+                uid: shared.uuid,
+                recipient: { username: recipient.user.username },
+            });
+
+            expect(await flags(owner.actor, [shared, untouched])).toEqual(
+                new Map([
+                    [shared.uuid, false],
+                    [untouched.uuid, false],
+                ]),
+            );
+        });
+
+        it('flags an entry whose only share is an unclaimed invite', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+
+            const result = await share(owner.actor, {
+                uid: file.uuid,
+                recipient: {
+                    email: `nobody-${uuidv4().slice(0, 8)}@test.local`,
+                },
+                mode: 'read',
+            });
+            expect(result.pending).toBe(true);
+
+            expect(await flags(owner.actor, [file])).toEqual(
+                new Map([[file.uuid, true]]),
+            );
+        });
+
+        it('tells a recipient nothing about who else the owner shared with', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            expect(await flags(recipient.actor, [file])).toEqual(new Map());
+        });
+
+        it('does not flag a file reachable only through a shared folder', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir, file } = await makeDirWithFile(owner.user);
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            // The flag says shared, not reachable.
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+            expect(await flags(owner.actor, [dir, file])).toEqual(
+                new Map([
+                    [dir.uuid, true],
+                    [file.uuid, false],
+                ]),
+            );
+        });
+    });
+
     it('takes downstream access with a delegate who leaves', async () => {
         const owner = await makeUser();
         const delegate = await makeUser();

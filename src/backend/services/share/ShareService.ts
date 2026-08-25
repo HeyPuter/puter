@@ -20,7 +20,7 @@
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
 import { userRelatedActor, type Actor } from '../../core/actor';
-import { HttpError } from '../../core/http/HttpError.js';
+import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import {
     abuseKey,
@@ -1163,6 +1163,46 @@ export class ShareService extends PuterService {
         );
 
         return inheritedShares.concat(own, pending);
+    }
+
+    /** Whether the caller shared each of their own `entries`, keyed by uuid. */
+    async shareFlags(
+        actor: Actor,
+        entries: FSEntry[],
+    ): Promise<Map<string, boolean>> {
+        // No user behind the actor means no flag, not a failed listing.
+        const userId = actor?.user?.id;
+        if (typeof userId !== 'number') return new Map();
+
+        const own = entries.filter(
+            (entry) => entry.userId === userId && Number.isFinite(entry.id),
+        );
+        if (own.length === 0) return new Map();
+
+        const sharedIds = await this.stores.share.getSharedFsentryIds(
+            own.map((entry) => entry.id),
+        );
+        return new Map(
+            own.map((entry) => [entry.uuid, sharedIds.has(entry.id)]),
+        );
+    }
+
+    /** `listSharesOf`, but null instead of throwing when manage is missing. */
+    async tryListSharesOf(
+        actor: Actor,
+        target: ShareTarget,
+    ): Promise<ResolvedShare[] | null> {
+        try {
+            return await this.listSharesOf(actor, target);
+        } catch (error) {
+            if (
+                isHttpError(error) &&
+                (error.statusCode === 403 || error.statusCode === 404)
+            ) {
+                return null;
+            }
+            throw error;
+        }
     }
 
     // -- Blocking -----------------------------------------------------
