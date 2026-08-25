@@ -32,18 +32,18 @@ import UIWindowQR from './UIWindowQR.js';
 
 import UIWindowProgress from './UIWindowProgress.js';
 import UITaskbar from './UITaskbar.js';
-import new_context_menu_item from '../helpers/new_context_menu_item.js';
-import refresh_item_container from '../helpers/refresh_item_container.js';
+import new_context_menu_item from '../helpers/newContextMenuItem.js';
+import refresh_item_container from '../helpers/refreshItemContainer.js';
 import changeLanguage from '../i18n/i18nChangeLanguage.js';
 import UIWindowTaskManager from './UIWindowTaskManager.js';
-import truncate_filename from '../helpers/truncate_filename.js';
+import truncate_filename from '../helpers/truncateFilename.js';
 import UINotification from './UINotification.js';
 import UIWindowWelcome from './UIWindowWelcome.js';
-import launch_app from '../helpers/launch_app.js';
-import item_icon from '../helpers/item_icon.js';
-import { SHARED_PATH_PARAM, clear_shared_param } from '../helpers/parse_shared_path.js';
-import resolve_shared_item from '../helpers/resolve_shared_item.js';
-import apply_item_added_to_containers from '../helpers/apply_item_added_to_containers.js';
+import launch_app from '../helpers/launchApp.js';
+import item_icon from '../helpers/itemIcon.js';
+import { SHARED_PATH_PARAM, clear_shared_param } from '../helpers/parseSharedPath.js';
+import resolve_shared_item from '../helpers/resolveSharedItem.js';
+import apply_item_added_to_containers from '../helpers/applyItemAddedToContainers.js';
 import UIWindowSearch from './UIWindowSearch.js';
 
 async function UIDesktop (options) {

@@ -19,7 +19,7 @@
 
 import UITaskbarItem from './UITaskbarItem.js';
 import UIPopover from './UIPopover.js';
-import launch_app from '../helpers/launch_app.js';
+import launch_app from '../helpers/launchApp.js';
 import UIContextMenu from './UIContextMenu.js';
 
 async function UITaskbar (options) {

@@ -19,7 +19,7 @@
 
 import UIWindow from './UIWindow.js';
 import UIWindowCardVerificationRequired from './UIWindowCardVerificationRequired.js';
-import { get_country_list } from '../helpers/country_codes.js';
+import { get_country_list } from '../helpers/countryCodes.js';
 import {
     format_phone_as_you_type,
     inspect_phone,

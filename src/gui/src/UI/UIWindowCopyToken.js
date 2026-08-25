@@ -19,13 +19,13 @@
 
 import UIWindow from './UIWindow.js';
 import UIWindowManageSessions from './UIWindowManageSessions.js';
-import create_access_token from '../helpers/create_access_token.js';
+import create_access_token from '../helpers/createAccessToken.js';
 
 // Creates a named, revocable full-API-access token and shows it once.
 // Replaces the old "copy your raw GUI/session token" behaviour: the copied
 // token used to be a session-equivalent credential that could escalate to
 // full account control; the minted access token can use the whole API but is
-// locked out of account management (see create_access_token.js).
+// locked out of account management (see createAccessToken.js).
 function UIWindowCopyToken (options = {}) {
     return new Promise(async (resolve) => {
         let h = '';

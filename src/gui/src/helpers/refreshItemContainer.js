@@ -19,9 +19,9 @@
 
 import path from '../lib/path.js';
 import UIItem from '../UI/UIItem.js';
-import item_icon from './item_icon.js';
-import list_all_shared from './list_all_shared.js';
-import { remember_shared_roots } from './shared_access.js';
+import item_icon from './itemIcon.js';
+import list_all_shared from './listAllShared.js';
+import { remember_shared_roots } from './sharedAccess.js';
 
 const refresh_item_container = function (el_item_container, options) {
     // start a transaction
