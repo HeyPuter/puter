@@ -449,6 +449,8 @@ export async function toLegacyEntry(
             getById: (id: number) => Promise<Record<string, unknown> | null>;
         };
         appsById?: Map<number, Record<string, unknown>>;
+        /** Omitted from the response when undefined. */
+        isShared?: boolean | null;
     } = {},
 ): Promise<Record<string, unknown>> {
     // Someone else's entry is published under its masked path; the owner's
@@ -496,6 +498,7 @@ export async function toLegacyEntry(
                 ? (opts.appsById.get(entry.associatedAppId) ?? null)
                 : null,
         appdata_app,
+        ...(opts.isShared === undefined ? {} : { is_shared: opts.isShared }),
     };
 
     // `is_empty` — only meaningful for directories. Single-row probe so we

@@ -177,6 +177,7 @@ export interface ClientFSEntry {
     workers: FSEntrySubdomain[];
     hasWebsite: boolean;
     suggestedApps: unknown[];
+    isShared?: boolean | null;
 
     id?: never;
     userId?: never;
