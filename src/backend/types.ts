@@ -239,7 +239,12 @@ export interface IPreludeConfig {
      * an RCS agent provisioned in the Prelude account to actually use RCS.
      */
     preferredChannel?:
-        'sms' | 'rcs' | 'whatsapp' | 'viber' | 'zalo' | 'telegram';
+        | 'sms'
+        | 'rcs'
+        | 'whatsapp'
+        | 'viber'
+        | 'zalo'
+        | 'telegram';
 }
 
 /**
@@ -1071,6 +1076,25 @@ interface IConfigOptional {
     };
 
     /**
+     * Reputation gating: what the tiers named by `requireReputation` on a route
+     * or a driver method actually take.
+     *
+     * - `enabled` — the one switch that stops every declared gate enforcing,
+     *   without unpicking the declarations. Defaults to on, which by itself
+     *   gates nothing: a tier only bites once `tiers` gives it a score.
+     * - `tiers` — tier name → the minimum score (0-100) an account needs to pass
+     *   it. The numbers live here rather than in the declarations because what
+     *   counts as trusted enough is a per-deployment call, retuned far more
+     *   often than the surfaces it protects. A tier with no entry is inert: an
+     *   install that doesn't score its accounts must not turn traffic away on a
+     *   score it never computed.
+     */
+    reputationGate?: {
+        enabled?: boolean;
+        tiers?: Record<string, number>;
+    };
+
+    /**
      * Display multiplier converting metered amounts into the "credits" clients
      * show. Applied server-side by the usage-reporting endpoints, so raw
      * metered amounts never leave the API; purely presentational, so it can
@@ -1116,8 +1140,7 @@ export interface WithLifecycle extends Object {
 }
 
 export interface WithCostsReporting extends WithLifecycle {
-    getReportedCosts?: () =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getReportedCosts?: () => // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Promise<Record<string, any>[]>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         | Record<string, any>[];

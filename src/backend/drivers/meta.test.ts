@@ -23,12 +23,15 @@ import {
     resolveDriverMeta,
     resolveDriverMethodConcurrent,
     resolveDriverMethodRateLimit,
+    resolveDriverMethodRequireReputation,
     resolveDriverMethodRequireSubscription,
     validateDriverConcurrent,
     validateDriverRateLimit,
+    validateDriverRequireReputation,
     validateDriverRequireSubscription,
     type DriverConcurrentConfig,
     type DriverRateLimitConfig,
+    type DriverRequireReputationConfig,
     type DriverRequireSubscriptionConfig,
 } from './meta.js';
 
@@ -540,6 +543,110 @@ describe('resolveDriverMeta — requireSubscription', () => {
         };
         expect(
             resolveDriverMeta(driver as never)?.requireSubscription,
+        ).toBeUndefined();
+    });
+});
+
+// ── requireReputation ───────────────────────────────────────────────
+
+describe('validateDriverRequireReputation', () => {
+    it('returns an empty config for null/undefined input', () => {
+        expect(validateDriverRequireReputation(undefined, 't')).toEqual({});
+        expect(validateDriverRequireReputation(null, 't')).toEqual({});
+    });
+
+    it('accepts tier names and explicit opt-outs', () => {
+        const cfg: DriverRequireReputationConfig = {
+            default: false,
+            methods: { generate: 'standard' },
+        };
+        expect(validateDriverRequireReputation(cfg, 't')).toBe(cfg);
+    });
+
+    it('rejects a non-object config', () => {
+        expect(() => validateDriverRequireReputation(42, 't')).toThrow(
+            /requireReputation must be an object/,
+        );
+        expect(() => validateDriverRequireReputation([], 't')).toThrow(
+            /requireReputation must be an object/,
+        );
+    });
+
+    it('rejects requirements that name no tier', () => {
+        expect(() =>
+            validateDriverRequireReputation({ default: '' }, 't'),
+        ).toThrow(/non-empty tier name/);
+        expect(() =>
+            validateDriverRequireReputation({ methods: { a: true } }, 't'),
+        ).toThrow(/expected a tier name, or false/);
+        expect(() =>
+            validateDriverRequireReputation({ methods: { a: 60 } }, 't'),
+        ).toThrow(/expected a tier name, or false/);
+    });
+});
+
+describe('resolveDriverMethodRequireReputation', () => {
+    const cfg: DriverRequireReputationConfig = {
+        default: 'standard',
+        methods: { list: false, generateLong: 'trusted' },
+    };
+
+    it('prefers a per-method entry over the default', () => {
+        expect(resolveDriverMethodRequireReputation(cfg, 'list')).toBe(false);
+        expect(resolveDriverMethodRequireReputation(cfg, 'generateLong')).toBe(
+            'trusted',
+        );
+    });
+
+    it('falls back to the default, and to undefined with no config', () => {
+        expect(resolveDriverMethodRequireReputation(cfg, 'generate')).toBe(
+            'standard',
+        );
+        expect(
+            resolveDriverMethodRequireReputation(undefined, 'generate'),
+        ).toBeUndefined();
+        expect(
+            resolveDriverMethodRequireReputation({}, 'generate'),
+        ).toBeUndefined();
+    });
+});
+
+describe('resolveDriverMeta — requireReputation', () => {
+    it('reads the block off the decorator', () => {
+        @Driver('test-iface', {
+            name: 'decorated-reputation',
+            requireReputation: { methods: { generate: 'standard' } },
+        })
+        class Decorated {}
+
+        expect(resolveDriverMeta(new Decorated() as never)).toMatchObject({
+            requireReputation: { methods: { generate: 'standard' } },
+        });
+    });
+
+    it('validates an imperatively declared block', () => {
+        const driver = {
+            driverInterface: 'test-iface',
+            driverName: 'imperative',
+            requireReputation: { default: 'standard' },
+        };
+        expect(resolveDriverMeta(driver as never)).toMatchObject({
+            requireReputation: { default: 'standard' },
+        });
+
+        const bad = { ...driver, requireReputation: { default: 60 } };
+        expect(() => resolveDriverMeta(bad as never)).toThrow(
+            /expected a tier name, or false/,
+        );
+    });
+
+    it('leaves the block absent when a driver declares nothing', () => {
+        const driver = {
+            driverInterface: 'test-iface',
+            driverName: 'plain',
+        };
+        expect(
+            resolveDriverMeta(driver as never)?.requireReputation,
         ).toBeUndefined();
     });
 });

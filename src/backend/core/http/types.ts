@@ -26,7 +26,12 @@ import type { Actor } from '../actor';
  * it instead of accepting any token that authenticates.
  */
 export type TokenSource =
-    'body' | 'header' | 'x-api-key' | 'cookie' | 'query' | 'handshake';
+    | 'body'
+    | 'header'
+    | 'x-api-key'
+    | 'cookie'
+    | 'query'
+    | 'handshake';
 
 /**
  * Every route method PuterRouter exposes. Mirrors the express router surface
@@ -68,8 +73,8 @@ export type RoutePath = string | RegExp | Array<string | RegExp>;
  *
  *     subdomain → requireAuth (+ suspended) → emailConfirmed →
  *     requireUserActor → adminOnly → allowedAppIds → phoneVerified →
- *     cardVerified → requireSubscription → rateLimit → requireCredits →
- *     concurrent → caller `middleware: []` → handler
+ *     cardVerified → requireReputation → requireSubscription → rateLimit →
+ *     requireCredits → concurrent → caller `middleware: []` → handler
  *
  * `requireUserActor`, `adminOnly`, and `allowedAppIds` all imply `requireAuth`;
  * the materializer dedupes so only one auth gate ends up in the chain.
@@ -365,6 +370,24 @@ export interface RouteOptions {
      */
     requireSubscription?: boolean | string[];
 
+    /**
+     * Reject a caller whose account isn't trusted enough for this route with
+     * 403 `reputation_required`.
+     *
+     * The value names a tier; the minimum score that tier takes is deployment
+     * config (`reputationGate.tiers`), so the number a surface is worth stays
+     * out of the surface's declaration and can be retuned without editing it. A
+     * tier the running config doesn't define is inert and everyone passes — a
+     * deployment that doesn't score its accounts turns nobody away.
+     *
+     * Opt-in, and implies `requireAuth`: there is no account to have earned
+     * anything on an anonymous caller. The declaration decides the chain, so a
+     * route asking for a tier is authenticated whether or not the tier
+     * currently enforces anything. `false` is "no requirement", the same as
+     * leaving it out.
+     */
+    requireReputation?: string | false;
+
     // Reserved — wire as the corresponding features/services land:
     // bodyFiles?: string[];      // multer-style multipart fields
     // responseTimeout?: number;
@@ -436,10 +459,14 @@ export type AuthRequired<O extends RouteOptions> = O extends {
                 ? true
                 : O extends {
                         requireSubscription:
-                            true | readonly string[] | string[];
+                            | true
+                            | readonly string[]
+                            | string[];
                     }
                   ? true
-                  : false;
+                  : O extends { requireReputation: string }
+                    ? true
+                    : false;
 
 /** Express `Request` with `actor` narrowed based on the route's options. */
 export type TypedRequest<O extends RouteOptions> = Omit<Request, 'actor'> & {
