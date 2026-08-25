@@ -1,6 +1,6 @@
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 import { defineOperation, firstDefined } from './scaffold.js';
-import { toShareItems, toShareRecipients } from './shareUtil.js';
+import { invalidateShareCache, toShareItems, toShareRecipients } from './shareUtil.js';
 
 /** @typedef {import('../types.js').UnshareOptions} UnshareOptions */
 /** @typedef {import('../types.js').ShareRecipient} ShareRecipient */
@@ -28,17 +28,20 @@ import { toShareItems, toShareRecipients } from './shareUtil.js';
 const unshare = defineOperation({
     positional: ['path', 'recipient'],
     request (options) {
+        const items = toShareItems(options, (path) => getAbsolutePathForApp(path));
         return {
             endpoint: '/share/revoke',
             body: {
                 recipients: toShareRecipients(
                     firstDefined(options, 'recipient', 'recipients'),
                 ),
-                items: toShareItems(options, (path) => getAbsolutePathForApp(path)),
+                items,
             },
-            transform: (/** @type {{ revoked?: number }} */ response) => ({
-                revoked: Number(response.revoked ?? 0),
-            }),
+            transform: (/** @type {{ revoked?: number }} */ response) => {
+                const revoked = Number(response.revoked ?? 0);
+                if ( revoked > 0 ) invalidateShareCache(items);
+                return { revoked };
+            },
         };
     },
 });
