@@ -175,9 +175,16 @@
  */
 
 /**
+ * What `stat()` and `readdir()` return: an item plus the sharing state only
+ * those two report. `is_shared` is null for items the caller does not own.
+ *
+ * @typedef {FSItem & { is_shared?: boolean | null }} FSItemRead
+ */
+
+/**
  * A `stat()` result with `returnShares` set.
  *
- * @typedef {FSItem & { shares: Share[] }} FSItemWithShares
+ * @typedef {FSItemRead & { shares: Share[] }} FSItemWithShares
  */
 
 /**

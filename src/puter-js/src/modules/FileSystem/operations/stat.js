@@ -4,13 +4,13 @@ import { fsRequest, parseOperationArgs } from './scaffold.js';
 import { toShare } from './shareUtil.js';
 
 /** @typedef {import('../types.js').StatOptions} StatOptions */
+/** @typedef {import('../types.js').FSItemRead} FSItemRead */
 /** @typedef {import('../types.js').FSItemWithShares} FSItemWithShares */
-/** @typedef {import('../../FSItem.js').FSItem} FSItem */
 
 /**
  * @typedef {{
  *   (options: StatOptions & { returnShares: true }): Promise<FSItemWithShares>,
- *   (options: StatOptions): Promise<FSItem>,
+ *   (options: StatOptions): Promise<FSItemRead>,
  *   (
  *     path: string,
  *     options: StatOptions & { returnShares: true },
@@ -20,14 +20,14 @@ import { toShare } from './shareUtil.js';
  *   (
  *     path: string,
  *     options?: StatOptions,
- *     success?: (value: FSItem) => void,
+ *     success?: (value: FSItemRead) => void,
  *     error?: (reason: unknown) => void,
- *   ): Promise<FSItem>,
+ *   ): Promise<FSItemRead>,
  *   (
  *     path: string,
- *     success: (value: FSItem) => void,
+ *     success: (value: FSItemRead) => void,
  *     error?: (reason: unknown) => void,
- *   ): Promise<FSItem>,
+ *   ): Promise<FSItemRead>,
  * }} StatOperation
  */
 
@@ -43,7 +43,7 @@ const MAX_CACHE_SIZE = 20 * 1024 * 1024;
  *
  * @this {import('../index.js').PuterJSFileSystemModule}
  * @param {...unknown} args
- * @returns {Promise<FSItem>}
+ * @returns {Promise<FSItemRead>}
  */
 const statImpl = async function (...args) {
     const options = parseOperationArgs(args, ['path']);

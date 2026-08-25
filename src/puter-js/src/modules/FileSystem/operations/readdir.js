@@ -5,8 +5,8 @@ import mapV2EntryToV1 from '../utils/mapV2EntryToV1.js';
 import { fsRequest, parseOperationArgs } from './scaffold.js';
 
 /** @typedef {import('../types.js').ReaddirOptions} ReaddirOptions */
-/** @typedef {import('../../FSItem.js').FSItem} FSItem */
-/** @typedef {import('../../../lib/types.js').ListPage<FSItem>} FSItemPage */
+/** @typedef {import('../types.js').FSItemRead} FSItemRead */
+/** @typedef {import('../../../lib/types.js').ListPage<FSItemRead>} FSItemPage */
 
 // Listings larger than this are served but never cached.
 const MAX_CACHE_SIZE = 100 * 1024 * 1024;
@@ -166,18 +166,18 @@ const readdirPaged = async function (options) {
  * @typedef {{
  *   (options: ReaddirOptions & { stream: true }): AsyncIterableIterator<FSItemPage>,
  *   (options: ReaddirOptions & ({ cursor: string | null } | { includeTotal: true })): Promise<FSItemPage>,
- *   (options: ReaddirOptions): Promise<FSItem[]>,
+ *   (options: ReaddirOptions): Promise<FSItemRead[]>,
  *   (
  *     path: string,
  *     options?: ReaddirOptions,
- *     success?: (value: FSItem[]) => void,
+ *     success?: (value: FSItemRead[]) => void,
  *     error?: (reason: unknown) => void,
- *   ): Promise<FSItem[]>,
+ *   ): Promise<FSItemRead[]>,
  *   (
  *     path: string,
- *     success?: (value: FSItem[]) => void,
+ *     success?: (value: FSItemRead[]) => void,
  *     error?: (reason: unknown) => void,
- *   ): Promise<FSItem[]>,
+ *   ): Promise<FSItemRead[]>,
  * }} ReaddirOperation
  */
 

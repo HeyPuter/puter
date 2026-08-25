@@ -42,7 +42,7 @@ An integer containing the size of the item in bytes. If the item is a directory,
 
 #### `is_shared` (Boolean | null)
 
-Whether you have shared this item with anyone: `true` if you have, `false` if you have not, and `null` when the item is not yours. Only shares on the item itself count, not access inherited from a shared parent folder. Set by [`stat()`](/FS/stat/) and [`readdir()`](/FS/readdir/); absent on items obtained any other way.
+Whether this item has been shared with anyone: `true` if it has, `false` if it has not, and `null` when the item is not yours. Counts shares granted by anyone holding `manage` on it, and only shares on the item itself — not access inherited from a shared parent folder. Set by [`stat()`](/FS/stat/) and [`readdir()`](/FS/readdir/); absent on items obtained any other way.
 
 ## Methods
 
