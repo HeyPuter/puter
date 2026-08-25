@@ -30,6 +30,7 @@ import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { buildCostsOverride } from '../../utils/pricing.js';
 import { processPuterPathUploads } from '../openai/fileUpload.js';
 import { META_MODELS, MUSE_SPARK_DEFAULT_MODEL } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 const DEFAULT_API_BASE_URL = 'https://api.meta.ai/v1';
 
@@ -98,14 +99,7 @@ export class MetaProvider implements IChatProvider {
     }
 
     list() {
-        const modelIds: string[] = [];
-        for (const model of this.models()) {
-            modelIds.push(model.id);
-            if (model.aliases) {
-                modelIds.push(...model.aliases);
-            }
-        }
-        return modelIds;
+        return modelLookupNames(this.models());
     }
 
     async complete(

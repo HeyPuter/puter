@@ -20,9 +20,19 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { get_oidc_return_to } from './authRedirect.js';
 
-const at = (pathname) => {
-    globalThis.window = { location: { pathname } };
+const at = (pathname, search = '') => {
+    globalThis.window = { location: { pathname, search } };
     return get_oidc_return_to();
+};
+
+const SHARE_UUID = '11111111-2222-3333-4444-555555555555';
+const shared_path = (name) => `/alice/${SHARE_UUID}/${name}`;
+
+/** `window.location.search` for a page opened by a share link. */
+const share_search = (...paths) => {
+    const params = new URLSearchParams();
+    for ( const path of paths ) params.append('shared', path);
+    return `?${params.toString()}`;
 };
 
 afterEach(() => {
@@ -43,6 +53,29 @@ describe('get_oidc_return_to', () => {
     it('keeps a desktop app landing on the desktop', () => {
         expect(at('/desktop/app/editor')).toBe('/desktop/app/editor');
         expect(at('/desktop/app/editor/')).toBe('/desktop/app/editor');
+    });
+
+    it('carries a share link so the item survives the round trip', () => {
+        expect(at('/', share_search(shared_path('Report.pdf')))).toBe(
+            `/${share_search(shared_path('Report.pdf'))}`,
+        );
+        expect(at('/desktop', share_search(shared_path('Report.pdf')))).toBe(
+            `/desktop${share_search(shared_path('Report.pdf'))}`,
+        );
+        expect(
+            at('/', share_search(shared_path('a.txt'), shared_path('b.txt'))),
+        ).toBe(`/${share_search(shared_path('a.txt'), shared_path('b.txt'))}`);
+    });
+
+    it('leaves behind everything that is not a share link', () => {
+        // a hand-edited value the backend would refuse anyway
+        expect(at('/', share_search('/alice/Documents/Report.pdf'))).toBe(null);
+        expect(at('/', '?shared=')).toBe(null);
+        // other parameters are not ours to carry
+        expect(at('/desktop', '?app=editor')).toBe('/desktop');
+        expect(
+            at('/desktop', `${share_search(shared_path('a.txt'))}&app=editor`),
+        ).toBe(`/desktop${share_search(shared_path('a.txt'))}`);
     });
 
     it('returns null for anything the backend would reject', () => {

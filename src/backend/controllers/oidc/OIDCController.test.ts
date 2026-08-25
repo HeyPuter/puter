@@ -401,6 +401,97 @@ describe('OIDCController GET /auth/oidc/:provider/start', () => {
         }
     });
 
+    // A share email lands on `/?shared=…` and its recipient often has to sign
+    // in first, so the link has to survive the round trip to the provider.
+    describe('share links in return_to', () => {
+        const SHARE_UUID = '11111111-2222-3333-4444-555555555555';
+        const sharedPath = (name: string) => `/alice/${SHARE_UUID}/${name}`;
+
+        const redirectUriFor = async (return_to: string) => {
+            const { res, captured } = makeRes();
+            await callRoute(
+                'get',
+                '/auth/oidc/:provider/start',
+                makeReq({
+                    params: { provider: 'custom' },
+                    query: { return_to },
+                }),
+                res,
+            );
+            const state = new URL(captured.redirectUrl ?? '').searchParams.get(
+                'state',
+            );
+            return String(oidc().verifyState(state!)?.redirect_uri);
+        };
+
+        const returnToFor = (paths: string[], path = '/') => {
+            const params = new URLSearchParams();
+            for (const p of paths) params.append('shared', p);
+            return `${path}?${params.toString()}`;
+        };
+
+        it('carries a share link back to the root', async () => {
+            const uri = await redirectUriFor(
+                returnToFor([sharedPath('Report.pdf')]),
+            );
+            const url = new URL(uri);
+            expect(url.origin + url.pathname).toBe(`${TEST_ORIGIN}/`);
+            expect(url.searchParams.getAll('shared')).toEqual([
+                sharedPath('Report.pdf'),
+            ]);
+        });
+
+        it('carries every item, deduplicated, on any whitelisted page', async () => {
+            const uri = await redirectUriFor(
+                returnToFor(
+                    [
+                        sharedPath('a.txt'),
+                        sharedPath('b.txt'),
+                        sharedPath('a.txt'),
+                    ],
+                    '/desktop',
+                ),
+            );
+            const url = new URL(uri);
+            expect(url.origin + url.pathname).toBe(`${TEST_ORIGIN}/desktop`);
+            expect(url.searchParams.getAll('shared')).toEqual([
+                sharedPath('a.txt'),
+                sharedPath('b.txt'),
+            ]);
+        });
+
+        it('carries no more items than a share link may name', async () => {
+            const paths = Array.from({ length: 25 }, (_, i) =>
+                sharedPath(`file-${i}.txt`),
+            );
+            const uri = await redirectUriFor(returnToFor(paths));
+            expect(new URL(uri).searchParams.getAll('shared')).toEqual(
+                paths.slice(0, 20),
+            );
+        });
+
+        it('refuses a query it does not fully recognize', async () => {
+            const bad_values = [
+                // not a masked share path: no uuid, no item after it, or a
+                // hand-edited absolute path
+                returnToFor(['/alice/Documents/Report.pdf']),
+                returnToFor([`/alice/${SHARE_UUID}`]),
+                returnToFor([`/alice/${SHARE_UUID}/`]),
+                returnToFor(['']),
+                // a parameter that isn't `shared`, alone or alongside one
+                '/?x=1',
+                `${returnToFor([sharedPath('a.txt')])}&x=1`,
+                // the root is only a destination when it names something
+                '/',
+                // still no origin smuggling, share link or not
+                `//evil.test${returnToFor([sharedPath('a.txt')])}`,
+            ];
+            for (const return_to of bad_values) {
+                expect(await redirectUriFor(return_to)).toBe(TEST_ORIGIN);
+            }
+        });
+    });
+
     it('signs revalidate-flow state with user_uuid + flow=revalidate', async () => {
         const userUuid = uuidv4();
         const { res, captured } = makeRes();
@@ -691,6 +782,77 @@ describe('OIDCController login callback', () => {
         expect(captured.redirectUrl).toContain('message=account_suspended');
         // No session cookie issued for suspended accounts.
         expect(captured.cookies).toHaveLength(0);
+    });
+
+    it('redirects back to a share link after sign-in', async () => {
+        const shared = '/alice/11111111-2222-3333-4444-555555555555/Report.pdf';
+        const state = oidc().signState({
+            provider: 'custom',
+            redirect_uri: `${TEST_ORIGIN}/?shared=${encodeURIComponent(shared)}`,
+        });
+        const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
+        const email = `share-${Math.random().toString(36).slice(2, 8)}@test.local`;
+        vi.spyOn(oidc(), 'exchangeCodeForTokens').mockResolvedValue({
+            access_token: 'access',
+            id_token: 'id',
+        } as never);
+        vi.spyOn(oidc(), 'getUserInfo').mockResolvedValue({
+            sub,
+            email,
+            email_verified: true,
+        } as never);
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/callback/login',
+            makeReq({ query: { code: 'c', state } }),
+            res,
+        );
+        expect(captured.redirectStatus).toBe(302);
+        const url = new URL(captured.redirectUrl ?? '');
+        expect(url.origin + url.pathname).toBe(`${TEST_ORIGIN}/`);
+        expect(url.searchParams.getAll('shared')).toEqual([shared]);
+    });
+
+    it('keeps a share link on the error page so a retry still lands on it', async () => {
+        const shared = '/alice/11111111-2222-3333-4444-555555555555/Report.pdf';
+        const sub = `sub-${Math.random().toString(36).slice(2, 8)}`;
+        const email = `sus-${Math.random().toString(36).slice(2, 8)}@test.local`;
+        const created = await runWithContext({ req: makeReq({}) }, () =>
+            oidc().createUserFromOIDC('custom', {
+                sub,
+                email,
+                email_verified: true,
+            }),
+        );
+        await server.stores.user.update(created.user!.id, { suspended: 1 });
+
+        const state = oidc().signState({
+            provider: 'custom',
+            redirect_uri: `${TEST_ORIGIN}/?shared=${encodeURIComponent(shared)}`,
+        });
+        vi.spyOn(oidc(), 'exchangeCodeForTokens').mockResolvedValue({
+            access_token: 'access',
+            id_token: 'id',
+        } as never);
+        vi.spyOn(oidc(), 'getUserInfo').mockResolvedValue({
+            sub,
+            email,
+            email_verified: true,
+        } as never);
+
+        const { res, captured } = makeRes();
+        await callRoute(
+            'get',
+            '/auth/oidc/callback/login',
+            makeReq({ query: { code: 'c', state } }),
+            res,
+        );
+        const url = new URL(captured.redirectUrl ?? '');
+        expect(url.searchParams.get('auth_error')).toBe('1');
+        expect(url.searchParams.get('action')).toBe('login');
+        expect(url.searchParams.getAll('shared')).toEqual([shared]);
     });
 
     it('redirects back to an /app/<name> landing after sign-in', async () => {

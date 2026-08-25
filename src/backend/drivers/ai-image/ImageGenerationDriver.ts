@@ -361,7 +361,12 @@ export class ImageGenerationDriver extends PuterDriver {
     async #buildModelMap() {
         for (const providerName in this.#providers) {
             const provider = this.#providers[providerName];
-            for (const model of await provider.models()) {
+            for (const entry of await provider.models()) {
+                // Catalogs are module-level constants that providers hand
+                // back by reference, so they are read and never written:
+                // normalizing the id or appending puterId in place would
+                // accumulate across map builds. Work on a copy instead.
+                const model = { ...entry };
                 model.id = model.id.trim().toLowerCase();
                 if (!this.#modelIdMap[model.id]) {
                     this.#modelIdMap[model.id] = [];

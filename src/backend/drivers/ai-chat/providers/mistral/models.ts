@@ -245,7 +245,6 @@ export const MISTRAL_MODELS: IChatModel[] = [
             'voxtral-small-latest',
             'mistralai/voxtral-small-2507',
             'mistralai/voxtral-small-latest',
-            'voxtral-small-latest',
         ],
         context: 32_768,
         max_tokens: 32_768,

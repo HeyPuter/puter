@@ -28,6 +28,7 @@ import type {
 } from '../../types.js';
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { MISTRAL_MODELS } from './models.js';
+import { modelLookupNames } from '../../utils/modelRouting.js';
 
 export class MistralAIProvider implements IChatProvider {
     #client: Mistral;
@@ -50,23 +51,15 @@ export class MistralAIProvider implements IChatProvider {
     }
 
     async list() {
-        const models = await this.models();
-        const ids: string[] = [];
-        for (const model of models) {
-            ids.push(model.id);
-            if (model.aliases) {
-                ids.push(...model.aliases);
-            }
-        }
-        return ids;
+        return modelLookupNames(await this.models());
     }
 
     /**
-     * Mistral's API expects `image_url` content parts to carry a plain
-     * string URL, not the OpenAI-style `{ url: string }` object.
-     * This method normalises any `{ type: 'image_url', image_url: { url } }`
-     * parts to `{ type: 'image_url', image_url: url }` before the request
-     * is sent. Messages whose `content` is a plain string are left untouched.
+     * Mistral's API expects `image_url` content parts to carry a plain string
+     * URL, not the OpenAI-style `{ url: string }` object. This method
+     * normalises any `{ type: 'image_url', image_url: { url } }` parts to `{
+     * type: 'image_url', image_url: url }` before the request is sent. Messages
+     * whose `content` is a plain string are left untouched.
      */
     #coerceImageUrls(
         messages: { role: string; content: unknown }[],
