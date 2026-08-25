@@ -503,13 +503,14 @@ describe('MeteringBufferStore', () => {
             ).toBe('10');
         });
 
-        it('does not let the base total move backwards', async () => {
+        it('adopts the view of a re-driven claim it wrote onward', async () => {
             await target.incr({ key, pathAndAmountMap: { total: 100 } });
             await target.flushCycle();
 
             const tag = bucketTag(key);
             const base = `meter:b:{${tag}}:${key}`;
-            // A settle carrying an older, smaller view must not win.
+            // A claim another deployment left behind, re-driven here: its
+            // amounts reach the store, so the base takes what came back.
             await server.clients.redis.hset(
                 `meter:p:{${tag}}:stalenonce`,
                 'total',
@@ -525,6 +526,67 @@ describe('MeteringBufferStore', () => {
             expect(Number(await server.clients.redis.hget(base, 'total'))).toBe(
                 101,
             );
+        });
+
+        it('does not let a settle replace a base laid down after it', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 100 } });
+            await target.flushCycle();
+
+            const tag = bucketTag(key);
+            const base = `meter:b:{${tag}}:${key}`;
+            // Stand in for a settle that finished later: this one's view of the
+            // store is the older of the two however large its total is.
+            await server.clients.redis.set(
+                `meter:bq:{${tag}}:${key}`,
+                '1000000000',
+            );
+
+            await target.incr({ key, pathAndAmountMap: { total: 5 } });
+            await target.flushCycle();
+
+            expect(await storedTotal(key)).toBe(105);
+            expect(Number(await server.clients.redis.hget(base, 'total'))).toBe(
+                100,
+            );
+        });
+
+        it('seeds a forgotten base from the store, keeping what is buffered', async () => {
+            await target.incr({ key, pathAndAmountMap: { total: 100 } });
+            await target.flushCycle();
+            await target.incr({ key, pathAndAmountMap: { total: 5 } });
+
+            const tag = bucketTag(key);
+            // Stand in for a cached view that no longer matches the record.
+            await server.clients.redis.hset(
+                `meter:b:{${tag}}:${key}`,
+                'total',
+                '999',
+            );
+            await target.forgetBase(key);
+
+            const { res } = await target.get({ key });
+            expect((res as { total: number }).total).toBe(105);
+        });
+
+        it('lets a correction take the base down', async () => {
+            // The counter is authoritative in both directions: an amount can be
+            // corrected downwards, and reads have to follow it down rather than
+            // answer with the number the correction replaced.
+            await target.incr({
+                key,
+                pathAndAmountMap: { total: 100, allowanceUsed: 100 },
+            });
+            await target.flushCycle();
+
+            await target.incr({
+                key,
+                pathAndAmountMap: { total: -100, allowanceUsed: -100 },
+            });
+            await target.flushCycle();
+
+            expect(await storedTotal(key)).toBe(0);
+            const { res } = await target.get({ key });
+            expect(res).toEqual({ total: 0, allowanceUsed: 0 });
         });
 
         it('flushes many counters in one cycle', async () => {
