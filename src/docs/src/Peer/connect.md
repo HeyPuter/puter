@@ -9,7 +9,7 @@ Connects to a peer server and returns a [`PuterPeerConnection`](/Objects/puterpe
 
 <div class="info">
 
-On websites, Puter.js may prompt the user to authenticate before connecting.
+On websites, Puter.js may prompt the user to authenticate before connecting. To let someone join without an account, pass `anonToken` — and a `turnGrant` from the host, so the connection can still use Puter's relays. See [`puter.peer.createGuestGrant()`](/Peer/createGuestGrant/).
 
 </div>
 
@@ -32,6 +32,8 @@ A string invite code created by `puter.peer.serve()`.
 
 - `iceServers` (`RTCIceServer[]`) Custom ICE servers (STUN/TURN) to use instead of the Puter-managed relays.
 - `forceRelay` (`boolean`) Whether to force connections to route through a relay instead of attempting peer-to-peer (default). Metering charges may apply.
+- `anonToken` (`String`) Join without a Puter session. Any uuid — it identifies this guest for the duration of the session, and no sign-in prompt is shown. The host sees the guest as `anonymous`, so anything you want to call them is yours to send over the connection.
+- `turnGrant` (`String`) A grant from [`puter.peer.createGuestGrant()`](/Peer/createGuestGrant/). Lets a guest use the Puter-managed relays on the host's account. Without one, a guest connects only where a direct connection is possible; with `forceRelay`, a guest needs one.
 
 ## Return value
 

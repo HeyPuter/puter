@@ -28,6 +28,9 @@ const server = await puter.peer.serve(options);
 
 - `iceServers` (`RTCIceServer[]`) Custom ICE servers (STUN/TURN) to use instead of the Puter-managed relays.
 - `forceRelay` (`boolean`) Whether to force connections to route through a relay instead of attempting peer-to-peer (default). Metering charges will increase.
+- `anonToken` (`String`) Host without a Puter session. Any uuid; no sign-in prompt is shown. An anonymous host has no account to attribute relay usage to, so it cannot issue guest grants and gets no relays of its own.
+
+To let people join your session without accounts of their own, keep hosting authenticated and give them a grant — see [`puter.peer.createGuestGrant()`](/Peer/createGuestGrant/).
 
 ## Return value
 

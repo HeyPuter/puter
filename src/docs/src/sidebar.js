@@ -688,6 +688,14 @@ let sidebar = [
                 path: '/Peer/connect',
             },
             {
+                title: '<code>createGuestGrant()</code>',
+                page_title: '<code>puter.peer.createGuestGrant()</code>',
+                title_tag: 'puter.peer.createGuestGrant()',
+                icon: '/assets/img/function.svg',
+                source: '/Peer/createGuestGrant.md',
+                path: '/Peer/createGuestGrant',
+            },
+            {
                 title: '<code>ensureTurnRelays()</code>',
                 page_title: '<code>puter.peer.ensureTurnRelays()</code>',
                 title_tag: 'puter.peer.ensureTurnRelays()',

@@ -8,7 +8,10 @@ import { PuterModule } from '../lib/PuterModule.js';
  * @property {RTCIceServer[]} [iceServers] Custom ICE servers (STUN/TURN) to use instead of the
  * Puter-managed relays.
  * @property {boolean} [forceRelay] Route every candidate through a TURN relay.
- * @property {string} [anonToken] Connect without a Puter session, using a token the server issued.
+ * @property {string} [anonToken] Take part without a Puter session. Any uuid; it identifies this
+ * guest for the duration of the session and skips the sign-in prompt.
+ * @property {string} [turnGrant] A grant from `puter.peer.createGuestGrant()`, letting a guest with
+ * no session use the Puter-managed relays on the granting account's allowance.
  */
 
 /**
@@ -498,7 +501,12 @@ export class PuterPeerConnection extends EventTarget {
 /**
  * The `puter.peer` API. Provides WebRTC data channels with built-in signaling
  * and TURN relays for connecting clients directly without your own signaling
- * server. Peer connections require authentication.
+ * server.
+ *
+ * Hosting a session requires authentication. Guests can join one without an
+ * account by passing `anonToken`, and reach the Puter-managed relays with a
+ * `turnGrant` the host issued via `createGuestGrant()` — relay usage is
+ * charged to the host that issued it.
  */
 export class PeerModule extends PuterModule {
     #signallerUrl;
@@ -507,6 +515,36 @@ export class PeerModule extends PuterModule {
     #turnTTL;
     #turnStartedAt;
     #turnFailed;
+    #turnSource;
+
+    /**
+     * Creates a grant that lets guests without a Puter session use the
+     * Puter-managed relays. Requires authentication.
+     *
+     * Hand the grant to the people you invite — alongside the invite code —
+     * and they pass it to `connect()` as `turnGrant`. Their relay usage counts
+     * against this account, so treat the grant as something that spends your
+     * allowance: share it with the session you meant to host, and let it
+     * expire rather than reusing one indefinitely.
+     *
+     * @returns {Promise<{ grant: string, expiresAt: number }>} The grant, and
+     * when it stops being accepted (seconds since the epoch).
+     */
+    async createGuestGrant () {
+        const response = await fetchUrl(`${this.APIOrigin}/peer/turn-grant`, {
+            method: 'POST',
+            includePuterAuth: true,
+            headers: {
+                'Content-Type': 'application/json',
+            },
+        });
+
+        if ( ! response.ok ) {
+            throw new Error('Failed to create a guest grant.');
+        }
+
+        return await response.json();
+    }
 
     /**
      * Fetches TURN relay credentials ahead of time so connections start
@@ -514,19 +552,44 @@ export class PeerModule extends PuterModule {
      * it resolves either way: if relays can't be loaded, connecting falls back
      * to the default ICE servers.
      *
+     * With `turnGrant`, credentials are minted against the granting account
+     * instead of the caller's own session, which is how a guest gets relays
+     * without signing in.
+     *
+     * @param {Object} [options]
+     * @param {string} [options.turnGrant] A grant from `createGuestGrant()`.
      * @returns {Promise<void>}
      */
-    async ensureTurnRelays () {
+    async ensureTurnRelays (options = {}) {
+        // Credentials are tied to whoever is paying for them, so a change of
+        // source invalidates both the cached servers and a previous failure —
+        // otherwise a guest who tried before holding a grant would be stuck
+        // with the fallback for the rest of the page's life.
+        const source = options.turnGrant ? `grant:${options.turnGrant}` : 'session';
+        if ( source !== this.#turnSource ) {
+            this.#turnSource = source;
+            this.#turnServers = undefined;
+            this.#turnFailed = false;
+        }
+
         if ( this.#turnFailed ) return;
         if ( this.#turnServers && Date.now() - this.#turnStartedAt < this.#turnTTL * 1000 ) return;
 
-        const response = await fetchUrl(`${this.APIOrigin}/peer/generate-turn`, {
-            method: 'POST',
-            includePuterAuth: true,
-            headers: {
-                'Content-Type': 'application/json',
-            },
-        });
+        const response = options.turnGrant
+            ? await fetchUrl(`${this.APIOrigin}/peer/guest-turn`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ grant: options.turnGrant }),
+            })
+            : await fetchUrl(`${this.APIOrigin}/peer/generate-turn`, {
+                method: 'POST',
+                includePuterAuth: true,
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+            });
 
         if ( ! response.ok ) {
             this.#turnFailed = true;
@@ -565,7 +628,7 @@ export class PeerModule extends PuterModule {
         if ( options?.iceServers ) {
             iceServers = options.iceServers;
         } else {
-            await this.ensureTurnRelays();
+            await this.ensureTurnRelays(options);
             if ( this.#turnServers ) {
                 iceServers = this.#turnServers;
             } else {
@@ -583,7 +646,7 @@ export class PeerModule extends PuterModule {
     }
     /**
      * Creates a peer server and starts it, resolving to the server once it has
-     * an invite code. Requires authentication.
+     * an invite code. Requires authentication, unless `anonToken` is supplied.
      *
      * @param {PuterPeerOptions} [options]
      * @returns {Promise<PuterPeerServer>}
@@ -598,7 +661,9 @@ export class PeerModule extends PuterModule {
 
     /**
      * Connects to a peer server using an invite code from `serve()`, resolving
-     * once the offer has been exchanged. Requires authentication.
+     * once the offer has been exchanged. Requires authentication, unless
+     * `anonToken` is supplied to join without a session — pair it with a
+     * `turnGrant` from the host so the connection can still use relays.
      *
      * @param {string} invitecode
      * @param {PuterPeerOptions} [options]
