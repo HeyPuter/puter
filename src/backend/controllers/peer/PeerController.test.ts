@@ -38,7 +38,9 @@ const makeReq = (init: {
     method?: string;
 }): Request => {
     return {
-        body: init.body ?? {},
+        // Distinguish "no body key" from an explicit `body: undefined`, so a
+        // test can exercise a request that never had a parsed body at all.
+        body: 'body' in init ? init.body : {},
         query: {},
         headers: init.headers ?? {},
         actor: init.actor,
@@ -909,6 +911,58 @@ describe('PeerController guest TURN', () => {
             expect(
                 guestTurnKey(makeReq({ body: { grant: 'garbage' } })),
             ).toMatch(/^net:/);
+        });
+    });
+
+    describe('default lifetimes', () => {
+        // The defaults are the security-relevant knob — a deployment that sets
+        // only the secret still gets short-lived grants and credentials, and a
+        // guest credential still cannot outlive the host's own.
+        it('falls back to an hour for grants and guest credentials', async () => {
+            const defaultsServer = await setupTestServer({
+                peers: {
+                    turn: {
+                        cloudflare_turn_service_id: 'svc-1',
+                        cloudflare_turn_api_token: 'token-1',
+                        ttl: 86_400,
+                    },
+                    guest_turn: { grant_secret: GRANT_SECRET },
+                },
+            } as never);
+            const fetchSpy = stubCloudflare();
+            try {
+                const router = new PuterRouter();
+                (
+                    defaultsServer.controllers.peer as unknown as PeerController
+                ).registerRoutes(router);
+                const handlerFor = (path: string) =>
+                    router.routes.find((r) => r.path === path)!.handler;
+
+                const grantRes = makeRes();
+                handlerFor('/peer/turn-grant')(
+                    makeReq({ actor: hostActor }),
+                    grantRes.res,
+                );
+                const { grant, expiresAt } = grantRes.captured.body as {
+                    grant: string;
+                    expiresAt: number;
+                };
+                const grantTtl = expiresAt - Math.floor(Date.now() / 1000);
+                expect(grantTtl).toBeGreaterThan(3590);
+                expect(grantTtl).toBeLessThanOrEqual(3600);
+
+                const turnRes = makeRes();
+                await handlerFor('/peer/guest-turn')(
+                    makeReq({ body: { grant } }),
+                    turnRes.res,
+                );
+                // An hour, not the host's 24 — the guest ceiling wins here.
+                expect(turnRes.captured.body).toMatchObject({ ttl: 3600 });
+                expect(upstreamBody(fetchSpy).ttl).toBe(3600);
+            } finally {
+                fetchSpy.mockRestore();
+                await defaultsServer.shutdown();
+            }
         });
     });
 
