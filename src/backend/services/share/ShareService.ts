@@ -892,6 +892,33 @@ export class ShareService extends PuterService {
     }
 
     /**
+     * Drop the index row behind a grant that was withdrawn through the
+     * permission API rather than `unshare`. The row would otherwise outlive the
+     * access it records, and a listing reads the index, not the grant.
+     */
+    async onGrantRevoked(
+        issuer: Actor,
+        holderUsername: string,
+        permission: string,
+    ): Promise<void> {
+        const uuid = uuidFromEntryPermission(permission);
+        if (!uuid) return;
+
+        const issuerId = issuer?.user?.id;
+        const [entry, holder] = await Promise.all([
+            this.stores.fsEntry.getEntryByUuid(uuid),
+            this.stores.user.getByUsername(holderUsername),
+        ]);
+        if (!entry || !holder || typeof issuerId !== 'number') return;
+
+        await this.stores.share.deleteActive({
+            holderUserId: holder.id,
+            fsentryId: entry.id,
+            issuerUserId: issuerId,
+        });
+    }
+
+    /**
      * Retire the shares on a node that has just changed owner.
      *
      * A grant names a uuid, so it would otherwise ride along into the new
@@ -1165,7 +1192,7 @@ export class ShareService extends PuterService {
         return inheritedShares.concat(own, pending);
     }
 
-    /** Whether the caller shared each of their own `entries`, keyed by uuid. */
+    /** Whether each of the caller's own `entries` is shared, keyed by uuid. */
     async shareFlags(
         actor: Actor,
         entries: FSEntry[],

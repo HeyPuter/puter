@@ -3194,9 +3194,8 @@ export class AuthController extends PuterController {
     // -- Permission revokes ------------------------------------------
 
     /**
-     * @deprecated Use `puter.fs.unshare()`, which withdraws the share row and
-     *   the grant together. Kept for direct HTTP callers: the grant side is
-     *   retired, but access it left behind has to stay withdrawable.
+     * @deprecated Use `puter.fs.unshare()`. Kept for direct HTTP callers:
+     *   access left behind by an older client has to stay withdrawable.
      */
     @Post('/auth/revoke-user-user', {
         subdomain: 'api',
@@ -3217,6 +3216,13 @@ export class AuthController extends PuterController {
             target_username,
             permission,
             meta,
+        );
+        // The share index is what listings read, so it has to go with the
+        // grant — otherwise the item keeps reporting itself as shared.
+        await this.services.share.onGrantRevoked(
+            req.actor!,
+            target_username,
+            permission,
         );
         res.json({});
     }

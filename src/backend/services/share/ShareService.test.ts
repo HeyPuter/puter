@@ -461,6 +461,44 @@ describe('ShareService', () => {
         const flags = (actor: Actor, entries: unknown[]) =>
             server.services.share.shareFlags(actor, entries as never);
 
+        it('goes quiet when the grant is withdrawn through the permission API', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            // What the deprecated `/auth/revoke-user-user` route does: the
+            // grant goes, `unshare` never runs, and the index row is left.
+            await runWithContext({ actor: owner.actor }, () =>
+                server.services.permission.revokeUserUserPermission(
+                    owner.actor,
+                    recipient.user.username!,
+                    `fs:${file.uuid}:read`,
+                ),
+            );
+            await server.services.share.onGrantRevoked(
+                owner.actor,
+                recipient.user.username!,
+                `fs:${file.uuid}:read`,
+            );
+
+            expect(await canRead(recipient.actor, file.path)).toBe(false);
+            // The flag reads the index, so it has to agree with `listSharesOf`.
+            expect(
+                await server.services.share.listSharesOf(owner.actor, {
+                    uid: file.uuid,
+                }),
+            ).toEqual([]);
+            expect(await flags(owner.actor, [file])).toEqual(
+                new Map([[file.uuid, false]]),
+            );
+        });
+
         it('flags a shared entry and not its neighbour, until it is revoked', async () => {
             const owner = await makeUser();
             const recipient = await makeUser();
