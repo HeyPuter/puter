@@ -19,6 +19,10 @@
 
 import type { Readable } from 'node:stream';
 import {
+    validateReputationRequirement,
+    type ReputationRequirement,
+} from '../core/reputation.js';
+import {
     validateSubscriptionRequirement,
     type SubscriptionRequirement,
 } from '../services/metering/enforcement.js';
@@ -64,6 +68,8 @@ export const DRIVER_CONCURRENT_KEY = '__driverConcurrent' as const;
 export const DRIVER_NO_USER_SESSION_KEY = '__driverNoUserSession' as const;
 export const DRIVER_REQUIRE_SUBSCRIPTION_KEY =
     '__driverRequireSubscription' as const;
+export const DRIVER_REQUIRE_REPUTATION_KEY =
+    '__driverRequireReputation' as const;
 
 // -- Driver rate-limit config ----------------------------------------
 //
@@ -368,6 +374,73 @@ export function resolveDriverMethodRequireSubscription(
     return cfg.methods?.[method] ?? cfg.default;
 }
 
+// -- Driver reputation requirement -----------------------------------
+//
+// Per-method counterpart of `RouteOptions.requireReputation`, on the driver
+// for the same reason the subscription block is: `/drivers/call` is one shared
+// route, so a requirement in route options would apply to every driver at
+// once. The tier named here is only a name — the score it takes is deployment
+// config, so a driver never carries the number it is worth.
+
+export interface DriverRequireReputationConfig {
+    /** Applied to any method not listed in `methods`. */
+    default?: ReputationRequirement;
+    /** Per-method overrides. Keys are driver method names. */
+    methods?: Record<string, ReputationRequirement>;
+}
+
+/**
+ * Validate a `requireReputation` block. Same loud-at-boot contract as the
+ * rate-limit, concurrent, and subscription validators.
+ */
+export function validateDriverRequireReputation(
+    value: unknown,
+    label: string,
+): DriverRequireReputationConfig {
+    if (value == null) return {};
+    if (typeof value !== 'object' || Array.isArray(value)) {
+        throw new Error(`${label}: requireReputation must be an object`);
+    }
+    const cfg = value as Record<string, unknown>;
+    if (cfg.default !== undefined) {
+        validateReputationRequirement(
+            cfg.default,
+            `${label}.requireReputation.default`,
+        );
+    }
+    if (cfg.methods !== undefined) {
+        if (
+            typeof cfg.methods !== 'object' ||
+            cfg.methods === null ||
+            Array.isArray(cfg.methods)
+        ) {
+            throw new Error(
+                `${label}.requireReputation.methods must be an object`,
+            );
+        }
+        for (const [name, requirement] of Object.entries(cfg.methods)) {
+            validateReputationRequirement(
+                requirement,
+                `${label}.requireReputation.methods.${name}`,
+            );
+        }
+    }
+    return cfg as DriverRequireReputationConfig;
+}
+
+/**
+ * Resolve the reputation requirement for a method. Same precedence as the other
+ * per-method resolvers: an entry in `methods` wins over `default`, and
+ * `undefined` means the method asks for no floor.
+ */
+export function resolveDriverMethodRequireReputation(
+    cfg: DriverRequireReputationConfig | undefined,
+    method: string,
+): ReputationRequirement | undefined {
+    if (!cfg) return undefined;
+    return cfg.methods?.[method] ?? cfg.default;
+}
+
 /**
  * Resolved metadata for a registered driver. Read from either decorator
  * metadata or imperative instance properties.
@@ -416,6 +489,13 @@ export interface DriverMeta {
      * the dispatch route is shared.
      */
     requireSubscription?: DriverRequireSubscriptionConfig;
+    /**
+     * Which methods on this driver need a reputation tier, and which tier.
+     * Per-method entries override `default`; a method covered by neither asks
+     * for no floor. Per-driver for the same reason as `requireSubscription` —
+     * the dispatch route is shared.
+     */
+    requireReputation?: DriverRequireReputationConfig;
 }
 
 /**
@@ -446,7 +526,8 @@ export function resolveDriverMeta(
     // drivers declare a raw object on the instance, which we validate here
     // so a malformed `rateLimit` field still fails loud at registration.
     const protoRateLimit = proto[DRIVER_RATE_LIMIT_KEY] as
-        DriverRateLimitConfig | undefined;
+        | DriverRateLimitConfig
+        | undefined;
     let rateLimit: DriverRateLimitConfig | undefined;
     if (protoRateLimit) {
         rateLimit = protoRateLimit;
@@ -458,7 +539,8 @@ export function resolveDriverMeta(
     }
 
     const protoConcurrent = proto[DRIVER_CONCURRENT_KEY] as
-        DriverConcurrentConfig | undefined;
+        | DriverConcurrentConfig
+        | undefined;
     let concurrent: DriverConcurrentConfig | undefined;
     if (protoConcurrent) {
         concurrent = protoConcurrent;
@@ -470,13 +552,27 @@ export function resolveDriverMeta(
     }
 
     const protoRequireSubscription = proto[DRIVER_REQUIRE_SUBSCRIPTION_KEY] as
-        DriverRequireSubscriptionConfig | undefined;
+        | DriverRequireSubscriptionConfig
+        | undefined;
     let requireSubscription: DriverRequireSubscriptionConfig | undefined;
     if (protoRequireSubscription) {
         requireSubscription = protoRequireSubscription;
     } else if (driver.requireSubscription !== undefined) {
         requireSubscription = validateDriverRequireSubscription(
             driver.requireSubscription,
+            `driver '${driverName ?? '(unnamed)'}'`,
+        );
+    }
+
+    const protoRequireReputation = proto[DRIVER_REQUIRE_REPUTATION_KEY] as
+        | DriverRequireReputationConfig
+        | undefined;
+    let requireReputation: DriverRequireReputationConfig | undefined;
+    if (protoRequireReputation) {
+        requireReputation = protoRequireReputation;
+    } else if (driver.requireReputation !== undefined) {
+        requireReputation = validateDriverRequireReputation(
+            driver.requireReputation,
             `driver '${driverName ?? '(unnamed)'}'`,
         );
     }
@@ -497,6 +593,7 @@ export function resolveDriverMeta(
         concurrent,
         noUserSession,
         requireSubscription,
+        requireReputation,
     };
 }
 

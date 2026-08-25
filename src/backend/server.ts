@@ -51,7 +51,9 @@ import {
 } from './core/http/middleware/gates';
 import { guiOriginGate } from './core/http/middleware/originGate';
 import { requireCreditsGate } from './core/http/middleware/credits';
+import { requireReputationGate } from './core/http/middleware/reputation';
 import { requireSubscriptionGate } from './core/http/middleware/subscription';
+import { validateReputationRequirement } from './core/reputation';
 import { validateSubscriptionRequirement } from './services/metering/enforcement';
 import { createStepUpGate } from './core/http/middleware/stepUpSession';
 import { createNotFoundHandler } from './core/http/middleware/notFoundHandler';
@@ -908,6 +910,17 @@ export class PuterServer {
             subscriptionRequirement !== undefined &&
             subscriptionRequirement !== false;
 
+        const reputationRequirement =
+            opts.requireReputation === undefined
+                ? undefined
+                : validateReputationRequirement(
+                      opts.requireReputation,
+                      `route ${route.method.toUpperCase()} ${routerPrefix}${String(route.path)}: requireReputation`,
+                  );
+        const requiresReputation =
+            reputationRequirement !== undefined &&
+            reputationRequirement !== false;
+
         // 1. Subdomain routing. Routes that specify `subdomain` only match
         // that subdomain(s). Routes WITHOUT a `subdomain` option (and that
         // aren't `use` middleware) are restricted to the root origin — this
@@ -959,7 +972,8 @@ export class PuterServer {
             opts.noUserSession ||
             opts.requirePhoneVerified ||
             opts.requireCardVerified ||
-            requiresSubscription,
+            requiresSubscription ||
+            requiresReputation,
         );
         if (needsAuth) {
             mwChain.push(requireAuthGate());
@@ -1057,7 +1071,19 @@ export class PuterServer {
             mwChain.push(requireCardVerifiedGate());
         }
 
-        // 2a''. Plan enforcement. Before the rate limit — the same order the
+        // 2a''. Reputation floor. Ahead of the plan gate and everything
+        // after it: whether an account is trusted enough to be here at all is
+        // a different question from what it pays for, and the cheaper one —
+        // the score rides on the actor. A tier the config doesn't define
+        // enforces nothing, so this is inert until a deployment says what its
+        // tiers are worth.
+        if (requiresReputation) {
+            mwChain.push(
+                requireReputationGate(this.#config, reputationRequirement!),
+            );
+        }
+
+        // 2a'''. Plan enforcement. Before the rate limit — the same order the
         // driver dispatch path uses — so an account on a plan that never
         // included this route is told to upgrade rather than to slow down,
         // and doesn't spend a rate-limit token on a request that can never

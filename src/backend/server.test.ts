@@ -438,6 +438,19 @@ describe('PuterServer route option validation', () => {
         );
     });
 
+    it('refuses to boot on a requireReputation that names no tier', async () => {
+        extensionStore.routeHandlers.push({
+            method: 'get',
+            path: '/reputation-gated',
+            options: { requireReputation: '  ' },
+            handler: noop,
+        });
+
+        await expect(setupTestServer()).rejects.toThrow(
+            /route GET \/reputation-gated: requireReputation: expected a non-empty tier name/,
+        );
+    });
+
     it('boots with the requirement switched off, and leaves the route open', async () => {
         extensionStore.routeHandlers.push({
             method: 'get',

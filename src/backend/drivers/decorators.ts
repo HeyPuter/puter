@@ -24,12 +24,15 @@ import {
     DRIVER_NAME_KEY,
     DRIVER_NO_USER_SESSION_KEY,
     DRIVER_RATE_LIMIT_KEY,
+    DRIVER_REQUIRE_REPUTATION_KEY,
     DRIVER_REQUIRE_SUBSCRIPTION_KEY,
     validateDriverConcurrent,
     validateDriverRateLimit,
+    validateDriverRequireReputation,
     validateDriverRequireSubscription,
     type DriverConcurrentConfig,
     type DriverRateLimitConfig,
+    type DriverRequireReputationConfig,
     type DriverRequireSubscriptionConfig,
 } from './meta';
 
@@ -108,6 +111,22 @@ export interface DriverOptions {
      * ```
      */
     requireSubscription?: DriverRequireSubscriptionConfig;
+    /**
+     * Methods that need a trusted-enough account. Each entry names a tier; what
+     * the tier takes is deployment config (`reputationGate.tiers`), so a driver
+     * declares the standard it holds a method to and not the number. Methods
+     * listed in neither `methods` nor `default` ask for no floor — this is
+     * opt-in.
+     *
+     * ```ts
+     * @Driver('puter-chat-completion', {
+     *     requireReputation: {
+     *         methods: { complete: 'standard' },
+     *     },
+     * })
+     * ```
+     */
+    requireReputation?: DriverRequireReputationConfig;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -154,6 +173,10 @@ export function Driver(interfaceName: string, opts: DriverOptions = {}) {
         opts.requireSubscription !== undefined
             ? validateDriverRequireSubscription(opts.requireSubscription, label)
             : undefined;
+    const requireReputation =
+        opts.requireReputation !== undefined
+            ? validateDriverRequireReputation(opts.requireReputation, label)
+            : undefined;
 
     return <T extends AnyCtor>(
         value: T,
@@ -167,6 +190,8 @@ export function Driver(interfaceName: string, opts: DriverOptions = {}) {
         if (concurrent) proto[DRIVER_CONCURRENT_KEY] = concurrent;
         if (requireSubscription)
             proto[DRIVER_REQUIRE_SUBSCRIPTION_KEY] = requireSubscription;
+        if (requireReputation)
+            proto[DRIVER_REQUIRE_REPUTATION_KEY] = requireReputation;
         if (opts.noUserSession) proto[DRIVER_NO_USER_SESSION_KEY] = true;
     };
 }
