@@ -164,12 +164,20 @@
  * @property {boolean} [returnPermissions] Whether to return permission information. Defaults to `false`.
  * @property {boolean} [returnVersions] Whether to return version information. Defaults to `false`.
  * @property {boolean} [returnSize] Whether to return size information. Defaults to `false`.
+ * @property {boolean} [returnShares] Whether to return who the item is shared with, as a `shares`
+ * array on the result. Empty unless you can manage the item. Defaults to `false`.
  */
 
 /**
  * Options for the `stat` operation.
  *
  * @typedef {StatOptionsOwn & RequestCallbacks<FSItem>} StatOptions
+ */
+
+/**
+ * A `stat()` result with `returnShares` set.
+ *
+ * @typedef {FSItem & { shares: Share[] }} FSItemWithShares
  */
 
 /**

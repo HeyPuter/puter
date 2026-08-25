@@ -382,6 +382,43 @@ describe('stat', () => {
         await fs.stat({ path: '/a/file.txt', consistency: 'eventual' });
         expect(FakeXHR.requests).toHaveLength(0);
     });
+
+    it('asks for shares and publishes them in the SDK shape', async () => {
+        FakeXHR.respondWith = () => ({
+            uid: 'u1',
+            is_dir: false,
+            is_shared: true,
+            shares: [
+                {
+                    uid: 's1',
+                    mode: 'write',
+                    uid_entry: 'u1',
+                    is_dir: false,
+                    holder: 'someone',
+                    inherited_from: null,
+                },
+            ],
+        });
+        const item = await fs.stat('/a/file.txt', { returnShares: true });
+        expect(lastBody()).toMatchObject({ return_shares: true });
+        expect(item.is_shared).toBe(true);
+        expect(item.shares[0]).toMatchObject({
+            uid: 's1',
+            mode: 'write',
+            entryUid: 'u1',
+            holder: 'someone',
+            inheritedFrom: null,
+        });
+    });
+
+    it('keeps a share-carrying result out of the cache', async () => {
+        FakeXHR.respondWith = () => ({ uid: 'u1', is_dir: false, shares: [] });
+        await fs.stat('/a/cached.txt', { returnShares: true });
+        FakeXHR.requests = [];
+        // Would be served from the cache had the previous call populated it.
+        await fs.stat({ path: '/a/cached.txt', consistency: 'eventual' });
+        expect(FakeXHR.requests).toHaveLength(1);
+    });
 });
 
 describe('readdir', () => {
@@ -394,6 +431,15 @@ describe('readdir', () => {
         expect(lastRequest().url).toBe('https://api.test/fs/readdir');
         expect(lastBody()).toMatchObject({ path: '/a', auth_token: 'test-token' });
         expect(entries[0]).toMatchObject({ name: 'file.txt', is_dir: false, uid: 'u1' });
+    });
+
+    it('carries the share flag into the v1 shape', async () => {
+        FakeXHR.respondWith = () => [
+            { uuid: 'u1', name: 'mine.txt', path: '/a/mine.txt', isShared: true },
+            { uuid: 'u2', name: 'theirs.txt', path: '/a/theirs.txt', isShared: null },
+        ];
+        const entries = await fs.readdir('/a');
+        expect(entries.map((e) => e.is_shared)).toEqual([true, null]);
     });
 
     it('readdir(path, options) applies the options', async () => {

@@ -79,6 +79,37 @@ export default suite('sharing', {
         t.assert.equal(shares[0].issuer, t.env.users.user.username);
     },
 
+    'stat and readdir report whether an item is shared': async (t) => {
+        // A directory of its own, so the listing is just these two entries.
+        const dir = scratch(t, 'flag').replace(/\.txt$/, '');
+        const shared = `${dir}/shared.txt`;
+        const sibling = `${dir}/sibling.txt`;
+        await t.puter.fs.write(shared, 'x', { createMissingParents: true });
+        await t.puter.fs.write(sibling, 'x');
+        await t.puter.fs.share(shared, t.env.users.other.username, 'write');
+
+        const listing = await t.puter.fs.readdir(dir);
+        const flags = Object.fromEntries(
+            listing.map((item) => [item.name, item.is_shared]),
+        );
+        t.assert.equal(flags['shared.txt'], true);
+        t.assert.equal(flags['sibling.txt'], false);
+
+        const item = await t.puter.fs.stat(shared, { returnShares: true });
+        t.assert.equal(item.is_shared, true);
+        t.assert.equal(item.shares.length, 1);
+        t.assert.equal(item.shares[0].holder, t.env.users.other.username);
+        t.assert.equal(item.shares[0].mode, 'write');
+        // Mapped into the same shape `getShares()` publishes.
+        t.assert.equal(item.shares[0].entryUid, item.uid);
+        t.assert.equal(item.shares[0].inheritedFrom, null);
+
+        await t.puter.fs.unshare(shared, t.env.users.other.username);
+        const after = await t.puter.fs.stat(shared);
+        t.assert.equal(after.is_shared, false);
+        t.assert.equal(after.shares, undefined);
+    },
+
     'changing the mode replaces the share rather than adding one': async (t) => {
         const path = scratch(t, 'remode');
         await t.puter.fs.write(path, 'x');

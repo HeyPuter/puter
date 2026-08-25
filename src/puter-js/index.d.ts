@@ -96,6 +96,7 @@ export type {
 export type {
     CopyOptions,
     DeleteOptions,
+    FSItemWithShares,
     GetSharesOptions,
     ListSharedOptions,
     MkdirOptions,
