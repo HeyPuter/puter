@@ -40,6 +40,10 @@ An integer containing the Unix timestamp of the date and time when the item was 
 
 An integer containing the size of the item in bytes. If the item is a directory, this will be `null`.
 
+#### `is_shared` (Boolean | null)
+
+Whether you have shared this item with anyone: `true` if you have, `false` if you have not, and `null` when the item is not yours. Only shares on the item itself count, not access inherited from a shared parent folder. Set by [`stat()`](/FS/stat/) and [`readdir()`](/FS/readdir/); absent on items obtained any other way.
+
 ## Methods
 
 ### `read()`

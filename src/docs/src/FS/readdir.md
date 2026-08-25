@@ -41,6 +41,8 @@ An object with the following properties:
 
 A `Promise` that resolves to an array of [`FSItem`](/Objects/fsitem/) objects (files and directories) within the specified directory.
 
+Each item carries `is_shared`: `true` when you have shared it with someone, `false` when you have not, and `null` for items that are not yours. Only shares on the item itself count — the children of a folder you shared report `false`, since the share lives on the folder. Use [`getShares()`](/FS/getShares/) on an item to see who can reach it, including access inherited from a parent.
+
 When the request includes `cursor` (even `null`) or `includeTotal`, the promise instead resolves to a page object:
 
 - `items` (Array): The [`FSItem`](/Objects/fsitem/) objects on this page.
