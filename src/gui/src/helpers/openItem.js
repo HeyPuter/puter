@@ -20,10 +20,10 @@
 import UIWindow from '../UI/UIWindow.js';
 import UIAlert from '../UI/UIAlert.js';
 import i18n from '../i18n/i18n.js';
-import launch_app from './launch_app.js';
+import launch_app from './launchApp.js';
 import path from '../lib/path.js';
-import item_icon from './item_icon.js';
-import { is_window_on_screen, user_facing_windows } from './window_visibility.js';
+import item_icon from './itemIcon.js';
+import { is_window_on_screen, user_facing_windows } from './windowVisibility.js';
 
 // Files whose app launch is still in flight, by file uid. Between the click
 // and the window's creation there is nothing in the DOM to restore, so a

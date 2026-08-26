@@ -11,7 +11,7 @@ let MODES, mode_label, options_for;
 beforeAll(async () => {
     await import('../i18n/i18n.js'); // installs window.i18n
     globalThis.i18n = window.i18n;
-    ({ MODES, mode_label, options_for } = await import('./share_modes.js'));
+    ({ MODES, mode_label, options_for } = await import('./shareModes.js'));
 });
 
 // What the browser renders for a fragment of HTML-safe markup.

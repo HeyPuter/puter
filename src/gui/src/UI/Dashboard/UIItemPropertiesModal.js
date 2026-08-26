@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import item_icon from '../../helpers/item_icon.js';
+import item_icon from '../../helpers/itemIcon.js';
 
 const { html_encode } = window;
 

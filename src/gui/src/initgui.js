@@ -39,8 +39,8 @@ import UIWindowSessionList from './UI/UIWindowSessionList.js';
 import UIWindowSignup from './UI/UIWindowSignup.js';
 import UIWindowRecoverPassword from './UI/UIWindowRecoverPassword.js';
 import { PROCESS_RUNNING } from './definitions.js';
-import create_access_token from './helpers/create_access_token.js';
-import create_gui_token from './helpers/create_gui_token.js';
+import create_access_token from './helpers/createAccessToken.js';
+import create_gui_token from './helpers/createGuiToken.js';
 import {
     authmeRequestUrl,
     authmeReturnUrl,
@@ -50,18 +50,19 @@ import {
     urlTokenParam,
     wantsFullToken,
 } from './util/authmeGrant.js';
-import init_device_signals from './helpers/device_signals.js';
-import item_icon from './helpers/item_icon.js';
-import launch_app from './helpers/launch_app.js';
-import { parse_url_paths } from './helpers/url_paths.js';
-import update_last_touch_coordinates from './helpers/update_last_touch_coordinates.js';
-import update_mouse_position from './helpers/update_mouse_position.js';
-import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
+import init_device_signals from './helpers/deviceSignals.js';
+import item_icon from './helpers/itemIcon.js';
+import launch_app from './helpers/launchApp.js';
+import { parse_url_paths } from './helpers/urlPaths.js';
+import update_last_touch_coordinates from './helpers/updateLastTouchCoordinates.js';
+import update_mouse_position from './helpers/updateMousePosition.js';
+import update_title_based_on_uploads from './helpers/updateTitleBasedOnUploads.js';
 import path from './lib/path.js';
 import { AntiCSRFService } from './services/AntiCSRFService.js';
 import { BroadcastService } from './services/BroadcastService.js';
 import { DebugService } from './services/DebugService.js';
 import { ExecService } from './services/ExecService.js';
+import { PictureInPictureService } from './services/PictureInPictureService.js';
 import { IPCService } from './services/IPCService.js';
 import { LaunchOnInitService } from './services/LaunchOnInitService.js';
 import { LocaleService } from './services/LocaleService.js';
@@ -829,6 +830,7 @@ const launch_services = async function (options) {
     // === Builtin Services ===
     register('ipc', new IPCService());
     register('exec', new ExecService());
+    register('pip', new PictureInPictureService());
     register('debug', new DebugService());
     register('broadcast', new BroadcastService());
     register('theme', new ThemeService());

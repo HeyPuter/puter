@@ -1,13 +1,13 @@
 import UIContextMenu from '../UIContextMenu.js';
 import UIAlert from '../UIAlert.js';
-import launch_app from '../../helpers/launch_app.js';
-import revokeAppSessions from '../../helpers/revoke_app_sessions.js';
+import launch_app from '../../helpers/launchApp.js';
+import revokeAppSessions from '../../helpers/revokeAppSessions.js';
 import { begin_dashboard_tile_launch, settle_dashboard_tile_launch } from '../UIWindow.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { reconcileAppOrder, serializeAppOrder, mergeSavedOrder, APPS_ORDER_KV_KEY } from './appOrder.js';
 import { parseRemovedApps, serializeRemovedApps, REMOVED_APPS_KV_KEY } from './removedApps.js';
 import { appTileLink } from './appLink.js';
-import { is_window_on_screen, user_facing_windows } from '../../helpers/window_visibility.js';
+import { is_window_on_screen, user_facing_windows } from '../../helpers/windowVisibility.js';
 import {
     APP_GROUPS_KV_KEY,
     MAX_GROUP_APPS,

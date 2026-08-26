@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parse_url_paths } from './url_paths.js';
+import { parse_url_paths } from './urlPaths.js';
 
 describe('parse_url_paths', () => {
     it('splits a pathname into non-empty segments', () => {

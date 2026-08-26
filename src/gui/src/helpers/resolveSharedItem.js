@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import parse_shared_path from './parse_shared_path.js';
+import parse_shared_path from './parseSharedPath.js';
 
 /**
  * Find the item a share link addresses. The path only resolves while the name

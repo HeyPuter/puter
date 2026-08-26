@@ -897,6 +897,22 @@ let sidebar = [
                 path: '/UI/setWindowY',
             },
             {
+                title: '<code>requestPictureInPicture()</code>',
+                page_title: '<code>puter.ui.requestPictureInPicture()</code>',
+                title_tag: 'puter.ui.requestPictureInPicture()',
+                icon: '/assets/img/function.svg',
+                source: '/UI/requestPictureInPicture.md',
+                path: '/UI/requestPictureInPicture',
+            },
+            {
+                title: '<code>exitPictureInPicture()</code>',
+                page_title: '<code>puter.ui.exitPictureInPicture()</code>',
+                title_tag: 'puter.ui.exitPictureInPicture()',
+                icon: '/assets/img/function.svg',
+                source: '/UI/exitPictureInPicture.md',
+                path: '/UI/exitPictureInPicture',
+            },
+            {
                 title: '<code>showColorPicker()</code>',
                 page_title: '<code>puter.ui.showColorPicker()</code>',
                 title_tag: 'puter.ui.showColorPicker()',

@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import check_password_strength from '../helpers/check_password_strength.js';
+import check_password_strength from '../helpers/checkPasswordStrength.js';
 import UIWindow from './UIWindow.js';
 import UIWindowEmailConfirmationRequired from './UIWindowEmailConfirmationRequired.js';
 import UIWindowPhoneVerificationRequired from './UIWindowPhoneVerificationRequired.js';
@@ -25,7 +25,7 @@ import UIWindowCardVerificationRequired from './UIWindowCardVerificationRequired
 import UIWindowLogin from './UIWindowLogin.js';
 import { KNOWN_OIDC_PROVIDERS, OIDC_GENERIC_PROVIDER_ICON, humanizeOidcProviderId } from '../util/openid.js';
 import { offersFederatedSignInInPopup } from '../util/popupAuth.js';
-import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/auth_redirect.js';
+import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/authRedirect.js';
 
 function UIWindowSignup(options) {
     options = options ?? {};

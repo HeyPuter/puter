@@ -21,7 +21,7 @@
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import jQuery from '../lib/jquery-3.6.1/jquery-3.6.1.min.js';
-import { select_uploaded_items, select_added_item_if_pending } from './upload_selection.js';
+import { select_uploaded_items, select_added_item_if_pending } from './uploadSelection.js';
 
 const make_item = ({ path, uid = `uid-${path}`, disabled = false }) => {
     const el = document.createElement('div');

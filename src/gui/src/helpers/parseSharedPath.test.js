@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import parse_shared_path from './parse_shared_path.js';
+import parse_shared_path from './parseSharedPath.js';
 
 const UID = '11111111-2222-4333-8444-555555555555';
 

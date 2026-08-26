@@ -25,7 +25,7 @@ import {
     invalidate_shared_roots,
     remember_shared_roots,
     shared_mode_for,
-} from './shared_access.js';
+} from './sharedAccess.js';
 
 const CONTENTS = '11111111-1111-1111-1111-111111111111';
 const PHOTOS = '22222222-2222-2222-2222-222222222222';

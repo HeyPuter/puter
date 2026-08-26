@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import check_password_strength from '../helpers/check_password_strength.js';
+import check_password_strength from '../helpers/checkPasswordStrength.js';
 import { openRevalidatePopup } from '../util/openid.js';
 import UIWindow from './UIWindow.js';
 

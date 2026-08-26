@@ -23,16 +23,16 @@ import path from '../lib/path.js';
 import UITaskbarItem from './UITaskbarItem.js';
 import UIWindowLogin from './UIWindowLogin.js';
 import UIWindowItemProperties from './UIWindowItemProperties.js';
-import new_context_menu_item from '../helpers/new_context_menu_item.js';
-import refresh_item_container from '../helpers/refresh_item_container.js';
+import new_context_menu_item from '../helpers/newContextMenuItem.js';
+import refresh_item_container from '../helpers/refreshItemContainer.js';
 import UIWindowAppFeedback from './UIWindowAppFeedback.js';
-import launch_app from '../helpers/launch_app.js';
-import publish_as_website from '../helpers/publish_as_website.js';
+import launch_app from '../helpers/launchApp.js';
+import publish_as_website from '../helpers/publishAsWebsite.js';
 
-import item_icon from '../helpers/item_icon.js';
-import { parent_path_for, shared_crumbs_for } from '../helpers/share_paths.js';
-import { has_shared_roots } from '../helpers/shared_access.js';
-import { is_window_hidden, is_unseen_background_window, user_facing_windows } from '../helpers/window_visibility.js';
+import item_icon from '../helpers/itemIcon.js';
+import { parent_path_for, shared_crumbs_for } from '../helpers/sharePaths.js';
+import { has_shared_roots } from '../helpers/sharedAccess.js';
+import { is_window_hidden, is_unseen_background_window, user_facing_windows } from '../helpers/windowVisibility.js';
 
 const el_body = document.getElementsByTagName('body')[0];
 const SNAP_PLACEHOLDER_DELAY_MS = 600; // delay before showing placeholder in any snap zone
@@ -3767,6 +3767,10 @@ $.fn.close = async function (options) {
 
             // notify other apps that we're closing
             window.report_app_closed(window_uuid, options.status_code ?? 0);
+
+            // A picture-in-picture window the app opened is the app's; it
+            // goes with it.
+            globalThis.services?.get?.('pip')?.close_for_app?.(window_uuid);
 
             // remove backdrop
             $(this).closest('.window-backdrop').remove();
