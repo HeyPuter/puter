@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import parse_shared_path, { SHARED_PATH_PARAM } from './parse_shared_path.js';
+import parse_shared_path, { SHARED_PATH_PARAM } from './parseSharedPath.js';
 
 /**
  * Where to send the user after a successful login/signup started from the

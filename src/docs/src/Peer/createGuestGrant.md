@@ -5,7 +5,7 @@ platforms: [websites, apps]
 ---
 
 
-Creates a **guest grant**: a short-lived token that lets people without a Puter session use the Puter-managed TURN relays. Hand it to the people you invite alongside the invite code, and they pass it to [`puter.peer.connect()`](/Peer/connect/) as `turnGrant`.
+Creates a **guest grant**: a short-lived token that lets people without a Puter session use the Puter-managed TURN relays. Either hand it to the people you invite alongside the invite code, and they pass it to [`puter.peer.connect()`](/Peer/connect/) as `turnGrant` — or pass it to [`puter.peer.serve()`](/Peer/serve/) as `guestGrant`, and every guest that connects without a grant of their own receives it through the signaller.
 
 Without a grant, a guest can still join a session — but only over direct connections. Relay credentials are what make a connection work when one side is behind a NAT or firewall that blocks direct traffic, and minting them requires an account. The grant is how your account vouches for the guest.
 

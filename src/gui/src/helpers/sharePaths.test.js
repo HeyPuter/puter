@@ -24,7 +24,7 @@ import {
     parse_shared_path,
     shared_crumbs_for,
     shared_uids_from_paths,
-} from './share_paths.js';
+} from './sharePaths.js';
 
 const UID = '11111111-2222-3333-4444-555555555555';
 

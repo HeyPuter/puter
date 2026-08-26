@@ -23,7 +23,7 @@ import UIWindowRecoverPassword from './UIWindowRecoverPassword.js';
 import UIWindowSignup from './UIWindowSignup.js';
 import { KNOWN_OIDC_PROVIDERS, OIDC_GENERIC_PROVIDER_ICON, humanizeOidcProviderId } from '../util/openid.js';
 import { offersFederatedSignInInPopup } from '../util/popupAuth.js';
-import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/auth_redirect.js';
+import { get_auth_redirect_url, get_oidc_return_to } from '../helpers/authRedirect.js';
 
 // ── 2FA Login CSS (injected once) ───────────────────────────────────────────
 const LOGIN_2FA_CSS = `

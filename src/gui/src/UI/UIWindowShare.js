@@ -20,10 +20,10 @@
 import UIWindow from './UIWindow.js';
 import UIAlert from './UIAlert.js';
 import path from '../lib/path.js';
-import { is_owned_by_me, owner_of_path } from '../helpers/path_owner.js';
-import { invalidate_shared_roots } from '../helpers/shared_access.js';
+import { is_owned_by_me, owner_of_path } from '../helpers/pathOwner.js';
+import { invalidate_shared_roots } from '../helpers/sharedAccess.js';
 import { icons } from '../helpers/actionIcons.js';
-import { mode_label, options_for } from '../helpers/share_modes.js';
+import { mode_label, options_for } from '../helpers/shareModes.js';
 import { has_direct_share, mark_item_shared } from '../helpers/sharedBadge.js';
 import { share_outcome } from '../helpers/shareOutcome.js';
 

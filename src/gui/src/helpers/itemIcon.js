@@ -18,7 +18,7 @@
  */
 
 import mime from '../lib/mime.js';
-import content_type_to_icon from './content_type_to_icon.js';
+import content_type_to_icon from './contentTypeToIcon.js';
 import { getWeblinkIcon } from './weblink.js';
 
 /**

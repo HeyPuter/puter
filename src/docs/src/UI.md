@@ -50,6 +50,8 @@ The UI API provides a comprehensive set of tools for creating rich user interfac
 ### Additional UI Elements
 - **[`puter.ui.contextMenu()`](/UI/contextMenu/)** - Show a context menu at the cursor
 - **[`puter.ui.hideSpinner()`](/UI/hideSpinner/)** - Hide spinner
+- **[`puter.ui.requestPictureInPicture()`](/UI/requestPictureInPicture/)** - Float a page of the app in a picture-in-picture window
+- **[`puter.ui.exitPictureInPicture()`](/UI/exitPictureInPicture/)** - Close the app's picture-in-picture window
 - **[`puter.ui.showColorPicker()`](/UI/showColorPicker/)** - Show color picker
 - **[`puter.ui.showFontPicker()`](/UI/showFontPicker/)** - Show font picker
 - **[`puter.ui.showSpinner()`](/UI/showSpinner/)** - Show spinner

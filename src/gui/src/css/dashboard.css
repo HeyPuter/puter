@@ -3246,15 +3246,32 @@ body.myapps-reordering .myapps-tile {
 
 /* Dashboard files */
 
+/* Files is the one tab whose list scrolls inside the page instead of with it.
+   Its height comes from a flex chain down from .dashboard-content (which is
+   bounded by the window) rather than from 100vh: on phones 100vh is the large
+   viewport, taller than the visible area while the browser toolbars are shown,
+   so a vh-sized list overhung the clipped content box and its last rows could
+   never be scrolled into view. */
 .dashboard-content.files {
     padding: 0 0 0 10px;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.dashboard-section.dashboard-section-files.active {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
 }
 
 .dashboard-tab-content.files-tab {
     display: flex;
     justify-content: flex-start;
-    align-items: flex-start;
+    align-items: stretch;
+    flex: 1;
+    min-height: 0;
     max-width: unset;
     padding: 0;
     margin: 0;
@@ -3327,7 +3344,9 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .directory-contents {
     position: relative;
     width: calc(100% - 160px);
-    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
     border-left: 1px solid var(--dashboard-border);
 }
 
@@ -3480,7 +3499,8 @@ body.myapps-reordering .myapps-tile {
 
 .dashboard-section-files .files {
     width: 100%;
-    height: calc(100vh - 124px);
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     padding-bottom: 30px;
@@ -3578,7 +3598,7 @@ body.myapps-reordering .myapps-tile {
 
 /* Open-file dot: marks rows whose file is open in an app window (visible or
    minimized) — the row doubles as that window's switcher (clicking it
-   restores the window; see open_item.js), sibling of the Apps-tab tiles'
+   restores the window; see openItem.js), sibling of the Apps-tab tiles'
    running dot. Kept current by updateOpenFileDots in TabFiles.js. */
 .dashboard-section-files .files-tab .files .row.file-is-open .item-name-wrapper::after {
     content: '';
@@ -4722,6 +4742,15 @@ body.myapps-reordering .myapps-tile {
 }
 
 /* Mobile phone optimizations */
+/* The Shared/Trash rows on Home exist for phones, where the directories
+   sidebar below is hidden; while the sidebar is visible they'd be redundant.
+   Same breakpoint as the sidebar rule so the two never both show or both hide. */
+@media (min-width: 481px) {
+    .dashboard-section-files .files-tab .files .row.place-row {
+        display: none !important;
+    }
+}
+
 @media (max-width: 480px) {
     .dashboard-content.files {
         padding: 0;
@@ -4945,6 +4974,38 @@ body.myapps-reordering .myapps-tile {
         top: 8px;
         left: 8px;
         z-index: 2;
+    }
+
+    /* Place rows (Shared/Trash at the top of Home — TabFiles.renderPlaceRows)
+       stand in for the hidden sidebar. A divider under the pair separates them
+       from Home's own folders; they only navigate, so select mode gives them
+       no checkbox and keeps their layout. */
+    .dashboard-section-files .files-tab .files.files-list-view .row.place-row[data-place="Trash"] {
+        border-bottom: 1px solid var(--dashboard-border);
+        border-radius: 0;
+        margin-bottom: 4px;
+    }
+
+    .dashboard-section-files .files-tab.select-mode-active .files .row.place-row .item-checkbox {
+        display: none;
+    }
+
+    .dashboard-section-files .files-tab.select-mode-active .files.files-list-view .row.place-row {
+        grid-template-columns: 48px 1fr !important;
+    }
+
+    .dashboard-section-files .files-tab.select-mode-active .files.files-list-view .row.place-row .item-icon {
+        grid-column: 1;
+    }
+
+    .dashboard-section-files .files-tab.select-mode-active .files.files-list-view .row.place-row .item-name-wrapper,
+    .dashboard-section-files .files-tab.select-mode-active .files.files-list-view .row.place-row .item-metadata {
+        grid-column: 2;
+    }
+
+    /* Home with the places on screen isn't empty. */
+    .dashboard-section-files .files-tab .files .row.place-row ~ .files-empty-notice {
+        display: none !important;
     }
 }
 

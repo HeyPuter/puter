@@ -24,13 +24,13 @@ import UIWindowSaveAccount from '../UI/UIWindowSaveAccount.js';
 import UIWindowEmailConfirmationRequired from '../UI/UIWindowEmailConfirmationRequired.js';
 import UIWindowPublishWorker from '../UI/UIWindowPublishWorker.js';
 import UIWindowShare from '../UI/UIWindowShare.js';
-import publish_as_website from './publish_as_website.js';
-import open_item from './open_item.js';
-import launch_app from './launch_app.js';
+import publish_as_website from './publishAsWebsite.js';
+import open_item from './openItem.js';
+import launch_app from './launchApp.js';
 import path from '../lib/path.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from './weblink.js';
-import { is_owned_by_me } from './path_owner.js';
-import { can_rename, can_restructure, can_share, invalidate_shared_roots } from './shared_access.js';
+import { is_owned_by_me } from './pathOwner.js';
+import { can_rename, can_restructure, can_share, invalidate_shared_roots } from './sharedAccess.js';
 
 /**
  * Generates context menu items for file/folder operations

@@ -19,9 +19,9 @@
 
 import UIAlert from './UI/UIAlert.js';
 import UIWindowSearch from './UI/UIWindowSearch.js';
-import launch_app from './helpers/launch_app.js';
-import open_item from './helpers/open_item.js';
-import determine_active_container_parent from './helpers/determine_active_container_parent.js';
+import launch_app from './helpers/launchApp.js';
+import open_item from './helpers/openItem.js';
+import determine_active_container_parent from './helpers/determineActiveContainerParent.js';
 
 $(document).bind('keydown', async function (e) {
     const focused_el = document.activeElement;

@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { get_oidc_return_to } from './auth_redirect.js';
+import { get_oidc_return_to } from './authRedirect.js';
 
 const at = (pathname, search = '') => {
     globalThis.window = { location: { pathname, search } };

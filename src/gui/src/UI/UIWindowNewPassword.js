@@ -20,7 +20,7 @@
 import UIWindow from './UIWindow.js';
 import UIAlert from './UIAlert.js';
 import UIWindowLogin from './UIWindowLogin.js';
-import check_password_strength from '../helpers/check_password_strength.js';
+import check_password_strength from '../helpers/checkPasswordStrength.js';
 
 async function UIWindowNewPassword (options) {
     return new Promise(async (resolve) => {

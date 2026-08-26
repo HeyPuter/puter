@@ -101,3 +101,7 @@ jobs:
 <div class="info">Create a new repository secret named <code>PUTER_TOKEN</code> and set its value to your Puter auth token (see <a href="https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets#creating-secrets-for-a-repository">creating secrets for a repository</a>). To get your auth token, follow the <a href="https://developer.puter.com/tutorials/puter-auth-token/">Puter auth token tutorial</a>.</div>
 
 If your project has a build step, run it before the deploy step (for example `npm ci && npm run build`) and point `source_path` at the build output.
+
+## Configure your site
+
+Once your site is live, you can add a `.puter_site_config` file to its directory to set a custom 404 page, or to make client-side routing work for a single-page app. See [Site Configuration](/site-config).
