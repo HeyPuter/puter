@@ -224,6 +224,15 @@ const holderPayload = (
     };
 };
 
+/**
+ * An `fs.*` event replayed onto this bus by replication rather than raised by a
+ * write here. Broadcast only carries `outer.*` and `pubsub.*`, so today nothing
+ * reaches these handlers that way — but the node that did the write has already
+ * told the audience, and a second fan-out would only duplicate it.
+ */
+const fromAnotherNode = (meta?: { from_outside?: boolean }): boolean =>
+    Boolean(meta?.from_outside);
+
 /** The GUI events a share recipient is an audience for. */
 type HolderGuiEvent =
     | 'outer.gui.item.added'
@@ -288,7 +297,8 @@ export class ShareService extends PuterService {
      * first and cannot depend on this service.
      */
     override onServerStart(): void {
-        this.clients.event.on('fs.remove.node', (_key, data) => {
+        this.clients.event.on('fs.remove.node', (_key, data, meta) => {
+            if (fromAnotherNode(meta)) return;
             const entry = (data as { node?: FSEntry })?.node;
             if (!entry?.uuid) return;
             // Returned so an `emitAndWait` caller can observe the cleanup; the
@@ -302,7 +312,8 @@ export class ShareService extends PuterService {
             });
         });
 
-        this.clients.event.on('fs.move.node', (_key, data) => {
+        this.clients.event.on('fs.move.node', (_key, data, meta) => {
+            if (fromAnotherNode(meta)) return;
             const { node, fromPath, fromUserId } = (data ?? {}) as {
                 node?: FSEntry;
                 fromPath?: string;
@@ -380,7 +391,8 @@ export class ShareService extends PuterService {
             return claimFor(user_id, new_email);
         });
 
-        this.clients.event.on('fs.write.file', (_key, data) => {
+        this.clients.event.on('fs.write.file', (_key, data, meta) => {
+            if (fromAnotherNode(meta)) return;
             const entry = (data as { node?: FSEntry })?.node;
             if (!entry?.uuid) return;
             return this.#fanOutToHolders(entry, 'outer.gui.item.updated').catch(
@@ -391,13 +403,15 @@ export class ShareService extends PuterService {
         });
 
         // A create is `fs.create.<flavor>`, not `fs.write.file`.
-        this.clients.event.on('fs.create.*', (_key, data) => {
+        this.clients.event.on('fs.create.*', (_key, data, meta) => {
+            if (fromAnotherNode(meta)) return;
             const entry = (data as { node?: FSEntry })?.node;
             if (!entry?.uuid) return;
             return this.#scheduleCreateFanOut(entry).catch(() => {});
         });
 
-        this.clients.event.on('fs.rename', (_key, data) => {
+        this.clients.event.on('fs.rename', (_key, data, meta) => {
+            if (fromAnotherNode(meta)) return;
             const { node: entry, old_path: oldPath } = (data ?? {}) as {
                 node?: FSEntry;
                 old_path?: string;

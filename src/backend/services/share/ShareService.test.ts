@@ -1703,6 +1703,43 @@ describe('ShareService', () => {
             expect(lookups).toBe(1);
         });
 
+        it('stays quiet for an event another node already handled', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir, file } = await makeDirWithFile(owner.user);
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const seen: unknown[] = [];
+            const listener = (_key: string, data: unknown) => seen.push(data);
+            server.clients.event.on('outer.gui.item.added', listener);
+            server.clients.event.on('outer.gui.item.updated', listener);
+            try {
+                // What replication looks like: the writing node already told
+                // this audience, so a second fan-out would only duplicate it.
+                await server.clients.event.emitAndWait(
+                    'fs.create.file',
+                    { node: file, entry: file, uid: file.uuid },
+                    { from_outside: true },
+                );
+                await server.clients.event.emitAndWait(
+                    'fs.write.file',
+                    { node: file, entry: file, target: file },
+                    { from_outside: true },
+                );
+                await new Promise((resolve) => setTimeout(resolve, 100));
+            } finally {
+                server.clients.event.off('outer.gui.item.added', listener);
+                server.clients.event.off('outer.gui.item.updated', listener);
+            }
+
+            expect(seen).toEqual([]);
+        });
+
         it('says where a directly shared file moved from', async () => {
             const owner = await makeUser();
             const recipient = await makeUser();
