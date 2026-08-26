@@ -3246,15 +3246,32 @@ body.myapps-reordering .myapps-tile {
 
 /* Dashboard files */
 
+/* Files is the one tab whose list scrolls inside the page instead of with it.
+   Its height comes from a flex chain down from .dashboard-content (which is
+   bounded by the window) rather than from 100vh: on phones 100vh is the large
+   viewport, taller than the visible area while the browser toolbars are shown,
+   so a vh-sized list overhung the clipped content box and its last rows could
+   never be scrolled into view. */
 .dashboard-content.files {
     padding: 0 0 0 10px;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.dashboard-section.dashboard-section-files.active {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
 }
 
 .dashboard-tab-content.files-tab {
     display: flex;
     justify-content: flex-start;
-    align-items: flex-start;
+    align-items: stretch;
+    flex: 1;
+    min-height: 0;
     max-width: unset;
     padding: 0;
     margin: 0;
@@ -3327,7 +3344,9 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .directory-contents {
     position: relative;
     width: calc(100% - 160px);
-    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
     border-left: 1px solid var(--dashboard-border);
 }
 
@@ -3480,7 +3499,8 @@ body.myapps-reordering .myapps-tile {
 
 .dashboard-section-files .files {
     width: 100%;
-    height: calc(100vh - 124px);
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
     padding-bottom: 30px;
