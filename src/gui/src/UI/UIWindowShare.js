@@ -25,6 +25,15 @@ import { invalidate_shared_roots } from '../helpers/shared_access.js';
 import { icons } from '../helpers/actionIcons.js';
 import { mode_label, options_for } from '../helpers/share_modes.js';
 import { has_direct_share, mark_item_shared } from '../helpers/sharedBadge.js';
+import { share_outcome } from '../helpers/shareOutcome.js';
+
+/** What each outcome of a share call is called on screen. */
+const SHARE_MESSAGE = {
+    invited: 'share_invited',
+    shared: 'share_shared_with',
+    updated: 'share_access_updated',
+    unchanged: 'share_already_shared_with',
+};
 
 /**
  * Sharing dialog for one file or directory.
@@ -114,7 +123,11 @@ async function UIWindowShare (options) {
         $success.html(message).show();
     };
 
+    /** The access list as last drawn, which is what a share call changes. */
+    let shown_shares = [];
+
     const render = (shares) => {
+        shown_shares = Array.isArray(shares) ? shares : [];
         let rows = '';
         // The owner's access comes from owning the item, so it can't be revoked
         rows += '<div class="share-row">';
@@ -178,13 +191,12 @@ async function UIWindowShare (options) {
             });
             $(el_window).find('.share-recipient').val('');
             $error.hide();
-            // "Shared with" would claim access an invite does not grant.
             // `i18n()` encodes its replacements; encoding first would show the
             // entities to anyone whose address or username contains one.
             show_success(
-                created.some((share) => share.pending)
-                    ? i18n('share_invited', { recipient })
-                    : i18n('share_shared_with', { recipient }),
+                i18n(SHARE_MESSAGE[share_outcome(created, shown_shares)], {
+                    recipient,
+                }),
             );
             invalidate_shared_roots();
             await refresh();

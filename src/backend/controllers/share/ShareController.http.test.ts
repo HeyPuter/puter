@@ -109,6 +109,33 @@ describe('share endpoints over HTTP', () => {
         }
     });
 
+    it('says whether a share created access or the recipient already had it', async () => {
+        const owner = env.users.user;
+        const recipient = env.users.other;
+        const file = await makeFile(owner);
+        const share = (mode: string) =>
+            post('/share', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: file.uid }],
+                mode,
+            }).then((r) => r.json() as Promise<{
+                results: Array<{ is_new?: boolean }>;
+            }>);
+
+        expect((await share('read')).results[0].is_new).toBe(true);
+        // Without this the dialog cannot tell a repeat from a first share.
+        expect((await share('read')).results[0].is_new).toBe(false);
+        expect((await share('write')).results[0].is_new).toBe(false);
+
+        // A listing describes standing access, so it says nothing about it.
+        const listed = await get('/share/shares', owner.token, {
+            uid: file.uid,
+        }).then((r) => r.json() as Promise<{
+            items: Array<Record<string, unknown>>;
+        }>);
+        expect(listed.items[0]).not.toHaveProperty('is_new');
+    });
+
     it('shares an item, lists it for the recipient, then revokes it', async () => {
         const owner = env.users.user;
         const recipient = env.users.other;

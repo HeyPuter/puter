@@ -29,6 +29,7 @@ import {
     has_direct_share,
     mark_item_shared,
 } from '../../helpers/sharedBadge.js';
+import { share_outcome } from '../../helpers/shareOutcome.js';
 import { aggregateOwners, aggregateShares, missingPathsFor } from './shareAggregate.js';
 
 const { html_encode } = window;
@@ -38,6 +39,14 @@ const chevronIcon = `<svg class="share-modal-chevron" viewBox="0 0 24 24" width=
 
 // How many item icons the header fans out before it stops adding to the pile.
 const MAX_STACKED_ICONS = 3;
+
+/** What each outcome of a share call is called on screen. */
+const SHARE_MESSAGE = {
+    invited: 'share_invited',
+    shared: 'share_shared_with',
+    updated: 'share_access_updated',
+    unchanged: 'share_already_shared_with',
+};
 
 // What one /share, /share/revoke or listing pass may cover, matching the
 // backend's documented cap (see doc: rate limits and quotas). Bigger
@@ -535,9 +544,16 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             // "Shared with" would claim access an invite does not grant.
             const invited = created?.some((share) => share.pending);
             if ( ! is_multi ) {
-                show_success(invited
-                    ? i18n('share_invited', { recipient })
-                    : i18n('share_shared_with', { recipient }));
+                // One item, so the list on screen settles what changed.
+                const before = last_groups.map((group) => ({
+                    holder: group.name,
+                    mode: group.mode,
+                }));
+                show_success(
+                    i18n(SHARE_MESSAGE[share_outcome(created, before)], {
+                        recipient,
+                    }),
+                );
             } else if ( granted < total ) {
                 show_success(i18n('share_shared_with_partial', { recipient, count: granted, total }));
             } else {

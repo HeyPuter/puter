@@ -94,11 +94,9 @@ export interface ResolvedShare {
     issuedByApp?: string | null;
     modified: number;
     size: number | null;
-    /**
-     * Set by `share()` only, and never sent to a client: who to notify, and
-     * whether this call created reach that didn't exist before.
-     */
+    /** Set by `share()` only: who to notify. Never sent to a client. */
     holderId?: number;
+    /** Whether this call created reach that didn't exist before. */
     isNew?: boolean;
     /**
      * An invite to an address with no confirmed account. No grant exists yet —
