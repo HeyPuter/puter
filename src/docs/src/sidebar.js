@@ -49,6 +49,11 @@ let sidebar = [
                 path: '/deployments',
             },
             {
+                title: 'Site Configuration',
+                source: '/site-config.md',
+                path: '/site-config',
+            },
+            {
                 title: 'Examples',
                 source: '/examples.md',
                 path: '/examples',
