@@ -61,6 +61,7 @@ import { CLAUDE_MODELS } from './claude/models.js';
 import { DEEPSEEK_MODELS } from './deepseek/models.js';
 import { GEMINI_MODELS } from './gemini/models.js';
 import { GROQ_MODELS } from './groq/models.js';
+import { HOONIFY_MODELS } from './hoonify/models.js';
 import { META_MODELS } from './meta/models.js';
 import { MINIMAX_MODELS } from './minimax/models.js';
 import { MISTRAL_MODELS } from './mistral/models.js';
@@ -81,6 +82,7 @@ const CATALOGS: [name: string, models: readonly IChatModel[]][] = [
     ['DEEPSEEK_MODELS', DEEPSEEK_MODELS],
     ['GEMINI_MODELS', GEMINI_MODELS],
     ['GROQ_MODELS', GROQ_MODELS],
+    ['HOONIFY_MODELS', HOONIFY_MODELS],
     ['META_MODELS', META_MODELS],
     ['MINIMAX_MODELS', MINIMAX_MODELS],
     ['MISTRAL_MODELS', MISTRAL_MODELS],

@@ -377,6 +377,10 @@
         },
         "zai": { "apiKey": "" },
         "alibaba": { "apiKey": "" },
+        "hoonify": {
+            "apiKey": "",
+            "apiBaseUrl": "https://api.hoonify.ai/v1"
+        },
         "together-ai": { "apiKey": "" },
         // Local Ollama. `enabled: false` skips the auto-probe at startup
         // (otherwise Puter logs ECONNREFUSED on every boot when no Ollama

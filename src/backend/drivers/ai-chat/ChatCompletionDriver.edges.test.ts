@@ -76,6 +76,7 @@ const FULL_PROVIDER_CONFIG = {
         infron: { apiKey: 'k' },
         byteplus: { apiKey: 'k' },
         neuralwatt: { apiKey: 'k' },
+        hoonify: { apiKey: 'k' },
         // Suppress auto-discovery of a developer's local Ollama.
         ollama: { enabled: false },
     },
@@ -189,6 +190,7 @@ describe('ChatCompletionDriver provider registration', () => {
             'infron',
             'byteplus',
             'neuralwatt',
+            'hoonify',
             'fake-chat',
         ]) {
             expect(providers).toContain(expected);
