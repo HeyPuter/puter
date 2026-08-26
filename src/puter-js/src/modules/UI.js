@@ -265,6 +265,17 @@ const FILE_OPEN_CANCELLED = Symbol('FILE_OPEN_CANCELLED');
 
 // A consent prompt covers a handful of scopes at most, and the popup carries
 // them in its URL.
+/**
+ * An error shaped like the DOM's, so `err.name` reads the way it would from
+ * the native picture-in-picture APIs.
+ */
+const pipError = (name, message) => {
+    if ( typeof DOMException === 'function' ) return new DOMException(message, name);
+    const err = new Error(message);
+    err.name = name;
+    return err;
+};
+
 const MAX_REQUESTED_PERMISSIONS = 16;
 
 /**
@@ -467,6 +478,9 @@ export class UIModule extends EventListener {
 
     #onLaunchedWithItems;
 
+    // Runs when the window from requestPictureInPicture() goes away on its own.
+    #onPictureInPictureClosed = null;
+
     // List of events that can be listened to.
     #eventNames;
 
@@ -658,6 +672,14 @@ export class UIModule extends EventListener {
                     // Reset the lastDraggedOverElement
                     lastDraggedOverElement = null;
                 }
+            }
+            // pictureInPictureClosed: the window requestPictureInPicture()
+            // opened went away without exitPictureInPicture() — the user
+            // closed it, most likely.
+            else if ( e.data.msg === 'pictureInPictureClosed' ) {
+                const onClose = this.#onPictureInPictureClosed;
+                this.#onPictureInPictureClosed = null;
+                onClose?.();
             }
             // windowWillClose
             else if ( e.data.msg === 'windowWillClose' ) {
@@ -1308,6 +1330,72 @@ export class UIModule extends EventListener {
             el.open();
         });
     };
+
+    /**
+     * Floats a page of this app in a picture-in-picture window: a small
+     * always-on-top window that stays in view while the user works in other
+     * windows or tabs.
+     *
+     * Browsers only let a top-level page open a Document Picture-in-Picture
+     * window, and an app runs in an iframe, so the desktop opens it on the
+     * app's behalf and loads `url` in it. The page must come from this
+     * app's own origin. Inside it, the app's main frame is one of
+     * `window.parent.opener.frames` — probe them in a try/catch, since the
+     * others belong to other origins and throw — so the two can share
+     * objects directly, a MediaStream (which postMessage cannot carry)
+     * included. BroadcastChannel works between them too.
+     *
+     * Call it from a user gesture; browsers refuse otherwise. One window
+     * per app: asking again replaces the one that is up.
+     *
+     * @param {{url: string, width?: number, height?: number, onClose?: () => void}} options
+     *   `url` is resolved against the app's own page. `width`/`height` size
+     *   the window in CSS pixels (the browser may clamp them). `onClose`
+     *   runs when the window goes away other than through
+     *   {@link exitPictureInPicture} — the user closing it, typically.
+     * @returns {Promise<void>} resolves once the window is up. Rejects with
+     *   an error named as the DOM would name it: `NotSupportedError` (no
+     *   Document PiP in this browser, or not running as a desktop app),
+     *   `NotAllowedError` (no user gesture), `SecurityError` (`url` is not
+     *   this app's origin), `TypeError` (`url` is not a URL).
+     */
+    async requestPictureInPicture ({ url, width, height, onClose } = {}) {
+        if ( this.env !== 'app' ) {
+            throw pipError('NotSupportedError', 'requestPictureInPicture() is only available to apps running on the Puter desktop.');
+        }
+        let href;
+        try {
+            href = new URL(String(url), globalThis.location?.href).href;
+        } catch {
+            throw pipError('TypeError', '`url` must be a URL.');
+        }
+        const result = await this.#ipc_stub({
+            method: 'requestPictureInPicture',
+            parameters: { url: href, width, height },
+        });
+        if ( ! result?.ok ) {
+            throw pipError(result?.error?.name ?? 'NotAllowedError',
+                result?.error?.message ?? 'Could not open a picture-in-picture window.');
+        }
+        this.#onPictureInPictureClosed = typeof onClose === 'function' ? onClose : null;
+    }
+
+    /**
+     * Closes the picture-in-picture window opened with
+     * {@link requestPictureInPicture}, if one is up. Its `onClose` does not
+     * run for this — you asked.
+     *
+     * @returns {Promise<boolean>} whether there was a window to close
+     */
+    async exitPictureInPicture () {
+        if ( this.env !== 'app' ) return false;
+        this.#onPictureInPictureClosed = null;
+        const result = await this.#ipc_stub({
+            method: 'exitPictureInPicture',
+            parameters: {},
+        });
+        return result?.wasOpen === true;
+    }
 
     /**
      * Asks the desktop to show its upgrade flow.

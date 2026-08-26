@@ -62,6 +62,7 @@ import { AntiCSRFService } from './services/AntiCSRFService.js';
 import { BroadcastService } from './services/BroadcastService.js';
 import { DebugService } from './services/DebugService.js';
 import { ExecService } from './services/ExecService.js';
+import { PictureInPictureService } from './services/PictureInPictureService.js';
 import { IPCService } from './services/IPCService.js';
 import { LaunchOnInitService } from './services/LaunchOnInitService.js';
 import { LocaleService } from './services/LocaleService.js';
@@ -829,6 +830,7 @@ const launch_services = async function (options) {
     // === Builtin Services ===
     register('ipc', new IPCService());
     register('exec', new ExecService());
+    register('pip', new PictureInPictureService());
     register('debug', new DebugService());
     register('broadcast', new BroadcastService());
     register('theme', new ThemeService());

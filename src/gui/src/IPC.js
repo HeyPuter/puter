@@ -142,6 +142,9 @@ const ipc_listener = async (event, handled) => {
         const ipc_context = {
             caller: {
                 process: process,
+                // The frame's origin as it is now (the message's), for
+                // handlers that must know who they are acting for.
+                origin: event.origin,
                 app: {
                     appInstanceID: event.data.appInstanceID,
                     iframe,

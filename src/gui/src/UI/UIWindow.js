@@ -3768,6 +3768,10 @@ $.fn.close = async function (options) {
             // notify other apps that we're closing
             window.report_app_closed(window_uuid, options.status_code ?? 0);
 
+            // A picture-in-picture window the app opened is the app's; it
+            // goes with it.
+            globalThis.services?.get?.('pip')?.close_for_app?.(window_uuid);
+
             // remove backdrop
             $(this).closest('.window-backdrop').remove();
 
