@@ -164,12 +164,27 @@
  * @property {boolean} [returnPermissions] Whether to return permission information. Defaults to `false`.
  * @property {boolean} [returnVersions] Whether to return version information. Defaults to `false`.
  * @property {boolean} [returnSize] Whether to return size information. Defaults to `false`.
+ * @property {boolean} [returnShares] Whether to return who the item is shared with, as a `shares`
+ * array on the result. Empty unless you can manage the item. Defaults to `false`.
  */
 
 /**
  * Options for the `stat` operation.
  *
  * @typedef {StatOptionsOwn & RequestCallbacks<FSItem>} StatOptions
+ */
+
+/**
+ * What `stat()` and `readdir()` return: an item plus the sharing state only
+ * those two report. `is_shared` is null for items the caller does not own.
+ *
+ * @typedef {FSItem & { is_shared?: boolean | null }} FSItemRead
+ */
+
+/**
+ * A `stat()` result with `returnShares` set.
+ *
+ * @typedef {FSItemRead & { shares: Share[] }} FSItemWithShares
  */
 
 /**
@@ -314,6 +329,8 @@
  * to. Only set when `pending`.
  * @property {number} modified Last-modified time of the item, unix seconds.
  * @property {number | null} size Size of the item in bytes; null for a directory.
+ * @property {boolean} [isNew] Whether the call created access that did not exist
+ * before. Set by `share()` only; a listing leaves it undefined.
  */
 
 /**

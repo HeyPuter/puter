@@ -1,5 +1,6 @@
 // Shared helpers for the sharing operations.
 
+import path from 'path-browserify';
 import getAbsolutePathForApp from '../utils/getAbsolutePathForApp.js';
 
 /** @typedef {import('../types.js').Share} Share */
@@ -83,4 +84,25 @@ export const toShare = (row) => ({
         : {}),
     modified: /** @type {number} */ (row.modified ?? 0),
     size: /** @type {number | null} */ (row.size ?? null),
+    // Only a share call reports this; a listing leaves it undefined.
+    ...(row.is_new === undefined ? {} : { isNew: Boolean(row.is_new) }),
 });
+
+/**
+ * Forget cached entries for items whose sharing just changed — `is_shared`
+ * rides in the cached entry, and nothing else invalidates it. Items addressed
+ * by uid have no key to drop, so those flush the cache instead.
+ *
+ * @param {Array<{ path?: string, uid?: string }>} items
+ */
+export const invalidateShareCache = (items) => {
+    if ( ! puter?._cache ) return;
+    for ( const item of items ) {
+        if ( ! item.path ) {
+            puter._cache.flushall();
+            return;
+        }
+        puter._cache.del(`item:${ item.path}`);
+        puter._cache.del(`readdir:${ path.dirname(item.path)}`);
+    }
+};

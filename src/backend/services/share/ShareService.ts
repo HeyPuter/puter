@@ -20,7 +20,7 @@
 import { contentType as contentTypeFromMime } from 'mime-types';
 import { posix as pathPosix } from 'node:path';
 import { userRelatedActor, type Actor } from '../../core/actor';
-import { HttpError } from '../../core/http/HttpError.js';
+import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import {
     abuseKey,
@@ -94,11 +94,9 @@ export interface ResolvedShare {
     issuedByApp?: string | null;
     modified: number;
     size: number | null;
-    /**
-     * Set by `share()` only, and never sent to a client: who to notify, and
-     * whether this call created reach that didn't exist before.
-     */
+    /** Set by `share()` only: who to notify. Never sent to a client. */
     holderId?: number;
+    /** Whether this call created reach that didn't exist before. */
     isNew?: boolean;
     /**
      * An invite to an address with no confirmed account. No grant exists yet —
@@ -1187,6 +1185,33 @@ export class ShareService extends PuterService {
     }
 
     /**
+     * Drop the index row behind a grant that was withdrawn through the
+     * permission API rather than `unshare`. The row would otherwise outlive the
+     * access it records, and a listing reads the index, not the grant.
+     */
+    async onGrantRevoked(
+        issuer: Actor,
+        holderUsername: string,
+        permission: string,
+    ): Promise<void> {
+        const uuid = uuidFromEntryPermission(permission);
+        if (!uuid) return;
+
+        const issuerId = issuer?.user?.id;
+        const [entry, holder] = await Promise.all([
+            this.stores.fsEntry.getEntryByUuid(uuid),
+            this.stores.user.getByUsername(holderUsername),
+        ]);
+        if (!entry || !holder || typeof issuerId !== 'number') return;
+
+        await this.stores.share.deleteActive({
+            holderUserId: holder.id,
+            fsentryId: entry.id,
+            issuerUserId: issuerId,
+        });
+    }
+
+    /**
      * Retire the shares on a node that has just changed owner.
      *
      * A grant names a uuid, so it would otherwise ride along into the new
@@ -1458,6 +1483,46 @@ export class ShareService extends PuterService {
         );
 
         return inheritedShares.concat(own, pending);
+    }
+
+    /** Whether each of the caller's own `entries` is shared, keyed by uuid. */
+    async shareFlags(
+        actor: Actor,
+        entries: FSEntry[],
+    ): Promise<Map<string, boolean>> {
+        // No user behind the actor means no flag, not a failed listing.
+        const userId = actor?.user?.id;
+        if (typeof userId !== 'number') return new Map();
+
+        const own = entries.filter(
+            (entry) => entry.userId === userId && Number.isFinite(entry.id),
+        );
+        if (own.length === 0) return new Map();
+
+        const sharedIds = await this.stores.share.getSharedFsentryIds(
+            own.map((entry) => entry.id),
+        );
+        return new Map(
+            own.map((entry) => [entry.uuid, sharedIds.has(entry.id)]),
+        );
+    }
+
+    /** `listSharesOf`, but null instead of throwing when manage is missing. */
+    async tryListSharesOf(
+        actor: Actor,
+        target: ShareTarget,
+    ): Promise<ResolvedShare[] | null> {
+        try {
+            return await this.listSharesOf(actor, target);
+        } catch (error) {
+            if (
+                isHttpError(error) &&
+                (error.statusCode === 403 || error.statusCode === 404)
+            ) {
+                return null;
+            }
+            throw error;
+        }
     }
 
     // -- Blocking -----------------------------------------------------
@@ -1947,6 +2012,22 @@ export class ShareService extends PuterService {
         // it is what keeps sharing to its own AppData and the files it was
         // given, rather than everything its user owns.
         if (allowed && (await this.#hasOwnReach(actor, entry, mode))) return;
+
+        // Only for someone who can already share here, so it leaks nothing.
+        if (mode === MANAGE_PERM_PREFIX) {
+            const canDelegateAccess =
+                await this.services.permission.canManagePermission(
+                    userRelatedActor(actor),
+                    entryPermissionForMode(entry.uuid, 'write'),
+                );
+            if (canDelegateAccess) {
+                throw new HttpError(
+                    403,
+                    'Only the owner can grant edit & share access',
+                    { legacyCode: 'cannot_delegate_manage' },
+                );
+            }
+        }
 
         const safe = await this.services.acl.getSafeAclError(
             actor,

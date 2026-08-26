@@ -226,4 +226,131 @@ describe('GET /fs/readdir over HTTP', () => {
         const body = (await response.json()) as Array<{ name: string }>;
         expect(body.map((e) => e.name)).toContain('Documents');
     });
+
+    describe('the share flag', () => {
+        const post = async (path: string, token: string, body: unknown) => {
+            const response = await fetch(new URL(path, env.apiOrigin), {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify(body),
+            });
+            expect(response.status).toBe(200);
+            return response.json() as Promise<Record<string, unknown>>;
+        };
+
+        const mkdir = (path: string, token: string) =>
+            post('/fs/mkdir', token, { path });
+
+        const readdir = async (path: string, token: string) => {
+            const response = await fetch(readdirUrl({ path, auth_token: token }));
+            expect(response.status).toBe(200);
+            const entries = (await response.json()) as Array<{
+                name: string;
+                isShared: boolean | null;
+            }>;
+            return new Map(entries.map((e) => [e.name, e.isShared]));
+        };
+
+        const base = () =>
+            `/${env.users.user.username}/Documents/flag-${crypto.randomUUID().slice(0, 8)}`;
+
+        it('marks a shared child in a listing, and clears it on revoke', async () => {
+            const owner = env.users.user;
+            const recipient = env.users.other;
+            const parent = base();
+            await mkdir(parent, owner.token);
+            const shared = await mkdir(`${parent}/shared`, owner.token);
+            await mkdir(`${parent}/private`, owner.token);
+
+            // A write response says nothing about sharing.
+            expect(shared).not.toHaveProperty('isShared');
+
+            await post('/share', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: shared.uuid }],
+                mode: 'read',
+            });
+
+            expect(await readdir(parent, owner.token)).toEqual(
+                new Map([
+                    ['shared', true],
+                    ['private', false],
+                ]),
+            );
+
+            await post('/share/revoke', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: shared.uuid }],
+            });
+
+            expect(await readdir(parent, owner.token)).toEqual(
+                new Map([
+                    ['shared', false],
+                    ['private', false],
+                ]),
+            );
+        });
+
+        it('names the recipients in stat only when asked', async () => {
+            const owner = env.users.user;
+            const recipient = env.users.other;
+            const parent = base();
+            await mkdir(parent, owner.token);
+            const shared = await mkdir(`${parent}/shared`, owner.token);
+
+            await post('/share', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: shared.uuid }],
+                mode: 'read',
+            });
+
+            const plain = await post('/fs/stat', owner.token, {
+                uid: shared.uuid,
+            });
+            expect(plain.isShared).toBe(true);
+            expect(plain).not.toHaveProperty('shares');
+
+
+            const withShares = await post('/fs/stat', owner.token, {
+                uid: shared.uuid,
+                return_shares: true,
+            });
+            const shares = withShares.shares as Array<Record<string, unknown>>;
+            expect(shares).toHaveLength(1);
+            expect(shares[0]).toMatchObject({
+                holder: recipient.username,
+                issuer: owner.username,
+                mode: 'read',
+                inherited_from: null,
+            });
+            for (const key of ['holder_user_id', 'issuer_user_id', 'fsentry_id']) {
+                expect(shares[0]).not.toHaveProperty(key);
+            }
+        });
+
+        it('tells a recipient nothing about who else can reach the item', async () => {
+            const owner = env.users.user;
+            const recipient = env.users.other;
+            const parent = base();
+            await mkdir(parent, owner.token);
+            const shared = await mkdir(`${parent}/shared`, owner.token);
+
+            await post('/share', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: shared.uuid }],
+                mode: 'read',
+            });
+
+            const stat = await post('/fs/stat', recipient.token, {
+                uid: shared.uuid,
+                return_shares: true,
+            });
+            expect(stat.isShared).toBeNull();
+            // Asked for, so the key is there — but it names nobody.
+            expect(stat.shares).toEqual([]);
+        });
+    });
 });

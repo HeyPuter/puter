@@ -9,9 +9,11 @@ import readdir from './readdir.js';
 import readdirSubdomains from './readdirSubdomains.js';
 import rename from './rename.js';
 import revokeReadURL from './revokeReadUrl.js';
+import share from './share.js';
 import sign from './sign.js';
 import space from './space.js';
 import stat from './stat.js';
+import unshare from './unshare.js';
 import write from './write.js';
 
 /**
@@ -82,7 +84,8 @@ const makeFS = () => ({
     // write delegates to upload, which has its own tests.
     upload: vi.fn(async () => ({ uid: 'written' })),
     copy, delete: deleteFSEntry, getReadURL, mkdir, move, read, readdir,
-    readdirSubdomains, rename, revokeReadURL, sign, space, stat, write,
+    readdirSubdomains, rename, revokeReadURL, share, sign, space, stat,
+    unshare, write,
 });
 
 const makeCache = () => {
@@ -382,6 +385,72 @@ describe('stat', () => {
         await fs.stat({ path: '/a/file.txt', consistency: 'eventual' });
         expect(FakeXHR.requests).toHaveLength(0);
     });
+
+    it('asks for shares and publishes them in the SDK shape', async () => {
+        FakeXHR.respondWith = () => ({
+            uid: 'u1',
+            is_dir: false,
+            is_shared: true,
+            shares: [
+                {
+                    uid: 's1',
+                    mode: 'write',
+                    uid_entry: 'u1',
+                    is_dir: false,
+                    holder: 'someone',
+                    inherited_from: null,
+                },
+            ],
+        });
+        const item = await fs.stat('/a/file.txt', { returnShares: true });
+        expect(lastBody()).toMatchObject({ return_shares: true });
+        expect(item.is_shared).toBe(true);
+        expect(item.shares[0]).toMatchObject({
+            uid: 's1',
+            mode: 'write',
+            entryUid: 'u1',
+            holder: 'someone',
+            inheritedFrom: null,
+        });
+    });
+
+    it('re-reads a cached item after its sharing changes', async () => {
+        FakeXHR.respondWith = () => ({ uid: 'u1', is_dir: false, is_shared: false });
+        await fs.stat('/a/file.txt');
+
+        FakeXHR.respondWith = () => ({ status: 'success', results: [{ status: 'success', uid: 's1', mode: 'read' }] });
+        await fs.share('/a/file.txt', 'friend', 'read');
+
+        // Without invalidation the stale is_shared: false would be served here.
+        FakeXHR.requests = [];
+        FakeXHR.respondWith = () => ({ uid: 'u1', is_dir: false, is_shared: true });
+        const item = await fs.stat({ path: '/a/file.txt', consistency: 'eventual' });
+        expect(FakeXHR.requests).toHaveLength(1);
+        expect(item.is_shared).toBe(true);
+    });
+
+    it('re-reads a cached item after a share is withdrawn', async () => {
+        FakeXHR.respondWith = () => ({ uid: 'u1', is_dir: false, is_shared: true });
+        await fs.stat('/a/file.txt');
+
+        FakeXHR.respondWith = () => ({ revoked: 1 });
+        await fs.unshare('/a/file.txt', 'friend');
+
+        FakeXHR.requests = [];
+        FakeXHR.respondWith = () => ({ uid: 'u1', is_dir: false, is_shared: false });
+        const item = await fs.stat({ path: '/a/file.txt', consistency: 'eventual' });
+        expect(FakeXHR.requests).toHaveLength(1);
+        expect(item.is_shared).toBe(false);
+    });
+
+    it('keeps a share-carrying result out of the cache', async () => {
+        FakeXHR.respondWith = () => ({ uid: 'u1', is_dir: false, shares: [] });
+        await fs.stat('/a/cached.txt', { returnShares: true });
+        FakeXHR.requests = [];
+        // Would be served from the cache had the previous call populated it.
+        await fs.stat({ path: '/a/cached.txt', consistency: 'eventual' });
+        expect(FakeXHR.requests).toHaveLength(1);
+    });
 });
 
 describe('readdir', () => {
@@ -394,6 +463,15 @@ describe('readdir', () => {
         expect(lastRequest().url).toBe('https://api.test/fs/readdir');
         expect(lastBody()).toMatchObject({ path: '/a', auth_token: 'test-token' });
         expect(entries[0]).toMatchObject({ name: 'file.txt', is_dir: false, uid: 'u1' });
+    });
+
+    it('carries the share flag into the v1 shape', async () => {
+        FakeXHR.respondWith = () => [
+            { uuid: 'u1', name: 'mine.txt', path: '/a/mine.txt', isShared: true },
+            { uuid: 'u2', name: 'theirs.txt', path: '/a/theirs.txt', isShared: null },
+        ];
+        const entries = await fs.readdir('/a');
+        expect(entries.map((e) => e.is_shared)).toEqual([true, null]);
     });
 
     it('readdir(path, options) applies the options', async () => {

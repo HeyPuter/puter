@@ -47,6 +47,7 @@ import {
     hostedIndexUrlBackingIsUnavailable,
 } from '../../util/hostedAppBacking.js';
 import { applyInlineContentSecurity } from '../../util/inlineContentSecurity.js';
+import { listClientShares } from '../share/clientShare.js';
 import { PuterController } from '../types.js';
 import {
     FS_BATCH_CONCURRENT,
@@ -437,12 +438,12 @@ export class LegacyFSController extends PuterController {
             'see',
         );
 
-        entry.suggestedApps =
-            await this.services.suggestedApps.getSuggestedApps(entry);
-
-        const appsById = await loadLegacyAssociatedApps(this.stores.app, [
-            entry,
+        const [suggestedApps, appsById, shareFlags] = await Promise.all([
+            this.services.suggestedApps.getSuggestedApps(entry),
+            loadLegacyAssociatedApps(this.stores.app, [entry]),
+            this.services.share.shareFlags(actor, [entry]),
         ]);
+        entry.suggestedApps = suggestedApps;
 
         const shaped = await toLegacyEntry(this.clients.event, entry, {
             fsEntryStore: this.stores.fsEntry,
@@ -452,6 +453,7 @@ export class LegacyFSController extends PuterController {
                 ) => Promise<Record<string, unknown> | null>;
             },
             appsById,
+            isShared: shareFlags.get(entry.uuid) ?? null,
         });
 
         // Optional hydrations:
@@ -461,13 +463,17 @@ export class LegacyFSController extends PuterController {
                 entry.path,
             );
         }
-        // Legacy clients sometimes ask for `return_versions`, `return_shares`.
-        // We don't have parity for these yet — return empty arrays to avoid
-        // breaking `response.x.forEach(...)` patterns. `return_owner` is a
-        // no-op flag here: the `owner` field is already populated by
-        // `toLegacyEntry` as `{ username }`.
+        // `return_versions` has no parity yet; the empty array keeps `forEach`
+        // callers working. `return_owner` is a no-op — `owner` is always set.
         if (getBoolean(body, 'return_versions')) shaped.versions = [];
-        if (getBoolean(body, 'return_shares')) shaped.shares = [];
+        if (getBoolean(body, 'return_shares')) {
+            shaped.shares = await listClientShares(
+                this.services.share,
+                this.clients.event,
+                actor,
+                entry.uuid,
+            );
+        }
 
         res.json(shaped);
     };
@@ -500,14 +506,15 @@ export class LegacyFSController extends PuterController {
                     child.suggestedApps = rootSuggestions[index] ?? [];
                 }
             }
-            const rootAppsById = await loadLegacyAssociatedApps(
-                this.stores.app,
-                rootChildren,
-            );
+            const [rootAppsById, rootShareFlags] = await Promise.all([
+                loadLegacyAssociatedApps(this.stores.app, rootChildren),
+                this.services.share.shareFlags(actor, rootChildren),
+            ]);
             const shaped = await Promise.all(
                 rootChildren.map((c) =>
                     toLegacyEntry(this.clients.event, c, {
                         appsById: rootAppsById,
+                        isShared: rootShareFlags.get(c.uuid) ?? null,
                     }),
                 ),
             );
@@ -581,14 +588,17 @@ export class LegacyFSController extends PuterController {
             }
         }
 
-        const appsById = await loadLegacyAssociatedApps(
-            this.stores.app,
-            children,
-        );
+        const [appsById, shareFlags] = await Promise.all([
+            loadLegacyAssociatedApps(this.stores.app, children),
+            this.services.share.shareFlags(actor, children),
+        ]);
 
         const shaped = await Promise.all(
             children.map((c) =>
-                toLegacyEntry(this.clients.event, c, { appsById }),
+                toLegacyEntry(this.clients.event, c, {
+                    appsById,
+                    isShared: shareFlags.get(c.uuid) ?? null,
+                }),
             ),
         );
 

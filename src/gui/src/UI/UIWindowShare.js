@@ -20,10 +20,20 @@
 import UIWindow from './UIWindow.js';
 import UIAlert from './UIAlert.js';
 import path from '../lib/path.js';
-import { owner_of_path } from '../helpers/pathOwner.js';
+import { is_owned_by_me, owner_of_path } from '../helpers/pathOwner.js';
 import { invalidate_shared_roots } from '../helpers/sharedAccess.js';
 import { icons } from '../helpers/actionIcons.js';
 import { mode_label, options_for } from '../helpers/shareModes.js';
+import { has_direct_share, mark_item_shared } from '../helpers/sharedBadge.js';
+import { share_outcome } from '../helpers/shareOutcome.js';
+
+/** What each outcome of a share call is called on screen. */
+const SHARE_MESSAGE = {
+    invited: 'share_invited',
+    shared: 'share_shared_with',
+    updated: 'share_access_updated',
+    unchanged: 'share_already_shared_with',
+};
 
 /**
  * Sharing dialog for one file or directory.
@@ -40,6 +50,8 @@ async function UIWindowShare (options) {
     const item_name = options.name ?? path.basename(item_path);
     const item_owner =
         options.owner ?? owner_of_path(item_path) ?? window.user.username;
+    // A delegate passes on access, never the authority to pass it on.
+    const allow_manage = is_owned_by_me(item_path);
 
     let h = '';
     h += '<div class="share-dialog">';
@@ -50,7 +62,7 @@ async function UIWindowShare (options) {
     h += '<div class="share-dialog-row">';
     h += `<input class="share-recipient" id="share-recipient" type="text" autocomplete="off" spellcheck="false"
                  placeholder="${html_encode(i18n('share_add_people'))}" />`;
-    h += `<select class="share-mode">${options_for('read')}</select>`;
+    h += `<select class="share-mode">${options_for('read', { allow_manage })}</select>`;
     h += '</div>';
     h += `<button class="share-btn button button-primary button-block button-normal">${i18n('share')}</button>`;
 
@@ -111,7 +123,11 @@ async function UIWindowShare (options) {
         $success.html(message).show();
     };
 
+    /** The access list as last drawn, which is what a share call changes. */
+    let shown_shares = [];
+
     const render = (shares) => {
+        shown_shares = Array.isArray(shares) ? shares : [];
         let rows = '';
         // The owner's access comes from owning the item, so it can't be revoked
         rows += '<div class="share-row">';
@@ -142,7 +158,7 @@ async function UIWindowShare (options) {
             }
             rows += '<div class="share-row">';
             rows += `<span class="share-row-who">${holder}</span>`;
-            rows += `<select class="share-row-mode-select" data-holder="${holder}">${options_for(share.mode)}</select>`;
+            rows += `<select class="share-row-mode-select" data-holder="${holder}">${options_for(share.mode, { allow_manage })}</select>`;
             rows += `<button class="share-revoke" data-holder="${holder}" title="${html_encode(i18n('share_remove_access'))}" aria-label="${html_encode(i18n('share_remove_access'))}">${icons.trash}</button>`;
             rows += '</div>';
         }
@@ -150,6 +166,8 @@ async function UIWindowShare (options) {
             rows += `<p class="share-dialog-empty">${i18n('share_no_one')}</p>`;
         }
         $list.html(rows);
+        // Every share, mode change and revoke lands here.
+        mark_item_shared(item_path, has_direct_share(shares));
     };
 
     const refresh = async () => {
@@ -173,13 +191,12 @@ async function UIWindowShare (options) {
             });
             $(el_window).find('.share-recipient').val('');
             $error.hide();
-            // "Shared with" would claim access an invite does not grant.
             // `i18n()` encodes its replacements; encoding first would show the
             // entities to anyone whose address or username contains one.
             show_success(
-                created.some((share) => share.pending)
-                    ? i18n('share_invited', { recipient })
-                    : i18n('share_shared_with', { recipient }),
+                i18n(SHARE_MESSAGE[share_outcome(created, shown_shares)], {
+                    recipient,
+                }),
             );
             invalidate_shared_roots();
             await refresh();

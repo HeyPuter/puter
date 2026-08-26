@@ -457,6 +457,134 @@ describe('ShareService', () => {
         ).toBe(dir.path);
     });
 
+    describe('the listing flag', () => {
+        const flags = (actor: Actor, entries: unknown[]) =>
+            server.services.share.shareFlags(actor, entries as never);
+
+        it('goes quiet when the grant is withdrawn through the permission API', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            // What the deprecated `/auth/revoke-user-user` route does: the
+            // grant goes, `unshare` never runs, and the index row is left.
+            await runWithContext({ actor: owner.actor }, () =>
+                server.services.permission.revokeUserUserPermission(
+                    owner.actor,
+                    recipient.user.username!,
+                    `fs:${file.uuid}:read`,
+                ),
+            );
+            await server.services.share.onGrantRevoked(
+                owner.actor,
+                recipient.user.username!,
+                `fs:${file.uuid}:read`,
+            );
+
+            expect(await canRead(recipient.actor, file.path)).toBe(false);
+            // The flag reads the index, so it has to agree with `listSharesOf`.
+            expect(
+                await server.services.share.listSharesOf(owner.actor, {
+                    uid: file.uuid,
+                }),
+            ).toEqual([]);
+            expect(await flags(owner.actor, [file])).toEqual(
+                new Map([[file.uuid, false]]),
+            );
+        });
+
+        it('flags a shared entry and not its neighbour, until it is revoked', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const shared = await makeFile(owner.user);
+            const untouched = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: shared.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            expect(await flags(owner.actor, [shared, untouched])).toEqual(
+                new Map([
+                    [shared.uuid, true],
+                    [untouched.uuid, false],
+                ]),
+            );
+
+            await unshare(owner.actor, {
+                uid: shared.uuid,
+                recipient: { username: recipient.user.username },
+            });
+
+            expect(await flags(owner.actor, [shared, untouched])).toEqual(
+                new Map([
+                    [shared.uuid, false],
+                    [untouched.uuid, false],
+                ]),
+            );
+        });
+
+        it('flags an entry whose only share is an unclaimed invite', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+
+            const result = await share(owner.actor, {
+                uid: file.uuid,
+                recipient: {
+                    email: `nobody-${uuidv4().slice(0, 8)}@test.local`,
+                },
+                mode: 'read',
+            });
+            expect(result.pending).toBe(true);
+
+            expect(await flags(owner.actor, [file])).toEqual(
+                new Map([[file.uuid, true]]),
+            );
+        });
+
+        it('tells a recipient nothing about who else the owner shared with', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            expect(await flags(recipient.actor, [file])).toEqual(new Map());
+        });
+
+        it('does not flag a file reachable only through a shared folder', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir, file } = await makeDirWithFile(owner.user);
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            // The flag says shared, not reachable.
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+            expect(await flags(owner.actor, [dir, file])).toEqual(
+                new Map([
+                    [dir.uuid, true],
+                    [file.uuid, false],
+                ]),
+            );
+        });
+    });
+
     it('takes downstream access with a delegate who leaves', async () => {
         const owner = await makeUser();
         const delegate = await makeUser();
@@ -678,7 +806,35 @@ describe('ShareService', () => {
                 recipient: { email: third.email },
                 mode: 'manage',
             }),
-        ).rejects.toMatchObject({ statusCode: 403 });
+        ).rejects.toMatchObject({
+            statusCode: 403,
+            legacyCode: 'cannot_delegate_manage',
+        });
+
+        // What they can do is unchanged.
+        await expect(
+            share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: third.email },
+                mode: 'write',
+            }),
+        ).resolves.toMatchObject({ mode: 'write' });
+    });
+
+    it('tells a stranger nothing when they ask to grant `manage`', async () => {
+        const owner = await makeUser();
+        const stranger = await makeUser();
+        const third = await makeUser();
+        const file = await makeFile(owner.user);
+
+        // No access at all, so the refusal must not confirm the file exists.
+        await expect(
+            share(stranger.actor, {
+                uid: file.uuid,
+                recipient: { email: third.email },
+                mode: 'manage',
+            }),
+        ).rejects.not.toMatchObject({ legacyCode: 'cannot_delegate_manage' });
     });
 
     it('leaves a delegate alone when their authority survives another issuer', async () => {

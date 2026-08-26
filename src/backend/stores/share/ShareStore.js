@@ -25,6 +25,9 @@ import { PuterStore } from '../types';
 const DEFAULT_HOLDER_PAGE_SIZE = 50;
 const MAX_HOLDER_PAGE_SIZE = 200;
 
+/** Ids per `IN` list in `getSharedFsentryIds`; a listing can run to thousands. */
+const SHARED_IDS_CHUNK_SIZE = 1000;
+
 /**
  * CRUD over the `share` table.
  *
@@ -176,6 +179,32 @@ export class ShareStore extends PuterStore {
             fsentryIds,
         );
         return rows.map((r) => this.#normalizeRow(r));
+    }
+
+    /**
+     * Which of `fsentryIds` carry a share, pending invites included.
+     *
+     * @param {number[]} fsentryIds
+     * @returns {Promise<Set<number>>}
+     */
+    async getSharedFsentryIds(fsentryIds) {
+        const ids = [
+            ...new Set(
+                fsentryIds.map(Number).filter((id) => Number.isFinite(id)),
+            ),
+        ];
+        const shared = new Set();
+        for (let i = 0; i < ids.length; i += SHARED_IDS_CHUNK_SIZE) {
+            const chunk = ids.slice(i, i + SHARED_IDS_CHUNK_SIZE);
+            const placeholders = chunk.map(() => '?').join(', ');
+            const rows = await this.clients.db.read(
+                'SELECT DISTINCT `fsentry_id` FROM `share` ' +
+                    `WHERE \`fsentry_id\` IN (${placeholders})`,
+                chunk,
+            );
+            for (const row of rows) shared.add(Number(row.fsentry_id));
+        }
+        return shared;
     }
 
     async countByHolder(holderUserId) {

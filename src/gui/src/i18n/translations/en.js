@@ -399,6 +399,7 @@ const en = {
         share_done: 'Done',
         share_failed: 'Could not share this item.',
         share_shared_with: 'Shared with {{recipient}}',
+        share_already_shared_with: '{{recipient}} already has this access',
         share_access_updated: 'Updated access for {{recipient}}',
         share_invited: 'Invited {{recipient}} — they’ll get access once they join',
         share_awaiting_signup: 'Invited',

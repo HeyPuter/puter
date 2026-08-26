@@ -133,6 +133,8 @@ async function UIItem (options) {
     options.is_shortcut = options.is_shortcut ?? 0;
     options.is_trash = options.is_trash ?? false;
     options.shared_with_me = options.shared_with_me ?? false;
+    // `=== true` because null — someone else's item — must not badge.
+    options.is_shared = options.is_shared === true;
     options.share_mode = options.share_mode ?? '';
     options.shared_by = options.shared_by ?? '';
     options.owner = options.owner ?? '';
@@ -169,6 +171,7 @@ async function UIItem (options) {
                 data-is_dir="${options.is_dir ? 1 : 0}" 
                 data-is_trash="${options.is_trash ? 1 : 0}"
                 data-shared_with_me="${options.shared_with_me ? 1 : 0}"
+                data-is_shared="${options.is_shared ? 1 : 0}"
                 data-share_mode="${html_encode(options.share_mode)}"
                 data-shared_by="${html_encode(options.shared_by)}"
                 data-owner="${html_encode(options.owner)}"
@@ -214,6 +217,12 @@ async function UIItem (options) {
     // icon
     h += '<div class="item-icon">';
     h += `<img src="${html_encode(options.icon.image)}" class="item-icon-${options.icon.type}" data-item-id="${item_id}">`;
+    // Shared marker: on the icon rather than in the badge cluster, so it stays
+    // on the item's own corner at every icon size.
+    h += `<div class="item-shared-marker"
+                style="${options.is_shared ? '' : 'display:none;'}"
+                title="${html_encode(i18n('item_shared_by_you'))}"
+            ></div>`;
     h += '</div>';
     // badges
     h += '<div class="item-badges">';
@@ -238,7 +247,7 @@ async function UIItem (options) {
                         title="${i18n('item_shortcut')}"
                     >`;
     // worker badge
-    h += `<img  class="item-badge item-is-worker long-hover" 
+    h += `<img  class="item-badge item-is-worker long-hover"
                         style="background-color: #ffffff; padding: 2px; ${is_worker ? 'display:block;' : ''}" 
                         src="${html_encode(window.icons['worker.svg'])}" 
                         data-item-id="${item_id}"

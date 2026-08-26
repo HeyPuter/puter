@@ -373,6 +373,47 @@ describe('LegacyFSController.stat', () => {
         expect(body.size).toBe(0);
     });
 
+    it('reports the share flag, and the recipients when asked', async () => {
+        const { actor } = await makeUser();
+        const recipient = await makeUser();
+        const username = actor.user!.username!;
+        const path = `/${username}/Documents/shared-folder`;
+        await withActor(actor, () =>
+            controller.mkdir(makeReq({ body: { path }, actor }), makeRes().res),
+        );
+
+        const before = makeRes();
+        await withActor(actor, () =>
+            controller.stat(makeReq({ body: { path }, actor }), before.res),
+        );
+        expect(before.captured.body).toMatchObject({ is_shared: false });
+
+        await withActor(actor, () =>
+            server.services.share.share(actor, {
+                path,
+                recipient: { username: recipient.actor.user!.username! },
+                mode: 'read',
+            }),
+        );
+
+        const after = makeRes();
+        await withActor(actor, () =>
+            controller.stat(
+                makeReq({ body: { path, return_shares: true }, actor }),
+                after.res,
+            ),
+        );
+        const body = after.captured.body as Record<string, unknown>;
+        expect(body.is_shared).toBe(true);
+        expect(body.shares).toMatchObject([
+            {
+                holder: recipient.actor.user!.username,
+                issuer: username,
+                mode: 'read',
+            },
+        ]);
+    });
+
     it('throws 401 when the request has no actor', async () => {
         const { actor } = await makeUser();
         const { res } = makeRes();
@@ -648,6 +689,44 @@ describe('LegacyFSController.readdir', () => {
         const names = entries.map((e) => e.name);
         expect(names).toContain('alpha');
         expect(names).toContain('beta');
+    });
+
+    it('flags a shared child in the listing', async () => {
+        const { actor } = await makeUser();
+        const recipient = await makeUser();
+        const username = actor.user!.username!;
+        const parent = `/${username}/Documents/flagged`;
+        for (const name of ['', '/shared', '/private']) {
+            await withActor(actor, () =>
+                controller.mkdir(
+                    makeReq({ body: { path: `${parent}${name}` }, actor }),
+                    makeRes().res,
+                ),
+            );
+        }
+
+        await withActor(actor, () =>
+            server.services.share.share(actor, {
+                path: `${parent}/shared`,
+                recipient: { username: recipient.actor.user!.username! },
+                mode: 'read',
+            }),
+        );
+
+        const { res, captured } = makeRes();
+        await withActor(actor, () =>
+            controller.readdir(makeReq({ body: { path: parent }, actor }), res),
+        );
+        const entries = captured.body as Array<{
+            name: string;
+            is_shared: boolean | null;
+        }>;
+        expect(new Map(entries.map((e) => [e.name, e.is_shared]))).toEqual(
+            new Map([
+                ['shared', true],
+                ['private', false],
+            ]),
+        );
     });
 
     it('returns the root listing when path = "/"', async () => {

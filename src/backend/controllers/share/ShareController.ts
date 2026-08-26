@@ -27,7 +27,7 @@ import type {
     ShareTarget,
 } from '../../services/share/ShareService.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
-import { signEntryThumbnail } from '../fs/legacyFsHelpers.js';
+import { toClientShare } from './clientShare.js';
 import { runWithConcurrencyLimitSettled } from '../../util/concurrency.js';
 import { normalizeLimit } from '../../util/pagination.js';
 import { PuterController } from '../types.js';
@@ -443,47 +443,8 @@ export class ShareController extends PuterController {
         return username;
     }
 
-    /**
-     * Only ever the username — never the internal id, and never an email the
-     * caller didn't already supply.
-     *
-     * `thumbnail` is stored as an `s3://bucket/key` URI, so it is swapped for a
-     * signed URL rather than emitted: the raw value names internal storage and
-     * no client can render it.
-     */
-    async #toClientShare(share: ResolvedShare) {
-        const thumbnail =
-            share.thumbnail === undefined
-                ? undefined
-                : await signEntryThumbnail(
-                      this.clients.event,
-                      share.entryUid,
-                      share.thumbnail,
-                  );
-        return {
-            uid: share.uid,
-            mode: share.mode,
-            path: share.path,
-            // A share listing has no fsentry behind it for a client to stat.
-            ...(share.name === undefined ? {} : { name: share.name }),
-            ...(share.type === undefined ? {} : { type: share.type }),
-            ...(thumbnail === undefined ? {} : { thumbnail }),
-            ...(share.owner === undefined
-                ? {}
-                : { owner: share.owner.username }),
-            ...(share.pending
-                ? { pending: true, recipient_email: share.recipientEmail }
-                : {}),
-            uid_entry: share.entryUid,
-            is_dir: share.isDir,
-            issuer: share.issuer.username,
-            holder: share.holder.username,
-            created_at: share.createdAt,
-            issued_by_app: share.issuedByApp ?? null,
-            inherited_from: share.inheritedFrom ?? null,
-            modified: share.modified,
-            size: share.size,
-        };
+    #toClientShare(share: ResolvedShare) {
+        return toClientShare(this.clients.event, share);
     }
 
     #requireActor(req: Request): Actor {
