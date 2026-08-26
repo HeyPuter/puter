@@ -67,6 +67,21 @@ export default suite('sharing', {
         t.assert.equal(shares[0].path, path);
     },
 
+    'share says whether it created access or the recipient already had it': async (t) => {
+        const path = scratch(t, 'isnew');
+        await t.puter.fs.write(path, 'x');
+
+        const first = await t.puter.fs.share(path, t.env.users.other.username, 'read');
+        t.assert.equal(first[0].isNew, true);
+
+        const again = await t.puter.fs.share(path, t.env.users.other.username, 'read');
+        t.assert.equal(again[0].isNew, false);
+
+        // A listing describes standing access, so it does not carry it.
+        const listed = await t.puter.fs.getShares(path);
+        t.assert.equal(listed[0].isNew, undefined);
+    },
+
     'getShares reports who can reach an item': async (t) => {
         const path = scratch(t, 'getshares');
         await t.puter.fs.write(path, 'x');

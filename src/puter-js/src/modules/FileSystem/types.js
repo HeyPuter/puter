@@ -329,6 +329,8 @@
  * to. Only set when `pending`.
  * @property {number} modified Last-modified time of the item, unix seconds.
  * @property {number | null} size Size of the item in bytes; null for a directory.
+ * @property {boolean} [isNew] Whether the call created access that did not exist
+ * before. Set by `share()` only; a listing leaves it undefined.
  */
 
 /**

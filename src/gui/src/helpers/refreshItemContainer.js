@@ -254,6 +254,7 @@ const refresh_item_container = function (el_item_container, options) {
                             shared_with_me: fsentry.shared_with_me,
                             share_mode: fsentry.share_mode,
                             shared_by: fsentry.shared_by,
+                            is_shared: fsentry.is_shared,
                             owner: fsentry.owner?.username ?? fsentry.owner,
                         });
                     }

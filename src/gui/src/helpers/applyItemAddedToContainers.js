@@ -70,6 +70,7 @@ const apply_item_added_to_containers = async function (item) {
             is_shortcut: item.is_shortcut,
             shortcut_to: item.shortcut_to,
             shortcut_to_path: item.shortcut_to_path,
+            is_shared: item.is_shared,
         });
     }
 

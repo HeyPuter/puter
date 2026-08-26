@@ -4064,6 +4064,15 @@ body.myapps-reordering .myapps-tile {
     border-radius: 2px;
 }
 
+/* Smaller than the desktop's, to match a 24px row icon. */
+.dashboard-section-files .files-tab .files .row .item-shared-marker {
+    width: 7px;
+    height: 7px;
+    right: 2px;
+    bottom: 2px;
+    box-shadow: 0 0 0 1px white;
+}
+
 .dashboard-section-files .files-tab .files.files-list-view .row .item-icon img {
     width: 18px;
     height: 18px;
