@@ -48,11 +48,17 @@ export const mode_label = (mode) => {
  * unselectable placeholder, so a batch of mixed modes can't be read as one of
  * them, and picking a real mode is what levels them.
  *
+ * `allow_manage: false` drops "Can edit & share", bar a row already on it.
+ *
  * @param {string|null} current
+ * @param {{ allow_manage?: boolean }} [options]
  * @returns {string} HTML-safe markup
  */
-export const options_for = (current) => {
-    const listed = MODES
+export const options_for = (current, { allow_manage = true } = {}) => {
+    const offered = MODES.filter(
+        (mode) => allow_manage || mode !== 'manage' || mode === current,
+    );
+    const listed = offered
         .map(
             (mode) =>
                 `<option value="${html_encode(mode)}"${mode === current ? ' selected' : ''}>${mode_label(mode)}</option>`,

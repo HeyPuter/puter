@@ -806,7 +806,35 @@ describe('ShareService', () => {
                 recipient: { email: third.email },
                 mode: 'manage',
             }),
-        ).rejects.toMatchObject({ statusCode: 403 });
+        ).rejects.toMatchObject({
+            statusCode: 403,
+            legacyCode: 'cannot_delegate_manage',
+        });
+
+        // What they can do is unchanged.
+        await expect(
+            share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { email: third.email },
+                mode: 'write',
+            }),
+        ).resolves.toMatchObject({ mode: 'write' });
+    });
+
+    it('tells a stranger nothing when they ask to grant `manage`', async () => {
+        const owner = await makeUser();
+        const stranger = await makeUser();
+        const third = await makeUser();
+        const file = await makeFile(owner.user);
+
+        // No access at all, so the refusal must not confirm the file exists.
+        await expect(
+            share(stranger.actor, {
+                uid: file.uuid,
+                recipient: { email: third.email },
+                mode: 'manage',
+            }),
+        ).rejects.not.toMatchObject({ legacyCode: 'cannot_delegate_manage' });
     });
 
     it('leaves a delegate alone when their authority survives another issuer', async () => {

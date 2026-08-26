@@ -20,7 +20,7 @@
 import UIWindow from './UIWindow.js';
 import UIAlert from './UIAlert.js';
 import path from '../lib/path.js';
-import { owner_of_path } from '../helpers/path_owner.js';
+import { is_owned_by_me, owner_of_path } from '../helpers/path_owner.js';
 import { invalidate_shared_roots } from '../helpers/shared_access.js';
 import { icons } from '../helpers/actionIcons.js';
 import { mode_label, options_for } from '../helpers/share_modes.js';
@@ -41,6 +41,8 @@ async function UIWindowShare (options) {
     const item_name = options.name ?? path.basename(item_path);
     const item_owner =
         options.owner ?? owner_of_path(item_path) ?? window.user.username;
+    // A delegate passes on access, never the authority to pass it on.
+    const allow_manage = is_owned_by_me(item_path);
 
     let h = '';
     h += '<div class="share-dialog">';
@@ -51,7 +53,7 @@ async function UIWindowShare (options) {
     h += '<div class="share-dialog-row">';
     h += `<input class="share-recipient" id="share-recipient" type="text" autocomplete="off" spellcheck="false"
                  placeholder="${html_encode(i18n('share_add_people'))}" />`;
-    h += `<select class="share-mode">${options_for('read')}</select>`;
+    h += `<select class="share-mode">${options_for('read', { allow_manage })}</select>`;
     h += '</div>';
     h += `<button class="share-btn button button-primary button-block button-normal">${i18n('share')}</button>`;
 
@@ -143,7 +145,7 @@ async function UIWindowShare (options) {
             }
             rows += '<div class="share-row">';
             rows += `<span class="share-row-who">${holder}</span>`;
-            rows += `<select class="share-row-mode-select" data-holder="${holder}">${options_for(share.mode)}</select>`;
+            rows += `<select class="share-row-mode-select" data-holder="${holder}">${options_for(share.mode, { allow_manage })}</select>`;
             rows += `<button class="share-revoke" data-holder="${holder}" title="${html_encode(i18n('share_remove_access'))}" aria-label="${html_encode(i18n('share_remove_access'))}">${icons.trash}</button>`;
             rows += '</div>';
         }

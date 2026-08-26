@@ -19,7 +19,7 @@
 
 import path from '../../lib/path.js';
 import item_icon from '../../helpers/item_icon.js';
-import { owner_of_path } from '../../helpers/path_owner.js';
+import { is_owned_by_me, owner_of_path } from '../../helpers/path_owner.js';
 import { invalidate_shared_roots } from '../../helpers/shared_access.js';
 import { icons } from '../../helpers/actionIcons.js';
 import { mode_label, options_for } from '../../helpers/share_modes.js';
@@ -115,6 +115,8 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         }));
     const target_paths = targets.map((item) => item.path);
     const total = targets.length;
+    // Strictest item decides: one borrowed item withholds it for the rest.
+    const allow_manage = target_paths.every((p) => is_owned_by_me(p));
     const is_multi = total > 1;
     // Nothing to share: an empty selection is a caller's mistake, not a dialog.
     if ( total === 0 ) return { close: () => {} };
@@ -159,7 +161,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
                         <div class="share-modal-add-row">
                             <input type="text" class="share-modal-recipient" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="send"
                                 placeholder="${i18n('share_add_people')}" aria-label="${i18n('share_add_people')}" />
-                            <select class="share-modal-mode" aria-label="${i18n('share_access_level')}">${options_for('read')}</select>
+                            <select class="share-modal-mode" aria-label="${i18n('share_access_level')}">${options_for('read', { allow_manage })}</select>
                         </div>
                         <button type="submit" class="share-modal-submit" disabled>
                             <span class="share-modal-spinner" aria-hidden="true"></span>
@@ -318,7 +320,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             // The accessible names carry the person: a list where every row
             // reads as bare "Access level" / "Remove access" leaves a screen
             // reader user unable to tell whose grant a control changes.
-            row += `<select class="share-modal-row-mode" data-key="${key}" aria-label="${i18n('share_access_level_for', { recipient: group.name })}">${options_for(group.mode)}</select>`;
+            row += `<select class="share-modal-row-mode" data-key="${key}" aria-label="${i18n('share_access_level_for', { recipient: group.name })}">${options_for(group.mode, { allow_manage })}</select>`;
         } else {
             const fixed_mode = group.pending ? group.pendingMode : group.inheritedMode;
             row += `<span class="share-modal-row-tag">${fixed_mode ? mode_label(fixed_mode) : i18n('share_access_mixed')}</span>`;

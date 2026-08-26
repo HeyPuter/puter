@@ -57,6 +57,19 @@ describe('options_for', () => {
         expect(html).not.toContain('<option value="read" selected>');
     });
 
+    it('withholds `manage` from someone who cannot grant it', () => {
+        // Offering it to a delegate is a dead end the server refuses.
+        const html = options_for('read', { allow_manage: false });
+        expect(values(html)).toEqual(['read', 'write']);
+        expect(html).not.toContain('value="manage"');
+    });
+
+    it('still shows a row already set to `manage`, so opening the dialog does not downgrade it', () => {
+        const html = options_for('manage', { allow_manage: false });
+        expect(values(html)).toEqual(MODES);
+        expect(html).toContain('<option value="manage" selected>');
+    });
+
     it('keeps an out-of-band mode instead of rounding it to read', () => {
         const html = options_for('see');
         expect(values(html)).toEqual(['see', ...MODES]);
