@@ -4048,8 +4048,8 @@ body.myapps-reordering .myapps-tile {
 .dashboard-section-files .files-tab .files .row .item-shared-marker {
     width: 7px;
     height: 7px;
-    right: 0;
-    bottom: 0;
+    right: 2px;
+    bottom: 2px;
     box-shadow: 0 0 0 1px white;
 }
 

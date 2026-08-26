@@ -680,8 +680,10 @@ span.header-sort-icon img {
    at the size a row icon allows, and colour is the signal that survives it. */
 .item-shared-marker {
     position: absolute;
-    right: 3px;
-    bottom: 3px;
+    /* Inset onto the glyph. Sitting on the icon box's corner reads as clipped,
+       because the box is 5px wider than the artwork on every side. */
+    right: 7px;
+    bottom: 7px;
     width: 9px;
     height: 9px;
     border-radius: 50%;
