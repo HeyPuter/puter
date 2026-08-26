@@ -332,6 +332,10 @@ export class PuterAIController extends PuterController {
             messages: body.messages,
             model: toStringOrEmpty(body.model),
             stream,
+            // This route does its own wire translation; pin the driver to the
+            // provider-native shape so the release-date cutoff can't change
+            // what the translators below receive.
+            normalize: false,
             ...(body.tools ? { tools: body.tools as unknown[] } : {}),
             ...(body.temperature !== undefined
                 ? { temperature: Number(body.temperature) }
@@ -491,6 +495,8 @@ export class PuterAIController extends PuterController {
             messages,
             model: toStringOrEmpty(body.model),
             stream,
+            // Pinned provider-native — this route translates the shape itself.
+            normalize: false,
             ...(body.temperature !== undefined
                 ? { temperature: Number(body.temperature) }
                 : {}),
@@ -630,6 +636,8 @@ export class PuterAIController extends PuterController {
             messages,
             model: toStringOrEmpty(body.model),
             stream,
+            // Pinned provider-native — this route translates the shape itself.
+            normalize: false,
             ...(body.tools ? { tools: body.tools as unknown[] } : {}),
             ...(body.tool_choice ? { tool_choice: body.tool_choice } : {}),
             ...(body.parallel_tool_calls !== undefined
@@ -970,6 +978,8 @@ export class PuterAIController extends PuterController {
             messages: normalizedMessages,
             model: toStringOrEmpty(body.model),
             stream,
+            // Pinned provider-native — this route translates the shape itself.
+            normalize: false,
             ...(tools ? { tools } : {}),
             ...(body.temperature !== undefined
                 ? { temperature: Number(body.temperature) }

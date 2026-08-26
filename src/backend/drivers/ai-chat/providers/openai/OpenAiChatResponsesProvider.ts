@@ -70,7 +70,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
      * Each model object includes an ID and cost details (currency, tokens,
      * input/output rates).
      */
-    models(extra_params) {
+    models(extra_params?: { no_restrictions?: boolean }) {
         if (extra_params?.no_restrictions) {
             return OPEN_AI_MODELS;
         }
@@ -152,7 +152,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
 
         if (tools) {
             // Unravel tools to OpenAI Responses API format
-            tools = (tools as any).map((e) => {
+            tools = (tools as any[]).map((e) => {
                 if (e.type === 'function') {
                     const tool = e.function;
                     tool.type = 'function';
@@ -228,7 +228,7 @@ export class OpenAiResponsesChatProvider implements IChatProvider {
                           : {}),
                   }),
             ...(supportsReasoningControls && reasoning ? { reasoning } : {}),
-        } as ResponseCreateParams;
+        } as unknown as ResponseCreateParams;
 
         // console.log("completion params: ", completionParams)
         const completion =

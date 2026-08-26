@@ -501,7 +501,7 @@ export class ClaudeProvider implements IChatProvider {
                 }
                 const finalMessage = await completion
                     .finalMessage()
-                    .catch(() => null);
+                    .catch((): null => null);
                 if (finalMessage) {
                     const finalUsage = this.#usageFormatterUtil(
                         finalMessage.usage as Usage | BetaUsage,

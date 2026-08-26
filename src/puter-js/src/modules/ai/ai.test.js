@@ -238,6 +238,47 @@ describe('ai.chat driver payloads', () => {
         expect(String(result)).toBe('the answer');
         expect(result.valueOf()).toBe('the answer');
     });
+
+    // Response-format normalization: the per-call option wins in both
+    // directions, the module-level `ai.normalize` fills in otherwise, and
+    // with neither set nothing rides the wire (the server's release-date
+    // cutoff decides).
+    it('chat(prompt, {normalize: true}) forwards normalize', async () => {
+        await ai.chat('hello', { normalize: true });
+        expect(lastBody().args.normalize).toBe(true);
+    });
+
+    it('chat(prompt, {normalize: false}) forwards normalize', async () => {
+        await ai.chat('hello', { normalize: false });
+        expect(lastBody().args.normalize).toBe(false);
+    });
+
+    it('ai.normalize = true applies to calls that do not set it', async () => {
+        ai.normalize = true;
+        await ai.chat('hello');
+        expect(lastBody().args.normalize).toBe(true);
+    });
+
+    it('ai.normalize = false applies to calls that do not set it', async () => {
+        ai.normalize = false;
+        await ai.chat('hello');
+        expect(lastBody().args.normalize).toBe(false);
+    });
+
+    it('a per-call normalize overrides ai.normalize in both directions', async () => {
+        ai.normalize = true;
+        await ai.chat('hello', { normalize: false });
+        expect(lastBody().args.normalize).toBe(false);
+
+        ai.normalize = false;
+        await ai.chat('hello', { normalize: true });
+        expect(lastBody().args.normalize).toBe(true);
+    });
+
+    it('normalize stays off the wire when neither the call nor the module sets it', async () => {
+        await ai.chat('hello');
+        expect('normalize' in lastBody().args).toBe(false);
+    });
 });
 
 describe('ai.img2txt driver payloads', () => {

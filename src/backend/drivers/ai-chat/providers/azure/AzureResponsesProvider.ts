@@ -156,7 +156,7 @@ export class AzureResponsesProvider implements IChatProvider {
         if (tools) {
             // Unravel tools to OpenAI Responses API format
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            tools = (tools as any).map((e) => {
+            tools = (tools as any[]).map((e) => {
                 if (e.type === 'function') {
                     const tool = e.function;
                     tool.type = 'function';
@@ -232,7 +232,7 @@ export class AzureResponsesProvider implements IChatProvider {
                           : {}),
                   }),
             ...(supportsReasoningControls && reasoning ? { reasoning } : {}),
-        } as ResponseCreateParams;
+        } as unknown as ResponseCreateParams;
 
         const completion =
             await this.#openAi.responses.create(completionParams);

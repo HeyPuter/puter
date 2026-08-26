@@ -227,6 +227,17 @@ export async function chat (
         }
     }
 
+    // Response-format normalization: the per-call option wins in both
+    // directions; the module-level `puter.ai.normalize` fills in when the
+    // call doesn't say. When neither is set, nothing is sent and the server
+    // applies its release-date cutoff (models released on or after
+    // 2026-09-01 return OpenAI-shaped responses by default).
+    if (userParams.normalize !== undefined) {
+        requestParams.normalize = userParams.normalize;
+    } else if (typeof this.normalize === 'boolean') {
+        requestParams.normalize = this.normalize;
+    }
+
     // the legacy `driver` option is an alias for `provider`
     if (userParams.driver) {
         requestParams.provider = requestParams.provider || userParams.driver;

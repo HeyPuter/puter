@@ -823,6 +823,292 @@ describe('ChatCompletionDriver.complete normalization', () => {
     });
 });
 
+// ── OpenAI-shape normalization ──────────────────────────────────────
+
+describe('ChatCompletionDriver.complete OpenAI-shape normalization', () => {
+    // An Anthropic-native provider result, as ClaudeProvider returns it.
+    const claudeShaped = (stop_reason = 'end_turn') =>
+        ({
+            message: {
+                id: 'msg_1',
+                type: 'message',
+                role: 'assistant',
+                model: 'post-cutoff',
+                content: [{ type: 'text', text: 'hi there' }],
+                stop_reason,
+                stop_sequence: null,
+            },
+            usage: { input_tokens: 1, output_tokens: 2 },
+            finish_reason: 'stop',
+        }) as never;
+
+    const zeroCost = {
+        costs_currency: 'usd-cents',
+        costs: { 'input-tokens': 0, 'output-tokens': 0 },
+        max_tokens: 8192,
+    };
+
+    // Driver whose catalog carries a model on each side of the cutoff.
+    const makeCutoffDriver = async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            { id: 'post-cutoff', release_date: '2026-09-01', ...zeroCost },
+            { id: 'pre-cutoff', release_date: '2026-08-31', ...zeroCost },
+        ] as never);
+        return await makeDriver();
+    };
+
+    type NormalizedResult = {
+        message: {
+            role: string;
+            content: unknown;
+            tool_calls?: unknown[];
+        };
+        finish_reason: string;
+        normalized?: boolean;
+        via_ai_chat_service: boolean;
+    };
+
+    it('coerces to the OpenAI shape when `normalize: true`, on any model', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            claudeShaped('max_tokens'),
+        );
+
+        const res = (await withTestActor(() =>
+            driver.complete({
+                model: 'fake', // date-less — only the flag triggers coercion
+                messages: [{ role: 'user', content: 'hi' }],
+                normalize: true,
+            }),
+        )) as NormalizedResult;
+
+        expect(res.normalized).toBe(true);
+        expect(res.via_ai_chat_service).toBe(true);
+        expect(res.message).toEqual({
+            role: 'assistant',
+            content: 'hi there',
+            refusal: null,
+        });
+        expect(res.finish_reason).toBe('length');
+    });
+
+    it('coerces by default for a model released on/after the cutoff', async () => {
+        const d = await makeCutoffDriver();
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            claudeShaped(),
+        );
+
+        const res = (await withTestActor(() =>
+            d.complete({
+                model: 'post-cutoff',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as NormalizedResult;
+
+        expect(res.normalized).toBe(true);
+        expect(res.message.content).toBe('hi there');
+        expect(res.finish_reason).toBe('stop');
+    });
+
+    it('leaves a pre-cutoff model provider-native by default', async () => {
+        const d = await makeCutoffDriver();
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            claudeShaped(),
+        );
+
+        const res = (await withTestActor(() =>
+            d.complete({
+                model: 'pre-cutoff',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as NormalizedResult;
+
+        expect(res.normalized).toBeUndefined();
+        expect(res.message.content).toEqual([
+            { type: 'text', text: 'hi there' },
+        ]);
+        expect(res.finish_reason).toBe('stop');
+    });
+
+    it('leaves a date-less model provider-native by default', async () => {
+        const res = (await withTestActor(() =>
+            driver.complete({
+                model: 'fake',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as NormalizedResult;
+
+        expect(res.normalized).toBeUndefined();
+        expect(Array.isArray(res.message.content)).toBe(true);
+    });
+
+    it('`normalize: false` forces provider-native on a post-cutoff model', async () => {
+        const d = await makeCutoffDriver();
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            claudeShaped(),
+        );
+
+        const res = (await withTestActor(() =>
+            d.complete({
+                model: 'post-cutoff',
+                messages: [{ role: 'user', content: 'hi' }],
+                normalize: false,
+            }),
+        )) as NormalizedResult;
+
+        expect(res.normalized).toBeUndefined();
+        expect(res.message.content).toEqual([
+            { type: 'text', text: 'hi there' },
+        ]);
+    });
+
+    it('`normalize: true` beats the legacy `response.normalize` flag', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            claudeShaped(),
+        );
+
+        const res = (await withTestActor(() =>
+            driver.complete({
+                model: 'fake',
+                messages: [{ role: 'user', content: 'hi' }],
+                normalize: true,
+                response: { normalize: true },
+            }),
+        )) as NormalizedResult;
+
+        // OpenAI shape, not the legacy block shape.
+        expect(res.normalized).toBe(true);
+        expect(res.message.content).toBe('hi there');
+    });
+
+    it('`normalize: false` beats both the legacy flag and the cutoff', async () => {
+        const d = await makeCutoffDriver();
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            claudeShaped(),
+        );
+
+        const res = (await withTestActor(() =>
+            d.complete({
+                model: 'post-cutoff',
+                messages: [{ role: 'user', content: 'hi' }],
+                normalize: false,
+                response: { normalize: true },
+            }),
+        )) as NormalizedResult;
+
+        expect(res.normalized).toBeUndefined();
+        expect(res.message.content).toEqual([
+            { type: 'text', text: 'hi there' },
+        ]);
+    });
+
+    it('the legacy `response.normalize` still wins over the cutoff when `normalize` is unset', async () => {
+        const d = await makeCutoffDriver();
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce(
+            claudeShaped(),
+        );
+
+        const res = (await withTestActor(() =>
+            d.complete({
+                model: 'post-cutoff',
+                messages: [{ role: 'user', content: 'hi' }],
+                response: { normalize: true },
+            }),
+        )) as NormalizedResult;
+
+        // Legacy block shape, not the OpenAI string shape.
+        expect(res.normalized).toBe(true);
+        expect(res.message.content).toEqual([
+            { type: 'text', text: 'hi there' },
+        ]);
+    });
+
+    it('converts tool_use blocks into OpenAI tool_calls when coercing', async () => {
+        vi.spyOn(FakeChatProvider.prototype, 'complete').mockResolvedValueOnce({
+            message: {
+                type: 'message',
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'tool_use',
+                        id: 'toolu_9',
+                        name: 'lookup',
+                        input: { q: 'x' },
+                    },
+                ],
+                stop_reason: 'tool_use',
+            },
+            usage: { input_tokens: 1, output_tokens: 1 },
+            finish_reason: 'stop',
+        } as never);
+
+        const res = (await withTestActor(() =>
+            driver.complete({
+                model: 'fake',
+                messages: [{ role: 'user', content: 'hi' }],
+                normalize: true,
+            }),
+        )) as NormalizedResult;
+
+        expect(res.message.content).toBeNull();
+        expect(res.message.tool_calls).toEqual([
+            {
+                id: 'toolu_9',
+                type: 'function',
+                function: { name: 'lookup', arguments: '{"q":"x"}' },
+            },
+        ]);
+        expect(res.finish_reason).toBe('tool_calls');
+    });
+
+    it('does not touch streaming results', async () => {
+        const res = await withTestActor(() =>
+            driver.complete({
+                model: 'fake',
+                messages: [{ role: 'user', content: 'hi' }],
+                stream: true,
+                normalize: true,
+            }),
+        );
+
+        expect(res).toMatchObject({
+            dataType: 'stream',
+            content_type: 'application/x-ndjson',
+        });
+        // Drain so the fake provider's populator finishes cleanly.
+        await collectStream(
+            (res as unknown as { stream: Readable }).stream,
+        );
+    });
+
+    it('a blocked prompt rerouted to fake-chat keeps its historical native shape', async () => {
+        // Catalog with a post-cutoff model plus the `fake` reroute target
+        // (mocking `models` replaces the whole catalog).
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            { id: 'post-cutoff', release_date: '2026-09-01', ...zeroCost },
+            { id: 'fake', aliases: [], ...zeroCost },
+        ] as never);
+        const d = await makeDriver();
+        vi.spyOn(server.clients.event, 'emitAndWait').mockImplementation(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            async (key, data: any) => {
+                if (key === 'ai.prompt.validate') data.allow = false;
+            },
+        );
+
+        const res = (await withTestActor(() =>
+            d.complete({
+                // The user asked for a post-cutoff model, but the reroute
+                // lands on the date-less `fake` model — no coercion.
+                model: 'post-cutoff',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as NormalizedResult;
+
+        expect(res.normalized).toBeUndefined();
+        expect(Array.isArray(res.message.content)).toBe(true);
+    });
+});
+
 // ── Fallback / error envelope ───────────────────────────────────────
 
 describe('ChatCompletionDriver.complete fallback and error envelope', () => {

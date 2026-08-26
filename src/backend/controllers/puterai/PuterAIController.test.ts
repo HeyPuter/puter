@@ -369,6 +369,9 @@ describe('PuterAIController.openaiChatCompletions', () => {
         ]);
         expect(completeArgs.stream).toBe(false);
         expect(completeArgs.provider).toBe('openai-completion');
+        // Wire routes translate shapes themselves; the driver is pinned
+        // provider-native so the release-date cutoff can't change them.
+        expect(completeArgs.normalize).toBe(false);
 
         // Response shape matches OpenAI's /v1/chat/completions wire format.
         const body = captured.body as Record<string, unknown>;
@@ -532,6 +535,7 @@ describe('PuterAIController.openaiCompletions', () => {
         expect(completeArgs.messages).toEqual([
             { role: 'user', content: 'hello there' },
         ]);
+        expect(completeArgs.normalize).toBe(false);
 
         const body = captured.body as Record<string, unknown>;
         expect(body.object).toBe('text_completion');
@@ -595,6 +599,7 @@ describe('PuterAIController.openaiResponses', () => {
             role: 'system',
             content: 'be brief',
         });
+        expect(completeArgs.normalize).toBe(false);
         // `input` becomes a user message after the system one.
         expect(completeArgs.messages[1]).toEqual({
             role: 'user',
@@ -662,6 +667,7 @@ describe('PuterAIController.anthropicMessages', () => {
             content: 'be helpful',
         });
         expect(completeArgs.provider).toBe('claude');
+        expect(completeArgs.normalize).toBe(false);
 
         const body = captured.body as Record<string, unknown>;
         expect(body.type).toBe('message');

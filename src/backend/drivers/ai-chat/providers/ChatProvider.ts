@@ -41,4 +41,7 @@ export class ChatProvider implements IChatProvider {
     async complete(_arg: ICompleteArguments): Promise<IChatCompleteResult> {
         throw new Error('Method not implemented.');
     }
+    checkModeration(_text: string): void {
+        // No moderation by default; providers override when they support it.
+    }
 }

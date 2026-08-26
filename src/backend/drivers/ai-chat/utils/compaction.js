@@ -29,7 +29,7 @@
 
 /**
  * @param {boolean | { trigger_tokens?: number } | undefined} compaction
- * @returns {{ enabled: boolean, trigger_tokens?: number }}
+ * @returns {{ enabled: boolean; trigger_tokens?: number }}
  */
 const readCompaction = (compaction) => {
     if (compaction === true) return { enabled: true };
@@ -48,8 +48,11 @@ const readCompaction = (compaction) => {
  * Build OpenAI Responses `context_management` from the neutral opt-in. A raw
  * `context_management` passthrough (already in OpenAI shape) wins.
  *
- * @param {{ compaction?: boolean | { trigger_tokens?: number }, context_management?: unknown }} args
- * @returns {Array<{ type: 'compaction', compact_threshold?: number }> | undefined}
+ * @param {{
+ *     compaction?: boolean | { trigger_tokens?: number };
+ *     context_management?: unknown;
+ * }} args
+ * @returns {{ type: 'compaction'; compact_threshold?: number }[] | undefined}
  */
 export const toOpenAiContextManagement = (args) => {
     if (args.context_management !== undefined) {
@@ -71,8 +74,11 @@ export const toOpenAiContextManagement = (args) => {
  * Build Anthropic `context_management` (beta `compact-2026-01-12`) from the
  * neutral opt-in. A raw `context_management` passthrough wins.
  *
- * @param {{ compaction?: boolean | { trigger_tokens?: number }, context_management?: unknown }} args
- * @returns {{ edits: Array<Record<string, unknown>> } | undefined}
+ * @param {{
+ *     compaction?: boolean | { trigger_tokens?: number };
+ *     context_management?: unknown;
+ * }} args
+ * @returns {{ edits: Record<string, unknown>[] } | undefined}
  */
 export const toAnthropicContextManagement = (args) => {
     if (args.context_management !== undefined) {
@@ -100,7 +106,10 @@ export const toAnthropicContextManagement = (args) => {
 /**
  * Whether the request opted into inline compaction by any route.
  *
- * @param {{ compaction?: boolean | { trigger_tokens?: number }, context_management?: unknown }} args
+ * @param {{
+ *     compaction?: boolean | { trigger_tokens?: number };
+ *     context_management?: unknown;
+ * }} args
  */
 export const wantsCompaction = (args) =>
     args.context_management !== undefined ||
@@ -109,7 +118,7 @@ export const wantsCompaction = (args) =>
 /**
  * Whether the (normalized) message list carries a round-tripped compaction
  * artifact. Such a request must route through a compaction-capable surface even
- * if it didn't request *new* compaction — chat.completions can't represent a
+ * if it didn't request _new_ compaction — chat.completions can't represent a
  * compaction content block, and Anthropic needs its compaction beta to accept
  * one as input.
  *

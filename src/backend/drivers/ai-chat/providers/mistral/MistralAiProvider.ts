@@ -30,6 +30,15 @@ import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { MISTRAL_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 
+// Mistral's finish reasons mapped to the OpenAI vocabulary; values without
+// an OpenAI analog (e.g. `error`) pass through unmapped.
+const MISTRAL_FINISH_REASON_MAP: Record<string, string> = {
+    stop: 'stop',
+    length: 'length',
+    model_length: 'length',
+    tool_calls: 'tool_calls',
+};
+
 export class MistralAIProvider implements IChatProvider {
     #client: Mistral;
 
@@ -123,24 +132,78 @@ export class MistralAIProvider implements IChatProvider {
             temperature,
         });
 
+        // The Mistral SDK speaks camelCase (`finishReason`, `toolCalls`,
+        // object-typed `arguments`); remap each choice to the OpenAI wire
+        // shape so the result matches every other provider's.
+        if (!stream) {
+            const choices =
+                (completion as ChatCompletionResponse).choices ?? [];
+            for (const choice of choices as unknown as Record<
+                string,
+                unknown
+            >[]) {
+                if (
+                    choice.finish_reason === undefined &&
+                    typeof choice.finishReason === 'string'
+                ) {
+                    choice.finish_reason =
+                        MISTRAL_FINISH_REASON_MAP[choice.finishReason] ??
+                        choice.finishReason;
+                }
+                delete choice.finishReason;
+                const message = choice.message as
+                    | (Record<string, unknown> & {
+                          toolCalls?: {
+                              id?: string;
+                              function?: { name?: string; arguments?: unknown };
+                          }[];
+                      })
+                    | undefined;
+                if (
+                    message &&
+                    message.tool_calls === undefined &&
+                    Array.isArray(message.toolCalls)
+                ) {
+                    message.tool_calls = message.toolCalls.map((tc) => ({
+                        id: tc.id,
+                        type: 'function',
+                        function: {
+                            name: tc.function?.name,
+                            arguments:
+                                typeof tc.function?.arguments === 'string'
+                                    ? tc.function.arguments
+                                    : JSON.stringify(
+                                          tc.function?.arguments ?? {},
+                                      ),
+                        },
+                    }));
+                }
+                if (message) delete message.toolCalls;
+            }
+        }
+
         return await OpenAIUtil.handle_completion_output({
             deviations: {
-                index_usage_from_stream_chunk: (chunk) => {
+                index_usage_from_stream_chunk: (chunk: {
+                    usage?: Record<string, number>;
+                }) => {
                     if (!chunk.usage) return;
 
-                    const snake_usage = {};
+                    const snake_usage: Record<string, number> = {};
                     for (const key in chunk.usage) {
                         const snakeKey = key
                             .replace(/([A-Z])/g, '_$1')
                             .toLowerCase();
-                        snake_usage[snakeKey] = chunk.usage[key];
+                        snake_usage[snakeKey] = chunk.usage[key]!;
                     }
 
                     return snake_usage;
                 },
-                chunk_but_like_actually: (chunk) => (chunk as any).data,
-                index_tool_calls_from_stream_choice: (choice) =>
-                    (choice.delta as any).toolCalls,
+                chunk_but_like_actually: (chunk: unknown) =>
+                    (chunk as any).data,
+                index_tool_calls_from_stream_choice: (choice: {
+                    delta?: unknown;
+                }) => (choice.delta as any).toolCalls,
                 coerce_completion_usage: (
                     completion: ChatCompletionResponse,
                 ) => ({

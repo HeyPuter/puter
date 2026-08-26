@@ -56,6 +56,11 @@ export interface KnownContextFields {
     req: Request;
     /** A unique id for this request — useful for structured logging / tracing. */
     requestId: string;
+    /**
+     * The driver name the caller addressed (set by DriverController for
+     * `/drivers/call` dispatch); drivers read it to pick a provider.
+     */
+    driverName: string;
 }
 
 // -- Context store ---------------------------------------------------

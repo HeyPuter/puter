@@ -541,6 +541,12 @@ export const handle_completion_output = async (
               output_tokens: completion_usage.completion_tokens,
           };
 
+    // Providers following the DeepSeek wire convention return
+    // `reasoning_content`; expose it as Puter's `reasoning` key here so every
+    // provider's message carries the same attribute (the streaming path does
+    // the equivalent rename on deltas).
+    normalizeReasoningContent(ret);
+
     const mod_text = completion.choices[0].message.content;
     if (moderate && mod_text !== null) {
         const moderation_result = await moderate(mod_text);
@@ -561,9 +567,14 @@ export const handle_completion_output = async (
 
 /**
  * @param {object} params
+ * @param {Record<string, unknown>} [params.deviations]
+ * @param {boolean} [params.stream]
+ * @param {any} params.completion
+ * @param {((text: string) => Promise<{ flagged: boolean }>) | undefined} [params.moderate]
  * @param {(args: {
  *     usage: import('openai/resources/completions.mjs').CompletionUsage;
  * }) => unknown} params.usage_calculator
+ * @param {() => Promise<void>} [params.finally_fn]
  * @returns {ReturnType<import('../types').IChatProvider['complete']>}
  */
 export const handle_completion_output_responses_api = async ({
@@ -624,12 +635,22 @@ export const handle_completion_output_responses_api = async ({
         });
     }
 
+    // Reasoning models return `reasoning` output items; their human-readable
+    // text only exists when the caller requested summaries via
+    // `reasoning: { summary: ... }` (raw chain-of-thought is never returned).
+    const reasoningText = output
+        .filter((item) => item?.type === 'reasoning')
+        .flatMap((item) => (Array.isArray(item.summary) ? item.summary : []))
+        .map((part) => (typeof part?.text === 'string' ? part.text : ''))
+        .join('');
+
     const ret = {
-        finish_reason: 'stop',
+        finish_reason: responseToolCalls.length ? 'tool_calls' : 'stop',
         index: 0,
         message: {
             content: completion.output_text,
-            reasoning: null, // Fix later to add proper reasoning
+            // String-or-absent, matching every other provider's `reasoning`.
+            ...(reasoningText ? { reasoning: reasoningText } : {}),
             refusal: null,
             role: 'assistant',
             ...(responseToolCalls.length

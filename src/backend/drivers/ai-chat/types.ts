@@ -92,12 +92,7 @@ export interface ICompleteArguments {
     truncation?: 'auto' | 'disabled' | undefined;
     background?: boolean;
     service_tier?:
-        | 'auto'
-        | 'default'
-        | 'flex'
-        | 'scale'
-        | 'priority'
-        | undefined;
+        'auto' | 'default' | 'flex' | 'scale' | 'priority' | undefined;
     max_tokens?: number;
     temperature?: number;
     reasoning?: { effort: 'low' | 'medium' | 'high' } | undefined;
@@ -106,6 +101,15 @@ export interface ICompleteArguments {
     verbosity?: 'concise' | 'detailed' | undefined;
     moderation?: boolean;
     custom?: unknown;
+    /**
+     * Response-format control for non-streaming results. `true` coerces the
+     * result to the OpenAI `choices[0]` shape (string `message.content`,
+     * `message.tool_calls`, mapped `finish_reason`); `false` forces the
+     * provider-native shape. Left undefined, the legacy `response.normalize`
+     * flag applies if set; otherwise models released on or after
+     * [[OPENAI_SHAPE_CUTOFF]] (2026-09-01) are coerced by default.
+     */
+    normalize?: boolean;
     response?: {
         normalize?: boolean;
     };

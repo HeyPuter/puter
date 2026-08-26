@@ -60,6 +60,11 @@
  * @property {string} [driver]
  * @property {string} [provider] The provider to route the request through.
  * @property {Tool[]} [tools] Function/tool definitions the model can call. See Function Calling.
+ * @property {boolean} [normalize] Response-format control for non-streaming results. `true` returns the
+ * OpenAI-style shape regardless of provider (`message.content` as a string, `message.tool_calls`, a
+ * mapped `finish_reason`); `false` returns the provider's native shape. Left unset, `puter.ai.normalize`
+ * applies if it was assigned; otherwise models released on or after September 1, 2026 are normalized by
+ * default. Streaming responses are unaffected (chunks are already provider-uniform).
  * @property {unknown} [response]
  * @property {string} [reasoning_effort] Controls how much effort reasoning models spend thinking. Flat
  * form. Accepted values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` (availability varies by
@@ -95,6 +100,10 @@
  *
  * @typedef {Object} ChatResponse
  * @property {ChatMessage} [message]
+ * @property {string} [finish_reason] Why generation stopped: `stop`, `length`, `tool_calls`, or
+ * `content_filter`.
+ * @property {boolean} [normalized] Present and `true` when the response format was normalized
+ * server-side (see the `normalize` option on [ChatOptions]).
  * @property {unknown} [choices]
  * @property {{ type: 'compaction', id?: string, encrypted_content: string }} [compaction]
  * Inline-compaction artifact, present when the upstream compacted earlier context during this
