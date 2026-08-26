@@ -217,6 +217,12 @@ async function UIItem (options) {
     // icon
     h += '<div class="item-icon">';
     h += `<img src="${html_encode(options.icon.image)}" class="item-icon-${options.icon.type}" data-item-id="${item_id}">`;
+    // Shared marker: on the icon rather than in the badge cluster, so it stays
+    // on the item's own corner at every icon size.
+    h += `<div class="item-shared-marker"
+                style="${options.is_shared ? '' : 'display:none;'}"
+                title="${html_encode(i18n('item_shared_by_you'))}"
+            ></div>`;
     h += '</div>';
     // badges
     h += '<div class="item-badges">';
@@ -239,13 +245,6 @@ async function UIItem (options) {
                         src="${html_encode(window.icons['shortcut.svg'])}" 
                         data-item-id="${item_id}"
                         title="${i18n('item_shortcut')}"
-                    >`;
-    // shared badge
-    h += `<img  class="item-badge item-is-shared-badge"
-                        style="${options.is_shared ? 'display:block;' : ''}"
-                        src="${html_encode(window.icons['owner-shared.svg'])}"
-                        data-item-id="${item_id}"
-                        title="${i18n('item_shared_by_you')}"
                     >`;
     // worker badge
     h += `<img  class="item-badge item-is-worker long-hover"

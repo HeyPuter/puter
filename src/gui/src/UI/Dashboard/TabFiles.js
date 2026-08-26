@@ -2513,6 +2513,10 @@ const TabFiles = {
             <div class="item-checkbox"><span class="checkbox-icon"></span></div>
             <div class="item-icon">
                 ${icon}
+                <div class="item-shared-marker"
+                    style="${file.is_shared === true ? '' : 'display:none;'}"
+                    title="${html_encode(i18n('item_shared_by_you'))}"
+                ></div>
             </div>
             <div class="item-badges">
                 <img class="item-badge item-has-website-badge long-hover"
@@ -2535,12 +2539,6 @@ const TabFiles = {
                     style="background-color: #ffffff; padding: 2px; ${is_worker ? 'display:block;' : ''}"
                     src="${html_encode(window.icons['worker.svg'])}"
                     data-item-id="${item_id}"
-                >
-                <img class="item-badge item-is-shared-badge"
-                    style="${file.is_shared === true ? 'display:block;' : ''}"
-                    src="${html_encode(window.icons['owner-shared.svg'])}"
-                    data-item-id="${item_id}"
-                    title="${html_encode(i18n('item_shared_by_you'))}"
                 >
             </div>
             <div class="item-name-wrapper">

@@ -533,6 +533,8 @@ span.header-sort-icon img {
 }
 
 .item-icon {
+    /* Anchors the shared marker to the icon's corner. */
+    position: relative;
     display: block;
     margin: 0 auto;
     padding: 5px;
@@ -674,18 +676,18 @@ span.header-sort-icon img {
     cursor: pointer;
 }
 
-/* Shared, owner-side. The ring is what reads at the 8px list-view size. */
-.item-badge.item-is-shared-badge {
+/* Shared, owner-side: a dot on the icon's lower-right. A glyph is unreadable
+   at the size a row icon allows, and colour is the signal that survives it. */
+.item-shared-marker {
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    width: 9px;
+    height: 9px;
     border-radius: 50%;
-    background: white;
-    padding: 2px;
-    box-shadow: 0 0 0 1.5px #3b82f6;
-}
-
-.item-container-details .item-badges .item-badge.item-is-shared-badge {
-    /* Small enough that only the ring reads, so fill it in. */
     background: #3b82f6;
-    box-shadow: none;
+    box-shadow: 0 0 0 1.5px white;
+    pointer-events: all;
 }
 
 .item-name, .item-name-editor, .item-name-shadow {

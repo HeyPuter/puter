@@ -37,6 +37,6 @@ export const mark_item_shared = (path, is_shared) => {
     const $items = $(`.item[data-path="${html_encode(path)}" i]`);
     $items.attr('data-is_shared', is_shared ? 1 : 0);
     $items
-        .find('.item-is-shared-badge')
-        .css('display', is_shared ? 'block' : 'none');
+        .find('.item-shared-marker')
+        .css('display', is_shared ? '' : 'none');
 };
