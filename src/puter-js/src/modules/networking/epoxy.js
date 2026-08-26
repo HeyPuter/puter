@@ -1,4 +1,4 @@
-let EPOXY_BASE = 'https://puter-net.b-cdn.net/epoxy/04e4930';
+let EPOXY_BASE = 'https://puter-net.b-cdn.net/epoxy/43ed248';
 let epoxyRuntimePromise;
 
 const textEncoder = new TextEncoder();
