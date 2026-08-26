@@ -60,6 +60,7 @@ import { DeepSeekProvider } from './deepseek/DeepSeekProvider.js';
 import { FakeChatProvider } from './FakeChatProvider.js';
 import { GeminiChatProvider } from './gemini/GeminiChatProvider.js';
 import { GroqAIProvider } from './groq/GroqAIProvider.js';
+import { HoonifyProvider } from './hoonify/HoonifyProvider.js';
 import { InfronProvider } from './infron/InfronProvider.js';
 import { MetaProvider } from './meta/MetaProvider.js';
 import { MiniMaxProvider } from './minimax/MiniMaxProvider.js';
@@ -238,6 +239,12 @@ const PROVIDERS: ProviderCase[] = [
         name: 'groq',
         dialect: 'chat',
         make: () => new GroqAIProvider({ apiKey: 'k' }, metering()),
+    },
+    {
+        name: 'hoonify',
+        dialect: 'chat',
+        make: () =>
+            new HoonifyProvider({ apiKey: 'k' } as never, metering()),
     },
     {
         name: 'infron',
