@@ -1530,8 +1530,7 @@ describe('ShareService', () => {
                 mode: 'read',
             });
 
-            // Nothing was shared at the file, so the revoke reports no holder
-            // for it — the audience has to be found through the folder.
+            // No share on the file, so the audience is only found upward.
             const payload = await capturePayload(
                 'outer.gui.item.removed',
                 recipient.user.id,
@@ -1561,8 +1560,7 @@ describe('ShareService', () => {
                 });
             }
 
-            // The revoke reports them for the file, and the folder reaches it
-            // too — one delete must not arrive as two removals.
+            // Both passes reach them; one delete must not arrive as two.
             const audiences = await captureAudiences(
                 'outer.gui.item.removed',
                 file.uuid,
@@ -1592,8 +1590,7 @@ describe('ShareService', () => {
                 mode: 'read',
             });
 
-            // What the GUI's Delete does. `item.moved` would name a path the
-            // recipient cannot see, leaving the file on their screen.
+            // What Delete does; `item.moved` would name a path they can't see.
             const audiences = await captureAudiences(
                 'outer.gui.item.removed',
                 file.uuid,
@@ -1713,6 +1710,86 @@ describe('ShareService', () => {
             const masked = `/${owner.user.username}/${dir.uuid}/${dir.name}`;
             expect(payload?.from_path).toBe(`${masked}/${file.name}`);
             expect(payload?.path).toBe(`${masked}/renamed-${file.name}`);
+        });
+
+        it('tells a recipient when the shared item itself is trashed', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            const before = file.path;
+            const trashName = uuidv4();
+            const trashed = `/${owner.user.username}/Trash/${trashName}`;
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            // The grant follows it into Trash, so both ends would resolve.
+            const payload = await capturePayload(
+                'outer.gui.item.removed',
+                recipient.user.id,
+                async () => {
+                    await server.clients.event.emitAndWait(
+                        'fs.move.node',
+                        {
+                            node: {
+                                ...file,
+                                path: trashed,
+                                name: trashName,
+                            },
+                            fromPath: before,
+                            toPath: trashed,
+                        },
+                        {},
+                    );
+                },
+            );
+
+            // Named as they knew it, never the GUID that Trash gave it.
+            expect(payload?.path).toBe(
+                `/${owner.user.username}/${file.uuid}/${file.name}`,
+            );
+        });
+
+        it('stays quiet when a move leaves the recipient address alone', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            const elsewhere = `/${owner.user.username}/Documents/${file.name}`;
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const seen: unknown[] = [];
+            const listener = (_key: string, data: unknown) => {
+                const payload = data as { user_id_list?: number[] };
+                if (!payload.user_id_list?.includes(recipient.user.id)) return;
+                seen.push(payload);
+            };
+            server.clients.event.on('outer.gui.item.moved', listener);
+
+            try {
+                // Masked at its own root, so their path holds wherever it goes.
+                await server.clients.event.emitAndWait(
+                    'fs.move.node',
+                    {
+                        node: { ...file, path: elsewhere },
+                        fromPath: file.path,
+                        toPath: elsewhere,
+                    },
+                    {},
+                );
+                await new Promise((resolve) => setTimeout(resolve, 100));
+            } finally {
+                server.clients.event.off('outer.gui.item.moved', listener);
+            }
+
+            expect(seen).toEqual([]);
         });
 
         it('tells a folder recipient when a file inside it changes', async () => {
@@ -1953,8 +2030,7 @@ describe('ShareService', () => {
                 reaching.mockRestore();
             }
 
-            // Siblings share a parent, so they share the audience lookup —
-            // a burst settles in one or two flushes, never one per file.
+            // Siblings share a parent, so a burst settles in a flush or two.
             expect(seen).toHaveLength(8);
             expect(lookups).toBeLessThanOrEqual(2);
         });
@@ -2015,7 +2091,11 @@ describe('ShareService', () => {
                     await server.clients.event.emitAndWait(
                         'fs.move.node',
                         {
-                            node: { ...file, path: `${before}-moved` },
+                            node: {
+                                ...file,
+                                path: `${before}-moved`,
+                                name: `${file.name}-moved`,
+                            },
                             fromPath: before,
                             toPath: `${before}-moved`,
                         },
@@ -2112,7 +2192,11 @@ describe('ShareService', () => {
                     await server.clients.event.emitAndWait(
                         'fs.move.node',
                         {
-                            node: file,
+                            node: {
+                                ...file,
+                                path: `${file.path}-moved`,
+                                name: `${file.name}-moved`,
+                            },
                             fromPath: file.path,
                             toPath: `${file.path}-moved`,
                         },

@@ -244,6 +244,10 @@ type HolderGuiEvent =
     | 'outer.gui.item.updated';
 
 /** `/<owner>/<uuid>/<name>` for a path in the owner's tree. */
+/** Inside some owner's top-level Trash, which is where Delete puts things. */
+const isTrashedPath = (path: string): boolean =>
+    /^\/[^/]+\/Trash(\/|$)/u.test(path);
+
 const maskedSelfPath = (entry: FSEntry, realPath: string): string => {
     const owner = realPath.split('/')[1];
     const name = realPath.split('/').pop();
@@ -527,10 +531,9 @@ export class ShareService extends PuterService {
     }
 
     /**
-     * Tell whoever reached these through a folder above them. Their grant is on
-     * that folder, not on what was deleted, so the revoke reports no holder for
-     * them — and the file stays in their window, 404ing when they open it.
-     * Coalesced by parent like creates, so a subtree stays a few queries.
+     * Tell whoever reached these through a folder above them — their grant is
+     * on that folder, so the revoke reports no holder for them. Coalesced by
+     * parent like creates, so a subtree stays a few queries.
      */
     async #fanOutRetiredToAncestors(
         entries: FSEntry[],
@@ -545,8 +548,7 @@ export class ShareService extends PuterService {
         for (const siblings of byParent.values()) {
             const first = siblings[0];
             if (!first) continue;
-            // Ancestors only — a share on the entry itself is the revoke's to
-            // report, and it already has.
+            // Ancestors only; a share on the entry is the revoke's to report.
             const groups = (await this.#reachingRoots(first)).filter(
                 ({ root }) => root.uuid !== first.uuid,
             );
@@ -567,11 +569,9 @@ export class ShareService extends PuterService {
     }
 
     /**
-     * A move seen from both ends, because it can take an item out of someone's
-     * share as easily as into it. Reaching both ends is a move, only the
-     * destination an arrival, only the origin a removal — that last being the
-     * GUI's Delete, a move to the owner's Trash where no recipient has a
-     * share.
+     * A move seen from both ends, since it can take an item out of a share as
+     * easily as into it: both ends is a move, only the destination an arrival,
+     * only the origin a removal.
      */
     async #fanOutMove(entry: FSEntry, fromPath?: string): Promise<void> {
         const destination = await this.#reachingRoots(entry);
@@ -591,8 +591,7 @@ export class ShareService extends PuterService {
         const originRootOf = rootsBySide(origin);
         const destinationRootOf = rootsBySide(destination);
 
-        // Keyed on both shares: the paths a holder is told depend on the one
-        // they saw each end through, and those need not be the same share.
+        // Keyed on both: a holder can see each end through a different share.
         const batches = new Map<
             string,
             {
@@ -614,16 +613,29 @@ export class ShareService extends PuterService {
             batches.set(key, batch);
         };
 
+        // A grant follows its entry into Trash, so Delete would read as a move
+        // and rename their item to the GUID Trash gave it. Listings omit it.
+        const nowTrashed = isTrashedPath(entry.path);
+        const wasTrashed = fromPath ? isTrashedPath(fromPath) : false;
+
         for (const [holder, to] of destinationRootOf) {
+            if (nowTrashed) continue;
             const from = originRootOf.get(holder);
             place(
                 holder,
-                from ? 'outer.gui.item.moved' : 'outer.gui.item.added',
+                from && !wasTrashed
+                    ? 'outer.gui.item.moved'
+                    : 'outer.gui.item.added',
                 from,
                 to,
             );
         }
         for (const [holder, from] of originRootOf) {
+            if (nowTrashed) {
+                // Already gone from their view if it was trashed before.
+                if (!wasTrashed) place(holder, 'outer.gui.item.removed', from);
+                continue;
+            }
             if (destinationRootOf.has(holder)) continue;
             place(holder, 'outer.gui.item.removed', from);
         }
@@ -638,12 +650,15 @@ export class ShareService extends PuterService {
                 );
                 continue;
             }
+            const payload = holderPayload(entry, to as FSEntry);
             const formerPath =
                 from && fromPath
                     ? maskedFormerPath(from, entry, fromPath)
                     : null;
+            // A share masks its own root, so this move is invisible to them.
+            if (formerPath && formerPath === payload.path) continue;
             await this.#emitGui(event, holders, {
-                ...holderPayload(entry, to as FSEntry),
+                ...payload,
                 // The GUI rewrites the item it already has by this.
                 ...(formerPath ? { from_path: formerPath } : {}),
             });
@@ -2029,7 +2044,7 @@ export class ShareService extends PuterService {
     }
 
     #isTrashed(entry: FSEntry): boolean {
-        return /^\/[^/]+\/Trash(\/|$)/u.test(entry.path);
+        return isTrashedPath(entry.path);
     }
 
     /**
