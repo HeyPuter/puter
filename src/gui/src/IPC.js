@@ -18,9 +18,9 @@
  */
 
 import download from './helpers/download.js';
-import item_icon from './helpers/item_icon.js';
+import item_icon from './helpers/itemIcon.js';
 import socialLink from './helpers/socialLink.js';
-import update_mouse_position from './helpers/update_mouse_position.js';
+import update_mouse_position from './helpers/updateMousePosition.js';
 import path from './lib/path.js';
 import UIAlert from './UI/UIAlert.js';
 import UIContextMenu from './UI/UIContextMenu.js';

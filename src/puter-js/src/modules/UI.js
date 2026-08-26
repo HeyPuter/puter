@@ -2030,7 +2030,7 @@ export class UIModule extends EventListener {
         if ( this.env === 'app' ) {
             // The host GUI advertises the IPC dialogs it can answer via
             // `puter.gui_features` on the app iframe's URL (see
-            // launch_app.js). A GUI that predates this feature has no
+            // launchApp.js). A GUI that predates this feature has no
             // handler for the message and would never reply, hanging this
             // never-rejecting promise forever — and a reply timeout can't
             // stand in for the check, because a legitimate reply only

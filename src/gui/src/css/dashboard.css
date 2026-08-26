@@ -3598,7 +3598,7 @@ body.myapps-reordering .myapps-tile {
 
 /* Open-file dot: marks rows whose file is open in an app window (visible or
    minimized) — the row doubles as that window's switcher (clicking it
-   restores the window; see open_item.js), sibling of the Apps-tab tiles'
+   restores the window; see openItem.js), sibling of the Apps-tab tiles'
    running dot. Kept current by updateOpenFileDots in TabFiles.js. */
 .dashboard-section-files .files-tab .files .row.file-is-open .item-name-wrapper::after {
     content: '';

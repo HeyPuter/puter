@@ -18,11 +18,11 @@
  */
 
 import path from '../../lib/path.js';
-import item_icon from '../../helpers/item_icon.js';
-import { owner_of_path } from '../../helpers/path_owner.js';
-import { invalidate_shared_roots } from '../../helpers/shared_access.js';
+import item_icon from '../../helpers/itemIcon.js';
+import { owner_of_path } from '../../helpers/pathOwner.js';
+import { invalidate_shared_roots } from '../../helpers/sharedAccess.js';
 import { icons } from '../../helpers/actionIcons.js';
-import { mode_label, options_for } from '../../helpers/share_modes.js';
+import { mode_label, options_for } from '../../helpers/shareModes.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { avatarHue, avatarInitial } from './shareAvatar.js';
 import { aggregateOwners, aggregateShares, missingPathsFor } from './shareAggregate.js';

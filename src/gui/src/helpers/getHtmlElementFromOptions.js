@@ -17,7 +17,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import truncate_filename from './truncate_filename.js';
+import truncate_filename from './truncateFilename.js';
 
 const get_html_element_from_options = async function (options) {
     const item_id = window.global_element_id++;

@@ -20,8 +20,8 @@
 import UIWindow from './UIWindow.js';
 import path from '../lib/path.js';
 import UIAlert from './UIAlert.js';
-import launch_app from '../helpers/launch_app.js';
-import item_icon from '../helpers/item_icon.js';
+import launch_app from '../helpers/launchApp.js';
+import item_icon from '../helpers/itemIcon.js';
 import UIContextMenu from './UIContextMenu.js';
 
 async function UIWindowSearch (options) {
