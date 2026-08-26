@@ -2487,6 +2487,7 @@ const TabFiles = {
         row.setAttribute("data-is_dir", file.is_dir ? "1" : "0");
         row.setAttribute("data-is_trash", file.is_trash ? "1" : "0");
         row.setAttribute("data-shared_with_me", file.shared_with_me ? "1" : "0");
+        row.setAttribute("data-is_shared", file.is_shared === true ? "1" : "0");
         row.setAttribute("data-share_mode", file.share_mode ?? '');
         row.setAttribute("data-shared_by", file.shared_by ?? '');
         row.setAttribute("data-has_website", file.has_website ? "1" : "0");
@@ -2530,10 +2531,16 @@ const TabFiles = {
                     data-item-id="${item_id}"
                     title="Shortcut"
                 >
-                <img  class="item-badge item-is-worker long-hover" 
-                    style="background-color: #ffffff; padding: 2px; ${is_worker ? 'display:block;' : ''}" 
-                    src="${html_encode(window.icons['worker.svg'])}" 
+                <img  class="item-badge item-is-worker long-hover"
+                    style="background-color: #ffffff; padding: 2px; ${is_worker ? 'display:block;' : ''}"
+                    src="${html_encode(window.icons['worker.svg'])}"
                     data-item-id="${item_id}"
+                >
+                <img class="item-badge item-is-shared-badge"
+                    style="${file.is_shared === true ? 'display:block;' : ''}"
+                    src="${html_encode(window.icons['owner-shared.svg'])}"
+                    data-item-id="${item_id}"
+                    title="${html_encode(i18n('item_shared_by_you'))}"
                 >
             </div>
             <div class="item-name-wrapper">

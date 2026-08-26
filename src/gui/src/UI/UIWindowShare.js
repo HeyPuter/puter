@@ -24,6 +24,7 @@ import { owner_of_path } from '../helpers/path_owner.js';
 import { invalidate_shared_roots } from '../helpers/shared_access.js';
 import { icons } from '../helpers/actionIcons.js';
 import { mode_label, options_for } from '../helpers/share_modes.js';
+import { has_direct_share, mark_item_shared } from '../helpers/sharedBadge.js';
 
 /**
  * Sharing dialog for one file or directory.
@@ -150,6 +151,8 @@ async function UIWindowShare (options) {
             rows += `<p class="share-dialog-empty">${i18n('share_no_one')}</p>`;
         }
         $list.html(rows);
+        // Every share, mode change and revoke lands here.
+        mark_item_shared(item_path, has_direct_share(shares));
     };
 
     const refresh = async () => {

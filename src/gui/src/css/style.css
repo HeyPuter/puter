@@ -674,6 +674,20 @@ span.header-sort-icon img {
     cursor: pointer;
 }
 
+/* Shared, owner-side. The ring is what reads at the 8px list-view size. */
+.item-badge.item-is-shared-badge {
+    border-radius: 50%;
+    background: white;
+    padding: 2px;
+    box-shadow: 0 0 0 1.5px #3b82f6;
+}
+
+.item-container-details .item-badges .item-badge.item-is-shared-badge {
+    /* Small enough that only the ring reads, so fill it in. */
+    background: #3b82f6;
+    box-shadow: none;
+}
+
 .item-name, .item-name-editor, .item-name-shadow {
     font-size: 12px;
     color: white;

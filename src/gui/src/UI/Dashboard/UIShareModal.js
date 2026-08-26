@@ -25,6 +25,10 @@ import { icons } from '../../helpers/actionIcons.js';
 import { mode_label, options_for } from '../../helpers/share_modes.js';
 import { isTouchPrimaryDevice } from './ContextMenu/ContextMenu.js';
 import { avatarHue, avatarInitial } from './shareAvatar.js';
+import {
+    has_direct_share,
+    mark_item_shared,
+} from '../../helpers/sharedBadge.js';
 import { aggregateOwners, aggregateShares, missingPathsFor } from './shareAggregate.js';
 
 const { html_encode } = window;
@@ -390,6 +394,10 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             $list.attr('aria-busy', 'false').empty();
             show_error(error_html(failure));
             return;
+        }
+        // Each listing is authoritative for its own item.
+        for ( const [target, shares] of by_path ) {
+            mark_item_shared(target, has_direct_share(shares));
         }
         render(aggregateShares(target_paths, by_path));
         if ( failure ) show_error(i18n('share_load_partial_failed'));
