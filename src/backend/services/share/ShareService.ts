@@ -205,9 +205,11 @@ const holderPayload = (
     entry: FSEntry,
     /** Defaults to the entry itself, for the paths with no root to mask by. */
     root: FSEntry = entry,
+    /** Where the entry was; differs from `entry.path` once it has moved. */
+    realPath: string = entry.path,
 ): Record<string, unknown> => {
     const path =
-        maskedPathVia(root, entry.path) ?? maskedSelfPath(entry, entry.path);
+        maskedPathVia(root, realPath) ?? maskedSelfPath(entry, realPath);
     return {
         uid: entry.uuid,
         uuid: entry.uuid,
@@ -320,17 +322,7 @@ export class ShareService extends PuterService {
                 fromUserId?: number;
             };
             if (!node?.uuid) return;
-            const notify = this.#fanOutToHolders(
-                node,
-                'outer.gui.item.moved',
-                (root) => {
-                    // Omitted when the move started outside this share.
-                    const from = fromPath
-                        ? maskedFormerPath(root, node, fromPath)
-                        : null;
-                    return from ? { from_path: from } : {};
-                },
-            ).catch(() => {
+            const notify = this.#fanOutMove(node, fromPath).catch(() => {
                 // A stale window is better than a failed move.
             });
 
@@ -499,6 +491,7 @@ export class ShareService extends PuterService {
      */
     async #flushRetire(entries: FSEntry[]): Promise<void> {
         const ownerOf = new Map(entries.map((e) => [e.uuid, e]));
+        const notified = new Map<string, Set<number>>();
 
         for (let i = 0; i < entries.length; i += RETIRE_CHUNK_SIZE) {
             const chunk = entries.slice(i, i + RETIRE_CHUNK_SIZE);
@@ -526,7 +519,134 @@ export class ShareService extends PuterService {
                     [...holders],
                     holderPayload(entry),
                 );
+                notified.set(uuid, holders);
             }
+        }
+
+        await this.#fanOutRetiredToAncestors(entries, notified);
+    }
+
+    /**
+     * Tell whoever reached these through a folder above them. Their grant is on
+     * that folder, not on what was deleted, so the revoke reports no holder for
+     * them — and the file stays in their window, 404ing when they open it.
+     * Coalesced by parent like creates, so a subtree stays a few queries.
+     */
+    async #fanOutRetiredToAncestors(
+        entries: FSEntry[],
+        notified: Map<string, Set<number>>,
+    ): Promise<void> {
+        const byParent = new Map<string, FSEntry[]>();
+        for (const entry of entries) {
+            const parent = pathPosix.dirname(entry.path);
+            byParent.set(parent, [...(byParent.get(parent) ?? []), entry]);
+        }
+
+        for (const siblings of byParent.values()) {
+            const first = siblings[0];
+            if (!first) continue;
+            // Ancestors only — a share on the entry itself is the revoke's to
+            // report, and it already has.
+            const groups = (await this.#reachingRoots(first)).filter(
+                ({ root }) => root.uuid !== first.uuid,
+            );
+            for (const { root, holders } of groups) {
+                for (const entry of siblings) {
+                    const unheard = holders.filter(
+                        (holder) => !notified.get(entry.uuid)?.has(holder),
+                    );
+                    if (!unheard.length) continue;
+                    await this.#emitGui(
+                        'outer.gui.item.removed',
+                        unheard,
+                        holderPayload(entry, root),
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * A move seen from both ends, because it can take an item out of someone's
+     * share as easily as into it. Reaching both ends is a move, only the
+     * destination an arrival, only the origin a removal — that last being the
+     * GUI's Delete, a move to the owner's Trash where no recipient has a
+     * share.
+     */
+    async #fanOutMove(entry: FSEntry, fromPath?: string): Promise<void> {
+        const destination = await this.#reachingRoots(entry);
+        const origin =
+            fromPath && fromPath !== entry.path
+                ? await this.#reachingRoots(entry, fromPath)
+                : destination;
+
+        const rootsBySide = (
+            groups: Array<{ root: FSEntry; holders: number[] }>,
+        ) =>
+            new Map<number, FSEntry>(
+                groups.flatMap(({ root, holders }) =>
+                    holders.map((holder) => [holder, root] as const),
+                ),
+            );
+        const originRootOf = rootsBySide(origin);
+        const destinationRootOf = rootsBySide(destination);
+
+        // Keyed on both shares: the paths a holder is told depend on the one
+        // they saw each end through, and those need not be the same share.
+        const batches = new Map<
+            string,
+            {
+                event: HolderGuiEvent;
+                from?: FSEntry;
+                to?: FSEntry;
+                holders: number[];
+            }
+        >();
+        const place = (
+            holder: number,
+            event: HolderGuiEvent,
+            from?: FSEntry,
+            to?: FSEntry,
+        ) => {
+            const key = `${event}|${from?.id ?? ''}|${to?.id ?? ''}`;
+            const batch = batches.get(key) ?? { event, from, to, holders: [] };
+            batch.holders.push(holder);
+            batches.set(key, batch);
+        };
+
+        for (const [holder, to] of destinationRootOf) {
+            const from = originRootOf.get(holder);
+            place(
+                holder,
+                from ? 'outer.gui.item.moved' : 'outer.gui.item.added',
+                from,
+                to,
+            );
+        }
+        for (const [holder, from] of originRootOf) {
+            if (destinationRootOf.has(holder)) continue;
+            place(holder, 'outer.gui.item.removed', from);
+        }
+
+        for (const { event, from, to, holders } of batches.values()) {
+            if (event === 'outer.gui.item.removed') {
+                // Named by where they last saw it, which is all they have.
+                await this.#emitGui(
+                    event,
+                    holders,
+                    holderPayload(entry, from as FSEntry, fromPath),
+                );
+                continue;
+            }
+            const formerPath =
+                from && fromPath
+                    ? maskedFormerPath(from, entry, fromPath)
+                    : null;
+            await this.#emitGui(event, holders, {
+                ...holderPayload(entry, to as FSEntry),
+                // The GUI rewrites the item it already has by this.
+                ...(formerPath ? { from_path: formerPath } : {}),
+            });
         }
     }
 
@@ -550,8 +670,10 @@ export class ShareService extends PuterService {
     /** Holders who can reach `entry`, grouped by the share they came through. */
     async #reachingRoots(
         entry: FSEntry,
+        /** Where to look from; the former path once the entry has moved. */
+        realPath: string = entry.path,
     ): Promise<Array<{ root: FSEntry; holders: number[] }>> {
-        const { rows, nodesById } = await this.#sharesReaching(entry);
+        const { rows, nodesById } = await this.#sharesReaching(entry, realPath);
 
         // Deepest root wins, so a holder with nested shares is told once.
         const rootByHolder = new Map<number, FSEntry>();
@@ -588,13 +710,16 @@ export class ShareService extends PuterService {
      * share table to join fsentries and match `path IN (...)` instead put an
      * un-indexable OR on the write path.
      */
-    async #sharesReaching(entry: FSEntry): Promise<{
+    async #sharesReaching(
+        entry: FSEntry,
+        realPath: string = entry.path,
+    ): Promise<{
         rows: Array<{ holder_user_id: number; fsentry_id: number }>;
         nodesById: Map<number, FSEntry>;
     }> {
         const ancestorPaths: string[] = [];
         for (
-            let cursor = pathPosix.dirname(entry.path);
+            let cursor = pathPosix.dirname(realPath);
             cursor !== '/' && cursor !== '.';
             cursor = pathPosix.dirname(cursor)
         ) {
