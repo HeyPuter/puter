@@ -1693,6 +1693,7 @@ window.update_trash_icons = function (is_empty) {
     $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', icon);
     $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.window-head-icon').attr('src', icon);
     $('.directories [data-folder="Trash"] img').attr('src', icon);
+    $('.files-tab .place-row[data-place="Trash"] .item-icon > img').attr('src', icon);
 };
 
 /**

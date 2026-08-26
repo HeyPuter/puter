@@ -4733,6 +4733,15 @@ body.myapps-reordering .myapps-tile {
 }
 
 /* Mobile phone optimizations */
+/* The Shared/Trash rows on Home exist for phones, where the directories
+   sidebar below is hidden; while the sidebar is visible they'd be redundant.
+   Same breakpoint as the sidebar rule so the two never both show or both hide. */
+@media (min-width: 481px) {
+    .dashboard-section-files .files-tab .files .row.place-row {
+        display: none !important;
+    }
+}
+
 @media (max-width: 480px) {
     .dashboard-content.files {
         padding: 0;
@@ -4956,6 +4965,38 @@ body.myapps-reordering .myapps-tile {
         top: 8px;
         left: 8px;
         z-index: 2;
+    }
+
+    /* Place rows (Shared/Trash at the top of Home — TabFiles.renderPlaceRows)
+       stand in for the hidden sidebar. A divider under the pair separates them
+       from Home's own folders; they only navigate, so select mode gives them
+       no checkbox and keeps their layout. */
+    .dashboard-section-files .files-tab .files.files-list-view .row.place-row[data-place="Trash"] {
+        border-bottom: 1px solid var(--dashboard-border);
+        border-radius: 0;
+        margin-bottom: 4px;
+    }
+
+    .dashboard-section-files .files-tab.select-mode-active .files .row.place-row .item-checkbox {
+        display: none;
+    }
+
+    .dashboard-section-files .files-tab.select-mode-active .files.files-list-view .row.place-row {
+        grid-template-columns: 48px 1fr !important;
+    }
+
+    .dashboard-section-files .files-tab.select-mode-active .files.files-list-view .row.place-row .item-icon {
+        grid-column: 1;
+    }
+
+    .dashboard-section-files .files-tab.select-mode-active .files.files-list-view .row.place-row .item-name-wrapper,
+    .dashboard-section-files .files-tab.select-mode-active .files.files-list-view .row.place-row .item-metadata {
+        grid-column: 2;
+    }
+
+    /* Home with the places on screen isn't empty. */
+    .dashboard-section-files .files-tab .files .row.place-row ~ .files-empty-notice {
+        display: none !important;
     }
 }
 
