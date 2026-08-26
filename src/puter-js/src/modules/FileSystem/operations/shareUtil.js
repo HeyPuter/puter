@@ -84,6 +84,8 @@ export const toShare = (row) => ({
         : {}),
     modified: /** @type {number} */ (row.modified ?? 0),
     size: /** @type {number | null} */ (row.size ?? null),
+    // Only a share call reports this; a listing leaves it undefined.
+    ...(row.is_new === undefined ? {} : { isNew: Boolean(row.is_new) }),
 });
 
 /**

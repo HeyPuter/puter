@@ -19,7 +19,7 @@
 
 import path from '../../lib/path.js';
 import item_icon from '../../helpers/item_icon.js';
-import { owner_of_path } from '../../helpers/path_owner.js';
+import { is_owned_by_me, owner_of_path } from '../../helpers/path_owner.js';
 import { invalidate_shared_roots } from '../../helpers/shared_access.js';
 import { icons } from '../../helpers/actionIcons.js';
 import { mode_label, options_for } from '../../helpers/share_modes.js';
@@ -29,6 +29,7 @@ import {
     has_direct_share,
     mark_item_shared,
 } from '../../helpers/sharedBadge.js';
+import { share_outcome } from '../../helpers/shareOutcome.js';
 import { aggregateOwners, aggregateShares, missingPathsFor } from './shareAggregate.js';
 
 const { html_encode } = window;
@@ -38,6 +39,14 @@ const chevronIcon = `<svg class="share-modal-chevron" viewBox="0 0 24 24" width=
 
 // How many item icons the header fans out before it stops adding to the pile.
 const MAX_STACKED_ICONS = 3;
+
+/** What each outcome of a share call is called on screen. */
+const SHARE_MESSAGE = {
+    invited: 'share_invited',
+    shared: 'share_shared_with',
+    updated: 'share_access_updated',
+    unchanged: 'share_already_shared_with',
+};
 
 // What one /share, /share/revoke or listing pass may cover, matching the
 // backend's documented cap (see doc: rate limits and quotas). Bigger
@@ -115,6 +124,8 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
         }));
     const target_paths = targets.map((item) => item.path);
     const total = targets.length;
+    // Strictest item decides: one borrowed item withholds it for the rest.
+    const allow_manage = target_paths.every((p) => is_owned_by_me(p));
     const is_multi = total > 1;
     // Nothing to share: an empty selection is a caller's mistake, not a dialog.
     if ( total === 0 ) return { close: () => {} };
@@ -159,7 +170,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
                         <div class="share-modal-add-row">
                             <input type="text" class="share-modal-recipient" autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="send"
                                 placeholder="${i18n('share_add_people')}" aria-label="${i18n('share_add_people')}" />
-                            <select class="share-modal-mode" aria-label="${i18n('share_access_level')}">${options_for('read')}</select>
+                            <select class="share-modal-mode" aria-label="${i18n('share_access_level')}">${options_for('read', { allow_manage })}</select>
                         </div>
                         <button type="submit" class="share-modal-submit" disabled>
                             <span class="share-modal-spinner" aria-hidden="true"></span>
@@ -318,7 +329,7 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             // The accessible names carry the person: a list where every row
             // reads as bare "Access level" / "Remove access" leaves a screen
             // reader user unable to tell whose grant a control changes.
-            row += `<select class="share-modal-row-mode" data-key="${key}" aria-label="${i18n('share_access_level_for', { recipient: group.name })}">${options_for(group.mode)}</select>`;
+            row += `<select class="share-modal-row-mode" data-key="${key}" aria-label="${i18n('share_access_level_for', { recipient: group.name })}">${options_for(group.mode, { allow_manage })}</select>`;
         } else {
             const fixed_mode = group.pending ? group.pendingMode : group.inheritedMode;
             row += `<span class="share-modal-row-tag">${fixed_mode ? mode_label(fixed_mode) : i18n('share_access_mixed')}</span>`;
@@ -533,9 +544,16 @@ export default function UIShareModal ({ items, path: item_path, name, owner, fse
             // "Shared with" would claim access an invite does not grant.
             const invited = created?.some((share) => share.pending);
             if ( ! is_multi ) {
-                show_success(invited
-                    ? i18n('share_invited', { recipient })
-                    : i18n('share_shared_with', { recipient }));
+                // One item, so the list on screen settles what changed.
+                const before = last_groups.map((group) => ({
+                    holder: group.name,
+                    mode: group.mode,
+                }));
+                show_success(
+                    i18n(SHARE_MESSAGE[share_outcome(created, before)], {
+                        recipient,
+                    }),
+                );
             } else if ( granted < total ) {
                 show_success(i18n('share_shared_with_partial', { recipient, count: granted, total }));
             } else {

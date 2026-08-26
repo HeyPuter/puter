@@ -69,6 +69,7 @@ A `Promise` that resolves to an array of share objects, one per recipient/item p
 - `recipientEmail` (String) - Address a pending share was sent to. Only set when `pending`.
 - `modified` (Number) - Last-modified time of the item, in unix seconds.
 - `size` (Number) - Size of the item in bytes; `null` for a directory.
+- `isNew` (Boolean) - Whether this call created access that did not exist before. `false` means the recipient already had it, possibly at a different mode — sharing again is not an error, so this is how you tell the two apart. Only `share()` reports it; a listing leaves it undefined.
 
 Sharing the same item with the same person again **replaces** their access rather than adding a second share, so raising someone from `read` to `write` is just another call.
 

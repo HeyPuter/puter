@@ -57,6 +57,8 @@ export async function toClientShare(
         ...(share.pending
             ? { pending: true, recipient_email: share.recipientEmail }
             : {}),
+        // Set on a share call only, so a listing stays silent about it.
+        ...(share.isNew === undefined ? {} : { is_new: share.isNew }),
         uid_entry: share.entryUid,
         is_dir: share.isDir,
         issuer: share.issuer.username,

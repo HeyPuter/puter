@@ -94,11 +94,9 @@ export interface ResolvedShare {
     issuedByApp?: string | null;
     modified: number;
     size: number | null;
-    /**
-     * Set by `share()` only, and never sent to a client: who to notify, and
-     * whether this call created reach that didn't exist before.
-     */
+    /** Set by `share()` only: who to notify. Never sent to a client. */
     holderId?: number;
+    /** Whether this call created reach that didn't exist before. */
     isNew?: boolean;
     /**
      * An invite to an address with no confirmed account. No grant exists yet —
@@ -1719,6 +1717,22 @@ export class ShareService extends PuterService {
         // it is what keeps sharing to its own AppData and the files it was
         // given, rather than everything its user owns.
         if (allowed && (await this.#hasOwnReach(actor, entry, mode))) return;
+
+        // Only for someone who can already share here, so it leaks nothing.
+        if (mode === MANAGE_PERM_PREFIX) {
+            const canDelegateAccess =
+                await this.services.permission.canManagePermission(
+                    userRelatedActor(actor),
+                    entryPermissionForMode(entry.uuid, 'write'),
+                );
+            if (canDelegateAccess) {
+                throw new HttpError(
+                    403,
+                    'Only the owner can grant edit & share access',
+                    { legacyCode: 'cannot_delegate_manage' },
+                );
+            }
+        }
 
         const safe = await this.services.acl.getSafeAclError(
             actor,
