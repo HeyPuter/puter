@@ -689,6 +689,10 @@ export class ShareService extends PuterService {
         realPath: string = entry.path,
     ): Promise<Array<{ root: FSEntry; holders: number[] }>> {
         const { rows, nodesById } = await this.#sharesReaching(entry, realPath);
+        // An index row outlives the grant it records, so a recipient revoked
+        // through the ACL alone would keep receiving pushes. Free when nothing
+        // is shared, which is the path every write takes.
+        const live = await this.#reachingHolders(rows, nodesById);
 
         // Deepest root wins, so a holder with nested shares is told once.
         const rootByHolder = new Map<number, FSEntry>();
@@ -697,6 +701,7 @@ export class ShareService extends PuterService {
             const root = nodesById.get(Number(row.fsentry_id));
             if (!root || !Number.isFinite(holderId)) continue;
             if (holderId === entry.userId) continue;
+            if (!live.has(`${holderId}:${root.id}`)) continue;
             const current = rootByHolder.get(holderId);
             if (!current || root.path.length > current.path.length) {
                 rootByHolder.set(holderId, root);
@@ -729,7 +734,7 @@ export class ShareService extends PuterService {
         entry: FSEntry,
         realPath: string = entry.path,
     ): Promise<{
-        rows: Array<{ holder_user_id: number; fsentry_id: number }>;
+        rows: ShareIndexRow[];
         nodesById: Map<number, FSEntry>;
     }> {
         const ancestorPaths: string[] = [];

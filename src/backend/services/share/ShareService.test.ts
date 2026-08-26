@@ -2035,6 +2035,69 @@ describe('ShareService', () => {
             expect(lookups).toBeLessThanOrEqual(2);
         });
 
+        it('stays quiet for a recipient whose grant was revoked', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            // As `/auth/revoke-user-user` does; the share row survives.
+            await server.services.permission.revokeUserUserPermission(
+                owner.actor,
+                recipient.user.username!,
+                `fs:${dir.uuid}:read`,
+            );
+
+            const seen: unknown[] = [];
+            const listener = (_key: string, data: unknown) => {
+                const payload = data as { user_id_list?: number[] };
+                if (!payload.user_id_list?.includes(recipient.user.id)) return;
+                seen.push(payload);
+            };
+            server.clients.event.on('outer.gui.item.added', listener);
+            server.clients.event.on('outer.gui.item.updated', listener);
+
+            try {
+                await server.services.fs.touch(owner.user.id, {
+                    path: `${dir.path}/after-revoke.txt`,
+                });
+                await new Promise((resolve) => setTimeout(resolve, 150));
+            } finally {
+                server.clients.event.off('outer.gui.item.added', listener);
+                server.clients.event.off('outer.gui.item.updated', listener);
+            }
+
+            expect(seen).toEqual([]);
+        });
+
+        it('checks no grants when nothing is shared', async () => {
+            const owner = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+
+            // This guards every write on the server, shared or not.
+            const linked = vi.spyOn(
+                server.stores.permission,
+                'readLinkedUserUserPerms',
+            );
+            let reads = -1;
+            try {
+                await server.services.fs.touch(owner.user.id, {
+                    path: `${dir.path}/unshared.txt`,
+                });
+                await new Promise((resolve) => setTimeout(resolve, 150));
+                reads = linked.mock.calls.length;
+            } finally {
+                linked.mockRestore();
+            }
+
+            expect(reads).toBe(0);
+        });
+
         it('stays quiet for an event another node already handled', async () => {
             const owner = await makeUser();
             const recipient = await makeUser();
