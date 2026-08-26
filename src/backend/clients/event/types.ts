@@ -32,6 +32,9 @@ type GuiEvent<R = Record<string, unknown>> = {
     response: R;
 };
 
+// The entry arrives under several aliases, for handlers of any vintage.
+type FsCreateEvent = { node: FSEntry; entry: FSEntry; uid: string };
+
 /**
  * Extension-augmentable half of {@link EventMap}. Extensions that emit their own
  * events declare the payload here by declaration merging, so both the emitter
@@ -342,6 +345,18 @@ export type EventMap = {
     };
     'fs.remove.node': { node: FSEntry; entry: FSEntry; target: FSEntry };
     'fs.write.file': { node: FSEntry; entry: FSEntry; target: FSEntry };
+    /** A new entry, one key per flavor; `fs.write.file` is the overwrite. */
+    'fs.create.file': FsCreateEvent;
+    'fs.create.directory': FsCreateEvent;
+    'fs.create.shortcut': FsCreateEvent;
+    'fs.create.symlink': FsCreateEvent;
+    /** In-place name change. A move emits `fs.move.node` instead. */
+    'fs.rename': FsCreateEvent & {
+        old_name: string;
+        new_name: string;
+        old_path: string;
+        new_path: string;
+    };
     'fs.storage.upload-progress': {
         upload_tracker: unknown;
         context: unknown;
@@ -435,6 +450,7 @@ export type EventMap = {
     'outer.gui.item.moved': GuiEvent;
     'outer.gui.item.pending': GuiEvent;
     'outer.gui.item.removed': GuiEvent;
+    'outer.gui.item.renamed': GuiEvent;
     'outer.gui.notif.ack': GuiEvent<{ uid: string }>;
     'outer.gui.notif.persisted': GuiEvent<{ uid: string }>;
     'outer.gui.notif.message': GuiEvent<{ uid: string; notification: unknown }>;

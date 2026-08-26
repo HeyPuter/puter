@@ -18,7 +18,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
@@ -1462,26 +1462,35 @@ describe('ShareService', () => {
         /** Collect one GUI event's audiences for the life of the callback. */
         const captureAudiences = async (
             event:
+                | 'outer.gui.item.added'
                 | 'outer.gui.item.removed'
                 | 'outer.gui.item.moved'
+                | 'outer.gui.item.renamed'
                 | 'outer.gui.item.updated',
-            uuid: string,
+            /** Null accepts any entry — for events whose uuid isn't known yet. */
+            uuid: string | null,
             fn: () => Promise<void>,
         ) => {
             const seen: number[][] = [];
-            server.clients.event.on(event, (_key, data) => {
+            const listener = (_key: string, data: unknown) => {
                 const payload = data as {
                     user_id_list?: number[];
                     response?: { uuid?: string };
                 };
-                if (payload.response?.uuid !== uuid) return;
+                if (uuid !== null && payload.response?.uuid !== uuid) return;
                 seen.push(payload.user_id_list ?? []);
-            });
-            await fn();
-            for (let i = 0; i < 50 && seen.length === 0; i++) {
-                await new Promise((resolve) => setTimeout(resolve, 20));
+            };
+            server.clients.event.on(event, listener);
+            try {
+                await fn();
+                for (let i = 0; i < 50 && seen.length === 0; i++) {
+                    await new Promise((resolve) => setTimeout(resolve, 20));
+                }
+                return seen;
+            } finally {
+                // An `uuid: null` capture would match later tests' events.
+                server.clients.event.off(event, listener);
             }
-            return seen;
         };
 
         it('tells a recipient when a shared file is deleted', async () => {
@@ -1508,6 +1517,279 @@ describe('ShareService', () => {
             );
 
             expect(audiences.flat()).toContain(recipient.user.id);
+        });
+
+        it('tells a folder recipient when a file inside it is deleted', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir, file } = await makeDirWithFile(owner.user);
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            // No share on the file, so the audience is only found upward.
+            const payload = await capturePayload(
+                'outer.gui.item.removed',
+                recipient.user.id,
+                async () => {
+                    await server.services.fs.remove(owner.user.id, {
+                        entry: file,
+                    });
+                },
+            );
+
+            // Named by the path they knew, masked through the folder they hold.
+            expect(payload?.path).toBe(
+                `/${owner.user.username}/${dir.uuid}/${dir.name}/${file.name}`,
+            );
+        });
+
+        it('tells a recipient once when they hold both the file and its folder', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir, file } = await makeDirWithFile(owner.user);
+
+            for (const uid of [dir.uuid, file.uuid]) {
+                await share(owner.actor, {
+                    uid,
+                    recipient: { email: recipient.email },
+                    mode: 'read',
+                });
+            }
+
+            // Both passes reach them; one delete must not arrive as two.
+            const audiences = await captureAudiences(
+                'outer.gui.item.removed',
+                file.uuid,
+                async () => {
+                    await server.services.fs.remove(owner.user.id, {
+                        entry: file,
+                    });
+                },
+            );
+
+            const told = audiences
+                .flat()
+                .filter((id) => id === recipient.user.id);
+            expect(told).toHaveLength(1);
+        });
+
+        it('tells a folder recipient when a file is moved out of it', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir, file } = await makeDirWithFile(owner.user);
+            const before = file.path;
+            const after = `/${owner.user.username}/Trash/${file.name}`;
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            // What Delete does; `item.moved` would name a path they can't see.
+            const audiences = await captureAudiences(
+                'outer.gui.item.removed',
+                file.uuid,
+                async () => {
+                    await server.clients.event.emitAndWait(
+                        'fs.move.node',
+                        {
+                            node: { ...file, path: after },
+                            fromPath: before,
+                            toPath: after,
+                        },
+                        {},
+                    );
+                },
+            );
+
+            expect(audiences.flat()).toContain(recipient.user.id);
+        });
+
+        it('names a moved-out file by where the recipient last saw it', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir, file } = await makeDirWithFile(owner.user);
+            const before = file.path;
+            const after = `/${owner.user.username}/Trash/${file.name}`;
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const payload = await capturePayload(
+                'outer.gui.item.removed',
+                recipient.user.id,
+                async () => {
+                    await server.clients.event.emitAndWait(
+                        'fs.move.node',
+                        {
+                            node: { ...file, path: after },
+                            fromPath: before,
+                            toPath: after,
+                        },
+                        {},
+                    );
+                },
+            );
+
+            // Masked through the folder they hold, not the owner's Trash.
+            expect(payload?.path).toBe(
+                `/${owner.user.username}/${dir.uuid}/${dir.name}/${file.name}`,
+            );
+        });
+
+        it('tells a folder recipient when a file is moved into it', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+            const loose = await makeFile(owner.user);
+            const after = `${dir.path}/${loose.name}`;
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            // They never had it, so there is nothing for `item.moved` to move.
+            const audiences = await captureAudiences(
+                'outer.gui.item.added',
+                loose.uuid,
+                async () => {
+                    await server.clients.event.emitAndWait(
+                        'fs.move.node',
+                        {
+                            node: { ...loose, path: after },
+                            fromPath: loose.path,
+                            toPath: after,
+                        },
+                        {},
+                    );
+                },
+            );
+
+            expect(audiences.flat()).toContain(recipient.user.id);
+        });
+
+        it('still reports a move within the shared folder as a move', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir, file } = await makeDirWithFile(owner.user);
+            const before = file.path;
+            const after = `${dir.path}/renamed-${file.name}`;
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const payload = await capturePayload(
+                'outer.gui.item.moved',
+                recipient.user.id,
+                async () => {
+                    await server.clients.event.emitAndWait(
+                        'fs.move.node',
+                        {
+                            node: { ...file, path: after },
+                            fromPath: before,
+                            toPath: after,
+                        },
+                        {},
+                    );
+                },
+            );
+
+            const masked = `/${owner.user.username}/${dir.uuid}/${dir.name}`;
+            expect(payload?.from_path).toBe(`${masked}/${file.name}`);
+            expect(payload?.path).toBe(`${masked}/renamed-${file.name}`);
+        });
+
+        it('tells a recipient when the shared item itself is trashed', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            const before = file.path;
+            const trashName = uuidv4();
+            const trashed = `/${owner.user.username}/Trash/${trashName}`;
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            // The grant follows it into Trash, so both ends would resolve.
+            const payload = await capturePayload(
+                'outer.gui.item.removed',
+                recipient.user.id,
+                async () => {
+                    await server.clients.event.emitAndWait(
+                        'fs.move.node',
+                        {
+                            node: {
+                                ...file,
+                                path: trashed,
+                                name: trashName,
+                            },
+                            fromPath: before,
+                            toPath: trashed,
+                        },
+                        {},
+                    );
+                },
+            );
+
+            // Named as they knew it, never the GUID that Trash gave it.
+            expect(payload?.path).toBe(
+                `/${owner.user.username}/${file.uuid}/${file.name}`,
+            );
+        });
+
+        it('stays quiet when a move leaves the recipient address alone', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            const elsewhere = `/${owner.user.username}/Documents/${file.name}`;
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const seen: unknown[] = [];
+            const listener = (_key: string, data: unknown) => {
+                const payload = data as { user_id_list?: number[] };
+                if (!payload.user_id_list?.includes(recipient.user.id)) return;
+                seen.push(payload);
+            };
+            server.clients.event.on('outer.gui.item.moved', listener);
+
+            try {
+                // Masked at its own root, so their path holds wherever it goes.
+                await server.clients.event.emitAndWait(
+                    'fs.move.node',
+                    {
+                        node: { ...file, path: elsewhere },
+                        fromPath: file.path,
+                        toPath: elsewhere,
+                    },
+                    {},
+                );
+                await new Promise((resolve) => setTimeout(resolve, 100));
+            } finally {
+                server.clients.event.off('outer.gui.item.moved', listener);
+            }
+
+            expect(seen).toEqual([]);
         });
 
         it('tells a folder recipient when a file inside it changes', async () => {
@@ -1538,6 +1820,423 @@ describe('ShareService', () => {
             expect(audiences.flat()).toContain(recipient.user.id);
         });
 
+        it('tells a folder recipient when a file appears inside it', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            // The real create path, not the event the fan-out listens for.
+            let created: { uuid: string } | undefined;
+            const audiences = await captureAudiences(
+                'outer.gui.item.added',
+                null,
+                async () => {
+                    created = await server.services.fs.touch(owner.user.id, {
+                        path: `${dir.path}/appeared.txt`,
+                    });
+                },
+            );
+            expect(created?.uuid).toEqual(expect.any(String));
+
+            expect(audiences.flat()).toContain(recipient.user.id);
+        });
+
+        it('addresses a new file by the path the recipient listed', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const paths: string[] = [];
+            server.clients.event.on('outer.gui.item.added', (_key, data) => {
+                const payload = data as {
+                    user_id_list?: number[];
+                    response?: { path?: string };
+                };
+                if (!payload.user_id_list?.includes(recipient.user.id)) return;
+                paths.push(String(payload.response?.path));
+            });
+
+            await server.services.fs.touch(owner.user.id, {
+                path: `${dir.path}/inside.txt`,
+            });
+            for (let i = 0; i < 50 && paths.length === 0; i++) {
+                await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+
+            // The parent has to be the folder as the recipient addresses it.
+            expect(paths).toEqual([
+                `/${owner.user.username}/${dir.uuid}/${dir.name}/inside.txt`,
+            ]);
+            // And never the owner's real path.
+            expect(paths[0]).not.toContain(dir.path);
+        });
+
+        it('tells a recipient when a shared file is renamed', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const audiences = await captureAudiences(
+                'outer.gui.item.renamed',
+                file.uuid,
+                async () => {
+                    await server.services.fs.rename(
+                        owner.user.id,
+                        file,
+                        'renamed.txt',
+                    );
+                },
+            );
+
+            expect(audiences.flat()).toContain(recipient.user.id);
+        });
+
+        /** The one payload sent to `holder` for `event`, or undefined. */
+        const capturePayload = async (
+            event:
+                | 'outer.gui.item.moved'
+                | 'outer.gui.item.removed'
+                | 'outer.gui.item.renamed',
+            holderId: number,
+            fn: () => Promise<void>,
+        ) => {
+            const seen: Record<string, unknown>[] = [];
+            server.clients.event.on(event, (_key, data) => {
+                const payload = data as {
+                    user_id_list?: number[];
+                    response?: Record<string, unknown>;
+                };
+                if (!payload.user_id_list?.includes(holderId)) return;
+                seen.push(payload.response ?? {});
+            });
+            await fn();
+            for (let i = 0; i < 50 && seen.length === 0; i++) {
+                await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+            return seen[0];
+        };
+
+        it('asks who the audience is once per folder, not once per file', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const seen: number[][] = [];
+            const listener = (_key: string, data: unknown) => {
+                const payload = data as { user_id_list?: number[] };
+                if (!payload.user_id_list?.includes(recipient.user.id)) return;
+                seen.push(payload.user_id_list);
+            };
+            server.clients.event.on('outer.gui.item.added', listener);
+            const reaching = vi.spyOn(server.stores.share, 'listReaching');
+            let lookups = -1;
+
+            try {
+                // What an upload looks like: siblings landing together.
+                await Promise.all(
+                    Array.from({ length: 8 }, (_, i) =>
+                        server.services.fs.touch(owner.user.id, {
+                            path: `${dir.path}/bulk-${i}.txt`,
+                        }),
+                    ),
+                );
+                for (let i = 0; i < 50 && seen.length < 8; i++) {
+                    await new Promise((resolve) => setTimeout(resolve, 20));
+                }
+                // Read before restoring: `mockRestore` clears the history.
+                lookups = reaching.mock.calls.length;
+            } finally {
+                server.clients.event.off('outer.gui.item.added', listener);
+                reaching.mockRestore();
+            }
+
+            // Every file is announced, but they share one lookup.
+            expect(seen).toHaveLength(8);
+            expect(lookups).toBe(1);
+        });
+
+        it('asks once per folder when a whole subtree is deleted', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            await Promise.all(
+                Array.from({ length: 8 }, (_, i) =>
+                    server.services.fs.touch(owner.user.id, {
+                        path: `${dir.path}/doomed-${i}.txt`,
+                    }),
+                ),
+            );
+            const files = await Promise.all(
+                Array.from({ length: 8 }, (_, i) =>
+                    server.stores.fsEntry.getEntryByPath(
+                        `${dir.path}/doomed-${i}.txt`,
+                    ),
+                ),
+            );
+
+            const seen: number[][] = [];
+            const listener = (_key: string, data: unknown) => {
+                const payload = data as { user_id_list?: number[] };
+                if (!payload.user_id_list?.includes(recipient.user.id)) return;
+                seen.push(payload.user_id_list);
+            };
+            server.clients.event.on('outer.gui.item.removed', listener);
+            const reaching = vi.spyOn(server.stores.share, 'listReaching');
+            let lookups = -1;
+
+            try {
+                await Promise.all(
+                    files.map((entry) =>
+                        server.services.fs.remove(owner.user.id, { entry }),
+                    ),
+                );
+                for (let i = 0; i < 50 && seen.length < 8; i++) {
+                    await new Promise((resolve) => setTimeout(resolve, 20));
+                }
+                lookups = reaching.mock.calls.length;
+            } finally {
+                server.clients.event.off('outer.gui.item.removed', listener);
+                reaching.mockRestore();
+            }
+
+            // Siblings share a parent, so a burst settles in a flush or two.
+            expect(seen).toHaveLength(8);
+            expect(lookups).toBeLessThanOrEqual(2);
+        });
+
+        it('stays quiet for a recipient whose grant was revoked', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            // As `/auth/revoke-user-user` does; the share row survives.
+            await server.services.permission.revokeUserUserPermission(
+                owner.actor,
+                recipient.user.username!,
+                `fs:${dir.uuid}:read`,
+            );
+
+            const seen: unknown[] = [];
+            const listener = (_key: string, data: unknown) => {
+                const payload = data as { user_id_list?: number[] };
+                if (!payload.user_id_list?.includes(recipient.user.id)) return;
+                seen.push(payload);
+            };
+            server.clients.event.on('outer.gui.item.added', listener);
+            server.clients.event.on('outer.gui.item.updated', listener);
+
+            try {
+                await server.services.fs.touch(owner.user.id, {
+                    path: `${dir.path}/after-revoke.txt`,
+                });
+                await new Promise((resolve) => setTimeout(resolve, 150));
+            } finally {
+                server.clients.event.off('outer.gui.item.added', listener);
+                server.clients.event.off('outer.gui.item.updated', listener);
+            }
+
+            expect(seen).toEqual([]);
+        });
+
+        it('checks no grants when nothing is shared', async () => {
+            const owner = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+
+            // This guards every write on the server, shared or not.
+            const linked = vi.spyOn(
+                server.stores.permission,
+                'readLinkedUserUserPerms',
+            );
+            let reads = -1;
+            try {
+                await server.services.fs.touch(owner.user.id, {
+                    path: `${dir.path}/unshared.txt`,
+                });
+                await new Promise((resolve) => setTimeout(resolve, 150));
+                reads = linked.mock.calls.length;
+            } finally {
+                linked.mockRestore();
+            }
+
+            expect(reads).toBe(0);
+        });
+
+        it('stays quiet for an event another node already handled', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir, file } = await makeDirWithFile(owner.user);
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const seen: unknown[] = [];
+            const listener = (_key: string, data: unknown) => seen.push(data);
+            server.clients.event.on('outer.gui.item.added', listener);
+            server.clients.event.on('outer.gui.item.updated', listener);
+            try {
+                // What replication looks like: the writing node already told
+                // this audience, so a second fan-out would only duplicate it.
+                await server.clients.event.emitAndWait(
+                    'fs.create.file',
+                    { node: file, entry: file, uid: file.uuid },
+                    { from_outside: true },
+                );
+                await server.clients.event.emitAndWait(
+                    'fs.write.file',
+                    { node: file, entry: file, target: file },
+                    { from_outside: true },
+                );
+                await new Promise((resolve) => setTimeout(resolve, 100));
+            } finally {
+                server.clients.event.off('outer.gui.item.added', listener);
+                server.clients.event.off('outer.gui.item.updated', listener);
+            }
+
+            expect(seen).toEqual([]);
+        });
+
+        it('says where a directly shared file moved from', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            const before = file.path;
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const payload = await capturePayload(
+                'outer.gui.item.moved',
+                recipient.user.id,
+                async () => {
+                    await server.clients.event.emitAndWait(
+                        'fs.move.node',
+                        {
+                            node: {
+                                ...file,
+                                path: `${before}-moved`,
+                                name: `${file.name}-moved`,
+                            },
+                            fromPath: before,
+                            toPath: `${before}-moved`,
+                        },
+                        {},
+                    );
+                },
+            );
+
+            // Shared at the file itself, so the old path resolves by uuid.
+            expect(payload?.from_path).toBe(
+                `/${owner.user.username}/${file.uuid}/${file.name}`,
+            );
+        });
+
+        it('says what a renamed file was called', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            const before = file.path;
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const payload = await capturePayload(
+                'outer.gui.item.renamed',
+                recipient.user.id,
+                async () => {
+                    await server.services.fs.rename(
+                        owner.user.id,
+                        file,
+                        'after.txt',
+                    );
+                },
+            );
+
+            expect(payload?.old_path).toBe(
+                `/${owner.user.username}/${file.uuid}/${file.name}`,
+            );
+            expect(String(payload?.old_path)).not.toContain(before);
+        });
+
+        it('carries the container the desktop renders into', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const { dir } = await makeDirWithFile(owner.user);
+
+            await share(owner.actor, {
+                uid: dir.uuid,
+                recipient: { email: recipient.email },
+                mode: 'read',
+            });
+
+            const seen: Record<string, unknown>[] = [];
+            server.clients.event.on('outer.gui.item.added', (_key, data) => {
+                const payload = data as {
+                    user_id_list?: number[];
+                    response?: Record<string, unknown>;
+                };
+                if (!payload.user_id_list?.includes(recipient.user.id)) return;
+                seen.push(payload.response ?? {});
+            });
+
+            await server.services.fs.touch(owner.user.id, {
+                path: `${dir.path}/rendered.txt`,
+            });
+            for (let i = 0; i < 50 && seen.length === 0; i++) {
+                await new Promise((resolve) => setTimeout(resolve, 20));
+            }
+
+            // The desktop finds the open window by `dirpath`.
+            expect(seen[0]?.dirpath).toBe(
+                `/${owner.user.username}/${dir.uuid}/${dir.name}`,
+            );
+        });
+
         it('tells a recipient when a shared file moves', async () => {
             const owner = await makeUser();
             const recipient = await makeUser();
@@ -1556,7 +2255,11 @@ describe('ShareService', () => {
                     await server.clients.event.emitAndWait(
                         'fs.move.node',
                         {
-                            node: file,
+                            node: {
+                                ...file,
+                                path: `${file.path}-moved`,
+                                name: `${file.name}-moved`,
+                            },
                             fromPath: file.path,
                             toPath: `${file.path}-moved`,
                         },
