@@ -21,7 +21,7 @@
  * Mint a GUI token for the **current session**.
  *
  * This is a full account credential — the same grade the desktop itself runs
- * on. Unlike an access token (see `create_access_token.js`) it carries a
+ * on. Unlike an access token (see `createAccessToken.js`) it carries a
  * session, so it passes the account-management gates: whoever holds it can
  * change the password, email, and 2FA settings.
  *

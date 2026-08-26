@@ -17,15 +17,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import get_html_element_from_options from './helpers/get_html_element_from_options.js';
+import get_html_element_from_options from './helpers/getHtmlElementFromOptions.js';
 import globToRegExp from './helpers/globToRegExp.js';
-import item_icon from './helpers/item_icon.js';
-import { is_owned_by_me, trash_path_for } from './helpers/path_owner.js';
-import { invalidate_shared_roots } from './helpers/shared_access.js';
-import truncate_filename from './helpers/truncate_filename.js';
-import update_title_based_on_uploads from './helpers/update_title_based_on_uploads.js';
-import update_username_in_gui from './helpers/update_username_in_gui.js';
-import { select_uploaded_items } from './helpers/upload_selection.js';
+import item_icon from './helpers/itemIcon.js';
+import { is_owned_by_me, trash_path_for } from './helpers/pathOwner.js';
+import { invalidate_shared_roots } from './helpers/sharedAccess.js';
+import truncate_filename from './helpers/truncateFilename.js';
+import update_title_based_on_uploads from './helpers/updateTitleBasedOnUploads.js';
+import update_username_in_gui from './helpers/updateUsernameInGui.js';
+import { select_uploaded_items } from './helpers/uploadSelection.js';
 import mime from './lib/mime.js';
 import path from './lib/path.js';
 import UIAlert from './UI/UIAlert.js';
@@ -1693,6 +1693,7 @@ window.update_trash_icons = function (is_empty) {
     $(`.item[data-path="${html_encode(window.trash_path)}" i], .item[data-shortcut_to_path="${html_encode(window.trash_path)}" i]`).find('.item-icon > img').attr('src', icon);
     $(`.window[data-path="${html_encode(window.trash_path)}" i]`).find('.window-head-icon').attr('src', icon);
     $('.directories [data-folder="Trash"] img').attr('src', icon);
+    $('.files-tab .place-row[data-place="Trash"] .item-icon > img').attr('src', icon);
 };
 
 /**

@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { appSessionUuids, revokeAppSessions } from './revoke_app_sessions.js';
+import { appSessionUuids, revokeAppSessions } from './revokeAppSessions.js';
 
 const APP = 'app-1111';
 

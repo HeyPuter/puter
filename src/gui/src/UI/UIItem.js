@@ -26,14 +26,14 @@ import UIAlert from './UIAlert.js';
 import UIWindowPublishWorker from './UIWindowPublishWorker.js';
 import UIWindowShare from './UIWindowShare.js';
 import path from '../lib/path.js';
-import truncate_filename from '../helpers/truncate_filename.js';
-import launch_app from '../helpers/launch_app.js';
-import open_item from '../helpers/open_item.js';
-import publish_as_website from '../helpers/publish_as_website.js';
+import truncate_filename from '../helpers/truncateFilename.js';
+import launch_app from '../helpers/launchApp.js';
+import open_item from '../helpers/openItem.js';
+import publish_as_website from '../helpers/publishAsWebsite.js';
 import mime from '../lib/mime.js';
 import { isWeblinkName, weblinkChangeIconMenuItem } from '../helpers/weblink.js';
-import { is_owned_by_me } from '../helpers/path_owner.js';
-import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from '../helpers/shared_access.js';
+import { is_owned_by_me } from '../helpers/pathOwner.js';
+import { can_rename, can_restructure, invalidate_shared_roots, shared_mode_for } from '../helpers/sharedAccess.js';
 
 const AI_APP_NAME = 'ai';
 

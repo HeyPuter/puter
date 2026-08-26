@@ -18,9 +18,9 @@
  */
 
 import download from './helpers/download.js';
-import item_icon from './helpers/item_icon.js';
+import item_icon from './helpers/itemIcon.js';
 import socialLink from './helpers/socialLink.js';
-import update_mouse_position from './helpers/update_mouse_position.js';
+import update_mouse_position from './helpers/updateMousePosition.js';
 import path from './lib/path.js';
 import UIAlert from './UI/UIAlert.js';
 import UIContextMenu from './UI/UIContextMenu.js';
@@ -142,6 +142,9 @@ const ipc_listener = async (event, handled) => {
         const ipc_context = {
             caller: {
                 process: process,
+                // The frame's origin as it is now (the message's), for
+                // handlers that must know who they are acting for.
+                origin: event.origin,
                 app: {
                     appInstanceID: event.data.appInstanceID,
                     iframe,

@@ -18,8 +18,8 @@
  */
 
 import UIItem from '../UI/UIItem.js';
-import item_icon from './item_icon.js';
-import { select_added_item_if_pending } from './upload_selection.js';
+import item_icon from './itemIcon.js';
+import { select_added_item_if_pending } from './uploadSelection.js';
 
 /**
  * Reflect an `item.added` socket event in every open UIWindow item container

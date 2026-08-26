@@ -17,9 +17,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-import list_all_shared from './list_all_shared.js';
-import { is_owned_by_me } from './path_owner.js';
-import { is_share_root } from './share_paths.js';
+import list_all_shared from './listAllShared.js';
+import { is_owned_by_me } from './pathOwner.js';
+import { is_share_root } from './sharePaths.js';
 
 // What we hold on each shared root, by path: `{ mode, name }`. A `readdir`
 // inside a shared folder returns plain entries, so nothing else records it.

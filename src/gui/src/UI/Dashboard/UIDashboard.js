@@ -25,8 +25,8 @@ import UIAlert from '../UIAlert.js';
 import UIWindowSaveAccount from '../UIWindowSaveAccount.js';
 import UIWindowLogin from '../UIWindowLogin.js';
 import UIWindowFeedback from '../UIWindowFeedback.js';
-import apply_item_added_to_containers from '../../helpers/apply_item_added_to_containers.js';
-import { clear_shared_param } from '../../helpers/parse_shared_path.js';
+import apply_item_added_to_containers from '../../helpers/applyItemAddedToContainers.js';
+import { clear_shared_param } from '../../helpers/parseSharedPath.js';
 /**
  * Creates and displays the Dashboard window.
  *

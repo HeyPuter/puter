@@ -13,6 +13,10 @@ The `PuterPeerConnection` object representing a WebRTC data-channel connection t
 
 Information about the user who created the server, with `username` and `uuid`.
 
+#### `room` (String)
+
+The room name this connection was made in, when the server was reached by name (see the `name` option of [`puter.peer.serve()`](/Peer/serve/)). `undefined` for a connection made on an invite code.
+
 #### `connected` (Boolean)
 
 Whether the data channel is currently open.
@@ -51,7 +55,7 @@ Fired when the connection closes. `event.reason` holds the reason, if one was gi
 
 #### `error`
 
-Fired when a connection error occurs. `event.error` holds the error.
+Fired when a connection error occurs. `event.error` holds the error. When the signaller refused the connection it is an `Error` whose `code` says why — `no_host` (a room nobody is serving right now), `invalid_invite` (an invite code that is not live) or `invalid_auth` — and `close` follows.
 
 ## Example
 

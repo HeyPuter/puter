@@ -18,7 +18,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { starts_hidden } from './starts_hidden.js';
+import { starts_hidden } from './startsHidden.js';
 
 describe('starts_hidden', () => {
     it('shows an ordinary app launched the ordinary way', () => {

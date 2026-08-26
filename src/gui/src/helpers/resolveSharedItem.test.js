@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import resolve_shared_item from './resolve_shared_item.js';
+import resolve_shared_item from './resolveSharedItem.js';
 
 const UID = '11111111-2222-4333-8444-555555555555';
 const PATH = `/alice/${UID}/report.txt`;

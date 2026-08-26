@@ -25,7 +25,7 @@ import {
     is_window_on_screen,
     is_unseen_background_window,
     user_facing_windows,
-} from './window_visibility.js';
+} from './windowVisibility.js';
 
 // A `.window` element carrying the given data- attributes, in the shapes
 // UIWindow actually writes them (is_visible as 0/1, is_minimized as either
