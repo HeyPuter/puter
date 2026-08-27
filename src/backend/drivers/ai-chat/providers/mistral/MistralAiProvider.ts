@@ -194,13 +194,11 @@ export class MistralAIProvider implements IChatProvider {
         // for the equalized shape. (The streaming half is not gated: feeding a
         // chunk array to `addText` is a plain bug, and streamed chunks are
         // provider-uniform by design.)
-        if (
-            !stream &&
-            shouldPresentAsOpenAI(
-                { normalize, response },
-                selectedModel.release_date,
-            )
-        ) {
+        const presentAsOpenAI = shouldPresentAsOpenAI(
+            { normalize, response },
+            selectedModel.release_date,
+        );
+        if (!stream && presentAsOpenAI) {
             const choices =
                 (completion as ChatCompletionResponse).choices ?? [];
             for (const choice of choices as unknown as Record<
@@ -214,8 +212,11 @@ export class MistralAIProvider implements IChatProvider {
                     choice.finish_reason =
                         MISTRAL_FINISH_REASON_MAP[choice.finishReason] ??
                         choice.finishReason;
+                    // Dropped only once its value carried over. Deleting
+                    // unconditionally left a choice with neither key when
+                    // `finishReason` was not a string.
+                    delete choice.finishReason;
                 }
-                delete choice.finishReason;
                 const message = choice.message as
                     | (Record<string, unknown> & {
                           toolCalls?: {
@@ -276,9 +277,15 @@ export class MistralAIProvider implements IChatProvider {
                     return snake_usage;
                 },
                 // Mistral wraps each event; unwrap it, then flatten a
-                // reasoning model's chunked `delta.content` so the shared
-                // stream handler sees the string content + `reasoning` delta
-                // it expects from every other provider.
+                // reasoning model's chunked `delta.content`.
+                //
+                // Two concerns, gated differently. The shared stream handler
+                // passes `delta.content` straight to `addText`, so a chunk
+                // array would reach the caller as stringified objects —
+                // flattening it to text is a correctness floor that applies on
+                // every path. Splitting thinking out into a `reasoning` delta
+                // is the dialect change, and that sits behind the policy gate
+                // like the non-streaming remap.
                 chunk_but_like_actually: (chunk: unknown) => {
                     const data = (chunk as { data?: unknown }).data as
                         | {
@@ -294,6 +301,15 @@ export class MistralAIProvider implements IChatProvider {
                         const { text, reasoning } = splitMistralContentChunks(
                             delta.content,
                         );
+                        if (!presentAsOpenAI) {
+                            // Native path: keep every chunk's text, thinking
+                            // included, so nothing is silently dropped — but
+                            // never hand an array to `addText`.
+                            delta.content = reasoning
+                                ? [reasoning, text].filter(Boolean).join('\n\n')
+                                : text;
+                            continue;
+                        }
                         delta.content = text;
                         if (reasoning && delta.reasoning === undefined) {
                             delta.reasoning = reasoning;

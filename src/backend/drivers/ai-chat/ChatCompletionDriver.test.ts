@@ -813,9 +813,14 @@ describe('ChatCompletionDriver.complete normalization', () => {
                 messages: [{ role: 'user', content: 'hi' }],
                 response: { normalize: true },
             }),
-        )) as { message: { role: string; content: unknown[] }; normalized: boolean };
+        )) as {
+            message: { role: string; content: unknown[] };
+            normalized?: boolean;
+        };
 
-        expect(res.normalized).toBe(true);
+        // `normalized` is the caller's signal that the message is in the
+        // OpenAI shape; this branch produces Anthropic blocks, so it is absent.
+        expect(res.normalized).toBeUndefined();
         expect(res.message.role).toBe('user'); // default role from normalize
         expect(res.message.content).toEqual([
             { type: 'text', text: 'plain text reply' },
@@ -1015,8 +1020,9 @@ describe('ChatCompletionDriver.complete OpenAI-shape normalization', () => {
             }),
         )) as NormalizedResult;
 
-        // Legacy block shape, not the OpenAI string shape.
-        expect(res.normalized).toBe(true);
+        // Legacy block shape, not the OpenAI string shape — and therefore
+        // not flagged `normalized`, which means "OpenAI shape" specifically.
+        expect(res.normalized).toBeUndefined();
         expect(res.message.content).toEqual([
             { type: 'text', text: 'hi there' },
         ]);

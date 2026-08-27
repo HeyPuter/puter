@@ -466,6 +466,64 @@ describe('ClaudeProvider.complete request shape', () => {
         ).toMatchObject({ type: 'thinking', signature: 'sig_1' });
     });
 
+    it('survives the same messages array being sent twice', async () => {
+        // This is the fallback hazard the copy-on-write exists for: the driver
+        // reuses one messages array across attempts, so if attempt 1 strips
+        // `reasoning_details` in place, attempt 2 sends a message with no
+        // thinking blocks and Anthropic rejects the continuation. Two
+        // sequential calls over one shared array reproduce that directly — the
+        // harness wires only one provider per model, so the real fallback loop
+        // cannot be driven from here.
+        const { provider } = makeProvider();
+        messagesCreateMock
+            .mockResolvedValueOnce(baseResponse)
+            .mockResolvedValueOnce(baseResponse);
+
+        const messages = [
+            { role: 'user', content: 'think then call a tool' },
+            {
+                role: 'assistant',
+                content: 'here you go',
+                reasoning: 'step one',
+                refusal: null,
+                reasoning_details: [
+                    {
+                        type: 'thinking',
+                        thinking: 'step one',
+                        signature: 'sig_1',
+                    },
+                ],
+            },
+        ];
+        const before = structuredClone(messages);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: messages as never,
+            }),
+        );
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: messages as never,
+            }),
+        );
+
+        // The caller's array is untouched by either attempt...
+        expect(messages).toEqual(before);
+        // ...so both attempts sent the thinking block with its signature.
+        for (const call of messagesCreateMock.mock.calls.slice(0, 2)) {
+            const sent = call[0].messages[1] as Record<string, unknown>;
+            const content = sent.content as Array<Record<string, unknown>>;
+            expect(content[0]).toEqual({
+                type: 'thinking',
+                thinking: 'step one',
+                signature: 'sig_1',
+            });
+        }
+    });
+
     it('strips output-only reasoning fields even with no reasoning_details', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);

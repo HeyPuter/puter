@@ -693,12 +693,15 @@ export class ChatCompletionDriver extends PuterDriver {
                 };
             }
             // The legacy flag normalizes the other way — to Anthropic blocks —
-            // and only when the new flag is absent.
+            // and only when the new flag is absent. It deliberately does NOT
+            // set `normalized`: that field is the caller's signal that the
+            // message is in the OpenAI shape, and this branch produces the
+            // opposite. Stamping both made the flag mean "some normalization
+            // happened", which no consumer can act on.
             if (args.normalize !== false && args.response?.normalize) {
                 return {
                     ...messageRes,
                     message: normalize_single_message(messageRes.message),
-                    normalized: true,
                     via_ai_chat_service: true,
                 };
             }

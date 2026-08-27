@@ -732,6 +732,7 @@ describe('MistralAIProvider.complete streaming', () => {
                 model: 'magistral-small-latest',
                 messages: [{ role: 'user', content: 'think' }],
                 stream: true,
+                normalize: true,
             }),
         );
 
@@ -750,6 +751,74 @@ describe('MistralAIProvider.complete streaming', () => {
         expect(events.filter((e) => e.type === 'text').map((e) => e.text)).toEqual(
             ['answer'],
         );
+    });
+
+    it('never hands a chunk array to addText on the native path', async () => {
+        // Splitting thinking into a `reasoning` delta is the dialect change and
+        // is gated. Flattening the chunk array is not: the shared stream
+        // handler passes `delta.content` straight to addText, so leaving an
+        // array there would put stringified objects in the caller's text
+        // stream. Native path keeps every chunk's text, thinking included.
+        const { provider } = makeProvider();
+        streamMock.mockReturnValueOnce(
+            asAsyncIterable([
+                {
+                    data: {
+                        choices: [
+                            {
+                                delta: {
+                                    content: [
+                                        {
+                                            type: 'thinking',
+                                            thinking: [
+                                                {
+                                                    type: 'text',
+                                                    text: 'thinking…',
+                                                },
+                                            ],
+                                        },
+                                        { type: 'text', text: 'answer' },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                },
+                {
+                    data: {
+                        choices: [{ delta: {} }],
+                        usage: { promptTokens: 1, completionTokens: 1 },
+                    },
+                },
+            ]),
+        );
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'magistral-small-latest',
+                messages: [{ role: 'user', content: 'think' }],
+                stream: true,
+            }),
+        );
+
+        const harness = makeCapturingChatStream();
+        await (
+            result as {
+                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+
+        const events = harness.events();
+        // No reasoning channel on the native path...
+        expect(events.some((e) => e.type === 'reasoning')).toBe(false);
+        // ...and the text is text, not '[object Object]' or raw JSON.
+        const text = events
+            .filter((e) => e.type === 'text')
+            .map((e) => e.text)
+            .join('');
+        expect(text).toBe('thinking…\n\nanswer');
+        expect(text).not.toContain('object');
+        expect(text).not.toContain('{');
     });
 
     it('builds a tool_use block from camelCase delta.toolCalls deltas', async () => {

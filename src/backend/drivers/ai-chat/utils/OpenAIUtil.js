@@ -314,6 +314,10 @@ const renameReasoningContent = (obj) => {
     if (obj.reasoning === undefined && obj.reasoning_content !== undefined) {
         obj.reasoning = obj.reasoning_content;
     }
+    // Dropped even when `reasoning` already won: a provider sending both
+    // means the same thing twice, and the vendor key is the one Puter does not
+    // expose. Pinned by BytePlusProvider.test.ts / ZAIProvider.test.ts, whose
+    // fixtures name the value 'should-be-dropped'.
     delete obj.reasoning_content;
 };
 

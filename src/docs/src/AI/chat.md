@@ -126,7 +126,7 @@ You can control this per call with the `normalize` option:
 ```js
 // Force the OpenAI format on any model, old or new:
 const response = await puter.ai.chat("Hello", { model: "claude-sonnet-5", normalize: true });
-console.log(response.message.content);   // always a string
+console.log(response.message.content);   // a string, or null on a tool-only turn
 console.log(response.finish_reason);     // "stop" | "length" | "tool_calls" | "content_filter" | vendor value
 
 // Force the vendor-native format, even on a post-cutoff model:
@@ -147,6 +147,8 @@ On a normalized response, extended-thinking output (from reasoning models that e
 Normalization does not cost you the ability to continue a reasoning turn. The opaque parts a provider needs back — Anthropic thinking-block signatures, OpenAI reasoning item ids and encrypted content — are preserved verbatim on `message.reasoning_details`. Resend that array as-is alongside the message when you continue an extended-thinking tool-use loop. The artifacts are vendor-specific and only meaningful to the model that produced them, so replay them to the same model — don't carry them across vendors.
 
 One caveat. The release-date rule applies to the model that actually serves the request — if a request is rerouted to a fallback provider, the served model's release date decides.
+
+One thing to know about the release-date rule: a model's release date comes from the catalog of whichever provider serves it, and some providers report it from their own live listing. Models served through OpenRouter carry the date OpenRouter itself assigns, so a model newly listed there on or after September 1, 2026 is normalized by default without Puter shipping any change. Pin `normalize: false` if your code depends on a provider's native shape.
 
 Streaming is unaffected by normalization: streamed [`ChatResponseChunk`](/Objects/chatresponsechunk) objects already share one format across all vendors.
 

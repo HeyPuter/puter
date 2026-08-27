@@ -13,13 +13,13 @@ An object containing the chat message data.
 
 - `role` (String) - The role of the message sender.
 
-- `content` (String | Array) - The content of the message. A string on normalized (OpenAI-format) responses — which includes all models released on or after September 1, 2026 and any call made with `normalize: true`. On older Anthropic models without `normalize: true`, this is the vendor-native array of content blocks such as `[{ type: "text", text: "..." }]`. See [Response Normalization](/AI/chat#response-normalization).
+- `content` (String | Array) - The content of the message. On normalized (OpenAI-format) responses — which includes all models released on or after September 1, 2026 and any call made with `normalize: true` — this is a string, or `null` when the model returned only tool calls and no text. On older Anthropic models without `normalize: true`, this is the vendor-native array of content blocks such as `[{ type: "text", text: "..." }]`. See [Response Normalization](/AI/chat#response-normalization).
 
 - `tool_calls` (Array) - An optional array of [`ToolCall`](/Objects/toolcall) objects if the model wants to call tools.
 
 - `reasoning` (String) - Optional extended-thinking output, when the model exposes it. Multiple reasoning segments are joined with a blank line between them.
 
-- `reasoning_details` (Array) - Optional opaque reasoning artifacts, present on normalized responses from models that expose them: Anthropic `thinking`/`redacted_thinking` blocks with their `signature`, or OpenAI reasoning items with their `id` and `encrypted_content`. Treat the contents as opaque and resend the array verbatim to continue an extended-thinking turn — providers reject a continuation whose reasoning lost its signature. The human-readable text is in `reasoning`; this field is only for the round trip.
+- `reasoning_details` (Array) - Optional opaque reasoning artifacts from models that expose them. Present on normalized Anthropic responses, and on OpenAI Responses-API models whether or not the response was normalized. Contents: Anthropic `thinking`/`redacted_thinking` blocks with their `signature`, or OpenAI reasoning items with their `id` and `encrypted_content`. Treat the contents as opaque and resend the array verbatim to continue an extended-thinking turn — providers reject a continuation whose reasoning lost its signature. The human-readable text is in `reasoning`; this field is only for the round trip.
 
 - `tool_call_id` (String) - An optional identifier linking this message to the tool call it responds to.
 
