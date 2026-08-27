@@ -62,7 +62,7 @@ export class NotificationStore extends PuterStore {
         const rows = await this.clients.db.read(
             `SELECT * FROM \`notification\`
              WHERE \`user_id\` = ? ${extraWhere}
-             ORDER BY \`created_at\` DESC
+             ORDER BY \`created_at\` DESC, \`id\` DESC
              LIMIT ?`,
             [userId, safeLimit],
         );

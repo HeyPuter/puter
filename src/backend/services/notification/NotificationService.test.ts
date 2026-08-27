@@ -247,13 +247,21 @@ describe('NotificationService — unread delivery on connect', () => {
 
             const payload = unreads.seen[0] as {
                 user_id_list: number[];
-                response: { unreads: Array<{ uid: string }> };
+                response: {
+                    unreads: Array<{
+                        uid: string;
+                        notification: unknown;
+                        created_at: unknown;
+                    }>;
+                };
             };
             expect(payload.user_id_list).toEqual([user.id]);
             expect(payload.response.unreads.map((u) => u.uid).sort()).toEqual(
                 [first.uid, second.uid].sort(),
             );
             expect(payload.response.unreads[0].notification).toBeTruthy();
+            // Dated, so a client can order and label what it was handed.
+            expect(payload.response.unreads[0].created_at).toBeTruthy();
 
             // Delivered rows are marked shown so a reconnect doesn't repeat them.
             const after = await server.stores.notification.getByUid(first.uid, {

@@ -6751,3 +6751,737 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     border-radius: 50%;
     background: var(--dashboard-text-tertiary, #71717a);
 }
+
+/* ======================================
+   Notifications
+   ====================================== */
+
+/* -- Bell in the sidebar -- */
+
+.dashboard-notifications-btn {
+    width: 100%;
+    border: none;
+    background: none;
+    font: inherit;
+    text-align: left;
+    margin-bottom: 6px;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.dashboard-notifications-btn-icon {
+    position: relative;
+    display: inline-flex;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.dashboard-notifications-btn-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dashboard-notifications-btn.has-open-panel {
+    background: var(--dashboard-hover);
+}
+
+/* Count pill; the collapsed sidebar swaps it for a dot on the bell */
+.dashboard-notifications-badge {
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 10px;
+    background: var(--select-color);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 20px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+.dashboard-notifications-badge[hidden] {
+    display: none;
+}
+
+.dashboard-notifications-dot {
+    display: none;
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--select-color);
+    box-shadow: 0 0 0 2px var(--dashboard-sidebar-background);
+}
+
+.dashboard-sidebar.collapsed .dashboard-notifications-badge,
+.dashboard-sidebar.collapsed .dashboard-notifications-btn-label {
+    display: none;
+}
+
+.dashboard-sidebar.collapsed .dashboard-notifications-btn.has-unread .dashboard-notifications-dot {
+    display: block;
+}
+
+/* Bell rings once when the count goes up */
+@keyframes dashboard-notifications-ring {
+    0%, 100% { transform: rotate(0); }
+    20% { transform: rotate(14deg); }
+    40% { transform: rotate(-12deg); }
+    60% { transform: rotate(8deg); }
+    80% { transform: rotate(-4deg); }
+}
+
+.dashboard-notifications-btn.has-unread .dashboard-notifications-btn-icon svg {
+    transform-origin: 50% 2px;
+    animation: dashboard-notifications-ring 0.7s ease-in-out 1;
+}
+
+/* Mobile: the bell sits in the closed drawer, so the hamburger carries a dot */
+.dashboard-sidebar-toggle.has-unread::before {
+    content: '';
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--select-color);
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+    z-index: 1;
+}
+
+@media (prefers-color-scheme: dark) {
+    .dashboard-sidebar-toggle.has-unread::before {
+        box-shadow: 0 0 0 2px rgba(37, 37, 37, 0.9);
+    }
+}
+
+/* -- Panel -- */
+
+.dashboard-notifications-panel {
+    position: fixed;
+    z-index: 950;
+    display: flex;
+    flex-direction: column;
+    width: 380px;
+    max-height: min(560px, calc(100vh - 24px));
+    background: var(--dashboard-card-background);
+    border: 1px solid var(--dashboard-border);
+    border-radius: 14px;
+    box-shadow: 0 12px 40px var(--dashboard-shadow-medium), 0 0 0 1px var(--dashboard-shadow-subtle);
+    opacity: 0;
+    transform: translateX(-6px) scale(0.98);
+    transform-origin: left bottom;
+    transition: opacity 0.18s ease, transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+    overflow: hidden;
+    color: var(--dashboard-text);
+}
+
+.dashboard-notifications-panel[hidden] {
+    display: none;
+}
+
+.dashboard-notifications-panel.open {
+    opacity: 1;
+    transform: none;
+}
+
+/* Programmatic focus (opening, or after a dismiss) rests here; not a target. */
+.dashboard-notifications-panel:focus {
+    outline: none;
+}
+
+.dashboard-notifications-grip {
+    display: none;
+}
+
+.dashboard-notifications-scrim {
+    display: none;
+}
+
+.dashboard-notifications-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 12px 12px 18px;
+    border-bottom: 1px solid var(--dashboard-border);
+    flex-shrink: 0;
+}
+
+.dashboard-notifications-heading {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.dashboard-notifications-heading h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+}
+
+.dashboard-notifications-count {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--dashboard-text-tertiary);
+    font-variant-numeric: tabular-nums;
+}
+
+.dashboard-notifications-count:empty {
+    display: none;
+}
+
+.dashboard-notifications-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.dashboard-notifications-mark-all,
+.dashboard-notifications-close,
+.dashboard-notifications-retry {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--dashboard-link);
+    padding: 6px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background-color 0.15s, color 0.15s;
+}
+
+.dashboard-notifications-mark-all svg {
+    width: 15px;
+    height: 15px;
+}
+
+.dashboard-notifications-mark-all[hidden] {
+    display: none;
+}
+
+.dashboard-notifications-close {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    justify-content: center;
+    color: var(--dashboard-text-muted);
+}
+
+.dashboard-notifications-close svg {
+    width: 16px;
+    height: 16px;
+}
+
+@media (hover: hover) {
+    .dashboard-notifications-mark-all:hover,
+    .dashboard-notifications-retry:hover {
+        background: var(--select-tint);
+        color: var(--dashboard-link-hover);
+    }
+
+    .dashboard-notifications-close:hover {
+        background: var(--dashboard-hover);
+        color: var(--dashboard-text);
+    }
+}
+
+.dashboard-notifications-mark-all:active,
+.dashboard-notifications-close:active,
+.dashboard-notifications-retry:active {
+    background: var(--dashboard-hover);
+}
+
+/* One-line feedback under the header: a failed dismiss, a failed refresh */
+.dashboard-notifications-status {
+    display: none;
+    padding: 8px 18px;
+    font-size: 12.5px;
+    color: var(--dashboard-danger-text);
+    background: var(--dashboard-danger-background);
+    border-bottom: 1px solid var(--dashboard-danger-border);
+    flex-shrink: 0;
+}
+
+.dashboard-notifications-status.visible {
+    display: block;
+}
+
+.dashboard-notifications-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+}
+
+.dashboard-notifications-list {
+    list-style: none;
+    margin: 0;
+    padding: 6px;
+}
+
+/* -- Entries -- */
+
+.dashboard-notification {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    border-radius: 10px;
+    transition: background-color 0.15s;
+}
+
+.dashboard-notification + .dashboard-notification {
+    margin-top: 2px;
+}
+
+@media (hover: hover) {
+    .dashboard-notification:hover {
+        background: var(--dashboard-hover);
+    }
+}
+
+.dashboard-notification-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 12px;
+    border: none;
+    background: none;
+    font: inherit;
+    text-align: left;
+    color: inherit;
+    border-radius: 10px;
+    cursor: default;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.dashboard-notification-main.is-actionable {
+    cursor: pointer;
+}
+
+.dashboard-notification-main.is-actionable:active {
+    background: var(--dashboard-hover);
+}
+
+.dashboard-notification-icon {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--dashboard-hover);
+    color: var(--dashboard-text-secondary);
+}
+
+.dashboard-notification-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.dashboard-notification-icon-sharing {
+    background: var(--dashboard-bento-apps-surface);
+    color: var(--dashboard-bento-apps-icon-bg);
+}
+
+.dashboard-notification-icon-worker {
+    background: var(--dashboard-bento-usage-surface);
+    color: var(--dashboard-bento-usage-icon-bg);
+}
+
+.dashboard-notification-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    /* Room for the ✕ that appears on hover, so text never sits under it */
+    padding-right: 22px;
+}
+
+.dashboard-notification-title {
+    font-size: 13.5px;
+    font-weight: 500;
+    line-height: 1.35;
+    color: var(--dashboard-text-primary);
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.dashboard-notification-text {
+    font-size: 12.5px;
+    line-height: 1.35;
+    color: var(--dashboard-text-secondary);
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.dashboard-notification-time {
+    font-size: 11.5px;
+    color: var(--dashboard-text-tertiary);
+    margin-top: 2px;
+}
+
+.dashboard-notification-dismiss {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    color: var(--dashboard-text-muted);
+    cursor: pointer;
+    opacity: 0;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.12s, background-color 0.15s, color 0.15s;
+}
+
+.dashboard-notification-dismiss svg {
+    width: 14px;
+    height: 14px;
+}
+
+.dashboard-notification:hover .dashboard-notification-dismiss,
+.dashboard-notification:focus-within .dashboard-notification-dismiss {
+    opacity: 1;
+}
+
+@media (hover: hover) {
+    .dashboard-notification-dismiss:hover {
+        background: var(--dashboard-border);
+        color: var(--dashboard-text);
+    }
+}
+
+/* Touch has no hover to reveal it */
+@media (hover: none) {
+    .dashboard-notification-dismiss {
+        opacity: 1;
+    }
+}
+
+.dashboard-notification-main:focus-visible,
+.dashboard-notification-dismiss:focus-visible,
+.dashboard-notifications-mark-all:focus-visible,
+.dashboard-notifications-close:focus-visible,
+.dashboard-notifications-retry:focus-visible {
+    outline: 2px solid var(--select-ring);
+    outline-offset: -2px;
+}
+
+@keyframes dashboard-notification-enter {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: none; }
+}
+
+.dashboard-notification-new {
+    animation: dashboard-notification-enter 0.22s ease-out;
+}
+
+.dashboard-notification-leaving {
+    opacity: 0;
+    transform: translateX(12px);
+    transition: opacity 0.16s ease, transform 0.16s ease;
+    pointer-events: none;
+}
+
+/* -- States -- */
+
+.dashboard-notifications-loading {
+    padding: 6px;
+}
+
+.dashboard-notifications-loading[hidden],
+.dashboard-notifications-empty[hidden],
+.dashboard-notifications-error[hidden] {
+    display: none;
+}
+
+.dashboard-notifications-skeleton {
+    display: flex;
+    gap: 12px;
+    padding: 10px 12px;
+}
+
+.dashboard-notifications-skeleton > span:first-child {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.dashboard-notifications-skeleton > span:last-child {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 4px;
+}
+
+.dashboard-notifications-skeleton i {
+    display: block;
+    height: 10px;
+    border-radius: 5px;
+}
+
+.dashboard-notifications-skeleton i:last-child {
+    width: 55%;
+}
+
+.dashboard-notifications-skeleton > span:first-child,
+.dashboard-notifications-skeleton i {
+    background: linear-gradient(90deg, var(--dashboard-hover) 25%, var(--dashboard-border) 50%, var(--dashboard-hover) 75%);
+    background-size: 200% 100%;
+    animation: dashboard-notifications-shimmer 1.4s linear infinite;
+}
+
+@keyframes dashboard-notifications-shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+}
+
+.dashboard-notifications-empty,
+.dashboard-notifications-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding: 36px 24px 40px;
+}
+
+.dashboard-notifications-empty-art {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    background: var(--select-tint);
+    color: var(--select-color);
+    margin-bottom: 14px;
+}
+
+.dashboard-notifications-empty-art svg {
+    width: 24px;
+    height: 24px;
+}
+
+.dashboard-notifications-empty-title {
+    margin: 0 0 4px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
+}
+
+.dashboard-notifications-empty-hint,
+.dashboard-notifications-error p {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--dashboard-text-tertiary);
+    max-width: 260px;
+}
+
+.dashboard-notifications-error p {
+    margin-bottom: 10px;
+}
+
+/* Screen-reader-only live region for arrivals */
+.dashboard-notifications-live {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* -- Bottom sheet below the drawer breakpoint -- */
+
+@media (max-width: 768px) {
+    .dashboard-notifications-scrim {
+        display: block;
+        position: fixed;
+        inset: 0;
+        z-index: 949;
+        background: var(--dashboard-scrim);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.24s ease;
+    }
+
+    .dashboard-notifications-scrim[hidden] {
+        display: none;
+    }
+
+    .dashboard-notifications-scrim.open {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .dashboard-notifications-panel {
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        width: auto;
+        max-height: min(80vh, 640px);
+        border-radius: 16px 16px 0 0;
+        border-bottom: none;
+        padding-bottom: env(safe-area-inset-bottom);
+        transform: translateY(100%);
+        transform-origin: center bottom;
+        transition: opacity 0.2s ease, transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    .dashboard-notifications-panel.open {
+        transform: none;
+    }
+
+    .dashboard-notifications-grip {
+        display: block;
+        width: 36px;
+        height: 4px;
+        border-radius: 2px;
+        background: var(--dashboard-border);
+        margin: 8px auto 0;
+        flex-shrink: 0;
+    }
+
+    .dashboard-notifications-header {
+        padding: 8px 12px 12px 18px;
+    }
+
+    .dashboard-notification-main {
+        padding: 12px;
+    }
+
+    .dashboard-notification-title {
+        font-size: 14px;
+    }
+
+    .dashboard-notification-text {
+        font-size: 13px;
+    }
+
+    /* Toasts must not overflow a narrow screen */
+    body.dashboard-mode .notification,
+    body.dashboard-mode .notification-wrapper {
+        width: min(320px, calc(100vw - 24px));
+    }
+}
+
+/* -- Toasts, dashboard flavour -- */
+
+/* No toolbar to clear here; tuck into the corner. The mobile hamburger is
+   on the left, so the right edge is free. Above every window: app windows
+   opened from the dashboard are stay-on-top and stack in the 99999999+
+   band (see window_zindex_base in UIWindow.js), and a toast that lands
+   while one is open must still be seen. Under context menus. */
+body.dashboard-mode .notification-container {
+    top: 12px;
+    right: 12px;
+    z-index: 999999999;
+}
+
+body.dashboard-mode .notification {
+    background: var(--dashboard-card-background);
+    border-color: var(--dashboard-border);
+    color: var(--dashboard-text);
+    box-shadow: 0 8px 28px var(--dashboard-shadow-medium);
+    border-radius: 12px;
+    cursor: pointer;
+}
+
+body.dashboard-mode .notification-wrapper {
+    border-radius: 12px;
+}
+
+body.dashboard-mode .notification-title {
+    color: var(--dashboard-text-primary);
+}
+
+body.dashboard-mode .notification-text {
+    color: var(--dashboard-text-secondary);
+}
+
+body.dashboard-mode .notification-text:empty {
+    display: none;
+}
+
+body.dashboard-mode .notification-icon {
+    filter: none;
+}
+
+body.dashboard-mode .notification-icon img {
+    width: 30px;
+    height: 30px;
+}
+
+body.dashboard-mode .notifications-close-all {
+    background: var(--dashboard-card-background);
+    border-color: var(--dashboard-border);
+    color: var(--dashboard-text);
+}
+
+@media (prefers-color-scheme: dark) {
+    body.dashboard-mode .notification-close {
+        background: var(--dashboard-card-background);
+        filter: invert(1) drop-shadow(0px 0px 0.5px rgb(51, 51, 51));
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .dashboard-notifications-panel,
+    .dashboard-notifications-scrim,
+    .dashboard-notification,
+    .dashboard-notification-dismiss,
+    .dashboard-notification-leaving {
+        transition: none;
+    }
+
+    .dashboard-notification-new,
+    .dashboard-notifications-btn.has-unread .dashboard-notifications-btn-icon svg,
+    .dashboard-notifications-skeleton > span:first-child,
+    .dashboard-notifications-skeleton i {
+        animation: none;
+    }
+
+    body.dashboard-mode .notification {
+        animation: none;
+    }
+}
