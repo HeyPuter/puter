@@ -4559,6 +4559,43 @@ function minimize_window (el_window) {
     pop_dashboard_app_url($(el_window).attr('data-app'));
 }
 
+/**
+ * Bring the dashboard out from under whatever app windows cover it — what
+ * a notification toast clicked over an open app needs before acting on the
+ * dashboard. Minimizes every app window the user can see, the way the
+ * minimize controls do, and lands the URL on the dashboard's own route
+ * rather than on the entry of an app stacked underneath. Resolves once the
+ * URL has settled: the pop is a history.back(), which lands asynchronously,
+ * and an entry pushed before then would be traversed over.
+ *
+ * @returns {Promise<void>}
+ */
+export async function reveal_dashboard () {
+    if ( ! window.is_dashboard_mode ) return;
+    const $covering = $(user_facing_windows($('.window[data-app]').not('[data-app="dashboard"]')))
+        .filter(function () {
+            const minimized = $(this).attr('data-is_minimized');
+            return minimized !== '1' && minimized !== 'true' && ! is_window_hidden(this);
+        });
+    if ( $covering.length === 0 ) return;
+    $covering.each(function () {
+        $(this).hideWindow();
+    });
+    const url_app = dashboard_app_url_current();
+    if ( ! url_app || ! pop_dashboard_app_url(url_app, { to_dashboard: true }) ) return;
+    await new Promise((resolve) => {
+        const settled = () => {
+            window.removeEventListener('popstate', settled);
+            clearTimeout(watchdog);
+            resolve();
+        };
+        // Same ceiling as pop_dashboard_app_url's own watchdog, which repairs
+        // the URL itself when no popstate arrives.
+        const watchdog = setTimeout(settled, 500);
+        window.addEventListener('popstate', settled);
+    });
+}
+
 window.addEventListener('popstate', () => {
     if ( ! window.is_dashboard_mode ) return;
     // Any traversal settles a pending pop (see pop_dashboard_app_url).

@@ -18,6 +18,7 @@
  */
 
 import UINotification from '../UINotification.js';
+import { reveal_dashboard } from '../UIWindow.js';
 import { listNotifications, markNotificationAcknowledged } from '../../helpers/notificationApi.js';
 import {
     badgeLabel,
@@ -376,6 +377,9 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
 
     // -- Toasts -------------------------------------------------------------
 
+    // A toast is the one control that reaches the user while an app window
+    // covers the dashboard; what it leads to happens on the dashboard, so
+    // that has to come back into view first.
     const toast = (entry) => {
         const { notification } = entry;
         UINotification({
@@ -385,7 +389,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             icon: toastIconFor(notification),
             value: notification,
             timeout: TOAST_TIMEOUT_MS,
-            click: () => actOn(entry),
+            click: () => void reveal_dashboard().then(() => actOn(entry)),
             // The ✕ is a dismissal; timing out is not, so `close` alone acks.
             close: () => {
                 if ( entries.some((e) => e.uid === entry.uid) ) void dismiss(entry.uid);
@@ -399,7 +403,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             text: i18n('notifications_open_hint', [], false),
             icon: toastIconFor({}),
             timeout: TOAST_TIMEOUT_MS,
-            click: () => open(),
+            click: () => void reveal_dashboard().then(() => open()),
         });
     };
 
