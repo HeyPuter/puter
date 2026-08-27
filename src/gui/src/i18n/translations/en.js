@@ -242,7 +242,6 @@ const en = {
         notification_dismiss_named: 'Dismiss notification: {{title}}',
         notifications: 'Notifications',
         notifications_dismiss_failed: "Couldn't dismiss that notification. Please try again.",
-        notifications_empty_hint: 'When someone shares a file with you, it will show up here.',
         notifications_empty_title: "You're all caught up",
         notifications_load_failed: "Couldn't load notifications.",
         notifications_mark_all_failed: "Couldn't mark everything as read. Please try again.",

@@ -213,7 +213,6 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
                 <div class="dashboard-notifications-empty" hidden>
                     <div class="dashboard-notifications-empty-art">${bellIcon}</div>
                     <p class="dashboard-notifications-empty-title">${i18n('notifications_empty_title')}</p>
-                    <p class="dashboard-notifications-empty-hint">${i18n('notifications_empty_hint')}</p>
                 </div>
                 <div class="dashboard-notifications-error" hidden>
                     <p>${i18n('notifications_load_failed')}</p>

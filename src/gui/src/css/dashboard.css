@@ -7298,13 +7298,12 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 }
 
 .dashboard-notifications-empty-title {
-    margin: 0 0 4px;
+    margin: 0;
     font-size: 14px;
     font-weight: 600;
     color: var(--dashboard-text-primary);
 }
 
-.dashboard-notifications-empty-hint,
 .dashboard-notifications-error p {
     margin: 0;
     font-size: 12.5px;
