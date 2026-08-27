@@ -227,14 +227,16 @@ export async function chat (
         }
     }
 
-    // Response-format normalization: the per-call option wins in both
-    // directions; the module-level `puter.ai.normalize` fills in when the
-    // call doesn't say. When neither is set, nothing is sent and the server
-    // applies its release-date cutoff (models released on or after
-    // 2026-09-01 return OpenAI-shaped responses by default).
+    // Response-format normalization. Both the per-call option and the
+    // SDK-wide `puter.ai.normalize` are tri-state: `true` forces the OpenAI
+    // shape regardless of release date, `false` forces the vendor-native
+    // shape, and unset defers — the per-call option to the SDK-wide flag,
+    // and the SDK-wide flag (unset by default) to the server's release-date
+    // policy, which normalizes models released on or after 2026-09-01. Only
+    // an explicit value rides the wire.
     if (userParams.normalize !== undefined) {
         requestParams.normalize = userParams.normalize;
-    } else if (typeof this.normalize === 'boolean') {
+    } else if (this.normalize !== undefined) {
         requestParams.normalize = this.normalize;
     }
 

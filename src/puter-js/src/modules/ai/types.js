@@ -68,10 +68,12 @@
  * @property {string} [provider] The provider to route the request through.
  * @property {Tool[]} [tools] Function/tool definitions the model can call. See Function Calling.
  * @property {boolean} [normalize] Response-format control for non-streaming results. `true` returns the
- * OpenAI-style shape regardless of provider (`message.content` as a string, `message.tool_calls`, a
- * mapped `finish_reason`); `false` returns the provider's native shape. Left unset, `puter.ai.normalize`
- * applies if it was assigned; otherwise models released on or after September 1, 2026 are normalized by
- * default. Streaming responses are unaffected (chunks are already provider-uniform).
+ * OpenAI-style shape regardless of provider or release date (`message.content` as a string,
+ * `message.tool_calls`, a mapped `finish_reason`); `false` forces the provider's native shape. Left
+ * unset, the SDK-wide `puter.ai.normalize` applies — itself tri-state: `true` normalizes every call,
+ * `false` disables normalization for every call, and unset (the default) means the release-date
+ * policy: models released on or after September 1, 2026 are normalized, older models keep their native
+ * shape. Streaming responses are unaffected (chunks are already provider-uniform).
  * @property {unknown} [response]
  * @property {string} [reasoning_effort] Controls how much effort reasoning models spend thinking. Flat
  * form. Accepted values: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` (availability varies by

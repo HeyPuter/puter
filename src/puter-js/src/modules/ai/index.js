@@ -31,16 +31,17 @@ export class AIModule extends PuterModule {
     txt2speech;
 
     /**
-     * Module-wide default for response-format normalization. `true` makes
-     * every `chat()` call return the OpenAI-style shape regardless of
-     * provider; `false` forces every call back to the provider's native
-     * shape, including models the server would normalize by default (those
-     * released on or after September 1, 2026). A `normalize` option on an
-     * individual `chat()` call overrides this in either direction.
+     * SDK-wide switch for response-format normalization. Left unset (the
+     * default), the release-date policy applies: models released on or
+     * after September 1, 2026 return the OpenAI-style shape, older models
+     * keep their vendor-native shape. Set it to `true` to normalize every
+     * `chat()` call regardless of release date, or `false` to disable
+     * normalization for every call. A `normalize` option on an individual
+     * `chat()` call overrides this in either direction.
      *
      * @type {boolean | undefined}
      */
-    normalize;
+    normalize = undefined;
 
     // The fields hold the unbound functions so they keep the full overloaded
     // types (`bind` erases overloads); the constructor rebinds them at

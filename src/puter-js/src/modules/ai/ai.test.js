@@ -239,10 +239,11 @@ describe('ai.chat driver payloads', () => {
         expect(result.valueOf()).toBe('the answer');
     });
 
-    // Response-format normalization: the per-call option wins in both
-    // directions, the module-level `ai.normalize` fills in otherwise, and
-    // with neither set nothing rides the wire (the server's release-date
-    // cutoff decides).
+    // Response-format normalization: both the per-call option and the
+    // SDK-wide `ai.normalize` are tri-state (unset defers, true/false
+    // force). SDK-wide unset (the default) means the release-date policy —
+    // nothing rides the wire; an explicit `true` or `false` is sent on
+    // every call that does not set its own.
     it('chat(prompt, {normalize: true}) forwards normalize', async () => {
         await ai.chat('hello', { normalize: true });
         expect(lastBody().args.normalize).toBe(true);
@@ -253,13 +254,19 @@ describe('ai.chat driver payloads', () => {
         expect(lastBody().args.normalize).toBe(false);
     });
 
-    it('ai.normalize = true applies to calls that do not set it', async () => {
+    it('ai.normalize is unset by default, which stays off the wire (the release-date policy)', async () => {
+        expect(ai.normalize).toBeUndefined();
+        await ai.chat('hello');
+        expect('normalize' in lastBody().args).toBe(false);
+    });
+
+    it('ai.normalize = true force-normalizes calls that do not set it', async () => {
         ai.normalize = true;
         await ai.chat('hello');
         expect(lastBody().args.normalize).toBe(true);
     });
 
-    it('ai.normalize = false applies to calls that do not set it', async () => {
+    it('ai.normalize = false disables normalization for calls that do not set it', async () => {
         ai.normalize = false;
         await ai.chat('hello');
         expect(lastBody().args.normalize).toBe(false);
@@ -275,7 +282,12 @@ describe('ai.chat driver payloads', () => {
         expect(lastBody().args.normalize).toBe(true);
     });
 
-    it('normalize stays off the wire when neither the call nor the module sets it', async () => {
+    it('clearing ai.normalize restores the release-date policy', async () => {
+        ai.normalize = false;
+        await ai.chat('hello');
+        expect(lastBody().args.normalize).toBe(false);
+
+        ai.normalize = undefined;
         await ai.chat('hello');
         expect('normalize' in lastBody().args).toBe(false);
     });
