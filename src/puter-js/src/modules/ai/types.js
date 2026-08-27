@@ -108,7 +108,8 @@
  * @typedef {Object} ChatResponse
  * @property {ChatMessage} [message]
  * @property {string} [finish_reason] Why generation stopped: `stop`, `length`, `tool_calls`, or
- * `content_filter`.
+ * `content_filter` — or the vendor's own stop reason (e.g. Anthropic's `pause_turn`), passed
+ * through unchanged when it has no OpenAI equivalent. Treat it as an open set.
  * @property {boolean} [normalized] Present and `true` when the response format was normalized
  * server-side (see the `normalize` option on [ChatOptions]).
  * @property {unknown} [choices]

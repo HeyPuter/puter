@@ -73,8 +73,8 @@ import {
     normalizeModelKey,
 } from './utils/modelRouting.js';
 import {
-    isPostCutoffRelease,
     normalizeResultToOpenAI,
+    shouldPresentAsOpenAI,
 } from './utils/normalizeToOpenAI.js';
 import { costKeys, isFreeModel } from './utils/pricing.js';
 import {
@@ -685,29 +685,22 @@ export class ChatCompletionDriver extends PuterDriver {
         if ('message' in res && res.message) {
             // `'message' in res` doesn't narrow the result union for TS.
             const messageRes = res as IChatMessageResult;
-            if (args.normalize === true) {
+            if (shouldPresentAsOpenAI(args, model.release_date)) {
                 return {
                     ...normalizeResultToOpenAI(messageRes),
                     normalized: true,
                     via_ai_chat_service: true,
                 };
             }
-            if (args.normalize !== false) {
-                if (args.response?.normalize) {
-                    return {
-                        ...messageRes,
-                        message: normalize_single_message(messageRes.message),
-                        normalized: true,
-                        via_ai_chat_service: true,
-                    };
-                }
-                if (isPostCutoffRelease(model.release_date)) {
-                    return {
-                        ...normalizeResultToOpenAI(messageRes),
-                        normalized: true,
-                        via_ai_chat_service: true,
-                    };
-                }
+            // The legacy flag normalizes the other way — to Anthropic blocks —
+            // and only when the new flag is absent.
+            if (args.normalize !== false && args.response?.normalize) {
+                return {
+                    ...messageRes,
+                    message: normalize_single_message(messageRes.message),
+                    normalized: true,
+                    via_ai_chat_service: true,
+                };
             }
         }
 

@@ -107,6 +107,9 @@ export const process_input_messages_responses_api = async (messages) => {
                 msg.refusal !== undefined ||
                 msg.normalized !== undefined
             ) {
+                // Rebind to a stripped copy rather than deleting: the driver
+                // reuses this same array across fallback attempts, and these
+                // objects belong to the caller.
                 const {
                     reasoning_details: _details,
                     reasoning: _reasoning,

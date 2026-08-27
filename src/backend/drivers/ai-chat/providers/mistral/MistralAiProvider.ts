@@ -29,13 +29,16 @@ import type {
 import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { MISTRAL_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
+import { shouldPresentAsOpenAI } from '../../utils/normalizeToOpenAI.js';
 
 /**
  * Mistral's reasoning models (`magistral-*`) return `content` as a chunk array
  * rather than a string, with the thinking text nested one level deeper inside
  * `thinking` chunks. Split it into the string content + `reasoning` string
  * every other provider produces. Text nested in a chunk is joined; a `thinking`
- * chunk's own chunks are flattened the same way.
+ * chunk's own chunks are flattened the same way, and separate thinking chunks
+ * are separated by a blank line — the same separator the Responses summary
+ * handler and the Anthropic coercer use.
  */
 const flattenChunkText = (value: unknown): string => {
     if (typeof value === 'string') return value;
@@ -147,6 +150,8 @@ export class MistralAIProvider implements IChatProvider {
         tools,
         max_tokens,
         temperature,
+        normalize,
+        response,
     }: ICompleteArguments): Promise<IChatCompleteResult> {
         messages = await OpenAIUtil.process_input_messages(messages);
         messages = this.#coerceImageUrls(messages);
@@ -178,9 +183,24 @@ export class MistralAIProvider implements IChatProvider {
         });
 
         // The Mistral SDK speaks camelCase (`finishReason`, `toolCalls`,
-        // object-typed `arguments`); remap each choice to the OpenAI wire
-        // shape so the result matches every other provider's.
-        if (!stream) {
+        // object-typed `arguments`) and its reasoning models return chunked
+        // `content`; remap each choice to the OpenAI wire shape so the result
+        // matches every other provider's.
+        //
+        // This changes what the provider returns, so it sits behind the same
+        // policy resolution the driver's coercer uses rather than firing on
+        // every Mistral call — a caller reading the SDK's native
+        // `finishReason`/`toolCalls` keys keeps seeing them unless it asked
+        // for the equalized shape. (The streaming half is not gated: feeding a
+        // chunk array to `addText` is a plain bug, and streamed chunks are
+        // provider-uniform by design.)
+        if (
+            !stream &&
+            shouldPresentAsOpenAI(
+                { normalize, response },
+                selectedModel.release_date,
+            )
+        ) {
             const choices =
                 (completion as ChatCompletionResponse).choices ?? [];
             for (const choice of choices as unknown as Record<

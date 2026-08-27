@@ -496,6 +496,7 @@ describe('MistralAIProvider.complete non-stream output', () => {
             provider.complete({
                 model: 'magistral-small-latest',
                 messages: [{ role: 'user', content: 'think' }],
+                normalize: true,
             }),
         )) as { message: Record<string, unknown> };
 
@@ -526,6 +527,45 @@ describe('MistralAIProvider.complete non-stream output', () => {
 
         expect(result.message.content).toBe('plain');
         expect('reasoning' in result.message).toBe(false);
+    });
+
+    it('leaves the SDK dialect untouched when normalization does not apply', async () => {
+        // The remap changes what this provider returns, so it is gated on the
+        // same policy the driver's coercer uses. Without `normalize`, and with
+        // a pre-cutoff model, a caller reading the SDK's native keys keeps
+        // seeing them — nothing is deleted out from under it.
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: {
+                        role: 'assistant',
+                        content: 'hi there',
+                        toolCalls: [
+                            {
+                                id: 'call_1',
+                                function: {
+                                    name: 'get_weather',
+                                    arguments: { city: 'Paris' },
+                                },
+                            },
+                        ],
+                    },
+                    finishReason: 'stop',
+                },
+            ],
+            usage: { promptTokens: 1, completionTokens: 1 },
+        });
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'mistral-small-2603',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as { message: Record<string, unknown> } & Record<string, unknown>;
+
+        expect('toolCalls' in result.message).toBe(true);
+        expect('tool_calls' in result.message).toBe(false);
     });
 
     it('preserves OpenAI-shaped tool_calls on the assistant response', async () => {

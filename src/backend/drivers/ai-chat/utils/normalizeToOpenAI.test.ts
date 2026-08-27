@@ -82,7 +82,10 @@ describe('needsOpenAICoercion', () => {
                 content: [{ type: 'text', text: 'x' }],
             }),
         ).toBe(true);
-        expect(needsOpenAICoercion('bare string')).toBe(true);
+        // A bare string is not flagged: no provider produces one, so it
+        // passes through by reference rather than through a coercion path
+        // nothing exercises.
+        expect(needsOpenAICoercion('bare string')).toBe(false);
     });
 
     it('passes OpenAI-shaped messages through', () => {
@@ -155,17 +158,16 @@ describe('normalizeResultToOpenAI', () => {
         expect(out.finish_reason).toBe('stop');
     });
 
-    it('wraps a bare-string message', () => {
-        const out = normalizeResultToOpenAI({
+    it('passes a bare-string message through untouched', () => {
+        // No provider in the repo returns a bare string message. Rather than
+        // carry a coercion path nothing exercises, the predicate ignores
+        // strings and the result comes back by reference.
+        const res = {
             message: 'plain',
             usage: { input_tokens: 1, output_tokens: 1 },
             finish_reason: 'stop',
-        });
-        expect(out.message).toEqual({
-            role: 'assistant',
-            content: 'plain',
-            refusal: null,
-        });
+        };
+        expect(normalizeResultToOpenAI(res)).toBe(res);
     });
 
     it.each([
@@ -251,7 +253,7 @@ describe('normalizeResultToOpenAI', () => {
                 { type: 'text', text: 'answer' },
             ]),
         );
-        expect(out.message.reasoning).toBe('step one. step two.');
+        expect(out.message.reasoning).toBe('step one. \n\nstep two.');
         expect(out.message.content).toBe('answer');
     });
 

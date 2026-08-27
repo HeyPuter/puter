@@ -427,6 +427,45 @@ describe('ClaudeProvider.complete request shape', () => {
         expect('refusal' in assistant).toBe(false);
     });
 
+    it('leaves the caller\'s message objects intact', async () => {
+        // The driver reuses the same messages array across fallback attempts,
+        // so stripping the output-only fields has to happen on a copy.
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        const callerMessage = Object.freeze({
+            role: 'assistant',
+            content: 'here you go',
+            reasoning: 'step one',
+            refusal: null,
+            reasoning_details: Object.freeze([
+                Object.freeze({
+                    type: 'thinking',
+                    thinking: 'step one',
+                    signature: 'sig_1',
+                }),
+            ]),
+        });
+        const before = JSON.parse(JSON.stringify(callerMessage));
+
+        // A frozen message would throw on `delete` in strict mode.
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [callerMessage as never],
+            }),
+        );
+
+        expect(callerMessage).toEqual(before);
+        // ...and the provider still sent the spliced content upstream.
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        const sent = args.messages[0] as Record<string, unknown>;
+        expect('reasoning_details' in sent).toBe(false);
+        expect(
+            (sent.content as Array<Record<string, unknown>>)[0],
+        ).toMatchObject({ type: 'thinking', signature: 'sig_1' });
+    });
+
     it('strips output-only reasoning fields even with no reasoning_details', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);

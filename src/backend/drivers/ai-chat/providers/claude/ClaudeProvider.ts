@@ -147,8 +147,18 @@ export class ClaudeProvider implements IChatProvider {
         // `reasoning`/`refusal` are output-only fields Anthropic rejects
         // outright, and a caller replaying a normalized message carries them.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        messages = messages.map((message: any) => {
-            const details = message.reasoning_details;
+        messages = messages.map((original: any) => {
+            const details = original.reasoning_details;
+            if (
+                details === undefined &&
+                original.reasoning === undefined &&
+                original.refusal === undefined
+            ) {
+                return original;
+            }
+            // Copy before stripping: the driver reuses this same array across
+            // fallback attempts, and these objects belong to the caller.
+            const message = { ...original };
             delete message.reasoning_details;
             delete message.reasoning;
             delete message.refusal;

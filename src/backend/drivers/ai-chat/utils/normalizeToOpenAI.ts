@@ -58,7 +58,6 @@ export const isPostCutoffRelease = (release_date?: string): boolean => {
  * like Gemini's `images` or the Responses API's `reasoning`.
  */
 export const needsOpenAICoercion = (message: unknown): boolean => {
-    if (typeof message === 'string') return true;
     if (!message || typeof message !== 'object') return false;
     const m = message as Record<string, unknown>;
     // The Anthropic SDK's message envelope self-identifies.
@@ -66,6 +65,34 @@ export const needsOpenAICoercion = (message: unknown): boolean => {
     // A content-block array is the provider-native shape even without the
     // envelope marker (e.g. the fake provider's fixture messages).
     return Array.isArray(m.content);
+};
+
+/**
+ * Resolve whether a call's non-streaming result should be presented in the
+ * OpenAI shape. This is the single definition of the precedence rule: an
+ * explicit per-call `normalize` wins in both directions, the legacy
+ * `response.normalize` (internal block-format normalization) applies only when
+ * the new flag is absent, and otherwise the release-date cutoff decides.
+ *
+ * Both the driver (which coerces the result) and any provider that has to
+ * choose between emitting its vendor's dialect or the equalized one call this,
+ * so the two can never drift apart. A provider passes its own served model's
+ * `release_date` — which is the served model by definition, since the provider
+ * is the one serving it.
+ */
+export const shouldPresentAsOpenAI = (
+    args: {
+        normalize?: boolean | undefined;
+        response?: { normalize?: boolean | undefined } | undefined;
+    },
+    release_date?: string,
+): boolean => {
+    if (args.normalize === true) return true;
+    if (args.normalize === false) return false;
+    // The legacy flag normalizes in the *opposite* direction (to Anthropic
+    // blocks), so it suppresses the OpenAI presentation rather than enabling it.
+    if (args.response?.normalize) return false;
+    return isPostCutoffRelease(release_date);
 };
 
 const STOP_REASON_TO_FINISH_REASON: Record<string, string> = {
@@ -122,18 +149,6 @@ export const normalizeResultToOpenAI = (
 ): IChatMessageResult => {
     if (!needsOpenAICoercion(res.message)) return res;
 
-    if (typeof res.message === 'string') {
-        return {
-            ...res,
-            message: {
-                role: 'assistant',
-                content: res.message,
-                refusal: null,
-            },
-            finish_reason: res.finish_reason ?? 'stop',
-        };
-    }
-
     const native = res.message as Record<string, unknown>;
     const blocks = Array.isArray(native.content)
         ? (native.content as unknown[])
@@ -187,8 +202,13 @@ export const normalizeResultToOpenAI = (
     // Null content alongside tool_calls mirrors OpenAI's own convention for
     // tool-only turns.
     const content = textParts.length > 0 ? textParts.join('') : null;
+    // Separate thinking blocks are separate segments of reasoning, so they
+    // get a blank line between them — matching the Responses summary handler
+    // and the Mistral chunk splitter, and what chatresponse.md documents.
+    // (Text blocks above still join with '' because Anthropic splits prose
+    // mid-sentence across blocks.)
     const reasoning =
-        reasoningParts.length > 0 ? reasoningParts.join('') : undefined;
+        reasoningParts.length > 0 ? reasoningParts.join('\n\n') : undefined;
 
     return {
         ...res,

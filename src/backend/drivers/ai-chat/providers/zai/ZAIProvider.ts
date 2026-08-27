@@ -174,7 +174,6 @@ export class ZAIProvider implements IChatProvider {
             completion,
         });
 
-        OpenAIUtil.normalizeReasoningContent(result);
         return result;
     }
 

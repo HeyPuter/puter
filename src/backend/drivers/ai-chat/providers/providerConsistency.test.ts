@@ -565,11 +565,17 @@ const run = async (pc: ProviderCase, kind: 'text' | 'tool' | 'reasoning') => {
         );
     }
     armUpstream(pc.dialect, kind);
+    // `normalize: true` is the contract under test: what a caller who asked
+    // for the OpenAI shape receives. Providers whose dialect remap is gated on
+    // the policy (Mistral) need it set, and for every other provider it is a
+    // no-op — so stating it makes the matrix's premise explicit instead of
+    // relying on providers equalizing unconditionally.
     const res = (await withTestActor(() =>
         provider.complete({
             messages: [{ role: 'user', content: 'hi' }],
             model,
             stream: false,
+            normalize: true,
         } as never),
     )) as IChatMessageResult;
     // The same pass ChatCompletionDriver applies with `normalize: true`.

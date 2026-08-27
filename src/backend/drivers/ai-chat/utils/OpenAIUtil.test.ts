@@ -333,6 +333,29 @@ describe('process_input_messages_responses_api', () => {
         expect('refusal' in out[1]!).toBe(false);
     });
 
+    it('does not mutate the caller\'s message objects', async () => {
+        const callerMessage = Object.freeze({
+            role: 'assistant',
+            content: 'earlier reply',
+            reasoning: 'thought',
+            refusal: null,
+            normalized: true,
+            reasoning_details: Object.freeze([
+                Object.freeze({ type: 'reasoning', id: 'rs_1' }),
+            ]),
+        });
+        const before = JSON.parse(JSON.stringify(callerMessage));
+
+        const out = (await process_input_messages_responses_api([
+            callerMessage,
+        ] as never)) as Array<Record<string, unknown>>;
+
+        expect(callerMessage).toEqual(before);
+        // The stripped copy is what goes upstream.
+        expect('reasoning_details' in out[1]!).toBe(false);
+        expect('normalized' in out[1]!).toBe(false);
+    });
+
     it('leaves messages without reasoning artifacts alone', async () => {
         const messages: Array<Record<string, unknown>> = [
             { role: 'user', content: 'hi' },
