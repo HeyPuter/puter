@@ -471,9 +471,10 @@ describe('ClaudeProvider.complete request shape', () => {
         // reuses one messages array across attempts, so if attempt 1 strips
         // `reasoning_details` in place, attempt 2 sends a message with no
         // thinking blocks and Anthropic rejects the continuation. Two
-        // sequential calls over one shared array reproduce that directly — the
-        // harness wires only one provider per model, so the real fallback loop
-        // cannot be driven from here.
+        // sequential calls over one shared array reproduce that at the
+        // provider level; the real fallback loop is driven end-to-end by
+        // "hands every fallback attempt the same messages array" in
+        // ChatCompletionDriver.test.ts.
         const { provider } = makeProvider();
         messagesCreateMock
             .mockResolvedValueOnce(baseResponse)
