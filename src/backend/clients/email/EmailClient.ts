@@ -161,19 +161,23 @@ export class EmailClient extends PuterClient {
      * Render a template and send it to `to`. `options.replyTo` sets the
      * Reply-To header (e.g. so a recipient can respond to the originator of the
      * message rather than the no-reply From address).
+     *
+     * Returns the transport's send result, or `null` when none is configured —
+     * {@link sendRaw} drops the message instead of throwing. A caller that
+     * treats undelivered mail as a failure must check for `null` too.
      */
     async send<T extends EmailTemplateName>(
         to: string,
         template: T,
         values: Record<string, unknown> = {},
         options: { replyTo?: string } = {},
-    ): Promise<void> {
+    ) {
         const compiled = this.compiledTemplates[template];
         if (!compiled) {
             throw new Error(`Unknown email template: ${template}`);
         }
 
-        await this.sendRaw({
+        return await this.sendRaw({
             from: this.defaultFrom(),
             to,
             subject: compiled.subject(values),
