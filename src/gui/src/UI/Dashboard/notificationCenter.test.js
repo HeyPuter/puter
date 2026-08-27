@@ -22,6 +22,7 @@ import {
     badgeLabel,
     formatAbsoluteTime,
     formatRelativeTime,
+    glyphKey,
     mergeEntries,
     notificationTarget,
     parseCreatedAt,
@@ -226,6 +227,26 @@ describe('notificationTarget', () => {
         expect(notificationTarget({})).toBeNull();
         expect(notificationTarget(null)).toBeNull();
         expect(notificationTarget('text')).toBeNull();
+    });
+});
+
+describe('glyphKey', () => {
+    it('names the glyph for known senders', () => {
+        expect(glyphKey({ source: 'sharing' })).toBe('sharing');
+        expect(glyphKey({ source: 'worker' })).toBe('worker');
+    });
+
+    it('falls back to the bell for anything else', () => {
+        expect(glyphKey({ source: 'billing' })).toBe('default');
+        expect(glyphKey({})).toBe('default');
+        expect(glyphKey(null)).toBe('default');
+        expect(glyphKey({ source: 42 })).toBe('default');
+    });
+
+    it('never reaches into the prototype', () => {
+        expect(glyphKey({ source: '__proto__' })).toBe('default');
+        expect(glyphKey({ source: 'constructor' })).toBe('default');
+        expect(glyphKey({ source: 'toString' })).toBe('default');
     });
 });
 

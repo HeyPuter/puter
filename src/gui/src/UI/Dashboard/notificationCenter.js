@@ -174,6 +174,20 @@ export const reconcileWithServer = (local, server, now, graceMs = 15_000) => {
  */
 export const removeEntry = (entries, uid) => entries.filter((entry) => entry.uid !== uid);
 
+/** The senders that have a glyph of their own; anything else gets the bell. */
+const GLYPH_SOURCES = new Set(['sharing', 'worker']);
+
+/**
+ * Which glyph an entry shows, by who sent it. A plain property lookup
+ * would let a `source` like `constructor` reach into the prototype.
+ *
+ * @param {NotificationPayload} notification
+ * @returns {'sharing'|'worker'|'default'}
+ */
+export const glyphKey = (notification) => (
+    GLYPH_SOURCES.has(notification?.source) ? notification.source : 'default'
+);
+
 /**
  * @typedef {{ kind: 'shared-item', path: string } | { kind: 'shared' } | null} NotificationTarget
  */

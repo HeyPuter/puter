@@ -23,6 +23,7 @@ import {
     badgeLabel,
     formatAbsoluteTime,
     formatRelativeTime,
+    glyphKey,
     mergeEntries,
     notificationTarget,
     planBurstToasts,
@@ -62,11 +63,14 @@ const GLYPHS = {
     default: bellIcon,
 };
 
-const glyphFor = (notification) => GLYPHS[notification?.source] ?? GLYPHS.default;
+const glyphFor = (notification) => GLYPHS[glyphKey(notification)];
 
 /** The same glyph as an image source, for toasts. */
 const toastIconFor = (notification) => {
-    const named = notification?.icon && window.icons?.[notification.icon];
+    const iconName = notification?.icon;
+    const named = typeof iconName === 'string' && Object.hasOwn(window.icons ?? {}, iconName)
+        ? window.icons[iconName]
+        : null;
     if ( named ) return named;
     const color = notification?.source === 'sharing' ? '#2563eb' : '#64748b';
     // Loaded as an image rather than inlined, the SVG needs its namespace.
