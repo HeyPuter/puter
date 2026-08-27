@@ -484,6 +484,28 @@ const fixtures: Record<
             ],
             usage: { promptTokens: 3, completionTokens: 5 },
         }),
+        // Mistral's reasoning models (magistral) return `content` as a chunk
+        // array, with the thinking text nested one level deeper inside
+        // `thinking` chunks. Without the provider's flattening this reaches
+        // the caller as an array with no `reasoning` at all.
+        reasoning: () => ({
+            choices: [
+                {
+                    message: {
+                        role: 'assistant',
+                        content: [
+                            {
+                                type: 'thinking',
+                                thinking: [{ type: 'text', text: REASONING }],
+                            },
+                            { type: 'text', text: TEXT },
+                        ],
+                    },
+                    finishReason: 'stop',
+                },
+            ],
+            usage: { promptTokens: 3, completionTokens: 5 },
+        }),
     },
     anthropic: {
         text: () => ({

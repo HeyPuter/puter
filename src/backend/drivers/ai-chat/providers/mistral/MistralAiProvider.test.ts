@@ -459,6 +459,75 @@ describe('MistralAIProvider.complete non-stream output', () => {
         });
     });
 
+    it('flattens a magistral chunked content array into string content + reasoning', async () => {
+        // Mistral's reasoning models return `content` as a chunk array with
+        // the thinking text nested inside `thinking` chunks. Left alone it
+        // reaches the caller as an array with no `reasoning`, breaking the
+        // one-shape-per-provider guarantee.
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: {
+                        role: 'assistant',
+                        content: [
+                            {
+                                type: 'thinking',
+                                thinking: [
+                                    { type: 'text', text: 'step one.' },
+                                ],
+                            },
+                            {
+                                type: 'thinking',
+                                thinking: [
+                                    { type: 'text', text: 'step two.' },
+                                ],
+                            },
+                            { type: 'text', text: 'the answer' },
+                        ],
+                    },
+                    finishReason: 'stop',
+                },
+            ],
+            usage: { promptTokens: 1, completionTokens: 1 },
+        });
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'magistral-small-latest',
+                messages: [{ role: 'user', content: 'think' }],
+            }),
+        )) as { message: Record<string, unknown> };
+
+        expect(result.message.content).toBe('the answer');
+        // Multiple thinking chunks join with a blank line, matching the
+        // Responses handler and the Anthropic coercer.
+        expect(result.message.reasoning).toBe('step one.\n\nstep two.');
+    });
+
+    it('leaves plain string content untouched', async () => {
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'plain' },
+                    finishReason: 'stop',
+                },
+            ],
+            usage: { promptTokens: 1, completionTokens: 1 },
+        });
+
+        const result = (await withTestActor(() =>
+            provider.complete({
+                model: 'mistral-small-2603',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        )) as { message: Record<string, unknown> };
+
+        expect(result.message.content).toBe('plain');
+        expect('reasoning' in result.message).toBe(false);
+    });
+
     it('preserves OpenAI-shaped tool_calls on the assistant response', async () => {
         const { provider } = makeProvider();
         completeMock.mockResolvedValueOnce({
@@ -569,6 +638,78 @@ describe('MistralAIProvider.complete streaming', () => {
             prompt_tokens: 4 * 15,
             completion_tokens: 2 * 60,
         });
+    });
+
+    it('flattens chunked delta.content into text and reasoning events', async () => {
+        const { provider } = makeProvider();
+        streamMock.mockReturnValueOnce(
+            asAsyncIterable([
+                {
+                    data: {
+                        choices: [
+                            {
+                                delta: {
+                                    content: [
+                                        {
+                                            type: 'thinking',
+                                            thinking: [
+                                                {
+                                                    type: 'text',
+                                                    text: 'thinking…',
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                },
+                {
+                    data: {
+                        choices: [
+                            {
+                                delta: {
+                                    content: [
+                                        { type: 'text', text: 'answer' },
+                                    ],
+                                },
+                            },
+                        ],
+                    },
+                },
+                {
+                    data: {
+                        choices: [{ delta: {} }],
+                        usage: { promptTokens: 1, completionTokens: 1 },
+                    },
+                },
+            ]),
+        );
+
+        const result = await withTestActor(() =>
+            provider.complete({
+                model: 'magistral-small-latest',
+                messages: [{ role: 'user', content: 'think' }],
+                stream: true,
+            }),
+        );
+
+        const harness = makeCapturingChatStream();
+        await (
+            result as {
+                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
+            }
+        ).init_chat_stream({ chatStream: harness.chatStream });
+
+        const events = harness.events();
+        // The thinking chunk becomes a reasoning event, not stringified text.
+        expect(
+            events.filter((e) => e.type === 'reasoning').map((e) => e.reasoning),
+        ).toEqual(['thinking…']);
+        expect(events.filter((e) => e.type === 'text').map((e) => e.text)).toEqual(
+            ['answer'],
+        );
     });
 
     it('builds a tool_use block from camelCase delta.toolCalls deltas', async () => {

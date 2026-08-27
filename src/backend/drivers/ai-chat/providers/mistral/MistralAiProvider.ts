@@ -30,6 +30,51 @@ import * as OpenAIUtil from '../../utils/OpenAIUtil.js';
 import { MISTRAL_MODELS } from './models.js';
 import { modelLookupNames } from '../../utils/modelRouting.js';
 
+/**
+ * Mistral's reasoning models (`magistral-*`) return `content` as a chunk array
+ * rather than a string, with the thinking text nested one level deeper inside
+ * `thinking` chunks. Split it into the string content + `reasoning` string
+ * every other provider produces. Text nested in a chunk is joined; a `thinking`
+ * chunk's own chunks are flattened the same way.
+ */
+const flattenChunkText = (value: unknown): string => {
+    if (typeof value === 'string') return value;
+    if (!Array.isArray(value)) return '';
+    return value
+        .map((chunk) => {
+            if (typeof chunk === 'string') return chunk;
+            const c = chunk as Record<string, unknown>;
+            return typeof c?.text === 'string' ? c.text : '';
+        })
+        .join('');
+};
+
+const splitMistralContentChunks = (
+    content: unknown[],
+): { text: string; reasoning: string } => {
+    const textParts: string[] = [];
+    const reasoningParts: string[] = [];
+    for (const chunk of content) {
+        if (typeof chunk === 'string') {
+            textParts.push(chunk);
+            continue;
+        }
+        const c = chunk as Record<string, unknown>;
+        if (c?.type === 'thinking') {
+            const thinking = flattenChunkText(c.thinking);
+            if (thinking) reasoningParts.push(thinking);
+            continue;
+        }
+        // Non-text chunks (`reference`, images) carry nothing to surface as
+        // message content and are dropped, same as the Anthropic coercer.
+        if (typeof c?.text === 'string') textParts.push(c.text);
+    }
+    return {
+        text: textParts.join(''),
+        reasoning: reasoningParts.join('\n\n'),
+    };
+};
+
 // Mistral's finish reasons mapped to the OpenAI vocabulary; values without
 // an OpenAI analog (e.g. `error`) pass through unmapped.
 const MISTRAL_FINISH_REASON_MAP: Record<string, string> = {
@@ -179,6 +224,17 @@ export class MistralAIProvider implements IChatProvider {
                     }));
                 }
                 if (message) delete message.toolCalls;
+                if (message && Array.isArray(message.content)) {
+                    const { text, reasoning } = splitMistralContentChunks(
+                        message.content,
+                    );
+                    // Null content alongside tool calls is OpenAI's own
+                    // convention for a tool-only turn.
+                    message.content = text === '' ? null : text;
+                    if (reasoning && message.reasoning === undefined) {
+                        message.reasoning = reasoning;
+                    }
+                }
             }
         }
 
@@ -199,8 +255,32 @@ export class MistralAIProvider implements IChatProvider {
 
                     return snake_usage;
                 },
-                chunk_but_like_actually: (chunk: unknown) =>
-                    (chunk as any).data,
+                // Mistral wraps each event; unwrap it, then flatten a
+                // reasoning model's chunked `delta.content` so the shared
+                // stream handler sees the string content + `reasoning` delta
+                // it expects from every other provider.
+                chunk_but_like_actually: (chunk: unknown) => {
+                    const data = (chunk as { data?: unknown }).data as
+                        | {
+                              choices?: {
+                                  delta?: Record<string, unknown>;
+                              }[];
+                          }
+                        | undefined;
+                    if (!data || !Array.isArray(data.choices)) return data;
+                    for (const choice of data.choices) {
+                        const delta = choice?.delta;
+                        if (!delta || !Array.isArray(delta.content)) continue;
+                        const { text, reasoning } = splitMistralContentChunks(
+                            delta.content,
+                        );
+                        delta.content = text;
+                        if (reasoning && delta.reasoning === undefined) {
+                            delta.reasoning = reasoning;
+                        }
+                    }
+                    return data;
+                },
                 index_tool_calls_from_stream_choice: (choice: {
                     delta?: unknown;
                 }) => (choice.delta as any).toolCalls,
