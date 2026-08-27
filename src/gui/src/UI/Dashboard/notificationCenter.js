@@ -205,6 +205,20 @@ export const unreadCount = (entries) => entries.filter(isUnread).length;
 const GLYPH_SOURCES = new Set(['sharing', 'worker']);
 
 /**
+ * Senders whose notifications go straight to the panel and badge without a
+ * toast — a worker finishing a deploy is routine, not an interruption.
+ */
+const QUIET_SOURCES = new Set(['worker']);
+
+/**
+ * Whether an arrival should interrupt with a toast, or just wait in the panel.
+ *
+ * @param {NotificationPayload} notification
+ * @returns {boolean}
+ */
+export const shouldToast = (notification) => ! QUIET_SOURCES.has(notification?.source);
+
+/**
  * Which glyph an entry shows, by who sent it. A plain property lookup
  * would let a `source` like `constructor` reach into the prototype.
  *

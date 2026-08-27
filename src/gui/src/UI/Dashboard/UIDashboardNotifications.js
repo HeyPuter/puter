@@ -31,6 +31,7 @@ import {
     planBurstToasts,
     reconcileWithServer,
     setReadAt,
+    shouldToast,
     titleWithBadge,
     toEntry,
     unreadCount,
@@ -514,11 +515,15 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         for ( const entry of fresh ) surfaced.add(entry.uid);
         for ( const entry of result.added ) justAdded.add(entry.uid);
         render();
-        announce(fresh);
+
+        // Quiet arrivals only update the badge and the list; the toast and
+        // its spoken counterpart stay silent alike.
+        const loud = fresh.filter((entry) => shouldToast(entry.notification));
+        announce(loud);
 
         // Open, the panel is already showing them.
         if ( isOpen ) return;
-        const { shown, folded } = planBurstToasts(fresh);
+        const { shown, folded } = planBurstToasts(loud);
         for ( const entry of [...shown].reverse() ) toast(entry);
         if ( folded > 0 ) toastSummary(folded);
     };
