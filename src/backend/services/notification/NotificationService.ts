@@ -243,9 +243,12 @@ export class NotificationService extends PuterService {
             }
         }
 
+        // `created_at` rides along so a client listing these can date them;
+        // without it everything delivered on connect would read as "now".
         const unreads = rows.map((r: Record<string, unknown>) => ({
             uid: r.uid,
             notification: r.value,
+            created_at: r.created_at ?? null,
         }));
 
         this.clients.event.emit(

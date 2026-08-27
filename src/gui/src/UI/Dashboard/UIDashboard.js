@@ -27,6 +27,7 @@ import UIWindowLogin from '../UIWindowLogin.js';
 import UIWindowFeedback from '../UIWindowFeedback.js';
 import apply_item_added_to_containers from '../../helpers/applyItemAddedToContainers.js';
 import { clear_shared_param } from '../../helpers/parseSharedPath.js';
+import UIDashboardNotifications from './UIDashboardNotifications.js';
 /**
  * Creates and displays the Dashboard window.
  *
@@ -278,6 +279,16 @@ async function UIDashboard (options) {
         }
     });
 
+    // Notifications: the bell in the sidebar, its panel, and toasts for what
+    // arrives live. Toasts share the desktop's container and styling.
+    if ( $('.notification-container').length === 0 ) {
+        $('body').append(`<div class="notification-container"><div class="notifications-close-all">${i18n('close_all')}</div></div>`);
+    }
+    // The title the unread count is prefixed onto, and what app windows
+    // restore when they close; captured before either can change it.
+    window.dashboard_base_title ??= document.title;
+    const notifications = UIDashboardNotifications({ $el_window, socket: window.socket });
+
     // Trash status updates
     window.socket.on('trash.is_empty', async (msg) => {
         // Update sidebar Trash icon
@@ -452,6 +463,7 @@ async function UIDashboard (options) {
         if ( ! isKnownTabId(route.tab) ) return;
         const tab = route.tab;
         const filePath = route.path;
+        notifications.close({ restoreFocus: false });
 
         // Switch to correct tab
         const $targetTab = $el_window.find(`.dashboard-sidebar-item[data-section="${tab}"]`);
@@ -501,6 +513,7 @@ async function UIDashboard (options) {
         e.preventDefault();
         const $this = $(this);
         const section = $this.attr('data-section');
+        notifications.close({ restoreFocus: false });
 
         // Update active sidebar item
         $el_window.find('.dashboard-sidebar-item').removeClass('active');

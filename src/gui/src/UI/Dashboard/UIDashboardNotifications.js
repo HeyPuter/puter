@@ -1,0 +1,609 @@
+/*
+ * Copyright (C) 2024-present Puter Technologies Inc.
+ *
+ * This file is part of Puter.
+ *
+ * Puter is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+import UINotification from '../UINotification.js';
+import { listNotifications, markNotificationAcknowledged } from '../../helpers/notificationApi.js';
+import {
+    badgeLabel,
+    formatAbsoluteTime,
+    formatRelativeTime,
+    mergeEntries,
+    notificationTarget,
+    planBurstToasts,
+    reconcileWithServer,
+    removeEntry,
+    titleWithBadge,
+    toEntry,
+} from './notificationCenter.js';
+
+const { html_encode } = window;
+
+/** How long a toast stays up on its own; the panel keeps what it announced. */
+const TOAST_TIMEOUT_MS = 8_000;
+
+/** How often the "5 minutes ago" labels are brought up to date while open. */
+const RELATIVE_TIME_TICK_MS = 60_000;
+
+/** Below this the panel is a bottom sheet; matches the sidebar's drawer breakpoint. */
+const SHEET_BREAKPOINT = '(max-width: 768px)';
+
+/** Acknowledgements in flight at once when clearing the whole list. */
+const ACK_CONCURRENCY = 6;
+
+/** Matches the panel's CSS transition; `hidden` is set once it has run. */
+const CLOSE_ANIMATION_MS = 180;
+
+const STROKE_ICON = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+
+const bellIcon = `<svg ${STROKE_ICON}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`;
+const closeIcon = `<svg ${STROKE_ICON} stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
+const checkAllIcon = `<svg ${STROKE_ICON} stroke-width="2"><path d="M2 13l4 4L14 7"/><path d="M12 17l10-10"/></svg>`;
+
+/** The glyph in front of an entry, by who sent it. */
+const GLYPHS = {
+    sharing: `<svg ${STROKE_ICON}><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>`,
+    worker: `<svg ${STROKE_ICON}><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg>`,
+    default: bellIcon,
+};
+
+const glyphFor = (notification) => GLYPHS[notification?.source] ?? GLYPHS.default;
+
+/** The same glyph as an image source, for toasts. */
+const toastIconFor = (notification) => {
+    const named = notification?.icon && window.icons?.[notification.icon];
+    if ( named ) return named;
+    const color = notification?.source === 'sharing' ? '#2563eb' : '#64748b';
+    // Loaded as an image rather than inlined, the SVG needs its namespace.
+    const svg = glyphFor(notification)
+        .replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ')
+        .replace('stroke="currentColor"', `stroke="${color}"`);
+    return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+};
+
+/** A share notification's second line: the item it names, if only one. */
+const textFor = (notification) => {
+    if ( typeof notification?.text === 'string' && notification.text ) return notification.text;
+    const name = notification?.fields?.target?.name;
+    return typeof name === 'string' ? name : '';
+};
+
+const titleFor = (notification) => (
+    typeof notification?.title === 'string' && notification.title
+        ? notification.title
+        : i18n('notification', [], false)
+);
+
+/**
+ * Wait for the Files tab to finish a render already in flight —
+ * `renderDirectory` drops calls made while one is running rather than
+ * queueing them.
+ */
+const whenFilesIdle = async (filesTab, timeoutMs = 4_000) => {
+    const started = Date.now();
+    while ( filesTab.renderingDirectory && Date.now() - started < timeoutMs ) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+};
+
+/**
+ * Run `task` over `items`, at most `limit` at a time. Resolves to the items
+ * whose task rejected.
+ */
+const runLimited = async (items, limit, task) => {
+    const failed = [];
+    let index = 0;
+    const worker = async () => {
+        while ( index < items.length ) {
+            const item = items[index++];
+            try {
+                await task(item);
+            } catch {
+                failed.push(item);
+            }
+        }
+    };
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+    return failed;
+};
+
+/**
+ * The dashboard's notification center: a bell in the sidebar with the unread
+ * count, a panel listing everything not yet dismissed, and toasts for what
+ * arrives while the dashboard is open. The list is what the server holds —
+ * it survives a reload, unlike the desktop's toasts — with socket pushes
+ * folded in as they come.
+ *
+ * Entries are what the user hasn't dismissed. Dismissing one (its ✕, or
+ * acting on it) acknowledges it on the server, which also clears it from
+ * every other open tab; a toast timing out does not, so nothing is lost
+ * while someone is looking away.
+ *
+ * @param {{ $el_window: JQuery, socket: import('socket.io-client').Socket }} opts
+ * @returns {{ open: () => void, close: (opts?: { restoreFocus?: boolean }) => void, refresh: () => Promise<void>, isOpen: () => boolean }}
+ */
+export default function UIDashboardNotifications ({ $el_window, socket }) {
+    /** @type {import('./notificationCenter.js').NotificationEntry[]} */
+    let entries = [];
+    let loaded = false;
+    let loading = null;
+    let loadFailed = false;
+    let isOpen = false;
+    let closeTimer = null;
+    let tickTimer = null;
+    let statusTimer = null;
+    let previousFocus = null;
+    const justAdded = new Set();
+    /**
+     * Entries the user has actually been shown — toasted, or listed while the
+     * panel was open. The list itself fills from the server on load, before
+     * the socket's `notif.unreads` for the same items arrives; only this
+     * decides whether an arrival still deserves a toast.
+     */
+    const surfaced = new Set();
+
+    const sheetMedia = window.matchMedia(SHEET_BREAKPOINT);
+    const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    // -- Markup -------------------------------------------------------------
+
+    const $trigger = $(`
+        <button type="button" class="dashboard-sidebar-item dashboard-notifications-btn allow-native-ctxmenu"
+            aria-haspopup="dialog" aria-expanded="false" aria-controls="dashboard-notifications-panel"
+            data-tooltip="${i18n('notifications')}">
+            <span class="dashboard-notifications-btn-icon">${bellIcon}<span class="dashboard-notifications-dot" aria-hidden="true"></span></span>
+            <span class="dashboard-notifications-btn-label">${i18n('notifications')}</span>
+            <span class="dashboard-notifications-badge" aria-hidden="true"></span>
+        </button>
+    `);
+    $el_window.find('.dashboard-user-options').prepend($trigger);
+
+    const $scrim = $('<div class="dashboard-notifications-scrim" hidden></div>');
+    const $panel = $(`
+        <div id="dashboard-notifications-panel" class="dashboard-notifications-panel" role="dialog"
+            aria-label="${i18n('notifications')}" tabindex="-1" hidden>
+            <div class="dashboard-notifications-grip" aria-hidden="true"></div>
+            <div class="dashboard-notifications-header">
+                <div class="dashboard-notifications-heading">
+                    <h2>${i18n('notifications')}</h2>
+                    <span class="dashboard-notifications-count" aria-hidden="true"></span>
+                </div>
+                <div class="dashboard-notifications-actions">
+                    <button type="button" class="dashboard-notifications-mark-all" hidden>${checkAllIcon}<span>${i18n('notifications_mark_all_read')}</span></button>
+                    <button type="button" class="dashboard-notifications-close" aria-label="${i18n('close')}" title="${i18n('close')}">${closeIcon}</button>
+                </div>
+            </div>
+            <div class="dashboard-notifications-status" role="status" aria-live="polite"></div>
+            <div class="dashboard-notifications-body">
+                <ul class="dashboard-notifications-list" role="list"></ul>
+                <div class="dashboard-notifications-loading" aria-hidden="true">
+                    ${'<div class="dashboard-notifications-skeleton"><span></span><span><i></i><i></i></span></div>'.repeat(3)}
+                </div>
+                <div class="dashboard-notifications-empty" hidden>
+                    <div class="dashboard-notifications-empty-art">${bellIcon}</div>
+                    <p class="dashboard-notifications-empty-title">${i18n('notifications_empty_title')}</p>
+                    <p class="dashboard-notifications-empty-hint">${i18n('notifications_empty_hint')}</p>
+                </div>
+                <div class="dashboard-notifications-error" hidden>
+                    <p>${i18n('notifications_load_failed')}</p>
+                    <button type="button" class="dashboard-notifications-retry">${i18n('retry')}</button>
+                </div>
+            </div>
+        </div>
+    `);
+    // Announces arrivals to assistive tech; the toast itself is visual only
+    // and the panel is hidden (so silent) until opened.
+    const $live = $('<div class="dashboard-notifications-live" role="status" aria-live="polite"></div>');
+    // Inside the dashboard window, like its other overlays: on phones every
+    // window is stacked above anything at body level, and the window is
+    // full-page so viewport-fixed placement still lands where intended.
+    $el_window.append($scrim, $panel, $live);
+
+    const $list = $panel.find('.dashboard-notifications-list');
+    const $count = $panel.find('.dashboard-notifications-count');
+    const $markAll = $panel.find('.dashboard-notifications-mark-all');
+    const $status = $panel.find('.dashboard-notifications-status');
+    const $badge = $trigger.find('.dashboard-notifications-badge');
+    const $sidebarToggle = $el_window.find('.dashboard-sidebar-toggle');
+
+    // -- Rendering ----------------------------------------------------------
+
+    const setStatus = (text) => {
+        clearTimeout(statusTimer);
+        $status.text(text).toggleClass('visible', Boolean(text));
+        if ( text ) statusTimer = setTimeout(() => setStatus(''), 6_000);
+    };
+
+    const rowHtml = (entry) => {
+        const { notification } = entry;
+        const source = typeof notification.source === 'string' ? notification.source.replace(/[^a-z0-9_-]/gi, '') : 'default';
+        const text = textFor(notification);
+        const time = entry.createdAt === null ? '' : `
+            <time class="dashboard-notification-time" datetime="${new Date(entry.createdAt).toISOString()}"
+                title="${html_encode(formatAbsoluteTime(entry.createdAt, window.locale))}">${html_encode(formatRelativeTime(entry.createdAt, Date.now(), window.locale))}</time>`;
+        const actionable = notificationTarget(notification) !== null;
+        return `
+            <li class="dashboard-notification${justAdded.has(entry.uid) ? ' dashboard-notification-new' : ''}" data-uid="${html_encode(entry.uid)}">
+                <button type="button" class="dashboard-notification-main${actionable ? ' is-actionable' : ''}">
+                    <span class="dashboard-notification-icon dashboard-notification-icon-${html_encode(source)}">${glyphFor(notification)}</span>
+                    <span class="dashboard-notification-content">
+                        <span class="dashboard-notification-title">${html_encode(titleFor(notification))}</span>
+                        ${text ? `<span class="dashboard-notification-text">${html_encode(text)}</span>` : ''}
+                        ${time}
+                    </span>
+                </button>
+                <button type="button" class="dashboard-notification-dismiss" aria-label="${i18n('notification_dismiss')}" title="${i18n('notification_dismiss')}">${closeIcon}</button>
+            </li>`;
+    };
+
+    const render = () => {
+        const count = entries.length;
+        const label = badgeLabel(count);
+
+        $badge.text(label).attr('hidden', label ? null : '');
+        $trigger.toggleClass('has-unread', count > 0);
+        $trigger.attr('aria-label', count > 0
+            ? `${i18n('notifications', [], false)}, ${i18n('notifications_unread_count', { count }, false)}`
+            : i18n('notifications', [], false));
+        $sidebarToggle.toggleClass('has-unread', count > 0);
+        $count.text(label);
+        $markAll.attr('hidden', count > 0 ? null : '');
+        document.title = titleWithBadge(document.title, count);
+
+        const showLoading = ! loaded && loading !== null;
+        const showError = ! loaded && loadFailed && loading === null;
+        $panel.find('.dashboard-notifications-loading').attr('hidden', showLoading ? null : '');
+        $panel.find('.dashboard-notifications-error').attr('hidden', showError ? null : '');
+        $panel.find('.dashboard-notifications-empty').attr('hidden', loaded && count === 0 ? null : '');
+        $panel.attr('aria-busy', showLoading ? 'true' : null);
+
+        $list.html(entries.map(rowHtml).join(''));
+        justAdded.clear();
+        if ( isOpen ) for ( const entry of entries ) surfaced.add(entry.uid);
+    };
+
+    const refreshTimes = () => {
+        const now = Date.now();
+        $list.find('time').each(function () {
+            const at = Date.parse(this.getAttribute('datetime'));
+            if ( Number.isFinite(at) ) this.textContent = formatRelativeTime(at, now, window.locale);
+        });
+    };
+
+    // -- Data ---------------------------------------------------------------
+
+    /** Pull the server's list and fold it over what this tab knows. */
+    const refresh = () => {
+        if ( loading ) return loading;
+        loadFailed = false;
+        if ( ! loaded ) render();
+        loading = listNotifications({ predicate: 'unacknowledged' })
+            .then((rows) => {
+                const now = Date.now();
+                const server = rows.map((row) => toEntry(row, now)).filter(Boolean);
+                entries = reconcileWithServer(entries, server, now);
+                loaded = true;
+            })
+            .catch((err) => {
+                console.warn('Could not load notifications:', err);
+                loadFailed = true;
+                if ( loaded ) setStatus(i18n('notifications_load_failed', [], false));
+            })
+            .finally(() => {
+                loading = null;
+                render();
+            });
+        return loading;
+    };
+
+    /** Take an entry off the list now and tell the server; put it back if that fails. */
+    const dismiss = async (uid) => {
+        const entry = entries.find((e) => e.uid === uid);
+        if ( ! entry ) return;
+        entries = removeEntry(entries, uid);
+        const $row = $list.find(`.dashboard-notification[data-uid="${uid}"]`);
+        if ( $row.length && ! reducedMotion() ) {
+            $row.addClass('dashboard-notification-leaving');
+            await new Promise((resolve) => setTimeout(resolve, 160));
+        }
+        render();
+        try {
+            await markNotificationAcknowledged(uid);
+        } catch (err) {
+            console.warn('Could not acknowledge notification:', err);
+            entries = mergeEntries(entries, [entry]).entries;
+            render();
+            setStatus(i18n('notifications_dismiss_failed', [], false));
+        }
+    };
+
+    const dismissAll = async () => {
+        const cleared = entries;
+        if ( cleared.length === 0 ) return;
+        entries = [];
+        render();
+        const failed = await runLimited(cleared, ACK_CONCURRENCY, (entry) => markNotificationAcknowledged(entry.uid));
+        if ( failed.length > 0 ) {
+            setStatus(i18n('notifications_mark_all_failed', [], false));
+            await refresh();
+        }
+    };
+
+    // -- Acting on an entry -------------------------------------------------
+
+    /** Show the Files tab on Shared, picking out `paths` if they are there. */
+    const goToShared = async (paths) => {
+        $el_window.find('.dashboard-sidebar-item[data-section="files"]').trigger('click');
+        const filesTab = window.dashboard_object;
+        if ( ! filesTab?.renderDirectory ) return;
+        await whenFilesIdle(filesTab);
+        filesTab.pushNavHistory?.(window.shared_path);
+        await filesTab.renderDirectory(window.shared_path, { consistency: 'strong' });
+        if ( paths?.length ) filesTab.selectSharedRows?.(paths);
+    };
+
+    const actOn = (entry) => {
+        const target = notificationTarget(entry.notification);
+        close({ restoreFocus: false });
+        // Acknowledged first: what the click leads to may take a moment, and
+        // the entry should be gone by the time it lands.
+        void dismiss(entry.uid);
+        if ( target?.kind === 'shared-item' ) {
+            void goToShared([target.path]);
+        } else if ( target?.kind === 'shared' ) {
+            void goToShared([]);
+        }
+    };
+
+    // -- Toasts -------------------------------------------------------------
+
+    const toast = (entry) => {
+        const { notification } = entry;
+        UINotification({
+            uid: entry.uid,
+            title: titleFor(notification),
+            text: textFor(notification),
+            icon: toastIconFor(notification),
+            value: notification,
+            timeout: TOAST_TIMEOUT_MS,
+            click: () => actOn(entry),
+            // The ✕ is a dismissal; timing out is not, so `close` alone acks.
+            close: () => {
+                if ( entries.some((e) => e.uid === entry.uid) ) void dismiss(entry.uid);
+            },
+        });
+    };
+
+    const toastSummary = (count) => {
+        UINotification({
+            title: i18n('notifications_new_count', { count }, false),
+            text: i18n('notifications_open_hint', [], false),
+            icon: toastIconFor({}),
+            timeout: TOAST_TIMEOUT_MS,
+            click: () => open(),
+        });
+    };
+
+    const announce = (added) => {
+        if ( added.length === 0 ) return;
+        const text = added.length === 1
+            ? `${i18n('new_notification', [], false)}: ${titleFor(added[0].notification)}`
+            : i18n('notifications_new_count', { count: added.length }, false);
+        // Clear first so the same text twice is still read out.
+        $live.text('');
+        setTimeout(() => $live.text(text), 50);
+    };
+
+    /**
+     * Fold arrivals in. While the panel is open they simply appear in it;
+     * closed, each gets a toast — a large burst a summary instead.
+     */
+    const receive = (rawItems) => {
+        const now = Date.now();
+        const incoming = rawItems.map((raw) => toEntry(raw, now)).filter(Boolean);
+        const result = mergeEntries(entries, incoming);
+        entries = result.entries;
+
+        // A regrouped notification refreshes the toast already on screen.
+        for ( const entry of incoming ) {
+            const $showing = $(`.notification[data-uid="${html_encode(entry.uid)}"]`);
+            if ( ! $showing.length ) continue;
+            $showing.find('.notification-title').text(titleFor(entry.notification));
+            $showing.find('.notification-text').text(textFor(entry.notification));
+        }
+
+        const fresh = incoming.filter((entry) => ! surfaced.has(entry.uid));
+        for ( const entry of fresh ) surfaced.add(entry.uid);
+        for ( const entry of result.added ) justAdded.add(entry.uid);
+        render();
+        announce(fresh);
+
+        // Open, the panel is already showing them.
+        if ( isOpen ) return;
+        const { shown, folded } = planBurstToasts(fresh);
+        for ( const entry of [...shown].reverse() ) toast(entry);
+        if ( folded > 0 ) toastSummary(folded);
+    };
+
+    // -- Panel ----------------------------------------------------------------
+
+    const position = () => {
+        if ( sheetMedia.matches ) {
+            $panel.css({ left: '', bottom: '', right: '' });
+            return;
+        }
+        const rect = $trigger[0].getBoundingClientRect();
+        const width = $panel.outerWidth() || 380;
+        const gap = 10;
+        let left = rect.right + gap;
+        if ( left + width > window.innerWidth - gap ) left = Math.max(gap, window.innerWidth - width - gap);
+        // Bottom-aligned with the bell, growing upward; never off the top.
+        const bottom = Math.max(gap, window.innerHeight - rect.bottom);
+        $panel.css({ left: `${left}px`, bottom: `${bottom}px`, right: '' });
+    };
+
+    const focusables = () => $panel.find('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+        .filter(':visible').filter(function () {
+            return ! this.hasAttribute('hidden') && ! this.disabled;
+        });
+
+    const open = () => {
+        if ( isOpen ) return;
+        isOpen = true;
+        clearTimeout(closeTimer);
+        previousFocus = document.activeElement;
+
+        // The bell lives in the mobile drawer; the sheet replaces it.
+        if ( sheetMedia.matches ) $el_window.find('.dashboard-sidebar-close').trigger('click');
+
+        $panel.attr('hidden', null);
+        $scrim.attr('hidden', null);
+        position();
+        // Two frames: one for `hidden` to lift, one for the transition to
+        // have a starting state to leave.
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            $panel.addClass('open');
+            $scrim.addClass('open');
+        }));
+        $trigger.attr('aria-expanded', 'true').addClass('has-open-panel');
+        // The collapsed sidebar's hover tooltip would sit on the panel's corner.
+        $('.dashboard-sidebar-tooltip').removeClass('visible');
+        $panel[0].focus({ preventScroll: true });
+
+        // What's listed is shown at once; the server's copy is pulled behind
+        // it, since a notification can be rewritten without a push (a share
+        // folded in past the sender's interruption budget).
+        void refresh();
+        refreshTimes();
+        tickTimer = setInterval(refreshTimes, RELATIVE_TIME_TICK_MS);
+
+        $(window).on('resize.dashboard-notifications', position);
+        $(document).on('pointerdown.dashboard-notifications', (e) => {
+            if ( $(e.target).closest('.dashboard-notifications-panel, .dashboard-notifications-btn').length ) return;
+            close({ restoreFocus: false });
+        });
+        $(document).on('keydown.dashboard-notifications', (e) => {
+            if ( e.key === 'Escape' ) {
+                e.preventDefault();
+                e.stopPropagation();
+                close();
+                return;
+            }
+            // Tab cycles within the panel while it is up.
+            if ( e.key === 'Tab' ) {
+                const $items = focusables();
+                if ( $items.length === 0 ) return;
+                const first = $items[0], last = $items[$items.length - 1];
+                const inside = $panel[0].contains(document.activeElement);
+                if ( ! inside || (e.shiftKey && document.activeElement === first) || (! e.shiftKey && document.activeElement === last) ) {
+                    e.preventDefault();
+                    (e.shiftKey ? last : first).focus();
+                }
+            }
+        });
+    };
+
+    const close = ({ restoreFocus = true } = {}) => {
+        if ( ! isOpen ) return;
+        isOpen = false;
+        $panel.removeClass('open');
+        $scrim.removeClass('open');
+        $trigger.attr('aria-expanded', 'false').removeClass('has-open-panel');
+        clearInterval(tickTimer);
+        $(window).off('resize.dashboard-notifications');
+        $(document).off('pointerdown.dashboard-notifications keydown.dashboard-notifications');
+        closeTimer = setTimeout(() => {
+            $panel.attr('hidden', '');
+            $scrim.attr('hidden', '');
+        }, reducedMotion() ? 0 : CLOSE_ANIMATION_MS);
+        if ( restoreFocus ) {
+            const target = previousFocus && document.contains(previousFocus) ? previousFocus : $trigger[0];
+            try {
+                target.focus({ preventScroll: true });
+            } catch { /* best effort */ }
+        }
+        previousFocus = null;
+    };
+
+    // -- Wiring ---------------------------------------------------------------
+
+    $trigger.on('click', () => (isOpen ? close() : open()));
+    $panel.on('click', '.dashboard-notifications-close', () => close());
+    $scrim.on('click', () => close({ restoreFocus: false }));
+    $panel.on('click', '.dashboard-notifications-mark-all', () => void dismissAll());
+    $panel.on('click', '.dashboard-notifications-retry', () => void refresh());
+    $panel.on('click', '.dashboard-notification-dismiss', function (e) {
+        e.stopPropagation();
+        const uid = $(this).closest('.dashboard-notification').attr('data-uid');
+        // Keep the keyboard where it was: on the next row, or the panel.
+        const $next = $(this).closest('.dashboard-notification').next().find('.dashboard-notification-main');
+        ($next[0] ?? $panel[0]).focus({ preventScroll: true });
+        void dismiss(uid);
+    });
+    $panel.on('click', '.dashboard-notification-main', function () {
+        const uid = $(this).closest('.dashboard-notification').attr('data-uid');
+        const entry = entries.find((e) => e.uid === uid);
+        if ( entry ) actOn(entry);
+    });
+
+    // Layout mode changed under an open panel: re-anchor, or drop the anchor.
+    sheetMedia.addEventListener?.('change', () => {
+        if ( isOpen ) position();
+    });
+
+    // An app window opening over the dashboard covers the panel; don't leave
+    // it open underneath to be found again when the app closes.
+    document.addEventListener('dashboard-app-windows-changed', () => {
+        if ( isOpen ) close({ restoreFocus: false });
+    });
+
+    // The title is rewritten by app windows opening and closing over the
+    // dashboard; keep the count in front of whatever it becomes. Setting the
+    // same title again is a no-op, so this can't loop.
+    const titleEl = document.querySelector('title');
+    if ( titleEl ) {
+        new MutationObserver(() => {
+            const wanted = titleWithBadge(document.title, entries.length);
+            if ( document.title !== wanted ) document.title = wanted;
+        }).observe(titleEl, { childList: true, characterData: true, subtree: true });
+    }
+
+    // -- Socket -------------------------------------------------------------------
+
+    socket.on('notif.message', ({ uid, notification }) => receive([{ uid, notification }]));
+    socket.on('notif.unreads', ({ unreads }) => receive(Array.isArray(unreads) ? unreads : []));
+    socket.on('notif.ack', ({ uid }) => {
+        if ( ! uid ) return;
+        $(`.notification[data-uid="${html_encode(uid)}"]`).closest('.notification-wrapper').remove();
+        if ( ! entries.some((e) => e.uid === uid) ) return;
+        entries = removeEntry(entries, uid);
+        render();
+    });
+    // Every (re)connection: anything dismissed elsewhere while this tab was
+    // offline is gone from the server's list, and anything new is in it.
+    socket.on('connect', () => void refresh());
+    // Coming back to the tab: same reasoning, cheaper than waiting to be told.
+    document.addEventListener('visibilitychange', () => {
+        if ( document.visibilityState === 'visible' && loaded ) void refresh();
+    });
+
+    render();
+    void refresh();
+
+    return { open, close, refresh, isOpen: () => isOpen };
+}

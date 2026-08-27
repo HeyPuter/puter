@@ -43,6 +43,7 @@ import launch_app from '../helpers/launchApp.js';
 import item_icon from '../helpers/itemIcon.js';
 import { SHARED_PATH_PARAM, clear_shared_param } from '../helpers/parseSharedPath.js';
 import resolve_shared_item from '../helpers/resolveSharedItem.js';
+import { markNotificationAcknowledged } from '../helpers/notificationApi.js';
 import apply_item_added_to_containers from '../helpers/applyItemAddedToContainers.js';
 import UIWindowSearch from './UIWindowSearch.js';
 
@@ -255,16 +256,9 @@ async function UIDesktop (options) {
             value: notification,
             uid,
             click: share_notification_click(notification),
-            close: async () => {
-                await fetch(`${window.api_origin}/notif/mark-ack`, {
-                    method: 'POST',
-                    headers: {
-                        Authorization: `Bearer ${puter.authToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ uid }),
-                });
-            },
+            close: () => markNotificationAcknowledged(uid).catch((err) => {
+                console.warn('Could not acknowledge notification:', err);
+            }),
         });
     });
 
@@ -292,18 +286,9 @@ async function UIDesktop (options) {
                 uid: notif_info.uid,
                 value: notification,
                 click: share_notification_click(notification),
-                close: async () => {
-                    await fetch(`${window.api_origin}/notif/mark-ack`, {
-                        method: 'POST',
-                        headers: {
-                            Authorization: `Bearer ${puter.authToken}`,
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            uid: notif_info.uid,
-                        }),
-                    });
-                },
+                close: () => markNotificationAcknowledged(notif_info.uid).catch((err) => {
+                    console.warn('Could not acknowledge notification:', err);
+                }),
             });
         }
     });
