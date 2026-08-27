@@ -7408,12 +7408,14 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 /* -- Toasts, dashboard flavour -- */
 
 /* No toolbar to clear here; tuck into the corner. The mobile hamburger is
-   on the left, so the right edge is free. Above every window (phones stack
-   them at 9999999) and context menus; still under stay-on-top dialogs. */
+   on the left, so the right edge is free. Above every window: app windows
+   opened from the dashboard are stay-on-top and stack in the 99999999+
+   band (see window_zindex_base in UIWindow.js), and a toast that lands
+   while one is open must still be seen. Under context menus. */
 body.dashboard-mode .notification-container {
     top: 12px;
     right: 12px;
-    z-index: 10000000;
+    z-index: 999999999;
 }
 
 body.dashboard-mode .notification {
