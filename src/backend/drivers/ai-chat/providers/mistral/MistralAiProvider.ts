@@ -152,7 +152,19 @@ export class MistralAIProvider implements IChatProvider {
         temperature,
         normalize,
         response,
+        custom,
     }: ICompleteArguments): Promise<IChatCompleteResult> {
+        // Mistral's reasoning prompt mode: with `prompt_mode: 'reasoning'`,
+        // magistral models return their thinking as structured ThinkChunk
+        // content (which the splitter below separates into `reasoning`)
+        // instead of inlining it as answer prose. Opt-in passthrough rather
+        // than a default because the API rejects it on accounts/models where
+        // the mode is not enabled ('Reasoning prompt mode is not enabled for
+        // this model', code 3051).
+        const customParams =
+            custom && typeof custom === 'object' && !Array.isArray(custom)
+                ? (custom as { prompt_mode?: 'reasoning' | null })
+                : {};
         messages = await OpenAIUtil.process_input_messages(messages);
         messages = this.#coerceImageUrls(messages);
         for (const message of messages) {
@@ -177,6 +189,9 @@ export class MistralAIProvider implements IChatProvider {
         ]({
             model: selectedModel.id,
             ...(tools ? { tools: tools as any[] } : {}),
+            ...(customParams.prompt_mode !== undefined
+                ? { promptMode: customParams.prompt_mode }
+                : {}),
             messages,
             maxTokens: max_tokens,
             temperature,

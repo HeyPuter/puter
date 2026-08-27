@@ -210,6 +210,51 @@ describe('MistralAIProvider.complete request shape', () => {
         expect(args.temperature).toBe(0.4);
     });
 
+    it('forwards custom.prompt_mode as the SDK promptMode', async () => {
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'ok' },
+                    finishReason: 'stop',
+                },
+            ],
+            usage: { promptTokens: 1, completionTokens: 1 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'magistral-small-latest',
+                messages: [{ role: 'user', content: 'think' }],
+                custom: { prompt_mode: 'reasoning' },
+            }),
+        );
+
+        expect(completeMock.mock.calls[0]![0].promptMode).toBe('reasoning');
+    });
+
+    it('omits promptMode when custom does not carry prompt_mode', async () => {
+        const { provider } = makeProvider();
+        completeMock.mockResolvedValueOnce({
+            choices: [
+                {
+                    message: { role: 'assistant', content: 'ok' },
+                    finishReason: 'stop',
+                },
+            ],
+            usage: { promptTokens: 1, completionTokens: 1 },
+        });
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'mistral-small-2603',
+                messages: [{ role: 'user', content: 'hi' }],
+            }),
+        );
+
+        expect('promptMode' in completeMock.mock.calls[0]![0]).toBe(false);
+    });
+
     it('omits the `tools` key when no tools are supplied', async () => {
         const { provider } = makeProvider();
         completeMock.mockResolvedValueOnce(baseCompletion);
