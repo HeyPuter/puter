@@ -256,6 +256,37 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             </li>`;
     };
 
+    /**
+     * Where the keyboard is in the list, so a re-render — which rebuilds
+     * every row — can put it back: on the same entry, or if that one is
+     * gone, on the entry that took its place, keeping to the same control
+     * so Enter on a ✕ can clear entries one after another.
+     */
+    const focusedRow = () => {
+        const active = document.activeElement;
+        const row = active && $list[0].contains(active) ? active.closest('.dashboard-notification') : null;
+        if ( ! row ) return null;
+        return {
+            uid: row.getAttribute('data-uid'),
+            index: $list.children().index(row),
+            dismiss: active.classList.contains('dashboard-notification-dismiss'),
+        };
+    };
+
+    const rowControl = (row, dismiss) => (
+        (dismiss ? row.querySelector('.dashboard-notification-dismiss') : null)
+        ?? row.querySelector('button')
+    );
+
+    const restoreFocus = (was) => {
+        if ( ! was ) return;
+        const rows = $list.children().get();
+        const same = rows.find((row) => row.getAttribute('data-uid') === was.uid);
+        const row = same ?? rows[Math.min(was.index, rows.length - 1)];
+        const target = row ? rowControl(row, was.dismiss) : $panel[0];
+        target?.focus({ preventScroll: true });
+    };
+
     const render = () => {
         const count = entries.length;
         const label = badgeLabel(count);
@@ -277,7 +308,9 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         $panel.find('.dashboard-notifications-empty').attr('hidden', loaded && count === 0 ? null : '');
         $panel.attr('aria-busy', showLoading ? 'true' : null);
 
+        const was = isOpen ? focusedRow() : null;
         $list.html(entries.map(rowHtml).join(''));
+        restoreFocus(was);
         justAdded.clear();
         if ( isOpen ) for ( const entry of entries ) surfaced.add(entry.uid);
     };
@@ -512,13 +545,17 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
                 close();
                 return;
             }
-            // Tab cycles within the panel while it is up.
+            // Tab cycles within the panel while it is up. Focus resting on
+            // the panel itself (just opened, or after the last entry went)
+            // counts as the start, so Shift+Tab wraps rather than leaving.
             if ( e.key === 'Tab' ) {
                 const $items = focusables();
                 if ( $items.length === 0 ) return;
                 const first = $items[0], last = $items[$items.length - 1];
-                const inside = $panel[0].contains(document.activeElement);
-                if ( ! inside || (e.shiftKey && document.activeElement === first) || (! e.shiftKey && document.activeElement === last) ) {
+                const active = document.activeElement;
+                const inside = $panel[0].contains(active);
+                const atStart = active === first || active === $panel[0];
+                if ( ! inside || (e.shiftKey && atStart) || (! e.shiftKey && active === last) ) {
                     e.preventDefault();
                     (e.shiftKey ? last : first).focus();
                 }
@@ -555,13 +592,11 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     $scrim.on('click', () => close({ restoreFocus: false }));
     $panel.on('click', '.dashboard-notifications-mark-all', () => void dismissAll());
     $panel.on('click', '.dashboard-notifications-retry', () => void refresh());
+    // The re-render after a dismiss moves the keyboard to the entry that
+    // takes the dismissed one's place (see restoreFocus).
     $panel.on('click', '.dashboard-notification-dismiss', function (e) {
         e.stopPropagation();
-        const uid = $(this).closest('.dashboard-notification').attr('data-uid');
-        // Keep the keyboard where it was: on the next row, or the panel.
-        const $next = $(this).closest('.dashboard-notification').next().find('.dashboard-notification-main');
-        ($next[0] ?? $panel[0]).focus({ preventScroll: true });
-        void dismiss(uid);
+        void dismiss($(this).closest('.dashboard-notification').attr('data-uid'));
     });
     $panel.on('click', '.dashboard-notification-main', function () {
         const uid = $(this).closest('.dashboard-notification').attr('data-uid');
