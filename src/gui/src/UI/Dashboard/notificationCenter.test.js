@@ -183,6 +183,13 @@ describe('reconcileWithServer', () => {
         const out = reconcileWithServer([], [entry('a', NOW), entry('b', NOW - MIN)], NOW);
         expect(out.map((e) => e.uid)).toEqual(['a', 'b']);
     });
+
+    it('does not bring back what was dismissed while it was in flight', () => {
+        const local = [entry('kept', NOW - HOUR), entry('fresh', NOW, { receivedAt: NOW - 1_000 })];
+        const server = [entry('gone', NOW - MIN), entry('kept', NOW - HOUR)];
+        const out = reconcileWithServer(local, server, NOW, 15_000, new Set(['gone', 'fresh']));
+        expect(out.map((e) => e.uid)).toEqual(['kept']);
+    });
 });
 
 describe('removeEntry', () => {

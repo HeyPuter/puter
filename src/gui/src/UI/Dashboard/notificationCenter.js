@@ -153,18 +153,22 @@ export const mergeEntries = (entries, incoming) => {
  * Replace the list with what the server holds, keeping anything this client
  * was pushed in the last `graceMs` that the server hasn't listed yet — a
  * push goes out before its row is written, and a listing racing it must not
- * make the toast's entry vanish.
+ * make the toast's entry vanish. `dismissed` names what was acknowledged
+ * after the listing was requested; its snapshot predates those, so they
+ * are left out rather than brought back.
  *
  * @param {NotificationEntry[]} local
  * @param {NotificationEntry[]} server
  * @param {number} now
  * @param {number} [graceMs]
+ * @param {Set<string>} [dismissed]
  * @returns {NotificationEntry[]}
  */
-export const reconcileWithServer = (local, server, now, graceMs = 15_000) => {
-    const listed = new Set(server.map((entry) => entry.uid));
-    const recent = local.filter((entry) => ! listed.has(entry.uid) && now - entry.receivedAt < graceMs);
-    return sortEntries([...server, ...recent]);
+export const reconcileWithServer = (local, server, now, graceMs = 15_000, dismissed = new Set()) => {
+    const kept = server.filter((entry) => ! dismissed.has(entry.uid));
+    const listed = new Set(kept.map((entry) => entry.uid));
+    const recent = local.filter((entry) => ! listed.has(entry.uid) && ! dismissed.has(entry.uid) && now - entry.receivedAt < graceMs);
+    return sortEntries([...kept, ...recent]);
 };
 
 /**

@@ -165,6 +165,13 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
      * decides whether an arrival still deserves a toast.
      */
     const surfaced = new Set();
+    /**
+     * Acknowledgements a listing in flight can't know about — its snapshot
+     * was taken when it was requested. Keyed by uid; the value is when the
+     * ack finished, `Infinity` while it is still out.
+     */
+    const acked = new Map();
+    let listingRequestedAt = 0;
 
     const sheetMedia = window.matchMedia(SHEET_BREAKPOINT);
     const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -339,11 +346,19 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         if ( loading ) return loading;
         loadFailed = false;
         if ( ! loaded ) render();
+        listingRequestedAt = Date.now();
         loading = listNotifications({ predicate: 'unacknowledged' })
             .then((rows) => {
                 const now = Date.now();
                 const server = rows.map((row) => toEntry(row, now)).filter(Boolean);
-                entries = reconcileWithServer(entries, server, now);
+                // Acked since this listing was requested: not in its snapshot.
+                // Anything acked before it is settled and can be forgotten.
+                const dismissed = new Set();
+                for ( const [uid, at] of acked ) {
+                    if ( at >= listingRequestedAt ) dismissed.add(uid);
+                    else acked.delete(uid);
+                }
+                entries = reconcileWithServer(entries, server, now, undefined, dismissed);
                 loaded = true;
             })
             .catch((err) => {
@@ -358,11 +373,24 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         return loading;
     };
 
+    /** Record the server's copy of `uid` as dismissed; resolves once it is. */
+    const acknowledge = async (uid) => {
+        acked.set(uid, Infinity);
+        try {
+            await markNotificationAcknowledged(uid);
+            acked.set(uid, Date.now());
+        } catch (err) {
+            acked.delete(uid);
+            throw err;
+        }
+    };
+
     /** Take an entry off the list now and tell the server; put it back if that fails. */
     const dismiss = async (uid) => {
         const entry = entries.find((e) => e.uid === uid);
         if ( ! entry ) return;
         entries = removeEntry(entries, uid);
+        const pending = acknowledge(uid);
         const $row = $list.find(`.dashboard-notification[data-uid="${uid}"]`);
         if ( $row.length && ! reducedMotion() ) {
             $row.addClass('dashboard-notification-leaving');
@@ -370,7 +398,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         }
         render();
         try {
-            await markNotificationAcknowledged(uid);
+            await pending;
         } catch (err) {
             console.warn('Could not acknowledge notification:', err);
             entries = mergeEntries(entries, [entry]).entries;
@@ -384,7 +412,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         if ( cleared.length === 0 ) return;
         entries = [];
         render();
-        const failed = await runLimited(cleared, ACK_CONCURRENCY, (entry) => markNotificationAcknowledged(entry.uid));
+        const failed = await runLimited(cleared, ACK_CONCURRENCY, (entry) => acknowledge(entry.uid));
         if ( failed.length > 0 ) {
             setStatus(i18n('notifications_mark_all_failed', [], false));
             await refresh();
@@ -646,6 +674,8 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         if ( ! uid ) return;
         $(`.notification[data-uid="${html_encode(uid)}"]`).closest('.notification-wrapper').remove();
         if ( ! entries.some((e) => e.uid === uid) ) return;
+        // Dismissed in another tab: a listing already in flight predates it too.
+        acked.set(uid, Date.now());
         entries = removeEntry(entries, uid);
         render();
     });
