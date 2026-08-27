@@ -1150,6 +1150,71 @@ describe('ChatCompletionDriver.complete fallback and error envelope', () => {
         });
     });
 
+    it('hands every fallback attempt the same messages array, reasoning artifacts intact', async () => {
+        // The hazard the providers' copy-on-write exists for. `complete` is
+        // called per attempt with `{ ...args }` — a shallow spread — so
+        // `args.messages` is the SAME array reference on every attempt. A
+        // provider that strips replay fields in place therefore hands attempt 2
+        // a message whose thinking signature is gone, and Anthropic rejects
+        // that continuation.
+        //
+        // Note what this does NOT assert: the caller's message objects are not
+        // pristine. `normalize_single_message` (utils/Messages.js, pre-existing)
+        // rewrites string `content` into `[{type:'text'}]` blocks in place on
+        // every inbound message before any provider runs. The invariant that
+        // matters here is narrower and is the one the fix delivers: the
+        // reasoning artifacts survive attempt 1 so attempt 2 can still replay
+        // them.
+        const freeRoute = {
+            costs_currency: 'usd-cents',
+            costs: { 'input-tokens': 0, 'output-tokens': 0 },
+            max_tokens: 8192,
+        };
+        vi.spyOn(FakeChatProvider.prototype, 'models').mockResolvedValueOnce([
+            { id: 'route-a', aliases: ['shared-id'], ...freeRoute },
+            { id: 'route-b', aliases: ['shared-id'], ...freeRoute },
+        ] as never);
+        const d = await makeDriver();
+
+        const completeSpy = vi
+            .spyOn(FakeChatProvider.prototype, 'complete')
+            .mockRejectedValueOnce(new Error('first route down'))
+            .mockResolvedValueOnce({
+                message: { role: 'assistant', content: 'from the fallback' },
+                usage: {},
+                finish_reason: 'stop',
+            } as never);
+
+        const details = [
+            { type: 'thinking', thinking: 'step one', signature: 'sig_1' },
+        ];
+        const messages = [
+            { role: 'user', content: 'hi' },
+            {
+                role: 'assistant',
+                content: 'earlier reply',
+                reasoning: 'step one',
+                refusal: null,
+                reasoning_details: details,
+            },
+        ];
+
+        await withTestActor(() =>
+            d.complete({ model: 'shared-id', messages: messages as never }),
+        );
+
+        // Two attempts actually ran, which is what makes the reference shared.
+        expect(completeSpy).toHaveBeenCalledTimes(2);
+        expect(completeSpy.mock.calls[0]![0].messages).toBe(
+            completeSpy.mock.calls[1]![0].messages,
+        );
+        // The replay material survived attempt 1 and reached attempt 2 intact.
+        const secondAttempt = completeSpy.mock.calls[1]![0].messages as Array<
+            Record<string, unknown>
+        >;
+        expect(secondAttempt[1]!.reasoning_details).toEqual(details);
+    });
+
     it('re-reads the balance between fallback attempts so a parallel request that drains the wallet aborts the chain', async () => {
         // The primary provider throws; the fallback loop runs the full gate
         // (one balance read per attempt) before its next upstream hit. We

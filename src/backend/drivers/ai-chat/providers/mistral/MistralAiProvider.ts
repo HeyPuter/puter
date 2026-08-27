@@ -191,9 +191,16 @@ export class MistralAIProvider implements IChatProvider {
         // policy resolution the driver's coercer uses rather than firing on
         // every Mistral call — a caller reading the SDK's native
         // `finishReason`/`toolCalls` keys keeps seeing them unless it asked
-        // for the equalized shape. (The streaming half is not gated: feeding a
-        // chunk array to `addText` is a plain bug, and streamed chunks are
-        // provider-uniform by design.)
+        // for the equalized shape.
+        //
+        // Streaming is deliberately NOT gated on this, and the deviation below
+        // is uniform in both directions: streamed chunks are provider-uniform
+        // by design, and every other reasoning path in this repo routes
+        // thinking to the `reasoning` channel unconditionally (ClaudeProvider's
+        // thinking_delta, the DeepSeek/OpenRouter rename in
+        // `create_chat_stream_handler`, the Responses summary-delta handler).
+        // Gating it would make Mistral the only provider whose streamed chunk
+        // *types* depend on a response-format flag.
         const presentAsOpenAI = shouldPresentAsOpenAI(
             { normalize, response },
             selectedModel.release_date,
@@ -276,16 +283,19 @@ export class MistralAIProvider implements IChatProvider {
 
                     return snake_usage;
                 },
-                // Mistral wraps each event; unwrap it, then flatten a
-                // reasoning model's chunked `delta.content`.
+                // Mistral wraps each event; unwrap it, then split a
+                // reasoning model's chunked `delta.content` into the two
+                // channels the shared handler already understands: visible
+                // text, and `reasoning`.
                 //
-                // Two concerns, gated differently. The shared stream handler
-                // passes `delta.content` straight to `addText`, so a chunk
-                // array would reach the caller as stringified objects —
-                // flattening it to text is a correctness floor that applies on
-                // every path. Splitting thinking out into a `reasoning` delta
-                // is the dialect change, and that sits behind the policy gate
-                // like the non-streaming remap.
+                // Both halves are unconditional. Leaving the array on
+                // `delta.content` would hand it to `addText` and reach the
+                // caller as stringified objects, and putting the thinking text
+                // into the visible channel would make this the only place in
+                // the repo where chain-of-thought is answer text. So the split
+                // matches every other provider and does not depend on the
+                // normalize policy — streamed chunk types stay identical
+                // whichever way that resolves.
                 chunk_but_like_actually: (chunk: unknown) => {
                     const data = (chunk as { data?: unknown }).data as
                         | {
@@ -301,15 +311,6 @@ export class MistralAIProvider implements IChatProvider {
                         const { text, reasoning } = splitMistralContentChunks(
                             delta.content,
                         );
-                        if (!presentAsOpenAI) {
-                            // Native path: keep every chunk's text, thinking
-                            // included, so nothing is silently dropped — but
-                            // never hand an array to `addText`.
-                            delta.content = reasoning
-                                ? [reasoning, text].filter(Boolean).join('\n\n')
-                                : text;
-                            continue;
-                        }
                         delta.content = text;
                         if (reasoning && delta.reasoning === undefined) {
                             delta.reasoning = reasoning;

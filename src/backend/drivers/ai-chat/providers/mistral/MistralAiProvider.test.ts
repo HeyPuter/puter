@@ -680,146 +680,98 @@ describe('MistralAIProvider.complete streaming', () => {
         });
     });
 
-    it('flattens chunked delta.content into text and reasoning events', async () => {
-        const { provider } = makeProvider();
-        streamMock.mockReturnValueOnce(
-            asAsyncIterable([
-                {
-                    data: {
-                        choices: [
-                            {
-                                delta: {
-                                    content: [
-                                        {
-                                            type: 'thinking',
-                                            thinking: [
-                                                {
-                                                    type: 'text',
-                                                    text: 'thinking…',
-                                                },
-                                            ],
-                                        },
-                                    ],
+    it.each([
+        ['normalize: true', true],
+        ['normalize unset', undefined],
+    ])(
+        'splits chunked delta.content into text and reasoning events (%s)',
+        async (_label, normalize) => {
+            // The reasoning split is unconditional: streamed chunk types must
+            // not depend on the normalize policy, because chat.md promises
+            // "Streaming is unaffected by normalization" and because every
+            // other provider routes thinking to the reasoning channel
+            // regardless. Both rows below assert the same event stream.
+            const { provider } = makeProvider();
+            streamMock.mockReturnValueOnce(
+                asAsyncIterable([
+                    {
+                        data: {
+                            choices: [
+                                {
+                                    delta: {
+                                        content: [
+                                            {
+                                                type: 'thinking',
+                                                thinking: [
+                                                    {
+                                                        type: 'text',
+                                                        text: 'thinking…',
+                                                    },
+                                                ],
+                                            },
+                                        ],
+                                    },
                                 },
-                            },
-                        ],
+                            ],
+                        },
                     },
-                },
-                {
-                    data: {
-                        choices: [
-                            {
-                                delta: {
-                                    content: [
-                                        { type: 'text', text: 'answer' },
-                                    ],
+                    {
+                        data: {
+                            choices: [
+                                {
+                                    delta: {
+                                        content: [
+                                            { type: 'text', text: 'answer' },
+                                        ],
+                                    },
                                 },
-                            },
-                        ],
+                            ],
+                        },
                     },
-                },
-                {
-                    data: {
-                        choices: [{ delta: {} }],
-                        usage: { promptTokens: 1, completionTokens: 1 },
+                    {
+                        data: {
+                            choices: [{ delta: {} }],
+                            usage: { promptTokens: 1, completionTokens: 1 },
+                        },
                     },
-                },
-            ]),
-        );
+                ]),
+            );
 
-        const result = await withTestActor(() =>
-            provider.complete({
-                model: 'magistral-small-latest',
-                messages: [{ role: 'user', content: 'think' }],
-                stream: true,
-                normalize: true,
-            }),
-        );
+            const result = await withTestActor(() =>
+                provider.complete({
+                    model: 'magistral-small-latest',
+                    messages: [{ role: 'user', content: 'think' }],
+                    stream: true,
+                    ...(normalize === undefined ? {} : { normalize }),
+                }),
+            );
 
-        const harness = makeCapturingChatStream();
-        await (
-            result as {
-                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
-            }
-        ).init_chat_stream({ chatStream: harness.chatStream });
+            const harness = makeCapturingChatStream();
+            await (
+                result as {
+                    init_chat_stream: (p: {
+                        chatStream: unknown;
+                    }) => Promise<void>;
+                }
+            ).init_chat_stream({ chatStream: harness.chatStream });
 
-        const events = harness.events();
-        // The thinking chunk becomes a reasoning event, not stringified text.
-        expect(
-            events.filter((e) => e.type === 'reasoning').map((e) => e.reasoning),
-        ).toEqual(['thinking…']);
-        expect(events.filter((e) => e.type === 'text').map((e) => e.text)).toEqual(
-            ['answer'],
-        );
-    });
-
-    it('never hands a chunk array to addText on the native path', async () => {
-        // Splitting thinking into a `reasoning` delta is the dialect change and
-        // is gated. Flattening the chunk array is not: the shared stream
-        // handler passes `delta.content` straight to addText, so leaving an
-        // array there would put stringified objects in the caller's text
-        // stream. Native path keeps every chunk's text, thinking included.
-        const { provider } = makeProvider();
-        streamMock.mockReturnValueOnce(
-            asAsyncIterable([
-                {
-                    data: {
-                        choices: [
-                            {
-                                delta: {
-                                    content: [
-                                        {
-                                            type: 'thinking',
-                                            thinking: [
-                                                {
-                                                    type: 'text',
-                                                    text: 'thinking…',
-                                                },
-                                            ],
-                                        },
-                                        { type: 'text', text: 'answer' },
-                                    ],
-                                },
-                            },
-                        ],
-                    },
-                },
-                {
-                    data: {
-                        choices: [{ delta: {} }],
-                        usage: { promptTokens: 1, completionTokens: 1 },
-                    },
-                },
-            ]),
-        );
-
-        const result = await withTestActor(() =>
-            provider.complete({
-                model: 'magistral-small-latest',
-                messages: [{ role: 'user', content: 'think' }],
-                stream: true,
-            }),
-        );
-
-        const harness = makeCapturingChatStream();
-        await (
-            result as {
-                init_chat_stream: (p: { chatStream: unknown }) => Promise<void>;
-            }
-        ).init_chat_stream({ chatStream: harness.chatStream });
-
-        const events = harness.events();
-        // No reasoning channel on the native path...
-        expect(events.some((e) => e.type === 'reasoning')).toBe(false);
-        // ...and the text is text, not '[object Object]' or raw JSON.
-        const text = events
-            .filter((e) => e.type === 'text')
-            .map((e) => e.text)
-            .join('');
-        expect(text).toBe('thinking…\n\nanswer');
-        expect(text).not.toContain('object');
-        expect(text).not.toContain('{');
-    });
+            const events = harness.events();
+            // Thinking goes to the reasoning channel, never the text channel.
+            expect(
+                events
+                    .filter((e) => e.type === 'reasoning')
+                    .map((e) => e.reasoning),
+            ).toEqual(['thinking…']);
+            const text = events
+                .filter((e) => e.type === 'text')
+                .map((e) => e.text)
+                .join('');
+            expect(text).toBe('answer');
+            // And the array never reaches addText as an object.
+            expect(text).not.toContain('object');
+            expect(text).not.toContain('{');
+        },
+    );
 
     it('builds a tool_use block from camelCase delta.toolCalls deltas', async () => {
         const { provider } = makeProvider();
