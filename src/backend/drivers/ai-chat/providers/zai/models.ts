@@ -53,6 +53,16 @@ export const ZAI_MODELS: IChatModel[] = [
         128 * K,
         usdPerMToken(1.4, 4.4, 0.26),
     ),
+    // List price from https://docs.z.ai/guides/overview/pricing ($0.15 in /
+    // $0.50 out / $0.03 cached per MTok); the page currently shows a 50%
+    // promotional discount, which we deliberately do not encode.
+    textModel(
+        'glm-5.3-flash',
+        'GLM-5.3-Flash',
+        1_000 * K,
+        128 * K,
+        usdPerMToken(0.15, 0.5, 0.03),
+    ),
     textModel(
         'glm-5.2',
         'GLM-5.2',

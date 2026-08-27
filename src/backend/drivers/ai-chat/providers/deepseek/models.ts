@@ -51,6 +51,31 @@ export const DEEPSEEK_MODELS: IChatModel[] = [
         max_tokens: 384_000,
     },
     {
+        // Priced identically to deepseek-v4-flash per DeepSeek's launch note
+        // (https://api-docs.deepseek.com/news/news260821/) and the pricing
+        // page, which lists the same rates for both models; images are
+        // tokenized (up to 384 tokens each) and billed as input tokens.
+        puterId: 'deepseek:deepseek/deepseek-v4-flash-vision-exp',
+        id: 'deepseek-v4-flash-vision-exp',
+        modalities: { input: ['text', 'image'], output: ['text'] },
+        open_weights: false,
+        tool_call: true,
+        release_date: '2026-08-21',
+        name: 'DeepSeek V4 Flash Vision (Experimental)',
+        aliases: ['deepseek/deepseek-v4-flash-vision-exp'],
+        context: 1_000_000,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 14,
+            completion_tokens: 28,
+            cached_tokens: 0.28,
+        },
+        max_tokens: 384_000,
+    },
+    {
         puterId: 'deepseek:deepseek/deepseek-v4-pro',
         id: 'deepseek-v4-pro',
         modalities: { input: ['text'], output: ['text'] },

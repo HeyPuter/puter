@@ -33,7 +33,14 @@ export const GEMINI_MODELS: IChatModel[] = [
         knowledge: '2025-01',
         release_date: '2026-05-19',
         name: 'Gemini 3.5 Flash',
-        aliases: ['google/gemini-3.5-flash'],
+        aliases: [
+            'google/gemini-3.5-flash',
+            // Rolling alias; Gemini API changelog (2026-05-19): gemini-3.5-flash
+            // "Now backs `gemini-flash-latest`". Hot-swapped by Google on new
+            // releases; no later switch documented as of 2026-08-28.
+            'gemini-flash-latest',
+            'google/gemini-flash-latest',
+        ],
         context: 1_048_576,
         max_tokens: 65_536,
         costs_currency: 'usd-cents',
@@ -61,7 +68,13 @@ export const GEMINI_MODELS: IChatModel[] = [
         knowledge: '2025-01',
         release_date: '2026-07-21',
         name: 'Gemini 3.5 Flash-Lite',
-        aliases: ['google/gemini-3.5-flash-lite'],
+        aliases: [
+            'google/gemini-3.5-flash-lite',
+            // Rolling alias that floats across Flash-Lite releases; pinned here
+            // to the newest Flash-Lite in this catalog (GA 2026-07-21).
+            'gemini-flash-lite-latest',
+            'google/gemini-flash-lite-latest',
+        ],
         context: 1_048_576,
         max_tokens: 65_536,
         costs_currency: 'usd-cents',
@@ -228,7 +241,14 @@ export const GEMINI_MODELS: IChatModel[] = [
         knowledge: '2025-01',
         release_date: '2026-02-19',
         name: 'Gemini 3.1 Pro Preview',
-        aliases: ['google/gemini-3.1-pro-preview'],
+        aliases: [
+            'google/gemini-3.1-pro-preview',
+            // Rolling alias that floats across Pro releases; pinned here to the
+            // newest Pro in this catalog (Google last documented it switching to
+            // gemini-3-pro-preview on 2026-01-21, superseded by 3.1 on 2026-02-19).
+            'gemini-pro-latest',
+            'google/gemini-pro-latest',
+        ],
         context: 1_048_576,
         costs_currency: 'usd-cents',
         input_cost_key: 'prompt_tokens',
@@ -300,5 +320,61 @@ export const GEMINI_MODELS: IChatModel[] = [
             grounding_requests: 1_400_000,
         },
         max_tokens: 65536,
+    },
+    {
+        puterId: 'google:google/gemma-4-31b-it',
+        id: 'gemma-4-31b-it',
+        modalities: {
+            input: ['text', 'image'],
+            output: ['text'],
+        },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2025-01',
+        release_date: '2026-04-02',
+        name: 'Gemma 4 31B',
+        aliases: ['google/gemma-4-31b-it'],
+        context: 262_144,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        // Gemma 4 on the Gemini API is free of charge (free tier only; the
+        // official pricing page lists no paid tier for Gemma models).
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            thinking_tokens: 0,
+            cached_tokens: 0,
+        },
+        max_tokens: 8_192,
+    },
+    {
+        puterId: 'google:google/gemma-4-26b-a4b-it',
+        id: 'gemma-4-26b-a4b-it',
+        modalities: {
+            input: ['text', 'image'],
+            output: ['text'],
+        },
+        open_weights: true,
+        tool_call: true,
+        knowledge: '2025-01',
+        release_date: '2026-04-02',
+        name: 'Gemma 4 26B A4B',
+        aliases: ['google/gemma-4-26b-a4b-it'],
+        context: 262_144,
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        // Gemma 4 on the Gemini API is free of charge (free tier only; the
+        // official pricing page lists no paid tier for Gemma models).
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 0,
+            completion_tokens: 0,
+            thinking_tokens: 0,
+            cached_tokens: 0,
+        },
+        max_tokens: 8_192,
     },
 ];

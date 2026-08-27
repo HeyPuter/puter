@@ -32,6 +32,7 @@ export const MISTRAL_MODELS: IChatModel[] = [
         name: 'Mistral Medium 3.5',
         aliases: [
             'mistral-medium-3-5',
+            'mistral-medium-3.5',
             'mistral-medium-3',
             'mistral-medium-latest',
             'mistral-medium',
@@ -108,6 +109,29 @@ export const MISTRAL_MODELS: IChatModel[] = [
             tokens: 1_000_000,
             prompt_tokens: 15,
             completion_tokens: 60,
+        },
+    },
+    {
+        puterId: 'mistralai:mistralai/zai-glm-5-2',
+        id: 'zai-glm-5-2',
+        modalities: { input: ['text'], output: ['text'] },
+        open_weights: true,
+        tool_call: true,
+        release_date: '2026-08-06',
+        name: 'Z.ai GLM 5.2',
+        aliases: ['glm-5-2'],
+        context: 1_000_000,
+        max_tokens: 128_000,
+        description:
+            'Third-party open-source model from Z.ai, hosted by Mistral for long-context coding and agentic workflows.',
+        provider: 'mistral',
+        costs_currency: 'usd-cents',
+        input_cost_key: 'prompt_tokens',
+        output_cost_key: 'completion_tokens',
+        costs: {
+            tokens: 1_000_000,
+            prompt_tokens: 140,
+            completion_tokens: 440,
         },
     },
     {
