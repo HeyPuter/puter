@@ -31,7 +31,6 @@ import {
     planBurstToasts,
     reconcileWithServer,
     setReadAt,
-    shouldToast,
     titleWithBadge,
     toEntry,
     unreadCount,
@@ -71,7 +70,6 @@ const checkAllIcon = `<svg ${STROKE_ICON} stroke-width="2"><path d="M2 13l4 4L14
 /** The glyph in front of an entry, by who sent it. */
 const GLYPHS = {
     sharing: `<svg ${STROKE_ICON}><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/></svg>`,
-    worker: `<svg ${STROKE_ICON}><path d="M16 18l6-6-6-6M8 6l-6 6 6 6"/></svg>`,
     default: bellIcon,
 };
 
@@ -515,15 +513,11 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         for ( const entry of fresh ) surfaced.add(entry.uid);
         for ( const entry of result.added ) justAdded.add(entry.uid);
         render();
-
-        // Quiet arrivals only update the badge and the list; the toast and
-        // its spoken counterpart stay silent alike.
-        const loud = fresh.filter((entry) => shouldToast(entry.notification));
-        announce(loud);
+        announce(fresh);
 
         // Open, the panel is already showing them.
         if ( isOpen ) return;
-        const { shown, folded } = planBurstToasts(loud);
+        const { shown, folded } = planBurstToasts(fresh);
         for ( const entry of [...shown].reverse() ) toast(entry);
         if ( folded > 0 ) toastSummary(folded);
     };

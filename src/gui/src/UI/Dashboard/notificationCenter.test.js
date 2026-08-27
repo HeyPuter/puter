@@ -30,7 +30,6 @@ import {
     planBurstToasts,
     reconcileWithServer,
     setReadAt,
-    shouldToast,
     sortEntries,
     titleWithBadge,
     toEntry,
@@ -122,6 +121,13 @@ describe('toEntry', () => {
         expect(toEntry({ uid: '' }, NOW)).toBeNull();
         expect(toEntry(null, NOW)).toBeNull();
         expect(toEntry(undefined, NOW)).toBeNull();
+    });
+
+    it('leaves out worker notifications, listed or pushed', () => {
+        const worker = { title: 'Successfully deployed https://x.puter.work', source: 'worker', template: 'user-requesting-share' };
+        expect(toEntry({ uid: 'a', value: worker, created_at: '2026-08-27 12:00:00' }, NOW)).toBeNull();
+        expect(toEntry({ uid: 'b', notification: worker }, NOW)).toBeNull();
+        expect(toEntry({ uid: 'c', notification: { ...worker, source: 'sharing' } }, NOW)).not.toBeNull();
     });
 });
 
@@ -289,7 +295,6 @@ describe('notificationTarget', () => {
 describe('glyphKey', () => {
     it('names the glyph for known senders', () => {
         expect(glyphKey({ source: 'sharing' })).toBe('sharing');
-        expect(glyphKey({ source: 'worker' })).toBe('worker');
     });
 
     it('falls back to the bell for anything else', () => {
@@ -400,18 +405,5 @@ describe('planBurstToasts', () => {
         const { shown, folded } = planBurstToasts(many(12));
         expect(shown.map((e) => e.uid)).toEqual(['n0', 'n1', 'n2']);
         expect(folded).toBe(9);
-    });
-});
-
-describe('shouldToast', () => {
-    it('keeps worker notifications out of the toasts', () => {
-        expect(shouldToast({ source: 'worker', title: 'Successfully deployed https://x.puter.work' })).toBe(false);
-    });
-
-    it('toasts everything else', () => {
-        expect(shouldToast({ source: 'sharing' })).toBe(true);
-        expect(shouldToast({ source: 'billing' })).toBe(true);
-        expect(shouldToast({})).toBe(true);
-        expect(shouldToast(null)).toBe(true);
     });
 });

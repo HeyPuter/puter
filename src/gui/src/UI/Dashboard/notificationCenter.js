@@ -45,6 +45,12 @@
 /** Notifications announcing a share; the two templates the backend writes. */
 const SHARE_TEMPLATES = new Set(['file-shared-with-you', 'file-shared-before-you-joined']);
 
+/**
+ * Senders the notification center leaves out entirely — a worker's deploy
+ * confirmations are noise next to things that need the user.
+ */
+const HIDDEN_SOURCES = new Set(['worker']);
+
 // SQLite's CURRENT_TIMESTAMP: UTC with no zone marker, which `Date.parse`
 // would otherwise read as local time.
 const SQL_TIMESTAMP = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$/;
@@ -81,7 +87,8 @@ export const parseCreatedAt = (value) => {
  * (`{ uid, value, created_at, acknowledged }`) or a socket item (`{ uid,
  * notification, created_at? }`). A push carries no `acknowledged` and is
  * unread — the server only pushes what the user hasn't dismissed. `null`
- * for anything without a uid — there is nothing to acknowledge it by.
+ * for anything without a uid — there is nothing to acknowledge it by — and
+ * for senders the center doesn't show.
  *
  * @param {Object} raw
  * @param {number} now - Epoch ms; stands in for `created_at` when absent
@@ -92,6 +99,7 @@ export const toEntry = (raw, now) => {
     if ( typeof uid !== 'string' || uid === '' ) return null;
     const payload = raw.notification ?? raw.value;
     const notification = payload && typeof payload === 'object' ? payload : {};
+    if ( HIDDEN_SOURCES.has(notification.source) ) return null;
     const createdAt = parseCreatedAt(raw.created_at);
     return {
         uid,
@@ -202,28 +210,14 @@ export const isUnread = (entry) => entry.readAt === null;
 export const unreadCount = (entries) => entries.filter(isUnread).length;
 
 /** The senders that have a glyph of their own; anything else gets the bell. */
-const GLYPH_SOURCES = new Set(['sharing', 'worker']);
-
-/**
- * Senders whose notifications go straight to the panel and badge without a
- * toast — a worker finishing a deploy is routine, not an interruption.
- */
-const QUIET_SOURCES = new Set(['worker']);
-
-/**
- * Whether an arrival should interrupt with a toast, or just wait in the panel.
- *
- * @param {NotificationPayload} notification
- * @returns {boolean}
- */
-export const shouldToast = (notification) => ! QUIET_SOURCES.has(notification?.source);
+const GLYPH_SOURCES = new Set(['sharing']);
 
 /**
  * Which glyph an entry shows, by who sent it. A plain property lookup
  * would let a `source` like `constructor` reach into the prototype.
  *
  * @param {NotificationPayload} notification
- * @returns {'sharing'|'worker'|'default'}
+ * @returns {'sharing'|'default'}
  */
 export const glyphKey = (notification) => (
     GLYPH_SOURCES.has(notification?.source) ? notification.source : 'default'
