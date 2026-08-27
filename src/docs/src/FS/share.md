@@ -38,8 +38,8 @@ Who to share with. A string containing `@` is treated as an email address, and a
 How much access to grant. Defaults to `'read'`.
 
 - `'read'` - Read the item.
-- `'write'` - Read and change the item. Does **not** allow re-sharing it.
-- `'manage'` - Everything `'write'` allows, plus re-sharing the item with other people.
+- `'write'` - Read and change the item. Does **not** allow re-sharing it, or publishing a directory as a website.
+- `'manage'` - Everything `'write'` allows, plus re-sharing the item with other people and publishing a shared directory as a website.
 - `'list'`, `'see'` - Weaker than `read`; useful for making an item discoverable without exposing its contents.
 
 #### `options` (Object) (optional)

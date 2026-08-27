@@ -30,6 +30,7 @@ import type { Actor } from '../../core/actor.js';
 import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
 import type { UserRow } from '../../stores/user/UserStore.js';
+import { MANAGE_PERM_PREFIX } from '../../services/permission/consts.js';
 import { expandTildePath } from '../../services/fs/resolveNode.js';
 import { isUniqueViolation } from '../../util/dbError.js';
 import { buildHostedSubdomainIndexUrlCandidates } from '../../util/hostedAppBacking.js';
@@ -176,7 +177,7 @@ export class SubdomainDriver extends PuterDriver {
                 legacyCode: 'bad_request',
             });
         }
-        await this.services.fs.checkFSAccess(entry, actor);
+        await this.#checkPublishAccess(entry, actor);
 
         // A name some other user's app still points at is not free either.
         // Deleting a hosted subdomain leaves the app row's `index_url` intact,
@@ -367,7 +368,7 @@ export class SubdomainDriver extends PuterDriver {
                 });
             }
             if (rootDirId !== (row.root_dir_id ?? null)) {
-                await this.services.fs.checkFSAccess(entry, actor);
+                await this.#checkPublishAccess(entry, actor);
             }
             patch.root_dir_id = rootDirId;
         }
@@ -572,6 +573,39 @@ export class SubdomainDriver extends PuterDriver {
         // Cross-user read permission
         if (await this.#hasPermission(actor, 'read-all-subdomains')) return;
         throw new HttpError(403, 'Access denied', { legacyCode: 'forbidden' });
+    }
+
+    /**
+     * Gate on pointing a subdomain at a directory. Hosting serves everything
+     * under the root dir with the ACL bypassed, so publishing makes that
+     * subtree world-readable — for good, and including whatever is written
+     * there later. That is the owner's call to make.
+     *
+     * `write` is not it. A shared folder's writer would be exposing the owner's
+     * tree, the row belongs to the writer's account, and nothing the owner can
+     * list would show it. `manage` — "Can edit & share" — is the grant that
+     * delegates the decision.
+     */
+    async #checkPublishAccess(entry: FSEntry, actor: Actor): Promise<void> {
+        // First, because this is the check that masks a directory the caller
+        // cannot see at all as a 404.
+        await this.services.fs.checkFSAccess(entry, actor);
+        if (entry.userId === actor.user?.id) return;
+        try {
+            await this.services.fs.checkFSAccess(
+                entry,
+                actor,
+                MANAGE_PERM_PREFIX,
+            );
+        } catch {
+            // Reached only with access to the directory, so its existence is
+            // not news and there is nothing to mask.
+            throw new HttpError(
+                403,
+                'Publishing this directory is up to whoever owns it',
+                { legacyCode: 'access_denied' },
+            );
+        }
     }
 
     async #checkWriteAccess(
