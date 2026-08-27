@@ -7078,7 +7078,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     cursor: pointer;
 }
 
-.dashboard-notification-main:active {
+.dashboard-notification-main.is-actionable:active {
     background: var(--dashboard-hover);
 }
 

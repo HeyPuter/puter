@@ -245,18 +245,23 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         const time = entry.createdAt === null ? '' : `
             <time class="dashboard-notification-time" datetime="${new Date(entry.createdAt).toISOString()}"
                 title="${html_encode(formatAbsoluteTime(entry.createdAt, window.locale))}">${html_encode(formatRelativeTime(entry.createdAt, Date.now(), window.locale))}</time>`;
+        const title = titleFor(notification);
+        // Only an entry with somewhere to go is a control; the rest is text,
+        // with the ✕ as its one action.
         const actionable = notificationTarget(notification) !== null;
+        const mainTag = actionable ? 'button type="button"' : 'div';
         return `
             <li class="dashboard-notification${justAdded.has(entry.uid) ? ' dashboard-notification-new' : ''}" data-uid="${html_encode(entry.uid)}">
-                <button type="button" class="dashboard-notification-main${actionable ? ' is-actionable' : ''}">
+                <${mainTag} class="dashboard-notification-main${actionable ? ' is-actionable' : ''}">
                     <span class="dashboard-notification-icon dashboard-notification-icon-${html_encode(source)}">${glyphFor(notification)}</span>
                     <span class="dashboard-notification-content">
-                        <span class="dashboard-notification-title">${html_encode(titleFor(notification))}</span>
+                        <span class="dashboard-notification-title">${html_encode(title)}</span>
                         ${text ? `<span class="dashboard-notification-text">${html_encode(text)}</span>` : ''}
                         ${time}
                     </span>
-                </button>
-                <button type="button" class="dashboard-notification-dismiss" aria-label="${i18n('notification_dismiss')}" title="${i18n('notification_dismiss')}">${closeIcon}</button>
+                </${actionable ? 'button' : 'div'}>
+                <button type="button" class="dashboard-notification-dismiss"
+                    aria-label="${i18n('notification_dismiss_named', { title })}" title="${i18n('notification_dismiss')}">${closeIcon}</button>
             </li>`;
     };
 
@@ -605,7 +610,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         e.stopPropagation();
         void dismiss($(this).closest('.dashboard-notification').attr('data-uid'));
     });
-    $panel.on('click', '.dashboard-notification-main', function () {
+    $panel.on('click', '.dashboard-notification-main.is-actionable', function () {
         const uid = $(this).closest('.dashboard-notification').attr('data-uid');
         const entry = entries.find((e) => e.uid === uid);
         if ( entry ) actOn(entry);

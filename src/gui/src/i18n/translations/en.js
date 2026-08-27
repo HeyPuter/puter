@@ -239,6 +239,7 @@ const en = {
         no_websites_published: 'You have not published any websites yet. Right click on a folder to get started.',
         notification: 'Notification',
         notification_dismiss: 'Dismiss',
+        notification_dismiss_named: 'Dismiss notification: {{title}}',
         notifications: 'Notifications',
         notifications_dismiss_failed: "Couldn't dismiss that notification. Please try again.",
         notifications_empty_hint: 'When someone shares a file with you, it will show up here.',
