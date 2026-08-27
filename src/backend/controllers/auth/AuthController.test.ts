@@ -21,12 +21,11 @@
  * E2E-style tests for AuthController signup, login, and token-grant flows.
  *
  * Drives the controller's extracted route-handler methods directly with
- * synthetic req/res shapes — that way we exercise the full controller
- * logic (DB writes via in-memory sqlite, real password hashing, real
- * JWT signing/verifying via TokenService, real PermissionService writes)
- * without needing the HTTP layer's middleware (rate limiting, captcha,
- * anti-CSRF) to play along. Aligns with AGENTS.md: "Prefer test server
- * over mocking deps."
+ * synthetic req/res shapes — that way we exercise the full controller logic (DB
+ * writes via in-memory sqlite, real password hashing, real JWT
+ * signing/verifying via TokenService, real PermissionService writes) without
+ * needing the HTTP layer's middleware (rate limiting, captcha, anti-CSRF) to
+ * play along. Aligns with AGENTS.md: "Prefer test server over mocking deps."
  */
 
 import bcrypt from 'bcrypt';
@@ -1391,12 +1390,13 @@ describe('AuthController.handleElevate', () => {
         );
         expect(res.body).toMatchObject({ elevated: true });
         expect(res.cookies.puter_elevated).toBeDefined();
-        expect(res.cookies.puter_elevated.opts).toMatchObject({ httpOnly: true });
+        expect(res.cookies.puter_elevated.opts).toMatchObject({
+            httpOnly: true,
+        });
 
         // The minted cookie satisfies verifyStepUpSession for this same user.
-        const { verifyStepUpSession } = await import(
-            '../../core/http/middleware/stepUpSession.js'
-        );
+        const { verifyStepUpSession } =
+            await import('../../core/http/middleware/stepUpSession.js');
         const ok = verifyStepUpSession(
             {
                 cookies: { puter_elevated: res.cookies.puter_elevated.value },
@@ -1422,9 +1422,7 @@ describe('AuthController.handleElevate', () => {
 
     it('2FA account: a live TOTP code elevates; a wrong code is rejected', async () => {
         const { TOTP } = await import('otpauth');
-        const { createSecret } = await import(
-            '../../services/auth/OTPUtil.js'
-        );
+        const { createSecret } = await import('../../services/auth/OTPUtil.js');
         const { user, actor } = await makeUserAndActor();
         const { secret } = createSecret(user.username);
         await server.stores.user.update(user.id, {
@@ -1501,9 +1499,8 @@ describe('AuthController.handleElevate', () => {
 
     it('the elevation token is never honored as a main auth token', async () => {
         const { user } = await makeUserAndActor();
-        const { signStepUpToken } = await import(
-            '../../core/http/middleware/stepUpSession.js'
-        );
+        const { signStepUpToken } =
+            await import('../../core/http/middleware/stepUpSession.js');
         const token = signStepUpToken(server.services.token, {
             uuid: user.uuid,
         });
@@ -1602,10 +1599,8 @@ describe('AuthController account-lifecycle route gating', () => {
         const gate = requireUserActorGate();
         const run = (actor: Partial<Actor>) =>
             new Promise<unknown>((resolve) => {
-                gate(
-                    { actor } as never,
-                    {} as never,
-                    (err?: unknown) => resolve(err),
+                gate({ actor } as never, {} as never, (err?: unknown) =>
+                    resolve(err),
                 );
             });
 
@@ -1811,7 +1806,10 @@ describe('AuthController grant flows', () => {
             { origin: { host: 'evil' }, permission: 'service:x:ii:read' },
             { origin: 'https://a.test', permission: ['service:x:ii:read'] },
             { app_uid: 12345, permission: 'service:x:ii:read' },
-            { origin: `https://${'a'.repeat(5000)}.test`, permission: 'service:x:ii:read' },
+            {
+                origin: `https://${'a'.repeat(5000)}.test`,
+                permission: 'service:x:ii:read',
+            },
         ];
         for (const body of cases) {
             await expect(
@@ -2126,7 +2124,8 @@ describe('AuthController grant flows', () => {
         const NOTHING = 'nothing-in-particular';
         server.services.permission.registerRewriter({
             id: `test-grant-only-${prefix}`,
-            matches: (permission: string) => permission.startsWith(`${prefix}:`),
+            matches: (permission: string) =>
+                permission.startsWith(`${prefix}:`),
             // The real rewriter's condition, verbatim.
             rewrite: async (permission: string) =>
                 Context.get('is_grant_user_app_permission')
@@ -2172,7 +2171,6 @@ describe('AuthController grant flows', () => {
         // And it must not have written the sentinel as a row of its own.
         expect(await storedPermissions()).not.toContain(NOTHING);
     });
-
 });
 
 // ── Token grants: get-user-app-token / check-app ───────────────────
@@ -2250,7 +2248,7 @@ describe('AuthController.handleGetUserAppToken + handleCheckApp', () => {
     // the latency with every test still passing.
     it('runs the permission grant, token mint and AppData mkdir concurrently', async () => {
         const order: string[] = [];
-        const defer = <T,>(label: string, value: T) => {
+        const defer = <T>(label: string, value: T) => {
             order.push(`${label}:start`);
             return new Promise<T>((resolve) =>
                 setTimeout(() => {
@@ -2727,6 +2725,39 @@ describe('AuthController.handleSendConfirmEmail', () => {
         expect(after!.email_confirm_code).not.toBe(before!.email_confirm_code);
         expect(String(after!.email_confirm_code).length).toBe(6);
     });
+
+    // The resend is the recovery path for a lost code, so it must not fail
+    // silently either.
+    it('alarms — and still returns {} — when the resend send throws', async () => {
+        const { actor } = await makeUserAndActor();
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        const send = vi
+            .spyOn(server.clients.email, 'send')
+            .mockRejectedValue(new Error('smtp down'));
+        try {
+            const res = makeRes();
+            await controller.handleSendConfirmEmail(
+                makeReq({}, { actor }),
+                res,
+            );
+            // Not the caller's fault; still a 200.
+            expect(res.body).toEqual({});
+
+            const raised = alarm.mock.calls.find(
+                (c) => c[0] === 'auth:confirmation-email-send-failed:resend',
+            );
+            expect(raised).toBeTruthy();
+            const fields = raised![2] as Record<string, unknown>;
+            expect(fields.stage).toBe('resend');
+            expect(fields.detail).toBe('smtp down');
+            expect(fields.error).toBeInstanceOf(Error);
+        } finally {
+            send.mockRestore();
+            alarm.mockRestore();
+        }
+    });
 });
 
 // The per-account / per-number SMS send caps used to live here as a hardcoded
@@ -2777,7 +2808,10 @@ describe('AuthController.handleSendConfirmPhone validation', () => {
         const { actor } = await makeUserAndActor();
         const createVerification = vi.fn(async () => ({ status: 'success' }));
         await withPrelude(
-            stubPrelude({ isCountrySupported: () => false, createVerification }),
+            stubPrelude({
+                isCountrySupported: () => false,
+                createVerification,
+            }),
             async () => {
                 await expect(
                     controller.handleSendConfirmPhone(
@@ -2949,7 +2983,10 @@ describe('AuthController.handleSendConfirmPhone validation', () => {
         const createVerification = vi.fn(async () => ({ status: 'success' }));
         await withPrelude(stubPrelude({ createVerification }), async () => {
             await controller.handleSendConfirmPhone(
-                makeReq({ phone: '+14155550123' }, { actor, ip: '203.0.113.7' }),
+                makeReq(
+                    { phone: '+14155550123' },
+                    { actor, ip: '203.0.113.7' },
+                ),
                 makeRes(),
             );
         });
@@ -3152,7 +3189,10 @@ describe('AuthController phone verification — staging & reuse', () => {
                 expect(res.body).toMatchObject({ phone_verified: true });
             },
         );
-        expect(checkVerification).toHaveBeenCalledWith('+14155550123', '123456');
+        expect(checkVerification).toHaveBeenCalledWith(
+            '+14155550123',
+            '123456',
+        );
         const after = await server.stores.user.getById(user.id, {
             force: true,
         });
@@ -3891,28 +3931,25 @@ describe('AuthController SMS → card fallback', () => {
             phone: '+14155550123',
         });
         await openFallback(user.id);
-        await withFallbackConfig(
-            { enabled: true },
-            async () => {
-                const res = makeRes();
-                await withCardSetupOverride(
-                    (data) => {
-                        data.enabled = true;
-                        data.client_secret = 'seti_secret';
-                        data.publishable_key = 'pk_test';
-                    },
-                    () =>
-                        controller.handleCardVerificationSetup(
-                            makeReq({}, { actor }),
-                            res,
-                        ),
-                );
-                expect(res.body).toEqual({
-                    client_secret: 'seti_secret',
-                    publishable_key: 'pk_test',
-                });
-            },
-        );
+        await withFallbackConfig({ enabled: true }, async () => {
+            const res = makeRes();
+            await withCardSetupOverride(
+                (data) => {
+                    data.enabled = true;
+                    data.client_secret = 'seti_secret';
+                    data.publishable_key = 'pk_test';
+                },
+                () =>
+                    controller.handleCardVerificationSetup(
+                        makeReq({}, { actor }),
+                        res,
+                    ),
+            );
+            expect(res.body).toEqual({
+                client_secret: 'seti_secret',
+                publishable_key: 'pk_test',
+            });
+        });
     });
 
     it('still 409s card setup when no send has opened the fallback', async () => {
@@ -4007,27 +4044,24 @@ describe('AuthController SMS → card fallback', () => {
             phone: '+14155550123',
         });
         await openFallback(user.id);
-        await withFallbackConfig(
-            { enabled: true },
-            async () => {
-                const res = makeRes();
-                await withCardConfirmOverride(
-                    (data) => {
-                        data.enabled = true;
-                        data.verified = true;
-                    },
-                    () =>
-                        controller.handleCardVerificationConfirm(
-                            makeReq({ setup_intent_id: 'seti_1' }, { actor }),
-                            res,
-                        ),
-                );
-                expect(res.body).toMatchObject({
-                    card_verified: true,
-                    phone_verified: true,
-                });
-            },
-        );
+        await withFallbackConfig({ enabled: true }, async () => {
+            const res = makeRes();
+            await withCardConfirmOverride(
+                (data) => {
+                    data.enabled = true;
+                    data.verified = true;
+                },
+                () =>
+                    controller.handleCardVerificationConfirm(
+                        makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+                        res,
+                    ),
+            );
+            expect(res.body).toMatchObject({
+                card_verified: true,
+                phone_verified: true,
+            });
+        });
         const after = await server.stores.user.getById(user.id, {
             force: true,
         });
@@ -4041,24 +4075,21 @@ describe('AuthController SMS → card fallback', () => {
             phone: '+14155550123',
         });
         await openFallback(user.id);
-        await withFallbackConfig(
-            { enabled: true },
-            async () => {
-                const res = makeRes();
-                await withCardConfirmOverride(
-                    (data) => {
-                        data.enabled = true;
-                        data.verified = true;
-                    },
-                    () =>
-                        controller.handleCardVerificationConfirm(
-                            makeReq({ setup_intent_id: 'seti_1' }, { actor }),
-                            res,
-                        ),
-                );
-                expect(res.body).toMatchObject({ phone_verified: true });
-            },
-        );
+        await withFallbackConfig({ enabled: true }, async () => {
+            const res = makeRes();
+            await withCardConfirmOverride(
+                (data) => {
+                    data.enabled = true;
+                    data.verified = true;
+                },
+                () =>
+                    controller.handleCardVerificationConfirm(
+                        makeReq({ setup_intent_id: 'seti_1' }, { actor }),
+                        res,
+                    ),
+            );
+            expect(res.body).toMatchObject({ phone_verified: true });
+        });
         const after = await server.stores.user.getById(user.id, {
             force: true,
         });
@@ -5006,10 +5037,7 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
         const permission = 'service:tl-app:ii:read';
         await inCtx(actor, () =>
             controller.handleGrantUserApp(
-                makeReq(
-                    { app_uid: app.uid, permission, extra: {} },
-                    { actor },
-                ),
+                makeReq({ app_uid: app.uid, permission, extra: {} }, { actor }),
                 makeRes(),
             ),
         );
@@ -5063,8 +5091,11 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
             holderRes,
         );
         expect(
-            (holderRes.body as { user_to_myself: Array<{ user: string; permission: string }> })
-                .user_to_myself,
+            (
+                holderRes.body as {
+                    user_to_myself: Array<{ user: string; permission: string }>;
+                }
+            ).user_to_myself,
         ).toContainEqual(
             expect.objectContaining({
                 user: user.username,
@@ -5165,10 +5196,7 @@ describe('AuthController session endpoints', () => {
         const uuid = (sessionRes.session as { uuid: string }).uuid;
         await expect(
             controller.handleRenameSession(
-                makeReq(
-                    { label: 'pwned' },
-                    { actor: a2, params: { uuid } },
-                ),
+                makeReq({ label: 'pwned' }, { actor: a2, params: { uuid } }),
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 404 });
@@ -6154,6 +6182,46 @@ describe('AuthController.handleSignup additional branches', () => {
             },
         );
     });
+
+    // No mail transport in the test server, so `send` returns null — the
+    // silent-drop case.
+    it('alarms when the signup confirmation email is not delivered', async () => {
+        const alarm = vi
+            .spyOn(server.clients.alarm, 'create')
+            .mockImplementation(() => undefined);
+        try {
+            await withSignupValidateOverride(
+                (event) => {
+                    event.requires_email_confirmation = true;
+                },
+                async () => {
+                    const username = `cefail_${uniq()}`;
+                    await controller.handleSignup(
+                        makeReq({
+                            username,
+                            email: `${username}@test.local`,
+                            password: 'correct-horse-battery',
+                        }),
+                        makeRes(),
+                    );
+                },
+            );
+
+            const raised = alarm.mock.calls.find(
+                (c) => c[0] === 'auth:confirmation-email-send-failed:signup',
+            );
+            expect(raised).toBeTruthy();
+            const fields = raised![2] as Record<string, unknown>;
+            expect(fields.stage).toBe('signup');
+            // No phone/card gate outstanding: stuck on the email alone.
+            expect(fields.sole_gate).toBe(true);
+            expect(fields.email_domain).toBe('test.local');
+            expect(raised![3]).toBe('warning');
+            expect(raised![4]).toEqual({ dedup: true });
+        } finally {
+            alarm.mockRestore();
+        }
+    });
 });
 
 describe('AuthController.handleSendPassRecoveryEmail additional branches', () => {
@@ -6743,7 +6811,6 @@ describe('AuthController.handleRevokeSession additional branches', () => {
     });
 });
 
-
 // -- auth_id preservation on forced re-login --
 
 describe('AuthController auth_id preservation on reauth', () => {
@@ -7001,10 +7068,7 @@ describe('AuthController auth_id preservation on reauth', () => {
         const ip = `127.0.${Math.floor(Math.random() * 200)}.10`;
         await expect(
             controller.handleSignup(
-                makeReq(
-                    { is_temp: true, reauth_token: 'not-a-jwt' },
-                    { ip },
-                ),
+                makeReq({ is_temp: true, reauth_token: 'not-a-jwt' }, { ip }),
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 401 });
@@ -7058,9 +7122,9 @@ describe('AuthController auth_id preservation on reauth', () => {
 /**
  * The relay stands in for the popup's `postMessage` hand-off on
  * cross-origin-isolated openers, where COOP has severed `window.opener`.
- * postMessage is audience-bound for free (it posts with `targetOrigin`);
- * these tests pin the equivalent binding on the server-side path, since the
- * session id is a link-borne value and not a secret.
+ * postMessage is audience-bound for free (it posts with `targetOrigin`); these
+ * tests pin the equivalent binding on the server-side path, since the session
+ * id is a link-borne value and not a secret.
  */
 describe('AuthController.loginWait audience binding', () => {
     const OPENER = 'https://opener.test';
@@ -7069,15 +7133,18 @@ describe('AuthController.loginWait audience binding', () => {
     const mintAppToken = async (actor: Actor, origin: string) => {
         const res = makeRes();
         await inCtx(actor, () =>
-            controller.handleGetUserAppToken(makeReq({ origin }, { actor }), res),
+            controller.handleGetUserAppToken(
+                makeReq({ origin }, { actor }),
+                res,
+            ),
         );
         return (res.body as { token: string }).token;
     };
 
     /**
-     * Start a wait, then relay `token` into it. The handler resolves the
-     * origin (async, DB-backed) before subscribing, so the emit is retried
-     * until the wait settles rather than fired after a fixed sleep.
+     * Start a wait, then relay `token` into it. The handler resolves the origin
+     * (async, DB-backed) before subscribing, so the emit is retried until the
+     * wait settles rather than fired after a fixed sleep.
      */
     const waitWithRelay = async (
         session: string,
@@ -7085,7 +7152,10 @@ describe('AuthController.loginWait audience binding', () => {
         token: string | null,
     ) => {
         const res = makeRes();
-        const waiting = controller.loginWait(makeReq({ session }, { headers }), res);
+        const waiting = controller.loginWait(
+            makeReq({ session }, { headers }),
+            res,
+        );
         const settled = waiting.then(
             () => 'ok' as const,
             (e: unknown) => e,

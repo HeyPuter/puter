@@ -1120,8 +1120,9 @@ export class AuthController extends PuterController {
         ) {
             const sendCode = body.send_confirmation_code ?? true;
             try {
+                let sent;
                 if (sendCode) {
-                    await this.clients.email.send(
+                    sent = await this.clients.email.send(
                         user!.email!,
                         'email_verification_code',
                         {
@@ -1130,14 +1131,18 @@ export class AuthController extends PuterController {
                     );
                 } else {
                     const link = `${this.config.origin ?? ''}/confirm-email-by-token?token=${email_confirm_token}&user_uuid=${user!.uuid}`;
-                    await this.clients.email.send(
+                    sent = await this.clients.email.send(
                         user!.email!,
                         'email_verification_link',
                         { link },
                     );
                 }
+                // `null` = dropped for want of a transport; silent otherwise.
+                if (sent === null) {
+                    this.#confirmationEmailFailed('signup', user!, null);
+                }
             } catch (e) {
-                console.warn('[signup] email send failed:', e);
+                this.#confirmationEmailFailed('signup', user!, e);
             }
         }
 
@@ -1159,7 +1164,8 @@ export class AuthController extends PuterController {
                     is_temp: user!.password === null && user!.email === null,
                     ip:
                         (req?.headers?.['x-forwarded-for'] as
-                            string | undefined) ||
+                            | string
+                            | undefined) ||
                         (
                             req as unknown as {
                                 connection?: { remoteAddress?: string };
@@ -1269,13 +1275,16 @@ export class AuthController extends PuterController {
 
         if (this.clients.email) {
             try {
-                await this.clients.email.send(
+                const sent = await this.clients.email.send(
                     user.email,
                     'email_verification_code',
                     { code },
                 );
+                if (sent === null) {
+                    this.#confirmationEmailFailed('resend', user, null);
+                }
             } catch (e) {
-                console.warn('[send-confirm-email] send failed:', e);
+                this.#confirmationEmailFailed('resend', user, e);
             }
         }
         res.json({});
@@ -1384,6 +1393,64 @@ export class AuthController extends PuterController {
         }
 
         res.json({ email_confirmed: true, original_client_socket_id });
+    }
+
+    /**
+     * Alarm on a confirmation email that did not reach the recipient. A
+     * `requires_email_confirmation` account is refused by
+     * `requireVerifiedAccount` everywhere, so a lost code leaves an account
+     * that cannot be used. `cause === null` is the silent case: `sendRaw` drops
+     * the message rather than throwing when no transport is configured.
+     *
+     * `sole_gate` reports that no phone/card gate is outstanding either, so
+     * this user is stuck on the email alone. `dedup` because one broken mail
+     * path fails once per signup and is still one thing to fix.
+     */
+    #confirmationEmailFailed(
+        stage: 'signup' | 'resend',
+        user: {
+            uuid?: string | null;
+            username?: string | null;
+            email?: string | null;
+            requires_phone_verification?: unknown;
+            requires_card_verification?: unknown;
+        },
+        cause: unknown,
+    ): void {
+        const email = user.email ?? null;
+        const detail =
+            cause instanceof Error
+                ? cause.message
+                : cause === null
+                  ? 'no transport configured (message dropped)'
+                  : String(cause);
+        console.warn(
+            `[${stage === 'signup' ? 'signup' : 'send-confirm-email'}] ` +
+                `confirmation email not delivered: ${detail}`,
+        );
+        // Best-effort: failing to alarm must not fail the signup.
+        try {
+            this.clients.alarm?.create(
+                `auth:confirmation-email-send-failed:${stage}`,
+                'Confirmation email could not be sent — gated accounts cannot be used until it arrives',
+                {
+                    stage,
+                    user_uid: user.uuid ?? null,
+                    username: user.username ?? null,
+                    email,
+                    email_domain: email?.split('@')[1] ?? null,
+                    sole_gate:
+                        !user.requires_phone_verification &&
+                        !user.requires_card_verification,
+                    detail,
+                    ...(cause instanceof Error ? { error: cause } : {}),
+                },
+                'warning',
+                { dedup: true },
+            );
+        } catch (e) {
+            console.warn(`[${stage}] confirmation-email alarm failed:`, e);
+        }
     }
 
     // -- Phone verification (SMS via Prelude) ------------------------
