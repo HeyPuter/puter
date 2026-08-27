@@ -38,6 +38,7 @@
  * @property {string} uid
  * @property {NotificationPayload} notification
  * @property {number|null} createdAt - Epoch milliseconds, `null` when unknown
+ * @property {number|null} readAt - When the user acknowledged it (epoch ms); `null` while unread
  * @property {number} receivedAt - When this client first saw it (epoch ms)
  */
 
@@ -77,9 +78,10 @@ export const parseCreatedAt = (value) => {
 
 /**
  * One entry from whatever the server or the socket hands over: a driver row
- * (`{ uid, value, created_at }`) or a socket item (`{ uid, notification,
- * created_at? }`). `null` for anything without a uid — there is nothing to
- * dismiss it by.
+ * (`{ uid, value, created_at, acknowledged }`) or a socket item (`{ uid,
+ * notification, created_at? }`). A push carries no `acknowledged` and is
+ * unread — the server only pushes what the user hasn't dismissed. `null`
+ * for anything without a uid — there is nothing to acknowledge it by.
  *
  * @param {Object} raw
  * @param {number} now - Epoch ms; stands in for `created_at` when absent
@@ -97,6 +99,7 @@ export const toEntry = (raw, now) => {
         // A push arrives before its row is written, so "now" is accurate for
         // it; a listed row always carries its own time.
         createdAt: createdAt ?? (raw.created_at === undefined ? now : null),
+        readAt: parseCreatedAt(raw.acknowledged),
         receivedAt: now,
     };
 };
@@ -153,30 +156,50 @@ export const mergeEntries = (entries, incoming) => {
  * Replace the list with what the server holds, keeping anything this client
  * was pushed in the last `graceMs` that the server hasn't listed yet — a
  * push goes out before its row is written, and a listing racing it must not
- * make the toast's entry vanish. `dismissed` names what was acknowledged
+ * make the toast's entry vanish. `readSince` names what was acknowledged
  * after the listing was requested; its snapshot predates those, so they
- * are left out rather than brought back.
+ * stay read rather than flipping back to unread.
  *
  * @param {NotificationEntry[]} local
  * @param {NotificationEntry[]} server
  * @param {number} now
  * @param {number} [graceMs]
- * @param {Set<string>} [dismissed]
+ * @param {Set<string>} [readSince]
  * @returns {NotificationEntry[]}
  */
-export const reconcileWithServer = (local, server, now, graceMs = 15_000, dismissed = new Set()) => {
-    const kept = server.filter((entry) => ! dismissed.has(entry.uid));
-    const listed = new Set(kept.map((entry) => entry.uid));
-    const recent = local.filter((entry) => ! listed.has(entry.uid) && ! dismissed.has(entry.uid) && now - entry.receivedAt < graceMs);
-    return sortEntries([...kept, ...recent]);
+export const reconcileWithServer = (local, server, now, graceMs = 15_000, readSince = new Set()) => {
+    const known = new Map(local.map((entry) => [entry.uid, entry]));
+    const listed = server.map((entry) => (
+        entry.readAt === null && readSince.has(entry.uid)
+            ? { ...entry, readAt: known.get(entry.uid)?.readAt ?? now }
+            : entry
+    ));
+    const listedUids = new Set(listed.map((entry) => entry.uid));
+    const recent = local.filter((entry) => ! listedUids.has(entry.uid) && now - entry.receivedAt < graceMs);
+    return sortEntries([...listed, ...recent]);
 };
 
 /**
+ * The list with one entry's read state changed; `null` makes it unread
+ * again, for rolling back an acknowledgement the server refused.
+ *
  * @param {NotificationEntry[]} entries
  * @param {string} uid
+ * @param {number|null} readAt
  * @returns {NotificationEntry[]}
  */
-export const removeEntry = (entries, uid) => entries.filter((entry) => entry.uid !== uid);
+export const setReadAt = (entries, uid, readAt) => entries.map((entry) => (
+    entry.uid === uid && entry.readAt !== readAt ? { ...entry, readAt } : entry
+));
+
+/** @param {NotificationEntry} entry */
+export const isUnread = (entry) => entry.readAt === null;
+
+/**
+ * @param {NotificationEntry[]} entries
+ * @returns {number}
+ */
+export const unreadCount = (entries) => entries.filter(isUnread).length;
 
 /** The senders that have a glyph of their own; anything else gets the bell. */
 const GLYPH_SOURCES = new Set(['sharing', 'worker']);

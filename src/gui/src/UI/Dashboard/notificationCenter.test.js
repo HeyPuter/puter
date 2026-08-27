@@ -23,15 +23,17 @@ import {
     formatAbsoluteTime,
     formatRelativeTime,
     glyphKey,
+    isUnread,
     mergeEntries,
     notificationTarget,
     parseCreatedAt,
     planBurstToasts,
     reconcileWithServer,
-    removeEntry,
+    setReadAt,
     sortEntries,
     titleWithBadge,
     toEntry,
+    unreadCount,
 } from './notificationCenter.js';
 
 const NOW = Date.UTC(2026, 7, 27, 12, 0, 0);
@@ -43,6 +45,7 @@ const entry = (uid, createdAt, extra = {}) => ({
     uid,
     notification: { title: uid },
     createdAt,
+    readAt: null,
     receivedAt: NOW,
     ...extra,
 });
@@ -83,13 +86,23 @@ describe('toEntry', () => {
             uid: 'a',
             notification: { title: 'hi' },
             createdAt: NOW - HOUR,
+            readAt: null,
             receivedAt: NOW,
         });
     });
 
-    it('reads a socket push and dates it now when the payload carries no time', () => {
+    it('reads when a row was acknowledged, in epoch seconds', () => {
+        const readAt = NOW - 5 * MIN;
+        const out = toEntry({ uid: 'a', value: {}, created_at: null, acknowledged: readAt / 1000 }, NOW);
+        expect(out.readAt).toBe(readAt);
+        expect(isUnread(out)).toBe(false);
+        expect(isUnread(toEntry({ uid: 'b', value: {}, acknowledged: null }, NOW))).toBe(true);
+    });
+
+    it('reads a socket push as unread and dates it now when the payload carries no time', () => {
         const out = toEntry({ uid: 'a', notification: { title: 'hi' } }, NOW);
         expect(out.createdAt).toBe(NOW);
+        expect(out.readAt).toBeNull();
         expect(out.notification).toEqual({ title: 'hi' });
     });
 
@@ -148,6 +161,12 @@ describe('mergeEntries', () => {
         expect(entries[1].createdAt).toBe(NOW - HOUR);
     });
 
+    it('keeps the read state of an entry a push rewrites', () => {
+        const before = [entry('a', NOW - HOUR, { readAt: NOW - MIN })];
+        const { entries } = mergeEntries(before, [entry('a', NOW)]);
+        expect(entries[0].readAt).toBe(NOW - MIN);
+    });
+
     it('fills in a time it did not have', () => {
         const { entries } = mergeEntries([entry('a', null)], [entry('a', NOW - DAY)]);
         expect(entries[0].createdAt).toBe(NOW - DAY);
@@ -184,22 +203,51 @@ describe('reconcileWithServer', () => {
         expect(out.map((e) => e.uid)).toEqual(['a', 'b']);
     });
 
-    it('does not bring back what was dismissed while it was in flight', () => {
-        const local = [entry('kept', NOW - HOUR), entry('fresh', NOW, { receivedAt: NOW - 1_000 })];
-        const server = [entry('gone', NOW - MIN), entry('kept', NOW - HOUR)];
-        const out = reconcileWithServer(local, server, NOW, 15_000, new Set(['gone', 'fresh']));
-        expect(out.map((e) => e.uid)).toEqual(['kept']);
+    it('takes the read state the server reports', () => {
+        const local = [entry('a', NOW - HOUR)];
+        const out = reconcileWithServer(local, [entry('a', NOW - HOUR, { readAt: NOW - MIN })], NOW);
+        expect(out[0].readAt).toBe(NOW - MIN);
+    });
+
+    it('does not unread what was read while the listing was in flight', () => {
+        const local = [
+            entry('listed', NOW - HOUR, { readAt: NOW - 2_000 }),
+            entry('fresh', NOW, { receivedAt: NOW - 1_000, readAt: NOW - 500 }),
+        ];
+        const server = [entry('elsewhere', NOW - MIN), entry('listed', NOW - HOUR)];
+        const out = reconcileWithServer(local, server, NOW, 15_000, new Set(['listed', 'fresh', 'elsewhere']));
+        expect(out.map((e) => [e.uid, e.readAt])).toEqual([
+            ['fresh', NOW - 500],
+            ['elsewhere', NOW],
+            ['listed', NOW - 2_000],
+        ]);
     });
 });
 
-describe('removeEntry', () => {
-    it('removes by uid and leaves others', () => {
-        expect(removeEntry([entry('a', NOW), entry('b', NOW)], 'a').map((e) => e.uid)).toEqual(['b']);
+describe('setReadAt', () => {
+    it('marks one entry read and leaves the others', () => {
+        const out = setReadAt([entry('a', NOW), entry('b', NOW)], 'a', NOW);
+        expect(out.map((e) => e.readAt)).toEqual([NOW, null]);
     });
 
-    it('is a no-op for an unknown uid', () => {
-        const input = [entry('a', NOW)];
-        expect(removeEntry(input, 'zzz')).toEqual(input);
+    it('can make an entry unread again', () => {
+        const out = setReadAt([entry('a', NOW, { readAt: NOW })], 'a', null);
+        expect(out[0].readAt).toBeNull();
+    });
+
+    it('does not mutate its input and keeps untouched entries by identity', () => {
+        const input = [entry('a', NOW), entry('b', NOW)];
+        const out = setReadAt(input, 'a', NOW);
+        expect(input[0].readAt).toBeNull();
+        expect(out[1]).toBe(input[1]);
+        expect(setReadAt(input, 'zzz', NOW)).toEqual(input);
+    });
+});
+
+describe('unreadCount', () => {
+    it('counts only what has no read time', () => {
+        expect(unreadCount([entry('a', NOW), entry('b', NOW, { readAt: NOW }), entry('c', NOW)])).toBe(2);
+        expect(unreadCount([])).toBe(0);
     });
 });
 

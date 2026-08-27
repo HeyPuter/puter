@@ -7083,6 +7083,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 }
 
 .dashboard-notification-icon {
+    position: relative;
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
@@ -7092,6 +7093,27 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     border-radius: 50%;
     background: var(--dashboard-hover);
     color: var(--dashboard-text-secondary);
+    transition: opacity 0.2s;
+}
+
+.dashboard-notification:not(.is-unread) .dashboard-notification-icon {
+    opacity: 0.7;
+}
+
+.dashboard-notification-unread-dot {
+    display: none;
+    position: absolute;
+    top: -1px;
+    right: -1px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--select-color);
+    box-shadow: 0 0 0 2px var(--dashboard-card-background);
+}
+
+.dashboard-notification.is-unread .dashboard-notification-unread-dot {
+    display: block;
 }
 
 .dashboard-notification-icon svg {
@@ -7123,23 +7145,34 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     font-size: 13.5px;
     font-weight: 500;
     line-height: 1.35;
-    color: var(--dashboard-text-primary);
+    color: var(--dashboard-text-secondary);
     overflow-wrap: anywhere;
     display: -webkit-box;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    transition: color 0.2s;
+}
+
+.dashboard-notification.is-unread .dashboard-notification-title {
+    font-weight: 600;
+    color: var(--dashboard-text-primary);
 }
 
 .dashboard-notification-text {
     font-size: 12.5px;
     line-height: 1.35;
-    color: var(--dashboard-text-secondary);
+    color: var(--dashboard-text-tertiary);
     overflow-wrap: anywhere;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    transition: color 0.2s;
+}
+
+.dashboard-notification.is-unread .dashboard-notification-text {
+    color: var(--dashboard-text-secondary);
 }
 
 .dashboard-notification-time {
@@ -7148,7 +7181,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     margin-top: 2px;
 }
 
-.dashboard-notification-dismiss {
+.dashboard-notification-read {
     position: absolute;
     top: 8px;
     right: 8px;
@@ -7167,18 +7200,18 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     transition: opacity 0.12s, background-color 0.15s, color 0.15s;
 }
 
-.dashboard-notification-dismiss svg {
+.dashboard-notification-read svg {
     width: 14px;
     height: 14px;
 }
 
-.dashboard-notification:hover .dashboard-notification-dismiss,
-.dashboard-notification:focus-within .dashboard-notification-dismiss {
+.dashboard-notification:hover .dashboard-notification-read,
+.dashboard-notification:focus-within .dashboard-notification-read {
     opacity: 1;
 }
 
 @media (hover: hover) {
-    .dashboard-notification-dismiss:hover {
+    .dashboard-notification-read:hover {
         background: var(--dashboard-border);
         color: var(--dashboard-text);
     }
@@ -7186,13 +7219,13 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 
 /* Touch has no hover to reveal it */
 @media (hover: none) {
-    .dashboard-notification-dismiss {
+    .dashboard-notification-read {
         opacity: 1;
     }
 }
 
 .dashboard-notification-main:focus-visible,
-.dashboard-notification-dismiss:focus-visible,
+.dashboard-notification-read:focus-visible,
 .dashboard-notifications-mark-all:focus-visible,
 .dashboard-notifications-close:focus-visible,
 .dashboard-notifications-retry:focus-visible {
@@ -7207,13 +7240,6 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
 
 .dashboard-notification-new {
     animation: dashboard-notification-enter 0.22s ease-out;
-}
-
-.dashboard-notification-leaving {
-    opacity: 0;
-    transform: translateX(12px);
-    transition: opacity 0.16s ease, transform 0.16s ease;
-    pointer-events: none;
 }
 
 /* -- States -- */
@@ -7316,8 +7342,9 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     margin-bottom: 10px;
 }
 
-/* Screen-reader-only live region for arrivals */
-.dashboard-notifications-live {
+/* Screen-reader-only: the live region for arrivals, and a row's unread state */
+.dashboard-notifications-live,
+.dashboard-notification-sr {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -7468,8 +7495,10 @@ body.dashboard-mode .notifications-close-all {
     .dashboard-notifications-panel,
     .dashboard-notifications-scrim,
     .dashboard-notification,
-    .dashboard-notification-dismiss,
-    .dashboard-notification-leaving {
+    .dashboard-notification-read,
+    .dashboard-notification-icon,
+    .dashboard-notification-title,
+    .dashboard-notification-text {
         transition: none;
     }
 

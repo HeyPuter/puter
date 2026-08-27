@@ -57,9 +57,10 @@ export async function markNotificationAcknowledged (uid) {
  */
 
 /**
- * The user's notifications, newest first.
+ * The user's notifications, newest first. `'all'` lists them regardless of
+ * state; the driver treats no predicate as everything.
  *
- * @param {{ predicate?: 'unacknowledged'|'unseen'|'acknowledged', limit?: number }} [opts]
+ * @param {{ predicate?: 'unacknowledged'|'unseen'|'acknowledged'|'all', limit?: number }} [opts]
  * @returns {Promise<NotificationRow[]>}
  */
 export async function listNotifications ({ predicate = 'unacknowledged', limit = 200 } = {}) {
@@ -70,7 +71,7 @@ export async function listNotifications ({ predicate = 'unacknowledged', limit =
             interface: 'puter-notifications',
             driver: 'es:notification',
             method: 'select',
-            args: { predicate, limit },
+            args: predicate === 'all' ? { limit } : { predicate, limit },
         }),
     });
     if ( ! res.ok ) {

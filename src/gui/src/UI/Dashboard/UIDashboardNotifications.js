@@ -25,13 +25,15 @@ import {
     formatAbsoluteTime,
     formatRelativeTime,
     glyphKey,
+    isUnread,
     mergeEntries,
     notificationTarget,
     planBurstToasts,
     reconcileWithServer,
-    removeEntry,
+    setReadAt,
     titleWithBadge,
     toEntry,
+    unreadCount,
 } from './notificationCenter.js';
 
 const { html_encode } = window;
@@ -45,8 +47,11 @@ const RELATIVE_TIME_TICK_MS = 60_000;
 /** Below this the panel is a bottom sheet; matches the sidebar's drawer breakpoint. */
 const SHEET_BREAKPOINT = '(max-width: 768px)';
 
-/** Acknowledgements in flight at once when clearing the whole list. */
+/** Acknowledgements in flight at once when marking the whole list read. */
 const ACK_CONCURRENCY = 6;
+
+/** How many of the most recent notifications the panel lists, read or not. */
+const HISTORY_LIMIT = 30;
 
 /** Matches the panel's CSS transition; `hidden` is set once it has run. */
 const CLOSE_ANIMATION_MS = 180;
@@ -59,6 +64,7 @@ const STROKE_ICON = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" strok
 
 const bellIcon = `<svg ${STROKE_ICON}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`;
 const closeIcon = `<svg ${STROKE_ICON} stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>`;
+const checkIcon = `<svg ${STROKE_ICON} stroke-width="2"><path d="M5 13l4 4L19 7"/></svg>`;
 const checkAllIcon = `<svg ${STROKE_ICON} stroke-width="2"><path d="M2 13l4 4L14 7"/><path d="M12 17l10-10"/></svg>`;
 
 /** The glyph in front of an entry, by who sent it. */
@@ -133,15 +139,15 @@ const runLimited = async (items, limit, task) => {
 
 /**
  * The dashboard's notification center: a bell in the sidebar with the unread
- * count, a panel listing everything not yet dismissed, and toasts for what
- * arrives while the dashboard is open. The list is what the server holds —
- * it survives a reload, unlike the desktop's toasts — with socket pushes
- * folded in as they come.
+ * count, a panel listing the most recent notifications read or not, and
+ * toasts for what arrives while the dashboard is open. The list is what the
+ * server holds — it survives a reload, unlike the desktop's toasts — with
+ * socket pushes folded in as they come.
  *
- * Entries are what the user hasn't dismissed. Dismissing one (its ✕, or
- * acting on it) acknowledges it on the server, which also clears it from
- * every other open tab; a toast timing out does not, so nothing is lost
- * while someone is looking away.
+ * Reading one (its check, or acting on it) acknowledges it on the server,
+ * which also marks it read in every other open tab; it stays listed, just
+ * quieter. A toast timing out does not, so nothing is lost while someone is
+ * looking away.
  *
  * @param {{ $el_window: JQuery, socket: import('socket.io-client').Socket }} opts
  * @returns {{ open: () => void, close: (opts?: { restoreFocus?: boolean }) => void, refresh: () => Promise<void>, isOpen: () => boolean }}
@@ -252,30 +258,37 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             <time class="dashboard-notification-time" datetime="${new Date(entry.createdAt).toISOString()}"
                 title="${html_encode(formatAbsoluteTime(entry.createdAt, window.locale))}">${html_encode(formatRelativeTime(entry.createdAt, Date.now(), window.locale))}</time>`;
         const title = titleFor(notification);
+        const unread = isUnread(entry);
         // Only an entry with somewhere to go is a control; the rest is text,
-        // with the ✕ as its one action.
+        // with the check to mark it read as its one action while unread.
         const actionable = notificationTarget(notification) !== null;
         const mainTag = actionable ? 'button type="button"' : 'div';
+        const classes = [
+            'dashboard-notification',
+            unread ? 'is-unread' : '',
+            justAdded.has(entry.uid) ? 'dashboard-notification-new' : '',
+        ].filter(Boolean).join(' ');
         return `
-            <li class="dashboard-notification${justAdded.has(entry.uid) ? ' dashboard-notification-new' : ''}" data-uid="${html_encode(entry.uid)}">
+            <li class="${classes}" data-uid="${html_encode(entry.uid)}">
                 <${mainTag} class="dashboard-notification-main${actionable ? ' is-actionable' : ''}">
-                    <span class="dashboard-notification-icon dashboard-notification-icon-${html_encode(source)}">${glyphFor(notification)}</span>
+                    <span class="dashboard-notification-icon dashboard-notification-icon-${html_encode(source)}">${glyphFor(notification)}<span class="dashboard-notification-unread-dot" aria-hidden="true"></span></span>
                     <span class="dashboard-notification-content">
-                        <span class="dashboard-notification-title">${html_encode(title)}</span>
+                        <span class="dashboard-notification-title">${unread ? `<span class="dashboard-notification-sr">${i18n('notification_unread')}: </span>` : ''}${html_encode(title)}</span>
                         ${text ? `<span class="dashboard-notification-text">${html_encode(text)}</span>` : ''}
                         ${time}
                     </span>
                 </${actionable ? 'button' : 'div'}>
-                <button type="button" class="dashboard-notification-dismiss"
-                    aria-label="${i18n('notification_dismiss_named', { title })}" title="${i18n('notification_dismiss')}">${closeIcon}</button>
+                ${unread ? `<button type="button" class="dashboard-notification-read"
+                    aria-label="${i18n('notification_mark_read_named', { title })}" title="${i18n('notification_mark_read')}">${checkIcon}</button>` : ''}
             </li>`;
     };
 
     /**
      * Where the keyboard is in the list, so a re-render — which rebuilds
      * every row — can put it back: on the same entry, or if that one is
-     * gone, on the entry that took its place, keeping to the same control
-     * so Enter on a ✕ can clear entries one after another.
+     * gone, on the entry that took its place. A check that was just pressed
+     * is gone with the unread state; the row's own control, or the panel,
+     * takes the focus instead.
      */
     const focusedRow = () => {
         const active = document.activeElement;
@@ -284,12 +297,12 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         return {
             uid: row.getAttribute('data-uid'),
             index: $list.children().index(row),
-            dismiss: active.classList.contains('dashboard-notification-dismiss'),
+            read: active.classList.contains('dashboard-notification-read'),
         };
     };
 
-    const rowControl = (row, dismiss) => (
-        (dismiss ? row.querySelector('.dashboard-notification-dismiss') : null)
+    const rowControl = (row, read) => (
+        (read ? row.querySelector('.dashboard-notification-read') : null)
         ?? row.querySelector('button')
     );
 
@@ -298,12 +311,12 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         const rows = $list.children().get();
         const same = rows.find((row) => row.getAttribute('data-uid') === was.uid);
         const row = same ?? rows[Math.min(was.index, rows.length - 1)];
-        const target = row ? rowControl(row, was.dismiss) : $panel[0];
-        target?.focus({ preventScroll: true });
+        const target = (row && rowControl(row, was.read)) ?? $panel[0];
+        target.focus({ preventScroll: true });
     };
 
     const render = () => {
-        const count = entries.length;
+        const count = unreadCount(entries);
         const label = badgeLabel(count);
 
         $badge.text(label).attr('hidden', label ? null : '');
@@ -320,7 +333,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         const showError = ! loaded && loadFailed && loading === null;
         $panel.find('.dashboard-notifications-loading').attr('hidden', showLoading ? null : '');
         $panel.find('.dashboard-notifications-error').attr('hidden', showError ? null : '');
-        $panel.find('.dashboard-notifications-empty').attr('hidden', loaded && count === 0 ? null : '');
+        $panel.find('.dashboard-notifications-empty').attr('hidden', loaded && entries.length === 0 ? null : '');
         $panel.attr('aria-busy', showLoading ? 'true' : null);
 
         const was = isOpen ? focusedRow() : null;
@@ -346,18 +359,18 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         loadFailed = false;
         if ( ! loaded ) render();
         listingRequestedAt = Date.now();
-        loading = listNotifications({ predicate: 'unacknowledged' })
+        loading = listNotifications({ predicate: 'all', limit: HISTORY_LIMIT })
             .then((rows) => {
                 const now = Date.now();
                 const server = rows.map((row) => toEntry(row, now)).filter(Boolean);
-                // Acked since this listing was requested: not in its snapshot.
+                // Acked since this listing was requested: unread in its snapshot.
                 // Anything acked before it is settled and can be forgotten.
-                const dismissed = new Set();
+                const readSince = new Set();
                 for ( const [uid, at] of acked ) {
-                    if ( at >= listingRequestedAt ) dismissed.add(uid);
+                    if ( at >= listingRequestedAt ) readSince.add(uid);
                     else acked.delete(uid);
                 }
-                entries = reconcileWithServer(entries, server, now, undefined, dismissed);
+                entries = reconcileWithServer(entries, server, now, undefined, readSince);
                 loaded = true;
             })
             .catch((err) => {
@@ -372,7 +385,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         return loading;
     };
 
-    /** Record the server's copy of `uid` as dismissed; resolves once it is. */
+    /** Record the server's copy of `uid` as read; resolves once it is. */
     const acknowledge = async (uid) => {
         acked.set(uid, Infinity);
         try {
@@ -384,34 +397,29 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         }
     };
 
-    /** Take an entry off the list now and tell the server; put it back if that fails. */
-    const dismiss = async (uid) => {
+    /** Show an entry as read now and tell the server; revert if that fails. */
+    const markRead = async (uid) => {
         const entry = entries.find((e) => e.uid === uid);
-        if ( ! entry ) return;
-        entries = removeEntry(entries, uid);
-        const pending = acknowledge(uid);
-        const $row = $list.find(`.dashboard-notification[data-uid="${uid}"]`);
-        if ( $row.length && ! reducedMotion() ) {
-            $row.addClass('dashboard-notification-leaving');
-            await new Promise((resolve) => setTimeout(resolve, 160));
-        }
+        if ( ! entry || ! isUnread(entry) ) return;
+        entries = setReadAt(entries, uid, Date.now());
         render();
         try {
-            await pending;
+            await acknowledge(uid);
         } catch (err) {
             console.warn('Could not acknowledge notification:', err);
-            entries = mergeEntries(entries, [entry]).entries;
+            entries = setReadAt(entries, uid, null);
             render();
-            setStatus(i18n('notifications_dismiss_failed', [], false));
+            setStatus(i18n('notifications_mark_read_failed', [], false));
         }
     };
 
-    const dismissAll = async () => {
-        const cleared = entries;
-        if ( cleared.length === 0 ) return;
-        entries = [];
+    const markAllRead = async () => {
+        const unread = entries.filter(isUnread);
+        if ( unread.length === 0 ) return;
+        const now = Date.now();
+        entries = entries.map((entry) => (isUnread(entry) ? { ...entry, readAt: now } : entry));
         render();
-        const failed = await runLimited(cleared, ACK_CONCURRENCY, (entry) => acknowledge(entry.uid));
+        const failed = await runLimited(unread, ACK_CONCURRENCY, (entry) => acknowledge(entry.uid));
         if ( failed.length > 0 ) {
             setStatus(i18n('notifications_mark_all_failed', [], false));
             await refresh();
@@ -435,8 +443,8 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         const target = notificationTarget(entry.notification);
         close({ restoreFocus: false });
         // Acknowledged first: what the click leads to may take a moment, and
-        // the entry should be gone by the time it lands.
-        void dismiss(entry.uid);
+        // the entry should read as seen by the time it lands.
+        void markRead(entry.uid);
         if ( target?.kind === 'shared-item' ) {
             void goToShared([target.path]);
         } else if ( target?.kind === 'shared' ) {
@@ -460,9 +468,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
             timeout: TOAST_TIMEOUT_MS,
             click: () => void reveal_dashboard().then(() => actOn(entry)),
             // The ✕ is a dismissal; timing out is not, so `close` alone acks.
-            close: () => {
-                if ( entries.some((e) => e.uid === entry.uid) ) void dismiss(entry.uid);
-            },
+            close: () => void markRead(entry.uid),
         });
     };
 
@@ -629,13 +635,11 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     $trigger.on('click', () => (isOpen ? close() : open()));
     $panel.on('click', '.dashboard-notifications-close', () => close());
     $scrim.on('click', () => close({ restoreFocus: false }));
-    $panel.on('click', '.dashboard-notifications-mark-all', () => void dismissAll());
+    $panel.on('click', '.dashboard-notifications-mark-all', () => void markAllRead());
     $panel.on('click', '.dashboard-notifications-retry', () => void refresh());
-    // The re-render after a dismiss moves the keyboard to the entry that
-    // takes the dismissed one's place (see restoreFocus).
-    $panel.on('click', '.dashboard-notification-dismiss', function (e) {
+    $panel.on('click', '.dashboard-notification-read', function (e) {
         e.stopPropagation();
-        void dismiss($(this).closest('.dashboard-notification').attr('data-uid'));
+        void markRead($(this).closest('.dashboard-notification').attr('data-uid'));
     });
     $panel.on('click', '.dashboard-notification-main.is-actionable', function () {
         const uid = $(this).closest('.dashboard-notification').attr('data-uid');
@@ -660,7 +664,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     const titleEl = document.querySelector('title');
     if ( titleEl ) {
         new MutationObserver(() => {
-            const wanted = titleWithBadge(document.title, entries.length);
+            const wanted = titleWithBadge(document.title, unreadCount(entries));
             if ( document.title !== wanted ) document.title = wanted;
         }).observe(titleEl, { childList: true, characterData: true, subtree: true });
     }
@@ -672,14 +676,15 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
     socket.on('notif.ack', ({ uid }) => {
         if ( ! uid ) return;
         $(`.notification[data-uid="${html_encode(uid)}"]`).closest('.notification-wrapper').remove();
-        if ( ! entries.some((e) => e.uid === uid) ) return;
-        // Dismissed in another tab: a listing already in flight predates it too.
-        acked.set(uid, Date.now());
-        entries = removeEntry(entries, uid);
+        if ( ! entries.some((e) => e.uid === uid && isUnread(e)) ) return;
+        // Read in another tab: a listing already in flight predates it too.
+        const now = Date.now();
+        acked.set(uid, now);
+        entries = setReadAt(entries, uid, now);
         render();
     });
-    // Every (re)connection: anything dismissed elsewhere while this tab was
-    // offline is gone from the server's list, and anything new is in it.
+    // Every (re)connection: anything read elsewhere while this tab was
+    // offline is marked so in the server's list, and anything new is in it.
     socket.on('connect', () => void refresh());
     // Coming back to the tab: same reasoning, cheaper than waiting to be told.
     document.addEventListener('visibilitychange', () => {
