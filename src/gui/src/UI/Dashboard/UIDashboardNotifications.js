@@ -51,6 +51,10 @@ const ACK_CONCURRENCY = 6;
 /** Matches the panel's CSS transition; `hidden` is set once it has run. */
 const CLOSE_ANIMATION_MS = 180;
 
+/** The anchored panel's height at most, and the least it shrinks to. */
+const PANEL_MAX_HEIGHT = 560;
+const PANEL_MIN_HEIGHT = 200;
+
 const STROKE_ICON = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
 
 const bellIcon = `<svg ${STROKE_ICON}><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`;
@@ -485,7 +489,7 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
 
     const position = () => {
         if ( sheetMedia.matches ) {
-            $panel.css({ left: '', bottom: '', right: '' });
+            $panel.css({ left: '', bottom: '', right: '', maxHeight: '' });
             return;
         }
         const rect = $trigger[0].getBoundingClientRect();
@@ -493,9 +497,12 @@ export default function UIDashboardNotifications ({ $el_window, socket }) {
         const gap = 10;
         let left = rect.right + gap;
         if ( left + width > window.innerWidth - gap ) left = Math.max(gap, window.innerWidth - width - gap);
-        // Bottom-aligned with the bell, growing upward; never off the top.
+        // Bottom-aligned with the bell, growing upward — and no taller than
+        // the room above it, so a short window scrolls the list rather than
+        // pushing the header off the top.
         const bottom = Math.max(gap, window.innerHeight - rect.bottom);
-        $panel.css({ left: `${left}px`, bottom: `${bottom}px`, right: '' });
+        const maxHeight = Math.max(PANEL_MIN_HEIGHT, Math.min(PANEL_MAX_HEIGHT, window.innerHeight - bottom - gap));
+        $panel.css({ left: `${left}px`, bottom: `${bottom}px`, right: '', maxHeight: `${maxHeight}px` });
     };
 
     const focusables = () => $panel.find('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
