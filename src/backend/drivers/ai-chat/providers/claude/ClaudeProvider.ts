@@ -139,6 +139,37 @@ export class ClaudeProvider implements IChatProvider {
             return message;
         });
 
+        // Splice round-tripped reasoning artifacts back into the assistant
+        // content. Anthropic rejects an extended-thinking tool-use
+        // continuation whose thinking blocks lost their `signature`, and
+        // requires those blocks to lead the content array — so they are
+        // prepended here, before the tool_use blocks are appended below.
+        // `reasoning`/`refusal` are output-only fields Anthropic rejects
+        // outright, and a caller replaying a normalized message carries them.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        messages = messages.map((message: any) => {
+            const details = message.reasoning_details;
+            delete message.reasoning_details;
+            delete message.reasoning;
+            delete message.refusal;
+            if (!Array.isArray(details)) return message;
+            const blocks = details.filter(
+                (block: unknown) =>
+                    (block as { type?: string })?.type === 'thinking' ||
+                    (block as { type?: string })?.type === 'redacted_thinking',
+            );
+            if (blocks.length === 0) return message;
+            if (typeof message.content === 'string') {
+                message.content = message.content
+                    ? [{ type: 'text', text: message.content }]
+                    : [];
+            } else if (!Array.isArray(message.content)) {
+                message.content = message.content ? [message.content] : [];
+            }
+            message.content = [...blocks, ...message.content];
+            return message;
+        });
+
         // Convert OpenAI-style tool calls/results to Claude format
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         messages = messages.map((message: any) => {

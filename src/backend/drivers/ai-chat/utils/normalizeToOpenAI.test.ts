@@ -181,11 +181,19 @@ describe('normalizeResultToOpenAI', () => {
         expect(out.finish_reason).toBe(expected);
     });
 
-    it('keeps the existing finish_reason for unknown stop_reasons', () => {
+    it('passes an unmapped vendor stop_reason through verbatim', () => {
+        // `pause_turn` means "continue this turn"; mapping it to `stop` would
+        // erase that. Objects/chatresponse.md documents the passthrough.
         const out = normalizeResultToOpenAI(
             claudeResult([{ type: 'text', text: 'x' }], 'pause_turn'),
         );
-        expect(out.finish_reason).toBe('stop');
+        expect(out.finish_reason).toBe('pause_turn');
+    });
+
+    it('falls back to the existing finish_reason when stop_reason is absent', () => {
+        const res = claudeResult([{ type: 'text', text: 'x' }]);
+        delete (res.message as Record<string, unknown>).stop_reason;
+        expect(normalizeResultToOpenAI(res).finish_reason).toBe('stop');
     });
 
     it('converts tool_use blocks into OpenAI tool_calls with stringified arguments', () => {
@@ -247,10 +255,32 @@ describe('normalizeResultToOpenAI', () => {
         expect(out.message.content).toBe('answer');
     });
 
-    it('drops redacted_thinking, compaction, and unknown blocks', () => {
+    it('preserves thinking blocks verbatim in reasoning_details for replay', () => {
+        // Anthropic rejects an extended-thinking continuation whose thinking
+        // blocks lost their signature, so the raw blocks have to survive.
+        const out = normalizeResultToOpenAI(
+            claudeResult([
+                { type: 'thinking', thinking: 'step one.', signature: 's1' },
+                { type: 'redacted_thinking', data: 'ENC' },
+                { type: 'text', text: 'answer' },
+            ]),
+        );
+        expect(out.message.reasoning_details).toEqual([
+            { type: 'thinking', thinking: 'step one.', signature: 's1' },
+            { type: 'redacted_thinking', data: 'ENC' },
+        ]);
+    });
+
+    it('omits reasoning_details when there was no reasoning', () => {
+        const out = normalizeResultToOpenAI(
+            claudeResult([{ type: 'text', text: 'answer' }]),
+        );
+        expect('reasoning_details' in (out.message as object)).toBe(false);
+    });
+
+    it('drops compaction and unknown blocks', () => {
         const out = normalizeResultToOpenAI({
             ...claudeResult([
-                { type: 'redacted_thinking', data: 'ENC' },
                 { type: 'compaction', content: 'ENC2' },
                 { type: 'server_tool_use', id: 'x', name: 'y', input: {} },
                 { type: 'text', text: 'visible' },

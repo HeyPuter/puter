@@ -92,7 +92,47 @@ export const process_input_messages_responses_api = async (messages) => {
     // collapsing the whole message into a single compaction item and dropping
     // the rest of its content.
     const expanded = [];
-    for (const msg of messages) {
+    for (let msg of messages) {
+        // Round-tripped reasoning artifacts become standalone `reasoning`
+        // input items — the shape the Responses API expects them back in —
+        // and precede the message they were attached to, same as compaction.
+        // `reasoning`/`refusal`/`normalized` are output-only fields the input
+        // schema rejects, and a caller replaying a normalized message carries
+        // them along with the details.
+        if (msg && typeof msg === 'object') {
+            const details = msg.reasoning_details;
+            if (
+                details !== undefined ||
+                msg.reasoning !== undefined ||
+                msg.refusal !== undefined ||
+                msg.normalized !== undefined
+            ) {
+                const {
+                    reasoning_details: _details,
+                    reasoning: _reasoning,
+                    refusal: _refusal,
+                    normalized: _normalized,
+                    ...rest
+                } = msg;
+                msg = rest;
+            }
+            if (Array.isArray(details)) {
+                for (const block of details) {
+                    if (!block || block.type !== 'reasoning') continue;
+                    expanded.push({
+                        type: 'reasoning',
+                        ...(block.id !== undefined ? { id: block.id } : {}),
+                        ...(block.encrypted_content !== undefined
+                            ? { encrypted_content: block.encrypted_content }
+                            : {}),
+                        summary: Array.isArray(block.summary)
+                            ? block.summary
+                            : [],
+                    });
+                }
+            }
+        }
+
         if (msg && Array.isArray(msg.content)) {
             const compactionBlocks = msg.content.filter(
                 (c) => c && c.type === 'compaction',
@@ -439,6 +479,25 @@ export const create_chat_stream_handler_responses_api =
                 continue;
             }
 
+            // Reasoning summaries stream as their own delta events; route
+            // them to the same `reasoning` channel the chat-completions
+            // handler uses for Deepseek/OpenRouter, so a streamed reasoning
+            // model reads identically whichever API served it.
+            if (chunk.type === 'response.reasoning_summary_text.delta') {
+                textblock.addReasoning(chunk.delta);
+                continue;
+            }
+
+            // Each summary part is a separate delta stream; separate them with
+            // a blank line, matching the non-stream handler's join.
+            if (
+                chunk.type === 'response.reasoning_summary_part.added' &&
+                chunk.summary_index > 0
+            ) {
+                textblock.addReasoning('\n\n');
+                continue;
+            }
+
             if (chunk.type === 'response.completed') {
                 last_usage = chunk.response.usage;
             }
@@ -638,11 +697,31 @@ export const handle_completion_output_responses_api = async ({
     // Reasoning models return `reasoning` output items; their human-readable
     // text only exists when the caller requested summaries via
     // `reasoning: { summary: ... }` (raw chain-of-thought is never returned).
-    const reasoningText = output
-        .filter((item) => item?.type === 'reasoning')
+    const reasoningItems = output.filter((item) => item?.type === 'reasoning');
+    const reasoningText = reasoningItems
         .flatMap((item) => (Array.isArray(item.summary) ? item.summary : []))
         .map((part) => (typeof part?.text === 'string' ? part.text : ''))
-        .join('');
+        .filter(Boolean)
+        .join('\n\n');
+
+    // The item `id` and `encrypted_content` are what let a caller replay a
+    // reasoning turn into the next request; they are opaque to us and would
+    // otherwise be lost, so they ride `reasoning_details` verbatim — the same
+    // round-trip contract as the `compaction` artifact below and as the
+    // Anthropic thinking blocks the coercer preserves.
+    const reasoningDetails = reasoningItems
+        .filter(
+            (item) =>
+                item.id !== undefined || item.encrypted_content !== undefined,
+        )
+        .map((item) => ({
+            type: 'reasoning',
+            ...(item.id !== undefined ? { id: item.id } : {}),
+            ...(item.encrypted_content !== undefined
+                ? { encrypted_content: item.encrypted_content }
+                : {}),
+            ...(Array.isArray(item.summary) ? { summary: item.summary } : {}),
+        }));
 
     const ret = {
         finish_reason: responseToolCalls.length ? 'tool_calls' : 'stop',
@@ -651,6 +730,9 @@ export const handle_completion_output_responses_api = async ({
             content: completion.output_text,
             // String-or-absent, matching every other provider's `reasoning`.
             ...(reasoningText ? { reasoning: reasoningText } : {}),
+            ...(reasoningDetails.length
+                ? { reasoning_details: reasoningDetails }
+                : {}),
             refusal: null,
             role: 'assistant',
             ...(responseToolCalls.length

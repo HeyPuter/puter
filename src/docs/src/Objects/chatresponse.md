@@ -17,7 +17,9 @@ An object containing the chat message data.
 
 - `tool_calls` (Array) - An optional array of [`ToolCall`](/Objects/toolcall) objects if the model wants to call tools.
 
-- `reasoning` (String) - Optional extended-thinking output, when the model exposes it.
+- `reasoning` (String) - Optional extended-thinking output, when the model exposes it. Multiple reasoning segments are joined with a blank line between them.
+
+- `reasoning_details` (Array) - Optional opaque reasoning artifacts, present on normalized responses from models that expose them: Anthropic `thinking`/`redacted_thinking` blocks with their `signature`, or OpenAI reasoning items with their `id` and `encrypted_content`. Treat the contents as opaque and resend the array verbatim to continue an extended-thinking turn — providers reject a continuation whose reasoning lost its signature. The human-readable text is in `reasoning`; this field is only for the round trip.
 
 - `tool_call_id` (String) - An optional identifier linking this message to the tool call it responds to.
 
@@ -27,7 +29,20 @@ An object containing the chat message data.
 
 #### `finish_reason` (String)
 
-Why generation stopped. On normalized responses, known vendor stop reasons map to `stop`, `length`, `tool_calls`, or `content_filter`; a vendor value with no OpenAI analog passes through unchanged.
+Why generation stopped. On normalized responses, known vendor stop reasons map to the OpenAI vocabulary — `stop`, `length`, `tool_calls`, or `content_filter` — and a vendor value with no OpenAI analog passes through unchanged rather than being flattened to `stop`.
+
+Anthropic models are the main source of both cases. Their stop reasons map as follows:
+
+| Anthropic `stop_reason` | Normalized `finish_reason` | Meaning |
+| --- | --- | --- |
+| `end_turn` | `stop` | The model finished its turn. |
+| `stop_sequence` | `stop` | One of your stop sequences was produced. |
+| `max_tokens` | `length` | The token limit was hit mid-answer. |
+| `tool_use` | `tool_calls` | The model wants to call a tool; see `message.tool_calls`. |
+| `refusal` | `content_filter` | The model declined to continue. |
+| `pause_turn` | `pause_turn` | A long-running server-side tool turn was paused — it has no OpenAI analog, so it passes through unchanged. Send the response back as-is to let the model continue. |
+
+Because unmapped values pass through, treat `finish_reason` as an open set: branch on the four OpenAI values you care about and handle anything else as vendor-specific rather than assuming it means `stop`.
 
 #### `normalized` (Boolean)
 

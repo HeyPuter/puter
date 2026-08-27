@@ -364,6 +364,95 @@ describe('ClaudeProvider.complete request shape', () => {
         expect(toolUse!.input).toEqual({ q: 'puter' });
     });
 
+    it('splices round-tripped reasoning_details back in ahead of the content', async () => {
+        // The replay contract for a normalized Claude turn: the caller resends
+        // the whole message, and the thinking blocks have to reach Anthropic
+        // with their signature intact and leading the content array (Anthropic
+        // rejects both a missing signature and a trailing thinking block).
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [
+                    { role: 'user', content: 'think then call a tool' },
+                    {
+                        role: 'assistant',
+                        content: 'here you go',
+                        reasoning: 'step one',
+                        refusal: null,
+                        reasoning_details: [
+                            {
+                                type: 'thinking',
+                                thinking: 'step one',
+                                signature: 'sig_1',
+                            },
+                            { type: 'redacted_thinking', data: 'ENC' },
+                        ],
+                        tool_calls: [
+                            {
+                                id: 'call_1',
+                                type: 'function',
+                                function: {
+                                    name: 'lookup',
+                                    arguments: '{\"q\":\"puter\"}',
+                                },
+                            },
+                        ],
+                    } as never,
+                ],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        const assistant = args.messages[1] as Record<string, unknown>;
+        const content = assistant.content as Array<Record<string, unknown>>;
+        // Thinking blocks lead, verbatim; string content became a text block;
+        // the tool_use block is appended after.
+        expect(content).toEqual([
+            { type: 'thinking', thinking: 'step one', signature: 'sig_1' },
+            { type: 'redacted_thinking', data: 'ENC' },
+            { type: 'text', text: 'here you go' },
+            {
+                type: 'tool_use',
+                id: 'call_1',
+                name: 'lookup',
+                input: { q: 'puter' },
+            },
+        ]);
+        // Output-only fields Anthropic rejects are stripped.
+        expect('reasoning_details' in assistant).toBe(false);
+        expect('reasoning' in assistant).toBe(false);
+        expect('refusal' in assistant).toBe(false);
+    });
+
+    it('strips output-only reasoning fields even with no reasoning_details', async () => {
+        const { provider } = makeProvider();
+        messagesCreateMock.mockResolvedValueOnce(baseResponse);
+
+        await withTestActor(() =>
+            provider.complete({
+                model: 'claude-haiku-4-5-20251001',
+                messages: [
+                    {
+                        role: 'assistant',
+                        content: 'plain reply',
+                        reasoning: 'leftover',
+                        refusal: null,
+                    } as never,
+                ],
+            }),
+        );
+
+        const [args] = messagesCreateMock.mock.calls[0]!;
+        const assistant = args.messages[0] as Record<string, unknown>;
+        expect('reasoning' in assistant).toBe(false);
+        expect('refusal' in assistant).toBe(false);
+        // Content is untouched when there was nothing to splice.
+        expect(assistant.content).toBe('plain reply');
+    });
+
     it('converts a tool-role message with tool_call_id into a user-role tool_result block', async () => {
         const { provider } = makeProvider();
         messagesCreateMock.mockResolvedValueOnce(baseResponse);

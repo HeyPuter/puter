@@ -96,9 +96,9 @@ export interface ICompleteArguments {
     max_tokens?: number;
     temperature?: number;
     reasoning?: { effort: 'low' | 'medium' | 'high' } | undefined;
-    text?: string & { verbosity?: 'concise' | 'detailed' | undefined };
+    text?: { verbosity?: 'low' | 'medium' | 'high' | undefined } | undefined;
     reasoning_effort?: 'low' | 'medium' | 'high' | undefined;
-    verbosity?: 'concise' | 'detailed' | undefined;
+    verbosity?: 'low' | 'medium' | 'high' | undefined;
     moderation?: boolean;
     custom?: unknown;
     /**

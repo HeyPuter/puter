@@ -80,12 +80,25 @@ const mapStopReason = (
     stop_reason: unknown,
     fallback: string | undefined,
 ): string => {
-    if (typeof stop_reason === 'string') {
-        const mapped = STOP_REASON_TO_FINISH_REASON[stop_reason];
-        if (mapped) return mapped;
+    if (typeof stop_reason === 'string' && stop_reason !== '') {
+        // A vendor reason with no OpenAI analog passes through verbatim — the
+        // same contract the Mistral remap follows and the one
+        // Objects/chatresponse.md documents. Collapsing e.g. Anthropic's
+        // `pause_turn` to `stop` would erase a "continue this turn" signal
+        // the caller needs to act on.
+        return STOP_REASON_TO_FINISH_REASON[stop_reason] ?? stop_reason;
     }
     return fallback ?? 'stop';
 };
+
+/**
+ * Verbatim provider reasoning blocks, preserved so a normalized message can
+ * still be replayed into an extended-thinking tool-use continuation. Anthropic
+ * rejects a continuation whose thinking blocks lost their `signature`, and
+ * `redacted_thinking` is opaque but must round-trip intact. Modelled on the
+ * top-level `compaction` artifact: opaque to us, drop-in for the caller.
+ */
+type ReasoningDetail = Record<string, unknown>;
 
 type OpenAIToolCall = {
     id: unknown;
@@ -98,10 +111,11 @@ type OpenAIToolCall = {
  *
  * Returns `res` by reference when the message is already OpenAI-shaped.
  * Otherwise rebuilds `message` (text blocks joined into a string `content`,
- * `tool_use` blocks into `tool_calls`, `thinking` blocks into `reasoning`) and
- * remaps `finish_reason` from the Anthropic `stop_reason`. Everything else on
- * the result — `usage`, the top-level `compaction` artifact — passes through
- * unchanged. The caller owns the `normalized` marker.
+ * `tool_use` blocks into `tool_calls`, `thinking` blocks into `reasoning` plus
+ * verbatim `reasoning_details` for replay) and remaps `finish_reason` from the
+ * Anthropic `stop_reason`, passing an unmapped vendor reason through verbatim.
+ * Everything else on the result — `usage`, the top-level `compaction` artifact
+ * — passes through unchanged. The caller owns the `normalized` marker.
  */
 export const normalizeResultToOpenAI = (
     res: IChatMessageResult,
@@ -127,6 +141,7 @@ export const normalizeResultToOpenAI = (
 
     const textParts: string[] = [];
     const reasoningParts: string[] = [];
+    const reasoningDetails: ReasoningDetail[] = [];
     const toolCalls: OpenAIToolCall[] = [];
 
     for (const block of blocks) {
@@ -140,6 +155,12 @@ export const normalizeResultToOpenAI = (
                 if (typeof b.thinking === 'string') {
                     reasoningParts.push(b.thinking);
                 }
+                reasoningDetails.push({ ...b });
+                break;
+            // Encrypted, so there is no text to surface — but it still has to
+            // survive the round trip, so it rides `reasoning_details` too.
+            case 'redacted_thinking':
+                reasoningDetails.push({ ...b });
                 break;
             case 'tool_use':
                 toolCalls.push({
@@ -154,10 +175,10 @@ export const normalizeResultToOpenAI = (
                     },
                 });
                 break;
-            // `redacted_thinking` is encrypted, and `compaction` already
-            // rides the result's top-level `compaction` field; both — and
-            // any block type introduced later — are dropped rather than
-            // leaked into a shape that has nowhere to put them.
+            // `compaction` already rides the result's top-level
+            // `compaction` field; it — and any block type introduced
+            // later — is dropped rather than leaked into a shape that has
+            // nowhere to put it.
             default:
                 break;
         }
@@ -177,6 +198,9 @@ export const normalizeResultToOpenAI = (
             refusal: null,
             ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
             ...(reasoning !== undefined ? { reasoning } : {}),
+            ...(reasoningDetails.length > 0
+                ? { reasoning_details: reasoningDetails }
+                : {}),
         },
         finish_reason: mapStopReason(native.stop_reason, res.finish_reason),
     };

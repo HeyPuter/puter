@@ -142,9 +142,11 @@ puter.ai.normalize = false;  // every chat() call returns the vendor-native form
 
 A `normalize` option on an individual call always overrides `puter.ai.normalize`. When neither is set, the release-date rule above decides. Normalized responses carry `normalized: true`.
 
-On a normalized response, extended-thinking output (from reasoning models that expose it) is joined into `message.reasoning`, and Anthropic stop reasons are mapped to OpenAI values (`end_turn` → `stop`, `max_tokens` → `length`, `tool_use` → `tool_calls`, `refusal` → `content_filter`).
+On a normalized response, extended-thinking output (from reasoning models that expose it) is joined into `message.reasoning`, and Anthropic stop reasons are mapped to OpenAI values (`end_turn` → `stop`, `max_tokens` → `length`, `tool_use` → `tool_calls`, `refusal` → `content_filter`). A vendor stop reason with no OpenAI equivalent — Anthropic's `pause_turn`, for instance — passes through unchanged, so treat `finish_reason` as an open set. See [`finish_reason`](/Objects/chatresponse) for the full mapping.
 
-Two caveats. The release-date rule applies to the model that actually serves the request — if a request is rerouted to a fallback provider, the served model's release date decides. And normalization drops Anthropic thinking-block signatures, so agentic loops that resend Claude extended-thinking messages in tool-use continuations should request the native format (`normalize: false`).
+Normalization does not cost you the ability to continue a reasoning turn. The opaque parts a provider needs back — Anthropic thinking-block signatures, OpenAI reasoning item ids and encrypted content — are preserved verbatim on `message.reasoning_details`. Resend that array as-is alongside the message when you continue an extended-thinking tool-use loop. The artifacts are vendor-specific and only meaningful to the model that produced them, so replay them to the same model — don't carry them across vendors.
+
+One caveat. The release-date rule applies to the model that actually serves the request — if a request is rerouted to a fallback provider, the served model's release date decides.
 
 Streaming is unaffected by normalization: streamed [`ChatResponseChunk`](/Objects/chatresponsechunk) objects already share one format across all vendors.
 

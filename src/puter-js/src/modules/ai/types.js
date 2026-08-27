@@ -45,6 +45,13 @@
  * @property {{ type: string }} [cache_control]
  * @property {ImageContent[]} [images] Images attached to the message. Present on responses from
  * image-capable models.
+ * @property {string} [reasoning] Reasoning/thinking text, when the model exposes it and the
+ * request asked for it. Present on responses only.
+ * @property {object[]} [reasoning_details] Opaque provider reasoning artifacts (Anthropic thinking
+ * signatures, OpenAI reasoning item ids/encrypted content). Resend them verbatim to continue an
+ * extended-thinking turn. Present on responses only.
+ * @property {string | null} [refusal] Refusal message when the model declined, otherwise `null`.
+ * Present on responses only.
  */
 
 /**
