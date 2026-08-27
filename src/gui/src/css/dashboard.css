@@ -7301,7 +7301,7 @@ body.dashboard-mode .window-dashboard-headless .window-body-app {
     margin: 0;
     font-size: 14px;
     font-weight: 600;
-    color: var(--dashboard-text-primary);
+    color: var(--dashboard-text-tertiary);
 }
 
 .dashboard-notifications-error p {
