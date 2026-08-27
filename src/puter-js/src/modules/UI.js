@@ -2,6 +2,7 @@ import EventListener from '../lib/EventListener.js';
 import { hasUserActivation, openAuthPopup } from '../lib/auth-popup.js';
 import FSItem from './FSItem.js';
 import PuterDialog from './PuterDialog.js';
+import { checkPermissions } from './perms/lib/holds.js';
 
 
 /**
@@ -277,6 +278,9 @@ const pipError = (name, message) => {
 };
 
 const MAX_REQUESTED_PERMISSIONS = 16;
+
+// Short on purpose: a request usually spends a user gesture while it waits.
+const PERMISSION_CHECK_TIMEOUT_MS = 2000;
 
 /**
  * An interface for interacting with another app. Returned by the UI methods
@@ -1708,6 +1712,47 @@ export class UIModule extends EventListener {
     };
 
     /**
+     * Whether every permission in a request is already held, read without
+     * prompting and without changing anything.
+     *
+     * A check that couldn't be made is not an answer: no token, an unreadable
+     * request, a failed read, or one that outlasts its timeout all fall through
+     * to the prompt.
+     *
+     * @param {{ permission?: string, permissions?: string[] }} options
+     * @returns {Promise<boolean>}
+     */
+    async #alreadyHeld (options) {
+        if ( ! this.authToken ) return false;
+        const requested = Array.isArray(options?.permissions)
+            ? options.permissions
+            : [options?.permission];
+        // The prompt paths answer false for a shape they can't read themselves.
+        if ( requested.length === 0
+            || requested.length > MAX_REQUESTED_PERMISSIONS
+            || requested.some(p => typeof p !== 'string' || p === '') ) {
+            return false;
+        }
+        let expiry;
+        try {
+            const held = await Promise.race([
+                checkPermissions(this.puter, [...new Set(requested)]),
+                // Waiting out a stalled read would cost the popup its gesture.
+                new Promise((resolve) => {
+                    expiry = setTimeout(() => resolve(null), PERMISSION_CHECK_TIMEOUT_MS);
+                }),
+            ]);
+            if ( held === null ) return false;
+            // Every scope: one prompt is one decision, so partly-held is unheld.
+            return requested.every(p => held[p] === true);
+        } catch (e) {
+            return false;
+        } finally {
+            clearTimeout(expiry);
+        }
+    }
+
+    /**
      * Asks the user to grant a permission to this app. Inside the Puter GUI
      * the request is relayed to the desktop; on the web the permission
      * dialog is shown in a popup window on the Puter origin.
@@ -1715,10 +1760,19 @@ export class UIModule extends EventListener {
      * One prompt may cover several scopes: pass `permissions` instead of
      * `permission` and the user answers for the whole list at once.
      *
+     * Access already granted resolves `true` without prompting.
+     *
      * @param {{ permission?: string, permissions?: string[] }} options
      * @returns {Promise<boolean>} `true` only if the permission was granted.
      */
     async requestPermission (options) {
+        // Only where a prompt would be raised. Elsewhere this answers false
+        // without asking anyone, and a check must not turn that into a grant.
+        if ( ( this.env === 'app' || this.env === 'web' )
+            && await this.#alreadyHeld(options) ) {
+            return true;
+        }
+
         if ( this.env === 'app' ) {
             const result = await this.#postMessageAsync('requestPermission', { options });
             return result.granted === true;
@@ -1954,12 +2008,13 @@ export class UIModule extends EventListener {
                                 'Content-Type': 'application/json',
                                 'Authorization': `Bearer ${puter.authToken}`,
                             },
-                            body: JSON.stringify({ permissions: [permission] }),
+                            body: JSON.stringify({ permissions: requested }),
                             ...(controller ? { signal: controller.signal } : {}),
                         });
                         if ( ! resp.ok ) continue;
                         const data = await resp.json();
-                        if ( data?.permissions?.[permission] === true ) {
+                        // The whole list, since one prompt is one decision.
+                        if ( requested.every(p => data?.permissions?.[p] === true) ) {
                             settle(true);
                         }
                     } catch (e) {
