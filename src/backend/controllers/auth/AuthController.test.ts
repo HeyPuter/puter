@@ -5024,6 +5024,64 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
         ]);
     });
 
+    // What lets a permission request settle without a prompt. The second string
+    // is a consent scope nothing implies, so the first's `true` is the grant.
+    it('check-permissions: an app-under-user actor sees a grant made to that app', async () => {
+        const { user, actor } = await makeUserAndActor();
+        const app = await server.stores.app.create(
+            {
+                name: `cp-${uuidv4()}`,
+                title: 'TestCheckPermsApp',
+                index_url: 'https://check-perms.example.test/index.html',
+            },
+            { ownerUserId: user.id },
+        );
+        const granted = `user:${user.uuid}:email:read`;
+        const ungranted = `apps-of-user:${user.uuid}:read`;
+
+        const appActor = {
+            user: actor.user,
+            app: { id: app.id, uid: app.uid },
+        } as unknown as Actor;
+        const before = makeRes();
+        await inCtx(appActor, () =>
+            controller.handleCheckPermissions(
+                makeReq(
+                    { permissions: [granted, ungranted] },
+                    { actor: appActor },
+                ),
+                before,
+            ),
+        );
+        expect(before.body).toEqual({
+            permissions: { [granted]: false, [ungranted]: false },
+        });
+
+        await inCtx(actor, () =>
+            controller.handleGrantUserApp(
+                makeReq(
+                    { app_uid: app.uid, permission: granted, extra: {} },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        );
+
+        const after = makeRes();
+        await inCtx(appActor, () =>
+            controller.handleCheckPermissions(
+                makeReq(
+                    { permissions: [granted, ungranted] },
+                    { actor: appActor },
+                ),
+                after,
+            ),
+        );
+        expect(after.body).toEqual({
+            permissions: { [granted]: true, [ungranted]: false },
+        });
+    });
+
     it('list-permissions: returns the shape and includes a user→app grant with its app_uid', async () => {
         const { user, actor } = await makeUserAndActor();
         const app = await server.stores.app.create(

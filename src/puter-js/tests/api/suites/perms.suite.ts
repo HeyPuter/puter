@@ -289,12 +289,13 @@ export default suite('perms', {
         }
     },
 
-    // The one-method-per-task names still ship for apps written against them,
-    // and still prompt without consulting what is already held — which is why
-    // the folder and apps assertions here are the opposite of what `request`
-    // now answers for the same access. `requestPermission` is the exception:
-    // it forwards to `request`, so it picks up the new behaviour (asserted
-    // separately below).
+    // The one-method-per-task names still ship, and go straight to the prompt
+    // without pooling a read of their own — which is why the folder and apps
+    // assertions here are the opposite of what `request` answers. Node and
+    // workerd raise no prompt, so nothing is consulted; in an app or on a
+    // website `ui.requestPermission` checks first and these would answer for
+    // access already held. `requestPermission` forwards to `request`, so it
+    // settles from the pooled read everywhere (asserted separately below).
     'the deprecated request aliases keep delegating': {
         platforms: ['node', 'workerd'],
         fn: async (t) => {

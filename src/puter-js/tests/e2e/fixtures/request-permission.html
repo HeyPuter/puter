@@ -29,6 +29,14 @@
     </script>
     <script src="/dist/puter.dev.js"></script>
     <script>
+        // A driver nothing implies: every app implicitly holds the built-in
+        // driver scopes (backend hardcoded-permissions.js), and access already
+        // held resolves without a prompt. Fresh per page load unless `?perm=`
+        // pins it, so one test's Allow can't settle another test's request.
+        window.__driverPermission =
+            new URLSearchParams(location.search).get('perm')
+            || `driver:e2e-${Math.random().toString(36).slice(2, 10)}:generate`;
+
         const logEl = document.getElementById('log');
         const statusEl = document.getElementById('status');
 
@@ -75,7 +83,7 @@
         document.getElementById('req-driver-perm').addEventListener('click', async () => {
             try {
                 const granted = await puter.ui.requestPermission({
-                    permission: 'driver:puter-image-generation:generate',
+                    permission: window.__driverPermission,
                 });
                 log(`perm:driver:${granted}`);
             } catch (e) {

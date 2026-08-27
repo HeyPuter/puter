@@ -51,6 +51,7 @@ import {
     wantsFullToken,
 } from './util/authmeGrant.js';
 import init_device_signals from './helpers/deviceSignals.js';
+import { holdsPermissions } from './helpers/holdsPermissions.js';
 import item_icon from './helpers/itemIcon.js';
 import launch_app from './helpers/launchApp.js';
 import { parse_url_paths } from './helpers/urlPaths.js';
@@ -81,6 +82,9 @@ const postAuthActions = async (action) => {
     // bootstraps the app row a permission grant is written against, so an
     // action that depends on it has to report failure rather than prompt.
     let token_exchange_failed = false;
+    // The token the exchange minted for the opener's app, kept only to ask what
+    // that app holds — a question this window's own token cannot answer.
+    let user_app_token = null;
     // -------------------------------------------------------------------------------------
     // Action: AuthMe — redirect to a third-party URL with the user's auth token
     // -------------------------------------------------------------------------------------
@@ -385,6 +389,7 @@ const postAuthActions = async (action) => {
                 // This is an implicit app and the app_uid is sent back from the server
                 // we cache it here so that we can use it later
                 window.host_app_uid = data.app_uid;
+                user_app_token = data.token;
                 // send token to parent. The opener is unreachable when it is
                 // cross-origin isolated (COOP severs the relationship); those
                 // flows learn the outcome server-side instead.
@@ -688,6 +693,9 @@ const postAuthActions = async (action) => {
             if ( token_exchange_failed ) {
                 throw new Error('token exchange failed; not prompting');
             }
+            // A signed-out opener holds no token to settle this for itself, so
+            // ask here, as the app, with the token the exchange just minted.
+            const already_held = await holdsPermissions(permissions, user_app_token);
             // The requesting app is identified by its origin, and only the
             // server turns that origin into a grant target. No uid is sent
             // from here: a uid from the query string is chosen by whoever
@@ -700,7 +708,7 @@ const postAuthActions = async (action) => {
             // name. Passing the origin instead makes the server resolve the
             // same origin the dialog displayed, and reject it outright
             // unless it names an app that really exists.
-            granted = await UIPermissionDialog({
+            granted = already_held || await UIPermissionDialog({
                 // See IPC.js: both forms, so a single scope still works with a
                 // dialog that only understands the scalar.
                 permissions,
