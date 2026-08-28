@@ -98,7 +98,9 @@ export class AuthModule extends PuterModule {
      * user's click on it. Resolves once the user has signed in.
      *
      * Rejects with `{ error: 'popup_blocked' }` if the browser blocked the
-     * popup, or `{ error: 'auth_window_closed' }` if the user closed it.
+     * popup, `{ error: 'auth_window_closed' }` if the user closed it, or
+     * `{ error: 'not_available_in_app' }` when called from an app — an app's
+     * token comes from the Puter session that launched it.
      *
      * `request_auth` asks the popup to let the user re-pick their account even
      * when this site already holds a token for them — the GUI otherwise skips
@@ -110,6 +112,17 @@ export class AuthModule extends PuterModule {
      */
     signIn = (options) => {
         options = options || {};
+
+        // Apps receive their token from the GUI that launched them, not from a
+        // popup. Running the popup flow under app mode would deliver the token
+        // to whatever `puter.api_origin` the launching URL named, which in app
+        // mode is URL-supplied.
+        if ( puter.env === 'app' ) {
+            return Promise.reject({
+                error: 'not_available_in_app',
+                msg: 'signIn is not available to an app; the Puter session that launched it provides the token.',
+            });
+        }
 
         return new Promise((resolve, reject) => {
             const signinsession = crypto.randomUUID();
@@ -137,7 +150,11 @@ export class AuthModule extends PuterModule {
                 (async () => {
                     while (true) {
                         try {
-                            const result = await fetchUrl(`${this.APIOrigin}/login/wait`, {
+                            // Pinned to the deployment's own API, the same
+                            // way the popup and its message handler pin
+                            // `defaultGUIOrigin`: this relay hands back a real
+                            // token, so its host must not be one a URL named.
+                            const result = await fetchUrl(`${puter.defaultAPIOrigin}/login/wait`, {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json',
