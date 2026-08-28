@@ -239,9 +239,12 @@ export class AuthController extends PuterController {
         ],
     })
     async loginWait(req: Request, res: Response) {
-        const { session } = req.body;
+        // Destructuring an absent body is a TypeError, not the 400 a request
+        // with no session id deserves.
+        const session = (req.body as { session?: unknown } | undefined)
+            ?.session;
         // validate uuid to prevent ultra long key or listening on pubsub.login.*
-        if (!session || !validateUuid(session)) {
+        if (typeof session !== 'string' || !validateUuid(session)) {
             throw new HttpError(400, 'session is required.', {
                 legacyCode: 'bad_request',
             });
@@ -3800,6 +3803,21 @@ export class AuthController extends PuterController {
                 });
             }
             normalizedLabel = label.trim().slice(0, 64) || null;
+        }
+
+        // jsonwebtoken takes seconds or a duration string ('30d'); anything
+        // else reaches the expiry parser as something with no `.trim`.
+        if (
+            expiresIn !== undefined &&
+            expiresIn !== null &&
+            typeof expiresIn !== 'string' &&
+            typeof expiresIn !== 'number'
+        ) {
+            throw new HttpError(
+                400,
+                '`expiresIn` must be a number of seconds or a duration string',
+                { legacyCode: 'bad_request' },
+            );
         }
 
         // Normalize specs: string → [string], [string] → [string, {}], [string, extra] → as-is

@@ -40,9 +40,29 @@ export function isHttpUrl(s: string): boolean {
  * `mimeHint` (default image/png).
  */
 export function toUrlOrDataUri(img: string, mimeHint?: string): string {
+    assertInputImageString(img, 'input image');
     return isHttpUrl(img) || img.startsWith('data:')
         ? img
         : `data:${mimeHint ?? 'image/png'};base64,${img}`;
+}
+
+/**
+ * An input image is a URL, a data-URI or raw base64 — always a string. The
+ * field comes straight off the driver call, so the type has to be checked
+ * before the helpers below reach for `.startsWith`.
+ */
+export function assertInputImageString(
+    img: unknown,
+    providerLabel: string,
+): string {
+    if (typeof img !== 'string') {
+        throw new HttpError(
+            400,
+            `${providerLabel}: each input image must be a URL, data-URI, or base64 string.`,
+            { legacyCode: 'bad_request' },
+        );
+    }
+    return img;
 }
 
 /**
@@ -62,7 +82,10 @@ export function resolveSingleInputImage(
             { legacyCode: 'bad_request' },
         );
     }
-    return params.input_image ?? imgs?.[0];
+    const chosen = params.input_image ?? imgs?.[0];
+    return chosen === undefined
+        ? undefined
+        : assertInputImageString(chosen, providerLabel);
 }
 
 const DATA_URI_PATTERN = /^data:([^;,]+)?(?:;base64)?,(.*)$/s;
@@ -103,6 +126,7 @@ export async function toBase64DataUri(
     img: string,
     mimeHint?: string,
 ): Promise<string> {
+    assertInputImageString(img, 'input image');
     if (img.startsWith('data:')) return img;
     if (isHttpUrl(img)) {
         const { base64, mime } = await fetchImageAsBase64(img);

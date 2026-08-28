@@ -152,7 +152,10 @@ export class FSController extends PuterController {
     ) {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
-        const requestBody = this.#withGuiMetadata(req.body, req.body);
+        const requestBody = this.#withGuiMetadata(
+            this.#requireObjectBody(req.body),
+            req.body,
+        );
         requestBody.fileMetadata = await this.#normalizeFileMetadataPath(
             req,
             requestBody.fileMetadata,
@@ -319,7 +322,10 @@ export class FSController extends PuterController {
         res: Response<ClientCompleteWriteResponse>,
     ) {
         const userId = this.#getActorUserId(req);
-        const requestBody = this.#withGuiMetadata(req.body, req.body);
+        const requestBody = this.#withGuiMetadata(
+            this.#requireObjectBody(req.body),
+            req.body,
+        );
         this.#assertNoInlineSignedThumbnailData(requestBody.thumbnailData);
 
         const response = await this.services.fs.completeUrlWrite(
@@ -443,7 +449,10 @@ export class FSController extends PuterController {
     ) {
         const userId = this.#getActorUserId(req);
         const storageAllowanceMax = this.#getStorageAllowanceMaxOverride(req);
-        const requestBody = this.#withGuiMetadata(req.body, req.body);
+        const requestBody = this.#withGuiMetadata(
+            this.#requireObjectBody(req.body),
+            req.body,
+        );
         requestBody.fileMetadata = await this.#normalizeFileMetadataPath(
             req,
             requestBody.fileMetadata,
@@ -2213,7 +2222,8 @@ export class FSController extends PuterController {
         // the ActorUser type. Access via the escape hatch until a proper
         // storage-quota mechanism is in place.
         const actorUser = req.actor?.user as
-            Record<string, unknown> | undefined;
+            | Record<string, unknown>
+            | undefined;
 
         const candidates = [
             this.#toStorageCapacityCandidate(actorUser?.free_storage),
@@ -2359,6 +2369,20 @@ export class FSController extends PuterController {
             return undefined;
         }
         return guiMetadata;
+    }
+
+    /**
+     * The write handlers build on `req.body` being an object. A request whose
+     * body never parsed leaves it undefined, and the first field read after
+     * that is a 500 where the request deserves a 400.
+     */
+    #requireObjectBody<T>(body: T | undefined): T {
+        if (!body || typeof body !== 'object') {
+            throw new HttpError(400, 'A request body is required', {
+                legacyCode: 'bad_request',
+            });
+        }
+        return body;
     }
 
     #withGuiMetadata<T extends { guiMetadata?: WriteGuiMetadata }>(
