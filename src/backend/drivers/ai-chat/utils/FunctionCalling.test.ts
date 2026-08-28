@@ -171,9 +171,7 @@ describe('normalize_tools_object', () => {
     });
 
     it('mutates the array in place and returns the same reference', () => {
-        const tools = [
-            { name: 'lookup', input_schema: { type: 'object' } },
-        ];
+        const tools = [{ name: 'lookup', input_schema: { type: 'object' } }];
         const out = normalize_tools_object(tools);
         expect(out).toBe(tools);
     });
@@ -193,6 +191,22 @@ describe('make_openai_tools', () => {
             },
         ];
         expect(make_openai_tools(tools)).toBe(tools);
+    });
+});
+
+describe('make_claude_tools with a malformed tool', () => {
+    it.each([
+        ['no function property', { type: 'web_search' }],
+        ['a null entry', null],
+    ])('answers 400 for a tool with %s', (_label, tool) => {
+        // A TypeError here has no status, so the retry loop reads it as a
+        // provider failure and marks the route unhealthy for every caller.
+        expect(() => make_claude_tools([tool] as never)).toThrowError(
+            expect.objectContaining({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            }),
+        );
     });
 });
 

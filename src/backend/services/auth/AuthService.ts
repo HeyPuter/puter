@@ -464,12 +464,6 @@ export class AuthService extends PuterService {
         expiresIn: string | number | undefined,
     ): number | null {
         if (expiresIn === undefined) return null;
-        // Route handlers validate this, but the parser is reachable from
-        // internal callers too — a wrong type reads as "no hard expiry"
-        // rather than throwing halfway through a mint.
-        if (typeof expiresIn !== 'string' && typeof expiresIn !== 'number') {
-            return null;
-        }
         const now = nowSeconds();
         if (typeof expiresIn === 'number') return now + Math.floor(expiresIn);
         const match = /^(\d+)\s*([smhdwy])?$/.exec(expiresIn.trim());

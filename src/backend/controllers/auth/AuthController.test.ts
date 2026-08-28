@@ -2553,9 +2553,13 @@ describe('AuthController.handleCreateAccessToken + handleRevokeAccessToken', () 
         ['an object', {}],
         ['an array', ['30d']],
         ['a boolean', true],
+        ['a fraction', 1.5],
+        ['a negative', -60],
+        ['an unparseable duration', 'banana'],
+        ['an unknown unit', '30x'],
     ])('rejects %s as expiresIn with 400', async (_label, expiresIn) => {
-        // Only seconds or a duration string are valid; anything else reached
-        // the expiry parser and 500'd on `.trim`.
+        // Anything the signer can't read reaches it only after the session row
+        // is already inserted, so it has to be refused here.
         await expect(
             controller.handleCreateAccessToken(
                 makeReq(
@@ -2567,6 +2571,14 @@ describe('AuthController.handleCreateAccessToken + handleRevokeAccessToken', () 
                 ),
                 makeRes(),
             ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('answers 400 when the request has no parsable body', async () => {
+        const req = makeReq({}, { actor });
+        (req as { body?: unknown }).body = undefined;
+        await expect(
+            controller.handleCreateAccessToken(req, makeRes()),
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
@@ -7356,7 +7368,7 @@ describe('AuthController.loginWait audience binding', () => {
     });
 
     it('answers 400 when the request has no parsable body', async () => {
-        // Destructuring an absent body is a TypeError, which surfaced as a 500.
+        // Destructuring an absent body is a TypeError, not a 400.
         const req = makeReq({}, { headers: { origin: OPENER } });
         (req as { body?: unknown }).body = undefined;
         await expect(

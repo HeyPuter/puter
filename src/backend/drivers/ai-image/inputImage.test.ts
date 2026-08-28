@@ -26,6 +26,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+    assertInputImagesShape,
     fetchImageAsBase64,
     isHttpUrl,
     parseDataUri,
@@ -75,6 +76,51 @@ describe('isHttpUrl', () => {
 });
 
 // -- resolveSingleInputImage -----------------------------------------
+
+describe('isHttpUrl', () => {
+    // Two providers call this directly on caller data rather than going
+    // through the helpers below, so it cannot assume a string.
+    it.each([42, {}, null, undefined, ['https://x/a']])(
+        'returns false for the non-string %s',
+        (value) => {
+            expect(isHttpUrl(value as never)).toBe(false);
+        },
+    );
+});
+
+describe('assertInputImagesShape', () => {
+    it('accepts absent, null, and well-formed fields', () => {
+        expect(() => assertInputImagesShape({}, 'test')).not.toThrow();
+        expect(() =>
+            assertInputImagesShape(
+                { input_image: null, input_images: null } as never,
+                'test',
+            ),
+        ).not.toThrow();
+        expect(() =>
+            assertInputImagesShape(
+                { input_image: 'https://x/a', input_images: ['QUJD'] },
+                'test',
+            ),
+        ).not.toThrow();
+    });
+
+    it.each([
+        ['a non-string input_image', { input_image: 42 }],
+        ['a non-string input_images entry', { input_images: [{}] }],
+        ['a non-array input_images', { input_images: 'QUJD' }],
+        ['a numeric input_images', { input_images: 5 }],
+    ])('rejects %s with 400', (_label, params) => {
+        expect(() =>
+            assertInputImagesShape(params as never, 'test'),
+        ).toThrowError(
+            expect.objectContaining({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            }),
+        );
+    });
+});
 
 describe('resolveSingleInputImage', () => {
     it('returns undefined when neither field is supplied', () => {
