@@ -114,6 +114,21 @@ async function checkMemory(key, limit, windowMs) {
     return true;
 }
 
+/**
+ * Read a bucket's state without spending from it. For gates whose budget is
+ * consumed by something other than the request being admitted — a failed
+ * credential check, say — where charging the check itself would bill every
+ * caller for the attacker's attempts.
+ */
+async function peekMemory(key, limit, windowMs) {
+    const entry = memoryWindows.get(key);
+    if (!entry) return true;
+    const cutoff = Date.now() - windowMs;
+    const timestamps = entry.ts;
+    while (timestamps.length > 0 && timestamps[0] < cutoff) timestamps.shift();
+    return timestamps.length < limit;
+}
+
 // -- Redis backend ---------------------------------------------------
 
 // ioredis MULTI/EXEC reports per-command failures inside the exec() result
@@ -166,6 +181,16 @@ async function checkRedis(
     return true;
 }
 
+async function peekRedis(redis, key, limit, windowMs) {
+    const redisKey = `rate:${key}`;
+    const results = await redis
+        .multi()
+        .zremrangebyscore(redisKey, 0, Date.now() - windowMs)
+        .zcard(redisKey)
+        .exec();
+    return Number(multiResult(results, 1)) < limit;
+}
+
 // -- KV backend ------------------------------------------------------
 
 async function checkKv(kv, key, limit, windowMs) {
@@ -188,6 +213,18 @@ async function checkKv(kv, key, limit, windowMs) {
         expireAt: Math.ceil((now + windowMs) / 1000),
     });
     return true;
+}
+
+// `list` filters by TTL, so a non-expired row is in-window — same read
+// `checkKv` does, minus the write.
+async function peekKv(kv, key, limit) {
+    const { res } = await kv.list({
+        as: 'keys',
+        pattern: `rate:${key}:`,
+        limit: limit + 1,
+    });
+    const keys = Array.isArray(res) ? res : (res?.items ?? []);
+    return keys.length < limit;
 }
 
 // -- Concurrent in-flight backends -----------------------------------
@@ -348,6 +385,10 @@ function instrumentBackendPair(name, pair) {
             withSpan('rate_limit.check', attrs, () =>
                 pair.rate(key, limit, windowMs),
             ),
+        peek: (key, limit, windowMs) =>
+            withSpan('rate_limit.peek', attrs, () =>
+                pair.peek(key, limit, windowMs),
+            ),
         acquire: (key, limit) =>
             withSpan('rate_limit.acquire', attrs, () =>
                 pair.acquire(key, limit),
@@ -357,6 +398,7 @@ function instrumentBackendPair(name, pair) {
 
 const memoryBackendPair = instrumentBackendPair('memory', {
     rate: checkMemory,
+    peek: peekMemory,
     acquire: acquireMemoryConcurrent,
 });
 
@@ -403,12 +445,15 @@ export function configureRateLimit({
         backends.redis = instrumentBackendPair('redis', {
             rate: (key, limit, windowMs) =>
                 checkRedis(redis, key, limit, windowMs),
+            peek: (key, limit, windowMs) =>
+                peekRedis(redis, key, limit, windowMs),
             acquire: (key, limit) => acquireRedisConcurrent(redis, key, limit),
         });
     }
     if (kv) {
         backends.kv = instrumentBackendPair('kv', {
             rate: (key, limit, windowMs) => checkKv(kv, key, limit, windowMs),
+            peek: (key, limit) => peekKv(kv, key, limit),
             acquire: (key, limit) => acquireKvConcurrent(kv, key, limit),
         });
     }
@@ -433,10 +478,10 @@ export function listConfiguredRateLimitBackends() {
 }
 
 /**
- * Resolve the `{ rate, acquire }` backend pair for a named backend. Unknown /
- * unconfigured names log once and fall through to the default so a typo in a
- * route or driver decorator doesn't 500 every request — rate limiting is
- * best-effort security.
+ * Resolve the `{ rate, peek, acquire }` backend pair for a named backend.
+ * Unknown / unconfigured names log once and fall through to the default so a
+ * typo in a route or driver decorator doesn't 500 every request — rate limiting
+ * is best-effort security.
  */
 function resolveBackend(name) {
     if (!name) return backends[defaultBackendName];
@@ -631,6 +676,26 @@ export async function checkRateLimit(key, limit, windowMs, backend) {
     } catch (err) {
         console.error(
             '[rate-limit] imperative check failed, failing open:',
+            err,
+        );
+        return true;
+    }
+}
+
+/**
+ * Read whether `key` still has budget, without spending any. The twin to
+ * `checkRateLimit` for gates whose budget is consumed by an outcome rather than
+ * by the request: a failed-credential counter has to be readable before the
+ * work that might fail, or the check itself charges every honest caller. Fails
+ * open on backend error, matching the rest of this module's policy.
+ */
+export async function peekRateLimit(key, limit, windowMs, backend) {
+    const bk = resolveBackend(backend);
+    try {
+        return await bk.peek(key, limit, windowMs);
+    } catch (err) {
+        console.error(
+            '[rate-limit] imperative peek failed, failing open:',
             err,
         );
         return true;

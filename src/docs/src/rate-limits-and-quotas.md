@@ -7,11 +7,11 @@ description: The rate limits, usage credits, and storage quotas that apply to Pu
 
 Three separate mechanisms decide whether a call succeeds. They are independent, and hitting any one of them is enough to stop a request:
 
-| Mechanism | Bounds | Refills | Failure |
-| --- | --- | --- | --- |
-| **Usage credit** | what usage *costs* (AI, egress, KV capacity, storage ops, workers) | monthly, per plan | `402` `insufficient_funds` |
-| **Rate limit** | how many *requests* are made per window | rolling window (10s / 1min / 1h) | `429` `too_many_requests` |
-| **Storage quota** | how many *bytes* are kept in the filesystem | never — the user deletes or upgrades | `413` `storage_limit_reached` |
+| Mechanism         | Bounds                                                             | Refills                              | Failure                       |
+| ----------------- | ------------------------------------------------------------------ | ------------------------------------ | ----------------------------- |
+| **Usage credit**  | what usage _costs_ (AI, egress, KV capacity, storage ops, workers) | monthly, per plan                    | `402` `insufficient_funds`    |
+| **Rate limit**    | how many _requests_ are made per window                            | rolling window (10s / 1min / 1h)     | `429` `too_many_requests`     |
+| **Storage quota** | how many _bytes_ are kept in the filesystem                        | never — the user deletes or upgrades | `413` `storage_limit_reached` |
 
 A credit balance does not buy rate-limit headroom, and an empty balance does not stop metadata reads that cost nothing. Design for all three.
 
@@ -27,7 +27,7 @@ Usage is charged against the account's monthly credit allowance, metered per ope
 
 What usage costs (the big three):
 
-- **Egress** — every byte sent to a client, on *all* responses, not just file downloads. This is the one developers underestimate.
+- **Egress** — every byte sent to a client, on _all_ responses, not just file downloads. This is the one developers underestimate.
 - **AI** — priced per model and per token/second/character. `puter.ai.listModels()` reports models; the per-model rates are served by the API (`GET /metering/allCosts`) rather than printed here, because a single number would be wrong for every model.
 - **KV and storage operations** — small per-operation costs; reads served from cache are charged a fraction of an uncached read.
 
@@ -43,10 +43,10 @@ Every limit is a rolling window, keyed per user. Where three numbers are shown t
 
 Shared by chat, image generation, video, TTS, speech and OCR:
 
-| Limit | Paid | Free | Anonymous |
-| --- | --- | --- | --- |
-| Requests per 10s (per interface + method) | 200 | 30 | 20 |
-| Concurrent requests (per interface + method) | 20 | 3 | 2 |
+| Limit                                        | Paid | Free | Anonymous |
+| -------------------------------------------- | ---- | ---- | --------- |
+| Requests per 10s (per interface + method)    | 200  | 30   | 20        |
+| Concurrent requests (per interface + method) | 20   | 3    | 2         |
 
 Concurrency is counted per interface, so an image generation and a chat completion do not compete for the same slots.
 
@@ -54,19 +54,19 @@ The OpenAI- and Anthropic-compatible endpoints (`/puterai/openai/v1/*`, `/putera
 
 ### Key-value store
 
-| Limit | Paid | Free | Anonymous |
-| --- | --- | --- | --- |
-| `get` / `set` / etc. per 10s | 400 | 400 | 200 |
-| `list` (prefix scan) per minute | 240 | 120 | 60 |
-| Concurrent calls | 30 | 15 | 8 |
-| Concurrent `list` | 5 | 3 | 2 |
+| Limit                           | Paid | Free | Anonymous |
+| ------------------------------- | ---- | ---- | --------- |
+| `get` / `set` / etc. per 10s    | 400  | 400  | 200       |
+| `list` (prefix scan) per minute | 240  | 120  | 60        |
+| Concurrent calls                | 30   | 15   | 8         |
+| Concurrent `list`               | 5    | 3    | 2         |
 
 Sizes are fixed for every account:
 
-| Size | Limit |
-| --- | --- |
-| Key | 1 KB |
-| Value | 400 KB |
+| Size                      | Limit                                     |
+| ------------------------- | ----------------------------------------- |
+| Key                       | 1 KB                                      |
+| Value                     | 400 KB                                    |
 | Any number inside a value | ±9,007,199,254,740,991 (2<sup>53</sup>−1) |
 
 A key or value over its size limit is rejected outright. A number over its limit is not: it is stored clamped to the bound, and `NaN` is stored as `null` — the same thing `JSON.stringify()` does with it. This applies to numbers nested anywhere inside an object or array, so a value carrying one still keeps every other field it holds. Anything that has to stay exact past 2<sup>53</sup> — a large id, a running total — should be stored as a string.
@@ -75,62 +75,79 @@ A key or value over its size limit is rejected outright. A number over its limit
 
 All per minute unless stated:
 
-| Operation | Paid | Free | Anonymous |
-| --- | --- | --- | --- |
-| `stat` | 1,200 | 600 | 300 |
-| `readdir` | 600 | 300 | 120 |
-| `readdir` burst (per 10s) | 120 | 60 | 30 |
-| `read` | 600 | 300 | 120 |
-| `write` | 300 | 120 | 30 |
-| Multipart upload calls | 2,400 | 1,200 | 600 |
-| Mutations (mkdir/rename/delete/move/copy) | 1,200 | 900 | 600 |
-| Mutations, sustained (per hour) | 6,000 | 3,000 | 1,800 |
-| Search | 60 | 30 | 10 |
-| `space()` | 60 | 30 | 15 |
-| Sign a URL | 300 | 150 | 60 |
+| Operation                                 | Paid  | Free  | Anonymous |
+| ----------------------------------------- | ----- | ----- | --------- |
+| `stat`                                    | 1,200 | 600   | 300       |
+| `readdir`                                 | 600   | 300   | 120       |
+| `readdir` burst (per 10s)                 | 120   | 60    | 30        |
+| `read`                                    | 600   | 300   | 120       |
+| `write`                                   | 300   | 120   | 30        |
+| Multipart upload calls                    | 2,400 | 1,200 | 600       |
+| Mutations (mkdir/rename/delete/move/copy) | 1,200 | 900   | 600       |
+| Mutations, sustained (per hour)           | 6,000 | 3,000 | 1,800     |
+| Search                                    | 60    | 30    | 10        |
+| `space()`                                 | 60    | 30    | 15        |
+| Sign a URL                                | 300   | 150   | 60        |
 
 | Concurrency | Paid | Free | Anonymous |
-| --- | --- | --- | --- |
-| `read` | 10 | 5 | 3 |
-| `write` | 15 | 6 | 3 |
-| Search | 5 | 2 | 2 |
+| ----------- | ---- | ---- | --------- |
+| `read`      | 10   | 5    | 3         |
+| `write`     | 15   | 6    | 3         |
+| Search      | 5    | 2    | 2         |
 
 Signed-URL routes have no session to key on, so they are bounded per network rather than per account: 3,000 reads/min, 600 writes/min, 60 concurrent.
 
+### WebDAV
+
+The `dav` host authenticates each request itself, so its limits are bounded per network rather than per account: **600 requests/min** and **10 concurrent**, one ceiling for everyone.
+
+A DAV client resends its credentials on every request, so that ceiling can't also bound credential guessing. Failed sign-ins are counted separately — successful ones cost nothing:
+
+| Limit                            | Per 15 minutes |
+| -------------------------------- | -------------- |
+| Failed sign-ins for one account  | 10             |
+| Failed sign-ins from one address | 50             |
+
+Over either, the host answers `429` until the window rolls off — including for the right password. Ten wrong ones lock that account out of `dav` for the rest of the window, so a client left running with a stale password keeps itself locked out; fix the stored password and wait for the window rather than retrying.
+
+This applies only to `dav`. The account is unaffected everywhere else — the desktop, the API and `puter.auth` all keep working throughout.
+
+Mounting with a `-token` username and an API token as the password skips the per-account ceiling entirely, which is the better setup for anything long-lived: the token is revocable from the dashboard without changing the account password, and it can't be locked out by someone else guessing at your account.
+
 ### Sites and workers
 
-| Limit | Paid | Free | Anonymous |
-| --- | --- | --- | --- |
-| Subdomain reads per 10s | 200 | 200 | 100 |
-| Subdomain `create` per minute | 120 | 60 | 30 |
-| Concurrent subdomain calls | 20 | 10 | 5 |
-| Worker metadata reads per minute | 600 | 300 | 150 |
-| Worker `create` (deploy) per minute | 120 | 80 | 40 |
-| Worker `destroy` per minute | 30 | 20 | 10 |
-| Concurrent worker calls | 10 | 5 | 3 |
-| Concurrent deploys | 5 | 2 | 2 |
+| Limit                               | Paid | Free | Anonymous |
+| ----------------------------------- | ---- | ---- | --------- |
+| Subdomain reads per 10s             | 200  | 200  | 100       |
+| Subdomain `create` per minute       | 120  | 60   | 30        |
+| Concurrent subdomain calls          | 20   | 10   | 5         |
+| Worker metadata reads per minute    | 600  | 300  | 150       |
+| Worker `create` (deploy) per minute | 120  | 80   | 40        |
+| Worker `destroy` per minute         | 30   | 20   | 10        |
+| Concurrent worker calls             | 10   | 5    | 3         |
+| Concurrent deploys                  | 5    | 2    | 2         |
 
 ### Sharing
 
 Sharing is bounded twice: on the calls, and on how many people one account can reach in a day.
 
-| Limit | All accounts |
-| --- | --- |
-| `share` / `revoke` calls per minute | 60 |
-| `share` / `revoke` calls per day | 500 |
-| Reads (`getShares`, `listShared`) per minute | 600 |
-| New shares per day | 200 |
-| Recipients per request | 10 |
-| Items per request | 50 |
+| Limit                                        | All accounts |
+| -------------------------------------------- | ------------ |
+| `share` / `revoke` calls per minute          | 60           |
+| `share` / `revoke` calls per day             | 500          |
+| Reads (`getShares`, `listShared`) per minute | 600          |
+| New shares per day                           | 200          |
+| Recipients per request                       | 10           |
+| Items per request                            | 50           |
 
 A "new share" is one that gives someone access they didn't already have. Changing the mode on an existing share, or re-sharing an item the recipient already has, costs nothing. Over the daily limit, `share` fails with `share_daily_limit_reached`.
 
 Separately, the notification and email that tell a recipient about a share are budgeted — being told is not the same as being interrupted about it:
 
-| Announcement | Limit |
-| --- | --- |
+| Announcement                     | Limit                        |
+| -------------------------------- | ---------------------------- |
 | From one sender to one recipient | 1 per 15 minutes, 20 per day |
-| To one recipient, from anyone | 10 per hour, 50 per day |
+| To one recipient, from anyone    | 10 per hour, 50 per day      |
 
 Recipients are emailed by default and opt out with the unsubscribe link the mail carries; a deployment can turn share email off entirely with `share_email_notifications: false`.
 
@@ -138,14 +155,14 @@ Over these, **the share still succeeds** — only the announcement is dropped. T
 
 ### Peer connections
 
-| Limit | Paid | Free | Anonymous |
-| --- | --- | --- | --- |
-| Relay credentials per minute | 30 | 10 | 5 |
-| Guest grants issued per minute | 30 | 10 | 5 |
+| Limit                          | Paid | Free | Anonymous |
+| ------------------------------ | ---- | ---- | --------- |
+| Relay credentials per minute   | 30   | 10   | 5         |
+| Guest grants issued per minute | 30   | 10   | 5         |
 
 Signalling details are public deployment config and bounded per network instead of per account, at 3,000 reads/min.
 
-Guests are bounded per *host*: everyone holding grants from the same account shares **60 relay-credential requests/min**. Relay traffic a guest sends is metered against the account that issued the grant, so treat a grant as something that spends your allowance — issue it for the session you meant to host, and let it expire rather than reusing one indefinitely.
+Guests are bounded per _host_: everyone holding grants from the same account shares **60 relay-credential requests/min**. Relay traffic a guest sends is metered against the account that issued the grant, so treat a grant as something that spends your allowance — issue it for the session you meant to host, and let it expire rather than reusing one indefinitely.
 
 ### Everything at once
 
@@ -153,16 +170,16 @@ Every driver call also passes one shared per-account budget of **8,000 calls/min
 
 ## Storage quota
 
-Every account has a byte quota for the filesystem (100 MiB free; paid plans add more). Storage is what the user is *keeping*, not what they transferred — deleting files frees it immediately. At the limit, writes fail with `413` `storage_limit_reached`; reads keep working. `puter.fs.space()` returns `{ capacity, used }` live.
+Every account has a byte quota for the filesystem (100 MiB free; paid plans add more). Storage is what the user is _keeping_, not what they transferred — deleting files frees it immediately. At the limit, writes fail with `413` `storage_limit_reached`; reads keep working. `puter.fs.space()` returns `{ capacity, used }` live.
 
 ## What happens when you hit a limit
 
-| Status | `code` | Meaning | What to do |
-| --- | --- | --- | --- |
-| `429` | `too_many_requests` | Rate or concurrency limit | Back off and retry; the window is at most 60s (or 1h for the sustained FS budget) |
-| `402` | `insufficient_funds` | Monthly credit spent | The user buys credit or upgrades; resets next month |
-| `402` | `subscription_required` | The endpoint is limited to paid plans | The user upgrades — retrying or waiting changes nothing |
-| `413` | `storage_limit_reached` | Storage quota reached | The user deletes files or upgrades |
+| Status | `code`                  | Meaning                               | What to do                                                                        |
+| ------ | ----------------------- | ------------------------------------- | --------------------------------------------------------------------------------- |
+| `429`  | `too_many_requests`     | Rate or concurrency limit             | Back off and retry; the window is at most 60s (or 1h for the sustained FS budget) |
+| `402`  | `insufficient_funds`    | Monthly credit spent                  | The user buys credit or upgrades; resets next month                               |
+| `402`  | `subscription_required` | The endpoint is limited to paid plans | The user upgrades — retrying or waiting changes nothing                           |
+| `413`  | `storage_limit_reached` | Storage quota reached                 | The user deletes files or upgrades                                                |
 
 Errors come back as JSON: `{ "error": …, "message": …, "code": … }`.
 

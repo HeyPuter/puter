@@ -64,7 +64,16 @@ import {
     hasWritePermission,
     refreshLock,
 } from './locks.js';
-import { DAV_CONCURRENT, DAV_LIMIT } from '../fs/limits.js';
+import {
+    DAV_AUTH_FAILURE_IP_LIMIT,
+    DAV_AUTH_FAILURE_LIMIT,
+    DAV_CONCURRENT,
+    DAV_LIMIT,
+} from '../fs/limits.js';
+import {
+    checkRateLimit,
+    peekRateLimit,
+} from '../../core/http/middleware/rateLimit.js';
 import { assertActorHasCredits } from '../../services/metering/enforcement.js';
 import type { ResolvedShare } from '../../services/share/ShareService.js';
 
@@ -311,6 +320,63 @@ export class WebDAVController extends PuterController {
 
     // -- Auth ---------------------------------------------------------
 
+    /**
+     * The failure buckets for one attempt. `account` is null on the `-token`
+     * path, which has no account to bucket on — a shared bucket across every
+     * user's tokens would let bad tokens lock out good ones — so those attempts
+     * are held by the per-IP backstop alone. Otherwise it's the username as
+     * presented, lowercased: a bucket per spelling would hand an attacker one
+     * per casing.
+     */
+    #authFailureKeys(req: Request, account: string | null): string[] {
+        const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+        const keys = [`${DAV_AUTH_FAILURE_IP_LIMIT.scope}:${ip}`];
+        if (account !== null) {
+            keys.unshift(
+                `${DAV_AUTH_FAILURE_LIMIT.scope}:${account.toLowerCase()}`,
+            );
+        }
+        return keys;
+    }
+
+    #authFailureSpec(key: string) {
+        return key.startsWith(`${DAV_AUTH_FAILURE_IP_LIMIT.scope}:`)
+            ? DAV_AUTH_FAILURE_IP_LIMIT
+            : DAV_AUTH_FAILURE_LIMIT;
+    }
+
+    /**
+     * Refuse before the credential work when a failure bucket is spent. Peeked
+     * rather than spent, so an honest client — which resends its credentials on
+     * every request — never draws the budget down.
+     */
+    async #assertAuthAttemptsRemain(
+        req: Request,
+        account: string | null,
+    ): Promise<void> {
+        const results = await Promise.all(
+            this.#authFailureKeys(req, account).map((key) => {
+                const spec = this.#authFailureSpec(key);
+                return peekRateLimit(key, spec.limit, spec.window);
+            }),
+        );
+        if (results.every(Boolean)) return;
+        throw new HttpError(429, 'Too many failed authentication attempts');
+    }
+
+    /** Charge one failed verification to every bucket that holds this attempt. */
+    async #recordAuthFailure(
+        req: Request,
+        account: string | null,
+    ): Promise<void> {
+        await Promise.all(
+            this.#authFailureKeys(req, account).map((key) => {
+                const spec = this.#authFailureSpec(key);
+                return checkRateLimit(key, spec.limit, spec.window);
+            }),
+        );
+    }
+
     async #resolveActor(req: Request, res: Response): Promise<Actor | null> {
         // If the global authProbe already resolved an actor, use it.
         if (req.actor?.user) return req.actor;
@@ -339,12 +405,19 @@ export class WebDAVController extends PuterController {
         }
         const username = decoded.slice(0, colonIdx);
         const password = decoded.slice(colonIdx + 1);
+        const isTokenAuth = username === '-token';
+        const failureAccount = isTokenAuth ? null : username;
+
+        // Ahead of the verification, so a spent budget never buys a bcrypt
+        // round. Throws 429; `#serve` turns that into the client's reply.
+        await this.#assertAuthAttemptsRemain(req, failureAccount);
 
         // `-token` username: password IS the auth token
-        if (username === '-token') {
+        if (isTokenAuth) {
             const actor =
                 await this.services.auth.authenticateFromToken(password);
             if (!actor) {
+                await this.#recordAuthFailure(req, failureAccount);
                 res.status(401)
                     .set('WWW-Authenticate', 'Basic realm="WebDAV"')
                     .send('Invalid token');
@@ -356,6 +429,7 @@ export class WebDAVController extends PuterController {
         // Regular username + password (with optional 6-digit OTP suffix)
         const user = await this.stores.user.getByUsername(username);
         if (!user || !user.password) {
+            await this.#recordAuthFailure(req, failureAccount);
             res.status(401)
                 .set('WWW-Authenticate', 'Basic realm="WebDAV"')
                 .send('Invalid credentials');
@@ -368,6 +442,7 @@ export class WebDAVController extends PuterController {
         let passwordOk = false;
         if (otpEnabled) {
             if (password.length <= 6) {
+                await this.#recordAuthFailure(req, failureAccount);
                 res.status(401)
                     .set('WWW-Authenticate', 'Basic realm="WebDAV"')
                     .send('Invalid credentials');
@@ -386,6 +461,7 @@ export class WebDAVController extends PuterController {
         }
 
         if (!passwordOk) {
+            await this.#recordAuthFailure(req, failureAccount);
             res.status(401)
                 .set('WWW-Authenticate', 'Basic realm="WebDAV"')
                 .send('Invalid credentials');
