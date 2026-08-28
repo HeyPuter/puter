@@ -2549,6 +2549,27 @@ describe('AuthController.handleCreateAccessToken + handleRevokeAccessToken', () 
         ).rejects.toMatchObject({ statusCode: 400 });
     });
 
+    it.each([
+        ['an object', {}],
+        ['an array', ['30d']],
+        ['a boolean', true],
+    ])('rejects %s as expiresIn with 400', async (_label, expiresIn) => {
+        // Only seconds or a duration string are valid; anything else reached
+        // the expiry parser and 500'd on `.trim`.
+        await expect(
+            controller.handleCreateAccessToken(
+                makeReq(
+                    {
+                        permissions: ['fs:read'],
+                        expiresIn: expiresIn as unknown as string,
+                    },
+                    { actor },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
     it('rejects a permission spec that is neither a string nor a tuple with 400', async () => {
         await expect(
             controller.handleCreateAccessToken(
@@ -7332,6 +7353,27 @@ describe('AuthController.loginWait audience binding', () => {
                 makeRes(),
             ),
         ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    it('answers 400 when the request has no parsable body', async () => {
+        // Destructuring an absent body is a TypeError, which surfaced as a 500.
+        const req = makeReq({}, { headers: { origin: OPENER } });
+        (req as { body?: unknown }).body = undefined;
+        await expect(
+            controller.loginWait(req, makeRes()),
+        ).rejects.toMatchObject({ statusCode: 400, legacyCode: 'bad_request' });
+    });
+
+    it('rejects a non-string session id with 400', async () => {
+        await expect(
+            controller.loginWait(
+                makeReq(
+                    { session: { nested: true } as unknown as string },
+                    { headers: { origin: OPENER } },
+                ),
+                makeRes(),
+            ),
+        ).rejects.toMatchObject({ statusCode: 400 });
     });
 
     it('still rejects a malformed session id before looking at Origin', async () => {

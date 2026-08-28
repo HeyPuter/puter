@@ -3,18 +3,19 @@
  *
  * This file is part of Puter.
  *
- * Puter is free software: you can redistribute it and/or modify
- * it under the terms of the GNU Affero General Public License as published
- * by the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
+ * Puter is free software: you can redistribute it and/or modify it under the
+ * terms of the GNU Affero General Public License as published by the Free
+ * Software Foundation, either version 3 of the License, or (at your option) any
+ * later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Affero General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+ * FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+ * details.
  *
  * You should have received a copy of the GNU Affero General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * along with this program. If not, see
+ * [https://www.gnu.org/licenses/](https://www.gnu.org/licenses/).
  */
 
 /**
@@ -99,6 +100,44 @@ describe('resolveSingleInputImage', () => {
         expect(
             resolveSingleInputImage({ input_images: [] }, 'TestProvider'),
         ).toBeUndefined();
+    });
+
+    it.each([
+        ['a number', 42],
+        ['an object', {}],
+        ['a nested array', ['inner']],
+    ])('throws 400 for %s in input_image', (_label, img) => {
+        // The field comes straight off the driver call; a non-string used to
+        // reach `.startsWith` and 500.
+        expect(() =>
+            resolveSingleInputImage(
+                { input_image: img } as never,
+                'TestProvider',
+            ),
+        ).toThrowError(
+            expect.objectContaining({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            }),
+        );
+    });
+
+    it('treats a null input_image as absent, not as a bad request', () => {
+        expect(
+            resolveSingleInputImage(
+                { input_image: null } as never,
+                'TestProvider',
+            ),
+        ).toBeUndefined();
+    });
+
+    it('throws 400 for a non-string input_images entry', () => {
+        expect(() =>
+            resolveSingleInputImage(
+                { input_images: [{ url: 'x' }] } as never,
+                'TestProvider',
+            ),
+        ).toThrowError(expect.objectContaining({ statusCode: 400 }));
     });
 
     it('throws 400 naming the provider when more than one image is supplied', () => {
@@ -231,6 +270,13 @@ describe('toBase64DataUri', () => {
         expect(await toBase64DataUri('QUJD', 'image/webp')).toBe(
             'data:image/webp;base64,QUJD',
         );
+    });
+
+    it('rejects a non-string with 400 rather than a 500 from startsWith', async () => {
+        await expect(toBase64DataUri(42 as never)).rejects.toMatchObject({
+            statusCode: 400,
+        });
+        expect(secureFetchMock).not.toHaveBeenCalled();
     });
 
     it('propagates a failed remote fetch rather than producing an empty image', async () => {
