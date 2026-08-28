@@ -95,6 +95,7 @@ const makeReq = (init: {
     headers?: Record<string, string>;
     actor?: unknown;
     socket?: unknown;
+    ip?: string;
 }): Request => {
     return {
         method: init.method,
@@ -104,6 +105,7 @@ const makeReq = (init: {
         headers: init.headers ?? {},
         actor: init.actor,
         socket: init.socket ?? {},
+        ip: init.ip,
     } as unknown as Request;
 };
 
@@ -296,6 +298,141 @@ describe('WebDAVController', () => {
                 noop,
             );
             expect(captured.statusCode).toBe(401);
+        });
+    });
+
+    describe('Basic-auth brute-force gate', () => {
+        // Every case pins its own `ip` so the per-IP backstop is not shared
+        // with the rest of the file — the memory bucket store is module-wide.
+        const makePasswordUser = async () => {
+            const username = `webdav-pw-${Math.random()
+                .toString(36)
+                .slice(2, 10)}`;
+            const created = await server.stores.user.create({
+                username,
+                uuid: uuidv4(),
+                password: await bcryptHash('correct-horse', 4),
+                email: `${username}@test.local`,
+                free_storage: 100 * 1024 * 1024,
+                requires_email_confirmation: false,
+            });
+            await generateDefaultFsentries(
+                server.clients.db,
+                server.stores.user,
+                created,
+            );
+            return username;
+        };
+
+        const attempt = async (headers: Record<string, string>, ip: string) => {
+            const { res, captured } = makeRes();
+            await dispatchMiddleware(
+                makeReq({ method: 'OPTIONS', headers, ip }),
+                res,
+                noop,
+            );
+            return captured;
+        };
+
+        it('stops guessing one account after ten failures, before the compare', async () => {
+            const username = await makePasswordUser();
+            const ip = '203.0.113.10';
+
+            for (let i = 0; i < 10; i++) {
+                const captured = await attempt(
+                    { authorization: basicAuth(username, `guess-${i}`) },
+                    ip,
+                );
+                expect(captured.statusCode).toBe(401);
+            }
+
+            const lookup = vi.spyOn(server.stores.user, 'getByUsername');
+            const blocked = await attempt(
+                { authorization: basicAuth(username, 'guess-11') },
+                ip,
+            );
+            expect(blocked.statusCode).toBe(429);
+            // Refused ahead of the credential work, so the attempt costs
+            // neither a user lookup nor a bcrypt round.
+            expect(lookup).not.toHaveBeenCalled();
+            lookup.mockRestore();
+
+            // Bucketed per account, not globally: another account from the
+            // same IP still gets its attempt.
+            const otherUsername = await makePasswordUser();
+            expect(
+                (
+                    await attempt(
+                        { authorization: basicAuth(otherUsername, 'nope') },
+                        ip,
+                    )
+                ).statusCode,
+            ).toBe(401);
+        });
+
+        it('does not spend the budget on successful requests', async () => {
+            const username = await makePasswordUser();
+            const ip = '203.0.113.11';
+            const good = {
+                authorization: basicAuth(username, 'correct-horse'),
+            };
+
+            // A working DAV client resends credentials on every request; well
+            // past the failure ceiling, none of them may count against it.
+            for (let i = 0; i < 20; i++) {
+                expect((await attempt(good, ip)).statusCode).toBe(200);
+            }
+            expect(
+                (
+                    await attempt(
+                        { authorization: basicAuth(username, 'wrong') },
+                        ip,
+                    )
+                ).statusCode,
+            ).toBe(401);
+        });
+
+        it('backstops spraying many accounts from one address', async () => {
+            const ip = '203.0.113.12';
+            // Unknown usernames never reach bcrypt, so this is the shape an
+            // attacker uses to mint a fresh per-account bucket every attempt.
+            for (let i = 0; i < 50; i++) {
+                const captured = await attempt(
+                    { authorization: basicAuth(`sprayed-${i}`, 'password') },
+                    ip,
+                );
+                expect(captured.statusCode).toBe(401);
+            }
+            expect(
+                (
+                    await attempt(
+                        { authorization: basicAuth('sprayed-50', 'password') },
+                        ip,
+                    )
+                ).statusCode,
+            ).toBe(429);
+        });
+
+        it('holds token guessing on the per-IP backstop', async () => {
+            const ip = '203.0.113.13';
+            for (let i = 0; i < 50; i++) {
+                expect(
+                    (
+                        await attempt(
+                            { authorization: basicAuth('-token', `bad-${i}`) },
+                            ip,
+                        )
+                    ).statusCode,
+                ).toBe(401);
+            }
+            expect(
+                (
+                    await attempt(
+                        { authorization: basicAuth('-token', 'bad-50') },
+                        ip,
+                    )
+                ).statusCode,
+            ).toBe(429);
         });
     });
 
