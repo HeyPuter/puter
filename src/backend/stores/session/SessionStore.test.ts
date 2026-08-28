@@ -233,7 +233,14 @@ describe('SessionStore', () => {
                 parent_session_id: parent.uuid,
             });
 
-            await target.revokeCascade(parent.uuid);
+            const revoked = await target.revokeCascade(parent.uuid);
+
+            // Reported back so callers can tear down anything else holding
+            // one of these sessions open.
+            expect(revoked.userId).toBe(user.id);
+            expect(new Set(revoked.uuids)).toEqual(
+                new Set([parent.uuid, child1.uuid, child2.uuid]),
+            );
 
             expect(await target.getByUuid(parent.uuid)).toBeNull();
             expect(await target.getByUuid(child1.uuid)).toBeNull();
@@ -262,14 +269,12 @@ describe('SessionStore', () => {
         it('is a no-op when the root uuid does not exist', async () => {
             await expect(
                 target.revokeCascade('nonexistent-uuid'),
-            ).resolves.toBeUndefined();
+            ).resolves.toBeNull();
         });
 
         it('is a no-op when called with a falsy uuid', async () => {
-            await expect(target.revokeCascade('')).resolves.toBeUndefined();
-            await expect(
-                target.revokeCascade(undefined),
-            ).resolves.toBeUndefined();
+            await expect(target.revokeCascade('')).resolves.toBeNull();
+            await expect(target.revokeCascade(undefined)).resolves.toBeNull();
         });
     });
 

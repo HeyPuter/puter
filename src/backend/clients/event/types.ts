@@ -494,6 +494,13 @@ export type EventMap = {
     'web.socket.connected': { socket: unknown; user: unknown };
     'web.socket.user-connected': { socket: unknown; user: unknown };
 
+    /**
+     * Sessions were revoked for a user. Anything holding one of them open — a
+     * live socket, say — should drop it: `revoked_at` is otherwise only read on
+     * the next handshake.
+     */
+    'auth.sessions.revoked': { user_id: number; session_uids: string[] };
+
     // ---- Extension hooks / misc ----
     'puter.gui.addons': {
         prependHeadContent?: string[];
@@ -634,10 +641,11 @@ export type EventKey = keyof EventMap & string;
 // Generates a wildcard for every non-final dot-separated prefix of K.
 export type WildcardPrefixes<K extends string> =
     K extends `${infer Head}.${infer Tail}`
-        ? | `${Head}.*`
-          | (Tail extends `${string}.${string}`
-                ? `${Head}.${WildcardPrefixes<Tail>}`
-                : never)
+        ?
+              | `${Head}.*`
+              | (Tail extends `${string}.${string}`
+                    ? `${Head}.${WildcardPrefixes<Tail>}`
+                    : never)
         : never;
 
 export type ListenKey = EventKey | WildcardPrefixes<EventKey>;
