@@ -75,9 +75,9 @@ describe('normalize_single_message', () => {
     });
 
     it('throws 400 when no content + no tool_calls (and not a tool message)', () => {
-        expect(() =>
-            normalize_single_message({ role: 'assistant' }),
-        ).toThrow(expect.objectContaining({ statusCode: 400 }));
+        expect(() => normalize_single_message({ role: 'assistant' })).toThrow(
+            expect.objectContaining({ statusCode: 400 }),
+        );
     });
 
     it('synthesizes content from tool_calls when content is missing', () => {
@@ -189,6 +189,41 @@ describe('normalize_single_message', () => {
             ],
         });
         expect(result.content[0].text).toBeUndefined();
+    });
+});
+
+describe('normalize_single_message tool_calls', () => {
+    it.each([
+        ['no function property', { id: 'x' }],
+        ['a type-only entry', { type: 'function' }],
+        ['a null entry', null],
+    ])('answers 400 for a tool_call with %s', (_label, toolCall) => {
+        // Reachable straight off a /drivers/call body, and it throws before
+        // the provider call, so it surfaces as a bare 500 otherwise.
+        expect(() =>
+            normalize_messages([
+                { role: 'assistant', tool_calls: [toolCall] },
+            ] as never),
+        ).toThrowError(
+            expect.objectContaining({
+                statusCode: 400,
+                legacyCode: 'bad_request',
+            }),
+        );
+    });
+
+    it('still converts a well-formed tool_call', () => {
+        const result = normalize_messages([
+            {
+                role: 'assistant',
+                tool_calls: [
+                    { id: 'c1', function: { name: 'lookup', arguments: '{}' } },
+                ],
+            },
+        ] as never);
+        expect(result[0].content).toEqual([
+            { type: 'tool_use', id: 'c1', name: 'lookup', input: '{}' },
+        ]);
     });
 });
 

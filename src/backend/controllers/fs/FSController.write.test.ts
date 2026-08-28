@@ -544,8 +544,8 @@ describe('FSController.write', () => {
 // server with the limit switched on.
 
 describe('write handlers with no parsable body', () => {
-    // A request whose body never parsed leaves `req.body` undefined; reading
-    // fileMetadata off it used to 500 instead of answering 400.
+    // A request whose body never parsed leaves `req.body` undefined, and the
+    // handlers read fileMetadata straight off it.
     it.each([
         [
             'write',
@@ -557,10 +557,49 @@ describe('write handlers with no parsable body', () => {
             (c: typeof controller, r: Request, res: Response) =>
                 c.startWrite(r as never, res as never),
         ],
+        [
+            'completeWrite',
+            (c: typeof controller, r: Request, res: Response) =>
+                c.completeWrite(r as never, res as never),
+        ],
     ])('%s answers 400', async (_label, call) => {
         const { actor } = await makeUser();
         const req = makeReq({ actor });
         (req as { body?: unknown }).body = undefined;
+        const { res } = makeRes();
+
+        await expect(
+            withActor(actor, () => call(controller, req, res)),
+        ).rejects.toMatchObject({
+            statusCode: 400,
+            legacyCode: 'bad_request',
+        });
+    });
+});
+
+describe('batch write handlers with a malformed element', () => {
+    // The body is an array, so the array check passes; the elements are what
+    // the handlers then read fileMetadata / thumbnailData off.
+    it.each([
+        [
+            'startBatchWrites',
+            (c: typeof controller, r: Request, res: Response) =>
+                c.startBatchWrites(r as never, res as never),
+        ],
+        [
+            'batchWrites',
+            (c: typeof controller, r: Request, res: Response) =>
+                c.batchWrites(r as never, res as never),
+        ],
+        [
+            'completeBatchWrites',
+            (c: typeof controller, r: Request, res: Response) =>
+                c.completeBatchWrites(r as never, res as never),
+        ],
+    ])('%s answers 400 for a null element', async (_label, call) => {
+        const { actor } = await makeUser();
+        const req = makeReq({ actor });
+        (req as { body?: unknown }).body = [null];
         const { res } = makeRes();
 
         await expect(

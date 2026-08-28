@@ -3779,7 +3779,7 @@ export class AuthController extends PuterController {
         rateLimit: CREDENTIAL_MINT_LIMIT,
     })
     async handleCreateAccessToken(req: Request, res: Response): Promise<void> {
-        const { permissions, expiresIn, label } = req.body;
+        const { permissions, expiresIn, label } = req.body ?? {};
         if (!Array.isArray(permissions) || permissions.length === 0) {
             throw new HttpError(400, 'Missing or empty `permissions` array', {
                 legacyCode: 'bad_request',
@@ -3798,19 +3798,22 @@ export class AuthController extends PuterController {
             normalizedLabel = label.trim().slice(0, 64) || null;
         }
 
-        // jsonwebtoken takes seconds or a duration string ('30d'); anything
-        // else reaches the expiry parser as something with no `.trim`.
-        if (
-            expiresIn !== undefined &&
-            expiresIn !== null &&
-            typeof expiresIn !== 'string' &&
-            typeof expiresIn !== 'number'
-        ) {
-            throw new HttpError(
-                400,
-                '`expiresIn` must be a number of seconds or a duration string',
-                { legacyCode: 'bad_request' },
-            );
+        // Whole seconds or a duration string ('30d'). A wrong type, a
+        // fraction, or an unparseable unit all reach the signer, which throws
+        // after the session row is already inserted.
+        if (expiresIn !== undefined && expiresIn !== null) {
+            const usable =
+                typeof expiresIn === 'number'
+                    ? Number.isInteger(expiresIn) && expiresIn > 0
+                    : typeof expiresIn === 'string' &&
+                      /^\d+\s*[smhdwy]?$/.test(expiresIn.trim());
+            if (!usable) {
+                throw new HttpError(
+                    400,
+                    '`expiresIn` must be a whole number of seconds or a duration string like `30d`',
+                    { legacyCode: 'bad_request' },
+                );
+            }
         }
 
         // Normalize specs: string → [string], [string] → [string, {}], [string, extra] → as-is

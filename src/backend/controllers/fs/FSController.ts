@@ -223,7 +223,7 @@ export class FSController extends PuterController {
             ? await Promise.all(
                   req.body.map(async (requestBody) => {
                       const normalizedRequestBody = this.#withGuiMetadata(
-                          requestBody,
+                          this.#requireObjectBody(requestBody),
                           req.body,
                       );
                       normalizedRequestBody.fileMetadata =
@@ -363,7 +363,10 @@ export class FSController extends PuterController {
         const userId = this.#getActorUserId(req);
         const requests = Array.isArray(req.body)
             ? req.body.map((requestBody) => {
-                  return this.#withGuiMetadata(requestBody, req.body);
+                  return this.#withGuiMetadata(
+                      this.#requireObjectBody(requestBody),
+                      req.body,
+                  );
               })
             : [];
         for (const requestBody of requests) {
@@ -850,7 +853,7 @@ export class FSController extends PuterController {
             ? await Promise.all(
                   req.body.map(async (requestBody) => {
                       const normalizedRequestBody = this.#withGuiMetadata(
-                          requestBody,
+                          this.#requireObjectBody(requestBody),
                           req.body,
                       );
                       normalizedRequestBody.fileMetadata =
@@ -2377,7 +2380,7 @@ export class FSController extends PuterController {
      * that is a 500 where the request deserves a 400.
      */
     #requireObjectBody<T>(body: T | undefined): T {
-        if (!body || typeof body !== 'object') {
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
             throw new HttpError(400, 'A request body is required', {
                 legacyCode: 'bad_request',
             });
