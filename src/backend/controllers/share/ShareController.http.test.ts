@@ -19,6 +19,7 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
+import { ShareController } from './ShareController.js';
 
 /**
  * Route-level coverage for the sharing endpoints. The service unit tests drive
@@ -577,5 +578,75 @@ describe('share endpoints over HTTP', () => {
         const res = await get('/share/blocks', env.users.admin.token, {});
         const body = (await res.json()) as { all: boolean; items: unknown[] };
         expect(body).toEqual({ all: false, items: [] });
+    });
+
+    // Reading it says who the user avoids; clearing it puts them back in touch.
+    it('is closed to an app acting for the user', async () => {
+        const user = env.users.user;
+        const minted = await post('/auth/get-user-app-token', user.token, {
+            origin: 'https://blocks-probe.example',
+        });
+        expect(minted.status).toBe(200);
+        const appToken = ((await minted.json()) as { token: string }).token;
+        expect(typeof appToken).toBe('string');
+
+        const asApp = [
+            get('/share/blocks', appToken, {}),
+            post('/share/blocks', appToken, { all: true }),
+            fetch(new URL('/share/blocks', env.apiOrigin), {
+                method: 'DELETE',
+                headers: {
+                    'content-type': 'application/json',
+                    authorization: `Bearer ${appToken}`,
+                },
+                body: JSON.stringify({ all: true }),
+            }),
+        ];
+        for (const res of await Promise.all(asApp)) {
+            expect(res.status).toBe(403);
+            expect(await res.json()).toMatchObject({ code: 'forbidden' });
+        }
+
+        // The same calls from the user's own session: the app is what is refused.
+        expect((await get('/share/blocks', user.token, {})).status).toBe(200);
+        expect(
+            (await post('/share/blocks', user.token, { all: true })).status,
+        ).toBe(200);
+        const lifted = await fetch(new URL('/share/blocks', env.apiOrigin), {
+            method: 'DELETE',
+            headers: {
+                'content-type': 'application/json',
+                authorization: `Bearer ${user.token}`,
+            },
+            body: JSON.stringify({ all: true }),
+        });
+        expect(lifted.status).toBe(200);
+    });
+
+    // So a fourth block route cannot quietly ship without the gate.
+    it('gates every block route on a user session', () => {
+        const proto = ShareController.prototype as {
+            __puterRoutes?: Array<{
+                method: string;
+                path: string;
+                options?: Record<string, unknown>;
+            }>;
+        };
+        const blocks = (proto.__puterRoutes ?? []).filter(
+            (r) => r.path === '/blocks',
+        );
+        expect(blocks.map((r) => r.method.toLowerCase()).sort()).toEqual([
+            'delete',
+            'get',
+            'post',
+        ]);
+        for (const route of blocks) {
+            expect(
+                route.options?.requireUserActor,
+                `${route.method} /blocks`,
+            ).toBe(true);
+            // Security management stays closed to every access token.
+            expect(route.options?.allowFullAccessToken).toBeUndefined();
+        }
     });
 });

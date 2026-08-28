@@ -311,6 +311,7 @@ export class ShareController extends PuterController {
     }
 
     // -- Blocking -----------------------------------------------------
+    // User sessions only: a block list is a safety control, not an app's to touch.
 
     /**
      * GET /share/blocks — who the caller is refusing shares from, and whether
@@ -318,6 +319,7 @@ export class ShareController extends PuterController {
      */
     @Get('/blocks', {
         subdomain: 'api',
+        requireUserActor: true,
         requireVerified: true,
         rateLimit: SHARE_LIST_LIMIT,
     })
@@ -344,6 +346,7 @@ export class ShareController extends PuterController {
      */
     @Post('/blocks', {
         subdomain: 'api',
+        requireUserActor: true,
         requireVerified: true,
         rateLimit: SHARE_LIMIT,
     })
@@ -371,6 +374,7 @@ export class ShareController extends PuterController {
      */
     @Delete('/blocks', {
         subdomain: 'api',
+        requireUserActor: true,
         requireVerified: true,
         rateLimit: SHARE_LIMIT,
     })
