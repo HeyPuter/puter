@@ -23,6 +23,10 @@ import { Server as SocketIOServer, type Socket } from 'socket.io';
 import type { Actor } from '../../core/actor.js';
 import { isAccessTokenActor, isAppActor } from '../../core/actor.js';
 import {
+    assertNotSuspended,
+    assertVerifiedAccount,
+} from '../../core/http/middleware/gates.js';
+import {
     CONCURRENT_SLOT_TTL_MS,
     acquireConcurrent,
     checkRateLimit,
@@ -65,7 +69,12 @@ export type SocketAuthDecision = { accept: Actor } | { reject: Error };
  * 2. Missing actor → generic `socket auth failed`.
  * 3. App-under-user / access-token actor → rejected with a specific message;
  *    sockets only accept plain user actors.
- * 4. Otherwise → accept the actor.
+ * 4. Suspended, or pending a verification → rejected. A socket carries the same
+ *    filesystem entries, upload paths and notification bodies as the HTTP
+ *    routes, which get these two from `requireAuthGate` /
+ *    `requireVerifiedAccount`; the handshake is not in that chain, so it has to
+ *    apply them itself.
+ * 5. Otherwise → accept the actor.
  *
  * Pure / no side effects — the middleware logs the reauth event.
  */
@@ -79,6 +88,15 @@ export const decideSocketAuth = (result: AuthResult): SocketAuthDecision => {
     }
     if (isAppActor(actor) || isAccessTokenActor(actor)) {
         return { reject: new Error('socket auth: only user tokens accepted') };
+    }
+    try {
+        assertNotSuspended(actor.user);
+        assertVerifiedAccount(actor.user);
+    } catch (err) {
+        return {
+            reject:
+                err instanceof Error ? err : new Error('socket auth failed'),
+        };
     }
     return { accept: actor };
 };
@@ -131,6 +149,12 @@ interface UploadProgressPayload {
  */
 interface AuthenticatedSocket extends Socket {
     actor?: Actor;
+    /**
+     * The handshake token, kept for the periodic re-check. On the socket
+     * instance rather than in `socket.data`, which the adapter serializes to
+     * other nodes — a session token has no business travelling over it.
+     */
+    authToken?: string;
 }
 
 /**
@@ -152,6 +176,7 @@ interface AuthenticatedSocket extends Socket {
  */
 export class SocketService extends PuterService {
     #io: SocketIOServer | null = null;
+    #reauthTimer: ReturnType<typeof setInterval> | null = null;
 
     // -- Lifecycle ---------------------------------------------------
 
@@ -194,6 +219,7 @@ export class SocketService extends PuterService {
         this.#installAuthMiddleware();
         this.#installConnectionHandler();
         this.#subscribeEventBus();
+        this.#installReauthLoop();
     }
 
     /**
@@ -209,6 +235,10 @@ export class SocketService extends PuterService {
     }
 
     override onServerPrepareShutdown(): Promise<void> {
+        if (this.#reauthTimer) {
+            clearInterval(this.#reauthTimer);
+            this.#reauthTimer = null;
+        }
         // Close the io server so existing sockets disconnect cleanly
         // before http's close() starts waiting for connections.
         return new Promise<void>((resolve) => {
@@ -298,7 +328,8 @@ export class SocketService extends PuterService {
             // `{ auth: { ... } }`, not the query string. puter-js uses
             // `io(url, { auth: { auth_token } })`.
             const handshakeAuth = socket.handshake.auth as
-                Record<string, unknown> | undefined;
+                | Record<string, unknown>
+                | undefined;
             const tokenRaw =
                 typeof handshakeAuth?.auth_token === 'string'
                     ? handshakeAuth.auth_token
@@ -345,6 +376,7 @@ export class SocketService extends PuterService {
                 }
 
                 socket.actor = decision.accept;
+                socket.authToken = token;
                 // user.id is numeric in the DB; stringify for room name
                 // so adapter lookups key on a stable type.
                 socket.join(String(decision.accept.user!.id));
@@ -491,6 +523,90 @@ export class SocketService extends PuterService {
         if (socket.disconnected) finish();
     }
 
+    // -- Keeping a live connection honest ----------------------------
+    //
+    // The handshake is the only place a socket's credential was ever checked,
+    // and a connection outlives it indefinitely — a desktop tab stays up for
+    // days. Two mechanisms close that gap: an eviction on revoke for the paths
+    // that know a session ended, and a periodic re-check for everything that
+    // changes without touching `sessions` (a bulk suspension, a verification
+    // requirement added by the abuse harness).
+
+    /** How often a live socket's credential is re-verified. */
+    static REAUTH_INTERVAL_MS = 5 * 60_000;
+
+    /**
+     * Drop every socket on this node whose token no longer authenticates to the
+     * same accepted actor. De-duplicated by token: one browser's tabs share a
+     * session, so a sweep costs one check per credential, not per connection.
+     *
+     * Driven by the interval below; public because that timer isn't drivable
+     * from a test.
+     */
+    async reauthenticateSockets(): Promise<void> {
+        const io = this.#io;
+        const authService = this.services.auth as AuthService | undefined;
+        if (!io || !authService) return;
+
+        const decisions = new Map<string, SocketAuthDecision>();
+        for (const raw of io.sockets.sockets.values()) {
+            const socket = raw as AuthenticatedSocket;
+            const token = socket.authToken;
+            // Nothing to re-check against — it can't be shown to still be
+            // valid, so it goes.
+            if (!token) {
+                socket.disconnect(true);
+                continue;
+            }
+            let decision = decisions.get(token);
+            if (!decision) {
+                try {
+                    decision = decideSocketAuth(
+                        await authService.authenticate(token, {}),
+                    );
+                } catch {
+                    decision = { reject: new Error('socket reauth failed') };
+                }
+                decisions.set(token, decision);
+            }
+            if ('reject' in decision) {
+                socket.disconnect(true);
+                continue;
+            }
+            // Refresh the actor so anything reading it off the socket sees the
+            // current row rather than the one from connect time.
+            socket.actor = decision.accept;
+        }
+    }
+
+    #installReauthLoop(): void {
+        const timer = setInterval(() => {
+            void this.reauthenticateSockets().catch((err: unknown) => {
+                console.error('[socket] reauth sweep failed', err);
+            });
+        }, SocketService.REAUTH_INTERVAL_MS);
+        timer.unref?.();
+        this.#reauthTimer = timer;
+    }
+
+    /**
+     * Close a user's connections after any of their sessions was revoked.
+     * Cluster-wide: `disconnectSockets` publishes through the adapter, so a
+     * revoke handled on one node reaches sockets terminated on another.
+     *
+     * Every connection for the account goes, not just the revoked session's.
+     * Narrowing would mean matching each socket to its session via
+     * `fetchSockets`, which the adapter implements on top of `serverCount()` —
+     * and that path is unavailable with our Redis client. Dropping the room is
+     * the safe direction: a connection whose session survived reconnects on its
+     * own, and its handshake re-authenticates.
+     */
+    async #evictUserSockets(userId: number): Promise<void> {
+        const io = this.#io;
+        if (!io || !userId) return;
+        await io.in(String(userId)).disconnectSockets(true);
+    }
+
     async #allowSocketEvent(userId: number, event: string): Promise<boolean> {
         return checkRateLimit(
             `socket:${event}:${userId}`,
@@ -583,6 +699,16 @@ export class SocketService extends PuterService {
                 this.#handleUploadProgress(data as UploadProgressPayload);
             },
         );
+
+        this.clients.event.on(
+            'auth.sessions.revoked',
+            (_key: string, data: unknown) => {
+                const { user_id } = data as { user_id: number };
+                this.#evictUserSockets(user_id).catch((err: unknown) => {
+                    console.error('[socket] session eviction failed', err);
+                });
+            },
+        );
     }
 
     async #handleOuterGui(key: string, data: OuterGuiPayload): Promise<void> {
@@ -621,7 +747,8 @@ export class SocketService extends PuterService {
                 // their next poll of /cache/last-change-timestamp.
                 const originalSocketId = (
                     data.response as
-                        { original_client_socket_id?: string } | undefined
+                        | { original_client_socket_id?: string }
+                        | undefined
                 )?.original_client_socket_id;
                 await this.send({ room: userId }, 'cache.updated', {
                     timestamp,
@@ -635,7 +762,9 @@ export class SocketService extends PuterService {
     #handleUploadProgress(data: UploadProgressPayload): void {
         const meta = data.meta ?? {};
         const userId = (meta.user_id ?? meta.userId) as
-            number | string | undefined;
+            | number
+            | string
+            | undefined;
         if (!userId) {
             console.warn('[socket] upload-progress missing user_id', { meta });
             return;

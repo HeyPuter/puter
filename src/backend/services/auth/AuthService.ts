@@ -518,7 +518,9 @@ export class AuthService extends PuterService {
             (sessionPayload.session_uid as string | undefined) ??
             sessionPayload.uuid;
         if (!sessionUuid) return;
-        await this.stores.session.revokeCascade(sessionUuid);
+        this.#announceRevocation(
+            await this.stores.session.revokeCascade(sessionUuid),
+        );
     }
 
     /**
@@ -621,7 +623,7 @@ export class AuthService extends PuterService {
         const tokenUids = (await this.stores.session.accessTokenUidsForCascade(
             uuid,
         )) as string[];
-        await this.stores.session.revokeCascade(uuid);
+        this.#announceRevocation(await this.stores.session.revokeCascade(uuid));
         for (const tokenUid of tokenUids) {
             await this.#dropAccessTokenGrants(tokenUid);
         }
@@ -659,6 +661,23 @@ export class AuthService extends PuterService {
     }
 
     /**
+     * Tell the rest of the system which sessions just went away.
+     * `sessions.revoked_at` is otherwise only consulted on the next handshake,
+     * which leaves anything already holding a session open — a live socket —
+     * running on a credential that no longer exists.
+     */
+    #announceRevocation(
+        revoked: { userId: number; uuids: string[] } | null | undefined,
+    ): void {
+        if (!revoked?.userId || revoked.uuids.length === 0) return;
+        this.clients.event?.emit(
+            'auth.sessions.revoked',
+            { user_id: revoked.userId, session_uids: revoked.uuids },
+            {},
+        );
+    }
+
+    /**
      * Admin-driven cascade: revoke EVERY session row for the given user (web,
      * app, access_token, asset, worker). No actor context — this is the
      * "suspension / forced sign-out" path, where workers deliberately go too (a
@@ -675,7 +694,9 @@ export class AuthService extends PuterService {
         if (!userId) return;
         const rows = await this.stores.session.getByUserId(userId);
         for (const row of rows) {
-            await this.stores.session.revokeCascade(row.uuid as string);
+            this.#announceRevocation(
+                await this.stores.session.revokeCascade(row.uuid as string),
+            );
         }
     }
 
@@ -692,7 +713,9 @@ export class AuthService extends PuterService {
         const rows = await this.stores.session.getByUserId(userId);
         for (const row of rows) {
             if (row.kind === 'web' || row.kind === 'app') {
-                await this.stores.session.revokeCascade(row.uuid as string);
+                this.#announceRevocation(
+                    await this.stores.session.revokeCascade(row.uuid as string),
+                );
             }
         }
     }
@@ -713,9 +736,13 @@ export class AuthService extends PuterService {
         for (const row of rows) {
             if (row.kind === 'web') {
                 if (!opts.includeCurrent && row.uuid === currentUuid) continue;
-                await this.stores.session.revokeCascade(row.uuid as string);
+                this.#announceRevocation(
+                    await this.stores.session.revokeCascade(row.uuid as string),
+                );
             } else if (row.kind === 'app' && opts.includeApps) {
-                await this.stores.session.revokeCascade(row.uuid as string);
+                this.#announceRevocation(
+                    await this.stores.session.revokeCascade(row.uuid as string),
+                );
             }
         }
     }

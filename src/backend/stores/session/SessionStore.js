@@ -346,9 +346,14 @@ export class SessionStore extends PuterStore {
      * Soft-revoke a root session and every derived session that points back to
      * it via `parent_session_id`. Broadcasts cache invalidation for each
      * affected row's uuid + composite keys.
+     *
+     * Returns which rows were revoked — `{ userId, uuids }`, or null when there
+     * was nothing active to revoke. Callers use it to tear down anything else
+     * holding the session open; the rows are read here anyway, so reporting
+     * them costs no extra query.
      */
     async revokeCascade(rootUuid) {
-        if (!rootUuid) return;
+        if (!rootUuid) return null;
 
         // Read each affected row's identity columns up-front — every
         // composite cache mapping (app, legacy-token, legacy-web) must
@@ -358,7 +363,7 @@ export class SessionStore extends PuterStore {
             'SELECT `uuid`, `user_id`, `kind`, `app_uid`, `legacy_token_uid`, `meta`, `created_via`, `last_ip`, `last_user_agent` FROM `sessions` WHERE (`uuid` = ? OR `parent_session_id` = ?) AND `revoked_at` IS NULL',
             [rootUuid, rootUuid],
         );
-        if (rows.length === 0) return;
+        if (rows.length === 0) return null;
 
         // Double-delete: see `removeByUuid` for rationale.
         const keys = [];
@@ -372,6 +377,11 @@ export class SessionStore extends PuterStore {
         );
 
         await this.publishCacheKeys({ keys, broadcast: true });
+
+        return {
+            userId: Number(rows[0].user_id),
+            uuids: rows.map((r) => String(r.uuid)),
+        };
     }
 
     /**

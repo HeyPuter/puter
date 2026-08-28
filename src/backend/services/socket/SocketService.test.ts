@@ -114,6 +114,32 @@ describe('decideSocketAuth', () => {
         expect(decision.reject.message).toMatch(/only user tokens/);
     });
 
+    it('rejects a suspended user — the HTTP gate the handshake never runs', () => {
+        const decision = decideSocketAuth({
+            actor: {
+                user: { id: 1, uuid: 'u-1', username: 'u', suspended: 1 },
+            },
+        } as unknown as AuthResult);
+        if (!('reject' in decision)) throw new Error('expected reject');
+        expect(decision.reject.message).toMatch(/suspended/i);
+    });
+
+    it.each([
+        [
+            'email',
+            { requires_email_confirmation: 1, email_confirmed: 0 },
+            /confirm your email/i,
+        ],
+        ['phone', { requires_phone_verification: 1 }, /verify your phone/i],
+        ['card', { requires_card_verification: 1 }, /verify your card/i],
+    ])('rejects an account pending %s verification', (_label, flags, match) => {
+        const decision = decideSocketAuth({
+            actor: { user: { id: 1, uuid: 'u-1', username: 'u', ...flags } },
+        } as unknown as AuthResult);
+        if (!('reject' in decision)) throw new Error('expected reject');
+        expect(decision.reject.message).toMatch(match);
+    });
+
     it('rejects when AuthService returned no actor at all', () => {
         const decision = decideSocketAuth({ invalid: true } as AuthResult);
         if (!('reject' in decision)) throw new Error('expected reject');
@@ -408,6 +434,103 @@ describe('SocketService (live socket.io)', () => {
 
             first.disconnect();
         });
+    });
+
+    // -- Evicting a connection whose credential is gone ---------------
+    //
+    // The handshake is the only place the credential was checked, so nothing
+    // here is covered by the cases above: a revoke, a suspension and a new
+    // verification requirement all leave a live feed open otherwise.
+
+    it('drops the connection when its session is revoked', async () => {
+        const evicted = await createTestUser(server, {
+            username: 'sock-evicted',
+            password: 'sock-evicted-password',
+        });
+        const row = await server.stores.user.getByUsername(evicted.username);
+        const socket = await connect({ auth_token: `Bearer ${evicted.token}` });
+        expect(socket.connected).toBe(true);
+
+        const authService = server.services.auth as unknown as {
+            revokeAllSessionsForUserId: (id: number) => Promise<void>;
+        };
+        await authService.revokeAllSessionsForUserId(row!.id);
+
+        await vi.waitFor(() => expect(socket.connected).toBe(false), {
+            timeout: 5_000,
+        });
+    });
+
+    it('leaves other accounts alone when one is revoked', async () => {
+        const kept = await createTestUser(server, {
+            username: 'sock-kept',
+            password: 'sock-kept-password',
+        });
+        const revoked = await createTestUser(server, {
+            username: 'sock-revoked',
+            password: 'sock-revoked-password',
+        });
+        const revokedRow = await server.stores.user.getByUsername(
+            revoked.username,
+        );
+
+        const keptSocket = await connect({
+            auth_token: `Bearer ${kept.token}`,
+        });
+        const revokedSocket = await connect({
+            auth_token: `Bearer ${revoked.token}`,
+        });
+
+        const authService = server.services.auth as unknown as {
+            revokeAllSessionsForUserId: (id: number) => Promise<void>;
+        };
+        await authService.revokeAllSessionsForUserId(revokedRow!.id);
+
+        await vi.waitFor(() => expect(revokedSocket.connected).toBe(false), {
+            timeout: 5_000,
+        });
+        expect(keptSocket.connected).toBe(true);
+        keptSocket.disconnect();
+    });
+
+    it('drops a connection whose account was suspended without a revoke', async () => {
+        // A bulk suspension writes `user.suspended` and never touches
+        // `sessions`, so eviction-on-revoke never fires — the periodic
+        // re-check is what closes it.
+        const suspended = await createTestUser(server, {
+            username: 'sock-suspended',
+            password: 'sock-suspended-password',
+        });
+        const row = await server.stores.user.getByUsername(suspended.username);
+        const socket = await connect({
+            auth_token: `Bearer ${suspended.token}`,
+        });
+        expect(socket.connected).toBe(true);
+
+        await server.clients.db.write(
+            'UPDATE user SET suspended = 1 WHERE id = ?',
+            [row!.id],
+        );
+        await server.stores.user.invalidateById(row!.id);
+
+        await socketService.reauthenticateSockets();
+        await vi.waitFor(() => expect(socket.connected).toBe(false), {
+            timeout: 5_000,
+        });
+    });
+
+    it('leaves a still-valid connection up across a re-check', async () => {
+        const healthy = await createTestUser(server, {
+            username: 'sock-healthy',
+            password: 'sock-healthy-password',
+        });
+        const socket = await connect({ auth_token: `Bearer ${healthy.token}` });
+
+        await socketService.reauthenticateSockets();
+        await new Promise((r) => setTimeout(r, 200));
+
+        expect(socket.connected).toBe(true);
+        socket.disconnect();
     });
 
     it('gives a slot back when the connection closes', async () => {
