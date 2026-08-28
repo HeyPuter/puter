@@ -76,6 +76,7 @@ type SignupValidateOverride = (data: {
     requires_email_confirmation: boolean;
     message: string | null;
     code: string | null;
+    ip: string | null;
 }) => void;
 
 let signupValidateOverride: SignupValidateOverride | null = null;
@@ -573,6 +574,54 @@ describe('AuthController.handleSignup', () => {
         expect(
             await bcrypt.compare('correct-horse-battery', persisted!.password!),
         ).toBe(true);
+    });
+
+    it('keys the signup abuse signals on req.ip, not the x-forwarded-for header', async () => {
+        const username = `s_${uniq()}`;
+        const forged = 'evil, 198.51.100.1';
+        let seenValidateIp: string | null | undefined;
+
+        await withSignupValidateOverride(
+            (event) => {
+                seenValidateIp = event.ip;
+            },
+            async () => {
+                await controller.handleSignup(
+                    makeReq(
+                        {
+                            username,
+                            email: `${username}@test.local`,
+                            password: 'correct-horse-battery',
+                        },
+                        {
+                            ip: '203.0.113.9',
+                            headers: { 'x-forwarded-for': forged },
+                        },
+                    ),
+                    makeRes(),
+                );
+            },
+        );
+
+        // Validate hook, success hook and the persisted lookup column all have
+        // to agree, or a per-IP counter is written under one key and read
+        // under another.
+        expect(seenValidateIp).toBe('203.0.113.9');
+        expect(
+            heardSignupSuccess.find((e) => e.username === username)?.ip,
+        ).toBe('203.0.113.9');
+
+        const persisted = await server.stores.user.getByUsername(username);
+        expect(persisted!.signup_ip).toBe('203.0.113.9');
+        expect(persisted!.signup_ip_forwarded).toBe('203.0.113.9');
+        // The raw chain is still recorded, but only as audit metadata.
+        const audit = JSON.parse(
+            String(
+                (persisted as unknown as { audit_metadata: string })
+                    .audit_metadata,
+            ),
+        );
+        expect(audit.ip_fwd).toBe(forged);
     });
 
     it('forces phone verification on every signup when always_require_phone_verification is set', async () => {

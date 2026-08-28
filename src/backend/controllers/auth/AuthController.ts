@@ -841,6 +841,10 @@ export class AuthController extends PuterController {
         // guarantee — everything between here and the insert widens the window,
         // so the check runs again against the primary immediately before the
         // write, and the unique index catches whatever still slips through.
+        const clientIp: string | null =
+            req.ip || req.socket?.remoteAddress || null;
+        const proxyIpChain = req.headers['x-forwarded-for'];
+
         let pseudo_user = is_temp
             ? null
             : await this.#resolveSignupEmailClaim(body.email);
@@ -855,12 +859,9 @@ export class AuthController extends PuterController {
         const validateEvent = {
             req,
             data: body,
-            ip: ((req.headers?.['x-forwarded-for'] as string | undefined) ||
-                (req as unknown as { connection?: { remoteAddress?: string } })
-                    .connection?.remoteAddress ||
-                req.ip ||
-                req.socket?.remoteAddress ||
-                null) as string | null,
+            // `req.ip` honors `trust proxy`; reading x-forwarded-for directly
+            // would let a client pick its own per-IP abuse bucket.
+            ip: clientIp,
             email: body.email,
             // The same canonical form `email.validate` was given, so a check
             // in the abuse harness can look up the verdict that hook cached
@@ -1035,9 +1036,6 @@ export class AuthController extends PuterController {
             });
         } else {
             // -- New user ----------------------------------------
-            const clientIp = req.ip || req.socket?.remoteAddress || null;
-            const proxyIpChain = req.headers['x-forwarded-for'];
-
             try {
                 user = await this.stores.user.create({
                     username: body.username,
@@ -1058,7 +1056,10 @@ export class AuthController extends PuterController {
                         fingerprint,
                     },
                     signup_ip: clientIp,
-                    signup_ip_forwarded: proxyIpChain,
+                    // The abuse harness and the admin IP lookup both key on
+                    // this column, so it holds the trusted client address; the
+                    // raw forwarded chain stays in `audit_metadata.ip_fwd`.
+                    signup_ip_forwarded: clientIp,
                     signup_user_agent: req.headers?.['user-agent'] ?? null,
                     signup_origin:
                         (req.headers?.origin as string | null) ?? null,
@@ -1162,18 +1163,10 @@ export class AuthController extends PuterController {
                     // a pseudo-user claim ends up with credentials, so it
                     // reports false here. Same signal completeLogin uses.
                     is_temp: user!.password === null && user!.email === null,
-                    ip:
-                        (req?.headers?.['x-forwarded-for'] as
-                            | string
-                            | undefined) ||
-                        (
-                            req as unknown as {
-                                connection?: { remoteAddress?: string };
-                            }
-                        )?.connection?.remoteAddress ||
-                        req?.ip ||
-                        req?.socket?.remoteAddress ||
-                        null,
+                    // Same derivation as the validate event above — the two
+                    // have to agree or per-IP counters are written under one
+                    // key and read under another.
+                    ip: clientIp,
                 } as never,
                 {},
             );
