@@ -891,6 +891,51 @@ describe('OIDCService.createUserFromOIDC', () => {
         server.clients.event.off('puter.signup.success', onSignup);
     });
 
+    it('keys the signup abuse signals on req.ip, not the x-forwarded-for header', async () => {
+        const forged = 'evil, 198.51.100.1';
+        const forgedReq = {
+            headers: {
+                'user-agent': 'test-agent',
+                origin: 'https://app.test',
+                'x-forwarded-for': forged,
+            },
+            ip: '203.0.113.9',
+            socket: { remoteAddress: '203.0.113.9' },
+        } as never;
+
+        const seen: Array<Record<string, unknown>> = [];
+        const record = (_k: string, data: unknown) =>
+            seen.push(data as Record<string, unknown>);
+        server.clients.event.on('puter.signup.validate', record);
+        server.clients.event.on('puter.signup.success', record);
+        try {
+            const email = `xff-${crypto.randomBytes(4).toString('hex')}@example.com`;
+            const result = await runWithContext({ req: forgedReq }, () =>
+                oidc().createUserFromOIDC('google', {
+                    sub: `xff-${email}`,
+                    email,
+                    email_verified: true,
+                }),
+            );
+            expect(result.success).toBe(true);
+            // Validate hook, success hook and the persisted lookup column all
+            // have to agree, or a per-IP counter is written under one key and
+            // read under another.
+            expect(seen).toHaveLength(2);
+            for (const event of seen) expect(event.ip).toBe('203.0.113.9');
+
+            const persisted = await server.stores.user.getById(
+                result.user!.id,
+                { force: true },
+            );
+            expect(persisted!.signup_ip).toBe('203.0.113.9');
+            expect(persisted!.signup_ip_forwarded).toBe('203.0.113.9');
+        } finally {
+            server.clients.event.off('puter.signup.validate', record);
+            server.clients.event.off('puter.signup.success', record);
+        }
+    });
+
     it('honours a veto from the signup-validate hook, surfacing its code and trail id', async () => {
         const veto = (_k: string, data: unknown) => {
             const e = data as Record<string, unknown>;

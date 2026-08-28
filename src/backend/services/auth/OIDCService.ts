@@ -526,12 +526,9 @@ export class OIDCService extends PuterService {
             // (e.g. Turnstile) should skip — abuse/IP/email checks still run.
             source: 'oidc' as const,
             data: { username, email },
-            ip:
-                (req?.headers?.['x-forwarded-for'] as string | undefined) ||
-                req?.connection?.remoteAddress ||
-                req?.ip ||
-                req?.socket?.remoteAddress ||
-                null,
+            // `req.ip` honors `trust proxy`; reading x-forwarded-for directly
+            // would let a client pick its own per-IP abuse bucket.
+            ip: clientIp,
             user_agent: req?.headers?.['user-agent'] ?? null,
             email,
             // See the same field in AuthController: the canonical form
@@ -658,7 +655,10 @@ export class OIDCService extends PuterService {
                     origin: req?.headers?.origin,
                 },
                 signup_ip: clientIp,
-                signup_ip_forwarded: proxyIpChain,
+                // The abuse harness and the admin IP lookup both key on this
+                // column, so it holds the trusted client address; the raw
+                // forwarded chain stays in `audit_metadata.ip_fwd`.
+                signup_ip_forwarded: clientIp,
                 signup_user_agent: req?.headers?.['user-agent'] ?? null,
                 signup_origin: req?.headers?.origin,
                 signup_server: this.config.serverId,
@@ -761,12 +761,10 @@ export class OIDCService extends PuterService {
                     user_uuid: resolved.uuid,
                     email: resolved.email,
                     username: resolved.username,
-                    ip:
-                        req?.headers?.['x-forwarded-for'] ||
-                        req?.connection?.remoteAddress ||
-                        req?.ip ||
-                        req?.socket?.remoteAddress ||
-                        null,
+                    // Same derivation as the validate event above — the two
+                    // have to agree or per-IP counters are written under one
+                    // key and read under another.
+                    ip: clientIp,
                 },
                 {},
             );
