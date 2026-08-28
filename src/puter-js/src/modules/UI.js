@@ -177,6 +177,7 @@ import { checkPermissions } from './perms/lib/holds.js';
  *
  * @typedef {Object} FontPickerOptions
  * @property {string} [defaultFont] The font initially selected when the picker opens.
+ * @property {string} [defaultValue] Alias for `defaultFont`.
  */
 
 /**
@@ -1285,23 +1286,27 @@ export class UIModule extends EventListener {
 
     /**
      * Shows a font picker. Resolves to the chosen font. Accepts either a
-     * default font name or an options object. `default` is a legacy alias for
-     * `defaultFont`.
+     * default font name or an options object. `default` and `defaultFont`
+     * are legacy aliases for `defaultValue`.
      *
-     * @param {string | (FontPickerOptions & { default?: string })} [options]
+     * @param {string | (FontPickerOptions & { default?: string, defaultValue?: string })} [options]
      * @returns {Promise<{ fontFamily: string }>}
      */
     showFontPicker (options) {
+        // `default` and `defaultFont` are legacy aliases for `defaultValue`;
+        // normalize here so both the app-embedded window (below) and the
+        // standalone web component read the same effective value.
+        const opts = typeof options === 'string' ? { defaultValue: options } : (options ?? {});
+        const defaultFont = opts.defaultValue || opts.defaultFont || opts.default || 'System UI';
+
         if ( this.messageTarget ) {
             return new Promise((resolve) => {
-                this.#postMessageWithCallback('showFontPicker', resolve, { options: options ?? {} });
+                this.#postMessageWithCallback('showFontPicker', resolve, { options: { ...opts, defaultValue: defaultFont } });
             });
         }
         // Standalone fallback: render web component
         return new Promise((resolve) => {
-            const opts = typeof options === 'string' ? { defaultFont: options } : (options ?? {});
             const el = document.createElement('puter-font-picker');
-            const defaultFont = opts.defaultFont || opts.default || 'System UI';
             el.setAttribute('default-font', defaultFont);
             el.addEventListener('response', (e) => resolve(e.detail));
             document.body.appendChild(el);
