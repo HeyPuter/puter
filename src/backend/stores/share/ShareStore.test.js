@@ -695,6 +695,41 @@ describe('ShareStore', () => {
             expect(cursor).toBeUndefined();
         });
 
+        it('returns the no-app group on the first page and resumes past it', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const appUid = uuidv4();
+
+            const manual = await makeEntry(owner);
+            await store.upsertActive({
+                issuerUserId: owner.id,
+                holderUserId: recipient.id,
+                fsentryId: manual.id,
+                mode: 'read',
+            });
+            const viaApp = await makeEntry(owner);
+            await store.upsertActive({
+                issuerUserId: owner.id,
+                holderUserId: recipient.id,
+                fsentryId: viaApp.id,
+                mode: 'read',
+                issuerAppUid: appUid,
+            });
+
+            // No cursor at all — the empty-string group sorts first, and a
+            // first page has nothing to seek past.
+            const first = await store.listOutboundApps(owner.id, { limit: 1 });
+            expect(first.items).toEqual([{ appUid: null, count: 1 }]);
+            expect(first.cursor).toBeDefined();
+
+            const second = await store.listOutboundApps(owner.id, {
+                limit: 1,
+                cursor: first.cursor,
+            });
+            expect(second.items).toEqual([{ appUid, count: 1 }]);
+            expect(second.cursor).toBeUndefined();
+        });
+
         it('records an invite app under the key an active share uses', async () => {
             const owner = await makeUser();
             const entry = await makeEntry(owner);
