@@ -21,6 +21,7 @@ import path from '../lib/path.js';
 import { PROCESS_IPC_ATTACHED, PROCESS_RUNNING, PortalProcess, PseudoProcess } from '../definitions.js';
 import UIWindow from '../UI/UIWindow.js';
 import { starts_hidden } from './startsHidden.js';
+import { append_signed_item_params } from './appendSignedItemParams.js';
 
 const normalizePrivateAccessDecision = (privateAccess) => {
     if ( !privateAccess || typeof privateAccess !== 'object' ) {
@@ -463,16 +464,11 @@ const launch_app = async (options) => {
         }
 
         if ( file_signature ) {
-            iframe_url.searchParams.append('puter.item.uid', file_signature.uid);
-            iframe_url.searchParams.append('puter.item.path', options.file_path ? privacy_aware_path(options.file_path) : file_signature.path);
-            iframe_url.searchParams.append('puter.item.name', file_signature.fsentry_name);
-            iframe_url.searchParams.append('puter.item.read_url', file_signature.read_url);
-            iframe_url.searchParams.append('puter.item.write_url', file_signature.write_url);
-            iframe_url.searchParams.append('puter.item.metadata_url', file_signature.metadata_url);
-            iframe_url.searchParams.append('puter.item.size', file_signature.fsentry_size);
-            iframe_url.searchParams.append('puter.item.accessed', file_signature.fsentry_accessed);
-            iframe_url.searchParams.append('puter.item.modified', file_signature.fsentry_modified);
-            iframe_url.searchParams.append('puter.item.created', file_signature.fsentry_created);
+            append_signed_item_params(
+                iframe_url.searchParams,
+                file_signature,
+                options.file_path ? privacy_aware_path(options.file_path) : file_signature.path,
+            );
         }
         else if ( options.readURL ) {
             iframe_url.searchParams.append('puter.item.name', options.filename);
