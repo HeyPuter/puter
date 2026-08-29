@@ -20,6 +20,7 @@
 import { EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET } from '../../controllers/events/limits.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import type { FsOp } from '../../services/events/subjects.js';
+import type { AclMode } from '../../services/acl/ACLService.js';
 import { PuterStore } from '../types.js';
 
 /**
@@ -27,14 +28,25 @@ import { PuterStore } from '../types.js';
  * when it disconnects. Nothing here outlives a connection, so none of it
  * belongs in a table.
  *
- * Every key a user owns carries the same `{<userId>}` hash tag, so one user's
- * whole set lives in one cluster slot and a pipeline over it never crosses
- * slots. Four keys, each answering one question:
+ * Rows are indexed by the **owner of the anchor node**, not by the subscriber:
+ * dispatch knows only whose resource changed, and a subscription on a folder
+ * shared with someone else has to be found from that side. The subscriber is
+ * still on the row — it is who the delivery is for and whose access is
+ * re-checked — but it is not what anything is keyed by.
  *
- *     ev:w:{<userId>}              SET   which tokens anyone is watching
- *     ev:t:{<userId>}:<token>      HASH  subId -> row, for one watched token
- *     ev:s:{<userId>}:<socketId>   SET   what this socket holds, for reaping
- *     ev:g:{<userId>}              STR   subscription-set generation
+ * Keys carry a `{<userId>}` hash tag so one user's set lives in one cluster
+ * slot and a pipeline over it never crosses slots. Four keys, each answering
+ * one question:
+ *
+ *     ev:w:{<ownerId>}             SET   which tokens anyone is watching
+ *     ev:t:{<ownerId>}:<token>     HASH  subId -> row, for one watched token
+ *     ev:s:{<holderId>}:<socketId> SET   what this socket holds, for reaping
+ *     ev:g:{<ownerId>}             STR   subscription-set generation
+ *
+ * The socket set is the one keyed by the holder — it is read on disconnect,
+ * when all that is known is whose connection went — so its members name the
+ * owner whose keyspace each row lives in, and a write touching both sides
+ * splits into one pipeline per slot.
  *
  * `ev:w` is what dispatch asks first and is the only one on the hot path.
  * Membership in it is exact rather than approximate: a token's row hash going
@@ -51,7 +63,10 @@ import { PuterStore } from '../types.js';
 export interface SessionSubscription {
     subId: string;
     socketId: string;
-    userId: number;
+    /** Who subscribed: the delivery target, and whose access is re-checked. */
+    holderUserId: number;
+    /** Owner of the anchor node: the keyspace this row is indexed in. */
+    ownerUserId: number;
     /** The subject as the client asked for it. */
     subject: string;
     /** Anchor token the row is indexed under. */
@@ -61,7 +76,16 @@ export interface SessionSubscription {
     /** Glob relative to the anchor, or `null` for a node-form subscription. */
     match: string | null;
     op: FsOp | null;
+    /** The app that created the row, and the scope of the three verbs. */
     appUid: string | null;
+    /** ACL mode the subscribe check passed under; re-checked per delivery. */
+    permission: AclMode;
+}
+
+/** One owner's generation after a change to the set of rows keyed under them. */
+export interface GenerationBump {
+    userId: number;
+    generation: number;
 }
 
 // -- Keys -------------------------------------------------------------
@@ -73,11 +97,35 @@ const socketKey = (userId: number | string, socketId: string): string =>
     `ev:s:{${userId}}:${socketId}`;
 const generationKey = (userId: number | string): string => `ev:g:{${userId}}`;
 
-/** `ev:s` members name the row they point at. */
-const socketRef = (token: string, subId: string): string => `${token}|${subId}`;
-const parseSocketRef = (ref: string): { token: string; subId: string } => {
-    const at = ref.indexOf('|');
-    return { token: ref.slice(0, at), subId: ref.slice(at + 1) };
+/** `ev:s` members name the row they point at, and the keyspace it is in. */
+interface SocketRef {
+    ownerUserId: number;
+    token: string;
+    subId: string;
+}
+
+const socketRef = (ref: SocketRef): string =>
+    `${ref.ownerUserId}|${ref.token}|${ref.subId}`;
+
+const parseSocketRef = (ref: string): SocketRef => {
+    const owner = ref.indexOf('|');
+    const token = ref.indexOf('|', owner + 1);
+    return {
+        ownerUserId: Number(ref.slice(0, owner)),
+        token: ref.slice(owner + 1, token),
+        subId: ref.slice(token + 1),
+    };
+};
+
+/** Group refs by the keyspace they live in, so no pipeline crosses slots. */
+const byOwner = (refs: readonly SocketRef[]): Map<number, SocketRef[]> => {
+    const grouped = new Map<number, SocketRef[]>();
+    for (const ref of refs) {
+        const held = grouped.get(ref.ownerUserId) ?? [];
+        held.push(ref);
+        grouped.set(ref.ownerUserId, held);
+    }
+    return grouped;
 };
 
 // -- Lifetimes --------------------------------------------------------
@@ -107,70 +155,89 @@ export class EventSubscriptionStore extends PuterStore {
     // -- Writes ------------------------------------------------------
 
     /**
-     * Register one subscription. Returns the generation the write produced, so
-     * the caller can broadcast it.
+     * Register one subscription. Returns the owner's new generation, so the
+     * caller can broadcast it — that is the keyspace dispatch reads.
      *
      * Ordering is deliberate: the row lands before the token joins the watched
      * set, so dispatch never sees a token whose rows it cannot read yet.
      */
-    async add(sub: SessionSubscription): Promise<number> {
-        const { userId, socketId, token, subId } = sub;
+    async add(sub: SessionSubscription): Promise<GenerationBump> {
+        const { holderUserId, ownerUserId, socketId, token, subId } = sub;
 
         const held = await this.clients.redis.scard(
-            socketKey(userId, socketId),
+            socketKey(holderUserId, socketId),
         );
         if (held >= EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET)
             throw subscriptionLimitReached();
 
-        const pipeline = this.clients.redis.pipeline();
-        pipeline.hset(tokenKey(userId, token), subId, JSON.stringify(sub));
-        pipeline.expire(
-            tokenKey(userId, token),
+        const rows = this.clients.redis.pipeline();
+        rows.hset(tokenKey(ownerUserId, token), subId, JSON.stringify(sub));
+        rows.expire(
+            tokenKey(ownerUserId, token),
             SESSION_SUBSCRIPTION_TTL_SECONDS,
         );
-        pipeline.sadd(socketKey(userId, socketId), socketRef(token, subId));
-        pipeline.expire(
-            socketKey(userId, socketId),
-            SESSION_SUBSCRIPTION_TTL_SECONDS,
-        );
-        pipeline.sadd(watchedKey(userId), token);
-        pipeline.expire(watchedKey(userId), SESSION_SUBSCRIPTION_TTL_SECONDS);
-        await pipeline.exec();
+        rows.sadd(watchedKey(ownerUserId), token);
+        rows.expire(watchedKey(ownerUserId), SESSION_SUBSCRIPTION_TTL_SECONDS);
+        await rows.exec();
 
-        return this.bumpGeneration(userId);
+        const holder = this.clients.redis.pipeline();
+        holder.sadd(
+            socketKey(holderUserId, socketId),
+            socketRef({ ownerUserId, token, subId }),
+        );
+        holder.expire(
+            socketKey(holderUserId, socketId),
+            SESSION_SUBSCRIPTION_TTL_SECONDS,
+        );
+        await holder.exec();
+
+        return {
+            userId: ownerUserId,
+            generation: await this.bumpGeneration(ownerUserId),
+        };
     }
 
     /**
-     * Drop one subscription. Returns the new generation, or `null` when the
-     * subscription was not this socket's to remove — the caller answers that as
-     * a 404 rather than telling a client which ids exist.
+     * Drop one subscription the caller has already read back. Taking the row
+     * rather than an id keeps the scope decision — whose row this is, and which
+     * app's — with the actor, where it belongs.
      */
-    async remove(
-        userId: number,
-        socketId: string,
-        subId: string,
-    ): Promise<number | null> {
-        const refs = await this.clients.redis.smembers(
-            socketKey(userId, socketId),
-        );
-        const ref = refs.find((r) => parseSocketRef(r).subId === subId);
-        if (!ref) return null;
-
-        await this.#dropRefs(userId, socketId, [ref]);
-        return this.bumpGeneration(userId);
+    async remove(sub: SessionSubscription): Promise<GenerationBump> {
+        await this.#dropRefs(sub.holderUserId, sub.socketId, [
+            {
+                ownerUserId: sub.ownerUserId,
+                token: sub.token,
+                subId: sub.subId,
+            },
+        ]);
+        return {
+            userId: sub.ownerUserId,
+            generation: await this.bumpGeneration(sub.ownerUserId),
+        };
     }
 
     /**
      * Drop everything a socket held. Runs on disconnect; the TTL is what covers
-     * the disconnect that never runs.
+     * the disconnect that never runs. One socket can hold rows in several
+     * owners' keyspaces, so several generations may move.
      */
-    async reapSocket(userId: number, socketId: string): Promise<number | null> {
-        const refs = await this.clients.redis.smembers(
-            socketKey(userId, socketId),
-        );
-        if (refs.length === 0) return null;
-        await this.#dropRefs(userId, socketId, refs);
-        return this.bumpGeneration(userId);
+    async reapSocket(
+        holderUserId: number,
+        socketId: string,
+    ): Promise<GenerationBump[]> {
+        const refs = (
+            await this.clients.redis.smembers(socketKey(holderUserId, socketId))
+        ).map(parseSocketRef);
+        if (refs.length === 0) return [];
+
+        await this.#dropRefs(holderUserId, socketId, refs);
+        const bumps: GenerationBump[] = [];
+        for (const ownerUserId of byOwner(refs).keys())
+            bumps.push({
+                userId: ownerUserId,
+                generation: await this.bumpGeneration(ownerUserId),
+            });
+        return bumps;
     }
 
     /**
@@ -180,49 +247,75 @@ export class EventSubscriptionStore extends PuterStore {
      * anchor.
      */
     async #dropRefs(
-        userId: number,
+        holderUserId: number,
         socketId: string,
-        refs: string[],
+        refs: readonly SocketRef[],
     ): Promise<void> {
-        const parsed = refs.map(parseSocketRef);
-
-        const drop = this.clients.redis.pipeline();
-        for (const { token, subId } of parsed)
-            drop.hdel(tokenKey(userId, token), subId);
-        drop.srem(socketKey(userId, socketId), ...refs);
-        await drop.exec();
-
-        const tokens = [...new Set(parsed.map((p) => p.token))];
-        const counts = this.clients.redis.pipeline();
-        for (const token of tokens) counts.hlen(tokenKey(userId, token));
-        const results = (await counts.exec()) ?? [];
-
-        const orphaned = tokens.filter(
-            (_token, i) => Number(results[i]?.[1] ?? 0) === 0,
+        await this.clients.redis.srem(
+            socketKey(holderUserId, socketId),
+            ...refs.map(socketRef),
         );
-        if (orphaned.length > 0)
-            await this.clients.redis.srem(watchedKey(userId), ...orphaned);
+
+        for (const [ownerUserId, owned] of byOwner(refs)) {
+            const drop = this.clients.redis.pipeline();
+            for (const { token, subId } of owned)
+                drop.hdel(tokenKey(ownerUserId, token), subId);
+            await drop.exec();
+
+            const tokens = [...new Set(owned.map((ref) => ref.token))];
+            const counts = this.clients.redis.pipeline();
+            for (const token of tokens)
+                counts.hlen(tokenKey(ownerUserId, token));
+            const results = (await counts.exec()) ?? [];
+
+            const orphaned = tokens.filter(
+                (_token, i) => Number(results[i]?.[1] ?? 0) === 0,
+            );
+            if (orphaned.length > 0)
+                await this.clients.redis.srem(
+                    watchedKey(ownerUserId),
+                    ...orphaned,
+                );
+        }
     }
 
-    /** Keep a live socket's keys ahead of the TTL backstop. */
-    async refresh(userId: number, socketId: string): Promise<void> {
-        const pipeline = this.clients.redis.pipeline();
-        pipeline.expire(
-            socketKey(userId, socketId),
+    /**
+     * Keep a live socket's keys ahead of the TTL backstop — its own, and the
+     * watched sets its rows live in, which may belong to other users.
+     */
+    async refresh(holderUserId: number, socketId: string): Promise<void> {
+        const refs = (
+            await this.clients.redis.smembers(socketKey(holderUserId, socketId))
+        ).map(parseSocketRef);
+
+        await this.clients.redis.expire(
+            socketKey(holderUserId, socketId),
             SESSION_SUBSCRIPTION_TTL_SECONDS,
         );
-        pipeline.expire(watchedKey(userId), SESSION_SUBSCRIPTION_TTL_SECONDS);
-        await pipeline.exec();
+
+        for (const [ownerUserId, owned] of byOwner(refs)) {
+            const pipeline = this.clients.redis.pipeline();
+            pipeline.expire(
+                watchedKey(ownerUserId),
+                SESSION_SUBSCRIPTION_TTL_SECONDS,
+            );
+            for (const token of new Set(owned.map((ref) => ref.token)))
+                pipeline.expire(
+                    tokenKey(ownerUserId, token),
+                    SESSION_SUBSCRIPTION_TTL_SECONDS,
+                );
+            await pipeline.exec();
+        }
     }
 
     // -- Reads -------------------------------------------------------
 
     /**
-     * Whether this user has any subscriptions at all. One command, and the only
-     * thing a cold process needs before it can answer from memory.
+     * Whether anyone watches anything of this owner's at all. One command, and
+     * the only thing a cold process needs before it can answer from memory.
      */
-    async userHasAny(userId: number): Promise<boolean> {
-        return (await this.clients.redis.exists(watchedKey(userId))) === 1;
+    async userHasAny(ownerUserId: number): Promise<boolean> {
+        return (await this.clients.redis.exists(watchedKey(ownerUserId))) === 1;
     }
 
     /**
@@ -230,12 +323,12 @@ export class EventSubscriptionStore extends PuterStore {
      * and one command whatever the depth of the tree.
      */
     async watchedTokens(
-        userId: number,
+        ownerUserId: number,
         tokens: readonly string[],
     ): Promise<string[]> {
         if (tokens.length === 0) return [];
         const flags = await this.clients.redis.smismember(
-            watchedKey(userId),
+            watchedKey(ownerUserId),
             ...tokens,
         );
         return tokens.filter((_token, i) => Number(flags[i]) === 1);
@@ -243,12 +336,13 @@ export class EventSubscriptionStore extends PuterStore {
 
     /** The rows behind a set of watched tokens. */
     async getForTokens(
-        userId: number,
+        ownerUserId: number,
         tokens: readonly string[],
     ): Promise<SessionSubscription[]> {
         if (tokens.length === 0) return [];
         const pipeline = this.clients.redis.pipeline();
-        for (const token of tokens) pipeline.hvals(tokenKey(userId, token));
+        for (const token of tokens)
+            pipeline.hvals(tokenKey(ownerUserId, token));
         const results = (await pipeline.exec()) ?? [];
 
         const subs: SessionSubscription[] = [];
@@ -264,27 +358,55 @@ export class EventSubscriptionStore extends PuterStore {
         return subs;
     }
 
-    /** Everything one socket holds, newest first is not meaningful here. */
+    /** Everything one socket holds, across every keyspace its rows live in. */
     async listForSocket(
-        userId: number,
+        holderUserId: number,
         socketId: string,
     ): Promise<SessionSubscription[]> {
-        const refs = await this.clients.redis.smembers(
-            socketKey(userId, socketId),
-        );
+        const refs = (
+            await this.clients.redis.smembers(socketKey(holderUserId, socketId))
+        ).map(parseSocketRef);
         if (refs.length === 0) return [];
 
-        const byToken = new Map<string, Set<string>>();
-        for (const ref of refs) {
-            const { token, subId } = parseSocketRef(ref);
-            const ids = byToken.get(token) ?? new Set<string>();
-            ids.add(subId);
-            byToken.set(token, ids);
+        const held: SessionSubscription[] = [];
+        for (const [ownerUserId, owned] of byOwner(refs)) {
+            const wanted = new Set(owned.map((ref) => ref.subId));
+            const rows = await this.getForTokens(ownerUserId, [
+                ...new Set(owned.map((ref) => ref.token)),
+            ]);
+            held.push(...rows.filter((row) => wanted.has(row.subId)));
         }
+        return held;
+    }
 
-        const tokens = [...byToken.keys()];
-        const rows = await this.getForTokens(userId, tokens);
-        return rows.filter((row) => byToken.get(row.token)?.has(row.subId));
+    /**
+     * One row this socket holds, by id. An id the socket never held reads as
+     * absent, which is what keeps unsubscribe from answering whether someone
+     * else's id exists.
+     */
+    async getForSocket(
+        holderUserId: number,
+        socketId: string,
+        subId: string,
+    ): Promise<SessionSubscription | null> {
+        const refs = await this.clients.redis.smembers(
+            socketKey(holderUserId, socketId),
+        );
+        const ref = refs
+            .map(parseSocketRef)
+            .find((candidate) => candidate.subId === subId);
+        if (!ref) return null;
+
+        const raw = await this.clients.redis.hget(
+            tokenKey(ref.ownerUserId, ref.token),
+            subId,
+        );
+        if (!raw) return null;
+        try {
+            return JSON.parse(raw) as SessionSubscription;
+        } catch {
+            return null;
+        }
     }
 
     // -- Generation --------------------------------------------------

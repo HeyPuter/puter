@@ -141,6 +141,38 @@ const actorFor = (id = userId): Actor =>
     }) as unknown as Actor;
 
 /**
+ * Paths the ACL says no to, and how loudly. The real check is exercised against
+ * real grants in the integration suite; here access is data, so a test can say
+ * "this went away" without staging a share.
+ */
+let denied: Map<string, 'hidden' | 'forbidden'>;
+
+const aclService = () => ({
+    check: async (_actor: Actor, resource: { path: string }) =>
+        !denied.has(resource.path),
+    getSafeAclError: async (_actor: Actor, resource: { path: string }) =>
+        denied.get(resource.path) === 'forbidden'
+            ? { status: 403, message: 'Forbidden', fields: { code: 'forbidden' } }
+            : {
+                  status: 404,
+                  message: 'Subject does not exist',
+                  fields: { code: 'subject_does_not_exist' },
+              },
+});
+
+const userStore = {
+    getById: async (id: number) => ({
+        id,
+        uuid: `user-${id}`,
+        username: `u${id}`,
+    }),
+};
+
+const appStore = {
+    getByUid: async (uid: string) => ({ uid, id: 1 }),
+};
+
+/**
  * Each service gets its own outbox. A delivery still in flight when a test
  * ends must land in that test's record, not in the next one's.
  */
@@ -161,7 +193,12 @@ const buildService = (
             redis,
             event: bus,
         } as never,
-        { eventSubscription: store, fsEntry: fsEntryStore } as never,
+        {
+            eventSubscription: store,
+            fsEntry: fsEntryStore,
+            user: userStore,
+            app: appStore,
+        } as never,
         {
             socket: {
                 send: vi.fn(async (spec: { socket?: string }, _key, data) => {
@@ -176,6 +213,7 @@ const buildService = (
                     ancestorChain(path),
                 ),
             },
+            acl: aclService(),
         } as never,
     );
     built.onDelivered = (envelope) => counted.push(envelope);
@@ -233,16 +271,23 @@ const subscribe = async (subject: string, socket = socketId) =>
  */
 const seedSubscriptions = async (
     count: number,
-    row: { token: string; anchorUid: string; anchorPath: string; match: string | null },
+    row: {
+        token: string;
+        anchorUid: string;
+        anchorPath: string;
+        match: string | null;
+    },
 ): Promise<void> => {
     for (let i = 0; i < count; i++)
         await store.add({
             subId: `seed-${seq}-${i}`,
             socketId: `socket-${seq}-${i}`,
-            userId,
+            holderUserId: userId,
+            ownerUserId: userId,
             subject: 'fs:seeded',
             op: null,
             appUid: null,
+            permission: 'list',
             ...row,
         });
 };
@@ -251,7 +296,7 @@ const seedSubscriptions = async (
 const dispatch = async (node: FSEntry, key = 'fs.write.file' as const) =>
     service.dispatchFs(key, node, {
         actingUserId: userId,
-        ancestorUids: async () => ancestorChain(node.path).map((a) => a.uid),
+        ancestors: async () => ancestorChain(node.path),
     });
 
 beforeEach(() => {
@@ -260,6 +305,7 @@ beforeEach(() => {
     socketId = `socket-${seq}`;
     commands = [];
     entries = new Map();
+    denied = new Map();
     redis = countingRedis(new MockRedis.Cluster(['redis://localhost:7001']));
     store = new EventSubscriptionStore(
         {} as IConfig,
@@ -302,7 +348,7 @@ describe('the feature switch', () => {
         const { file } = seedTree();
 
         await off.dispatchFs('fs.write.file', file, {
-            ancestorUids: async () => {
+            ancestors: async () => {
                 throw new Error('the tree must not be walked');
             },
         });
@@ -335,18 +381,39 @@ describe('subscribing', () => {
         );
     });
 
-    it('answers a node someone else owns as absent, not as refused', async () => {
+    it('answers a node the caller cannot see as absent, not as refused', async () => {
         const { documents } = seedTree();
-        register({ ...documents, userId: userId + 500 } as FSEntry);
+        denied.set(documents.path, 'hidden');
 
-        await expect(
-            subscribe(`fs:${documents.uid}`),
-        ).rejects.toSatisfy(
+        await expect(subscribe(`fs:${documents.uid}`)).rejects.toSatisfy(
             (err: unknown) =>
                 isHttpError(err) &&
                 err.statusCode === 404 &&
                 err.legacyCode === 'subject_does_not_exist',
         );
+    });
+
+    it('refuses a node the caller can see but not list', async () => {
+        const { documents } = seedTree();
+        denied.set(documents.path, 'forbidden');
+
+        await expect(subscribe(`fs:${documents.uid}`)).rejects.toSatisfy(
+            (err: unknown) =>
+                isHttpError(err) &&
+                err.statusCode === 403 &&
+                err.legacyCode === 'forbidden',
+        );
+    });
+
+    it('stores the anchor`s owner, not the subscriber, as the keyspace', async () => {
+        const { documents } = seedTree();
+        const owner = userId + 500;
+        register({ ...documents, userId: owner } as FSEntry);
+
+        await subscribe(`fs:${documents.uid}`);
+
+        await expect(store.userHasAny(owner)).resolves.toBe(true);
+        await expect(store.userHasAny(userId)).resolves.toBe(false);
     });
 
     it('files the missing remainder as the filter', async () => {
@@ -431,13 +498,13 @@ describe('what a dispatch costs', () => {
 
     it('walks the tree only for a user who has subscriptions', async () => {
         const { file } = seedTree();
-        const walk = vi.fn(async () => ['docs']);
+        const walk = vi.fn(async () => [{ uid: 'docs', path: '/docs' }]);
 
         await service.dispatchFs('fs.write.file', file, {
-            ancestorUids: walk,
+            ancestors: walk,
         });
         await service.dispatchFs('fs.write.file', file, {
-            ancestorUids: walk,
+            ancestors: walk,
         });
 
         expect(walk).not.toHaveBeenCalled();
@@ -468,7 +535,8 @@ describe('cross-process invalidation', () => {
         await store.add({
             subId: 'remote-sub',
             socketId: 'remote-socket',
-            userId,
+            holderUserId: userId,
+            ownerUserId: userId,
             subject: `fs:${documents.uid}`,
             token: `f#${documents.uid}`,
             anchorUid: documents.uid,
@@ -476,6 +544,7 @@ describe('cross-process invalidation', () => {
             match: null,
             op: null,
             appUid: null,
+            permission: 'list',
         });
         const generation = await store.getGeneration(userId);
 
@@ -587,33 +656,52 @@ describe('matching', () => {
 
         await service.dispatchFs('fs.write.file', file, {
             actingUserId: userId + 900,
-            ancestorUids: async () => [documents.uid],
+            ancestors: async () => [
+                { uid: documents.uid, path: documents.path },
+            ],
         });
         await flush();
 
         expect(sent[0].envelope.event).toMatchObject({ self: false });
     });
 
-    it('will not deliver a row whose holder does not own the node', async () => {
+    it('stops delivering the moment the holder`s access goes', async () => {
         const { documents, file } = seedTree();
-        const sub = await subscribe(`fs:${documents.uid}`);
-        // Holder and owner cannot disagree through the API yet, so the stored
-        // row is where they are made to — which is what the delivery-side
-        // check is for once a shared anchor can produce that pair.
-        const rowKey = `ev:t:{${userId}}:f#${documents.uid}`;
-        const stored = JSON.parse(
-            (await redis.hget(rowKey, sub.subId)) as string,
-        ) as Record<string, unknown>;
-        await redis.hset(
-            rowKey,
-            sub.subId,
-            JSON.stringify({ ...stored, userId: userId + 700 }),
-        );
+        await subscribe(`fs:${documents.uid}`);
 
+        // The row is still there and still matches; only the answer to "may
+        // this holder list the node" changed.
+        denied.set(file.path, 'hidden');
         await dispatch(file);
         await flush();
 
         expect(sent).toEqual([]);
+    });
+
+    it('re-checks the node the event is about, not the anchor', async () => {
+        const { documents } = seedTree();
+        await subscribe(`fs:/u${userId}/Documents/**`);
+        const reachable = register(
+            entry({
+                uid: `open-${seq}`,
+                path: `${documents.path}/open/notes.txt`,
+            }),
+        );
+        const closed = register(
+            entry({
+                uid: `closed-${seq}`,
+                path: `${documents.path}/closed/secret.txt`,
+            }),
+        );
+        denied.set(closed.path, 'hidden');
+
+        await dispatch(reachable);
+        await dispatch(closed);
+        await flush();
+
+        expect(sent.map((s) => (s.envelope.event as { uid: string }).uid)).toEqual([
+            reachable.uid,
+        ]);
     });
 
     it('publishes nothing for an event with no registry entry', async () => {
@@ -622,7 +710,9 @@ describe('matching', () => {
         commands = [];
 
         await service.dispatchFs('fs.copy.node', file, {
-            ancestorUids: async () => [documents.uid],
+            ancestors: async () => [
+                { uid: documents.uid, path: documents.path },
+            ],
         });
         await flush();
 

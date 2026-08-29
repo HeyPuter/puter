@@ -30,15 +30,20 @@ import { HttpError } from '../../core/http/HttpError.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import {
     SESSION_SUBSCRIPTION_TTL_SECONDS,
+    type GenerationBump,
     type SessionSubscription,
 } from '../../stores/events/EventSubscriptionStore.js';
 import type { FSEntry } from '../../stores/fs/FSEntry.js';
+import type { ResourceDescriptor } from '../acl/ACLService.js';
 import { resolveNode } from '../fs/resolveNode.js';
 import { PuterService } from '../types.js';
 import { resolveFsAnchor, type FsAnchorDeps } from './anchors.js';
 import {
     assertSubscribeAuthorized,
-    checkSubscribeAuthorization,
+    checkDeliveryAuthorized,
+    nodeDescriptor,
+    rowInActorScope,
+    type EventAclDeps,
 } from './authorization.js';
 import { DeliveryCoalescer } from './coalescer.js';
 import {
@@ -70,7 +75,11 @@ import { parseSubject, type FsOp } from './subjects.js';
  *    rather than a timer, so it costs nothing once warm.
  * 3. One Redis command against the user's watched tokens.
  *
- * Only past all three does anything read a subscription or walk the tree.
+ * Only past all three does anything read a subscription or walk the tree, and
+ * only a row that survived op and filter matching pays for the ACL re-check
+ * that decides whether its holder may still be told. Everything is keyed by the
+ * owner of the resource, because that is all a write knows about itself.
+ *
  * Nothing here reaches the caller: an event that could not be dispatched is an
  * event nobody hears, and the write that produced it still succeeded.
  */
@@ -134,8 +143,10 @@ export interface FsDispatchOptions {
     /**
      * Resolved lazily and only past the second gate — walking the tree for a
      * user nobody subscribed on behalf of is the cost this exists to avoid.
+     * Paths as well as uids: the same walk answers the token lookup and the
+     * per-delivery ACL re-check.
      */
-    ancestorUids?: () => Promise<readonly string[]>;
+    ancestors?: () => Promise<ReadonlyArray<{ uid: string; path: string }>>;
     /** Who performed the write, for the `self` flag. */
     actingUserId?: number;
 }
@@ -295,10 +306,10 @@ export class EventsService extends PuterService {
         request: SubscribeRequest,
     ): Promise<{ sub: SubscriptionView }> {
         if (!this.enabled) throw disabled();
-        const userId = actor.user?.id;
-        if (userId === undefined) throw disabled();
+        const holderUserId = actor.user?.id;
+        if (holderUserId === undefined) throw disabled();
 
-        await this.#spendCallBudget(userId);
+        await this.#spendCallBudget(holderUserId);
 
         const rawSubject = String(request?.subject ?? '');
         const parsed = parseSubject(rawSubject);
@@ -314,7 +325,9 @@ export class EventsService extends PuterService {
         });
 
         // The resolver answers where a subscription keys, not whose it is, so
-        // the owner comes from the anchor node itself.
+        // the owner comes from the anchor node itself — and that is the
+        // keyspace the row is indexed in, because dispatch only ever knows
+        // whose resource changed.
         const entry = await resolveNode(this.stores.fsEntry, {
             uid: anchor.uid,
         });
@@ -322,10 +335,11 @@ export class EventsService extends PuterService {
             throw new HttpError(404, `No such entry: ${anchor.path}`, {
                 legacyCode: 'subject_does_not_exist',
             });
-        assertSubscribeAuthorized(
-            { userId },
-            { ownerUserId: entry.userId },
+        const permission = await assertSubscribeAuthorized(
+            actor,
+            { uid: anchor.uid, path: anchor.path },
             rawSubject,
+            this.#aclDeps(),
         );
 
         // Compile now so an unusable pattern fails this call rather than every
@@ -335,7 +349,8 @@ export class EventsService extends PuterService {
         const sub: SessionSubscription = {
             subId: randomUUID(),
             socketId,
-            userId,
+            holderUserId,
+            ownerUserId: entry.userId,
             subject: rawSubject,
             token: anchor.token,
             anchorUid: anchor.uid,
@@ -343,11 +358,12 @@ export class EventsService extends PuterService {
             match: anchor.match,
             op: anchor.op,
             appUid: actor.effectiveApp?.uid ?? null,
+            permission,
         };
 
-        const generation = await this.stores.eventSubscription.add(sub);
-        this.#publishGeneration(userId, generation);
-        this.#startRefresh(userId, socketId);
+        const bump = await this.stores.eventSubscription.add(sub);
+        this.#publishGeneration(bump);
+        this.#startRefresh(holderUserId, socketId);
 
         return { sub: toView(sub) };
     }
@@ -358,46 +374,62 @@ export class EventsService extends PuterService {
         request: UnsubscribeRequest,
     ): Promise<void> {
         if (!this.enabled) throw disabled();
-        const userId = actor.user?.id;
-        if (userId === undefined) throw disabled();
+        const holderUserId = actor.user?.id;
+        if (holderUserId === undefined) throw disabled();
 
-        await this.#spendCallBudget(userId);
+        await this.#spendCallBudget(holderUserId);
 
         const subId = String(request?.subId ?? '');
         if (!subId) throw unknownSubscription();
 
-        const generation = await this.stores.eventSubscription.remove(
-            userId,
+        const sub = await this.stores.eventSubscription.getForSocket(
+            holderUserId,
             socketId,
             subId,
         );
-        // An id this socket never held reads as absent rather than refused —
-        // otherwise unsubscribe reports whether someone else's id exists.
-        if (generation === null) throw unknownSubscription();
+        // An id this socket never held — or one another app created — reads as
+        // absent rather than refused: a 403 here is an oracle for subIds.
+        if (!sub || !rowInActorScope(actor, sub)) throw unknownSubscription();
 
+        const bump = await this.stores.eventSubscription.remove(sub);
         this.#forget(subId);
-        this.#publishGeneration(userId, generation);
+        this.#publishGeneration(bump);
+    }
+
+    /** What this actor holds on one connection, scoped to what it may see. */
+    async listSubscriptions(
+        actor: Actor,
+        socketId: string,
+    ): Promise<SubscriptionView[]> {
+        if (!this.enabled) throw disabled();
+        const holderUserId = actor.user?.id;
+        if (holderUserId === undefined) throw disabled();
+
+        const held = await this.stores.eventSubscription.listForSocket(
+            holderUserId,
+            socketId,
+        );
+        return held.filter((sub) => rowInActorScope(actor, sub)).map(toView);
     }
 
     /** Disconnect handler; also covers a socket the server dropped. */
-    async reapSocket(userId: number, socketId: string): Promise<void> {
+    async reapSocket(holderUserId: number, socketId: string): Promise<void> {
         // Nothing could have been registered, so nothing has to be looked up.
         // A switch flipped off under live subscriptions leaves them to the TTL.
         if (!this.enabled) return;
-        this.#stopRefresh(userId, socketId);
+        this.#stopRefresh(holderUserId, socketId);
         try {
             const held = await this.stores.eventSubscription.listForSocket(
-                userId,
+                holderUserId,
                 socketId,
             );
             for (const sub of held) this.#forget(sub.subId);
 
-            const generation = await this.stores.eventSubscription.reapSocket(
-                userId,
+            const bumps = await this.stores.eventSubscription.reapSocket(
+                holderUserId,
                 socketId,
             );
-            if (generation !== null)
-                this.#publishGeneration(userId, generation);
+            for (const bump of bumps) this.#publishGeneration(bump);
         } catch (err) {
             // The TTL backstop exists for exactly this.
             console.warn('[events] failed to reap socket subscriptions', err);
@@ -420,43 +452,41 @@ export class EventsService extends PuterService {
         const subject = lookupPublicSubject(key);
         if (!subject) return;
 
-        const userId = entry?.userId;
-        if (typeof userId !== 'number') return;
+        const ownerUserId = entry?.userId;
+        if (typeof ownerUserId !== 'number') return;
 
-        if (!(await this.#userHasAny(userId))) return;
+        if (!(await this.#userHasAny(ownerUserId))) return;
 
-        const ancestorUids = options.ancestorUids
-            ? await options.ancestorUids()
-            : [];
+        const ancestors = options.ancestors ? await options.ancestors() : [];
         const context: EventContext = {
             key,
             entry,
-            ancestorUids,
+            ancestors,
             id: randomUUID(),
             ts: Date.now(),
         };
 
         const watched = await this.stores.eventSubscription.watchedTokens(
-            userId,
+            ownerUserId,
             subject.tokens(context),
         );
         if (watched.length === 0) return;
 
         const rows = await this.stores.eventSubscription.getForTokens(
-            userId,
+            ownerUserId,
             watched,
         );
         if (rows.length === 0) return;
 
-        this.#route(subject, context, rows, options.actingUserId);
+        await this.#route(subject, context, rows, options.actingUserId);
     }
 
-    #route(
+    async #route(
         subject: PublicSubject,
         context: EventContext,
         rows: SessionSubscription[],
         actingUserId: number | undefined,
-    ): void {
+    ): Promise<void> {
         // One throwaway projection reads the op off the registry entry rather
         // than re-deriving it from the subject string.
         const { op } = subject.project({ ...context, self: false, seq: 0 });
@@ -464,20 +494,22 @@ export class EventsService extends PuterService {
 
         const evaluated = evaluateWithCap(
             rows,
-            (row) => this.#passes(row, op, matchOn, context),
+            (row) => this.#passes(row, op, matchOn),
             FILTER_EVALUATIONS_PER_EVENT,
         );
 
-        const matched = evaluated.matched.slice(
-            0,
-            EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
+        const matched = await this.#stillAuthorized(
+            evaluated.matched.slice(0, EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT),
+            context,
         );
 
         let seq = 0;
         for (const row of matched) {
             const event = subject.project({
                 ...context,
-                self: actingUserId === undefined || actingUserId === row.userId,
+                self:
+                    actingUserId === undefined ||
+                    actingUserId === row.holderUserId,
                 seq: seq++,
             });
             this.#coalesce().push(coalesceKey(row.subId, event.subject), {
@@ -508,25 +540,57 @@ export class EventsService extends PuterService {
     }
 
     /** Op filter first — a comparison, where the glob is not. */
-    #passes(
-        row: SessionSubscription,
-        op: FsOp,
-        matchOn: string,
-        context: EventContext,
-    ): boolean {
+    #passes(row: SessionSubscription, op: FsOp, matchOn: string): boolean {
         if (row.op !== null && row.op !== op) return false;
-        if (
-            !checkSubscribeAuthorization(
-                { userId: row.userId },
-                { ownerUserId: context.entry.userId },
-            )
-        )
-            return false;
         if (!row.match) return true;
 
         const relative = relativeTo(row.anchorPath, matchOn);
         if (relative === null) return false;
         return this.#matcherFor(row).test(relative);
+    }
+
+    /**
+     * Re-run each surviving row's access against the node the event is about,
+     * not against its anchor: a filter that reaches into something the holder
+     * cannot list must not deliver from it, and a share revoked after the
+     * subscription was made must stop delivering at once rather than when the
+     * row is next touched.
+     *
+     * Last of the filters, because it is the only one that can cost a lookup —
+     * and rows that share an identity and a grant share one decision.
+     */
+    async #stillAuthorized(
+        rows: SessionSubscription[],
+        context: EventContext,
+    ): Promise<SessionSubscription[]> {
+        if (rows.length === 0) return rows;
+
+        const node = this.#eventDescriptor(context);
+        const decisions = new Map<string, Promise<boolean>>();
+        const allowed = await Promise.all(
+            rows.map((row) => {
+                const key = `${row.holderUserId}|${row.appUid ?? ''}|${row.permission}`;
+                let decision = decisions.get(key);
+                if (!decision) {
+                    decision = checkDeliveryAuthorized(
+                        row,
+                        node,
+                        this.#aclDeps(),
+                    );
+                    decisions.set(key, decision);
+                }
+                return decision;
+            }),
+        );
+        return rows.filter((_row, i) => allowed[i]);
+    }
+
+    /** The event's node as ACL wants it, reusing the walk dispatch already did. */
+    #eventDescriptor(context: EventContext): ResourceDescriptor {
+        return nodeDescriptor(
+            { uid: context.entry.uid, path: context.entry.path },
+            { getAncestorChain: async () => context.ancestors },
+        );
     }
 
     #matcherFor(row: SessionSubscription): CompiledMatch {
@@ -654,7 +718,7 @@ export class EventsService extends PuterService {
         }
     }
 
-    #publishGeneration(userId: number, generation: number): void {
+    #publishGeneration({ userId, generation }: GenerationBump): void {
         this.#cache.bump(userId, generation);
         try {
             this.clients.event.emit(
@@ -681,6 +745,15 @@ export class EventsService extends PuterService {
         };
     }
 
+    #aclDeps(): EventAclDeps {
+        return {
+            acl: this.services.acl,
+            getAncestorChain: (path) => this.services.fs.getAncestorChain(path),
+            getUser: (userId) => this.stores.user.getById(userId),
+            getApp: (uid) => this.stores.app.getByUid(uid),
+        };
+    }
+
     async #spendCallBudget(userId: number): Promise<void> {
         const ok = await checkRateLimit(
             `${EVENTS_SUBSCRIBE_LIMIT.scope}:${userId}`,
@@ -695,13 +768,13 @@ export class EventsService extends PuterService {
      * and renewing is what separates one of those from a node that died without
      * reaping.
      */
-    #startRefresh(userId: number, socketId: string): void {
-        const key = `${userId}|${socketId}`;
+    #startRefresh(holderUserId: number, socketId: string): void {
+        const key = `${holderUserId}|${socketId}`;
         if (this.#refreshTimers.has(key)) return;
         const timer = setInterval(
             () => {
                 void this.stores.eventSubscription
-                    .refresh(userId, socketId)
+                    .refresh(holderUserId, socketId)
                     .catch(() => {});
             },
             Math.floor((SESSION_SUBSCRIPTION_TTL_SECONDS * 1000) / 3),
@@ -710,8 +783,8 @@ export class EventsService extends PuterService {
         this.#refreshTimers.set(key, timer);
     }
 
-    #stopRefresh(userId: number, socketId: string): void {
-        const key = `${userId}|${socketId}`;
+    #stopRefresh(holderUserId: number, socketId: string): void {
+        const key = `${holderUserId}|${socketId}`;
         const timer = this.#refreshTimers.get(key);
         if (!timer) return;
         clearInterval(timer);

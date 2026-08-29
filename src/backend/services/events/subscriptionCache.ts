@@ -18,10 +18,11 @@
  */
 
 /**
- * The "does this user have any subscriptions at all" answer, per process.
+ * The "does anyone watch anything of this user's" answer, per process — asked
+ * of whoever owns the resource being written, which is all a write knows.
  *
- * Nearly every user has none, and this is what lets a write on their behalf
- * cost nothing: after the first miss the answer is in memory and dispatch never
+ * Nearly every user has nothing watched, and this is what lets a write cost
+ * nothing: after the first miss the answer is in memory and dispatch never
  * touches Redis again. That only holds if invalidation is pushed rather than
  * polled, so entries are keyed by a per-user generation the subscribe and
  * unsubscribe paths bump and broadcast — never by a timer, which would put the
