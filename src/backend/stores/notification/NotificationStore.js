@@ -102,15 +102,27 @@ export class NotificationStore extends PuterStore {
      * the uid to the socket before this insert lands, and the ack / mark-shown
      * round trip comes back keyed on it.
      *
-     * @param {{ userId: number; value: unknown; uid?: string }} args
+     * `type`, `audience` and `appUid` are the scope tuple; the registry in the
+     * notification service is what decides which combinations are legal, and
+     * the empty `type` written by a caller that names none reads as legacy.
+     *
+     * @param {{ userId: number; value: unknown; uid?: string; type?: string;
+     *   audience?: string; appUid?: string | null }} args
      */
-    async create({ userId, value, uid = uuidv4() }) {
+    async create({
+        userId,
+        value,
+        uid = uuidv4(),
+        type = '',
+        audience = 'account',
+        appUid = null,
+    }) {
         if (!userId) throw new Error('create: userId is required');
         const serialized =
             typeof value === 'string' ? value : JSON.stringify(value ?? {});
         await this.clients.db.write(
-            'INSERT INTO `notification` (`uid`, `user_id`, `value`) VALUES (?, ?, ?)',
-            [uid, userId, serialized],
+            'INSERT INTO `notification` (`uid`, `user_id`, `value`, `type`, `audience`, `app_uid`) VALUES (?, ?, ?, ?, ?, ?)',
+            [uid, userId, serialized, type, audience, appUid],
         );
         await this.#invalidateUnack(userId);
         return this.getByUid(uid, { userId });

@@ -27,7 +27,7 @@ import { DatabaseClientFactory } from './index.js';
 import { SqliteDatabaseClient } from './SqliteDatabaseClient.js';
 
 /** Highest schema version the migration table can reach. */
-const CURRENT_SCHEMA_VERSION = 67;
+const CURRENT_SCHEMA_VERSION = 68;
 
 /**
  * These suites migrate real files on disk. Idle they finish in well under a
@@ -187,6 +187,183 @@ describe('SqliteDatabaseClient — boot and migrations', { timeout: DISK_MIGRATI
             for (const name of ['system', 'admin', 'user']) {
                 expect(names).toContain(name);
             }
+        });
+    });
+
+    // 0072 rebuilds `notification` for the scope tuple, and picks up the
+    // user_id index and the delete cascade mysql and postgres already had.
+    describe('0072 notification-scope', () => {
+        // Only the backfill re-runs: the rebuild half is once-only by
+        // construction, but mysql and postgres replay their whole file on
+        // every boot, so these statements have to be safe twice.
+        const BACKFILL = readFileSync(
+            new URL(
+                './migrations/sqlite/0072_notification-scope.sql',
+                import.meta.url,
+            ),
+            'utf8',
+        )
+            .split(/;\s*\n/)
+            .map((s) => s.trim())
+            .filter((s) => /(^|\n)UPDATE /.test(s));
+
+        const seedUser = async (): Promise<number> => {
+            const name = `notif-${Math.random().toString(36).slice(2, 10)}`;
+            await client.write(
+                'INSERT INTO `user` (`username`, `uuid`) VALUES (?, ?)',
+                [name, `${name}-uuid`],
+            );
+            const [row] = await client.read(
+                'SELECT `id` FROM `user` WHERE `username` = ?',
+                [name],
+            );
+            return Number(row.id);
+        };
+
+        const seedLegacy = async (
+            userId: number,
+            value: Record<string, unknown> | string,
+        ): Promise<string> => {
+            const uid = `n-${Math.random().toString(36).slice(2, 12)}`;
+            await client.write(
+                'INSERT INTO `notification` (`uid`, `user_id`, `value`) VALUES (?, ?, ?)',
+                [
+                    uid,
+                    userId,
+                    typeof value === 'string' ? value : JSON.stringify(value),
+                ],
+            );
+            return uid;
+        };
+
+        const scopeOf = async (uid: string) => {
+            const [row] = await client.read(
+                'SELECT `type`, `audience`, `app_uid` FROM `notification` WHERE `uid` = ?',
+                [uid],
+            );
+            return row;
+        };
+
+        const runBackfill = async () => {
+            for (const stmt of BACKFILL) await client.write(stmt);
+        };
+
+        it('carries every backfill statement', () => {
+            expect(BACKFILL).toHaveLength(3);
+        });
+
+        it('classifies the markers legacy rows actually carried', async () => {
+            const userId = await seedUser();
+            const received = await seedLegacy(userId, {
+                source: 'sharing',
+                template: 'file-shared-with-you',
+            });
+            const claimed = await seedLegacy(userId, {
+                source: 'sharing',
+                template: 'file-shared-before-you-joined',
+            });
+            const deployed = await seedLegacy(userId, {
+                source: 'worker',
+                title: 'Successfully deployed https://x.puter.work',
+                template: 'user-requesting-share',
+            });
+            const failed = await seedLegacy(userId, {
+                source: 'worker',
+                title: 'Failed to deploy x! boom',
+                template: 'user-requesting-share',
+            });
+
+            await runBackfill();
+
+            expect(await scopeOf(received)).toEqual({
+                type: 'share.received',
+                audience: 'account',
+                app_uid: null,
+            });
+            expect(await scopeOf(claimed)).toEqual({
+                type: 'share.claimed',
+                audience: 'account',
+                app_uid: null,
+            });
+            // The app is unrecoverable — the payload only ever named a worker.
+            expect(await scopeOf(deployed)).toEqual({
+                type: 'app.worker.deployed',
+                audience: 'developer',
+                app_uid: null,
+            });
+            expect(await scopeOf(failed)).toEqual({
+                type: 'app.worker.deployFailed',
+                audience: 'developer',
+                app_uid: null,
+            });
+        });
+
+        it('leaves anything it does not recognise reading as legacy', async () => {
+            const userId = await seedUser();
+            const unknown = await seedLegacy(userId, {
+                source: 'sharing',
+                template: 'something-else',
+            });
+            const bare = await seedLegacy(userId, { title: 'hi' });
+            const notJson = await seedLegacy(userId, 'plain text');
+
+            await runBackfill();
+
+            for (const uid of [unknown, bare, notJson]) {
+                expect(await scopeOf(uid)).toEqual({
+                    type: '',
+                    audience: 'account',
+                    app_uid: null,
+                });
+            }
+        });
+
+        it('does not reclassify on replay', async () => {
+            const userId = await seedUser();
+            const uid = await seedLegacy(userId, {
+                source: 'sharing',
+                template: 'file-shared-with-you',
+            });
+
+            await runBackfill();
+            // A row already classified as something else must survive a
+            // second pass untouched.
+            await client.write(
+                'UPDATE `notification` SET `audience` = ?, `app_uid` = ? WHERE `uid` = ?',
+                ['app-user', 'app-1234', uid],
+            );
+            await runBackfill();
+
+            expect(await scopeOf(uid)).toEqual({
+                type: 'share.received',
+                audience: 'app-user',
+                app_uid: 'app-1234',
+            });
+        });
+
+        it('indexes user_id and the scope tuple', async () => {
+            const rows = await client.read('PRAGMA index_list(`notification`)');
+            const names = rows.map((r) => String(r.name));
+            expect(names).toContain('idx_notification_user_id');
+            expect(names).toContain('idx_notification_scope');
+        });
+
+        it('retires a deleted user rows', async () => {
+            const [{ foreign_keys: enforcing }] = await client.read(
+                'PRAGMA foreign_keys',
+            );
+            expect(enforcing).toBe(1);
+
+            const userId = await seedUser();
+            const uid = await seedLegacy(userId, { title: 'orphan-to-be' });
+            await client.write('DELETE FROM `user` WHERE `id` = ?', [userId]);
+
+            expect(
+                await client.read(
+                    'SELECT `uid` FROM `notification` WHERE `uid` = ?',
+                    [uid],
+                ),
+            ).toEqual([]);
         });
     });
 

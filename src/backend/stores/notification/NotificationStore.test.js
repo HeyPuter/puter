@@ -94,6 +94,69 @@ describe('NotificationStore', () => {
         );
     });
 
+    // -- scope tuple ---------------------------------------------------
+
+    it('persists the scope tuple it was given', async () => {
+        const appUid = `app-${uuidv4()}`;
+        const created = await store.create({
+            userId: user.id,
+            value: { title: 'Deploy failed' },
+            type: 'app.worker.deployFailed',
+            audience: 'developer',
+            appUid,
+        });
+
+        expect(created.type).toBe('app.worker.deployFailed');
+        expect(created.audience).toBe('developer');
+        expect(created.app_uid).toBe(appUid);
+
+        const reread = await store.getByUid(created.uid, { userId: user.id });
+        expect(reread.app_uid).toBe(appUid);
+    });
+
+    it('defaults a caller that names no scope to an unattributed account row', async () => {
+        const created = await store.create({
+            userId: user.id,
+            value: { title: 'Legacy' },
+        });
+        expect(created.type).toBe('');
+        expect(created.audience).toBe('account');
+        expect(created.app_uid).toBeNull();
+    });
+
+    it('carries the scope tuple through listing', async () => {
+        const u = await makeUser();
+        const appUid = `app-${uuidv4()}`;
+        await store.create({
+            userId: u.id,
+            value: {},
+            type: 'share.received',
+            audience: 'account',
+        });
+        await store.create({
+            userId: u.id,
+            value: {},
+            type: 'app.events.ended',
+            audience: 'developer',
+            appUid,
+        });
+
+        const byType = Object.fromEntries(
+            (await store.listByUserId(u.id)).map((r) => [
+                r.type,
+                { audience: r.audience, appUid: r.app_uid },
+            ]),
+        );
+        expect(byType['share.received']).toEqual({
+            audience: 'account',
+            appUid: null,
+        });
+        expect(byType['app.events.ended']).toEqual({
+            audience: 'developer',
+            appUid,
+        });
+    });
+
     it('returns null for an unknown uid', async () => {
         expect(await store.getByUid('no-such-notification')).toBeNull();
     });
