@@ -1378,6 +1378,245 @@ describe('ShareService', () => {
             await revokeByUid(asApp(owner, apps[1]), listed.items[0].uid);
             expect(await canRead(recipient.actor, files[1].path)).toBe(false);
         });
+
+        it('lets the owner revoke a delegate-issued share, leaving the delegate itself alone', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: delegate.user.username },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { username: third.user.username },
+                mode: 'read',
+            });
+            expect(await canRead(third.actor, file.path)).toBe(true);
+
+            // The owner's own listing includes what the delegate issued.
+            const listed = await listSharedByMe(owner.actor);
+            const delegateRow = listed.items.find(
+                (i) => i.holder.username === third.user.username,
+            );
+            expect(delegateRow).toBeDefined();
+
+            await revokeByUid(owner.actor, delegateRow!.uid);
+
+            // The third party's access is gone; the delegate's own manage
+            // grant — issued by the owner, not by the delegate — is untouched.
+            expect(await canRead(third.actor, file.path)).toBe(false);
+            expect(await canRead(delegate.actor, file.path)).toBe(true);
+        });
+    });
+
+    describe('the grant audit trail', () => {
+        const audit = (
+            actor: Actor,
+            target?: Record<string, unknown>,
+            opts?: { limit?: number; cursor?: string; includeTotal?: boolean },
+        ) =>
+            runWithContext({ actor }, () =>
+                server.services.share.listGrantAudit(
+                    actor,
+                    target as never,
+                    opts,
+                ),
+            );
+
+        it('names when a grant was made, by whom, and under which app', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const app = await makeApp(owner.user.id);
+            const file = await makeFile(owner.user);
+            await grantAppReach(owner, app, file);
+
+            await share(asApp(owner, app), {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            const trail = await audit(
+                owner.actor,
+                { uid: file.uuid },
+                { includeTotal: true },
+            );
+            expect(trail.total).toBe(trail.items.length);
+            const granted = trail.items.filter((i) => i.action === 'grant');
+            expect(granted.length).toBeGreaterThan(0);
+            for (const row of granted) {
+                expect(row.entryUid).toBe(file.uuid);
+                expect(row.issuer.username).toBe(owner.user.username);
+                expect(row.holder.username).toBe(recipient.user.username);
+                expect(row.appUid).toBe(app.uid);
+                expect(row.createdAt).toBeDefined();
+            }
+            expect(granted.map((i) => i.mode)).toContain('read');
+        });
+
+        it('carries no app for a grant the user made themselves', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            const trail = await audit(owner.actor, { uid: file.uuid });
+            expect(trail.items.every((i) => i.appUid === null)).toBe(true);
+        });
+
+        // The grant is gone by then; the row is the only record left of it.
+        it('still reads after the grant is revoked, and says so', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            await unshare(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+            });
+            expect(await canRead(recipient.actor, file.path)).toBe(false);
+
+            const trail = await audit(owner.actor, { uid: file.uuid });
+            const actions = new Set(trail.items.map((i) => i.action));
+            expect(actions.has('grant')).toBe(true);
+            expect(actions.has('revoke')).toBe(true);
+            expect(
+                trail.items.every(
+                    (i) => i.holder.username === recipient.user.username,
+                ),
+            ).toBe(true);
+        });
+
+        it('shows the owner what a delegate granted on their item', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const third = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: delegate.user.username },
+                mode: 'manage',
+            });
+            await share(delegate.actor, {
+                uid: file.uuid,
+                recipient: { username: third.user.username },
+                mode: 'read',
+            });
+
+            const trail = await audit(owner.actor, { uid: file.uuid });
+            const issuers = new Set(trail.items.map((i) => i.issuer.username));
+            expect(issuers).toEqual(
+                new Set([owner.user.username, delegate.user.username]),
+            );
+        });
+
+        it('lists what the caller granted when no item is named', async () => {
+            const owner = await makeUser();
+            const other = await makeUser();
+            const recipient = await makeUser();
+            const mine = await makeFile(owner.user);
+            const theirs = await makeFile(other.user);
+
+            await share(owner.actor, {
+                uid: mine.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            await share(other.actor, {
+                uid: theirs.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            const trail = await audit(owner.actor);
+            expect(trail.items.length).toBeGreaterThan(0);
+            expect(
+                trail.items.every(
+                    (i) => i.issuer.username === owner.user.username,
+                ),
+            ).toBe(true);
+            expect(
+                trail.items.some((i) => i.entryUid === theirs.uuid),
+            ).toBe(false);
+        });
+
+        it('refuses the trail of an item the caller cannot manage', async () => {
+            const owner = await makeUser();
+            const stranger = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            await expect(
+                audit(stranger.actor, { uid: file.uuid }),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            // Holding the share is not authority over what else was granted.
+            await expect(
+                audit(recipient.actor, { uid: file.uuid }),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('walks every page through the cursor', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            await unshare(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+            });
+
+            const all = await audit(
+                owner.actor,
+                { uid: file.uuid },
+                { includeTotal: true },
+            );
+            expect(all.total).toBe(all.items.length);
+
+            const seen: string[] = [];
+            let cursor: string | undefined;
+            for (let page = 0; page < all.items.length + 2; page++) {
+                const listed = await audit(
+                    owner.actor,
+                    { uid: file.uuid },
+                    { limit: 1, cursor },
+                );
+                seen.push(
+                    ...listed.items.map((i) => `${i.action}:${i.permission}`),
+                );
+                cursor = listed.cursor;
+                if (!cursor) break;
+            }
+
+            expect(cursor).toBeUndefined();
+            expect(seen).toEqual(
+                all.items.map((i) => `${i.action}:${i.permission}`),
+            );
+        });
     });
 
     it('takes downstream access with a delegate who leaves', async () => {

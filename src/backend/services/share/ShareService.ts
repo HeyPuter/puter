@@ -29,6 +29,7 @@ import {
     isProviderCanonicalized,
 } from '../../util/email.js';
 import type { FSEntry } from '../../stores/fs/FSEntry';
+import type { UserUserAuditFilter } from '../../stores/permission/PermissionStore';
 import type { UserRow } from '../../stores/user/UserStore';
 import type { AclMode } from '../acl/ACLService';
 import {
@@ -85,6 +86,25 @@ interface GrantEvidence {
     unattributed: boolean;
     /** The holder owns the entry outright, so no grant is needed. */
     owned: boolean;
+}
+
+/**
+ * One entry in the grant audit trail. Written when a grant is made or
+ * withdrawn, and kept afterwards — the row is what remains once the grant
+ * itself is gone.
+ */
+export interface GrantAuditEntry {
+    /** 'grant' or 'revoke'; null on a row that predates the column. */
+    action: string | null;
+    permission: string;
+    /** Set when the grant names an fs node; other permissions carry neither. */
+    entryUid: string | null;
+    mode: string | null;
+    issuer: { username: string | null };
+    holder: { username: string | null };
+    /** The app that was acting, when one was. */
+    appUid: string | null;
+    createdAt: unknown;
 }
 
 /** One app in the outbound listing's group-by-app view. */
@@ -195,6 +215,15 @@ export const uuidFromEntryPermission = (permission: string): string | null => {
     const fsAt = parts[0] === MANAGE_PERM_PREFIX ? 1 : 0;
     if (parts[fsAt] !== 'fs') return null;
     return parts[fsAt + 1] || null;
+};
+
+/** The share mode a grant stands for, for the two shapes above. */
+export const modeFromEntryPermission = (permission: string): string | null => {
+    if (!uuidFromEntryPermission(permission)) return null;
+    const parts = permission.split(':');
+    return parts[0] === MANAGE_PERM_PREFIX
+        ? MANAGE_PERM_PREFIX
+        : (parts[2] ?? null);
 };
 
 /**
@@ -1713,6 +1742,75 @@ export class ShareService extends PuterService {
         return this.#withdrawGrants(actor, entry, holder, [
             Number(row.issuer_user_id),
         ]);
+    }
+
+    /**
+     * When a grant was made, by which actor, and under which app.
+     *
+     * Named with an item, this is everything granted on it, whoever granted it
+     * — which is what an owner is left with after a revoke, the grant itself
+     * being gone by then. Named with nothing, it is what the caller granted,
+     * wherever it landed. Between them they cover the caller's own trail and
+     * their items', and nothing else: authority over the item is the gate on
+     * the first, and being the issuer is the whole of the second.
+     */
+    async listGrantAudit(
+        actor: Actor,
+        target: ShareTarget = {},
+        opts: { limit?: number; cursor?: string; includeTotal?: boolean } = {},
+    ): Promise<{
+        items: GrantAuditEntry[];
+        cursor?: string;
+        total?: number;
+    }> {
+        const userId = this.#requireUserId(actor);
+
+        let filter: UserUserAuditFilter;
+        if (target.uid || target.path) {
+            const entry = await this.#resolveEntry(target, actor);
+            await this.#assertCanManage(actor, entry);
+            filter = { permissions: entryPermissions(entry.uuid) };
+        } else {
+            filter = { issuerUserId: userId };
+        }
+
+        const page = await this.stores.permission.listUserUserAudit(filter, {
+            limit: opts.limit,
+            cursor: opts.cursor,
+        });
+        const users = await this.stores.user.getByIds(
+            page.items.flatMap((row) =>
+                [row.issuer_user_id, row.holder_user_id].filter(
+                    (id): id is number => typeof id === 'number',
+                ),
+            ),
+        );
+        const username = (id: number | null) =>
+            id === null ? null : (users.get(id)?.username ?? null);
+
+        return {
+            items: page.items.map((row) => ({
+                action: row.action,
+                permission: row.permission,
+                entryUid: uuidFromEntryPermission(row.permission),
+                mode: modeFromEntryPermission(row.permission),
+                issuer: { username: username(row.issuer_user_id) },
+                holder: { username: username(row.holder_user_id) },
+                appUid:
+                    typeof row.extra?.appUid === 'string'
+                        ? row.extra.appUid
+                        : null,
+                createdAt: row.created_at,
+            })),
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(opts.includeTotal
+                ? {
+                      total: await this.stores.permission.countUserUserAudit(
+                          filter,
+                      ),
+                  }
+                : {}),
+        };
     }
 
     /**

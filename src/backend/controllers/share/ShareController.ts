@@ -410,6 +410,50 @@ export class ShareController extends PuterController {
         });
     }
 
+    /**
+     * GET /share/audit — when a grant was made, by whom, and under which app.
+     *
+     * With `uid` or `path`, the trail of everything granted on that item, for
+     * whoever may manage it; with neither, the trail of what the caller
+     * granted. Rows outlive the grants they describe, so this still answers
+     * after a revoke.
+     */
+    @Get('/audit', {
+        subdomain: 'api',
+        requireUserActor: true,
+        requireVerified: true,
+        rateLimit: SHARE_LIST_LIMIT,
+    })
+    async listGrantAudit(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const query = this.#query(req);
+        const target: ShareTarget = {};
+        if (typeof query.uid === 'string') target.uid = query.uid;
+        if (typeof query.path === 'string')
+            target.path = expandTildePath(query.path, actor.user?.username);
+
+        const page = await this.services.share.listGrantAudit(actor, target, {
+            limit: normalizeLimit(query.limit, { cap: LIST_LIMIT_CAP }),
+            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
+            includeTotal: query.includeTotal === 'true',
+        });
+
+        res.json({
+            items: page.items.map((entry) => ({
+                action: entry.action,
+                permission: entry.permission,
+                entryUid: entry.entryUid,
+                mode: entry.mode,
+                issuer: entry.issuer.username,
+                holder: entry.holder.username,
+                appUid: entry.appUid,
+                createdAt: entry.createdAt,
+            })),
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(page.total !== undefined ? { total: page.total } : {}),
+        });
+    }
+
     // -- Blocking -----------------------------------------------------
     // User sessions only: a block list is a safety control, not an app's to touch.
 

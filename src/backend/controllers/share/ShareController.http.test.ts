@@ -543,6 +543,68 @@ describe('share endpoints over HTTP', () => {
             ).json()) as { items: Array<{ uid: string }> };
             expect(after.items).toEqual([]);
         });
+
+        it('reads the grant audit trail, and keeps it after a revoke', async () => {
+            const { owner, recipient, files, apps } = await twoApps();
+
+            const trail = async (token: string, params = {}) =>
+                (await (await get('/share/audit', token, params)).json()) as {
+                    items: Array<Record<string, unknown>>;
+                    total?: number;
+                };
+
+            const granted = await trail(owner.token, {
+                uid: files[0].uid,
+                includeTotal: 'true',
+            });
+            expect(granted.total).toBe(granted.items.length);
+            expect(granted.items[0]).toMatchObject({
+                action: 'grant',
+                entryUid: files[0].uid,
+                issuer: owner.username,
+                holder: recipient.username,
+                appUid: apps[0].uid,
+            });
+            // Nothing internal rides along.
+            for (const key of ['issuer_user_id', 'holder_user_id', 'reason']) {
+                expect(granted.items[0]).not.toHaveProperty(key);
+            }
+
+            await post('/share/revoke', owner.token, {
+                recipients: [recipient.username],
+                items: [{ uid: files[0].uid }],
+            });
+            const afterRevoke = await trail(owner.token, {
+                uid: files[0].uid,
+            });
+            expect(
+                afterRevoke.items.map((i) => i.action),
+            ).toEqual(expect.arrayContaining(['grant', 'revoke']));
+        });
+
+        it('will not hand one account the trail of another\'s', async () => {
+            const { files } = await twoApps();
+            const stranger = await makeUser();
+
+            const res = await get('/share/audit', stranger.token, {
+                uid: files[0].uid,
+            });
+            expect(res.status).toBe(404);
+
+            // Their own listing is theirs alone, and they have granted nothing.
+            const own = (await (
+                await get('/share/audit', stranger.token, {})
+            ).json()) as { items: unknown[] };
+            expect(own.items).toEqual([]);
+        });
+
+        it('keeps the audit trail off app tokens', async () => {
+            const { apps, files } = await twoApps();
+            const res = await get('/share/audit', apps[0].token, {
+                uid: files[0].uid,
+            });
+            expect(res.status).toBe(403);
+        });
     });
 
     it('revokes every item in the request, not just the first', async () => {
