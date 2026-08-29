@@ -24,12 +24,12 @@ import type { NotificationService } from '../../services/notification/Notificati
 import { PuterController } from '../types.js';
 
 /**
- * GUI-facing notification endpoints. These supplement the `puter-notifications`
- * driver (which handles CRUD via `/drivers/call`) with two small mutation
- * routes that the puter desktop client calls directly.
+ * GUI-facing notification endpoint. Supplements the `puter-notifications`
+ * driver (which handles CRUD via `/drivers/call`) with the one mutation route
+ * the puter desktop client calls directly.
  *
- * Both routes emit `outer.gui.notif.ack` via the NotificationService so other
- * open tabs for the same user see the state change immediately.
+ * It emits `outer.gui.notif.ack` via the NotificationService so other open tabs
+ * for the same user see the state change immediately.
  */
 @Controller('/notif')
 export class NotificationController extends PuterController {
@@ -64,7 +64,8 @@ export class NotificationController extends PuterController {
             });
 
         const notifService = this.services.notification as unknown as
-            NotificationService | undefined;
+            | NotificationService
+            | undefined;
         if (notifService?.markAcknowledged) {
             await notifService.markAcknowledged(uid, userId);
         } else {
@@ -79,55 +80,6 @@ export class NotificationController extends PuterController {
                     };
                 }
             ).notification.markAcknowledged(uid, userId);
-        }
-        res.json({});
-    }
-
-    /**
-     * POST /notif/mark-read — user saw a notification. Sets `shown` timestamp;
-     * pushes ack event to sockets.
-     */
-    @Post('/mark-read', {
-        subdomain: 'api',
-        requireUserActor: true,
-        allowFullAccessToken: true,
-        // Fires per notification interaction, so the ceiling stays
-        // generous — it is here to catch a loop, not to pace a user.
-        rateLimit: {
-            scope: 'notification-mark',
-            limit: 300,
-            window: 60_000,
-            key: 'user',
-        },
-    })
-    async markRead(req: Request, res: Response): Promise<void> {
-        const uid = req.body?.uid;
-        if (typeof uid !== 'string' || uid.length === 0) {
-            throw new HttpError(400, '`uid` must be a non-empty string', {
-                legacyCode: 'bad_request',
-            });
-        }
-        const userId = req.actor?.user?.id;
-        if (!userId)
-            throw new HttpError(401, 'Unauthorized', {
-                legacyCode: 'unauthorized',
-            });
-
-        const notifService = this.services.notification as unknown as
-            NotificationService | undefined;
-        if (notifService?.markShown) {
-            await notifService.markShown(uid, userId);
-        } else {
-            await (
-                this.stores as Record<string, unknown> as {
-                    notification: {
-                        markShown: (
-                            uid: string,
-                            userId: number,
-                        ) => Promise<boolean>;
-                    };
-                }
-            ).notification.markShown(uid, userId);
         }
         res.json({});
     }

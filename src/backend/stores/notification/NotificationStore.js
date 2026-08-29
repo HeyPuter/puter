@@ -20,11 +20,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { PuterStore } from '../types';
 
-// `markShown` intentionally doesn't invalidate unack count — it doesn't move it.
-
-const UNACK_CACHE_KEY_PREFIX = 'notifications:unack';
-const UNACK_CACHE_TTL_SECONDS = 5 * 60;
-
 export class NotificationStore extends PuterStore {
     // -- Reads --------------------------------------------------------
 
@@ -69,32 +64,6 @@ export class NotificationStore extends PuterStore {
         return rows.map((r) => this.#normalizeRow(r));
     }
 
-    async countUnacknowledged(userId) {
-        if (!userId) return 0;
-
-        const cacheKey = this.#unackCacheKey(userId);
-        try {
-            const raw = await this.clients.redis.get(cacheKey);
-            if (raw !== null && raw !== undefined) {
-                const parsed = Number(raw);
-                if (Number.isFinite(parsed)) return parsed;
-            }
-        } catch {
-            // Fall through to DB.
-        }
-
-        const rows = await this.clients.db.read(
-            'SELECT COUNT(*) AS n FROM `notification` WHERE `user_id` = ? AND `acknowledged` IS NULL',
-            [userId],
-        );
-        const count = Number(rows[0]?.n ?? 0);
-
-        this.clients.redis
-            .set(cacheKey, String(count), 'EX', UNACK_CACHE_TTL_SECONDS)
-            .catch(() => {});
-        return count;
-    }
-
     // -- Writes -------------------------------------------------------
 
     /**
@@ -130,15 +99,13 @@ export class NotificationStore extends PuterStore {
             'INSERT INTO `notification` (`uid`, `user_id`, `value`, `type`, `audience`, `app_uid`) VALUES (?, ?, ?, ?, ?, ?)',
             [uid, userId, serialized, type, audience, appUid],
         );
-        await this.#invalidateUnack(userId);
         return this.getByUid(uid, { userId });
     }
 
     /**
      * Rewrite a notification the recipient hasn't dismissed. `shown` is cleared
      * with it, so changed wording goes out again on their next connect —
-     * `#sendUnreads` only carries what was never shown. The unacknowledged
-     * count doesn't move, so there is nothing to invalidate.
+     * `#sendUnreads` only carries what was never shown.
      *
      * False when no such row exists, so callers can fall back to a fresh
      * notification instead of dropping what they were reporting.
@@ -161,9 +128,7 @@ export class NotificationStore extends PuterStore {
             'UPDATE `notification` SET `acknowledged` = ? WHERE `uid` = ? AND `user_id` = ? AND `acknowledged` IS NULL',
             [now, uid, userId],
         );
-        const changed = (result?.affectedRows ?? result?.changes ?? 0) > 0;
-        if (changed) await this.#invalidateUnack(userId);
-        return changed;
+        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
     }
 
     async markShown(uid, userId) {
@@ -180,9 +145,7 @@ export class NotificationStore extends PuterStore {
             'DELETE FROM `notification` WHERE `uid` = ? AND `user_id` = ?',
             [uid, userId],
         );
-        const changed = (result?.affectedRows ?? result?.changes ?? 0) > 0;
-        if (changed) await this.#invalidateUnack(userId);
-        return changed;
+        return (result?.affectedRows ?? result?.changes ?? 0) > 0;
     }
 
     /**
@@ -221,14 +184,6 @@ export class NotificationStore extends PuterStore {
     }
 
     // -- Internals ----------------------------------------------------
-
-    #unackCacheKey(userId) {
-        return `${UNACK_CACHE_KEY_PREFIX}:${userId}`;
-    }
-
-    async #invalidateUnack(userId) {
-        await this.publishCacheKeys({ keys: [this.#unackCacheKey(userId)] });
-    }
 
     #normalizeRow(row) {
         if (!row) return null;
