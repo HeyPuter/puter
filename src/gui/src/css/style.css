@@ -692,6 +692,15 @@ span.header-sort-icon img {
     pointer-events: all;
 }
 
+.item-container-list .item-shared-marker,
+.item-container-details .item-shared-marker {
+    width: 7px;
+    height: 7px;
+    right: 0px;
+    bottom: 0px;
+    box-shadow: 0 0 0 1px white;
+}
+
 .item-name, .item-name-editor, .item-name-shadow {
     font-size: 12px;
     color: white;

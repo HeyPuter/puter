@@ -34,7 +34,9 @@ export const has_direct_share = (shares) =>
  */
 export const mark_item_shared = (path, is_shared) => {
     if ( ! path ) return;
-    const $items = $(`.item[data-path="${html_encode(path)}" i]`);
+    const $items = $('.item').filter(function() {
+        return ($(this).attr('data-path') || '').toLowerCase() === path.toLowerCase();
+    });
     $items.attr('data-is_shared', is_shared ? 1 : 0);
     $items
         .find('.item-shared-marker')
