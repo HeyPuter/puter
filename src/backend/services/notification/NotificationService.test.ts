@@ -63,7 +63,11 @@ const makeUser = async (): Promise<{ id: number; username: string }> => {
 };
 
 beforeAll(async () => {
-    server = await setupTestServer();
+    // Retention is opt-in (config.default.json ships without it), so the
+    // sweepExpired suite below needs it turned on explicitly.
+    server = await setupTestServer({
+        notificationRetentionDays: 14,
+    } as never);
     notifications = server.services
         .notification as unknown as NotificationService;
 });
@@ -484,5 +488,113 @@ describe('NotificationService — delivery receipts', () => {
         server.clients.event.emit('sent-to-user.notif.message', undefined, {});
         const rows = await server.stores.notification.listByUserId(user.id, {});
         expect(rows).toHaveLength(0);
+    });
+});
+
+describe('NotificationService.sweepExpired', () => {
+    /** Rows aged past the window, written straight in so the age is fixture. */
+    const seedExpired = async (
+        userId: number,
+        count: number,
+        days = 20,
+    ): Promise<string[]> => {
+        const when = new Date(Date.now() - days * 86_400_000)
+            .toISOString()
+            .replace('T', ' ')
+            .slice(0, 19);
+        const uids = Array.from({ length: count }, () => uuidv4());
+        await server.clients.db.batchWrite(
+            uids.map((uid) => ({
+                statement:
+                    'INSERT INTO `notification` (`uid`, `user_id`, `value`, `created_at`) ' +
+                    'VALUES (?, ?, ?, ?)',
+                values: [uid, userId, '{}', when],
+            })),
+        );
+        return uids;
+    };
+
+    it('removes what has aged out and leaves the mailbox otherwise intact', async () => {
+        await notifications.sweepExpired();
+        const user = await makeUser();
+        const [expired] = await seedExpired(user.id, 1);
+        const kept = await server.stores.notification.create({
+            userId: user.id,
+            value: { title: 'still fresh' },
+        });
+
+        expect(await notifications.sweepExpired()).toBe(1);
+
+        expect(await server.stores.notification.getByUid(expired)).toBeNull();
+        const unread = await server.stores.notification.listByUserId(user.id, {
+            onlyUnacknowledged: true,
+        });
+        expect(unread.map((r) => r.uid)).toEqual([kept.uid]);
+        // Replay only carries what was never shown, and that is unchanged too.
+        const unseen = await server.stores.notification.listByUserId(user.id, {
+            filter: 'unseen',
+        });
+        expect(unseen.map((r) => r.uid)).toEqual([kept.uid]);
+    });
+
+    it('keeps batching until the window is clean', async () => {
+        await notifications.sweepExpired();
+        const user = await makeUser();
+        // More than one batch takes, so the loop has to come back around.
+        await seedExpired(user.id, 600);
+
+        expect(await notifications.sweepExpired()).toBe(600);
+        expect(await server.stores.notification.listByUserId(user.id)).toEqual(
+            [],
+        );
+        // Nothing left, so the next pass ends on its first batch.
+        expect(await notifications.sweepExpired()).toBe(0);
+    });
+
+    it('stops at the pass cap and leaves the rest for the next sweep', async () => {
+        await notifications.sweepExpired();
+        const user = await makeUser();
+        // 50 passes * 500/batch = 25,000 — a backlog past that so the cap,
+        // not a short batch, is what ends the first call.
+        await seedExpired(user.id, 25_050);
+
+        expect(await notifications.sweepExpired()).toBe(25_000);
+        expect(
+            await server.stores.notification.listByUserId(user.id),
+        ).toHaveLength(50);
+        expect(await notifications.sweepExpired()).toBe(50);
+    });
+
+    it('sweeps nothing when no retention is configured', async () => {
+        const unbounded = await setupTestServer({
+            notificationRetentionDays: 0,
+        } as never);
+        try {
+            const service = unbounded.services
+                .notification as unknown as NotificationService;
+            const created = await unbounded.stores.user.create({
+                username: `notif-${Math.random().toString(36).slice(2, 10)}`,
+                uuid: uuidv4(),
+                password: null,
+                email: `retention-${Date.now()}@test.local`,
+                requires_email_confirmation: false,
+            });
+            const when = new Date(Date.now() - 400 * 86_400_000)
+                .toISOString()
+                .replace('T', ' ')
+                .slice(0, 19);
+            await unbounded.clients.db.write(
+                'INSERT INTO `notification` (`uid`, `user_id`, `value`, `created_at`) ' +
+                    'VALUES (?, ?, ?, ?)',
+                [uuidv4(), created.id, '{}', when],
+            );
+
+            expect(await service.sweepExpired()).toBe(0);
+            expect(
+                await unbounded.stores.notification.listByUserId(created.id),
+            ).toHaveLength(1);
+        } finally {
+            await unbounded.shutdown();
+        }
     });
 });

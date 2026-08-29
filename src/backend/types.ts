@@ -911,6 +911,13 @@ interface IConfigOptional {
     share_max_recipients?: number;
     share_max_items?: number;
 
+    /**
+     * How long a notification is kept, in days from creation — the mailbox is
+     * not an archive, so acknowledged or not, a row past this goes. Omit it, or
+     * set 0, and nothing is ever swept.
+     */
+    notificationRetentionDays?: number;
+
     // -- Storage / S3 ------------------------------------------------
 
     /** S3 storage config (local fauxqs or remote). */

@@ -102,6 +102,7 @@ const AVAILABLE_MIGRATIONS: [number, string[]][] = [
     [65, ['0070_drop-orphaned-default-groups.sql']],
     [66, ['0071_share_issuer_index.sql']],
     [67, ['0072_notification-scope.sql']],
+    [68, ['0073_notification-created-at.sql']],
 ];
 
 export class SqliteDatabaseClient extends AbstractDatabaseClient {

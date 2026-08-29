@@ -322,6 +322,90 @@ describe('NotificationStore', () => {
         expect(await redis.get(unackKey(u.id))).toBe('1');
     });
 
+    // -- retention -----------------------------------------------------
+
+    /**
+     * Age a row by rewriting `created_at`. The format is what every engine
+     * writes for a timestamp column, so the comparison the sweep makes is the
+     * one production makes.
+     */
+    const backdate = async (uid, days) => {
+        const when = new Date(Date.now() - days * 86_400_000)
+            .toISOString()
+            .replace('T', ' ')
+            .slice(0, 19);
+        await server.clients.db.write(
+            'UPDATE `notification` SET `created_at` = ? WHERE `uid` = ?',
+            [when, uid],
+        );
+    };
+
+    /** Clear anything an earlier test aged, so counts below are exact. */
+    const drain = async () => {
+        while ((await store.deleteCreatedBefore(14, 500)) > 0);
+    };
+
+    it('deletes rows past the window and leaves the ones inside it', async () => {
+        await drain();
+        const u = await makeUser();
+        const old = await store.create({ userId: u.id, value: { n: 'old' } });
+        const alsoOld = await store.create({ userId: u.id, value: { n: '2' } });
+        const recent = await store.create({ userId: u.id, value: { n: 'new' } });
+        await backdate(old.uid, 20);
+        await backdate(alsoOld.uid, 15);
+        await backdate(recent.uid, 13);
+
+        expect(await store.deleteCreatedBefore(14, 500)).toBe(2);
+        expect(await store.getByUid(old.uid)).toBeNull();
+        expect(await store.getByUid(alsoOld.uid)).toBeNull();
+        expect((await store.getByUid(recent.uid))?.uid).toBe(recent.uid);
+    });
+
+    it('takes acknowledged rows and unacknowledged ones alike', async () => {
+        await drain();
+        const u = await makeUser();
+        const acked = await store.create({ userId: u.id, value: {} });
+        const never = await store.create({ userId: u.id, value: {} });
+        await store.markAcknowledged(acked.uid, u.id);
+        await backdate(acked.uid, 20);
+        await backdate(never.uid, 20);
+
+        expect(await store.deleteCreatedBefore(14, 500)).toBe(2);
+        expect(await store.listByUserId(u.id)).toEqual([]);
+    });
+
+    it('stops at the batch size so the caller can keep going', async () => {
+        await drain();
+        const u = await makeUser();
+        for (let i = 0; i < 5; i++) {
+            const row = await store.create({ userId: u.id, value: { i } });
+            await backdate(row.uid, 20);
+        }
+
+        expect(await store.deleteCreatedBefore(14, 2)).toBe(2);
+        expect(await store.deleteCreatedBefore(14, 2)).toBe(2);
+        expect(await store.deleteCreatedBefore(14, 2)).toBe(1);
+        expect(await store.deleteCreatedBefore(14, 2)).toBe(0);
+    });
+
+    it('deletes nothing for a window or batch that is not a positive count', async () => {
+        await drain();
+        const u = await makeUser();
+        const n = await store.create({ userId: u.id, value: {} });
+        await backdate(n.uid, 40);
+
+        for (const [days, limit] of [
+            [0, 500],
+            [-1, 500],
+            ['forever', 500],
+            [14, 0],
+            [14, -5],
+        ]) {
+            expect(await store.deleteCreatedBefore(days, limit)).toBe(0);
+        }
+        expect((await store.getByUid(n.uid))?.uid).toBe(n.uid);
+    });
+
     it('will not delete another user notification', async () => {
         const u = await makeUser();
         const n = await store.create({ userId: u.id, value: {} });
