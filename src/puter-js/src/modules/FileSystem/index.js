@@ -130,13 +130,6 @@ export class PuterJSFileSystemModule extends PuterModule {
     }
 
     bindSocketEvents () {
-        // this.socket.on('cache.updated', (msg) => {
-        //     // check original_client_socket_id and if it matches this.socket.id, don't post update
-        //     if (msg.original_client_socket_id !== this.socket.id) {
-        //         this.invalidateCache();
-        //     }
-        // });
-
         this.socket.on('item.renamed', (item) => {
             puter._cache.flushall();
         });
