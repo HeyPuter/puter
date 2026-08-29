@@ -375,18 +375,18 @@ describe('AlarmClient alarm registry', () => {
         const client = makeClient();
         const seen = capture(client);
 
-        for (let i = 0; i < 50; i++) {
+        for (let i = 0; i < 500; i++) {
             client.create('hot', `occurrence ${i}`, { i });
         }
 
         const alarm = client.get('hot')!;
-        expect(alarm.count).toBe(50);
+        expect(alarm.count).toBe(500);
         expect(alarm.occurrences).toHaveLength(20);
         expect(alarm.timestamps).toHaveLength(20);
         // The window kept is the most recent one, not the oldest.
-        expect(alarm.occurrences[19].message).toBe('occurrence 49');
+        expect(alarm.occurrences[19].message).toBe('occurrence 499');
         // Trimming history must not rewind what the transports are told.
-        expect(seen[49]).toMatchObject({ repeatCount: 50, isRepeat: true });
+        expect(seen.at(-1)).toMatchObject({ repeatCount: 500, isRepeat: true });
     });
 
     it('names anonymous handlers by their registration order', () => {
@@ -517,5 +517,55 @@ describe('AlarmClient known-error rules', () => {
         expect(paging).toHaveLength(0);
         expect(chat).toHaveLength(1);
         expect(chat[0].severity).toBe('info');
+    });
+});
+
+describe('AlarmClient repeat reporting', () => {
+    beforeEach(() => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        vi.spyOn(console, 'log').mockImplementation(() => {});
+        pdEvent.mockClear();
+    });
+
+    it('reports every occurrence up to the burst, then backs off', () => {
+        const client = makeClient();
+        const seen = capture(client);
+
+        for (let i = 0; i < 12; i++) client.create('flap', 'same fault');
+
+        expect(seen).toHaveLength(10);
+        expect(seen[9].repeatCount).toBe(10);
+    });
+
+    it('reports again once the interval is reached', () => {
+        const client = makeClient();
+        const seen = capture(client);
+
+        for (let i = 0; i < 500; i++) client.create('flap', 'same fault');
+
+        expect(seen).toHaveLength(11);
+        expect(seen[10].repeatCount).toBe(500);
+    });
+
+    it('keeps a fast-repeating fault out of the log after the burst', () => {
+        const client = makeClient();
+        capture(client);
+        const warn = vi.mocked(console.warn);
+        warn.mockClear();
+
+        for (let i = 0; i < 100; i++) client.create('flap', 'same fault');
+
+        // Occurrences 2-10 only; the first is an ACTIVE line on console.error.
+        expect(warn.mock.calls).toHaveLength(9);
+    });
+
+    it('skips the payload entirely when no transport accepts the severity', () => {
+        const client = makeClient();
+        const seen = capture(client, 'critical');
+
+        client.create('quiet', 'nobody is listening', {}, 'info');
+
+        expect(seen).toHaveLength(0);
     });
 });

@@ -69,6 +69,15 @@ const FALLBACK_SEVERITY: PagerSeverity = 'critical';
  * and `count` keeps that.
  */
 const OCCURRENCE_HISTORY_LIMIT = 20;
+
+// A fast-recurring fault repeats far faster than it is useful to report, and
+// every report allocates a log line and a payload. Report every occurrence up
+// to the burst, then one per interval; `count` still tracks all of them.
+const REPEAT_REPORT_BURST = 10;
+const REPEAT_REPORT_INTERVAL = 500;
+
+const shouldReportRepeat = (count: number): boolean =>
+    count <= REPEAT_REPORT_BURST || count % REPEAT_REPORT_INTERVAL === 0;
 /** Keeps `info` alarms out of the paging system unless config says otherwise. */
 const DEFAULT_PAGERDUTY_MIN_SEVERITY: PagerSeverity = 'warning';
 /** Slack's ceiling once a pager exists: chat gets what doesn't page. */
@@ -456,6 +465,8 @@ export class AlarmClient extends PuterClient {
     private handleRepeat(alarm: Alarm): void {
         this.applyKnownErrors(alarm);
 
+        if (!shouldReportRepeat(alarm.count)) return;
+
         console.warn(
             `[alarm] REPEAT ${displayId(alarm)} :: ${alarm.message} (${alarm.count})`,
         );
@@ -483,6 +494,18 @@ export class AlarmClient extends PuterClient {
         );
     }
 
+    private hasHandlerFor(severity: PagerSeverity): boolean {
+        for (const { minSeverity, maxSeverity } of this.alertHandlers) {
+            if (
+                meetsMinSeverity(severity, minSeverity) &&
+                withinMaxSeverity(severity, maxSeverity)
+            ) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private dispatchAlert(alarm: Alarm): void {
         const resolved = this.resolveSeverity(alarm);
         if (resolved === 'mute') {
@@ -493,6 +516,10 @@ export class AlarmClient extends PuterClient {
             return;
         }
         alarm.severity = resolved;
+
+        // Build nothing for a severity no transport accepts — the payload
+        // (cleaned fields plus the stack, twice) is the expensive part.
+        if (!this.hasHandlerFor(resolved)) return;
 
         const fieldsClean = cleanFields(alarm.fields);
         const repeatCount = alarm.count;
