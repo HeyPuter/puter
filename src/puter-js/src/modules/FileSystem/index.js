@@ -1,6 +1,7 @@
 import path from 'path-browserify';
 import { io } from 'socket.io-client';
 import { PuterModule } from '../../lib/PuterModule.js';
+import { socketAutoUnref } from '../../lib/socketOptions.js';
 import * as utils from '../../lib/utils.js';
 
 // Constants
@@ -113,20 +114,7 @@ export class PuterJSFileSystemModule extends PuterModule {
     }
 
     shouldUseSocketAutoUnref () {
-        if ( this.puter.env !== 'nodejs' ) {
-            return false;
-        }
-
-        const WebSocketImpl = globalThis.WebSocket;
-        if ( typeof WebSocketImpl !== 'function' ) {
-            return false;
-        }
-
-        const wsPrototype = WebSocketImpl.prototype ?? {};
-        // ws package instances are EventEmitter-like; Undici WebSocket is EventTarget-like.
-        // autoUnref is only safe on the ws path.
-        return typeof wsPrototype.on === 'function' &&
-            typeof wsPrototype.removeListener === 'function';
+        return socketAutoUnref(this.puter);
     }
 
     bindSocketEvents () {

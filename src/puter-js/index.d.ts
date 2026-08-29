@@ -92,6 +92,17 @@ export type {
     EmailSendResult,
 } from './types/modules/Email.js';
 
+// -- puter.events --
+export type {
+    EventAnchor,
+    EventDelivery,
+    EventGapMarker,
+    EventHandler,
+    OnLocalOptions,
+    PuterEvent,
+} from './types/modules/events/types.js';
+export type { EventSubscription } from './types/modules/events/lib/subscription.js';
+
 // -- puter.fs --
 export type {
     CopyOptions,
@@ -233,6 +244,7 @@ export type Apps = InstanceType<import('./types/modules/apps/index.js').AppsCons
 export type Auth = InstanceType<import('./types/modules/Auth.js').AuthConstructor>;
 export type Drivers = InstanceType<import('./types/modules/Drivers.js').DriversConstructor>;
 export type Email = InstanceType<import('./types/modules/Email.js').EmailConstructor>;
+export type Events = InstanceType<import('./types/modules/events/index.js').EventsConstructor>;
 export type FS = InstanceType<import('./types/modules/FileSystem/index.js').FSConstructor>;
 export type Hosting = InstanceType<import('./types/modules/hosting/index.js').HostingConstructor>;
 export type KV = InstanceType<import('./types/modules/kv/index.js').KVConstructor>;

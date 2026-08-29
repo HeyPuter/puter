@@ -401,6 +401,30 @@ let sidebar = [
         ],
     },
     {
+        title: 'Events',
+        title_tag: 'Events',
+        source: '/Events.md',
+        path: '/Events',
+        children: [
+            {
+                title: '<code>onLocal()</code>',
+                page_title: '<code>puter.events.onLocal()</code>',
+                title_tag: 'puter.events.onLocal()',
+                icon: '/assets/img/function.svg',
+                source: '/Events/onLocal.md',
+                path: '/Events/onLocal',
+            },
+            {
+                title: '<code>off()</code>',
+                page_title: '<code>subscription.off()</code>',
+                title_tag: 'subscription.off()',
+                icon: '/assets/img/function.svg',
+                source: '/Events/off.md',
+                path: '/Events/off',
+            },
+        ],
+    },
+    {
         title: 'Serverless Workers',
         title_tag: 'Serverless Workers',
         icon: '/assets/img/workers.svg',

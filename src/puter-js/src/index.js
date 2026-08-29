@@ -13,6 +13,7 @@ import Auth from './modules/Auth.js';
 import { Debug } from './modules/Debug.js';
 import Drivers from './modules/Drivers.js';
 import Email from './modules/Email.js';
+import { Events } from './modules/events/index.js';
 import { PuterJSFileSystemModule } from './modules/FileSystem/index.js';
 import FSItem from './modules/FSItem.js';
 import { Hosting } from './modules/hosting/index.js';
@@ -172,6 +173,8 @@ export class Puter {
     kv;
     /** @type {InstanceType<typeof Email>} */
     email;
+    /** @type {InstanceType<typeof Events>} */
+    events;
     /** @type {InstanceType<typeof Perms>} */
     perms;
     /** @type {InstanceType<typeof Drivers>} */
@@ -298,6 +301,7 @@ export class Puter {
         this.ai = this.registerModule('ai', AI);
         this.kv = this.registerModule('kv', KV);
         this.email = this.registerModule('email', Email);
+        this.events = this.registerModule('events', Events);
         this.perms = this.registerModule('perms', Perms);
         this.drivers = this.registerModule('drivers', Drivers);
         this.debug = this.registerModule('debug', Debug);
