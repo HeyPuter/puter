@@ -413,7 +413,8 @@ export const assertVerifiedAccount = (
  */
 export const assertPhoneVerified = (
     user:
-        { phone?: unknown; requires_phone_verification?: unknown } | undefined,
+        | { phone?: unknown; requires_phone_verification?: unknown }
+        | undefined,
 ): void => {
     if (user?.phone && !user?.requires_phone_verification) return;
     throw new HttpError(403, 'Please verify your phone number to continue', {
@@ -474,18 +475,32 @@ export const assertNotSuspended = (
 };
 
 /**
- * Reject unless the actor is acting through one of the named apps.
- * App-under-user actors are permitted iff `actor.app.uid` is in the allowList;
- * non-app actors are rejected.
+ * Narrow WHICH apps may reach a route: an app-under-user actor whose
+ * `actor.app.uid` is missing from the allowList is rejected with 403.
  *
- * Implies `requireAuth`. Doesn't pair sensibly with `requireUserActor` (a
- * user-only actor has no app), but if both are set we reject loudly here.
+ * It is NOT an app gate, despite the name. Every actor with no `app` of its own
+ * passes through — browser sessions, full-access personal access tokens, worker
+ * sessions, and access tokens issued BY an app, since the check reads
+ * `actor.app` and never `actor.effectiveApp`, leaving an app in the token chain
+ * invisible here. Routes depend on that pass-through: `adminOnly` +
+ * `allowedAppIds` means "a root token OR a token scoped to an allowed app", and
+ * the admin and dev-account surfaces are called both ways.
+ *
+ * So use it to keep other apps out, never as proof that an app is present. The
+ * default-on `requireNonAccessTokenGate` is what keeps app-issued tokens off
+ * these routes; a route setting `allowAccessToken` loses that cover and has to
+ * check `effectiveApp` itself.
+ *
+ * Implies `requireAuth`. Pairing it with `requireUserActor` leaves the
+ * allowList dead — that gate rejects every app, and everything it admits passes
+ * here.
  */
 export const allowedAppIdsGate = (
     allowedAppUids: readonly string[],
 ): RequestHandler => {
     const allowList = new Set(allowedAppUids);
     return (req, _res, next) => {
+        // Deliberately `app`, not `effectiveApp`: see the note above.
         const appUid = req.actor?.app?.uid;
         if (appUid && !allowList.has(appUid)) {
             next(
