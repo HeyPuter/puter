@@ -39,6 +39,7 @@ import {
     type EventSocket,
 } from './EventsService.js';
 import { FILTER_EVALUATIONS_PER_EVENT } from './matcher.js';
+import { SUBSCRIPTION_CACHE_TTL_MS } from './subscriptionCache.js';
 
 /**
  * The hot path is a cost claim before it is a behaviour claim, so the Redis
@@ -173,6 +174,15 @@ const appStore = {
 };
 
 /**
+ * This suite is about session rows and what a dispatch spends on them, so the
+ * region is already warm and holds no durable rows — the table and its cache
+ * are covered against a real database in the durable suites.
+ */
+const durableSubscriptionStore = {
+    warmRegion: async () => false,
+};
+
+/**
  * Each service gets its own outbox. A delivery still in flight when a test
  * ends must land in that test's record, not in the next one's.
  */
@@ -195,6 +205,7 @@ const buildService = (
         } as never,
         {
             eventSubscription: store,
+            durableSubscription: durableSubscriptionStore,
             fsEntry: fsEntryStore,
             user: userStore,
             app: appStore,
@@ -577,6 +588,128 @@ describe('cross-process invalidation', () => {
         await dispatch(file);
 
         expect(commands).toEqual([]);
+    });
+
+    it('invalidates on a remote bump regardless of the number it carries', async () => {
+        vi.useFakeTimers();
+        // `ev:g` is a region-local INCR: a peer's own counter can legitimately
+        // sit behind whatever this process has already recorded (it is
+        // counting something else entirely) — comparing the two would let a
+        // real remote invalidation be ignored as "already applied". So a
+        // `from_outside` bump forgets unconditionally instead; there is
+        // nothing to order it against. Push this process's own recorded
+        // generation ahead first, via genuine local activity, so a
+        // number-comparing implementation would wrongly ignore the bump below.
+        const { documents, file } = seedTree();
+        for (let i = 0; i < 3; i++) {
+            const sub = await subscribe(`fs:${documents.uid}`, `local-${i}`);
+            await service.unsubscribe(actorFor(), `local-${i}`, {
+                subId: sub.subId,
+            });
+        }
+
+        await dispatch(file); // caches "nothing subscribed" at the higher generation
+
+        await store.add({
+            subId: 'behind-sub',
+            socketId: 'behind-socket',
+            holderUserId: userId,
+            ownerUserId: userId,
+            subject: `fs:${documents.uid}`,
+            token: `f#${documents.uid}`,
+            anchorUid: documents.uid,
+            anchorPath: documents.path,
+            match: null,
+            op: null,
+            appUid: null,
+            permission: 'list',
+        });
+
+        remoteGenerationBumpHandler()?.(
+            'outer.events.generationBumped',
+            { userId, generation: 1 }, // behind this process's own recorded generation
+            { from_outside: true },
+        );
+
+        await dispatch(file);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(1);
+    });
+
+    it('self-heals on the TTL alone when no bump ever arrives', async () => {
+        vi.useFakeTimers();
+        // The backstop for a broadcast that never lands at all: nothing
+        // invalidates this process's cache, so only the read-side TTL can
+        // force it to look again.
+        const { documents, file } = seedTree();
+        await dispatch(file); // warms this process's cache to "nothing subscribed"
+
+        await store.add({
+            subId: 'unseen-sub',
+            socketId: 'unseen-socket',
+            holderUserId: userId,
+            ownerUserId: userId,
+            subject: `fs:${documents.uid}`,
+            token: `f#${documents.uid}`,
+            anchorUid: documents.uid,
+            anchorPath: documents.path,
+            match: null,
+            op: null,
+            appUid: null,
+            permission: 'list',
+        });
+
+        await dispatch(file);
+        expect(sent).toEqual([]); // no bump landed, so still cached stale
+
+        vi.advanceTimersByTime(SUBSCRIPTION_CACHE_TTL_MS + 1);
+        await dispatch(file);
+        await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+        expect(sent).toHaveLength(1);
+    });
+});
+
+describe('cold-region rebuild concurrency', () => {
+    it('collapses concurrent misses on a cold region into one rebuild', async () => {
+        const { file } = seedTree();
+        let calls = 0;
+        const warm = vi
+            .spyOn(durableSubscriptionStore, 'warmRegion')
+            .mockImplementation(async () => {
+                calls++;
+                await Promise.resolve();
+                return false;
+            });
+        try {
+            await Promise.all([dispatch(file), dispatch(file)]);
+            expect(calls).toBe(1);
+        } finally {
+            warm.mockRestore();
+        }
+    });
+
+    it('does not wedge future dispatches when a rebuild throws', async () => {
+        vi.useFakeTimers();
+        const { documents, file } = seedTree();
+        const warm = vi
+            .spyOn(durableSubscriptionStore, 'warmRegion')
+            .mockRejectedValueOnce(new Error('boom'));
+        try {
+            // Not being able to tell must resolve as "nothing subscribed"
+            // rather than hang, and must not leave the in-flight lookup
+            // wedged for every dispatch after it.
+            await expect(dispatch(file)).resolves.toBeUndefined();
+
+            await subscribe(`fs:${documents.uid}`);
+            await dispatch(file);
+            await vi.advanceTimersByTimeAsync(EVENTS_COALESCE_WINDOW_MS + 1);
+
+            expect(sent).toHaveLength(1);
+        } finally {
+            warm.mockRestore();
+        }
     });
 });
 
