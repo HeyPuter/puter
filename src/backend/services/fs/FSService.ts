@@ -22,6 +22,7 @@ import { posix as pathPosix } from 'node:path';
 import type { TransformCallback } from 'node:stream';
 import { pipeline, Readable, Transform } from 'node:stream';
 import { v4 as uuidv4 } from 'uuid';
+import type { EventKey, EventMap } from '../../clients/event/types.js';
 import {
     BinaryPayload,
     CompleteWriteRequest,
@@ -3767,6 +3768,36 @@ export class FSService extends PuterService {
         } catch {
             // Non-critical.
         }
+        this.#dispatchEvents('fs.remove.node', entry);
+    }
+
+    /**
+     * Publish a committed change to whoever subscribed to it.
+     *
+     * Post-commit and fire-and-forget: the write already happened, so nothing
+     * here may fail it or slow it down. The ancestor walk is a thunk because
+     * almost every write belongs to a user with no subscriptions, and that user
+     * must not pay for the walk to find out.
+     */
+    #dispatchEvents(key: EventKey, entry: FSEntry): void {
+        const events = this.services.events;
+        if (!events?.enabled) return;
+        try {
+            void events
+                .dispatchFs(key, entry, {
+                    actingUserId: (Context.get('actor') as Actor | undefined)
+                        ?.user?.id,
+                    ancestorUids: async () =>
+                        (await this.getAncestorChain(entry.path)).map(
+                            (ancestor) => ancestor.uid,
+                        ),
+                })
+                .catch((err: unknown) => {
+                    console.warn('[fs] event dispatch failed', err);
+                });
+        } catch (err) {
+            console.warn('[fs] event dispatch failed', err);
+        }
     }
 
     /**
@@ -3783,25 +3814,28 @@ export class FSService extends PuterService {
      * issue time) and per-flavor `fs.move.file` (move already emits
      * `fs.move.node`).
      */
-    #emitFsEvent(
-        name: string,
+    #emitFsEvent<T extends EventKey>(
+        name: T,
         entry: FSEntry,
         extras: Record<string, unknown> = {},
     ): void {
         try {
             this.clients.event.emit(
                 name,
+                // The aliases are what existing handlers destructure; the cast
+                // is what lets one helper serve every key that carries them.
                 {
                     node: entry,
                     entry,
                     uid: entry.uuid,
                     ...extras,
-                },
+                } as EventMap[T],
                 {},
             );
         } catch {
             console.warn('missing event emissions');
         }
+        this.#dispatchEvents(name, entry);
     }
 
     /**
@@ -3941,6 +3975,7 @@ export class FSService extends PuterService {
         } catch {
             // ignore — non-critical.
         }
+        this.#dispatchEvents('fs.move.node', updated);
         return updated;
     }
 

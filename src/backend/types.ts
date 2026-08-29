@@ -1118,6 +1118,18 @@ interface IConfigOptional {
     };
 
     /**
+     * Subscribable events over filesystem and key-value changes.
+     *
+     * - `enabled` — the master switch for the whole surface. Absent means off:
+     *   the dispatch hooks short-circuit on a boolean before resolving
+     *   anything, and the subscribe verbs reject with `events_disabled`. An
+     *   install that has never heard of events pays nothing on its write path.
+     */
+    events?: {
+        enabled?: boolean;
+    };
+
+    /**
      * Display multiplier converting metered amounts into the "credits" clients
      * show. Applied server-side by the usage-reporting endpoints, so raw
      * metered amounts never leave the API; purely presentational, so it can

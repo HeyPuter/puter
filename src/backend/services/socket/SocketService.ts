@@ -632,6 +632,11 @@ export class SocketService extends PuterService {
             // connection gives its slots back the same way a closed one does.
             void this.#admitConnection(socket, actor, userId);
 
+            // Subscription verbs and the disconnect reaping that goes with
+            // them. Off unless events are enabled, in which case the verbs
+            // answer with `events_disabled` rather than going unanswered.
+            this.services.events.attachSocket(socket, actor);
+
             // Peer-echo: one tab notifies others that trash is empty.
             socket.on('trash.is_empty', (msg: unknown) => {
                 void this.#allowSocketEvent(userId, 'trash.is_empty').then(
