@@ -512,6 +512,83 @@ describe('ShareStore', () => {
             expect(await store.countByHolder(pageHolder.id)).toBe(5);
         });
 
+        it('lists what a user issued alongside what was issued on their node', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const recipient = await makeUser();
+            const ownNode = await makeEntry(owner);
+            const foreignNode = await makeEntry(otherIssuer);
+
+            const mine = await store.upsertActive({
+                issuerUserId: owner.id,
+                holderUserId: recipient.id,
+                fsentryId: ownNode.id,
+                mode: 'read',
+            });
+            const delegated = await store.upsertActive({
+                issuerUserId: delegate.id,
+                holderUserId: recipient.id,
+                fsentryId: ownNode.id,
+                mode: 'read',
+            });
+            const asDelegate = await store.upsertActive({
+                issuerUserId: owner.id,
+                holderUserId: recipient.id,
+                fsentryId: foreignNode.id,
+                mode: 'read',
+            });
+            // Neither issued by the owner nor on anything they own.
+            await store.upsertActive({
+                issuerUserId: delegate.id,
+                holderUserId: recipient.id,
+                fsentryId: foreignNode.id,
+                mode: 'read',
+            });
+            // A legacy invite row names no node, so it is not a share of one.
+            await store.create({
+                issuerUserId: owner.id,
+                recipientEmail: 'legacy@test.local',
+            });
+
+            const page = await store.listOutbound(owner.id);
+            expect(page.items.map((r) => r.uid).sort()).toEqual(
+                [mine.uid, delegated.uid, asDelegate.uid].sort(),
+            );
+            expect(await store.countOutbound(owner.id)).toBe(3);
+        });
+
+        it('pages the outbound listing in id order across both halves', async () => {
+            const owner = await makeUser();
+            const delegate = await makeUser();
+            const recipient = await makeUser();
+            const uids = [];
+            for (let i = 0; i < 4; i++) {
+                const entry = await makeEntry(owner);
+                const row = await store.upsertActive({
+                    issuerUserId: i % 2 === 0 ? owner.id : delegate.id,
+                    holderUserId: recipient.id,
+                    fsentryId: entry.id,
+                    mode: 'read',
+                });
+                uids.push(row.uid);
+            }
+
+            const seen = [];
+            let cursor;
+            for (let guard = 0; guard < 10; guard++) {
+                const page = await store.listOutbound(owner.id, {
+                    limit: 1,
+                    cursor,
+                });
+                seen.push(...page.items.map((r) => r.uid));
+                cursor = page.cursor;
+                if (!cursor) break;
+            }
+
+            expect(seen).toEqual(uids);
+            expect(cursor).toBeUndefined();
+        });
+
         it('never returns another holder rows', async () => {
             const stranger = await makeUser();
             const entry = await makeEntry(issuer);

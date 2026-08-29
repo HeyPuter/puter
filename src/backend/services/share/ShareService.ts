@@ -62,6 +62,15 @@ interface ShareIndexRow {
     data?: unknown;
 }
 
+/**
+ * As above, from a listing that carries unclaimed invites: those have no
+ * holder.
+ */
+interface OutboundShareRow extends Omit<ShareIndexRow, 'holder_user_id'> {
+    holder_user_id: number | null;
+    recipient_email?: string;
+}
+
 export interface ShareInput extends ShareTarget {
     recipient: ShareRecipient;
     mode: AclMode;
@@ -1325,6 +1334,118 @@ export class ShareService extends PuterService {
     }
 
     /**
+     * What the caller has shared out, across every item: the shares they
+     * issued, plus the ones a `manage` delegate issued on a node they own.
+     * `listSharesOf` answers the same question for a node the caller can
+     * already name; this is what answers it when they can't.
+     *
+     * Trashed items are kept, unlike the inbound listing: the grant on one is
+     * still standing, and this is where someone comes to find that out.
+     */
+    async listSharedByMe(
+        actor: Actor,
+        opts: { limit?: number; cursor?: string; includeTotal?: boolean } = {},
+    ): Promise<{
+        items: ResolvedShare[];
+        cursor?: string;
+        total?: number;
+    }> {
+        const userId = this.#requireUserId(actor);
+        const page = await this.stores.share.listOutbound(userId, {
+            limit: opts.limit,
+            cursor: opts.cursor,
+        });
+        const rows: OutboundShareRow[] = page.items;
+
+        const entries = await this.stores.fsEntry.getEntriesByIds(
+            rows.map((row) => Number(row.fsentry_id)),
+        );
+        const users = await this.stores.user.getByIds([
+            ...rows.flatMap((row) => [
+                Number(row.issuer_user_id),
+                ...(row.holder_user_id ? [Number(row.holder_user_id)] : []),
+            ]),
+            ...[...entries.values()].map((entry) => entry.userId),
+        ]);
+
+        const nodeById = new Map<number, FSEntry>(
+            [...entries.values()].map((entry) => [entry.id, entry]),
+        );
+        // Same two bounds as the inbound listing: the grant behind a row has to
+        // still be there, and an app sees only the part of it the credential
+        // reaches in its own right.
+        const [stillReaches, reachable] = await Promise.all([
+            this.#reachingHolders(
+                rows.filter((row): row is ShareIndexRow =>
+                    Boolean(row.holder_user_id),
+                ),
+                nodeById,
+            ),
+            this.#reachableBy(actor, [...entries.values()]),
+        ]);
+
+        const items: ResolvedShare[] = [];
+        for (const row of rows) {
+            const entry = entries.get(Number(row.fsentry_id));
+            if (!entry) continue;
+            if (!reachable.has(entry.uuid)) continue;
+            const pending = !row.holder_user_id;
+            if (
+                !pending &&
+                !stillReaches.has(`${Number(row.holder_user_id)}:${entry.id}`)
+            ) {
+                continue;
+            }
+            items.push({
+                uid: row.uid,
+                mode: row.mode,
+                path: maskEntryPath(entry),
+                name: entry.name,
+                type: entry.isDir
+                    ? 'folder'
+                    : contentTypeFromMime(entry.name) || null,
+                thumbnail: entry.thumbnail ?? null,
+                entryUid: entry.uuid,
+                isDir: Boolean(entry.isDir),
+                owner: {
+                    username: users.get(Number(entry.userId))?.username ?? null,
+                },
+                issuer: {
+                    username:
+                        users.get(Number(row.issuer_user_id))?.username ?? null,
+                },
+                holder: {
+                    username: pending
+                        ? null
+                        : (users.get(Number(row.holder_user_id))?.username ??
+                          null),
+                },
+                ...(pending
+                    ? {
+                          pending: true,
+                          recipientEmail:
+                              (row.data as { invitedAddress?: string } | null)
+                                  ?.invitedAddress ?? row.recipient_email,
+                      }
+                    : {}),
+                createdAt: row.created_at,
+                issuedByApp: issuedByApp(row),
+                inheritedFrom: null,
+                modified: entry.modified,
+                size: entry.size,
+            });
+        }
+
+        return {
+            items,
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(opts.includeTotal
+                ? { total: await this.stores.share.countOutbound(userId) }
+                : {}),
+        };
+    }
+
+    /**
      * Who can reach one node. Includes shares a `manage` delegate issued, which
      * the permission tables alone can't show the owner.
      */
@@ -1413,39 +1534,35 @@ export class ShareService extends PuterService {
                 size: entry.size,
             }));
 
-        const own: ResolvedShare[] = rows
-            .filter(isLive)
-            .map(
-                (row: {
-                    uid: string;
-                    mode: string;
-                    issuer_user_id: number;
-                    holder_user_id: number;
-                    created_at: unknown;
-                    data?: unknown;
-                }): ResolvedShare => ({
-                    uid: row.uid,
-                    mode: row.mode,
-                    path: maskedPath,
-                    entryUid: entry.uuid,
-                    isDir: Boolean(entry.isDir),
-                    issuer: {
-                        username:
-                            users.get(Number(row.issuer_user_id))?.username ??
-                            null,
-                    },
-                    holder: {
-                        username:
-                            users.get(Number(row.holder_user_id))?.username ??
-                            null,
-                    },
-                    createdAt: row.created_at,
-                    issuedByApp: issuedByApp(row),
-                    inheritedFrom: null,
-                    modified: entry.modified,
-                    size: entry.size,
-                }),
-            );
+        const own: ResolvedShare[] = rows.filter(isLive).map(
+            (row: {
+                uid: string;
+                mode: string;
+                issuer_user_id: number;
+                holder_user_id: number;
+                created_at: unknown;
+                data?: unknown;
+            }): ResolvedShare => ({
+                uid: row.uid,
+                mode: row.mode,
+                path: maskedPath,
+                entryUid: entry.uuid,
+                isDir: Boolean(entry.isDir),
+                issuer: {
+                    username:
+                        users.get(Number(row.issuer_user_id))?.username ?? null,
+                },
+                holder: {
+                    username:
+                        users.get(Number(row.holder_user_id))?.username ?? null,
+                },
+                createdAt: row.created_at,
+                issuedByApp: issuedByApp(row),
+                inheritedFrom: null,
+                modified: entry.modified,
+                size: entry.size,
+            }),
+        );
         // Nobody holds an invite yet, but whoever manages the node needs to
         // see who was asked, and be able to take it back.
         const pending: ResolvedShare[] = pendingRows.map(

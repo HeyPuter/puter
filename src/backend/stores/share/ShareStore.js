@@ -21,9 +21,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { encodeCursor, decodeCursor } from '../../util/pagination';
 import { PuterStore } from '../types';
 
-/** Default page size for `listByHolder`. */
-const DEFAULT_HOLDER_PAGE_SIZE = 50;
-const MAX_HOLDER_PAGE_SIZE = 200;
+/** Default page size for the keyset listings. */
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 200;
 
 /** Ids per `IN` list in `getSharedFsentryIds`; a listing can run to thousands. */
 const SHARED_IDS_CHUNK_SIZE = 1000;
@@ -78,12 +78,8 @@ export class ShareStore extends PuterStore {
      * or rename would strand them.
      */
     async listByHolder(holderUserId, { limit, cursor } = {}) {
-        const size = Math.min(
-            Math.max(1, Math.floor(Number(limit) || DEFAULT_HOLDER_PAGE_SIZE)),
-            MAX_HOLDER_PAGE_SIZE,
-        );
-        const decoded = decodeCursor(cursor, 'share cursor');
-        const afterId = Number(decoded?.id ?? 0) || 0;
+        const size = this.#pageSize(limit);
+        const afterId = this.#afterId(cursor);
 
         // One extra row tells us whether another page exists.
         const rows = await this.clients.db.read(
@@ -101,6 +97,72 @@ export class ShareStore extends PuterStore {
             items,
             cursor: hasMore && last ? encodeCursor({ id: last.id }) : undefined,
         };
+    }
+
+    /**
+     * Shares a user has made, keyset-paginated on `id`: the rows they issued
+     * themselves, plus the rows a manage delegate issued on a node they own —
+     * which is the only place those are visible, since the permission tables
+     * are keyed issuer to holder.
+     *
+     * Two indexed reads rather than one `OR` spanning the join: the optimizer
+     * cannot serve that from `idx_share_fsentry` and falls back to scanning
+     * `share`. Unclaimed invites are included (an invite is something the user
+     * sent); the legacy invite rows that name no node are not.
+     *
+     * @param {number} userId
+     * @param {{ limit?: number; cursor?: string }} [opts]
+     */
+    async listOutbound(userId, { limit, cursor } = {}) {
+        const size = this.#pageSize(limit);
+        const afterId = this.#afterId(cursor);
+
+        const [issued, delegated] = await Promise.all([
+            this.clients.db.read(
+                'SELECT * FROM `share` WHERE `issuer_user_id` = ? AND ' +
+                    '`fsentry_id` IS NOT NULL AND `id` > ? ORDER BY `id` LIMIT ?',
+                [userId, afterId, size + 1],
+            ),
+            this.clients.db.read(
+                'SELECT `share`.* FROM `share` JOIN `fsentries` ON ' +
+                    '`fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
+                    '`fsentries`.`user_id` = ? AND `share`.`issuer_user_id` <> ? ' +
+                    'AND `share`.`id` > ? ORDER BY `share`.`id` LIMIT ?',
+                [userId, userId, afterId, size + 1],
+            ),
+        ]);
+
+        // The halves are disjoint and each ordered by id, so merging them and
+        // cutting at `size` is the true next page: whatever either half lost to
+        // its own limit sorts after the cut and returns on the following one.
+        const merged = [...issued, ...delegated].sort(
+            (a, b) => Number(a.id) - Number(b.id),
+        );
+        const hasMore = merged.length > size;
+        const items = merged.slice(0, size).map((r) => this.#normalizeRow(r));
+        const last = items[items.length - 1];
+        return {
+            items,
+            cursor: hasMore && last ? encodeCursor({ id: last.id }) : undefined,
+        };
+    }
+
+    /** How many rows `listOutbound` walks, both halves counted. */
+    async countOutbound(userId) {
+        const [issued, delegated] = await Promise.all([
+            this.clients.db.read(
+                'SELECT COUNT(*) AS `count` FROM `share` WHERE ' +
+                    '`issuer_user_id` = ? AND `fsentry_id` IS NOT NULL',
+                [userId],
+            ),
+            this.clients.db.read(
+                'SELECT COUNT(*) AS `count` FROM `share` JOIN `fsentries` ON ' +
+                    '`fsentries`.`id` = `share`.`fsentry_id` WHERE ' +
+                    '`fsentries`.`user_id` = ? AND `share`.`issuer_user_id` <> ?',
+                [userId, userId],
+            ),
+        ]);
+        return Number(issued[0]?.count ?? 0) + Number(delegated[0]?.count ?? 0);
     }
 
     /** Everyone with an active share on one node, whoever issued it. */
@@ -529,6 +591,20 @@ export class ShareStore extends PuterStore {
     }
 
     // -- Internals ----------------------------------------------------
+
+    /** @param {number} [limit] */
+    #pageSize(limit) {
+        return Math.min(
+            Math.max(1, Math.floor(Number(limit) || DEFAULT_PAGE_SIZE)),
+            MAX_PAGE_SIZE,
+        );
+    }
+
+    /** The id a keyset page resumes after; 0 for the first page. */
+    #afterId(cursor) {
+        const decoded = decodeCursor(cursor, 'share cursor');
+        return Number(decoded?.id ?? 0) || 0;
+    }
 
     #normalizeRow(row) {
         if (!row) return null;

@@ -18,7 +18,11 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import { setupPuterTestEnv, type PuterTestEnv } from '../../testUtil.js';
+import {
+    createTestUser,
+    setupPuterTestEnv,
+    type PuterTestEnv,
+} from '../../testUtil.js';
 import { ShareController } from './ShareController.js';
 
 /**
@@ -189,6 +193,161 @@ describe('share endpoints over HTTP', () => {
             items: Array<Record<string, unknown>>;
         };
         expect(after.items.find((i) => i.uid_entry === file.uid)).toBeUndefined();
+    });
+
+    describe('GET /share/shared-by-me', () => {
+        /** Fresh accounts: the shared ones accumulate shares across this file. */
+        const makeUser = async () => {
+            const username = `sbm${Math.random().toString(36).slice(2, 9)}`;
+            return createTestUser(env.server, {
+                username,
+                password: 'puter-test-user-password',
+            });
+        };
+
+        it('lists what the caller shared out, across unrelated items', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const stranger = await makeUser();
+            const files = [await makeFile(owner), await makeFile(owner)];
+
+            for (const file of files) {
+                const res = await post('/share', owner.token, {
+                    recipients: [recipient.username],
+                    items: [{ uid: file.uid }],
+                    mode: 'read',
+                });
+                expect(res.status).toBe(200);
+            }
+            await post('/share', stranger.token, {
+                recipients: [recipient.username],
+                items: [{ uid: (await makeFile(stranger)).uid }],
+                mode: 'read',
+            });
+
+            const res = await get('/share/shared-by-me', owner.token, {
+                includeTotal: 'true',
+            });
+            expect(res.status).toBe(200);
+            const body = (await res.json()) as {
+                items: Array<Record<string, unknown>>;
+                total?: number;
+            };
+
+            expect(body.items.map((i) => i.uid_entry).sort()).toEqual(
+                files.map((f) => f.uid).sort(),
+            );
+            expect(body.total).toBe(files.length);
+            for (const item of body.items) {
+                expect(item.holder).toBe(recipient.username);
+                expect(item.issuer).toBe(owner.username);
+                expect(item.issued_by_app).toBeNull();
+                for (const key of [
+                    'issuer_user_id',
+                    'holder_user_id',
+                    'fsentry_id',
+                    'recipient_email',
+                ]) {
+                    expect(item).not.toHaveProperty(key);
+                }
+            }
+
+            // Another account's shares are not the caller's business, whoever
+            // they went to.
+            const strangersView = (await (
+                await get('/share/shared-by-me', stranger.token, {})
+            ).json()) as { items: Array<Record<string, unknown>> };
+            for (const file of files) {
+                expect(
+                    strangersView.items.find((i) => i.uid_entry === file.uid),
+                ).toBeUndefined();
+            }
+        });
+
+        it('pages with a cursor and stops when there is none', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const files = [
+                await makeFile(owner),
+                await makeFile(owner),
+                await makeFile(owner),
+            ];
+            for (const file of files) {
+                await post('/share', owner.token, {
+                    recipients: [recipient.username],
+                    items: [{ uid: file.uid }],
+                    mode: 'read',
+                });
+            }
+
+            const seen: string[] = [];
+            let cursor: string | undefined;
+            for (let page = 0; page < 5; page++) {
+                const params: Record<string, string> = { limit: '1' };
+                if (cursor) params.cursor = cursor;
+                const body = (await (
+                    await get('/share/shared-by-me', owner.token, params)
+                ).json()) as {
+                    items: Array<{ uid_entry: string }>;
+                    cursor?: string;
+                };
+                seen.push(...body.items.map((i) => i.uid_entry));
+                cursor = body.cursor;
+                if (!cursor) break;
+            }
+
+            expect(cursor).toBeUndefined();
+            expect(seen.sort()).toEqual(files.map((f) => f.uid).sort());
+        });
+
+        it('does not leak another user\'s rows when their cursor is replayed', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const attacker = await makeUser();
+            const files = [await makeFile(owner), await makeFile(owner)];
+            for (const file of files) {
+                await post('/share', owner.token, {
+                    recipients: [recipient.username],
+                    items: [{ uid: file.uid }],
+                    mode: 'read',
+                });
+            }
+
+            // A cursor minted while the owner pages their own listing.
+            const first = (await (
+                await get('/share/shared-by-me', owner.token, { limit: '1' })
+            ).json()) as { items: Array<{ uid_entry: string }>; cursor?: string };
+            expect(first.cursor).toBeDefined();
+
+            // The attacker has shared nothing. Replaying the owner's cursor as
+            // themselves must still bind to the attacker's own rows, not the
+            // owner's — the query scopes on the caller's id, and the cursor is
+            // only a resume position within that scope.
+            const replayed = (await (
+                await get('/share/shared-by-me', attacker.token, {
+                    cursor: first.cursor!,
+                })
+            ).json()) as { items: Array<{ uid_entry: string }> };
+
+            expect(replayed.items).toEqual([]);
+        });
+
+        // The two directions of one listing; a gate on only one of them is a
+        // hole in whichever was forgotten.
+        it('is gated like the inbound listing', () => {
+            const proto = ShareController.prototype as {
+                __puterRoutes?: Array<{
+                    method: string;
+                    path: string;
+                    options?: Record<string, unknown>;
+                }>;
+            };
+            const routes = proto.__puterRoutes ?? [];
+            const inbound = routes.find((r) => r.path === '/shared-with-me');
+            const outbound = routes.find((r) => r.path === '/shared-by-me');
+            expect(outbound?.method.toLowerCase()).toBe('get');
+            expect(outbound?.options).toEqual(inbound?.options);
+        });
     });
 
     it('revokes every item in the request, not just the first', async () => {

@@ -283,6 +283,36 @@ export class ShareController extends PuterController {
         });
     }
 
+    /**
+     * GET /share/shared-by-me — paginated listing of everything the caller has
+     * shared out. `GET /share/shares` answers this for one item at a time,
+     * which cannot answer it at all for a caller who doesn't know what to ask
+     * about.
+     */
+    @Get('/shared-by-me', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: SHARE_LIST_LIMIT,
+    })
+    async listSharedByMe(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const query = this.#query(req);
+
+        const page = await this.services.share.listSharedByMe(actor, {
+            limit: normalizeLimit(query.limit, { cap: LIST_LIMIT_CAP }),
+            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
+            includeTotal: query.includeTotal === 'true',
+        });
+
+        res.json({
+            items: await Promise.all(
+                page.items.map((share) => this.#toClientShare(share)),
+            ),
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(page.total !== undefined ? { total: page.total } : {}),
+        });
+    }
+
     /** GET /share/shares — who can reach one item. */
     @Get('/shares', {
         subdomain: 'api',
