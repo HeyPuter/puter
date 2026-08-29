@@ -123,7 +123,10 @@ const generate_file_context_menu = async function (options) {
     if ( !is_trashed && !is_trash && fsentry.is_dir ) {
         menu_items.push({
             html: i18n('publish_as_website'),
-            disabled: !fsentry.is_dir || fsentry.has_website,
+            // Publishing serves the folder to anyone, for good, so it takes the
+            // same own-it-or-`manage` right as sharing it does (SubdomainDriver
+            // enforces that). `write` on someone else's folder is not enough.
+            disabled: !fsentry.is_dir || fsentry.has_website || !may_share,
             onClick: async function () {
                 await publish_as_website({
                     uid: fsentry.uid,

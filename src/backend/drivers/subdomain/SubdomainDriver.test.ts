@@ -545,6 +545,112 @@ describe('SubdomainDriver.update', () => {
     });
 });
 
+// ── publishing someone else's directory ─────────────────────────────
+//
+// Hosting serves the root dir with the ACL bypassed, so pointing a subdomain
+// at a directory publishes it. A `write` share does not carry that decision:
+// the row would live under the recipient's account, cover files the owner adds
+// later, and show up in nothing the owner can list.
+
+const shareDir = async (
+    owner: { actor: Actor },
+    holder: { actor: Actor },
+    path: string,
+    mode: 'read' | 'write' | 'manage',
+): Promise<void> => {
+    const entry = (await server.stores.fsEntry.getEntryByPath(path))!;
+    await server.services.acl.setUserUser(
+        owner.actor,
+        holder.actor,
+        {
+            path: entry.path,
+            resolveAncestors: () =>
+                server.services.fs.getAncestorChain(entry.path),
+        },
+        mode,
+    );
+};
+
+describe('SubdomainDriver root_dir publishing rights', () => {
+    it('refuses a directory shared with the actor at write', async () => {
+        const owner = await makeUser();
+        const writer = await makeUser();
+        const shared = `/${owner.actor.user!.username}/Documents`;
+        await shareDir(owner, writer, shared, 'write');
+
+        await expect(
+            withActor(writer.actor, () =>
+                driver.create({
+                    object: {
+                        subdomain: uniqueSubdomain('borrowed'),
+                        root_dir: shared,
+                    },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    // "Can edit & share" is the owner delegating the decision.
+    it('accepts a directory shared with the actor at manage', async () => {
+        const owner = await makeUser();
+        const manager = await makeUser();
+        const shared = `/${owner.actor.user!.username}/Documents`;
+        await shareDir(owner, manager, shared, 'manage');
+        const sub = uniqueSubdomain('delegated');
+
+        const created = (await withActor(manager.actor, () =>
+            driver.create({
+                object: { subdomain: sub, root_dir: shared },
+            }),
+        )) as Record<string, unknown> | null;
+
+        expect(created?.subdomain).toBe(sub);
+    });
+
+    it('refuses to repoint an existing subdomain at a write-shared directory', async () => {
+        const owner = await makeUser();
+        const writer = await makeUser();
+        const shared = `/${owner.actor.user!.username}/Documents`;
+        await shareDir(owner, writer, shared, 'write');
+
+        const created = (await withActor(writer.actor, () =>
+            driver.create({
+                object: {
+                    subdomain: uniqueSubdomain('repoint'),
+                    root_dir: `/${writer.actor.user!.username}/Public`,
+                },
+            }),
+        )) as Record<string, unknown>;
+
+        await expect(
+            withActor(writer.actor, () =>
+                driver.update({
+                    uid: created.uid,
+                    object: { root_dir: shared },
+                }),
+            ),
+        ).rejects.toMatchObject({ statusCode: 403 });
+    });
+
+    // The owner's own path still only needs write, so an app hosting a
+    // directory its user gave it keeps working.
+    it("still accepts the actor's own directory", async () => {
+        const { actor } = await makeUser();
+        const sub = uniqueSubdomain('own');
+
+        const created = (await withActor(actor, () =>
+            driver.create({
+                object: {
+                    subdomain: sub,
+                    root_dir: `/${actor.user!.username}/Documents`,
+                },
+            }),
+        )) as Record<string, unknown> | null;
+
+        expect(created?.subdomain).toBe(sub);
+    });
+});
+
 // ── upsert ──────────────────────────────────────────────────────────
 
 describe('SubdomainDriver.upsert', () => {
