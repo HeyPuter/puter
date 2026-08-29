@@ -58,6 +58,9 @@ const SHARE_LIST_LIMIT = {
 const SHARE_CONCURRENCY = 8;
 const LIST_LIMIT_CAP = 200;
 
+/** `appUid` value asking for the grants no app issued. App uids are uuids. */
+const NO_APP = 'none';
+
 /**
  * Caps on one request's fan-out. Recipients matter most: that number is how
  * many people a single call can reach, so it stays small by default and only
@@ -275,6 +278,10 @@ export class ShareController extends PuterController {
      * shared out. `GET /share/shares` answers this for one item at a time,
      * which cannot answer it at all for a caller who doesn't know what to ask
      * about.
+     *
+     * `appUid` narrows to one app's grants, or to `none` for the ones the user
+     * made themselves. An app token is bound to its own app regardless, so it
+     * only ever sees what it issued.
      */
     @Get('/shared-by-me', {
         subdomain: 'api',
@@ -310,6 +317,7 @@ export class ShareController extends PuterController {
             limit: normalizeLimit(query.limit, { cap: LIST_LIMIT_CAP }),
             cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
             includeTotal: query.includeTotal === 'true',
+            appUid: this.#appUidFilter(query),
         });
 
         res.json({
@@ -319,6 +327,56 @@ export class ShareController extends PuterController {
             ...(page.cursor ? { cursor: page.cursor } : {}),
             ...(page.total !== undefined ? { total: page.total } : {}),
         });
+    }
+
+    /**
+     * GET /share/shared-by-me/apps — which apps hold shares the caller made,
+     * with a count each. The way into `appUid` for someone who doesn't know
+     * which apps to ask about; the group with a null `appUid` is what they
+     * shared themselves.
+     */
+    @Get('/shared-by-me/apps', {
+        subdomain: 'api',
+        requireUserActor: true,
+        requireVerified: true,
+        rateLimit: SHARE_LIST_LIMIT,
+    })
+    async listSharedByMeApps(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const query = this.#query(req);
+
+        const page = await this.services.share.listSharedByMeApps(actor, {
+            limit: normalizeLimit(query.limit, { cap: LIST_LIMIT_CAP }),
+            cursor: typeof query.cursor === 'string' ? query.cursor : undefined,
+            includeTotal: query.includeTotal === 'true',
+        });
+
+        res.json({
+            items: page.items,
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(page.total !== undefined ? { total: page.total } : {}),
+        });
+    }
+
+    /**
+     * DELETE /share/shared-by-me/:uid — withdraw one listed share.
+     *
+     * An uid the caller's own listing would not show them answers 404 like an
+     * uid that names nothing at all, so this can't be used to learn which.
+     */
+    @Delete('/shared-by-me/:uid', {
+        subdomain: 'api',
+        requireVerified: true,
+        rateLimit: SHARE_LIMIT,
+    })
+    async revokeSharedByMe(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        const uid = String(req.params.uid ?? '');
+        const { revoked } = await this.services.share.revokeSharedByMe(
+            actor,
+            uid,
+        );
+        res.json({ uid, revoked });
     }
 
     /** GET /share/shares — who can reach one item. */
@@ -510,6 +568,17 @@ export class ShareController extends PuterController {
 
     #query(req: Request): Record<string, unknown> {
         return (req.query ?? {}) as Record<string, unknown>;
+    }
+
+    /**
+     * The app a listing is narrowed to: an uid, `null` for the grants no app
+     * issued, or undefined for all of them. `NO_APP` is the drill-in for the
+     * group the summary reports with a null `appUid`.
+     */
+    #appUidFilter(query: Record<string, unknown>): string | null | undefined {
+        const value = query.appUid;
+        if (typeof value !== 'string' || value === '') return undefined;
+        return value === NO_APP ? null : value;
     }
 
     #recipients(body: Record<string, unknown>): ShareRecipient[] {

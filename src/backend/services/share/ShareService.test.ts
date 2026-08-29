@@ -19,7 +19,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { Actor } from '../../core/actor.js';
+import { makeActor, type Actor } from '../../core/actor.js';
 import { runWithContext } from '../../core/context.js';
 import { PuterServer } from '../../server.js';
 import { createTestUser, setupTestServer } from '../../testUtil.js';
@@ -115,6 +115,34 @@ describe('ShareService', () => {
                 resolveAncestors: () => server.services.fs.getAncestorChain(path),
             },
             'read',
+        );
+
+    const makeApp = async (ownerUserId) =>
+        server.stores.app.create(
+            {
+                name: `share-app-${uuidv4()}`,
+                title: 'Share app',
+                index_url: `https://share-${uuidv4()}.test/`,
+            },
+            { ownerUserId },
+        );
+
+    // Built the way the request path builds it, so `effectiveApp` is derived
+    // rather than left unresolved.
+    const asApp = (owner, app) =>
+        makeActor({
+            user: owner.user,
+            app: { uid: app.uid, id: app.id },
+        });
+
+    /** Hand an app the reach it needs to share one of its user's files. */
+    const grantAppReach = (owner, app, entry, mode = 'read') =>
+        runWithContext({ actor: owner.actor }, () =>
+            server.services.permission.grantUserAppPermission(
+                owner.actor,
+                app.uid,
+                `fs:${entry.uuid}:${mode}`,
+            ),
         );
 
     const share = (actor: Actor, input: Record<string, unknown>) =>
@@ -1002,6 +1030,233 @@ describe('ShareService', () => {
         });
     });
 
+    describe('the outbound listing scoped by app', () => {
+        const listSharedByMe = (
+            actor: Actor,
+            opts?: {
+                limit?: number;
+                cursor?: string;
+                includeTotal?: boolean;
+                appUid?: string | null;
+            },
+        ) =>
+            runWithContext({ actor }, () =>
+                server.services.share.listSharedByMe(actor, opts),
+            );
+
+        const listApps = (
+            actor: Actor,
+            opts?: { limit?: number; cursor?: string; includeTotal?: boolean },
+        ) =>
+            runWithContext({ actor }, () =>
+                server.services.share.listSharedByMeApps(actor, opts),
+            );
+
+        const revokeByUid = (actor: Actor, uid: string) =>
+            runWithContext({ actor }, () =>
+                server.services.share.revokeSharedByMe(actor, uid),
+            );
+
+        /** An owner, a recipient, and one file shared through each app. */
+        const shareThroughApps = async (appCount: number) => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const apps = [];
+            const files = [];
+            for (let i = 0; i < appCount; i++) {
+                const app = await makeApp(owner.user.id);
+                const file = await makeFile(owner.user);
+                await grantAppReach(owner, app, file);
+                await share(asApp(owner, app), {
+                    uid: file.uuid,
+                    recipient: { username: recipient.user.username },
+                    mode: 'read',
+                });
+                apps.push(app);
+                files.push(file);
+            }
+            return { owner, recipient, apps, files };
+        };
+
+        it('shows an app its own grants and nothing another app issued', async () => {
+            const { owner, apps, files } = await shareThroughApps(2);
+
+            for (const [index, app] of apps.entries()) {
+                const listed = await listSharedByMe(asApp(owner, app), {
+                    includeTotal: true,
+                });
+                expect(listed.items.map((i) => i.entryUid)).toEqual([
+                    files[index].uuid,
+                ]);
+                expect(listed.items[0].issuedByApp).toBe(app.uid);
+                expect(listed.total).toBe(1);
+            }
+        });
+
+        it('gives an app nothing when it asks about another app', async () => {
+            const { owner, apps } = await shareThroughApps(2);
+
+            const listed = await listSharedByMe(asApp(owner, apps[0]), {
+                appUid: apps[1].uid,
+                includeTotal: true,
+            });
+            expect(listed.items).toEqual([]);
+            expect(listed.total).toBe(0);
+        });
+
+        it('lets a session filter to one app, or to what it shared itself', async () => {
+            const { owner, recipient, apps, files } =
+                await shareThroughApps(2);
+            const byHand = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: byHand.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            const across = await listSharedByMe(owner.actor);
+            expect(across.items.map((i) => i.entryUid).sort()).toEqual(
+                [...files.map((f) => f.uuid), byHand.uuid].sort(),
+            );
+
+            const scoped = await listSharedByMe(owner.actor, {
+                appUid: apps[0].uid,
+                includeTotal: true,
+            });
+            expect(scoped.items.map((i) => i.entryUid)).toEqual([
+                files[0].uuid,
+            ]);
+            expect(scoped.total).toBe(1);
+
+            const manual = await listSharedByMe(owner.actor, { appUid: null });
+            expect(manual.items.map((i) => i.entryUid)).toEqual([byHand.uuid]);
+        });
+
+        it('groups the listing by app, naming each one', async () => {
+            const { owner, recipient, apps } = await shareThroughApps(1);
+            const byHand = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: byHand.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            const grouped = await listApps(owner.actor, { includeTotal: true });
+            expect(grouped.total).toBe(2);
+            const byApp = new Map(grouped.items.map((i) => [i.appUid, i]));
+            expect(byApp.get(null)?.count).toBe(1);
+            expect(byApp.get(apps[0].uid)).toMatchObject({
+                name: apps[0].name,
+                title: apps[0].title,
+                count: 1,
+            });
+        });
+
+        it('keeps the grouped view to user sessions', async () => {
+            const { owner, apps } = await shareThroughApps(1);
+            await expect(
+                listApps(asApp(owner, apps[0])),
+            ).rejects.toMatchObject({ statusCode: 403 });
+        });
+
+        it('still shows and revokes what a removed app left behind', async () => {
+            const { owner, recipient, apps, files } =
+                await shareThroughApps(1);
+            await server.stores.app.delete(apps[0].id);
+
+            const grouped = await listApps(owner.actor);
+            expect(
+                grouped.items.find((i) => i.appUid === apps[0].uid),
+            ).toMatchObject({ name: null, title: null, count: 1 });
+
+            const listed = await listSharedByMe(owner.actor, {
+                appUid: apps[0].uid,
+            });
+            expect(listed.items.map((i) => i.entryUid)).toEqual([
+                files[0].uuid,
+            ]);
+
+            expect(await canRead(recipient.actor, files[0].path)).toBe(true);
+            await revokeByUid(owner.actor, listed.items[0].uid);
+            expect(await canRead(recipient.actor, files[0].path)).toBe(false);
+            expect((await listSharedByMe(owner.actor)).items).toEqual([]);
+        });
+
+        it('settles the grant when a listed share is revoked', async () => {
+            const owner = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+
+            const listed = await listSharedByMe(owner.actor);
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+
+            expect(await revokeByUid(owner.actor, listed.items[0].uid)).toEqual(
+                { revoked: 1 },
+            );
+            expect(await canRead(recipient.actor, file.path)).toBe(false);
+            expect((await listSharedByMe(owner.actor)).items).toEqual([]);
+        });
+
+        it('takes back an unclaimed invite by its uid', async () => {
+            const owner = await makeUser();
+            const file = await makeFile(owner.user);
+            const email = `invitee-${uuidv4().slice(0, 8)}@test.local`;
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { email },
+                mode: 'read',
+            });
+
+            const listed = await listSharedByMe(owner.actor);
+            expect(listed.items[0].pending).toBe(true);
+            await revokeByUid(owner.actor, listed.items[0].uid);
+            expect((await listSharedByMe(owner.actor)).items).toEqual([]);
+        });
+
+        // Every uid the caller may not act on answers alike, or the endpoint
+        // becomes a way to ask whether one exists.
+        it('answers 404 for an unknown uid and for another account\'s', async () => {
+            const owner = await makeUser();
+            const stranger = await makeUser();
+            const recipient = await makeUser();
+            const file = await makeFile(owner.user);
+            await share(owner.actor, {
+                uid: file.uuid,
+                recipient: { username: recipient.user.username },
+                mode: 'read',
+            });
+            const listed = await listSharedByMe(owner.actor);
+
+            await expect(
+                revokeByUid(owner.actor, uuidv4()),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            await expect(
+                revokeByUid(stranger.actor, listed.items[0].uid),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            expect(await canRead(recipient.actor, file.path)).toBe(true);
+        });
+
+        it('answers 404 when an app names another app\'s share', async () => {
+            const { owner, recipient, apps, files } =
+                await shareThroughApps(2);
+            const listed = await listSharedByMe(asApp(owner, apps[1]));
+
+            await expect(
+                revokeByUid(asApp(owner, apps[0]), listed.items[0].uid),
+            ).rejects.toMatchObject({ statusCode: 404 });
+            expect(await canRead(recipient.actor, files[1].path)).toBe(true);
+
+            // Its own, on the other hand, it may take back.
+            await revokeByUid(asApp(owner, apps[1]), listed.items[0].uid);
+            expect(await canRead(recipient.actor, files[1].path)).toBe(false);
+        });
+    });
+
     it('takes downstream access with a delegate who leaves', async () => {
         const owner = await makeUser();
         const delegate = await makeUser();
@@ -1702,21 +1957,6 @@ describe('ShareService', () => {
     });
 
     describe('an app is bounded by what it was given', () => {
-        const makeApp = async (ownerUserId) =>
-            server.stores.app.create(
-                {
-                    name: `share-app-${uuidv4()}`,
-                    title: 'Share app',
-                    index_url: `https://share-${uuidv4()}.test/`,
-                },
-                { ownerUserId },
-            );
-
-        const asApp = (owner, app) => ({
-            user: owner.user,
-            app: { uid: app.uid, id: app.id },
-        });
-
         /** A real entry under the app's own AppData for `owner`. */
         const makeAppDataFile = async (owner, app) => {
             const now = Math.floor(Date.now() / 1000);

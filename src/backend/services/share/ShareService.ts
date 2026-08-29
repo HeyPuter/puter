@@ -87,6 +87,16 @@ interface GrantEvidence {
     owned: boolean;
 }
 
+/** One app in the outbound listing's group-by-app view. */
+export interface OutboundAppSummary {
+    /** Null for the grants the user made themselves, outside any app. */
+    appUid: string | null;
+    /** Null once the app is gone; its grants outlive it. */
+    name: string | null;
+    title: string | null;
+    count: number;
+}
+
 /** One live share, resolved for a response. */
 export interface ResolvedShare {
     uid: string;
@@ -874,7 +884,7 @@ export class ShareService extends PuterService {
                 fsentryId: entry.id,
                 mode,
                 recipientEmail: holder.email ?? null,
-                issuerAppUid: actor.app?.uid ?? null,
+                issuerAppUid: this.#actingAppUid(actor),
             });
             return {
                 ...this.#resolve(row, entry, actor, holder),
@@ -1469,19 +1479,36 @@ export class ShareService extends PuterService {
      *
      * Trashed items are kept, unlike the inbound listing: the grant on one is
      * still standing, and this is where someone comes to find that out.
+     *
+     * An app credential sees only what its own app issued, whatever `appUid`
+     * asks for; a session may filter by app, and `null` asks for the grants no
+     * app issued.
      */
     async listSharedByMe(
         actor: Actor,
-        opts: { limit?: number; cursor?: string; includeTotal?: boolean } = {},
+        opts: {
+            limit?: number;
+            cursor?: string;
+            includeTotal?: boolean;
+            appUid?: string | null;
+        } = {},
     ): Promise<{
         items: ResolvedShare[];
         cursor?: string;
         total?: number;
     }> {
         const userId = this.#requireUserId(actor);
+        const scope = this.#outboundAppScope(actor, opts.appUid);
+        if (scope.empty) {
+            return {
+                items: [],
+                ...(opts.includeTotal ? { total: 0 } : {}),
+            };
+        }
         const page = await this.stores.share.listOutbound(userId, {
             limit: opts.limit,
             cursor: opts.cursor,
+            appUid: scope.appUid,
         });
         const rows: OutboundShareRow[] = page.items;
 
@@ -1540,9 +1567,143 @@ export class ShareService extends PuterService {
             items,
             ...(page.cursor ? { cursor: page.cursor } : {}),
             ...(opts.includeTotal
-                ? { total: await this.stores.share.countOutbound(userId) }
+                ? {
+                      total: await this.stores.share.countOutbound(userId, {
+                          appUid: scope.appUid,
+                      }),
+                  }
                 : {}),
         };
+    }
+
+    /**
+     * Which apps hold shares the caller made — the way into the per-app listing
+     * for someone who doesn't know which apps to ask about. The group with no
+     * `appUid` is what the caller shared themselves.
+     *
+     * Counts come from the index, so they are what `includeTotal` reports on
+     * the listing rather than what survives its per-grant re-checks.
+     */
+    async listSharedByMeApps(
+        actor: Actor,
+        opts: { limit?: number; cursor?: string; includeTotal?: boolean } = {},
+    ): Promise<{
+        items: OutboundAppSummary[];
+        cursor?: string;
+        total?: number;
+    }> {
+        const userId = this.#requireUserId(actor);
+        if (this.#actingAppUid(actor)) {
+            throw new HttpError(
+                403,
+                'This view is only available to user sessions',
+                { legacyCode: 'forbidden' },
+            );
+        }
+
+        const page = await this.stores.share.listOutboundApps(userId, {
+            limit: opts.limit,
+            cursor: opts.cursor,
+        });
+        const apps = await this.stores.app.getByUids(
+            page.items
+                .map((row: { appUid: string | null }) => row.appUid)
+                .filter((uid: string | null): uid is string => Boolean(uid)),
+        );
+
+        return {
+            items: page.items.map(
+                (row: { appUid: string | null; count: number }) => {
+                    // An app that has since been removed leaves its grants behind,
+                    // so the group stands with nothing to name it.
+                    const app = row.appUid ? apps.get(row.appUid) : null;
+                    return {
+                        appUid: row.appUid,
+                        name: app?.name ?? null,
+                        title: app?.title ?? null,
+                        count: row.count,
+                    };
+                },
+            ),
+            ...(page.cursor ? { cursor: page.cursor } : {}),
+            ...(opts.includeTotal
+                ? { total: await this.stores.share.countOutboundApps(userId) }
+                : {}),
+        };
+    }
+
+    /**
+     * Withdraw one share the caller listed, named by its own uid.
+     *
+     * Everything the caller may not act on answers 404 alike — an uid that
+     * names nothing, another user's row, and another app's row — so the
+     * endpoint can't be used to find out which. The revoke itself is `unshare`,
+     * so a delegate's re-shares go with it exactly as they do from the per-item
+     * path.
+     */
+    async revokeSharedByMe(
+        actor: Actor,
+        shareUid: string,
+    ): Promise<{ revoked: number }> {
+        const userId = this.#requireUserId(actor);
+        const notFound = () =>
+            new HttpError(404, 'Subject does not exist', {
+                legacyCode: 'subject_does_not_exist',
+            });
+
+        const row = await this.stores.share.getByUid(shareUid);
+        if (!row?.fsentry_id) throw notFound();
+
+        const actingApp = this.#actingAppUid(actor);
+        if (actingApp && issuedByApp(row) !== actingApp) throw notFound();
+
+        const entry = await this.stores.fsEntry.getEntryById(
+            Number(row.fsentry_id),
+        );
+        if (!entry) throw notFound();
+        // The row must be one the caller's own listing would show them.
+        if (
+            Number(row.issuer_user_id) !== userId &&
+            Number(entry.userId) !== userId
+        ) {
+            throw notFound();
+        }
+        if (!(await this.#hasOwnReach(actor, entry, 'see'))) throw notFound();
+
+        const holder = row.holder_user_id
+            ? await this.stores.user.getById(Number(row.holder_user_id))
+            : null;
+        const recipient: ShareRecipient = holder?.username
+            ? { username: holder.username }
+            : { email: row.recipient_email };
+        if (!recipient.username && !recipient.email) throw notFound();
+
+        return this.unshare(actor, { uid: entry.uuid, recipient });
+    }
+
+    /**
+     * Which app's grants this actor may see. An app credential is bound to its
+     * own app whatever it asks for; a session may filter freely.
+     *
+     * `effectiveApp` is unresolved on an actor literal that skipped
+     * `makeActor`, so `app` backs it up: scoping such an actor to its own app
+     * is the safe reading, opening the cross-app view is not.
+     */
+    #outboundAppScope(
+        actor: Actor,
+        requested: string | null | undefined,
+    ): { appUid?: string | null; empty?: boolean } {
+        const acting = this.#actingAppUid(actor);
+        if (!acting) return { appUid: requested };
+        if (requested !== undefined && requested !== acting) {
+            return { empty: true };
+        }
+        return { appUid: acting };
+    }
+
+    /** The app this credential acts as, or null for a plain user session. */
+    #actingAppUid(actor: Actor): string | null {
+        return (actor.effectiveApp ?? actor.app)?.uid ?? null;
     }
 
     /**
@@ -2015,7 +2176,7 @@ export class ShareService extends PuterService {
                 displayEmail: email,
                 fsentryId: entry.id,
                 mode,
-                issuerAppUid: actor.app?.uid ?? null,
+                issuerAppUid: this.#actingAppUid(actor),
             });
             return {
                 ...this.#resolve(row, entry, actor, { username: null }),
