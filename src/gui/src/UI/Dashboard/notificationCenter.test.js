@@ -23,6 +23,7 @@ import {
     formatAbsoluteTime,
     formatRelativeTime,
     glyphKey,
+    isShareNotification,
     isUnread,
     mergeEntries,
     notificationTarget,
@@ -124,6 +125,14 @@ describe('toEntry', () => {
     });
 
     it('leaves out worker notifications, listed or pushed', () => {
+        const worker = { title: 'Successfully deployed https://x.puter.work', type: 'app.worker.deployed' };
+        expect(toEntry({ uid: 'a', value: worker, created_at: '2026-08-27 12:00:00' }, NOW)).toBeNull();
+        expect(toEntry({ uid: 'b', notification: worker }, NOW)).toBeNull();
+        expect(toEntry({ uid: 'c', notification: { title: 'Failed to deploy x!', type: 'app.worker.deployFailed' } }, NOW)).toBeNull();
+        expect(toEntry({ uid: 'd', notification: { type: 'share.received' } }, NOW)).not.toBeNull();
+    });
+
+    it('still leaves out worker notifications written before the type registry', () => {
         const worker = { title: 'Successfully deployed https://x.puter.work', source: 'worker', template: 'user-requesting-share' };
         expect(toEntry({ uid: 'a', value: worker, created_at: '2026-08-27 12:00:00' }, NOW)).toBeNull();
         expect(toEntry({ uid: 'b', notification: worker }, NOW)).toBeNull();
@@ -258,33 +267,63 @@ describe('unreadCount', () => {
     });
 });
 
+describe('isShareNotification', () => {
+    it('accepts the server type and the markers that preceded it', () => {
+        expect(isShareNotification({ type: 'share.received' })).toBe(true);
+        expect(isShareNotification({ type: 'share.claimed' })).toBe(true);
+        expect(isShareNotification({ source: 'sharing' })).toBe(true);
+        expect(isShareNotification({ template: 'file-shared-with-you' })).toBe(true);
+        expect(isShareNotification({ template: 'file-shared-before-you-joined' })).toBe(true);
+    });
+
+    it('refuses anything else', () => {
+        expect(isShareNotification({ type: 'app.worker.deployed' })).toBe(false);
+        expect(isShareNotification({ source: 'worker' })).toBe(false);
+        expect(isShareNotification({})).toBe(false);
+        expect(isShareNotification(null)).toBe(false);
+        expect(isShareNotification('text')).toBe(false);
+    });
+});
+
 describe('notificationTarget', () => {
     it('points a single share at its item', () => {
         expect(notificationTarget({
-            source: 'sharing',
-            template: 'file-shared-with-you',
+            type: 'share.received',
             fields: { target: { path: '/alice/0b1c2d3e-0000-4000-8000-000000000000/report.txt', name: 'report.txt' } },
         })).toEqual({ kind: 'shared-item', path: '/alice/0b1c2d3e-0000-4000-8000-000000000000/report.txt' });
     });
 
     it('points a grouped share at Shared', () => {
-        expect(notificationTarget({ source: 'sharing', template: 'file-shared-with-you', fields: { count: 3 } }))
+        expect(notificationTarget({ type: 'share.received', fields: { count: 3 } }))
             .toEqual({ kind: 'shared' });
     });
 
     it('points a share claimed after signup at Shared', () => {
-        expect(notificationTarget({ source: 'sharing', template: 'file-shared-before-you-joined', fields: { count: 1 } }))
+        expect(notificationTarget({ type: 'share.claimed', fields: { count: 1 } }))
+            .toEqual({ kind: 'shared' });
+    });
+
+    it('still reads shares written before the type registry', () => {
+        expect(notificationTarget({
+            source: 'sharing',
+            template: 'file-shared-with-you',
+            fields: { target: { path: '/alice/0b1c2d3e-0000-4000-8000-000000000000/report.txt' } },
+        })).toEqual({ kind: 'shared-item', path: '/alice/0b1c2d3e-0000-4000-8000-000000000000/report.txt' });
+        expect(notificationTarget({ source: 'sharing', template: 'file-shared-with-you', fields: { count: 3 } }))
+            .toEqual({ kind: 'shared' });
+        expect(notificationTarget({ template: 'file-shared-before-you-joined', fields: { count: 1 } }))
             .toEqual({ kind: 'shared' });
     });
 
     it('refuses a target that is not an absolute path', () => {
-        expect(notificationTarget({ source: 'sharing', fields: { target: { path: 'https://evil' } } }))
+        expect(notificationTarget({ type: 'share.received', fields: { target: { path: 'https://evil' } } }))
             .toEqual({ kind: 'shared' });
-        expect(notificationTarget({ source: 'sharing', fields: { target: { path: 42 } } }))
+        expect(notificationTarget({ type: 'share.received', fields: { target: { path: 42 } } }))
             .toEqual({ kind: 'shared' });
     });
 
     it('has nowhere to go for other notifications', () => {
+        expect(notificationTarget({ type: 'app.worker.deployed', title: 'Deployed' })).toBeNull();
         expect(notificationTarget({ source: 'worker', title: 'Deployed' })).toBeNull();
         expect(notificationTarget({})).toBeNull();
         expect(notificationTarget(null)).toBeNull();
@@ -293,11 +332,15 @@ describe('notificationTarget', () => {
 });
 
 describe('glyphKey', () => {
-    it('names the glyph for known senders', () => {
+    it('names the glyph for shares, by type or legacy marker', () => {
+        expect(glyphKey({ type: 'share.received' })).toBe('sharing');
+        expect(glyphKey({ type: 'share.claimed' })).toBe('sharing');
         expect(glyphKey({ source: 'sharing' })).toBe('sharing');
+        expect(glyphKey({ template: 'file-shared-with-you' })).toBe('sharing');
     });
 
     it('falls back to the bell for anything else', () => {
+        expect(glyphKey({ type: 'app.worker.deployed' })).toBe('default');
         expect(glyphKey({ source: 'billing' })).toBe('default');
         expect(glyphKey({})).toBe('default');
         expect(glyphKey(null)).toBe('default');
@@ -305,9 +348,10 @@ describe('glyphKey', () => {
     });
 
     it('never reaches into the prototype', () => {
+        expect(glyphKey({ type: '__proto__' })).toBe('default');
         expect(glyphKey({ source: '__proto__' })).toBe('default');
         expect(glyphKey({ source: 'constructor' })).toBe('default');
-        expect(glyphKey({ source: 'toString' })).toBe('default');
+        expect(glyphKey({ template: 'toString' })).toBe('default');
     });
 });
 

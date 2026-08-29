@@ -44,6 +44,7 @@ import item_icon from '../helpers/itemIcon.js';
 import { SHARED_PATH_PARAM, clear_shared_param } from '../helpers/parseSharedPath.js';
 import resolve_shared_item from '../helpers/resolveSharedItem.js';
 import { markNotificationAcknowledged } from '../helpers/notificationApi.js';
+import { notificationTarget } from './Dashboard/notificationCenter.js';
 import apply_item_added_to_containers from '../helpers/applyItemAddedToContainers.js';
 import UIWindowSearch from './UIWindowSearch.js';
 
@@ -211,11 +212,15 @@ async function UIDesktop (options) {
         }
     });
 
-    /** Clicking a share notification opens the item, or Shared if grouped. */
+    /**
+     * Clicking a share notification opens the item, or Shared if grouped.
+     * Shares the notification center's predicate so a toast and a list entry
+     * never disagree about where a click goes.
+     */
     const share_notification_click = (notification) => {
-        if ( notification?.source !== 'sharing' ) return undefined;
-        const target = notification?.fields?.target;
-        if ( target?.path ) {
+        const target = notificationTarget(notification);
+        if ( target === null ) return undefined;
+        if ( target.kind === 'shared-item' ) {
             return () => {
                 open_shared_item(target.path);
             };

@@ -708,12 +708,16 @@ describe('share endpoints over HTTP', () => {
             );
         }
 
-        const seen: Array<{ userIds: number[]; payload: Record<string, unknown> }> = [];
+        const seen: Array<{
+            userIds: number[];
+            payload: Record<string, unknown>;
+            type: string;
+        }> = [];
         const notification = env.server.services.notification;
         const original = notification.notify.bind(notification);
-        notification.notify = async (userIds, payload) => {
-            seen.push({ userIds, payload });
-            return original(userIds, payload);
+        notification.notify = async (userIds, payload, opts) => {
+            seen.push({ userIds, payload, type: opts.type });
+            return original(userIds, payload, opts);
         };
 
         try {
@@ -734,8 +738,8 @@ describe('share endpoints over HTTP', () => {
 
         // Two items, one recipient — one notification carrying the count.
         expect(seen).toHaveLength(1);
+        expect(seen[0].type).toBe('share.received');
         expect(seen[0].payload).toMatchObject({
-            source: 'sharing',
             fields: { count: 2 },
         });
     });

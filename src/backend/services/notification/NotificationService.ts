@@ -19,6 +19,22 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { PuterService } from '../types.js';
+import {
+    findNotificationType,
+    resolveNotificationWrite,
+} from './notificationTypes.js';
+import type { NotificationTypeName } from './notificationTypes.js';
+
+export {
+    NOTIFICATION_TYPES,
+    findNotificationType,
+} from './notificationTypes.js';
+export type {
+    NotificationAudience,
+    NotificationType,
+    NotificationTypeName,
+} from './notificationTypes.js';
+export { canViewNotification } from './notificationAudience.js';
 
 /**
  * Notification orchestration — glues the NotificationStore (DB) to the event
@@ -94,17 +110,29 @@ export class NotificationService extends PuterService {
      * look, but nothing interrupts them now. For callers that budget how often
      * they may interrupt someone and must still keep the record straight.
      *
+     * `type` names a registry entry and decides the row's audience; an
+     * unregistered one, or an app uid the entry does not allow, throws before
+     * anything is written or pushed. The type rides along in the payload too,
+     * so a client reading only the socket message can tell what it received.
+     *
      * @param userIds Target user ids
-     * @param notification Payload — { source, title, text?, icon?, template?,
-     *   fields? }
-     * @param opts `{ silent }` to skip the socket push.
+     * @param notification Payload — { title, text?, icon?, fields? }
+     * @param opts `{ type }` from the registry, `{ appUid }` for a row about an
+     *   app, `{ silent }` to skip the socket push.
      * @returns The uid of the first recipient's notification.
      */
     async notify(
         userIds: number[],
         notification: Record<string, unknown>,
-        opts: { silent?: boolean } = {},
+        opts: {
+            type: NotificationTypeName;
+            appUid?: string | null;
+            silent?: boolean;
+        },
     ): Promise<string> {
+        const appUid = opts.appUid ?? null;
+        const registered = resolveNotificationWrite(opts.type, appUid);
+        const payload = { ...notification, type: registered.type };
         const uidByIndex = userIds.map(() => uuidv4());
 
         // Immediate socket push (before DB write completes)
@@ -114,7 +142,10 @@ export class NotificationService extends PuterService {
                     'outer.gui.notif.message',
                     {
                         user_id_list: [userId],
-                        response: { uid: uidByIndex[i], notification },
+                        response: {
+                            uid: uidByIndex[i],
+                            notification: payload,
+                        },
                     },
                     {},
                 );
@@ -128,8 +159,11 @@ export class NotificationService extends PuterService {
                 try {
                     await this.stores.notification.create({
                         userId,
-                        value: notification,
+                        value: payload,
                         uid,
+                        type: registered.type,
+                        audience: registered.audience,
+                        appUid,
                     });
                 } catch (err) {
                     console.warn(
@@ -162,7 +196,8 @@ export class NotificationService extends PuterService {
     /**
      * Rewrite a notification the recipient hasn't dismissed and deliver it
      * again — for a story that grows rather than repeats, where a second
-     * notification would just be noise.
+     * notification would just be noise. Only a `groupable` type may be folded
+     * this way; the scope columns are the original row's and don't move.
      *
      * False when there was nothing to rewrite (dismissed in between), which is
      * the caller's signal to send a fresh one.
@@ -171,12 +206,17 @@ export class NotificationService extends PuterService {
         uid: string,
         userId: number,
         notification: Record<string, unknown>,
-        opts: { silent?: boolean } = {},
+        opts: { type: NotificationTypeName; silent?: boolean },
     ): Promise<boolean> {
+        const registered = findNotificationType(opts.type);
+        if (!registered?.groupable) {
+            throw new Error(`notification type is not groupable: ${opts.type}`);
+        }
+        const payload = { ...notification, type: registered.type };
         const updated = await this.stores.notification.updateValue(
             uid,
             userId,
-            notification,
+            payload,
         );
         if (!updated) return false;
 
@@ -187,7 +227,7 @@ export class NotificationService extends PuterService {
                 'outer.gui.notif.message',
                 {
                     user_id_list: [userId],
-                    response: { uid, notification },
+                    response: { uid, notification: payload },
                 },
                 {},
             );

@@ -85,10 +85,11 @@ describe('NotificationService.notify', () => {
         const pushed = collect('outer.gui.notif.message');
         const persisted = collect('outer.gui.notif.persisted');
 
-        const uid = await notifications.notify([a.id, b.id], {
-            source: 'test',
-            title: 'hello',
-        });
+        const uid = await notifications.notify(
+            [a.id, b.id],
+            { title: 'hello' },
+            { type: 'share.received' },
+        );
 
         // One push per recipient, each with a distinct uid — the row uid is
         // UNIQUE table-wide, so a shared batch uid could never name both rows.
@@ -101,8 +102,8 @@ describe('NotificationService.notify', () => {
         );
         expect([...byUser.keys()].sort()).toEqual([a.id, b.id].sort());
         expect(byUser.get(a.id)!.notification).toEqual({
-            source: 'test',
             title: 'hello',
+            type: 'share.received',
         });
         expect(byUser.get(a.id)!.uid).not.toBe(byUser.get(b.id)!.uid);
         // The returned uid is the first recipient's.
@@ -120,7 +121,13 @@ describe('NotificationService.notify', () => {
             );
             expect(rows).toHaveLength(1);
             expect(rows[0].uid).toBe(byUser.get(user.id)!.uid);
-            expect(rows[0].value).toEqual({ source: 'test', title: 'hello' });
+            expect(rows[0].value).toEqual({
+                title: 'hello',
+                type: 'share.received',
+            });
+            expect(rows[0].type).toBe('share.received');
+            expect(rows[0].audience).toBe('account');
+            expect(rows[0].app_uid).toBeNull();
         }
 
         pushed.stop();
@@ -134,10 +141,11 @@ describe('NotificationService.notify', () => {
 
         // userId 0 is falsy — NotificationStore.create rejects it. The
         // remaining user must still be written and still report persisted.
-        await notifications.notify([0, good.id], {
-            source: 'test',
-            title: 'partial',
-        });
+        await notifications.notify(
+            [0, good.id],
+            { title: 'partial' },
+            { type: 'share.received' },
+        );
 
         await waitFor(() =>
             persisted.seen.some(
@@ -157,10 +165,129 @@ describe('NotificationService.notify', () => {
 
     it('is a no-op push for an empty recipient list', async () => {
         const pushed = collect('outer.gui.notif.message');
-        const uid = await notifications.notify([], { source: 'test' });
+        const uid = await notifications.notify(
+            [],
+            {},
+            { type: 'share.received' },
+        );
         expect(pushed.seen).toEqual([]);
         expect(uid).toMatch(/^[0-9a-f-]{8}-/);
         pushed.stop();
+    });
+
+    it('records the audience and app the registry entry declares', async () => {
+        const user = await makeUser();
+        const appUid = `app-${uuidv4()}`;
+        const persisted = collect('outer.gui.notif.persisted');
+
+        await notifications.notify(
+            [user.id],
+            { title: 'subscription ended' },
+            { type: 'app.events.ended', appUid },
+        );
+        await waitFor(() => persisted.seen.length === 1);
+
+        const [row] = await server.stores.notification.listByUserId(
+            user.id,
+            {},
+        );
+        expect(row.type).toBe('app.events.ended');
+        expect(row.audience).toBe('developer');
+        expect(row.app_uid).toBe(appUid);
+        persisted.stop();
+    });
+
+    it('writes nothing and pushes nothing for an unregistered type', async () => {
+        const user = await makeUser();
+        const pushed = collect('outer.gui.notif.message');
+
+        await expect(
+            notifications.notify(
+                [user.id],
+                { title: 'nope' },
+                // Only reachable from an untyped caller; the registry is the
+                // gate either way.
+                { type: 'account.invented' as 'share.received' },
+            ),
+        ).rejects.toThrow('not registered');
+
+        expect(pushed.seen).toEqual([]);
+        expect(
+            await server.stores.notification.listByUserId(user.id, {}),
+        ).toHaveLength(0);
+        pushed.stop();
+    });
+
+    it('refuses an app uid on an account type and a missing one on an app-scoped type', async () => {
+        const user = await makeUser();
+        const pushed = collect('outer.gui.notif.message');
+
+        await expect(
+            notifications.notify(
+                [user.id],
+                {},
+                { type: 'share.received', appUid: `app-${uuidv4()}` },
+            ),
+        ).rejects.toThrow('cannot name an app');
+
+        await expect(
+            notifications.notify([user.id], {}, { type: 'app.events.ended' }),
+        ).rejects.toThrow('requires an app uid');
+
+        expect(pushed.seen).toEqual([]);
+        expect(
+            await server.stores.notification.listByUserId(user.id, {}),
+        ).toHaveLength(0);
+        pushed.stop();
+    });
+});
+
+describe('NotificationService.notifyUpdate', () => {
+    it('rewrites an open row and keeps its type on the payload', async () => {
+        const user = await makeUser();
+        const persisted = collect('outer.gui.notif.persisted');
+        const uid = await notifications.notify(
+            [user.id],
+            { title: 'one share' },
+            { type: 'share.received' },
+        );
+        await waitFor(() => persisted.seen.length === 1);
+        persisted.stop();
+
+        const pushed = collect('outer.gui.notif.message');
+        expect(
+            await notifications.notifyUpdate(
+                uid,
+                user.id,
+                { title: 'two shares' },
+                { type: 'share.received' },
+            ),
+        ).toBe(true);
+
+        expect(pushed.seen).toHaveLength(1);
+        expect((pushed.seen[0] as NotifPush).response.notification).toEqual({
+            title: 'two shares',
+            type: 'share.received',
+        });
+        const row = await server.stores.notification.getByUid(uid, {
+            userId: user.id,
+        });
+        // The scope columns belong to the original row and do not move.
+        expect(row?.type).toBe('share.received');
+        expect(row?.audience).toBe('account');
+        pushed.stop();
+    });
+
+    it('refuses to fold a type that does not group', async () => {
+        const user = await makeUser();
+        await expect(
+            notifications.notifyUpdate(
+                'no-such-uid',
+                user.id,
+                {},
+                { type: 'share.claimed' },
+            ),
+        ).rejects.toThrow('not groupable');
     });
 });
 
@@ -316,10 +443,11 @@ describe('NotificationService — unread delivery on connect', () => {
 describe('NotificationService — delivery receipts', () => {
     it('marks a notification shown once the socket fan-out reports delivery', async () => {
         const user = await makeUser();
-        const uid = await notifications.notify([user.id], {
-            source: 'test',
-            title: 'receipt',
-        });
+        const uid = await notifications.notify(
+            [user.id],
+            { title: 'receipt' },
+            { type: 'share.received' },
+        );
 
         // What SocketService emits after pushing `notif.message` to a room.
         server.clients.event.emit(

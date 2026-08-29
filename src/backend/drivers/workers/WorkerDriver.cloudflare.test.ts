@@ -578,8 +578,11 @@ describe('WorkerDriver hot reload', () => {
         expect(notifySpy).toHaveBeenCalledWith(
             [user.id],
             expect.objectContaining({
-                source: 'worker',
                 title: `Successfully deployed https://${name}.puter.work`,
+            }),
+            expect.objectContaining({
+                type: 'app.worker.deployed',
+                appUid: null,
             }),
         );
     });

@@ -102,10 +102,14 @@ const HOUR_MS = 60 * 60_000;
 const DAY_MS = 24 * HOUR_MS;
 
 /** Notifications this service folds shares into. */
-const SHARE_TEMPLATE = 'file-shared-with-you';
+const SHARE_TYPE = 'share.received';
 
-/** Kept distinct from `SHARE_TEMPLATE` so grouping never rewrites it. */
-const CLAIM_TEMPLATE = 'file-shared-before-you-joined';
+/**
+ * The `template` marker `SHARE_TYPE` rows carried before the type registry.
+ * Still matched when looking for an open group, so a notification written by
+ * the previous release still absorbs today's shares.
+ */
+const LEGACY_SHARE_TEMPLATE = 'file-shared-with-you';
 
 /** A budget: a key, how many are allowed, and over what window. */
 type Budget = [key: string, limit: number, windowMs: number];
@@ -350,7 +354,7 @@ export class ShareNotificationService extends PuterService {
                     open.uid,
                     holderId,
                     folded,
-                    { silent },
+                    { type: SHARE_TYPE, silent },
                 )
             ) {
                 return;
@@ -367,7 +371,7 @@ export class ShareNotificationService extends PuterService {
                 Date.now() + this.#limits().pairWindowSeconds * 1000,
                 count === 1 ? target : null,
             ),
-            { silent },
+            { type: SHARE_TYPE, silent },
         );
     }
 
@@ -384,9 +388,7 @@ export class ShareNotificationService extends PuterService {
         target: ShareNotificationTarget | null,
     ): Record<string, unknown> {
         return {
-            source: 'sharing',
             title: shareNotifyTitle(senders),
-            template: SHARE_TEMPLATE,
             // `username` and `count` are the pre-grouping shape, kept for
             // anything still reading it; `senders` is what the title is from.
             fields: {
@@ -416,7 +418,10 @@ export class ShareNotificationService extends PuterService {
                 template?: unknown;
                 fields?: { groupUntil?: unknown };
             };
-            if (value.template !== SHARE_TEMPLATE || !row?.uid) continue;
+            const isOpenShare =
+                row?.type === SHARE_TYPE ||
+                value.template === LEGACY_SHARE_TEMPLATE;
+            if (!isOpenShare || !row?.uid) continue;
 
             // Newest first, so the first share notification is the only
             // candidate: if its group has closed, every older one's has too.
@@ -929,12 +934,14 @@ export class ShareNotificationService extends PuterService {
         if (shares.length === 0) return;
         try {
             const count = shares.length;
-            await this.services.notification.notify([holderId], {
-                source: 'sharing',
-                title: `${count === 1 ? 'An item was' : `${count} items were`} shared with you before you joined`,
-                template: CLAIM_TEMPLATE,
-                fields: { count },
-            });
+            await this.services.notification.notify(
+                [holderId],
+                {
+                    title: `${count === 1 ? 'An item was' : `${count} items were`} shared with you before you joined`,
+                    fields: { count },
+                },
+                { type: 'share.claimed' },
+            );
         } catch {
             // Best-effort by design; see the class comment.
         }

@@ -977,6 +977,8 @@ export class WorkerDriver extends PuterDriver {
             const workerName = workerFullName.slice(
                 WORKER_SUBDOMAIN_PREFIX.length,
             );
+            // Null until resolved, and for a worker bound to no app at all.
+            let appUid: string | null = null;
 
             try {
                 const ownerUser = await this.stores.user.getById(entry.userId);
@@ -1007,6 +1009,7 @@ export class WorkerDriver extends PuterDriver {
                 if (appOwnerId) {
                     const app = await this.stores.app.getById(appOwnerId);
                     if (!app) continue; // app gone
+                    appUid = String(app.uid);
                     authorization =
                         await this.services.auth.createWorkerAppToken(
                             ownerActor,
@@ -1039,16 +1042,23 @@ export class WorkerDriver extends PuterDriver {
                 }
 
                 // Notify the user
-                await this.#notifyUser(entry.userId, workerName, cfResult);
+                await this.#notifyUser(
+                    entry.userId,
+                    workerName,
+                    cfResult,
+                    appUid,
+                );
             } catch (err) {
                 console.warn(
                     `[workers] hot-reload deploy failed for ${workerName}`,
                     err,
                 );
-                await this.#notifyUser(entry.userId, workerName, {
-                    success: false,
-                    errors: [String(err)],
-                });
+                await this.#notifyUser(
+                    entry.userId,
+                    workerName,
+                    { success: false, errors: [String(err)] },
+                    appUid,
+                );
             }
         }
     }
@@ -1184,17 +1194,23 @@ export class WorkerDriver extends PuterDriver {
         userId: number,
         workerName: string,
         result: { success?: boolean; errors?: unknown[]; url?: string },
+        appUid: string | null,
     ): Promise<void> {
         try {
             const title = result.success
                 ? `Successfully deployed https://${workerName}.puter.work`
                 : `Failed to deploy ${workerName}! ${(result.errors ?? []).join(', ')}`;
 
-            await this.services.notification.notify([userId], {
-                source: 'worker',
-                title,
-                template: 'user-requesting-share',
-            });
+            await this.services.notification.notify(
+                [userId],
+                { title },
+                {
+                    type: result.success
+                        ? 'app.worker.deployed'
+                        : 'app.worker.deployFailed',
+                    appUid,
+                },
+            );
         } catch (err) {
             console.warn('[workers] notification create failed', err);
         }
