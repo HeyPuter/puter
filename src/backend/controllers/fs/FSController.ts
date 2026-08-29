@@ -26,8 +26,9 @@ import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { Controller, Get, Post } from '../../core/http/decorators.js';
 import {
-    assertNormalized,
+    expandTildePath,
     isOwnersTrash,
+    normalizeAbsolutePath,
 } from '../../services/fs/resolveNode.js';
 import {
     maskEntryPath,
@@ -2252,33 +2253,7 @@ export class FSController extends PuterController {
     }
 
     #normalizePath(path: string, username?: string): string {
-        const trimmedPath = path.trim();
-        if (trimmedPath.length === 0) {
-            throw new HttpError(400, 'Path cannot be empty', {
-                legacyCode: 'bad_request',
-            });
-        }
-
-        let pathToNormalize = trimmedPath;
-        if (pathToNormalize === '~' || pathToNormalize.startsWith('~/')) {
-            if (!username) {
-                throw new HttpError(400, 'Unable to resolve home path', {
-                    legacyCode: 'bad_request',
-                });
-            }
-
-            pathToNormalize = `/${username}${pathToNormalize.slice(1)}`;
-        }
-
-        assertNormalized(pathToNormalize);
-        let normalizedPath = pathToNormalize;
-        if (!normalizedPath.startsWith('/')) {
-            normalizedPath = `/${normalizedPath}`;
-        }
-        if (normalizedPath.length > 1 && normalizedPath.endsWith('/')) {
-            normalizedPath = normalizedPath.slice(0, -1);
-        }
-        return normalizedPath;
+        return normalizeAbsolutePath(expandTildePath(path, username));
     }
 
     #expandFileMetadataPath(

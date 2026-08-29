@@ -25,6 +25,7 @@ import {
     assertNormalized,
     expandTildePath,
     isOwnersTrash,
+    isTildePath,
     joinChildPath,
     normalizeAbsolutePath,
     resolveNode,
@@ -278,6 +279,19 @@ describe('normalizeAbsolutePath', () => {
         expect(() => normalizeAbsolutePath('/alice/../bob')).toThrowError(
             /Invalid path/,
         );
+    });
+});
+
+describe('isTildePath', () => {
+    it('accepts the two home-dir forms', () => {
+        expect(isTildePath('~')).toBe(true);
+        expect(isTildePath('~/Documents')).toBe(true);
+    });
+
+    it('rejects a name that merely starts with a tilde', () => {
+        expect(isTildePath('~backup')).toBe(false);
+        expect(isTildePath('/alice/~backup')).toBe(false);
+        expect(isTildePath('')).toBe(false);
     });
 });
 
