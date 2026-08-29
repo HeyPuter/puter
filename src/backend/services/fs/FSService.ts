@@ -182,14 +182,18 @@ export class FSService extends PuterService {
                     !permission.startsWith(`${MANAGE_PERM_PREFIX}:fs:`)
                 )
                     return false;
-                const [, specifier] = permission.split('fs:');
+                // Parse on component boundaries: a path can contain `fs:` (e.g. a home dir named `…fs`), which a raw split mistakes for the mode delimiter.
+                const parts = PermissionUtil.split(permission);
+                const fsIndex = parts[0] === MANAGE_PERM_PREFIX ? 1 : 0;
+                const specifier = parts[fsIndex + 1];
                 return Boolean(specifier && specifier.startsWith('/'));
             },
             rewrite: async (permission: string): Promise<string> => {
-                const [manageOpt, pathPerm] = permission.split('fs:');
-                const parts = PermissionUtil.split(pathPerm);
-                const path = parts[0];
-                const rest = parts.slice(1);
+                const parts = PermissionUtil.split(permission);
+                const hasManage = parts[0] === MANAGE_PERM_PREFIX;
+                const fsIndex = hasManage ? 1 : 0;
+                const path = parts[fsIndex + 1];
+                const rest = parts.slice(fsIndex + 2);
                 if (!path) return permission;
                 const entry = await fsEntryStore.getEntryByPath(path);
                 if (!entry) {
@@ -197,9 +201,8 @@ export class FSService extends PuterService {
                         legacyCode: 'subject_does_not_exist',
                     });
                 }
-                const manage = manageOpt.replace(':', '');
                 const joined = PermissionUtil.join('fs', entry.uuid, ...rest);
-                return manage ? `${manage}:${joined}` : joined;
+                return hasManage ? `${MANAGE_PERM_PREFIX}:${joined}` : joined;
             },
         });
 
