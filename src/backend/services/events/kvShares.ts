@@ -184,6 +184,53 @@ export const assertShareablePermission = (permission: string): string => {
     return permission;
 };
 
+// -- Delegation -------------------------------------------------------
+
+/** The delegation arm of a share grant: authority to hand the region out. */
+export const kvShareManagePermission = (permission: string): string =>
+    PermissionUtil.join(
+        MANAGE_PERM_PREFIX,
+        ...PermissionUtil.split(permission),
+    );
+
+export const KV_SHARE_MANAGE_PREFIX = `${MANAGE_PERM_PREFIX}:${KV_SHARE_PERMISSION_PREFIX}`;
+
+export const isKvShareManagePermission = (permission: string): boolean =>
+    permission === KV_SHARE_MANAGE_PREFIX ||
+    permission.startsWith(`${KV_SHARE_MANAGE_PREFIX}:`);
+
+/**
+ * A delegation must name a subtree. Consent on the namespace root reads as "let
+ * this app hand out anything it has stored for you", which is not a bounded
+ * capability and so is not something a prompt can put to a user.
+ */
+export const assertBoundedManageGrant = (permission: string): string => {
+    if (!isKvShareManagePermission(permission)) return permission;
+    const [, , owner, appUid, ...segments] = PermissionUtil.split(permission);
+    if (!owner || !appUid || segments.length === 0)
+        throw invalidPrefix(
+            'A share delegation must name a region, not the whole namespace',
+        );
+    return permission;
+};
+
+/**
+ * The unbounded `manage:` grant a bounded delegation's own permission descends
+ * from. The consent surface refuses to ever write this row, but
+ * `canManagePermission` walks ancestors to decide "may I delegate this", so if
+ * it exists by any other path it would silently authorize a mint anywhere in
+ * the namespace — this is what lets the mint path notice it regardless.
+ */
+export const kvShareManageNamespaceRoot = (permission: string): string => {
+    const [, owner, appUid] = PermissionUtil.split(permission);
+    return PermissionUtil.join(
+        MANAGE_PERM_PREFIX,
+        KV_SHARE_PERMISSION_PREFIX,
+        owner,
+        appUid,
+    );
+};
+
 // -- Permission rules -------------------------------------------------
 
 /**

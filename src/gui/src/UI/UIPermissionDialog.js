@@ -646,6 +646,10 @@ async function get_permission_description (permission, options = {}) {
         return await get_app_data_description(parts, options);
     }
 
+    if ( parts[0] === 'manage' && parts[1] === 'kv-share' ) {
+        return await get_kv_share_description(parts, options);
+    }
+
     if ( parts[0] === 'events' && parts[1] === 'background' ) {
         return { html: i18n('perm_events_background'), icon: 'zap' };
     }
@@ -755,6 +759,38 @@ export async function get_app_data_description (parts, options) {
     return {
         html: i18n(`perm_app_data_${verb}`, { subject }),
         icon: store === 'fs' ? 'folder' : 'shield',
+    };
+}
+
+/**
+ * Describes `manage:kv-share:<owner>:<app>:<key segments>` — the app handing a
+ * region of the data it keeps for this user to other people it picks.
+ *
+ * Returns null (which denies without prompting) for anything this copy cannot
+ * honestly bound: another user's data, a namespace that is not the requester's
+ * own, or a request naming no region — that last one is the whole of the app's
+ * data, which is a different decision and not one a prompt can put in a line.
+ */
+export async function get_kv_share_description (parts, options) {
+    const [, , owner_uuid, namespace_app_uid, ...segments] = parts;
+    if ( ! owner_uuid || ! namespace_app_uid || segments.length === 0 ) return null;
+
+    // An app reaches its own namespace and no other, so a request naming
+    // another one describes access it could not use.
+    if ( ! options.app_uid || namespace_app_uid !== options.app_uid ) return null;
+
+    const whoami = await puter.auth.whoami();
+    if ( whoami.uuid !== owner_uuid ) return null;
+
+    const app = await get_app_by_uid(namespace_app_uid);
+    if ( ! app ) return null;
+
+    return {
+        html: i18n('perm_kv_share_manage', {
+            app: app.title || app.name || options.app_name,
+            region: `${segments.join(':')}:`,
+        }),
+        icon: 'shield',
     };
 }
 

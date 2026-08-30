@@ -268,7 +268,7 @@ describe('minting a handle', () => {
         }
     });
 
-    it('refuses an app minting on its user`s behalf', async () => {
+    it('refuses an app its user has not delegated the region to', async () => {
         const uid = `app-${uuidv4()}`;
         await env.server.clients.db.write(
             'INSERT INTO `apps` (`uid`, `name`, `title`, `index_url`, `owner_user_id`) VALUES (?, ?, ?, ?, ?)',
@@ -281,7 +281,7 @@ describe('minting a handle', () => {
         });
 
         await expect(mint({}, appActor)).rejects.toMatchObject({
-            legacyCode: 'events_kv_handle_owner_only',
+            legacyCode: 'events_kv_handle_not_delegated',
         });
     });
 });

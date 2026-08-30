@@ -141,9 +141,11 @@ export class EventsController extends PuterController {
      * POST /events/kv-handles — hand another user a watchable region of this
      * account's key-value data.
      *
-     * An account session only: minting on behalf of an app is delegation, and
-     * the service refuses an app-context actor rather than the gate doing it,
-     * because `effectiveApp` is where app-ness actually lives.
+     * An account session, or an app session holding a `manage:` delegation on
+     * the region — the service tells those apart and gates each rather than the
+     * route doing it, because `effectiveApp` is where app-ness actually lives.
+     * A token an app minted is refused there too: a delegation is the app's to
+     * hold, not to pass on. A user's own token still acts for the user.
      */
     @Post('/kv-handles', {
         subdomain: 'api',

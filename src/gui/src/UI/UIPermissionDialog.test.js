@@ -9,10 +9,12 @@ window.auth_token = 'tok';
 globalThis.i18n = (key, params = {}) =>
     `${key}(${Object.entries(params).map(([k, v]) => `${k}=${v}`).join(',')})`;
 
-const { get_app_data_description } = await import('./UIPermissionDialog.js');
+const { get_app_data_description, get_kv_share_description } =
+    await import('./UIPermissionDialog.js');
 
 const CONTACTS = 'app-contacts';
 const CALENDAR = 'app-calendar';
+const OWNER = '2a1b0c9d-0000-4000-8000-000000000001';
 
 /** Stub the app lookup the describer performs. */
 const stubApp = (app) => {
@@ -102,5 +104,57 @@ describe('UIPermissionDialog app-data descriptions', () => {
             throw new Error('network down');
         });
         expect(await describeScope(`app-data:${CONTACTS}:kv:get`)).toBeNull();
+    });
+});
+
+describe('UIPermissionDialog key-value delegation descriptions', () => {
+    beforeEach(() => {
+        stubApp({ uid: CALENDAR, name: 'calendar', title: 'Calendar' });
+        globalThis.puter = { auth: { whoami: async () => ({ uuid: OWNER }) } };
+    });
+
+    const describeShare = (permission, options = { app_uid: CALENDAR }) =>
+        get_kv_share_description(permission.split(':'), options);
+
+    it('names the app and the region, never the namespace', async () => {
+        const d = await describeShare(
+            `manage:kv-share:${OWNER}:${CALENDAR}:workspace:abc`,
+        );
+        expect(d.html).toContain('perm_kv_share_manage');
+        expect(d.html).toContain('Calendar');
+        expect(d.html).toContain('region=workspace:abc:');
+    });
+
+    it('refuses a delegation naming no region', async () => {
+        // The whole of the app's data: a different decision, and not one this
+        // line can put to the user.
+        expect(
+            await describeShare(`manage:kv-share:${OWNER}:${CALENDAR}`),
+        ).toBeNull();
+        expect(await describeShare(`manage:kv-share:${OWNER}`)).toBeNull();
+        expect(await describeShare('manage:kv-share')).toBeNull();
+    });
+
+    it('refuses a namespace that is not the requester’s own', async () => {
+        expect(
+            await describeShare(
+                `manage:kv-share:${OWNER}:${CONTACTS}:workspace:abc`,
+            ),
+        ).toBeNull();
+        // No requesting app at all — the popup flow — cannot be bounded either.
+        expect(
+            await describeShare(
+                `manage:kv-share:${OWNER}:${CALENDAR}:workspace:abc`,
+                { origin: 'https://site.example' },
+            ),
+        ).toBeNull();
+    });
+
+    it('refuses another user’s data', async () => {
+        expect(
+            await describeShare(
+                `manage:kv-share:someone-else:${CALENDAR}:workspace:abc`,
+            ),
+        ).toBeNull();
     });
 });

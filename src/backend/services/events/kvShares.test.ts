@@ -22,11 +22,13 @@ import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { PermissionUtil } from '../permission/permissionUtil.js';
 import {
+    assertBoundedManageGrant,
     assertShareableAppUid,
     assertShareablePermission,
     assertShareablePrefix,
     keyPrefixSegments,
     kvShareGrantCovers,
+    kvShareManagePermission,
     kvShareOwnerImplicator,
     kvSharePermission,
     mintKvHandleId,
@@ -192,6 +194,44 @@ describe('keys inside a granted region', () => {
             relativeToKvShareRoot(permission, 'workspace:abcdef:x'),
         ).toBeNull();
         expect(relativeToKvShareRoot(permission, 'workspace:abc')).toBeNull();
+    });
+});
+
+describe('a delegation request', () => {
+    const region = kvShareManagePermission(
+        kvSharePermission(OWNER, APP, 'workspace:abc:'),
+    );
+
+    it('is the manage arm of the grant it would let an app issue', () => {
+        expect(region).toBe(`manage:kv-share:${OWNER}:${APP}:workspace:abc`);
+        expect(assertBoundedManageGrant(region)).toBe(region);
+    });
+
+    it.each([
+        ['manage:kv-share', 'the family itself'],
+        [`manage:kv-share:${OWNER}`, 'an owner and no namespace'],
+        [`manage:kv-share:${OWNER}:${APP}`, 'a whole namespace'],
+    ])('refuses %s (%s)', (permission) => {
+        let thrown: unknown;
+        try {
+            assertBoundedManageGrant(permission);
+        } catch (err) {
+            thrown = err;
+        }
+        expect(thrown).toBeInstanceOf(HttpError);
+        expect((thrown as HttpError).legacyCode).toBe(
+            'invalid_kv_share_prefix',
+        );
+    });
+
+    it('leaves permissions from other families alone', () => {
+        const unrelated = `manage:fs:${OWNER}:write`;
+        expect(assertBoundedManageGrant(unrelated)).toBe(unrelated);
+        // The read arm of this family is not a delegation, so it is not this
+        // check's to bound.
+        expect(assertBoundedManageGrant(`kv-share:${OWNER}:${APP}`)).toBeTypeOf(
+            'string',
+        );
     });
 });
 

@@ -40,7 +40,12 @@ import {
     SUSPENDED_ROW_TTL_DAYS,
     type SubscriptionQuota,
 } from '../../controllers/events/limits.js';
-import { makeActor, type Actor } from '../../core/actor.js';
+import {
+    isAccessTokenActor,
+    makeActor,
+    userRelatedActor,
+    type Actor,
+} from '../../core/actor.js';
 import { HttpError, isHttpError } from '../../core/http/HttpError.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
 import type {
@@ -170,10 +175,13 @@ import {
 } from './registry.js';
 import { SubscriptionCache } from './subscriptionCache.js';
 import {
+    assertBoundedManageGrant,
     assertShareableAppUid,
     assertShareablePermission,
     assertShareablePrefix,
     kvShareGrantCovers,
+    kvShareManageNamespaceRoot,
+    kvShareManagePermission,
     kvShareOwnerImplicator,
     kvSharePermission,
     relativeToKvShareRoot,
@@ -666,13 +674,44 @@ const handlerAppRequired = (): HttpError =>
  * there: which apps exist is not this surface's to disclose.
  */
 /**
- * Minting is the user disposing of a region of their own data. An app doing it
- * on their behalf is delegation, which is a `manage:` grant's job and a
- * separate consent.
+ * Listing and revoking are the user's own view of what they have shared. An app
+ * doing it on their behalf has no surface of its own yet.
  */
 const handleOwnerOnly = (): HttpError =>
     new HttpError(403, 'Only an account session may manage share handles', {
         legacyCode: 'events_kv_handle_owner_only',
+    });
+
+/**
+ * An app minting is delegation, and the `manage:` grant on the region is the
+ * consent for it. Without one there is nothing authorizing the app to dispose
+ * of its user's data, whatever the user themselves could do here.
+ */
+const handleNotDelegated = (): HttpError =>
+    new HttpError(
+        403,
+        'This app has not been given permission to share this data',
+        { legacyCode: 'events_kv_handle_not_delegated' },
+    );
+
+/**
+ * A delegation is the app's to hold, not to pass on: a token it minted may
+ * carry the `manage:` permission and still not mint through it, the same way an
+ * access token is refused a socket of its own (`SocketService`). The user's own
+ * token is not this case — it acts for the user, who needs no delegation.
+ */
+const handleAccessTokenForbidden = (): HttpError =>
+    new HttpError(403, 'An access token may not mint a share handle', {
+        legacyCode: 'forbidden',
+    });
+
+/**
+ * An app addresses exactly one key-value namespace — its own, under its user —
+ * so that is the only one it can hand a region of out.
+ */
+const handleOutsideNamespace = (): HttpError =>
+    new HttpError(403, 'An app may only share its own key-value data', {
+        legacyCode: 'events_kv_handle_outside_namespace',
     });
 
 const handlerAppForbidden = (): HttpError =>
@@ -1691,6 +1730,13 @@ export class EventsService extends PuterService {
      * never landed would be a name for nothing; a grant whose handle never
      * landed is unaddressable, since a handle is the only thing that can name
      * this family.
+     *
+     * An app may mint too, bounded the way sharing bounds an app handing out
+     * its user's files: authority is the user's, asked of the user behind the
+     * actor and never of the app, and reach is what the credential itself
+     * holds. Here reach is structural — an app addresses one namespace — so it
+     * is asserted rather than worked out, and the app's own consent to delegate
+     * is a `manage:` grant on the region.
      */
     async mintKvHandle(
         actor: Actor,
@@ -1702,28 +1748,34 @@ export class EventsService extends PuterService {
         const owner = actor.user;
         if (!owner?.uuid || owner.id === undefined) throw disabled();
         // `undefined` is an app that could not be resolved, not the absence of
-        // one — reading it as an account session is what would hand an app the
-        // surface this refuses it.
-        if (actor.effectiveApp !== null) throw handleOwnerOnly();
+        // one — reading it as an account session is what would hand an app a
+        // surface bounded on the app it is acting as.
+        const app = actor.effectiveApp;
+        if (app === undefined) throw handleOwnerOnly();
 
+        // The budget is the user's, so an app spends its user's slots rather
+        // than a machine-rate allowance of its own.
         await this.#spendHandleBudget(owner.id);
         await this.#assertHandleCeiling(owner.id);
 
         const keyPrefix = assertShareablePrefix(request?.prefix);
-        const appUid = assertShareableAppUid(
-            parseAppUid(request?.appUid) ?? KV_GLOBAL_APP_KEY,
-        );
+        const appUid = this.#mintNamespace(app, request);
         const grantee = await this.#resolveGrantee(request);
 
         const permission = assertShareablePermission(
             kvSharePermission(owner.uuid, appUid, keyPrefix),
         );
+        if (app) await this.#assertKvShareDelegated(actor, permission);
+
+        // The user behind the app, so the authority checked is theirs and the
+        // issuer recorded is them. Which app acted is carried separately: it
+        // belongs on the audit row, not in the grant's authority.
         await this.services.permission.grantUserUserPermission(
-            actor,
+            userRelatedActor(actor),
             grantee.username,
             permission,
             {},
-            { reason: 'kv share handle' },
+            { reason: 'kv share handle', appUid: app?.uid },
         );
 
         const row = await this.stores.kvShareHandle.mint({
@@ -1734,6 +1786,54 @@ export class EventsService extends PuterService {
             permission,
         });
         return { handle: row.handle, prefix: row.keyPrefix };
+    }
+
+    /**
+     * Which namespace a mint may name. An app reaches `v1:<user>:<its own app>`
+     * and nothing else, so a request naming another one is refused rather than
+     * quietly minted somewhere the app cannot even write.
+     */
+    #mintNamespace(
+        app: Actor['effectiveApp'],
+        request: MintKvHandleRequest,
+    ): string {
+        const named = parseAppUid(request?.appUid);
+        if (!app) return assertShareableAppUid(named ?? KV_GLOBAL_APP_KEY);
+        if (named !== null && named !== app.uid) throw handleOutsideNamespace();
+        return app.uid;
+    }
+
+    /**
+     * Whether this app was given the region to hand out. The `manage:` grant is
+     * the user's consent, and prefix implication makes one taken on a region
+     * cover the keys beneath it — so a handle deeper than the consent is still
+     * inside it, and one above it is not.
+     */
+    async #assertKvShareDelegated(
+        actor: Actor,
+        permission: string,
+    ): Promise<void> {
+        // Consequential enough to require the app's own session, whatever a
+        // token it minted happens to carry — the same posture already taken
+        // for an access token wanting a socket of its own (SocketService).
+        if (isAccessTokenActor(actor)) throw handleAccessTokenForbidden();
+        // The consent surface refuses a namespace-root delegation because no
+        // prompt can describe it; refused here too, so a row written any other
+        // way cannot authorize a mint.
+        assertBoundedManageGrant(kvShareManagePermission(permission));
+        const delegated = await this.services.permission.canManagePermission(
+            actor,
+            permission,
+        );
+        if (!delegated) throw handleNotDelegated();
+        // `canManagePermission` walks ancestors, so a namespace-root grant
+        // written by any path other than the consent surface would otherwise
+        // authorize a mint anywhere in the namespace, bounded region or not.
+        const unbounded = await this.services.permission.check(
+            actor,
+            kvShareManageNamespaceRoot(permission),
+        );
+        if (unbounded) throw handleNotDelegated();
     }
 
     /**

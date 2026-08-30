@@ -74,7 +74,10 @@ import {
     generateDefaultFsentries,
     promoteToVerifiedGroup,
 } from '../../util/userProvisioning.js';
-import { isKvSharePermission } from '../../services/events/kvShares.js';
+import {
+    assertBoundedManageGrant,
+    isKvSharePermission,
+} from '../../services/events/kvShares.js';
 import {
     APP_DATA_PERMISSION_PREFIX,
     appDataSharingAllowed,
@@ -3241,6 +3244,10 @@ export class AuthController extends PuterController {
             await this.services.permission.assertUserAppPermissionWritable(
                 entry,
             );
+            // A delegation over a whole key-value namespace has no bounded
+            // description, so it is refused where it is asked for rather than
+            // prompted for and then refused at use.
+            assertBoundedManageGrant(entry);
             await this.#prepareAppDataGrant(req.actor!, entry);
         }
         for (const entry of list) {
