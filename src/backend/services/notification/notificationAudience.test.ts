@@ -136,6 +136,17 @@ describe('canViewNotification — app-user rows', () => {
     it('denies an actor whose app was never resolved', () => {
         expect(canViewNotification(own, unresolved)).toBe(false);
     });
+
+    it('treats a row naming no app as the recipient`s own, and no app`s', () => {
+        // A subscription a plain session made and then lost holds no app —
+        // the row is the holder's own, exactly like an unattributed
+        // `developer` row, and no app may read it in its place.
+        const unattributed = { audience: 'app-user', appUid: null };
+        expect(canViewNotification(unattributed, session)).toBe(true);
+        expect(canViewNotification(unattributed, userIssuedToken)).toBe(true);
+        expect(canViewNotification(unattributed, appUnderUser)).toBe(false);
+        expect(canViewNotification(unattributed, appIssuedToken)).toBe(false);
+    });
 });
 
 describe('canViewNotification — unknown audiences', () => {

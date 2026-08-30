@@ -61,6 +61,15 @@ export const EVENTS_SESSION_SUBSCRIPTIONS_PER_SOCKET = 50;
 export const EVENTS_DURABLE_SUBSCRIPTIONS_PER_USER = 500;
 
 /**
+ * How long a suspended durable subscription is kept before it is deleted.
+ *
+ * A suspension caused by a revoked grant never resumes — consent to watch is
+ * re-established by subscribing again — so the row survives only long enough
+ * for its holder to see, in `list`, that it stopped and why.
+ */
+export const SUSPENDED_ROW_TTL_DAYS = 30;
+
+/**
  * Subscribe + unsubscribe calls per minute, per user.
  *
  * Both resolve a path and take a write, so a loop over them is a write loop.

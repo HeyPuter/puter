@@ -196,7 +196,7 @@ describe('NotificationService.notify', () => {
             {},
         );
         expect(row.type).toBe('app.events.ended');
-        expect(row.audience).toBe('developer');
+        expect(row.audience).toBe('app-user');
         expect(row.app_uid).toBe(appUid);
         persisted.stop();
     });
@@ -235,7 +235,11 @@ describe('NotificationService.notify', () => {
         ).rejects.toThrow('cannot name an app');
 
         await expect(
-            notifications.notify([user.id], {}, { type: 'app.events.ended' }),
+            notifications.notify(
+                [user.id],
+                {},
+                { type: 'app.events.suspended' },
+            ),
         ).rejects.toThrow('requires an app uid');
 
         expect(pushed.seen).toEqual([]);

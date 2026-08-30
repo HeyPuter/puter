@@ -133,7 +133,7 @@ describe('NotificationStore', () => {
             userId: u.id,
             value: {},
             type: 'app.events.ended',
-            audience: 'developer',
+            audience: 'app-user',
             appUid,
         });
 
@@ -148,7 +148,7 @@ describe('NotificationStore', () => {
             appUid: null,
         });
         expect(byType['app.events.ended']).toEqual({
-            audience: 'developer',
+            audience: 'app-user',
             appUid,
         });
     });

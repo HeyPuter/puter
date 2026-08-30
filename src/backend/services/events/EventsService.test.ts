@@ -178,6 +178,17 @@ const appStore = {
 };
 
 /**
+ * The counter delivery decisions are cached under. Held here so a test can move
+ * it and watch the re-check happen again; what bumps it in production is any
+ * grant or revoke.
+ */
+let permissionGeneration: number;
+
+const permissionStore = {
+    getCacheGeneration: async () => permissionGeneration,
+};
+
+/**
  * This suite is about session rows and what a dispatch spends on them, so the
  * region is already warm and holds no durable rows — the table and its cache
  * are covered against a real database in the durable suites.
@@ -214,6 +225,7 @@ const buildService = (
             fsEntry: fsEntryStore,
             user: userStore,
             app: appStore,
+            permission: permissionStore,
         } as never,
         {
             socket: {
@@ -322,6 +334,7 @@ beforeEach(() => {
     commands = [];
     entries = new Map();
     denied = new Map();
+    permissionGeneration = 1;
     redis = countingRedis(new MockRedis.Cluster(['redis://localhost:7001']));
     store = new EventSubscriptionStore(
         {} as IConfig,
@@ -893,6 +906,33 @@ describe('matching', () => {
         await flush();
 
         expect(sent).toEqual([]);
+    });
+
+    it('holds its answer across events, and re-asks when the generation moves', async () => {
+        const { documents, file } = seedTree();
+        await subscribe(`fs:${documents.uid}`);
+
+        await dispatch(file);
+        await flush();
+        expect(sent).toHaveLength(1);
+
+        // Access changing with nothing to announce it leaves the cached answer
+        // standing, which is the trade a generation-keyed cache makes.
+        denied.set(file.path, 'hidden');
+        sent.length = 0;
+        await dispatch(file);
+        await flush();
+        expect(sent).toHaveLength(1);
+
+        // Any grant or revoke moves the counter, and the question is asked
+        // again — with nothing delivered and nothing metered when it now fails.
+        permissionGeneration++;
+        sent.length = 0;
+        delivered.length = 0;
+        await dispatch(file);
+        await flush();
+        expect(sent).toEqual([]);
+        expect(delivered).toEqual([]);
     });
 
     it('re-checks the node the event is about, not the anchor', async () => {

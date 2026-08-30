@@ -618,7 +618,8 @@ describe('a durable row across a share', () => {
         );
         delivered.length = 0;
 
-        // The row is still registered; it just no longer authorizes anything.
+        // The re-check refuses it at once; the settle then takes the row out
+        // of service behind it.
         await fs().touch(userId, { path: `${sharedPath}/second.txt` });
         await quiet();
 

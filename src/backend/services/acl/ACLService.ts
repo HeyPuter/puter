@@ -46,7 +46,11 @@ export interface ResourceDescriptor {
 }
 
 export type AclMode =
-    'see' | 'list' | 'read' | 'write' | typeof MANAGE_PERM_PREFIX;
+    | 'see'
+    | 'list'
+    | 'read'
+    | 'write'
+    | typeof MANAGE_PERM_PREFIX;
 
 /** Duck-typed error shape compatible with APIError consumers (fsv2). */
 export interface AclError {
@@ -180,7 +184,7 @@ export class ACLService extends PuterService {
             if (actor.accessToken.fullAccess) return true;
 
             for (const ancestor of ancestors) {
-                for (const permission of this.#permissionsFor(
+                for (const permission of this.permissionsFor(
                     ancestor.uid,
                     mode,
                 )) {
@@ -220,7 +224,7 @@ export class ACLService extends PuterService {
         for (const ancestor of ancestors) {
             const reading = await this.services.permission.scan(
                 actor,
-                this.#permissionsFor(ancestor.uid, mode),
+                this.permissionsFor(ancestor.uid, mode),
             );
             const options = PermissionUtil.readingToOptions(reading);
             if (options.length > 0) return true;
@@ -232,8 +236,11 @@ export class ACLService extends PuterService {
     /**
      * Permissions on `uid` that satisfy `mode`. `manage` sits above the whole
      * family — it answers any mode, but nothing answers it.
+     *
+     * Public because it also answers the reverse question: given a grant that
+     * was just withdrawn, which stored checks did it hold up?
      */
-    #permissionsFor(uid: string, mode: AclMode): string[] {
+    permissionsFor(uid: string, mode: AclMode): string[] {
         const manage = PermissionUtil.join(MANAGE_PERM_PREFIX, 'fs', uid);
         if (mode === MANAGE_PERM_PREFIX) return [manage];
         return [
