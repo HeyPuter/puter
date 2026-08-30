@@ -134,6 +134,28 @@ export class EventsController extends PuterController {
         res.json({});
     }
 
+    // -- Cross-user key-value handles --------------------------------
+
+    /**
+     * POST /events/kv-handles — hand another user a watchable region of this
+     * account's key-value data.
+     *
+     * An account session only: minting on behalf of an app is delegation, and
+     * the service refuses an app-context actor rather than the gate doing it,
+     * because `effectiveApp` is where app-ness actually lives.
+     */
+    @Post('/kv-handles', {
+        subdomain: 'api',
+        requireAuth: true,
+        allowAccessToken: true,
+    })
+    async mintKvHandle(req: Request, res: Response): Promise<void> {
+        const actor = this.#requireActor(req);
+        res.json(
+            await this.services.events.mintKvHandle(actor, this.#body(req)),
+        );
+    }
+
     // -- Handlers ----------------------------------------------------
     //
     // Deploying an app's code, so the gate is the same as the verbs above plus

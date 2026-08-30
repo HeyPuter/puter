@@ -43,6 +43,7 @@ import {
     type TokenSource,
 } from '../../core/http/types.js';
 import { PuterServer } from '../../server.js';
+import { kvSharePermission } from '../../services/events/kvShares.js';
 import { FULL_API_ACCESS } from '../../services/permission/consts.js';
 import { setupTestServer } from '../../testUtil.js';
 import { resetCardVerificationStatusCache } from '../../util/cardFallback.js';
@@ -5240,6 +5241,60 @@ describe('AuthController.handleCheckPermissions + handleListPermissions', () => 
             expect.objectContaining({
                 user: user.username,
                 permission: userPermission,
+            }),
+        );
+    });
+
+    it('list-permissions: never shows a holder the key-value share grant behind their handle', async () => {
+        const { user: owner, actor: ownerActor } = await makeUserAndActor();
+        const { user: holder, actor: holderActor } = await makeUserAndActor();
+
+        // The grant a mint issues, seeded the same way: the owner implicator
+        // is what lets them issue it on their own namespace.
+        const permission = kvSharePermission(
+            owner.uuid as string,
+            'os-global',
+            'workspace:abc:',
+        );
+        await inCtx(ownerActor, () =>
+            server.services.permission.grantUserUserPermission(
+                ownerActor,
+                holder.username,
+                permission,
+                {},
+            ),
+        );
+
+        const holderRes = makeRes();
+        await controller.handleListPermissions(
+            makeReq({}, { actor: holderActor }),
+            holderRes,
+        );
+        const holderBody = holderRes.body as {
+            user_to_myself: Array<{ user: string; permission: string }>;
+        };
+        // Neither the grant nor the owner it names: the string carries their
+        // uuid and the granted prefix, and the handle is all the holder has.
+        expect(holderBody.user_to_myself).not.toContainEqual(
+            expect.objectContaining({ permission }),
+        );
+        expect(JSON.stringify(holderBody.user_to_myself)).not.toContain(
+            owner.uuid,
+        );
+
+        // The owner's own side is untouched — it is their record of what they
+        // shared out.
+        const ownerRes = makeRes();
+        await controller.handleListPermissions(
+            makeReq({}, { actor: ownerActor }),
+            ownerRes,
+        );
+        expect(
+            (ownerRes.body as { myself_to_user: unknown[] }).myself_to_user,
+        ).toContainEqual(
+            expect.objectContaining({
+                user: holder.username,
+                permission,
             }),
         );
     });

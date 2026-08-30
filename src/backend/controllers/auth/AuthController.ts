@@ -74,6 +74,7 @@ import {
     generateDefaultFsentries,
     promoteToVerifiedGroup,
 } from '../../util/userProvisioning.js';
+import { isKvSharePermission } from '../../services/events/kvShares.js';
 import {
     APP_DATA_PERMISSION_PREFIX,
     appDataSharingAllowed,
@@ -3579,14 +3580,21 @@ export class AuthController extends PuterController {
                         ? JSON.parse(r.extra)
                         : (r.extra ?? {}),
             })),
-            user_to_myself: (userPermsIn as Row[]).map((r) => ({
-                user: r.username,
-                permission: r.permission,
-                extra:
-                    typeof r.extra === 'string'
-                        ? JSON.parse(r.extra)
-                        : (r.extra ?? {}),
-            })),
+            // A key-value share grant names its owner's uuid and the exact
+            // key prefix it covers. The handle is the only name its holder is
+            // meant to have for that region, so the grant behind it is not
+            // part of what they are shown. The owner still sees their own side
+            // above, and in `GET /events/kv-handles`.
+            user_to_myself: (userPermsIn as Row[])
+                .filter((r) => !isKvSharePermission(r.permission))
+                .map((r) => ({
+                    user: r.username,
+                    permission: r.permission,
+                    extra:
+                        typeof r.extra === 'string'
+                            ? JSON.parse(r.extra)
+                            : (r.extra ?? {}),
+                })),
         });
     }
 

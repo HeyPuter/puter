@@ -31,6 +31,7 @@ import { PermissionUtil } from '../permission/permissionUtil.js';
  *     kv:<appUid>:<key>            exact key
  *     kv:<appUid>:<prefix>*        trailing `*` only
  *     kv:<key>                     sugar for the caller's own app namespace
+ *     kv:<handle>:<relativeKey>    a region of another user's namespace
  *     notif:<appUid>:<audience>    a mailbox slice
  *     notif:<audience>             sugar for the caller's own app, or account
  *
@@ -62,6 +63,13 @@ export type AnchorRef =
           appUid: string | null;
           prefix: string;
           /** The key pattern as written, which the canonical subject reuses. */
+          key: string;
+      }
+    | {
+          kind: 'kvHandle';
+          /** Opaque name of the shared region; resolved server-side. */
+          handle: string;
+          /** Key pattern relative to the region the handle was granted on. */
           key: string;
       }
     | {
@@ -124,6 +132,17 @@ const FS_TOKEN_PREFIX = 'f#';
 const KV_TOKEN_PREFIX = 'k#';
 const NOTIF_TOKEN_PREFIX = 'n#';
 
+/**
+ * What marks the app slot of a `kv:` subject as a share handle rather than an
+ * app. Deliberately unlike an app uid (`app-<uuid>`) so the two can never be
+ * confused for one another in the same position.
+ */
+export const KV_HANDLE_PREFIX = 'kvh-';
+
+export const isKvHandleId = (value: string): boolean =>
+    value.startsWith(KV_HANDLE_PREFIX) &&
+    value.length > KV_HANDLE_PREFIX.length;
+
 /** Audiences a `notif:` subject may name, in wire form. */
 export const NOTIF_AUDIENCES: readonly NotificationAudience[] = Object.freeze([
     'account',
@@ -175,6 +194,18 @@ export const notifMatchOn = (
 /** Which family a stored row belongs to, without re-parsing its subject. */
 export const isKvToken = (token: string): boolean =>
     token.startsWith(KV_TOKEN_PREFIX);
+
+/**
+ * The handle a stored row was made through, or `null` for one on the holder's
+ * own namespace. Read off the subject rather than a column of its own: the
+ * subject is stored as the client wrote it, and a handle is the only thing that
+ * can sit in its app slot.
+ */
+export const kvHandleFromSubject = (subject: string): string | null => {
+    const parts = PermissionUtil.split(subject);
+    if (parts[0] !== 'kv' || parts.length < 3) return null;
+    return isKvHandleId(parts[1]) ? parts[1] : null;
+};
 
 /**
  * The delimiter-aligned prefixes a key can be watched under, shallowest first
@@ -290,6 +321,57 @@ const parseFsSubject = (subject: string, parts: string[]): ParsedSubject => {
     };
 };
 
+const assertKvPattern = (key: string): void => {
+    const starIndex = key.indexOf('*');
+    if (key.includes('?') || (starIndex !== -1 && starIndex !== key.length - 1))
+        throw new HttpError(400, 'KV subjects widen with a trailing `*` only', {
+            legacyCode: 'invalid_kv_pattern',
+        });
+};
+
+/**
+ * The anchor a key pattern keys on, and the filter its members are tested by. A
+ * handle-rooted subject runs this over the key it composes, so a shared region
+ * resolves to exactly the anchor its owner's own subject would.
+ */
+export const kvAnchorFor = (
+    key: string,
+): { prefix: string; rawMatch: string | null } => {
+    const widened = key.endsWith('*');
+    const literal = widened ? key.slice(0, -1) : key;
+
+    // A `*` that doesn't land on a delimiter isn't enumerable from a key at
+    // write time, so the anchor backs off to the last delimiter and the whole
+    // pattern becomes the filter.
+    const onDelimiter =
+        !widened || literal.length === 0 || literal.endsWith(':');
+    const prefix = onDelimiter
+        ? literal
+        : literal.slice(0, literal.lastIndexOf(':') + 1);
+
+    const capped = capPrefix(prefix);
+    if (capped !== prefix) return { prefix: capped, rawMatch: key };
+    return { prefix, rawMatch: onDelimiter ? null : key };
+};
+
+const invalidHandleKey = (message: string): HttpError =>
+    new HttpError(400, message, { legacyCode: 'invalid_kv_handle_key' });
+
+/**
+ * A key under a handle is relative to the region the handle was granted on, so
+ * anything that reads as an attempt to leave it is refused rather than
+ * composed. Nothing here is reachable — the composition is a string
+ * concatenation onto the granted prefix — but a subject that means to escape is
+ * a subject written against the wrong model, and answering it is worse than
+ * failing it.
+ */
+const assertRelativeHandleKey = (key: string): void => {
+    if (key.startsWith(KV_KEY_SEPARATOR))
+        throw invalidHandleKey('A key under a handle is relative to it');
+    if (key.split(KV_KEY_SEPARATOR).includes('..'))
+        throw invalidHandleKey('A key under a handle may not name `..`');
+};
+
 const parseKvSubject = (subject: string, parts: string[]): ParsedSubject => {
     if (parts.length < 2) throw invalidSubject(subject);
 
@@ -304,31 +386,24 @@ const parseKvSubject = (subject: string, parts: string[]): ParsedSubject => {
     const key = relative ? parts[1] : parts.slice(2).join(KV_KEY_SEPARATOR);
     if ((!relative && !appUid) || !key) throw invalidSubject(subject);
 
-    const starIndex = key.indexOf('*');
-    if (key.includes('?') || (starIndex !== -1 && starIndex !== key.length - 1))
-        throw new HttpError(400, 'KV subjects widen with a trailing `*` only', {
-            legacyCode: 'invalid_kv_pattern',
-        });
+    if (relative && isKvHandleId(key))
+        throw invalidHandleKey('A handle names a region, not a key');
 
-    const widened = starIndex !== -1;
-    const literal = widened ? key.slice(0, -1) : key;
+    assertKvPattern(key);
 
-    // A `*` that doesn't land on a delimiter isn't enumerable from a key at
-    // write time, so the anchor backs off to the last delimiter and the whole
-    // pattern becomes the filter.
-    const onDelimiter =
-        !widened || literal.length === 0 || literal.endsWith(':');
-    let prefix = onDelimiter
-        ? literal
-        : literal.slice(0, literal.lastIndexOf(':') + 1);
-    let rawMatch = onDelimiter ? null : key;
-
-    const capped = capPrefix(prefix);
-    if (capped !== prefix) {
-        prefix = capped;
-        rawMatch = key;
+    if (appUid !== null && isKvHandleId(appUid)) {
+        assertRelativeHandleKey(key);
+        return {
+            family: 'kv',
+            anchorRef: { kind: 'kvHandle', handle: appUid, key },
+            op: null,
+            // The anchor is composed once the handle resolves to a prefix, and
+            // the filter with it.
+            rawMatch: null,
+        };
     }
 
+    const { prefix, rawMatch } = kvAnchorFor(key);
     return {
         family: 'kv',
         anchorRef: { kind: 'kvPrefix', appUid, prefix, key },

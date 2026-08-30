@@ -23,7 +23,6 @@ import {
     type SubscriptionQuota,
 } from '../../controllers/events/limits.js';
 import { HttpError } from '../../core/http/HttpError.js';
-import type { AclMode } from '../../services/acl/ACLService.js';
 import type { DeliveryClass } from '../../services/events/registry.js';
 import type { FsOp } from '../../services/events/subjects.js';
 import {
@@ -38,6 +37,7 @@ import {
     SUBSCRIPTION_TARGETS,
     targetsAllowedForDelivery,
     type DurableSubscription,
+    type SubscriptionPermission,
     type SubscriptionTarget,
 } from './types.js';
 
@@ -93,7 +93,7 @@ export interface DurableSubscriptionInput {
     targets: SubscriptionTarget[];
     handlerName: string | null;
     context: string | null;
-    permission: AclMode;
+    permission: SubscriptionPermission;
     expiresAt: number | null;
     /**
      * Plan-resolved caps this subscribe is held to. Omitted falls back to the
@@ -233,7 +233,7 @@ const toRow = (row: Record<string, unknown>): DurableSubscription => ({
         row.app_uid === null || row.app_uid === undefined
             ? null
             : String(row.app_uid),
-    permission: String(row.permission) as AclMode,
+    permission: String(row.permission),
     delivery: String(row.delivery) as DeliveryClass,
     targets: parseTargets(row.targets),
     handlerName:
