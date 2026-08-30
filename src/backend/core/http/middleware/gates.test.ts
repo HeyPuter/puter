@@ -766,13 +766,60 @@ describe('requireVerifiedAccount', () => {
 // ── allowedAppIdsGate ───────────────────────────────────────────────
 
 describe('allowedAppIdsGate', () => {
-    it('passes through when the actor has no app (user-only actor)', () => {
-        // The gate only narrows app-under-user actors; user-only actors
-        // are handled by `requireUserActorGate` separately.
+    it('passes a bare user session through (the gate is not an app gate)', () => {
+        // Routes rely on this: `adminOnly` + `allowedAppIds` has to stay
+        // reachable by an admin's root token, not only by an allowed app.
         const got = runGate(allowedAppIdsGate(['app-allowed']), {
             actor: { user: { uuid: 'u-1' } },
         });
         expect(got).toBeUndefined();
+    });
+
+    it('passes a worker session through', () => {
+        const got = runGate(allowedAppIdsGate(['app-allowed']), {
+            actor: {
+                user: { uuid: 'u-1' },
+                session: { uid: 'sess-1', kind: 'worker' },
+            },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('passes a full-access personal access token through', () => {
+        // No app anywhere in the chain, so there is nothing to match.
+        const got = runGate(allowedAppIdsGate(['app-allowed']), {
+            actor: {
+                user: { uuid: 'u-1' },
+                accessToken: {
+                    uid: 'tok-1',
+                    fullAccess: true,
+                    issuer: { user: { uuid: 'u-1' } },
+                },
+            },
+        });
+        expect(got).toBeUndefined();
+    });
+
+    it('passes any access token issued by an app, allowed or not', () => {
+        // The check reads `actor.app`, which an access-token actor never
+        // carries — its app lives on `effectiveApp`, one hop through the
+        // issuer. Both directions pass, which is why an appId-gated route
+        // cannot treat this gate as proof of app identity.
+        const gate = allowedAppIdsGate(['app-allowed']);
+        const tokenIssuedBy = (appUid: string) => ({
+            actor: {
+                user: { uuid: 'u-1' },
+                accessToken: {
+                    uid: 'tok-1',
+                    issuer: {
+                        user: { uuid: 'u-1' },
+                        app: { uid: appUid },
+                    },
+                },
+            },
+        });
+        expect(runGate(gate, tokenIssuedBy('app-allowed'))).toBeUndefined();
+        expect(runGate(gate, tokenIssuedBy('app-other'))).toBeUndefined();
     });
 
     it('passes when the actor.app.uid is in the allow-list', () => {
@@ -803,6 +850,46 @@ describe('allowedAppIdsGate', () => {
             },
         });
         expectHttpError(got, 403, 'forbidden');
+    });
+
+    it('passes an anonymous request through (requireAuth rejects it first)', () => {
+        const got = runGate(allowedAppIdsGate(['app-allowed']), {});
+        expect(got).toBeUndefined();
+    });
+
+    // The composition the admin surfaces are wired with: `adminOnly` defers
+    // app actors here, so the pair means "root token OR allowed app". Both
+    // halves are load-bearing — the admin dashboard calls these routes with a
+    // browser session, the marketplace app with its own token.
+    describe('composed with adminOnlyGate({ appGated: true })', () => {
+        const runChain = (actor: Actor): NextArg => {
+            const first = runGate(adminOnlyGate([], { appGated: true }), {
+                actor,
+            });
+            if (first !== undefined) return first;
+            return runGate(allowedAppIdsGate(['app-allowed']), { actor });
+        };
+
+        it("admits an admin's root token", () => {
+            const got = runChain({ user: { uuid: 'u-1', username: 'admin' } });
+            expect(got).toBeUndefined();
+        });
+
+        it('admits an admin acting through an allowed app', () => {
+            const got = runChain({
+                user: { uuid: 'u-1', username: 'admin' },
+                app: { uid: 'app-allowed' },
+            });
+            expect(got).toBeUndefined();
+        });
+
+        it('rejects an admin acting through another app', () => {
+            const got = runChain({
+                user: { uuid: 'u-1', username: 'admin' },
+                app: { uid: 'app-other' },
+            });
+            expectHttpError(got, 403, 'forbidden');
+        });
     });
 });
 

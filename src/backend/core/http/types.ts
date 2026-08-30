@@ -168,8 +168,14 @@ export interface RouteOptions {
     adminOnly?: boolean | string[];
 
     /**
-     * Reject unless the actor is acting through one of these apps. Implies
+     * Reject an app-under-user actor whose app is not in this list. Implies
      * `requireAuth`.
+     *
+     * Not an app gate: actors carrying no app of their own — browser sessions,
+     * full-access personal access tokens, workers, and access tokens issued by
+     * an app — pass through untouched. `adminOnly` + `allowedAppIds` relies on
+     * that. See `allowedAppIdsGate` before using this to scope a route to
+     * apps.
      */
     allowedAppIds?: string[];
 
