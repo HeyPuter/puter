@@ -266,6 +266,20 @@ export class EventHandlerStore extends PuterStore {
         }));
     }
 
+    /**
+     * Every handler the app has published, sources included — what the events
+     * worker is generated from. Primary, for the same reason `getByName` is:
+     * the bake follows the publish that triggered it.
+     */
+    async allForApp(appUid: string): Promise<EventHandler[]> {
+        const rows = await this.clients.db.pread(
+            `SELECT ${SELECT_COLUMNS} FROM \`${TABLE}\` ` +
+                'WHERE `app_uid` = ? ORDER BY `name` LIMIT ?',
+            [appUid, EVENTS_HANDLERS_PER_APP],
+        );
+        return rows.map(toRow);
+    }
+
     async countForApp(appUid: string): Promise<number> {
         const [row] = await this.clients.db.pread(
             `SELECT COUNT(*) AS \`total\` FROM \`${TABLE}\` WHERE \`app_uid\` = ?`,
