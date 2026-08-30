@@ -25,6 +25,16 @@ export interface NotificationRowScope {
     appUid: string | null;
 }
 
+/**
+ * Audiences an actor holding an app can ever be shown, and therefore the only
+ * ones worth querying for it. `account` is absent by construction — the SQL
+ * scope and the predicate have to agree on that, or one of them is decorative.
+ */
+export const APP_READABLE_AUDIENCES: readonly string[] = Object.freeze([
+    'app-user',
+    'developer',
+]);
+
 export interface NotificationVisibilityFacts {
     /**
      * Whether the row's recipient owns the app it names — the `developer`
@@ -68,4 +78,43 @@ export const canViewNotification = (
 
     if (viewingApp !== null && viewingApp !== scope.appUid) return false;
     return scope.audience === 'app-user' || facts.recipientOwnsApp === true;
+};
+
+/** The predicate's input, read off a stored row. */
+export const notificationRowScope = (
+    row: Record<string, unknown>,
+): NotificationRowScope => ({
+    audience: String(row.audience ?? 'account'),
+    appUid: (row.app_uid as string | null) ?? null,
+});
+
+/** The `apps` lookup the developer-audience fact needs. */
+export interface AppOwnerLookup {
+    getByUids: (
+        uids: string[],
+    ) => Promise<Map<string, { owner_user_id?: unknown } | undefined>>;
+}
+
+/**
+ * Which of `appUids` the recipient owns — the fact `developer` rows turn on. A
+ * lookup that fails owns nothing, so the audience stays denied.
+ */
+export const ownedAppUids = async (
+    apps: AppOwnerLookup,
+    userId: number,
+    appUids: readonly string[],
+): Promise<Set<string>> => {
+    const wanted = [...new Set(appUids.filter((uid) => !!uid))];
+    if (wanted.length === 0) return new Set();
+    try {
+        const found = await apps.getByUids(wanted);
+        return new Set(
+            wanted.filter(
+                (uid) =>
+                    Number(found.get(uid)?.owner_user_id) === Number(userId),
+            ),
+        );
+    } catch {
+        return new Set();
+    }
 };

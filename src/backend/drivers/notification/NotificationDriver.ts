@@ -17,17 +17,40 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+import { assertResolvedActor } from '../../core/actor.js';
 import { Context } from '../../core/context.js';
 import { HttpError } from '../../core/http/HttpError.js';
+import { resolveNotifFetch } from '../../services/events/notifFetch.js';
 import {
     DEFAULT_FREE_SUBSCRIPTION,
     DEFAULT_TEMP_SUBSCRIPTION,
 } from '../../services/metering/consts.js';
+import {
+    APP_READABLE_AUDIENCES,
+    canViewNotification,
+    notificationRowScope,
+    ownedAppUids,
+} from '../../services/notification/notificationAudience.js';
 import { PuterDriver } from '../types.js';
 import type { Actor } from '../../core/actor.js';
 import type { DriverConcurrentConfig, DriverRateLimitConfig } from '../meta.js';
 
 const MAX_SELECT_LIMIT = 200;
+
+/** The mailbox slice a call named, in the terms the query takes it. */
+interface MailboxScope {
+    audiences: readonly string[];
+    appUid: string | null;
+}
+
+/** Whether a row belongs to the slice, as the same SQL scope selected it. */
+const inScope = (
+    row: Record<string, unknown>,
+    scope: MailboxScope,
+): boolean => {
+    const { audience, appUid } = notificationRowScope(row);
+    return scope.audiences.includes(audience) && appUid === scope.appUid;
+};
 
 /**
  * Driver exposing the `puter-notifications` interface.
@@ -42,8 +65,17 @@ const MAX_SELECT_LIMIT = 200;
  *
  * Permission model:
  *
- * - Strictly owner-limited — each user can only see their own notifications
- * - No app-actor access (user tokens only)
+ * - Strictly owner-limited — each user can only see their own notifications.
+ * - The holder reads their whole mailbox; an actor holding an app reads the
+ *   `app-user` rows naming that app, plus its `developer` rows when the holder
+ *   owns the app. `account` rows never reach an actor holding an app, and no
+ *   grant changes that. A slice an actor may not see comes back empty rather
+ *   than refused — the mailbox is not an oracle.
+ * - `create` stays holder-only.
+ *
+ * `read` and `select` also take an optional `subject` naming one slice
+ * (`notif:<appUid>:<audience>`); the two-segment form expands from the actor's
+ * own app, so an app never names an app uid.
  *
  * Predicates:
  *
@@ -101,17 +133,18 @@ export class NotificationDriver extends PuterDriver {
     }
 
     async read(args: Record<string, unknown>): Promise<unknown> {
-        const actor = this.#requireUserActor();
+        const actor = this.#requireActor();
         const uid = (args.uid ?? args.id) as string | undefined;
         if (!uid)
             throw new HttpError(400, 'Missing `uid`', {
                 legacyCode: 'bad_request',
             });
 
+        const scope = this.#resolveScope(actor, args.subject);
         const row = await this.stores.notification.getByUid(String(uid), {
             userId: actor.user.id,
         });
-        if (!row)
+        if (!row || !(await this.#readable(actor, row, scope)))
             throw new HttpError(404, 'Notification not found', {
                 legacyCode: 'not_found',
             });
@@ -119,7 +152,7 @@ export class NotificationDriver extends PuterDriver {
     }
 
     async select(args: Record<string, unknown>): Promise<unknown[]> {
-        const actor = this.#requireUserActor();
+        const actor = this.#requireActor();
         const limit = Math.min(
             Number(args.limit ?? MAX_SELECT_LIMIT),
             MAX_SELECT_LIMIT,
@@ -130,47 +163,35 @@ export class NotificationDriver extends PuterDriver {
             ? predicate[0]
             : predicate;
 
-        // Route predicate → store query params
-        let rows: Array<Record<string, unknown>>;
+        const scope = this.#resolveScope(actor, args.subject);
+        const query: {
+            limit: number;
+            scope: MailboxScope | null;
+            filter?: string;
+            onlyUnacknowledged?: boolean;
+        } = { limit, scope };
+
         switch (predicateName) {
             case 'unseen':
-                rows = await this.stores.notification.listByUserId(
-                    actor.user.id,
-                    {
-                        limit,
-                        filter: 'unseen',
-                    },
-                );
+                query.filter = 'unseen';
                 break;
             case 'unacknowledged':
             case 'unacknowledge': // client compat alias
-                rows = await this.stores.notification.listByUserId(
-                    actor.user.id,
-                    {
-                        limit,
-                        onlyUnacknowledged: true,
-                    },
-                );
+                query.onlyUnacknowledged = true;
                 break;
             case 'acknowledged':
             case 'acknowledge': // client compat alias
-                rows = await this.stores.notification.listByUserId(
-                    actor.user.id,
-                    {
-                        limit,
-                        filter: 'acknowledged',
-                    },
-                );
-                break;
-            default:
-                rows = await this.stores.notification.listByUserId(
-                    actor.user.id,
-                    { limit },
-                );
+                query.filter = 'acknowledged';
                 break;
         }
 
-        return rows.map((r) => this.#toClient(r));
+        const rows = await this.stores.notification.listByUserId(
+            actor.user.id,
+            query,
+        );
+        const visible =
+            scope === null ? rows : await this.#visibleRows(actor, rows);
+        return visible.map((r) => this.#toClient(r));
     }
 
     /**
@@ -179,34 +200,28 @@ export class NotificationDriver extends PuterDriver {
      * needs a way to mark what it read.
      */
     async mark_shown(args: Record<string, unknown>): Promise<unknown> {
-        const actor = this.#requireUserActor();
-        const uid = String(args.uid ?? '');
-        if (!uid)
-            throw new HttpError(400, 'Missing `uid`', {
-                legacyCode: 'bad_request',
-            });
-        const ok = await this.stores.notification.markShown(uid, actor.user.id);
-        return { success: ok };
+        const { actor, uid, markable } = await this.#resolveMark(args);
+        const ok =
+            markable &&
+            (await this.stores.notification.markShown(uid, actor.user.id));
+        return { success: !!ok };
     }
 
     /** Mark a notification as acknowledged (user dismissed it), same surface. */
     async mark_acknowledged(args: Record<string, unknown>): Promise<unknown> {
-        const actor = this.#requireUserActor();
-        const uid = String(args.uid ?? '');
-        if (!uid)
-            throw new HttpError(400, 'Missing `uid`', {
-                legacyCode: 'bad_request',
-            });
-        const ok = await this.stores.notification.markAcknowledged(
-            uid,
-            actor.user.id,
-        );
-        return { success: ok };
+        const { actor, uid, markable } = await this.#resolveMark(args);
+        const ok =
+            markable &&
+            (await this.stores.notification.markAcknowledged(
+                uid,
+                actor.user.id,
+            ));
+        return { success: !!ok };
     }
 
     // -- Permissions -------------------------------------------------
 
-    #requireUserActor(): Actor & {
+    #requireActor(): Actor & {
         user: { id: number; uuid: string; username: string };
     } {
         const actor = Context.get('actor') as Actor | undefined;
@@ -218,13 +233,105 @@ export class NotificationDriver extends PuterDriver {
             throw new HttpError(403, 'User actor required', {
                 legacyCode: 'forbidden',
             });
-        // App-under-user actors are not allowed for notifications.
-        if (actor.app)
-            throw new HttpError(403, 'App actors cannot access notifications', {
-                legacyCode: 'forbidden',
-            });
+        // Unresolved is not "no app", and reading it that way here is what
+        // would hand an app the account-wide mailbox.
+        assertResolvedActor(actor);
         return actor as Actor & {
             user: { id: number; uuid: string; username: string };
+        };
+    }
+
+    /** Writing a notification stays the holder's, per the token table. */
+    #requireUserActor(): Actor & {
+        user: { id: number; uuid: string; username: string };
+    } {
+        const actor = this.#requireActor();
+        if (actor.effectiveApp)
+            throw new HttpError(403, 'App actors cannot create notifications', {
+                legacyCode: 'forbidden',
+            });
+        return actor;
+    }
+
+    /**
+     * The slice a call named, or `null` for the holder's whole mailbox. An
+     * actor holding an app always has a slice — its own — so `null` only ever
+     * means the holder asked for everything of theirs.
+     */
+    #resolveScope(actor: Actor, subject: unknown): MailboxScope | null {
+        const appUid = actor.effectiveApp?.uid ?? null;
+        if (subject !== undefined && subject !== null && subject !== '') {
+            const named = resolveNotifFetch(String(subject), {
+                userUuid: String(actor.user.uuid),
+                appUid,
+            });
+            return { audiences: [named.audience], appUid: named.appUid };
+        }
+        if (appUid === null) return null;
+        return { audiences: APP_READABLE_AUDIENCES, appUid };
+    }
+
+    /** The audience predicate over a page, with the developer fact resolved. */
+    async #visibleRows(
+        actor: Actor,
+        rows: Array<Record<string, unknown>>,
+    ): Promise<Array<Record<string, unknown>>> {
+        if (rows.length === 0) return rows;
+        const scopes = rows.map(notificationRowScope);
+        const owned = await ownedAppUids(
+            this.stores.app,
+            Number(actor.user.id),
+            scopes.flatMap((s) =>
+                s.audience === 'developer' && s.appUid ? [s.appUid] : [],
+            ),
+        );
+
+        return rows.filter((_row, i) =>
+            canViewNotification(scopes[i], actor, {
+                recipientOwnsApp: owned.has(scopes[i].appUid ?? ''),
+            }),
+        );
+    }
+
+    /**
+     * Whether one row may be shown. A `null` scope is the holder asking for
+     * their own mailbox with nothing named — all of it is theirs, and the
+     * audience rule is about what an app may be shown.
+     */
+    async #readable(
+        actor: Actor,
+        row: Record<string, unknown>,
+        scope: MailboxScope | null,
+    ): Promise<boolean> {
+        if (scope === null) return true;
+        if (!inScope(row, scope)) return false;
+        return (await this.#visibleRows(actor, [row])).length === 1;
+    }
+
+    /**
+     * A mark is bounded by what the same actor could read: a row it may not be
+     * shown reads as absent, which is the answer marking a uid that does not
+     * exist already gives.
+     */
+    async #resolveMark(args: Record<string, unknown>): Promise<{
+        actor: Actor & { user: { id: number } };
+        uid: string;
+        markable: boolean;
+    }> {
+        const actor = this.#requireActor();
+        const uid = String(args.uid ?? '');
+        if (!uid)
+            throw new HttpError(400, 'Missing `uid`', {
+                legacyCode: 'bad_request',
+            });
+        const row = await this.stores.notification.getByUid(uid, {
+            userId: actor.user.id,
+        });
+        const scope = this.#resolveScope(actor, undefined);
+        return {
+            actor,
+            uid,
+            markable: !!row && (await this.#readable(actor, row, scope)),
         };
     }
 

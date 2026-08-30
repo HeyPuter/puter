@@ -37,29 +37,62 @@ export class NotificationStore extends PuterStore {
     }
 
     /**
-     * @param {number} userId @param {{ limit?: number, onlyUnacknowledged?:
-     *   boolean, filter?: string }} [opts]
+     * A mailbox, newest first. `scope` narrows to one audience/app slice on the
+     * way out of the database — `appUid: null` means the rows naming no app,
+     * which is not the same question as "any app".
+     *
+     * @param {number} userId
+     * @param {{
+     *     limit?: number;
+     *     onlyUnacknowledged?: boolean;
+     *     filter?: string;
+     *     scope?: {
+     *         audiences: readonly string[];
+     *         appUid: string | null;
+     *     } | null;
+     * }} [opts]
      */
     async listByUserId(
         userId,
-        { limit = 200, onlyUnacknowledged = false, filter = undefined } = {},
+        {
+            limit = 200,
+            onlyUnacknowledged = false,
+            filter = undefined,
+            scope = null,
+        } = {},
     ) {
-        let extraWhere = '';
+        const where = ['`user_id` = ?'];
+        const params = [userId];
+
         if (onlyUnacknowledged || filter === 'unacknowledged') {
-            extraWhere = 'AND `acknowledged` IS NULL';
+            where.push('`acknowledged` IS NULL');
         } else if (filter === 'unseen') {
-            extraWhere = 'AND `shown` IS NULL AND `acknowledged` IS NULL';
+            where.push('`shown` IS NULL', '`acknowledged` IS NULL');
         } else if (filter === 'acknowledged') {
-            extraWhere = 'AND `acknowledged` IS NOT NULL';
+            where.push('`acknowledged` IS NOT NULL');
         }
+
+        if (scope) {
+            if (scope.audiences.length === 0) return [];
+            const placeholders = scope.audiences.map(() => '?').join(', ');
+            where.push(`\`audience\` IN (${placeholders})`);
+            params.push(...scope.audiences);
+            if (scope.appUid === null) {
+                where.push('`app_uid` IS NULL');
+            } else {
+                where.push('`app_uid` = ?');
+                params.push(scope.appUid);
+            }
+        }
+
         const n = Number(limit);
         const safeLimit = Number.isFinite(n) ? Math.max(0, Math.floor(n)) : 200;
         const rows = await this.clients.db.read(
             `SELECT * FROM \`notification\`
-             WHERE \`user_id\` = ? ${extraWhere}
+             WHERE ${where.join(' AND ')}
              ORDER BY \`created_at\` DESC, \`id\` DESC
              LIMIT ?`,
-            [userId, safeLimit],
+            [...params, safeLimit],
         );
         return rows.map((r) => this.#normalizeRow(r));
     }
