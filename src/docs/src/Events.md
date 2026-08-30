@@ -76,6 +76,45 @@ The `subject` and `anchor` on the subscription you get back are always fully qua
 
 Watching **another app's** key-value data takes the same consent as reading it: that app must not have opted out of data sharing, and the user must have granted your app `app-data:<appId>:kv:read`. It is checked when you subscribe and again on every delivery, so deliveries stop the moment either goes away. Where the feature is not enabled, a cross-app subject is refused with `events_cross_app_disabled`.
 
+### Sharing a region with another user
+
+A `kv:` subject always means your own namespace, so watching part of *someone else's* takes a **share handle**. The owner mints one over a key prefix and gives it out; whoever holds it subscribes with the handle where an app id would go:
+
+```js
+// The owner, sharing one workspace with another account.
+const res = await fetch(`${puter.APIOrigin}/events/kv-handles`, {
+    method: 'POST',
+    headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${puter.authToken}`,
+    },
+    body: JSON.stringify({
+        granteeUsername: 'bob',
+        // Grant on a segment you will never rename. The handle pins this
+        // prefix, so a later reorganization of the keys does not move it.
+        prefix: `workspace:${workspaceId}:`,
+    }),
+});
+const { handle } = await res.json();
+```
+
+```js
+// Bob, watching every key written in that workspace.
+// `event.key` is relative to the handle: `messages:1`, not the owner's
+// `workspace:<id>:messages:1`.
+await puter.events.onLocal(`kv:${handle}:*`, ({ event }) => render(event.key));
+```
+
+The handle is the whole of what the holder learns: not whose data it is, not where in the namespace it sits, and not anything above the prefix it was granted on. Events name it too — `subject` and `key` on every delivery are relative to the handle, so what arrives reads in the same grammar the subscription was written in. Because the handle *is* the granted root, that grammar works below it — `kv:<handle>:messages:*` narrows to part of the shared region, and one handle per channel gives one subscription covering every key written in that channel.
+
+**Key layout is the access boundary.** A handle pins the prefix it was granted on, and nothing rewrites it afterwards: rename `workspace:<uuid>:` to `project:<uuid>:` and every handle already given out points at keys nothing writes any more. Grant on a **stable synthetic segment** — `workspace:<uuid>:`, `thread:<uuid>:` — rather than a semantic one like `acme-corp:` or `q3-planning:`, which is exactly the kind of name that gets rewritten. Files avoid this by anchoring on a uid that survives a move; keys have no such indirection.
+
+`GET /events/kv-handles` lists what the account has minted, revoked ones included, and `DELETE /events/kv-handles/<handle>` takes one back — the grant goes with it, and every subscription standing on it is suspended with `permission_revoked` and its backlog dropped. Revoking is idempotent: a handle already taken back answers with the moment it stopped rather than an error. An account may hold out 200 live handles at a time; retired ones stay listed and do not count against it. Where the feature is not enabled, minting and handle subjects are refused with `events_kv_handles_disabled`.
+
+A prefix names a region, so it is taken as written: `*` and `?` are refused (`invalid_kv_share_prefix`), and so is an empty key segment — `workspace::abc:` is not read as `workspace:abc:`. Only the trailing delimiter is optional.
+
+An app can mint on its user's behalf, but only inside its own namespace and only where the user has said it may: the consent is `manage:kv-share:<userUuid>:<appId>:<prefix>` — the prefix contributing its segments, so `workspace:abc:` ends the string as `…:workspace:abc` — requested with [`puter.perms.request()`](/Perms/request/). It has to name a region — a request over the whole namespace is refused with `invalid_kv_share_prefix`, since that describes no bounded access — and minting outside the region it was given, or outside the app's own namespace, is refused with `events_kv_handle_not_delegated` and `events_kv_handle_outside_namespace`.
+
 ### Watching something that does not exist yet
 
 A subject is allowed to name a path that is not there. The subscription anchors on the nearest directory that *does* exist and the rest of the subject becomes a pattern, so the event you get is the one where it appears:
