@@ -482,6 +482,17 @@ export type EventMap = {
         /** Whether the table changed; only then does a peer need to re-read it. */
         durable: boolean;
     };
+    /**
+     * A user's sockets moved between regions, so every region must drop what it
+     * cached about where they are. Bumped on a first connect, a last
+     * disconnect, and every repair — never on a timer, which is what keeps
+     * presence reads proportional to session churn rather than to event
+     * volume.
+     */
+    'outer.events.presenceBumped': {
+        userId: number;
+        generation: number;
+    };
     'outer.fs.write-hash': { hash: string; uuid: string };
     /**
      * Cache keys the KV read cache must stop serving, because the entries

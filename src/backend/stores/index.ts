@@ -34,6 +34,7 @@ import { S3ObjectStore } from './fs/S3ObjectStore.js';
 import { SessionStore } from './session/SessionStore.js';
 import { ShareStore } from './share/ShareStore.js';
 import { SubdomainStore } from './subdomain/SubdomainStore.js';
+import { PresenceStore } from './events/PresenceStore.js';
 import { SystemKVStore } from './systemKv/SystemKVStore.js';
 import { TeamStore } from './team/TeamStore.js';
 import { UserBlockStore } from './userBlock/UserBlockStore.js';
@@ -70,6 +71,7 @@ declare module './types.js' {
         durableSubscription: DurableSubscriptionStore;
         eventHandler: EventHandlerStore;
         pendingDelivery: PendingDeliveryStore;
+        presence: PresenceStore;
     }
 }
 
@@ -107,4 +109,6 @@ export const puterStores = {
     durableSubscription: DurableSubscriptionStore,
     // Table only, and reads the subscription table for its dependent counts.
     eventHandler: EventHandlerStore,
+    // Writes presence rows through `kv`'s reserved-item path, so it follows it.
+    presence: PresenceStore,
 } satisfies IPuterStoreRegistry;

@@ -107,6 +107,8 @@ import {
     type SubscriptionGrant,
 } from './authorization.js';
 import { DeliveryCoalescer } from './coalescer.js';
+import { forwardTarget } from './EventForwardService.js';
+import type { ForwardDelivery } from './forwardQueue.js';
 import {
     DELIVERY_USAGE_TYPES,
     EVENTS_COSTS,
@@ -192,6 +194,12 @@ export interface UnsubscribeRequest {
 export interface AckRequest {
     subId?: unknown;
     id?: unknown;
+    /**
+     * The region that owns the lease, echoed back from the delivery. Absent
+     * when it was emitted where the client is connected, which is everything a
+     * single-region deployment ever sees.
+     */
+    origin?: unknown;
 }
 
 /** Body of `POST /events/subscribe`. */
@@ -304,6 +312,12 @@ export interface DeliveryEnvelope {
     ackRequired?: true;
     /** The handle `events.ack` names — the delivery, not the event. */
     ackId?: string;
+    /**
+     * Which region holds the lease, present only when that is not the region
+     * the client is connected to. Echoed back with the ack so whichever region
+     * receives it knows where to send it.
+     */
+    origin?: string;
 }
 
 /**
@@ -315,6 +329,12 @@ interface AddressedDelivery {
     envelope: DeliveryEnvelope;
     /** False for a row that asked for its handler and no socket copy. */
     socket: boolean;
+    /**
+     * Whether the socket copy also goes to the other regions holding one. True
+     * for `broadcast`, which every connected subscriber gets; a `single` picks
+     * exactly one region itself and never fans.
+     */
+    remote?: boolean;
     worker?: WorkerInvocation;
     meter: DeliveryMeter;
     /**
@@ -971,9 +991,65 @@ export class EventsService extends PuterService {
             });
         }) as (...args: never[]) => void);
 
+        // Presence is per (user, app) and per region, so it is the connection
+        // rather than the subscription that moves it — a client that has not
+        // subscribed yet is still somewhere, and that is what a peer needs.
+        void this.services.eventForward.noteConnect(actor).catch((err) => {
+            console.warn('[events] presence connect failed', err);
+        });
+
         socket.once('disconnect', (() => {
             void this.reapSocket(userId, socket.id);
+            void this.services.eventForward
+                .noteDisconnect(actor)
+                .catch((err) => {
+                    console.warn('[events] presence disconnect failed', err);
+                });
         }) as (...args: never[]) => void);
+    }
+
+    /**
+     * Put down one delivery another region handed us. Nothing is metered or
+     * re-checked: the region that emitted it did both, and this one holds no
+     * state about it at all.
+     */
+    async deliverForwarded(item: ForwardDelivery): Promise<void> {
+        if (!this.enabled) return;
+        const envelope: DeliveryEnvelope = {
+            subId: item.subId,
+            event: item.event,
+            ...(item.ackRequired
+                ? {
+                      ackRequired: true as const,
+                      ackId: item.ackId,
+                      origin: item.origin,
+                  }
+                : {}),
+        };
+        await this.services.socket.send(
+            forwardTarget(item.userId, item.appUid),
+            EVENTS_DELIVERY_CHANNEL,
+            envelope,
+        );
+    }
+
+    /**
+     * Settle a delivery whose client acked it in another region. The same
+     * settle a local ack performs — including the guard that a suspended row
+     * hands out nothing more — minus the checks the connected region already
+     * made against the client.
+     */
+    async settleRelayedAck(
+        holderUserId: number,
+        subId: string,
+        entryId: string,
+    ): Promise<void> {
+        if (!this.enabled || !subId || !entryId) return;
+        const row = await this.stores.durableSubscription.getBySubId(subId);
+        if (!row || row.holderUserId !== holderUserId) return;
+
+        await this.stores.pendingDelivery.settle(subId, entryId);
+        if (row.suspendedAt === null) await this.#drain(row);
     }
 
     async #answer<T extends object>(
@@ -1275,6 +1351,16 @@ export class EventsService extends PuterService {
             !rowInActorScope(actor, row)
         )
             throw unknownSubscription();
+
+        // The lease lives where the event was emitted, which is not always
+        // where the client ended up connected. Nothing about the delivery is
+        // held here to settle, so the ack goes home rather than being applied.
+        const origin = String(request?.origin ?? '');
+        const forward = this.services.eventForward;
+        if (origin && origin !== forward.region && forward.isPeer(origin)) {
+            forward.relayAck(origin, holderUserId, subId, entryId);
+            return;
+        }
 
         await this.stores.pendingDelivery.settle(subId, entryId);
         // A suspended row is not delivered to: settling what it already handed
@@ -2165,6 +2251,9 @@ export class EventsService extends PuterService {
                 target: deliveryTarget(row),
                 envelope: { subId: row.subId, event },
                 socket: targets.includes('socket'),
+                // A session row is addressed at one connection, which is the
+                // one that made it and is therefore here.
+                remote: row.socketId === undefined,
                 worker: this.#workerInvocation(row, event),
                 meter: meterFor(row),
                 // `broadcast` is one send per delivery — no retry to dedup.
@@ -2406,7 +2495,8 @@ export class EventsService extends PuterService {
             if (!targetsOf(row).includes('socket')) continue;
             void this.#send({
                 target: deliveryTarget(row),
-                socket: true,
+                socket: targetsOf(row).includes('socket'),
+                remote: row.socketId === undefined,
                 envelope: { subId: row.subId, event: marker },
                 meter: meterFor(row),
                 // A gap marker is never billed regardless — `#delivered`'s own
@@ -2850,30 +2940,53 @@ export class EventsService extends PuterService {
         const targets = targetsOf(row);
         const target = deliveryTarget(row);
 
-        // Only this region's own connections are visible here; the ones other
-        // regions hold arrive with presence.
-        const overSocket =
+        // Candidates in order: this region's own connection, then the regions
+        // presence names, most recently connected first. The attempt counter
+        // spans them, so two attempts is two candidates however they are split.
+        const socketsLeft =
             targets.includes('socket') &&
-            claimed.socketAttempts < SINGLE_SOCKET_ATTEMPTS &&
-            this.services.socket.has(target);
+            claimed.socketAttempts < SINGLE_SOCKET_ATTEMPTS;
+        const here = socketsLeft && this.services.socket.has(target);
+        const region =
+            socketsLeft && !(here && claimed.socketAttempts === 0)
+                ? await this.services.eventForward.candidateRegion(
+                      row.holderUserId,
+                      row.appUid,
+                      claimed.socketAttempts - (here ? 1 : 0),
+                  )
+                : null;
 
-        if (overSocket) {
+        if (here || region) {
             await this.stores.pendingDelivery.recordSocketAttempt(
                 row.subId,
                 claimed.entryId,
             );
-            await this.#send({
-                target,
-                socket: true,
-                envelope: {
+            const envelope: DeliveryEnvelope = {
+                subId: row.subId,
+                event: claimed.event,
+                ackRequired: true,
+                ackId: claimed.entryId,
+            };
+            const bill = await this.#firstAttempt(row.subId, claimed);
+            if (region) {
+                this.services.eventForward.handOff(region, {
+                    holderUserId: row.holderUserId,
+                    appUid: row.appUid,
                     subId: row.subId,
                     event: claimed.event,
                     ackRequired: true,
                     ackId: claimed.entryId,
-                },
-                meter,
-                bill: await this.#firstAttempt(row.subId, claimed),
-            });
+                });
+                this.#delivered(envelope, meter, bill);
+            } else {
+                await this.#send({
+                    target,
+                    socket: true,
+                    envelope,
+                    meter,
+                    bill,
+                });
+            }
             return false;
         }
 
@@ -3108,6 +3221,7 @@ export class EventsService extends PuterService {
             await this.#send({
                 target: delivery.target,
                 socket: delivery.socket,
+                remote: delivery.remote,
                 meter: delivery.meter,
                 envelope: {
                     subId: delivery.envelope.subId,
@@ -3141,6 +3255,20 @@ export class EventsService extends PuterService {
             } catch (err) {
                 console.warn('[events] socket send failed', err);
             }
+
+            // Every connected subscriber gets a `broadcast`, and the ones this
+            // region cannot reach are wherever presence says they are.
+            if (delivery.remote)
+                void this.services.eventForward
+                    .fanOut({
+                        holderUserId: delivery.meter.holderUserId,
+                        appUid: delivery.meter.appUid,
+                        subId: delivery.envelope.subId,
+                        event: delivery.envelope.event,
+                    })
+                    .catch((err: unknown) => {
+                        console.warn('[events] forward failed', err);
+                    });
         }
 
         let invoked = false;

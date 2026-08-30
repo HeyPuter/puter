@@ -55,6 +55,17 @@ interface IncomingHeaders {
     signature: string | undefined;
 }
 
+// -- Addressed sends -------------------------------------------------
+
+/** Connections one peer may hold open, and how long an idle one survives. */
+const ADDRESSED_MAX_SOCKETS_PER_PEER = 16;
+const ADDRESSED_MAX_FREE_SOCKETS_PER_PEER = 4;
+const ADDRESSED_SOCKET_IDLE_MS = 30_000;
+const ADDRESSED_REQUEST_TIMEOUT_MS = 5_000;
+
+/** What a deployment with no configured identity calls itself. */
+const DEFAULT_REGION_ID = 'local';
+
 // -- Service ---------------------------------------------------------
 
 /**
@@ -104,6 +115,18 @@ export class BroadcastService extends PuterService {
     #webhookHostHeader: string | null = null;
     /** Self-signed certs are common between Puter nodes — accept them. */
     #webhookHttpsAgent = new HttpsAgent({ rejectUnauthorized: false });
+    /**
+     * The agent addressed sends use. Separate because they run at event rates,
+     * where a fresh handshake per request outweighs the payload; the pool is
+     * bounded so a peer that stops answering cannot accumulate connections.
+     */
+    #addressedHttpsAgent = new HttpsAgent({
+        rejectUnauthorized: false,
+        keepAlive: true,
+        maxSockets: ADDRESSED_MAX_SOCKETS_PER_PEER,
+        maxFreeSockets: ADDRESSED_MAX_FREE_SOCKETS_PER_PEER,
+        timeout: ADDRESSED_SOCKET_IDLE_MS,
+    });
     #redisSub: ReturnType<typeof this.clients.redis.duplicate> | null = null;
 
     // -- Lifecycle ---------------------------------------------------
@@ -148,13 +171,6 @@ export class BroadcastService extends PuterService {
         body: unknown,
         headers: IncomingHeaders,
     ): Promise<IncomingResult> {
-        if (!rawBody) {
-            return {
-                ok: false,
-                status: 400,
-                message: 'Missing or invalid body',
-            };
-        }
         if (!body || typeof body !== 'object') {
             return { ok: false, status: 400, message: 'Invalid JSON body' };
         }
@@ -167,6 +183,75 @@ export class BroadcastService extends PuterService {
                 ok: false,
                 status: 400,
                 message: 'Invalid broadcast payload',
+            };
+        }
+
+        const verified = await this.verifySignedRequest(rawBody, headers);
+        if (!verified.ok || verified.info?.ignored) return verified;
+
+        await this.#emitIncomingEventsSequentially(incomingEvents);
+        return { ok: true };
+    }
+
+    // -- Addressed peer channel --------------------------------------
+
+    /**
+     * What this deployment calls itself. Peers name each other by this id, and
+     * a deployment that configured none is on its own.
+     */
+    get regionId(): string {
+        return this.#resolveLocalPeerId() ?? DEFAULT_REGION_ID;
+    }
+
+    /** Peers this node may address directly, by id. */
+    get addressablePeers(): string[] {
+        return this.#webhookPeers
+            .map((peer) => this.#resolvePeerIdOf(peer))
+            .filter((id): id is string => id !== null);
+    }
+
+    /**
+     * One signed POST to one named peer, on the same credentials and replay
+     * protection the all-peers fan uses, over the keep-alive agent. Returns the
+     * peer's parsed answer; throws when it could not be reached or refused — a
+     * caller must be able to tell "the peer said no" from "we never heard",
+     * because only the first authorises acting on the peer's behalf.
+     */
+    async postToPeer(
+        peerId: string,
+        path: string,
+        payload: unknown,
+    ): Promise<unknown> {
+        const peer = this.#peersByKey[peerId];
+        if (!peer) throw new Error(`unknown broadcast peer ${peerId}`);
+        const response = await this.#post(
+            peer,
+            path,
+            JSON.stringify(payload),
+            this.#addressedHttpsAgent,
+            ADDRESSED_REQUEST_TIMEOUT_MS,
+        );
+        try {
+            return JSON.parse(String(response ?? ''));
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Verify an inbound signed POST without acting on its body: the half of
+     * `verifyAndEmit` an addressed channel needs, since what it carries is not
+     * an event-bus payload.
+     */
+    async verifySignedRequest(
+        rawBody: Buffer | undefined,
+        headers: IncomingHeaders,
+    ): Promise<IncomingResult> {
+        if (!rawBody) {
+            return {
+                ok: false,
+                status: 400,
+                message: 'Missing or invalid body',
             };
         }
 
@@ -235,7 +320,6 @@ export class BroadcastService extends PuterService {
             };
         }
 
-        await this.#emitIncomingEventsSequentially(incomingEvents);
         return { ok: true };
     }
 
@@ -400,9 +484,29 @@ export class BroadcastService extends PuterService {
         peer: IBroadcastPeerConfig,
         events: BroadcastEvent[],
     ): Promise<void> {
+        await this.#post(
+            peer,
+            null,
+            JSON.stringify({ events }),
+            this.#webhookHttpsAgent,
+            15_000,
+        );
+    }
+
+    /**
+     * One signed POST to one peer. `path` replaces the configured webhook path
+     * for an addressed channel, and is `null` for the webhook itself.
+     */
+    async #post(
+        peer: IBroadcastPeerConfig,
+        path: string | null,
+        rawBody: string,
+        agent: HttpsAgent,
+        timeoutMs: number,
+    ): Promise<string | undefined> {
         const peerId = this.#resolvePeerIdOf(peer);
         if (!peerId) return;
-        const requestUrl = this.#normalizeWebhookUrl(peer.webhook_url);
+        const requestUrl = this.#normalizeWebhookUrl(peer.webhook_url, path);
         const mySecret = this.#self()?.secret;
         if (!requestUrl || !mySecret) return;
 
@@ -411,7 +515,6 @@ export class BroadcastService extends PuterService {
         const nextNonce = await this.#nextOutgoingNonce(peerId);
 
         const timestamp = Math.floor(Date.now() / 1000);
-        const rawBody = JSON.stringify({ events });
         const payloadToSign = `${timestamp}.${nextNonce}.${rawBody}`;
         const signature = createHmac('sha256', mySecret)
             .update(payloadToSign)
@@ -433,15 +536,13 @@ export class BroadcastService extends PuterService {
             url: requestUrl,
             headers,
             data: rawBody,
-            timeout: 15_000,
+            timeout: timeoutMs,
             // We translate non-2xx into a thrown error ourselves so we
             // can log the response body on failure.
             validateStatus: () => true,
             responseType: 'text',
             transformResponse: (value: unknown) => value,
-            ...(requestUrl.startsWith('https:')
-                ? { httpsAgent: this.#webhookHttpsAgent }
-                : {}),
+            ...(requestUrl.startsWith('https:') ? { httpsAgent: agent } : {}),
         });
 
         if (response.status < 200 || response.status >= 300) {
@@ -452,6 +553,7 @@ export class BroadcastService extends PuterService {
                 `Webhook POST failed: ${response.status} ${response.statusText}`,
             );
         }
+        return response.data as string | undefined;
     }
 
     // -- Inbound helpers ---------------------------------------------
@@ -623,7 +725,10 @@ export class BroadcastService extends PuterService {
         return this.config.broadcast ?? {};
     }
 
-    #normalizeWebhookUrl(url: string | undefined): string | null {
+    #normalizeWebhookUrl(
+        url: string | undefined,
+        path: string | null = null,
+    ): string | null {
         if (typeof url !== 'string' || url.trim() === '') return null;
         const trimmed = url.trim();
         let parsed: URL;
@@ -637,6 +742,7 @@ export class BroadcastService extends PuterService {
         // Coerce protocol so a misconfigured `http://...` peer URL still
         // gets sent over our preferred transport.
         parsed.protocol = `${this.#webhookProtocol}:`;
+        if (path !== null) parsed.pathname = path;
         return parsed.toString();
     }
 

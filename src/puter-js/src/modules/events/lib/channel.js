@@ -394,7 +394,7 @@ export class EventChannel {
      *
      * @internal
      * @param {DurableRegistration} registration
-     * @param {{ event?: unknown, ackRequired?: boolean, ackId?: string }} envelope
+     * @param {{ event?: unknown, ackRequired?: boolean, ackId?: string, origin?: string }} envelope
      * @returns {void}
      */
     runDurable (registration, envelope) {
@@ -410,7 +410,11 @@ export class EventChannel {
         const ack = () => {
             if ( acked ) return Promise.resolve();
             acked = true;
-            return this.ack(registration.subId, /** @type {string} */ (envelope.ackId));
+            return this.ack(
+                registration.subId,
+                /** @type {string} */ (envelope.ackId),
+                envelope.origin,
+            );
         };
         const { puter } = this.module;
         settleHandler(
@@ -433,11 +437,18 @@ export class EventChannel {
      * @internal
      * @param {string} subId
      * @param {string} ackId
+     * @param {string} [origin] Echoed back untouched: it names whichever
+     *   deployment is holding the delivery, which need not be the one this
+     *   connection reached.
      * @returns {Promise<void>}
      */
-    async ack (subId, ackId) {
+    async ack (subId, ackId, origin) {
         try {
-            await this.request(ACK_VERB, { subId, id: ackId }, DEFAULT_TIMEOUT_MS);
+            await this.request(
+                ACK_VERB,
+                { subId, id: ackId, ...(origin ? { origin } : {}) },
+                DEFAULT_TIMEOUT_MS,
+            );
         } catch (error) {
             console.warn('[puter.events] could not acknowledge a delivery', error);
         }

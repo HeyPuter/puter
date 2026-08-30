@@ -176,6 +176,12 @@ Pass `handler` as a **function** and it runs here too, whenever this client is t
 
 A persistent subscription can also stop without you unsubscribing: its handler was removed, its holder ran out of credit, the handler kept failing, or the share it was made under was withdrawn. It is then *suspended* rather than deleted, and [`list()`](/Events/list/) reports `suspendedAt` and `suspendedReason`. Everything but a withdrawn grant can resume.
 
+### Where your client is connected does not matter
+
+Puter runs in several places, and a client connects to whichever one is nearest. Nothing about that is yours to think about: an event finds the connection wherever it is, `ack()` settles the delivery it belongs to whichever connection you called it on, and the shape of everything you receive is identical either way.
+
+The one consequence worth knowing is the one already stated: a `single` delivery is **at-least-once**. Undelivered events are held where the change happened, so a deployment going down loses only what it was still holding — the subscription itself, and everything already delivered, is unaffected. Handlers are asked to be idempotent for this reason, and `event.id` is the key to deduplicate on.
+
 ## Limits
 
 Subscriptions per connection, persistent subscriptions per account, published handlers per app, subscribe calls per minute, and how much one event may fan out are all capped — see [Rate Limits and Quotas](/rate-limits-and-quotas/). Deliveries are coalesced over 250 ms per subject, so a multipart upload or a save loop arrives as one event rather than one per write.
