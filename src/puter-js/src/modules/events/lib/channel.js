@@ -328,7 +328,10 @@ export class EventChannel {
         // An event for something this client has already unsubscribed from:
         // in flight when `off()` was called, and no longer anybody's.
         if ( ! sub || ! envelope.event ) return;
-        sub.deliver(/** @type {PuterEvent | PuterKvEvent | EventGapMarker} */ (envelope.event));
+        sub.deliver(
+            /** @type {PuterEvent | PuterKvEvent | EventGapMarker} */ (envelope.event),
+            /** @type {Record<string, unknown> | undefined} */ (envelope.ctx),
+        );
     }
 
     /**

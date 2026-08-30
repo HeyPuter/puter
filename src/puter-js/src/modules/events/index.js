@@ -1,6 +1,10 @@
 import { PuterModule } from '../../lib/PuterModule.js';
 import { EventChannel } from './lib/channel.js';
+import { EventHandlers } from './lib/handlers.js';
+import { list } from './list.js';
 import { onLocal } from './onLocal.js';
+import { onPersistent } from './onPersistent.js';
+import { unsubscribe } from './unsubscribe.js';
 
 /** @typedef {import('../../index.js').Puter} Puter */
 
@@ -9,15 +13,23 @@ import { onLocal } from './onLocal.js';
  * path that does not exist yet — and a handler runs whenever something under
  * it changes.
  *
+ * Two kinds of subscription: `onLocal()` lives with this connection and is
+ * gone when the page is, while `onPersistent()` is stored against the account
+ * and keeps matching with nothing open. A persistent subscription runs a
+ * handler the app published through `puter.events.handlers`.
+ *
  * Method implementations live in the sibling files as `this`-context functions
  * whose JSDoc is the source of truth for the public signatures — `types/` is
  * generated from it, never edited by hand.
  */
 export class EventsModule extends PuterModule {
-    // The field holds the unbound function so it keeps its full type (`bind`
-    // erases overloads); the constructor rebinds it so destructured calls
-    // (`const { onLocal } = puter.events`) work.
+    // The fields hold the unbound functions so they keep their full types
+    // (`bind` erases overloads); the constructor rebinds them so destructured
+    // calls (`const { onLocal } = puter.events`) work.
     onLocal = onLocal;
+    onPersistent = onPersistent;
+    unsubscribe = unsubscribe;
+    list = list;
 
     /** @param {Puter} puter */
     constructor (puter) {
@@ -29,10 +41,15 @@ export class EventsModule extends PuterModule {
          */
         this.channel = new EventChannel(this);
 
+        /** The named functions this app has deployed. */
+        this.handlers = new EventHandlers(this);
+
         const methods = /** @type {Record<string, (...args: unknown[]) => unknown>} */ (
             /** @type {unknown} */ (this)
         );
-        methods.onLocal = methods.onLocal.bind(this);
+        for ( const name of ['onLocal', 'onPersistent', 'unsubscribe', 'list'] ) {
+            methods[name] = methods[name].bind(this);
+        }
 
         // The socket carries its token from the moment it connects, so a new
         // token means a new connection — and the subscriptions on the old one

@@ -60,10 +60,38 @@ const open = (
         timeout: SUBSCRIBE_TIMEOUT_MS,
     });
 
+/** A handler that closes over nothing, so the free-variable scan accepts it. */
+const HANDLER = '({ event, ctx }) => { console.log(event.path, ctx.label); }';
+const OTHER_HANDLER = '({ event, ctx }) => { console.log(ctx.label, event.uid); }';
+
+/** An app of this account's own, so its handlers are the caller's to publish. */
+const makeApp = async (t: TestContext): Promise<string> => {
+    const name = unique('events-handlers');
+    const app = await t.puter.apps.create(name, `https://example.com/${name}`);
+    return (app as unknown as { uid: string }).uid;
+};
+
 export default suite('events', {
     'exposes onLocal': async (t) => {
         t.assert.ok(t.puter.events, 'puter.events is registered');
         t.assert.equal(typeof t.puter.events.onLocal, 'function');
+    },
+
+    'exposes the persistent surface': async (t) => {
+        for (const method of ['onPersistent', 'unsubscribe', 'list'] as const) {
+            t.assert.equal(
+                typeof t.puter.events[method],
+                'function',
+                `puter.events.${method} is a function`,
+            );
+        }
+        for (const method of ['publish', 'publishAll', 'list', 'remove'] as const) {
+            t.assert.equal(
+                typeof t.puter.events.handlers[method],
+                'function',
+                `puter.events.handlers.${method} is a function`,
+            );
+        }
     },
 
     'rejects a subject that is not a non-empty string': async (t) => {
@@ -318,5 +346,215 @@ export default suite('events', {
                 `${subject} answered ${codeOf(error)}`,
             );
         }
+    },
+
+    // -- Persistent subscriptions ------------------------------------
+
+    'refuses an inline handler with no name to publish it under': async (t) => {
+        const error = await t.assert.rejects(() =>
+            t.puter.events.onPersistent({
+                subject: `fs:/${t.env.users.user.username}`,
+                handler: HANDLER,
+            }),
+        );
+        t.assert.equal(codeOf(error), 'events_handler_name_required');
+    },
+
+    'refuses a handler that closes over something it cannot carry': async (t) => {
+        const error = await t.assert.rejects(() =>
+            t.puter.events.onPersistent({
+                subject: `fs:/${t.env.users.user.username}`,
+                handlerName: 'ingestUpload',
+                handler: '({ event }) => fetch(ingestUrl, { body: event.path })',
+            }),
+        );
+        t.assert.equal(codeOf(error), 'events_handler_free_variable');
+        t.assert.ok(
+            (error as Error).message.includes('ingestUrl'),
+            'the error names the identifier that could not be resolved',
+        );
+    },
+
+    'refuses a context over the cap before the round trip': async (t) => {
+        const error = await t.assert.rejects(() =>
+            t.puter.events.onPersistent({
+                subject: `fs:/${t.env.users.user.username}`,
+                context: { blob: 'x'.repeat(5000) },
+            }),
+        );
+        t.assert.equal(codeOf(error), 'events_context_too_large');
+    },
+
+    'creates, lists and ends a persistent subscription': async (t) => {
+        const dir = await makeDir(t, 'events-persistent');
+
+        const sub = await t.puter.events.onPersistent({
+            subject: `fs:${dir}`,
+            context: { label: 'ingest', token: 'shhh-not-in-a-listing' },
+        });
+
+        try {
+            t.assert.ok(sub.subId, 'the subscription carries a server id');
+            t.assert.equal(sub.subject, `fs:${dir}`);
+            t.assert.equal(sub.delivery, 'broadcast');
+            t.assert.equal(sub.suspendedAt, null);
+
+            const held = await t.puter.events.list();
+            const listed = held.find((row) => row.subId === sub.subId);
+            t.assert.ok(listed, 'the subscription is in the account`s listing');
+            // The context is where an API key lives, so a listing reports its
+            // shape and never its values.
+            t.assert.deepEqual(listed?.contextKeys, ['label', 'token']);
+            t.assert.ok(
+                typeof listed?.contextHash === 'string' &&
+                    listed.contextHash.length === 64,
+                'the listing carries a content hash of the context',
+            );
+            t.assert.ok(
+                ! JSON.stringify(listed).includes('shhh-not-in-a-listing'),
+                'the listing carries no context values',
+            );
+        } finally {
+            await t.puter.events.unsubscribe(sub.subId);
+        }
+
+        const after = await t.puter.events.list();
+        t.assert.ok(
+            ! after.some((row) => row.subId === sub.subId),
+            'the subscription is gone once unsubscribed',
+        );
+    },
+
+    'answers a listing page when asked for one': async (t) => {
+        const page = await t.puter.events.list({ cursor: null, includeTotal: true });
+        t.assert.ok(Array.isArray(page.items), 'a page carries items');
+        t.assert.equal(typeof page.total, 'number', 'a total was requested');
+    },
+
+    'answers an id it does not hold the way it answers one that is gone': async (t) => {
+        const error = await t.assert.rejects(() =>
+            t.puter.events.unsubscribe(''),
+        );
+        t.assert.equal(codeOf(error), 'subscription_does_not_exist');
+    },
+
+    'refuses to bind an inline handler nothing is published for': async (t) => {
+        const dir = await makeDir(t, 'events-unbound');
+        const error = await t.assert.rejects(() =>
+            t.puter.events.onPersistent({
+                subject: `fs:${dir}`,
+                handlerName: unique('missing'),
+                handler: HANDLER,
+            }),
+        );
+        t.assert.equal(codeOf(error), 'events_handler_not_found');
+    },
+
+    // -- Handlers ----------------------------------------------------
+
+    'publishes, lists and removes a named handler': async (t) => {
+        const appUid = await makeApp(t);
+
+        const published = await t.puter.events.handlers.publish(
+            'ingestUpload',
+            HANDLER,
+            { appUid },
+        );
+        t.assert.equal(published.name, 'ingestUpload');
+        t.assert.equal(published.outcome, 'created');
+        t.assert.ok(
+            typeof published.hash === 'string' && published.hash.length === 64,
+            'a publish reports the source hash',
+        );
+
+        const listed = await t.puter.events.handlers.list({ appUid });
+        t.assert.deepEqual(
+            listed.map((row) => row.name),
+            ['ingestUpload'],
+        );
+        t.assert.equal(listed[0].subscriptions, 0);
+        t.assert.ok(
+            ! JSON.stringify(listed).includes('console.log'),
+            'a listing never carries handler source',
+        );
+
+        const removed = await t.puter.events.handlers.remove('ingestUpload', {
+            appUid,
+        });
+        t.assert.equal(removed.removed, true);
+        t.assert.equal(removed.suspended, 0);
+        t.assert.deepEqual(await t.puter.events.handlers.list({ appUid }), []);
+    },
+
+    'republishing the same source changes nothing': async (t) => {
+        const appUid = await makeApp(t);
+        await t.puter.events.handlers.publish('ingestUpload', HANDLER, { appUid });
+
+        const again = await t.puter.events.handlers.publish(
+            'ingestUpload',
+            HANDLER,
+            { appUid },
+        );
+        t.assert.equal(again.outcome, 'unchanged');
+    },
+
+    'updates a name it published, and takes one it means to replace': async (t) => {
+        const appUid = await makeApp(t);
+        await t.puter.events.handlers.publish('ingestUpload', HANDLER, { appUid });
+
+        // Having published it, this client knows the base it is updating, so
+        // the change is accepted rather than read as a racing build step.
+        const updated = await t.puter.events.handlers.publish(
+            'ingestUpload',
+            OTHER_HANDLER,
+            { appUid },
+        );
+        t.assert.equal(updated.outcome, 'updated');
+
+        const replaced = await t.puter.events.handlers.publish(
+            'ingestUpload',
+            HANDLER,
+            { appUid, replace: true },
+        );
+        t.assert.equal(replaced.outcome, 'updated');
+        t.assert.equal(
+            (await t.puter.events.handlers.list({ appUid }))[0].hash,
+            replaced.hash,
+            'the listing reports what the last publish left',
+        );
+    },
+
+    'takes a whole set in one call': async (t) => {
+        const appUid = await makeApp(t);
+
+        const published = await t.puter.events.handlers.publishAll(
+            [
+                { name: 'ingestUpload', handler: HANDLER },
+                { name: 'indexDocument', handler: OTHER_HANDLER },
+            ],
+            { appUid },
+        );
+
+        t.assert.deepEqual(
+            published.map((row) => row.name),
+            ['ingestUpload', 'indexDocument'],
+        );
+        t.assert.equal((await t.puter.events.handlers.list({ appUid })).length, 2);
+    },
+
+    'refuses to publish into an app this account does not own': async (t) => {
+        const error = await t.assert.rejects(() =>
+            t.puter.events.handlers.publish('ingestUpload', HANDLER, {
+                appUid: 'app-00000000-0000-4000-8000-000000000099',
+            }),
+        );
+        t.assert.equal(codeOf(error), 'events_handler_forbidden');
+    },
+
+    'refuses to publish without naming an app at all': async (t) => {
+        const error = await t.assert.rejects(() =>
+            t.puter.events.handlers.publish('ingestUpload', HANDLER),
+        );
+        t.assert.equal(codeOf(error), 'events_handler_app_required');
     },
 });

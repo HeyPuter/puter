@@ -119,7 +119,7 @@ Emptying a whole store with [`puter.kv.flush()`](/KV/flush/) delivers nothing: n
 
 ### Gaps
 
-Every per-event limit truncates the delivery rather than failing anything, and sends a **gap marker** in its place: an event with `op: 'gap'`, a `reason`, and no `uid` or `path`. A gap means something happened that you were not told the details of, so treat it as "re-read what I am watching", never as "nothing changed".
+Every per-event limit truncates the delivery rather than failing anything, and sends a **gap marker** in its place: an event with `op: 'gap'`, a `reason`, and no `uid` or `path`. A gap means something happened that you were not told the details of, so treat it as "re-read what I am watching", never as "nothing changed". A persistent subscription that was suspended long enough for its held backlog to lapse gets one too, with `reason: 'suspended_backlog_expired'`.
 
 ```js
 await puter.events.onLocal('fs:~/Documents', async ({ event }) => {
@@ -128,7 +128,7 @@ await puter.events.onLocal('fs:~/Documents', async ({ event }) => {
 });
 ```
 
-## Subscriptions live with the connection
+## Two kinds of subscription
 
 `onLocal()` subscriptions are **session-scoped**: nothing is stored, nothing runs while the page is closed, and the server drops them when the connection goes away. Every subscription this client makes rides one connection, which opens on the first `onLocal()` and closes when the last subscription ends. In a worker that means the subscription lasts as long as the invocation that made it, and no longer.
 
@@ -140,11 +140,43 @@ const sub = await puter.events.onLocal('fs:~/Documents', handler, {
 });
 ```
 
+[`onPersistent()`](/Events/onPersistent/) subscriptions are **stored against the account**. They keep matching with nothing open, survive every reconnect, and end only when you call [`unsubscribe()`](/Events/unsubscribe/) or their `expiresAt` passes. What runs is a *handler* your app deployed by name:
+
+```js
+// Once, at deploy time
+await puter.events.handlers.publish('ingestUpload', async ({ event, ctx }) => {
+    await fetch(ctx.endpoint, { method: 'POST', body: event.path });
+}, { appUid });
+
+// Per user, when they opt in
+await puter.events.onPersistent({
+    subject: 'fs:~/inbox',
+    handlerName: 'ingestUpload',
+    context: { endpoint: 'https://example.com/ingest' },
+});
+```
+
+### Handlers cannot close over anything
+
+A handler is deployed, not called: it is serialized with `Function.prototype.toString()` and run later, somewhere else, with nothing around it. A closed-over variable is not discouraged — it is *unrepresentable*. Every identifier a handler names has to be a parameter, something it declares itself, a standard global, or reached through `ctx`; the SDK checks that before the call and rejects with `events_handler_free_variable`, naming what it could not resolve.
+
+Values reach a handler through **`context`**, which is evaluated **once, at subscribe time**, serialized, and delivered to every invocation as a frozen `ctx`. It never re-evaluates: `ctx.endpoint` is whatever the value was when the subscription was created, forever, until it is created again.
+
+**`context` is capped at a hard 4 KB.** These are database rows read on every delivery, and `context` is the one field a developer controls the size of — over the cap the call fails with `events_context_too_large`, client-side, before the request. It is stored in plaintext and read only on the delivery path: [`list()`](/Events/list/) returns its **key names and a content hash**, never its values. For anything larger, store it in a file and put the path in `context`; a wider column is not the upgrade path.
+
+See [`puter.events.handlers`](/Events/handlers/) for the deploy side — publishing, replacing, and what removing a name does to the subscriptions bound to it.
+
+A persistent subscription can also stop without you unsubscribing: its handler was removed, its holder ran out of credit, or the share it was made under was withdrawn. It is then *suspended* rather than deleted, and [`list()`](/Events/list/) reports `suspendedAt` and `suspendedReason`. Everything but a withdrawn grant can resume.
+
 ## Limits
 
-Subscriptions per connection, subscribe calls per minute, and how much one event may fan out are all capped — see [Rate Limits and Quotas](/rate-limits-and-quotas/). Deliveries are coalesced over 250 ms per subject, so a multipart upload or a save loop arrives as one event rather than one per write.
+Subscriptions per connection, persistent subscriptions per account, published handlers per app, subscribe calls per minute, and how much one event may fan out are all capped — see [Rate Limits and Quotas](/rate-limits-and-quotas/). Deliveries are coalesced over 250 ms per subject, so a multipart upload or a save loop arrives as one event rather than one per write.
 
 ## Functions
 
 - **[`puter.events.onLocal()`](/Events/onLocal/)** - Subscribe to a subject for as long as this client is connected
-- **[`subscription.off()`](/Events/off/)** - End a subscription
+- **[`subscription.off()`](/Events/off/)** - End a session subscription
+- **[`puter.events.onPersistent()`](/Events/onPersistent/)** - Subscribe with a subscription that keeps running when your app is closed
+- **[`puter.events.list()`](/Events/list/)** - List the persistent subscriptions this caller holds
+- **[`puter.events.unsubscribe()`](/Events/unsubscribe/)** - End a persistent subscription
+- **[`puter.events.handlers`](/Events/handlers/)** - Publish, list and remove the named handlers a persistent subscription runs

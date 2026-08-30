@@ -76,7 +76,10 @@ export type GapReason =
     | 'matched_subscription_limit'
     | 'filter_evaluation_limit'
     | 'delivery_rate_limit'
-    | 'backlog_overflow';
+    | 'backlog_overflow'
+    // A suspension holds what it is owed only for as long as the suspension is
+    // plausibly recoverable; past that the backlog goes and this stands in.
+    | 'suspended_backlog_expired';
 
 /**
  * `gap` says an event existed and was not delivered. It rides the delivery

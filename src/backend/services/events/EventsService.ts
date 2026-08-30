@@ -23,6 +23,8 @@ import {
     EVENTS_ACK_LIMIT,
     EVENTS_BROADCAST_DELIVERY_LIMIT,
     EVENTS_COALESCE_WINDOW_MS,
+    EVENTS_HANDLER_PUBLISH_BATCH,
+    EVENTS_HANDLER_PUBLISH_LIMIT,
     EVENTS_MATCHED_SUBSCRIPTIONS_PER_EVENT,
     EVENTS_SUBSCRIBE_LIMIT,
     SUSPENDED_ROW_TTL_DAYS,
@@ -30,7 +32,20 @@ import {
 import type { Actor } from '../../core/actor.js';
 import { HttpError } from '../../core/http/HttpError.js';
 import { checkRateLimit } from '../../core/http/middleware/rateLimit.js';
-import type { ReanchorInput } from '../../stores/events/DurableSubscriptionStore.js';
+import type {
+    ReanchorInput,
+    SuspendedReason,
+} from '../../stores/events/DurableSubscriptionStore.js';
+import {
+    HANDLER_SETTLE_BATCH,
+    isSuspendedReason,
+} from '../../stores/events/DurableSubscriptionStore.js';
+import {
+    HANDLER_NAME_MAX_LENGTH,
+    hashContent,
+    type EventHandlerSummary,
+    type PublishOutcome,
+} from '../../stores/events/EventHandlerStore.js';
 import {
     SESSION_SUBSCRIPTION_TTL_SECONDS,
     type DispatchSubscription,
@@ -113,6 +128,7 @@ import {
     type ParsedSubject,
     type SubjectOp,
 } from './subjects.js';
+import { backlogPolicyFor, isResumable } from './suspension.js';
 import {
     RecordingWorkerInvoker,
     type WorkerInvocation,
@@ -163,8 +179,57 @@ export interface DurableSubscribeRequest extends SubscribeRequest {
     delivery?: unknown;
     targets?: unknown;
     handlerName?: unknown;
+    /**
+     * Hash of the source the caller believes `handlerName` is published with.
+     * Sent when the subscribe passed an inline handler; the row binds only if
+     * it matches what the app actually published.
+     */
+    handlerHash?: unknown;
     context?: unknown;
     expiresAt?: unknown;
+}
+
+/** Body of `POST /events/handlers/publish`. */
+export interface PublishHandlerRequest {
+    appUid?: unknown;
+    name?: unknown;
+    source?: unknown;
+    /** The published hash this publish is an update to. */
+    ifHash?: unknown;
+    replace?: unknown;
+}
+
+/** Body of `POST /events/handlers/publishAll`. */
+export interface PublishHandlersRequest {
+    appUid?: unknown;
+    handlers?: unknown;
+}
+
+/** Body of `POST /events/handlers/remove`, and the shape `list` is scoped by. */
+export interface HandlerNameRequest {
+    appUid?: unknown;
+    name?: unknown;
+}
+
+export interface HandlerScopeRequest {
+    appUid?: unknown;
+}
+
+/** What one publish reports back. Never carries source. */
+export interface PublishedHandlerView {
+    name: string;
+    hash: string;
+    updatedAt: number;
+    outcome: PublishOutcome;
+    /** Suspended subscriptions this publish brought back into service. */
+    resumed: number;
+}
+
+/** What a removal did to the name and to whatever was bound to it. */
+export interface RemovedHandlerView {
+    name: string;
+    removed: boolean;
+    suspended: number;
 }
 
 export interface DurableListRequest {
@@ -184,14 +249,21 @@ export interface SubscriptionView {
 }
 
 /**
- * A durable row as its holder sees it. `context` is deliberately absent: it is
- * read on the delivery path and nowhere else, and a listing is the one surface
- * an app can call repeatedly.
+ * A durable row as its holder sees it. `context` **values** are deliberately
+ * absent: the column holds whatever secret the handler needs, it is read on the
+ * delivery path and nowhere else, and a listing is the one surface an app can
+ * call repeatedly. What is safe to return is the shape — which keys are set,
+ * and a hash that changes when any value does, which is what lets a caller tell
+ * two subscriptions apart without being handed either one's secrets.
  */
 export interface DurableSubscriptionView extends SubscriptionView {
     delivery: DeliveryClass;
     handlerName: string | null;
     appUid: string | null;
+    /** Key names of the stored context, or `null` for a row without one. */
+    contextKeys: string[] | null;
+    /** Hash of the stored context, so a change is visible without the values. */
+    contextHash: string | null;
     createdAt: number;
     expiresAt: number | null;
     suspendedAt: number | null;
@@ -361,6 +433,42 @@ const handlerRequired = (): HttpError =>
         legacyCode: 'events_handler_required',
     });
 
+const handlerNotFound = (name: string): HttpError =>
+    new HttpError(404, `No handler named \`${name}\` is published`, {
+        legacyCode: 'events_handler_not_found',
+    });
+
+/**
+ * The inline body the caller sent is not what is published. Refused rather than
+ * bound: the point of sending a hash is to find out, and binding the published
+ * source anyway would run code the caller never saw.
+ */
+const handlerHashMismatch = (name: string): HttpError =>
+    new HttpError(
+        409,
+        `The handler published as \`${name}\` is not the source this subscription was written against`,
+        { legacyCode: 'events_handler_hash_mismatch' },
+    );
+
+/**
+ * Handlers belong to an app, so a caller has to be acting for one — an app
+ * token names its own, and a user session names one in the request.
+ */
+const handlerAppRequired = (): HttpError =>
+    new HttpError(400, 'Publishing a handler requires an app', {
+        legacyCode: 'events_handler_app_required',
+    });
+
+/**
+ * Deploying an app's code is the developer's, and an app token cannot borrow
+ * its user's ownership of some other app. Same answer for an app that is not
+ * there: which apps exist is not this surface's to disclose.
+ */
+const handlerAppForbidden = (): HttpError =>
+    new HttpError(403, 'Only the app owner may publish its handlers', {
+        legacyCode: 'events_handler_forbidden',
+    });
+
 const badRequest = (message: string, code: string): HttpError =>
     new HttpError(400, message, { legacyCode: code });
 
@@ -388,11 +496,32 @@ const toView = (sub: DispatchSubscription): SubscriptionView => ({
     targets: sub.targets ?? SESSION_TARGETS,
 });
 
+/**
+ * The context as a listing may describe it: which keys it sets, and a hash of
+ * the whole blob. Never the values — the column is where an API key lives.
+ */
+const projectContext = (
+    context: string | null,
+): Pick<DurableSubscriptionView, 'contextKeys' | 'contextHash'> => {
+    if (context === null) return { contextKeys: null, contextHash: null };
+    let keys: string[] = [];
+    try {
+        const parsed: unknown = JSON.parse(context);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+            keys = Object.keys(parsed).sort();
+    } catch {
+        // Stored by this service as JSON, so this cannot normally happen; an
+        // unreadable blob still reports its hash rather than failing the list.
+    }
+    return { contextKeys: keys, contextHash: hashContent(context) };
+};
+
 const toDurableView = (sub: DurableSubscription): DurableSubscriptionView => ({
     ...toView(sub),
     delivery: sub.delivery,
     handlerName: sub.handlerName,
     appUid: sub.appUid,
+    ...projectContext(sub.context),
     createdAt: sub.createdAt,
     expiresAt: sub.expiresAt,
     suspendedAt: sub.suspendedAt,
@@ -465,9 +594,6 @@ const isCrossAppKvRow = (
 
 // -- Durable request parsing ------------------------------------------
 
-/** Longest a `handlerName` may be, matching the column that holds it. */
-const HANDLER_NAME_MAX_LENGTH = 128;
-
 const parseDelivery = (value: unknown): DeliveryClass => {
     if (value === undefined || value === null || value === 'broadcast')
         return 'broadcast';
@@ -475,11 +601,20 @@ const parseDelivery = (value: unknown): DeliveryClass => {
     throw badRequest(`Unknown delivery class: ${String(value)}`, 'bad_request');
 };
 
+/**
+ * There is exactly one events worker per app, so a row with no app has no
+ * worker to invoke — `targets` for one may only ever carry `socket`. Omitted
+ * targets default there quietly; an explicit ask for `worker` is refused rather
+ * than silently dropped, since that is the caller telling us it expected
+ * background delivery to exist.
+ */
 const parseTargets = (
     value: unknown,
     delivery: DeliveryClass,
+    appUid: string | null,
 ): SubscriptionTarget[] => {
-    if (value === undefined || value === null) return DEFAULT_DURABLE_TARGETS;
+    if (value === undefined || value === null)
+        return appUid === null ? SESSION_TARGETS : DEFAULT_DURABLE_TARGETS;
     if (!Array.isArray(value) || value.length === 0)
         throw badRequest(
             'targets must be a non-empty array',
@@ -492,6 +627,11 @@ const parseTargets = (
     if (!targetsAllowedForDelivery(delivery, targets))
         throw badRequest(
             'A `single` subscription needs a `worker` target and may not target `push`',
+            'invalid_targets',
+        );
+    if (appUid === null && targets.includes('worker'))
+        throw badRequest(
+            'A subscription with no app has no events worker to target',
             'invalid_targets',
         );
     return targets;
@@ -526,6 +666,25 @@ const parseHandlerName = (value: unknown): string | null => {
             `handlerName may not exceed ${HANDLER_NAME_MAX_LENGTH} characters`,
             'bad_request',
         );
+    return value;
+};
+
+/** Hex digest of the inline source a subscribe claims it is binding. */
+const parseHandlerHash = (value: unknown): string | null => {
+    if (value === undefined || value === null) return null;
+    if (typeof value !== 'string' || !/^[0-9a-f]{64}$/.test(value))
+        throw badRequest(
+            'handlerHash must be a sha-256 hex digest',
+            'bad_request',
+        );
+    return value;
+};
+
+/** An app uid a user session names, for a surface with no app of its own. */
+const parseAppUid = (value: unknown): string | null => {
+    if (value === undefined || value === null || value === '') return null;
+    if (typeof value !== 'string')
+        throw badRequest('appUid must be a string', 'bad_request');
     return value;
 };
 
@@ -804,15 +963,19 @@ export class EventsService extends PuterService {
         await this.#spendCallBudget(holderUserId);
 
         const delivery = parseDelivery(request?.delivery);
-        const targets = parseTargets(request?.targets, delivery);
+        const appUid = actor.effectiveApp?.uid ?? null;
+        const targets = parseTargets(request?.targets, delivery, appUid);
         const handlerName = parseHandlerName(request?.handlerName);
+        const handlerHash = parseHandlerHash(request?.handlerHash);
         const context = parseContext(request?.context);
         const expiresAt = parseExpiresAt(request?.expiresAt);
 
         // A `single` is owed to exactly one consumer, and the handler is the
-        // only one that is always there to take it. Whether the handler exists
-        // is the publish surface's question, not this one's.
+        // only one that is always there to take it.
         if (delivery === 'single' && !handlerName) throw handlerRequired();
+
+        if (handlerName)
+            await this.#assertHandlerBinding(appUid, handlerName, handlerHash);
 
         const rawSubject = String(request?.subject ?? '');
         const anchor = await this.#resolveSubscribeAnchor(actor, rawSubject);
@@ -820,7 +983,7 @@ export class EventsService extends PuterService {
         const { row, bump } = await this.stores.durableSubscription.create({
             holderUserId,
             ownerUserId: anchor.ownerUserId,
-            appUid: actor.effectiveApp?.uid ?? null,
+            appUid,
             subject: anchor.subject,
             token: anchor.token,
             anchorUid: anchor.uid,
@@ -939,6 +1102,220 @@ export class EventsService extends PuterService {
         await this.#drain(row);
     }
 
+    // -- Handlers ----------------------------------------------------
+
+    /**
+     * Publish one named handler for an app.
+     *
+     * The name is the identity and the hash is only a change detector, so
+     * re-publishing the same source is a no-op and re-publishing a name that is
+     * suspending subscriptions brings them back. A publish whose base has moved
+     * under it — two build steps racing — is refused rather than resolved.
+     */
+    async publishHandler(
+        actor: Actor,
+        request: PublishHandlerRequest,
+    ): Promise<PublishedHandlerView> {
+        await this.#spendHandlerBudget(actor);
+        const appUid = await this.#handlerApp(actor, request?.appUid);
+        return this.#publishOne(appUid, request);
+    }
+
+    /**
+     * Publish a set of handlers, which is what a build step has. Each item is
+     * the same operation under the same rules; one that is refused stops the
+     * pass, so a deploy either lands its set or reports which name it stopped
+     * at rather than leaving half a build published under a success.
+     */
+    async publishHandlers(
+        actor: Actor,
+        request: PublishHandlersRequest,
+    ): Promise<PublishedHandlerView[]> {
+        await this.#spendHandlerBudget(actor);
+        const appUid = await this.#handlerApp(actor, request?.appUid);
+        const handlers = request?.handlers;
+        if (!Array.isArray(handlers) || handlers.length === 0)
+            throw badRequest(
+                'handlers must be a non-empty array',
+                'bad_request',
+            );
+        if (handlers.length > EVENTS_HANDLER_PUBLISH_BATCH)
+            throw badRequest(
+                `handlers may not exceed ${EVENTS_HANDLER_PUBLISH_BATCH} entries`,
+                'bad_request',
+            );
+
+        const published: PublishedHandlerView[] = [];
+        for (const item of handlers) {
+            if (!item || typeof item !== 'object' || Array.isArray(item))
+                throw badRequest(
+                    'each handler must be an object',
+                    'bad_request',
+                );
+            published.push(
+                await this.#publishOne(appUid, item as PublishHandlerRequest),
+            );
+        }
+        return published;
+    }
+
+    /**
+     * What an app has published, and how many subscriptions each name carries.
+     * Never the source: a listing is the one handler surface that can be called
+     * repeatedly, and the source is the app's own code.
+     */
+    async listHandlers(
+        actor: Actor,
+        request: HandlerScopeRequest = {},
+    ): Promise<EventHandlerSummary[]> {
+        return this.stores.eventHandler.listForApp(
+            await this.#handlerApp(actor, request?.appUid),
+        );
+    }
+
+    /**
+     * Take a name out of service. With nothing bound to it the row simply goes;
+     * with dependents it goes too, and they suspend with `handler_not_found`
+     * rather than being deleted — republishing the name is what brings them
+     * back, so a bad deploy is recoverable and a rename is deliberately not.
+     */
+    async removeHandler(
+        actor: Actor,
+        request: HandlerNameRequest,
+    ): Promise<RemovedHandlerView> {
+        await this.#spendHandlerBudget(actor);
+        const appUid = await this.#handlerApp(actor, request?.appUid);
+        const name = parseHandlerName(request?.name);
+        if (!name) throw badRequest('name is required', 'bad_request');
+
+        const removed = await this.stores.eventHandler.remove(appUid, name);
+        const suspended = await this.#suspendHandlerDependents(appUid, name);
+        return { name, removed: removed !== null, suspended };
+    }
+
+    // -- Suspension --------------------------------------------------
+
+    /**
+     * Take rows out of service without deleting them, and do to their backlogs
+     * whatever the reason says. Every suspension goes through here so the
+     * backlog policy cannot be forgotten at one call site: a suspended
+     * subscription stops being metered, and one that stops being metered while
+     * holding a full backlog is a hold nobody pays for.
+     */
+    async suspendSubscriptions(
+        rows: readonly DurableSubscription[],
+        reason: SuspendedReason,
+    ): Promise<number> {
+        return (await this.#suspend(rows, reason)).length;
+    }
+
+    /**
+     * The rows this pass was the one to suspend. An unshare withdraws several
+     * grant strings in a row and every one of them settles, so a row another
+     * pass already took is not this pass's to purge or announce.
+     */
+    async #suspend(
+        rows: readonly DurableSubscription[],
+        reason: SuspendedReason,
+    ): Promise<DurableSubscription[]> {
+        if (rows.length === 0) return [];
+
+        const { suspended, bumps } =
+            await this.stores.durableSubscription.suspend(rows, reason);
+        const policy = backlogPolicyFor(reason);
+        for (const row of suspended) {
+            try {
+                if (policy.cap === 0)
+                    await this.stores.pendingDelivery.purge(row.subId);
+                else {
+                    const shed = await this.stores.pendingDelivery.hold(
+                        row.subId,
+                        policy.cap,
+                        policy.ttlMs,
+                    );
+                    if (shed) this.#reportShed([shed]);
+                }
+            } catch (err) {
+                console.warn(
+                    '[events] could not settle the backlog of a suspended subscription',
+                    row.subId,
+                    err,
+                );
+            }
+            // Takes any coalesced delivery with it: one still in flight is for
+            // a subscription that has stopped.
+            this.#forget(row.subId);
+        }
+        for (const bump of bumps) this.#publishGeneration(bump, true);
+        return suspended;
+    }
+
+    /**
+     * Put rows back in service, and hand over what survived their hold. Rows
+     * suspended for a reason that never lifts are skipped: consent to watch is
+     * re-established by subscribing again, never by resuming.
+     */
+    async resumeSubscriptions(
+        rows: readonly DurableSubscription[],
+    ): Promise<number> {
+        const resuming = rows.filter(
+            (row) =>
+                row.suspendedAt !== null &&
+                isSuspendedReason(row.suspendedReason) &&
+                isResumable(row.suspendedReason),
+        );
+        if (resuming.length === 0) return 0;
+
+        const bumps = await this.stores.durableSubscription.resume(resuming);
+        for (const row of resuming) {
+            try {
+                await this.stores.pendingDelivery.releaseHold(row.subId);
+                await this.#drain(row);
+            } catch (err) {
+                console.warn(
+                    '[events] could not hand over the backlog of a resumed subscription',
+                    row.subId,
+                    err,
+                );
+            }
+        }
+        for (const bump of bumps) this.#publishGeneration(bump, true);
+        return resuming.length;
+    }
+
+    /**
+     * Stop one subscription after its handler kept failing. The counting is the
+     * retry path's; this is the state it drives, and the developer is told
+     * because it is their code that stopped working.
+     */
+    async suspendForFailures(subId: string): Promise<boolean> {
+        return this.#suspendOne(subId, 'failures', { notifyDeveloper: true });
+    }
+
+    /**
+     * Stop one subscription whose holder cannot pay for it. The 402 is the
+     * metering path's to raise; the backlog is held on the short window,
+     * because the resume condition is usually a top-up minutes away.
+     */
+    async suspendForNoCredit(subId: string): Promise<boolean> {
+        return this.#suspendOne(subId, 'no_credit', { notifyDeveloper: false });
+    }
+
+    /**
+     * Put back what a restored balance releases. The seam credit restoration
+     * calls: one holder's rows, one pass, and nothing else has to know how a
+     * suspension is spelled.
+     */
+    async resumeForCredit(holderUserId: number): Promise<number> {
+        if (!this.enabled) return 0;
+        return this.resumeSubscriptions(
+            await this.stores.durableSubscription.listSuspendedForHolder(
+                holderUserId,
+                'no_credit',
+            ),
+        );
+    }
+
     /**
      * Drop rows past their expiry, in batches, and report how many went. Every
      * node sweeps; the delete is idempotent, so two overlapping costs a few
@@ -1011,16 +1388,17 @@ export class EventsService extends PuterService {
                     await this.stores.pendingDelivery.purge(subId);
                     continue;
                 }
-                // A suspended row keeps what it is owed — what happens to that
-                // backlog is the suspension's decision, not the sweeper's. It
-                // goes to the back of the line so it cannot hold the head.
+                // A suspended row is not delivered to, but the backlog its
+                // suspension put a deadline on is this pass's to enforce: past
+                // it the events go and a gap marker says so, which is the half
+                // that keeps a suspension from being a free memory hold.
                 if (row.suspendedAt !== null) {
                     // Except a revoked row's, which names paths its holder may
                     // no longer see: anything a dispatch in flight queued after
-                    // the settle's own purge goes now, not at the reap.
+                    // the settle's own purge goes now, not at a deadline.
                     if (row.suspendedReason === 'permission_revoked')
                         await this.stores.pendingDelivery.purge(subId);
-                    else await this.stores.pendingDelivery.defer(subId);
+                    else await this.stores.pendingDelivery.expireHold(subId);
                     continue;
                 }
                 attempted += await this.#drain(row);
@@ -1034,6 +1412,200 @@ export class EventsService extends PuterService {
     /** Past its expiry, so the daily reaper is only a matter of time. */
     #isOver(row: DurableSubscription): boolean {
         return row.expiresAt !== null && row.expiresAt <= Date.now() / 1000;
+    }
+
+    // -- Handler internals -------------------------------------------
+
+    /**
+     * Which app's handlers this call is about, and whether the caller may
+     * deploy them. Publishing is a developer operation: the app token's own app
+     * or the one a user session named, and in both cases an app that user
+     * owns.
+     *
+     * An app that is not there answers the same as one the caller does not own
+     * — which apps exist is not this surface's to disclose.
+     */
+    async #handlerApp(actor: Actor, requested: unknown): Promise<string> {
+        if (!this.enabled) throw disabled();
+        const userId = actor.user?.id;
+        if (userId === undefined) throw disabled();
+
+        const acting = actor.effectiveApp;
+        // Unresolved is not "no app": reading it that way is what would let an
+        // app token publish into a namespace it never named.
+        if (acting === undefined) throw handlerAppForbidden();
+
+        const named = parseAppUid(requested);
+        if (acting && named !== null && named !== acting.uid)
+            throw handlerAppForbidden();
+
+        const appUid = acting?.uid ?? named;
+        if (!appUid) throw handlerAppRequired();
+
+        const app = await this.stores.app.getByUid(appUid);
+        if (!app) throw handlerAppForbidden();
+        if (
+            Number((app as { owner_user_id?: unknown }).owner_user_id) !==
+            Number(userId)
+        )
+            throw handlerAppForbidden();
+        return appUid;
+    }
+
+    async #spendHandlerBudget(actor: Actor): Promise<void> {
+        const userId = actor.user?.id;
+        if (userId === undefined) throw disabled();
+        const ok = await checkRateLimit(
+            `${EVENTS_HANDLER_PUBLISH_LIMIT.scope}:${userId}`,
+            EVENTS_HANDLER_PUBLISH_LIMIT.limit,
+            EVENTS_HANDLER_PUBLISH_LIMIT.window,
+        );
+        if (!ok) throw tooManyCalls();
+    }
+
+    /** One publish, and whatever it releases. */
+    async #publishOne(
+        appUid: string,
+        item: PublishHandlerRequest,
+    ): Promise<PublishedHandlerView> {
+        const { handler, outcome } = await this.stores.eventHandler.publish({
+            appUid,
+            name: String(item?.name ?? ''),
+            source: typeof item?.source === 'string' ? item.source : '',
+            ifHash: typeof item?.ifHash === 'string' ? item.ifHash : null,
+            replace: item?.replace === true,
+        });
+
+        return {
+            name: handler.name,
+            hash: handler.sourceHash,
+            updatedAt: handler.updatedAt,
+            outcome,
+            resumed: await this.#resumeHandlerDependents(appUid, handler.name),
+        };
+    }
+
+    /**
+     * Suspend everything bound to a name that is no longer published, in
+     * batches so a widely-used handler cannot make one call hold the whole
+     * set.
+     */
+    async #suspendHandlerDependents(
+        appUid: string,
+        name: string,
+    ): Promise<number> {
+        let suspended = 0;
+        for (;;) {
+            const batch = await this.stores.durableSubscription.listByHandler(
+                appUid,
+                name,
+            );
+            if (batch.length === 0) break;
+            suspended += await this.suspendSubscriptions(
+                batch,
+                'handler_not_found',
+            );
+            if (batch.length < HANDLER_SETTLE_BATCH) break;
+        }
+        if (suspended > 0) await this.#notifySuspended(appUid, name, suspended);
+        return suspended;
+    }
+
+    /** Bring back what was waiting on this name. The other half of a removal. */
+    async #resumeHandlerDependents(
+        appUid: string,
+        name: string,
+    ): Promise<number> {
+        let resumed = 0;
+        for (;;) {
+            const batch = await this.stores.durableSubscription.listByHandler(
+                appUid,
+                name,
+                { suspendedReason: 'handler_not_found' },
+            );
+            if (batch.length === 0) break;
+            resumed += await this.resumeSubscriptions(batch);
+            if (batch.length < HANDLER_SETTLE_BATCH) break;
+        }
+        return resumed;
+    }
+
+    /** One row into a suspended state, for the reasons a single row reaches. */
+    async #suspendOne(
+        subId: string,
+        reason: SuspendedReason,
+        options: { notifyDeveloper: boolean },
+    ): Promise<boolean> {
+        if (!this.enabled) return false;
+        const row = await this.stores.durableSubscription.getBySubId(subId);
+        if (!row || row.suspendedAt !== null) return false;
+
+        await this.suspendSubscriptions([row], reason);
+        if (options.notifyDeveloper && row.appUid && row.handlerName)
+            await this.#notifySuspended(row.appUid, row.handlerName, 1);
+        return true;
+    }
+
+    /**
+     * Tell an app's developer that subscriptions on one of their handlers have
+     * stopped. Theirs rather than the holder's: the handler is the developer's
+     * code, and the fix is a publish only they can make.
+     */
+    async #notifySuspended(
+        appUid: string,
+        handlerName: string,
+        subscriptions: number,
+    ): Promise<void> {
+        try {
+            const app = await this.stores.app.getByUid(appUid);
+            const ownerUserId = Number(
+                (app as { owner_user_id?: unknown } | null)?.owner_user_id,
+            );
+            if (!Number.isFinite(ownerUserId) || ownerUserId <= 0) return;
+
+            await this.services.notification.notify(
+                [ownerUserId],
+                {
+                    title: 'Event subscriptions were suspended',
+                    handler: handlerName,
+                    subscriptions,
+                },
+                { type: 'app.events.suspended', appUid },
+            );
+        } catch (err) {
+            console.warn(
+                '[events] could not report a suspended handler',
+                handlerName,
+                err,
+            );
+        }
+    }
+
+    /**
+     * Whether a subscription may bind the handler name it asked for.
+     *
+     * Handlers are published per app, so an account-scoped row has no namespace
+     * to bind in — the name is stored and binds nothing. An inline body is
+     * different: sending a hash _is_ the binding claim, and there is nothing
+     * for it to match.
+     */
+    async #assertHandlerBinding(
+        appUid: string | null,
+        name: string,
+        hash: string | null,
+    ): Promise<void> {
+        if (appUid === null) {
+            if (hash !== null) throw handlerNotFound(name);
+            return;
+        }
+
+        const published = await this.stores.eventHandler.getByName(
+            appUid,
+            name,
+        );
+        if (!published) throw handlerNotFound(name);
+        if (hash !== null && hash !== published.sourceHash)
+            throw handlerHashMismatch(name);
     }
 
     /**
@@ -1618,25 +2190,11 @@ export class EventsService extends PuterService {
                 : await this.#leftUnauthorized(held, revocation.permission);
         if (settling.length === 0) return 0;
 
-        // Only the rows this pass was the one to suspend are its to purge and
-        // announce: an unshare withdraws several grant strings in a row, and
-        // every one of them runs this settle.
-        const { suspended, bumps } =
-            await this.stores.durableSubscription.suspend(
-                settling,
-                'permission_revoked',
-            );
-        for (const row of suspended) {
-            // Unlike every other suspension, this backlog goes at once: it
-            // holds the paths of a resource its holder has just lost the right
-            // to see, and keeping it for a resume that by design never comes
-            // turns a revocation into a delayed disclosure.
-            await this.stores.pendingDelivery.purge(row.subId).catch(() => {});
-            // Takes the coalesced deliveries with it: one still in flight names
-            // exactly what its holder has stopped being allowed to see.
-            this.#forget(row.subId);
-        }
-        for (const bump of bumps) this.#publishGeneration(bump, true);
+        // The `permission_revoked` arm of the shared policy purges the backlog
+        // at once: it holds the paths of a resource its holder has just lost
+        // the right to see, and keeping it for a resume that by design never
+        // comes turns a revocation into a delayed disclosure.
+        const suspended = await this.#suspend(settling, 'permission_revoked');
         await this.#notifyEnded(suspended, 'permission_revoked');
         return suspended.length;
     }
